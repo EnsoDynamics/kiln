@@ -48,6 +48,45 @@ export function planCountLine(plan: Pick<Documents["plan"], "leafCount" | "close
   return `${left} phases to implement, in this order${closed}`;
 }
 
+/** Where What Kiln found read the plan, as AC-FROM-02 says it: the base branch, the chosen branch, or the base's latest commit after a catch-up. */
+export function planSourceLine(start: NonNullable<Documents["start"]>): { lead: string; code: string; tail?: string } | undefined {
+  const source = start.planSource;
+  if (!source) return undefined;
+  if (source.kind === "base_after_catch_up") return { lead: "Read from the latest commit on ", code: source.branch, tail: ", because the branch is brought up to date first" };
+  return { lead: "Read from ", code: source.branch };
+}
+
+/** Where the closed marks were read: "that branch" for the chosen branch, else the base branch by name. */
+function closedWhere(start: NonNullable<Documents["start"]>): { count: string; line: string } {
+  const source = start.planSource;
+  if (!source || source.kind === "branch") return { count: "that branch", line: "the branch" };
+  return { count: source.branch, line: source.branch };
+}
+
+/** The count line with phases closed where the plan was read: "3 of 7 phases are already closed on that branch. Kiln starts at Phase 4." */
+export function startCountLine(plan: Pick<Documents["plan"], "leafCount" | "closedCount">, start: Documents["start"]): string {
+  if (start?.startAt && plan.closedCount > 0) return `${plan.closedCount} of ${plan.leafCount} phases ${plan.closedCount === 1 ? "is" : "are"} already closed on ${closedWhere(start).count}. Kiln starts at Phase ${start.startAt.id}.`;
+  return planCountLine(plan);
+}
+
+/** The line beside Start naming the closed phases that won't run: "Phases 1–3 are closed on the branch and won't run." */
+export function closedPhasesLine(phases: Documents["plan"]["phases"], start: Documents["start"]): string | undefined {
+  if (!start?.startAt) return undefined;
+  const closed = phases.filter(phase => phase.closed && !phase.splitInto).map(phase => phase.id);
+  if (closed.length === 0) return undefined;
+  const numbers = closed.map(Number);
+  const consecutive = closed.length > 2 && numbers.every((value, index) => Number.isInteger(value) && (index === 0 || value === numbers[index - 1]! + 1));
+  const named = consecutive ? `${closed[0]}–${closed.at(-1)}` : joinAnd(closed);
+  const where = closedWhere(start).line;
+  return closed.length === 1 ? `Phase ${named} is closed on ${where} and won't run.` : `Phases ${named} are closed on ${where} and won't run.`;
+}
+
+/** The help under an adopted worktree (AC-FROM-03 row 6): Kiln works there, with its count of uncommitted files. */
+export function adoptedWorktreeHelp(uncommittedFiles: number | undefined): string {
+  const files = uncommittedFiles === undefined ? "" : uncommittedFiles === 0 ? " It has no uncommitted files." : ` It has ${uncommittedFiles} uncommitted ${uncommittedFiles === 1 ? "file" : "files"}; the first session is told about them.`;
+  return `The branch is checked out in this folder, so Kiln works here.${files} The branch and PR into are set once, before the first phase; model, effort and keep-awake can be changed later.`;
+}
+
 export interface PlanRow {
   id: string;
   title: string;

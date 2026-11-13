@@ -50,8 +50,9 @@ async function sendInstruction(config: PageConfig, method: "POST" | "DELETE", pa
   }
 }
 
-export const changeSettings = (config: PageConfig, change: Partial<Settings>) => send(config, "POST", "/api/settings", change);
-export const start = (config: PageConfig, refinementConfirmed: boolean) => send(config, "POST", "/api/start", refinementConfirmed ? { refinementConfirmed: true } : {});
+export const changeSettings = (config: PageConfig, change: Partial<Settings> & { start?: { from: "new" | "existing"; bringUpToDate: boolean } }) => send(config, "POST", "/api/settings", change);
+/** Start submits the preview the page showed; a preview that changed is refused `start_changed` (run restart "Start"). */
+export const start = (config: PageConfig, refinementConfirmed: boolean, previewId?: string) => send(config, "POST", "/api/start", { ...(refinementConfirmed ? { refinementConfirmed: true } : {}), ...(previewId ? { previewId } : {}) });
 export const pause = (config: PageConfig) => send(config, "POST", "/api/pause");
 export const keepGoing = (config: PageConfig) => send(config, "DELETE", "/api/pause");
 export const checkAgain = (config: PageConfig) => send(config, "POST", "/api/check-again");
@@ -71,7 +72,7 @@ export const changeFolderPanel = (config: PageConfig, change: { start: "base" | 
 export const startFolderSetup = (config: PageConfig, body: { commandId: string; factsId: string; previewId: string; start: "base" | "branch"; fields: Record<string, unknown> }) => folderSetup(config, "/api/folder-setup/start", body);
 export const refreshMetadata = (config: PageConfig) => send(config, "POST", "/api/metadata/refresh");
 /** Resume at Needs you, with the person's note when they wrote one (usage-limit recovery AC-RESUME-02, 03). */
-export const resume = (config: PageConfig, note: string) => send(config, "POST", "/api/resume", note.trim() === "" ? {} : { note });
+export const resume = (config: PageConfig, note: string, bringUpToDate = false) => send(config, "POST", "/api/resume", { ...(note.trim() === "" ? {} : { note }), bringUpToDate });
 /** Resume now, during a wait; it takes no note (usage-limit recovery AC-LIMIT-02). */
 export const resumeNow = (config: PageConfig) => send(config, "POST", "/api/resume");
 /** Ticks or unticks Needs you's confirmation that the changes outside the workspace were dealt with (multi-repo AC-OUTSIDE-03). */
@@ -90,7 +91,7 @@ export const authorizeDevelopmentTarget = (config: PageConfig, body: { execution
 export const billingApproval = (config: PageConfig, action: "approval" | "clear", body: { executionId: string; selectionGeneration: number; readingId: string; approved?: true }) => send(config, "POST", `/api/billing/${action}`, body);
 
 /** Target-bound manual implementation recovery. Only reply supplies note. */
-export const resumePhase = (config: PageConfig, target: PhaseRecoveryTarget, note?: string) => sendHandBack(config, target, "resume", note);
+export const resumePhase = (config: PageConfig, target: PhaseRecoveryTarget, note?: string, bringUpToDate = false) => sendHandBack(config, target, "resume", note, bringUpToDate);
 export const verifyPhase = (config: PageConfig, target: PhaseRecoveryTarget, intent: "verify" | "advance") => sendHandBack(config, target, intent);
 
 /**
@@ -114,13 +115,13 @@ export function takeOver(config: PageConfig, target: import("../../../src/live/t
 }
 
 const handBackIds = new Map<string, string>();
-async function sendHandBack(config: PageConfig, target: PhaseRecoveryTarget, action: "resume" | "verify" | "advance", note?: string): Promise<CommandAnswer> {
+async function sendHandBack(config: PageConfig, target: PhaseRecoveryTarget, action: "resume" | "verify" | "advance", note?: string, bringUpToDate = false): Promise<CommandAnswer> {
   const key = JSON.stringify([target, action, note]);
   const id = handBackIds.get(key) ?? crypto.randomUUID();
   handBackIds.set(key, id);
   const answer = await send(config, "POST", action === "resume" ? "/api/resume" : "/api/check-again", {
     target: target.live ?? target, ...(target.live ? { instructionId: id } : {}),
-    ...(action === "resume" ? note === undefined ? {} : { note } : { intent: action, ...(action === "advance" ? { withoutSendingReply: true } : {}) }),
+    ...(action === "resume" ? { ...(note === undefined ? {} : { note }), bringUpToDate } : { intent: action, ...(action === "advance" ? { withoutSendingReply: true } : {}) }),
   });
   if (!(!answer.ok && answer.uncertain)) handBackIds.delete(key);
   return answer;
@@ -151,8 +152,8 @@ export async function authorizeContinuation(config: PageConfig, executionId: str
 }
 
 /** Send reply & continue (run restart AC-CARRY-05): the reply is optional; a held page sends its live target and acknowledgements. */
-export const carryOn = (config: PageConfig, body: { note?: string; target?: PhaseRecoveryTarget | import("../../../src/live/target.js").LiveTarget; reviewedReceiptIds?: string[] }) => send(config, "POST", "/api/carry-on", body);
+export const carryOn = (config: PageConfig, body: { note?: string; target?: PhaseRecoveryTarget | import("../../../src/live/target.js").LiveTarget; reviewedReceiptIds?: string[]; bringUpToDate?: boolean }) => send(config, "POST", "/api/carry-on", body);
 /** Start Phase N again (run restart AC-CASE-02). */
-export const startAgain = (config: PageConfig) => send(config, "POST", "/api/start-again", {});
+export const startAgain = (config: PageConfig, bringUpToDate = false) => send(config, "POST", "/api/start-again", { bringUpToDate });
 /** Check again on the carry-on card (run restart AC-CARRY-02). */
 export const reopenCheckAgain = (config: PageConfig) => send(config, "POST", "/api/reopen-check");

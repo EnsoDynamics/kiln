@@ -48,6 +48,7 @@
   import LaunchFound from "../components/LaunchFound.svelte";
   import StartAgainCard from "../components/StartAgainCard.svelte";
   import CarryOnCard from "../components/CarryOnCard.svelte";
+  import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
   import NothingToCheck from "../components/NothingToCheck.svelte";
 
@@ -91,10 +92,13 @@
   let restartPending = $state<"carry" | "start" | "reopen" | undefined>(undefined);
   let restartReason = $state<string | undefined>(undefined);
   let carryDraft = $state("");
+  // The catch-up offer covers every button here that starts or resumes the phase (AC-CURRENT-01).
+  let catchUpTicked = $state(true);
+  const bringUpToDate = $derived(!snapshot.liveControl && !!stop.catchUp && catchUpTicked);
   async function restartAction(action: "carry" | "start" | "reopen") {
     if (busy || restartPending) return;
     restartPending = action; restartReason = undefined;
-    const answer = action === "carry" ? await carryOn(config, carryDraft.trim() ? { note: carryDraft } : {}) : action === "start" ? await startAgain(config) : await reopenCheckAgain(config);
+    const answer = action === "carry" ? await carryOn(config, { ...(carryDraft.trim() ? { note: carryDraft } : {}), bringUpToDate }) : action === "start" ? await startAgain(config, bringUpToDate) : await reopenCheckAgain(config);
     restartPending = undefined;
     restartReason = answer.ok ? answer.outcome === "already_complete" ? `${activity} is already complete. Check it again to advance.` : undefined : answer.reason;
   }
@@ -107,7 +111,7 @@
   async function pressResume() {
     resuming = true;
     if (connection) connection.notice = undefined;
-    const answer = await resume(config, note);
+    const answer = await resume(config, note, bringUpToDate);
     resuming = false;
     resumeReason = answer.ok ? undefined : answer.reason;
     if (answer.ok && answer.noteSkipped && connection) connection.notice = "Your reply was not sent: the work was already complete, so Kiln continued the plan.";
@@ -151,6 +155,7 @@
       <p class="line">{restart?.line ?? copy.line}</p>
     </div>
     {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
+    {#if stop.catchUp && !snapshot.liveControl && (stop.startAgain || stop.carryOn)}<CatchUpOffer offer={stop.catchUp} where="stop" {activity} bind:ticked={catchUpTicked} disabled={busy || !!restartPending} />{/if}
     {#if stop.startAgain}
       <StartAgainCard {activity} work={stop.work} control={stop.startAgain} pending={restartPending === "start"} disabled={busy || !!restartPending} reason={restartReason} onpress={() => restartAction("start")} />
     {:else if stop.carryOn && stop.reopen}
@@ -224,6 +229,7 @@
         </section>
         {#if snapshot.account}<AccountPanel account={snapshot.account} paused={false} notStarted {now} />{/if}
       {:else}
+      {#if stop.resumeOffered && stop.catchUp && !snapshot.liveControl && !(stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn))}<CatchUpOffer offer={stop.catchUp} where="stop" {activity} bind:ticked={catchUpTicked} disabled={busy} />{/if}
       {#if stop.resumeOffered && stop.limit && limitCopy}
         <section class="card resume">
           <span class="eyebrow">Two ways to carry on</span>

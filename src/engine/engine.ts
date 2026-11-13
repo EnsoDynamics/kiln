@@ -20,7 +20,7 @@ import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
-import { checkFolders, checkedEntries, type FolderCheck } from "./folder-check.js";
+import { checkFolder, checkFolders, checkedEntries, type FolderCheck } from "./folder-check.js";
 import { gatherFolderFacts, type FolderMissingView } from "./folder-facts.js";
 import { buildPanel, buildStart, emptyDraft, type PanelContext, type PanelDraft, type PanelFields, type PanelView, type StartBuild, type StartKind } from "./folder-setup.js";
 import { addWorktreeOnBranch, clearStaleRecord, createBranchAndFolder, createLocalBranch, plannedSteps, progressOf, startIntents, step, StartStepFailure, FolderSetupChanged, stillOwnArtifacts, writeStartIntent, readStartIntent, type FolderSetupRepository, type FolderSetupStart } from "./folder-setup-start.js";
@@ -151,6 +151,7 @@ import {
   baseBranchChoices,
   baseFor,
   checkFields,
+  checkWorkspaceFolder,
   checkWorkspaceFolderPlacement,
   checkWorktreePath,
   comparable,
@@ -163,6 +164,7 @@ import {
   isOwnBranchAt,
   isWithin,
   realPathOfNearestAncestor,
+  SETUP_TIMEOUT_MS,
   undoEntry,
   worktreePathFor,
   type FieldErrors,
@@ -170,6 +172,8 @@ import {
   type PlannedRepository,
   type RepositoryPaths,
 } from "./worktree-setup.js";
+import { branchList, catchUpRepository, catchUpSentence, existingBranchPreview, newBranchPreview, otherStartedBranches, readCatchUp, readRepositoryRefs, uncommittedFiles, type BranchChoice, type CatchUpOffer, type StartPreview, type StartRepository } from "./start-from.js";
+import { ensureObjects, gitError, isAncestor, shortSha } from "./git-reads.js";
 
 export interface EngineTools {
   git: string;
@@ -362,6 +366,19 @@ export class Engine {
   stoppedCommits: { phaseKey: string; commits: RepositoryCommits[] } | undefined;
   /** A stopped or held phase's work, as last read from Git (run restart "Work"). */
   stoppedWork: { phaseKey: string; read: WorkRead } | undefined;
+  /** The start preview for the chosen starting point, recomputed at each of its moments (run restart "The preview"). */
+  startPreview: StartPreview | undefined;
+  /** A branch that already exists: every name, available or not (run restart "The branch list"). */
+  branchChoices: BranchChoice[] | undefined;
+  /** Whether a branch named `settings.featureBranch` exists in any repository, read with the branch list. */
+  private featureBranchExists = false;
+  private previewRun = 0;
+  /** A stopped phase's catch-up offer, read with its work; absent until the first read finishes (run restart "Catching a Branch Up"). */
+  stoppedCatchUp: { phaseKey: string; offer: CatchUpOffer | undefined } | undefined;
+  /** How the session-starting command being applied treats an untouched branch, and what it moved. */
+  private catchUpRequest: { mode: "ticked" | "if_qualifies" | "leave"; moved: { repository: string; branch: string; from: string; to: string; commits: number }[] } | undefined;
+  /** The catch-up rows and session a launched prompt carried, told once its run reports init or a turn. */
+  private pendingTell: { sessionId: string; rows: number[]; files: boolean } | undefined;
   /** The last successful read of the plan in this run. */
   plan: PhasePlan | undefined;
   /** Links in the requirements Kiln did not follow, from its latest read of the active plan (Kiln Linked Documents AC-LINK-03). Never saved. */
@@ -704,6 +721,11 @@ export class Engine {
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
     const priorDone = priorKey ? this.record.phases[priorKey]?.doneAt : undefined;
     if (["reply", "resume", "verify-and-advance", "waive-and-advance", "carry-on"].includes(action) && Array.isArray(inputs.reviewed_receipt_ids) && inputs.reviewed_receipt_ids.length) { const review = this.reviewMessages(inputs.live_target, inputs.reviewed_receipt_ids); if (!review.ok) return review; }
+    // The four session-starting commands catch an untouched branch up unless told to leave it (run restart AC-CURRENT-01).
+    if (["reply", "resume", "carry-on", "start-again"].includes(action) && receipt.source !== "automatic") {
+      this.catchUpRequest = { mode: inputs.leave_branch === true ? "leave" : inputs.bring_up_to_date === true ? "ticked" : "if_qualifies", moved: [] };
+      receipt.branch_catch_up = this.catchUpRequest.moved;
+    } else this.catchUpRequest = undefined;
     switch (action) {
       case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
       case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
@@ -1336,6 +1358,17 @@ export class Engine {
    */
   get plannedRepositories(): PlannedRepository[] {
     const { record } = this;
+    // With an existing branch chosen, the repositories are those Start will set up (run restart "Which repositories").
+    const preview = this.startPreview;
+    if (record.startedAt === undefined && preview?.from === "existing" && this.startChoice.from === "existing") {
+      return preview.repositories.map(repository => { const entry = record.repositories.find(one => one.name === repository.name); return { name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, ...(entry ? { entry } : {}) }; });
+    }
+    return this.checkoutRepositories;
+  }
+
+  /** The repositories the checkout's plan gives before Start: those already set up, the PRD's, then the named ones found. */
+  private get checkoutRepositories(): PlannedRepository[] {
+    const { record } = this;
     if (record.startedAt !== undefined) {
       return record.repositories.filter((entry) => entry.setupCompletedAt !== undefined || entry.baseCommit !== undefined).map((entry) => ({ ...entry, entry }));
     }
@@ -1418,7 +1451,7 @@ export class Engine {
    * records Start, sets up the worktree and starts the first phase (AC-START-05, AC-START-07).
    * When paused, no body: the next phase starts (AC-VIEW-03).
    */
-  async start(body: { refinementConfirmed?: boolean } = {}): Promise<CommandResult> {
+  async start(body: { refinementConfirmed?: boolean; previewId?: string } = {}): Promise<CommandResult> {
     const { record } = this;
     if (this.isUnderway) { const refused = await this.folderRefusal(); if (refused) return refused; }
     if (this.currentlyComplete) return refuse("The feature is complete.");
@@ -1460,8 +1493,14 @@ export class Engine {
         // A readiness blocker read at launch (an outdated Claude Code, AC-AGENT-05) is the reason, not billing.
         if (!this.billing.view.canLaunch) return refuse(this.billing.view.next?.readinessError ?? this.selectionIssue(true) ?? "Review and approve the detected billing setup, or change its source and recheck.");
       }
-      const repositories = this.plannedRepositories;
       const fields = await this.runFieldChecks();
+      const preview = this.startPreview;
+      // Start acts on what the page showed (run restart "Start"): a preview that changed is refused with the refreshed page.
+      if (body.previewId !== undefined && preview && body.previewId !== preview.previewId) return { ok: false, status: 409, code: "start_changed", reason: "What Start would do has changed. Review the refreshed page, then press Start again." };
+      const existing = preview?.from === "existing";
+      const repositories: PlannedRepository[] = existing
+        ? preview!.repositories.map(repository => { const entry = record.repositories.find(one => one.name === repository.name); return { name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, ...(entry ? { entry } : {}) }; })
+        : this.plannedRepositories;
       const pending = repositories.filter((repository) => repository.entry?.setupCompletedAt === undefined);
       if (Object.keys(fields.errors).length > 0 || Object.keys(fields.baseErrors).length > 0 || pending.some((repository) => fields.startCommits[repository.name] === undefined)) {
         return { ok: false, status: 409, reason: "The settings don't pass their checks.", fieldErrors: fields.errors, baseErrors: fields.baseErrors };
@@ -1470,6 +1509,14 @@ export class Engine {
       const beforeStart = structuredClone(record);
       const multi = repositories.length > 1;
       const branchFixed = this.workspaceFixed;
+      const choice = this.startChoice;
+      const folders = { workspaceFolder: record.settings.workspaceFolder, worktreePath: record.settings.worktreePath };
+      if (existing) {
+        // Existing worktrees fix the workspace folder, or a one-repository PRD's worktree (AC-FROM-03, AC-FROM-05).
+        if (preview!.workspaceFolder) record.settings.workspaceFolder = preview!.workspaceFolder;
+        const adopted = preview!.repositories[0]!.worktree;
+        if (!multi && adopted) record.settings.worktreePath = adopted.path;
+      }
       const list: RepositoryEntry[] = [];
       for (const repository of repositories) {
         const entry: RepositoryEntry = repository.entry ?? { name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, baseBranch: "", worktreePath: "" };
@@ -1477,12 +1524,21 @@ export class Engine {
           entry.kind = repository.kind;
           entry.mainCheckoutPath = repository.mainCheckoutPath;
           entry.github = repository.github;
-          entry.baseBranch = baseFor(repository, record.settings, branchFixed);
-          entry.worktreePath = worktreePathFor(repository.name, repository.kind, record.settings, multi);
+          const read = existing ? preview!.repositories.find(one => one.name === repository.name) : undefined;
+          entry.baseBranch = read ? read.baseBranch : baseFor(repository, record.settings, branchFixed);
+          entry.worktreePath = read?.worktree?.path ?? worktreePathFor(repository.name, repository.kind, record.settings, multi);
           entry.baseCommit = fields.startCommits[repository.name]!;
+          // An existing-branch entry: the merge base, where the run began, an adopted worktree and a ticked catch-up (run restart "Start").
+          if (read?.hasBranch) {
+            entry.runStartCommit = read.tip!;
+            if (read.worktree) entry.adoptedWorktree = true;
+            if (choice.bringUpToDate && read.qualifies) entry.catchUp = { from: read.tip!, to: read.baseTip! };
+            delete entry.createdBranch;
+          }
         }
         list.push(entry);
       }
+      record.start = { from: choice.from, bringUpToDate: choice.bringUpToDate };
       // Entries the plan no longer names are kept only while they hold Kiln's branch.
       const leftOut = record.repositories.filter((entry) => !list.includes(entry) && entry.createdBranch !== undefined);
       record.repositories = [...list, ...leftOut];
@@ -1503,7 +1559,8 @@ export class Engine {
       record.startedAt = at;
       record.refinementConfirmedAt = at;
       // The plan as Documents found showed it, until the worktree's own copy is read.
-      if (this.options.startPlan) { record.plan = recordedPlan(this.options.startPlan); record.planReadAt = at; }
+      const shownPlan = existing ? preview!.plan : this.options.startPlan;
+      if (shownPlan) { record.plan = recordedPlan(shownPlan); record.planReadAt = at; }
       try { this.save(); } catch (error) {
         for (const key of Object.keys(record)) Reflect.deleteProperty(record, key);
         Object.assign(record, beforeStart);
@@ -1511,7 +1568,11 @@ export class Engine {
       }
       const setup = await this.finishSetup();
       if (this.stopping) return refuse("Kiln is stopping.");
-      if (!setup.ok) return { ok: false, status: 409, reason: this.startError ?? setup.error };
+      if (!setup.ok) {
+        // An adopted folder belongs to the branch this Start chose; a failed Start gives the fields back as they were.
+        if (existing && !this.workspaceFixed) { Object.assign(record.settings, folders); this.save(); }
+        return { ok: false, status: 409, reason: this.startError ?? setup.error };
+      }
     } finally {
       this.settingUp = false;
       this.changed();
@@ -1636,6 +1697,9 @@ export class Engine {
       // Mark complete's act runs inside the same checking boundary, on this rerun (waivers "Mark Complete").
       if (waive) return await this.waiveStopped(key, waive, outcome, evaluatedMaterial);
       if (action === "verify") return { ok: true, outcome: "still_stopped", target: target! };
+      if (action === "resume" && !this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation is unavailable after checking. Use the terminal recovery instructions.");
+      // Catch the branch up when it applies, once nothing else can refuse, before any session starts (run restart AC-CURRENT-01).
+      await this.catchUpAtStop(key);
       if (action === "carry_on") {
         // A carry-on from a hold reuses the hand-back's return; the hold ends when the new run reports init (AC-CARRY-06).
         this.returningTakeover = !!this.record.liveControl;
@@ -1651,6 +1715,7 @@ export class Engine {
     } catch (error) {
       const reason = (error as Error).message;
       if (error instanceof OwnershipError && error.code === "message_review_required") return fail("message_review_required", reason);
+      if (error instanceof CatchUpFailure) return fail(error.code, reason);
       if (error instanceof OwnershipError && (error.code === "terminal_in_use" || error.code === "ownership_unknown") && this.record.liveControl?.takeover.history) return fail(error.code, reason);
       if (error instanceof CompletionCheckUnavailable && !(error instanceof ResumeHeld)) this.unfinishedRecheck(key);
       this.phaseCheckError = { target: target!, reason, attemptedAt: this.now().toISOString() };
@@ -2069,6 +2134,14 @@ export class Engine {
     const blocked = this.launchRestriction() ?? (this.codexSafetyProblems(key, false).length ? "Kiln found a Codex safety problem." : undefined);
     if (blocked) return refuse(blocked);
     this.checking = true;
+    this.changed();
+    try { await this.catchUpAtStop(key); }
+    catch (error) {
+      this.checking = false;
+      this.changed();
+      if (error instanceof CatchUpFailure) return { ok: false, status: 409, code: error.code, reason: error.message };
+      throw error;
+    }
     this.requestedLaunch = { phaseKey: key, kind: "start_again" };
     this.changed();
     this.kick();
@@ -2154,6 +2227,8 @@ export class Engine {
       if (value !== undefined && !["model", "effort", "agentId", "selectionGeneration"].includes(field)) (this.record.settings as unknown as Record<string, unknown>)[field] = value;
     }
 
+    // A feature branch chosen or typed keeps the starting point it was chosen under (run restart "The starting point").
+    if (change.featureBranch !== undefined && this.record.startedAt === undefined) this.record.start ??= { ...this.startChoice };
     this.save();
     if (change.keepAwake !== undefined) this.updateKeepAwake();
     // Switched off during a wait, the phase goes to Needs you; once the end of the wait's resume
@@ -3437,6 +3512,8 @@ export class Engine {
       const setup = await this.finishSetup();
       if (!setup.ok) return setup;
     }
+    // A catch-up Kiln stopped in the middle of is settled before the folder check (run restart "Catching a Branch Up").
+    await this.settleCatchUps();
     // A missing folder is the answer: no plan read, progress or judgement (AC-GONE-01).
     if (!this.leavingFolderMissing && !await this.folderGuard()) return { ok: true };
     await this.readPlan();
@@ -4488,6 +4565,10 @@ export class Engine {
       }
     }
     if (this.record.liveControl && this.returningTakeover && await this.takeoverBecameComplete(phaseKey)) return;
+    // Both additions go at the end of every launch and resume prompt, after the billing check (run restart "Catching a Branch Up").
+    // Awaited only when there is something to add, so an ordinary launch reaches dispatch without yielding.
+    const additions = this.hasPromptAdditions() ? await this.promptAdditions(session.sessionId) : (this.pendingTell = undefined, "");
+    if (additions) prompt = `${prompt}\n\n${additions}`;
     if (this.commands.blocked || this.stopping || session.agentId !== "codex" && started?.() === false) return;
     if (!this.controlDispatch) this.controlDispatch = this.commands.beginAutomatic(`${this.record.executionId}:${phaseKey}:${session.sessionId}:${session.runs.length}`);
     const dispatchedControl = this.controlDispatch;
@@ -4631,7 +4712,7 @@ export class Engine {
       onPartial: (partial) => {
         for (const listener of this.partialListeners) listener(session.sessionId, partial);
       },
-      onRecordChange: () => { this.observeControlDispatch(session); this.changed(); },
+      onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.changed(); },
     });
     } catch (error) {
       if (error instanceof TakeoverAlreadyComplete) { this.controlDispatch = undefined; }
@@ -4650,6 +4731,8 @@ export class Engine {
       }
     }
     if (!dispatchFailed) this.observeControlDispatch(session);
+    this.markTold(session);
+    if (this.pendingTell?.sessionId === session.sessionId) this.pendingTell = undefined;
     if (this.controlDispatch === dispatchedControl && dispatchedControl) {
       const run = session.runs.find(r => r.control?.operationId === dispatchedControl.id);
       const neverStarted = !run || !!run.spawnError && !run.pid || !dispatchFailed && !!run.endedAt && (session.agentId === "codex"
@@ -4744,7 +4827,7 @@ export class Engine {
             save(reader.read({ method: "item/completed", params: { threadId, turnId: turn.id, item } }, at, typeof turn.startedAt === "number" ? "turn" : "recovery").lines);
           }
         },
-        onRecordChange: () => { this.observeControlDispatch(session); this.changed(); },
+        onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.changed(); },
         beforeEnd: () => this.readSleep(false),
       });
     } catch (error) {
@@ -5408,7 +5491,7 @@ export class Engine {
             if (receipt && (!receipt.startCommit || !receipt.pushedSha)) missingRanges.push(`Phase ${key} has an incomplete recorded commit range.`);
             return receipt?.startCommit && receipt.pushedSha ? [{ start: receipt.startCommit, end: receipt.pushedSha }] : [];
           }),
-          ...(entry.baseCommit && merged ? { baseHistory: { start: entry.baseCommit, end: merged.baseCommit, branch: entry.baseBranch } } : {}),
+          ...(entry.baseCommit && merged ? { baseHistory: { start: entry.runStartCommit ?? entry.baseCommit, end: merged.baseCommit, branch: entry.baseBranch } } : {}),
         });
         history.problems.push(...missingRanges);
         repositories.push(history);
@@ -5589,6 +5672,14 @@ export class Engine {
     try {
       read = await readPhaseWork(this.git, this.setUpRepositories.map(entry => ({ name: entry.name, worktreePath: expandHome(entry.worktreePath), baseBranch: entry.baseBranch, startCommit: facts?.repositories[entry.name]?.startCommit })), this.record.settings.featureBranch);
     } catch (error) { read = { unknown: `Kiln couldn't read the phase's work: ${(error as Error).message}` }; }
+    // The catch-up offer is read with Work, at Work's moments; a read that fails gives no offer and the page names it through Work (AC-CURRENT-01).
+    let offer: CatchUpOffer | undefined;
+    // Only a stopped phase gets the offer: a held phase, a wait and every other page get none.
+    if (!("unknown" in read) && this.stoppedPhase() === phaseKey) {
+      try { offer = await this.readStoppedCatchUp(); }
+      catch (error) { read = { unknown: (error as Error).message }; }
+    }
+    this.stoppedCatchUp = { phaseKey, offer };
     this.stoppedWork = { phaseKey, read };
     this.changed();
     return read;
@@ -5997,7 +6088,15 @@ export class Engine {
           this.save();
         });
       }
-      const outcome = await checkFields({
+      // Documents found is computed for the starting point (run restart "The preview").
+      const preview = await this.refreshStartPreview();
+      // A repository the preview found through the start commit's plan gets its base list now, not at the next check.
+      if (preview?.from === "existing") {
+        const found = preview.repositories.filter(repository => repository.kind === "named" && !repositories.some(one => one.name === repository.name));
+        const lists = await Promise.all(found.map(repository => originBranches(this.git, repository.mainCheckoutPath)));
+        found.forEach((repository, index) => { const origin = lists[index]!; if (origin.ok) this.repositoryBaseBranches[repository.name] = baseBranchChoices(origin.value); });
+      }
+      const outcome = preview?.from === "existing" ? await this.existingBranchFields(preview) : await checkFields({
         git: this.git,
         paths: this.paths,
         settings,
@@ -6033,7 +6132,7 @@ export class Engine {
     const list = record.repositories.filter((entry) => entry.setupCompletedAt !== undefined || entry.baseCommit !== undefined);
     for (const entry of list) {
       if (entry.setupCompletedAt !== undefined) continue;
-      const outcome = await addEntryWorktree(this.git, entry, branch, "then press Start again.");
+      const outcome = entry.runStartCommit !== undefined ? await this.setUpExistingEntry(entry, branch) : await addEntryWorktree(this.git, entry, branch, "then press Start again.");
       // A step stopped by Ctrl+C, a closed terminal or a signal hasn't failed: the record is kept.
       if (this.stopping) return { ok: false, error: "Kiln is stopping." };
       if (outcome.ok) {
@@ -6042,19 +6141,325 @@ export class Engine {
         this.save();
         continue;
       }
-      await undoEntry(this.git, entry, branch);
-      for (const later of list.slice(list.indexOf(entry) + 1)) delete later.baseCommit;
+      if (entry.runStartCommit === undefined) await undoEntry(this.git, entry, branch);
+      for (const later of list.slice(list.indexOf(entry) + 1)) if (later.runStartCommit === undefined) delete later.baseCommit;
+      // Every existing-branch entry loses what this Start gave it, set up or not; Kiln removes nothing in git (run restart "Failure").
+      for (const one of list.filter(candidate => candidate.runStartCommit !== undefined)) {
+        delete one.baseCommit; delete one.runStartCommit; delete one.adoptedWorktree; delete one.catchUp; delete one.setupCompletedAt;
+      }
+      const startedAt = record.startedAt ?? "";
+      if (record.branchCatchUps) { record.branchCatchUps = record.branchCatchUps.filter(row => row.at < startedAt); if (!record.branchCatchUps.length) delete record.branchCatchUps; }
       record.repositories = record.repositories.filter((candidate) => !entryHoldsNothing(candidate));
       delete record.startedAt;
       delete record.refinementConfirmedAt;
       this.save();
-      this.startError = list.length > 1 ? `Couldn’t set up ${entry.name}’s worktree: ${outcome.error}` : `Couldn’t set up the worktree: ${outcome.error}`;
+      this.startError = "catchUp" in outcome ? (list.length > 1 ? `Couldn’t bring ${entry.name}’s branch up to date: ${outcome.error}` : `Couldn’t bring the branch up to date: ${outcome.error}`)
+        : list.length > 1 ? `Couldn’t set up ${entry.name}’s worktree: ${outcome.error}` : `Couldn’t set up the worktree: ${outcome.error}`;
       this.emit({ kind: "message", text: this.startError });
       return outcome;
     }
     record.setupCompletedAt = this.now().toISOString();
     this.save();
     return { ok: true };
+  }
+
+  // ---- Starting from a branch, and catching an untouched branch up (run restart) -----------
+
+  /**
+   * The starting point (run restart "The starting point"): the saved choice, else computed at
+   * each preview: `existing` when a branch named `settings.featureBranch` exists in any of the
+   * PRD's repositories, local or on origin. A started record without one started on a new branch.
+   */
+  get startChoice(): { from: "new" | "existing"; bringUpToDate: boolean } {
+    if (this.record.start) return this.record.start;
+    if (this.record.startedAt !== undefined) return { from: "new", bringUpToDate: true };
+    return { from: this.featureBranchExists ? "existing" : "new", bringUpToDate: true };
+  }
+
+  /** Today's repositories as the branch list reads them: the PRD's first, each with the base it would use. */
+  private startRepositories(): StartRepository[] {
+    return this.checkoutRepositories.map(repository => ({ name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, baseBranch: baseFor(repository, this.record.settings, this.workspaceFixed) }));
+  }
+
+  /**
+   * Recomputes the branch list and the preview for the chosen starting point (run restart "The
+   * preview"): when a view connects, when the settings change the start, feature branch or a base,
+   * and at Start. Nothing watches refs. Only the latest run's result is kept.
+   */
+  async refreshStartPreview(): Promise<StartPreview | undefined> {
+    if (this.record.startedAt !== undefined) return undefined;
+    const run = ++this.previewRun;
+    const repositories = this.startRepositories();
+    const refs = new Map(await Promise.all(repositories.map(async repository => [repository.name, await readRepositoryRefs(this.git, repository.mainCheckoutPath)] as const)));
+    const others = otherStartedBranches(this.stateDirectory);
+    const choices = await branchList(this.git, repositories, refs, others);
+    const branch = this.record.settings.featureBranch;
+    const exists = repositories.some(repository => refs.get(repository.name)!.local.has(branch) || refs.get(repository.name)!.origin?.branches.has(branch) === true);
+    if (run !== this.previewRun) return this.startPreview;
+    this.branchChoices = choices;
+    this.featureBranchExists = exists;
+    let choice = this.startChoice;
+    // Switching to an existing branch while the name isn't listed selects the list's first available name.
+    if (choice.from === "existing" && !choices.some(one => one.name === branch)) {
+      const first = choices.find(one => one.available);
+      if (first) { this.record.settings.featureBranch = first.name; this.save(); }
+      choice = this.startChoice;
+    }
+    const prd = repositories[0]!;
+    let preview: StartPreview;
+    if (choice.from === "existing") {
+      preview = await existingBranchPreview({
+        git: this.git, gh: this.options.tools.gh, env: this.options.env, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
+        branch: this.record.settings.featureBranch, bringUpToDate: choice.bringUpToDate, repositories, refs, others,
+        find: (name, namedIn) => findRepository(this.git, this.parentFolder, name, namedIn),
+        baseOf: name => this.record.settings.bases[name] ?? "",
+      });
+    } else preview = newBranchPreview(branch, repositories, refs.get(prd.name)!.origin?.branches.get(prd.baseBranch), this.options.startPlan);
+    if (run !== this.previewRun) return this.startPreview;
+    this.startPreview = preview;
+    // A repository only the start commit's plan names keeps the base the preview gave it, shown in its row.
+    let based = false;
+    for (const repository of preview.repositories) {
+      if (repository.kind === "named" && this.record.settings.bases[repository.name] === undefined && repository.baseBranch !== "") { this.record.settings.bases[repository.name] = repository.baseBranch; based = true; }
+    }
+    if (based) this.save();
+    this.changed();
+    return preview;
+  }
+
+  /**
+   * `POST /api/settings`'s `start`: saved whenever it changes the start or the feature branch.
+   * Switching to `new` keeps the name, so today's "That branch already exists" shows until a new
+   * name is typed.
+   *
+   *   await engine.changeStart({ from: "existing", bringUpToDate: true })  // { ok: true }
+   */
+  async changeStart(start: { from: "new" | "existing"; bringUpToDate: boolean }): Promise<CommandResult> {
+    if (this.record.startedAt !== undefined || this.settingUp) return refuse("Where Kiln starts from is fixed once Start is pressed.");
+    if (this.workspaceFixed) return refuse("The workspace folder and feature branch are fixed once a repository is set up.");
+    this.record.start = { from: start.from, bringUpToDate: start.bringUpToDate };
+    this.save();
+    await this.runFieldChecks(false);
+    return { ok: true };
+  }
+
+  /** The field checks for an existing-branch start: the folders the selection still needs, and the preview's own messages. */
+  private async existingBranchFields(preview: StartPreview): Promise<{ errors: FieldErrors; baseErrors: Record<string, string>; startCommits: Record<string, string> }> {
+    const { settings } = this.record;
+    const errors: FieldErrors = {};
+    const baseErrors: Record<string, string> = {};
+    const startCommits: Record<string, string> = {};
+    const multi = preview.repositories.length > 1;
+    if (!multi) {
+      const prd = preview.repositories[0]!;
+      if (!prd.worktree) { const error = await checkWorktreePath(this.git, prd.mainCheckoutPath, settings.worktreePath); if (error) errors.worktreePath = error; }
+    } else {
+      if (!preview.workspaceFolder) { const error = await checkWorkspaceFolder(this.git, preview.repositories, settings.workspaceFolder); if (error) errors.workspaceFolder = error; }
+      const folder = preview.workspaceFolder ?? expandHome(settings.workspaceFolder);
+      if (!errors.workspaceFolder) for (const repository of preview.repositories.filter(one => !one.worktree)) {
+        const error = await checkWorktreePath(this.git, repository.mainCheckoutPath, join(folder, repository.name));
+        if (error) { errors.workspaceFolder = error; break; }
+      }
+    }
+    if (preview.fieldError) errors.featureBranch = preview.fieldError;
+    for (const repository of preview.repositories) {
+      if (repository.hasBranch) { if (repository.mergeBase) startCommits[repository.name] = repository.mergeBase; continue; }
+      if (!repository.baseTip) continue;
+      // A repository that doesn't have the branch is cut from its base, with today's reads and, for the PRD's repository, its document check.
+      const fetched = await fetchIfMissing(this.git, repository.mainCheckoutPath, repository.baseBranch, repository.baseTip);
+      let message = fetched;
+      if (!message && repository.kind === "prd") {
+        const tree = await runGit(this.git, repository.mainCheckoutPath, ["rev-parse", `${repository.baseTip}:${this.paths.prdDirectoryFromRoot}`]);
+        if (tree.exitCode !== 0 || tree.stdout.trim() !== (this.options.prdTree ?? "")) message = `${repository.baseBranch} on origin has different PRD documents from this checkout. Push them to ${repository.baseBranch} first; every session starts from there.`;
+      }
+      if (message) { if (repository.kind === "prd") errors.baseBranch = message; else baseErrors[repository.name] = message; }
+      else startCommits[repository.name] = repository.baseTip;
+    }
+    return { errors, baseErrors, startCommits };
+  }
+
+  /**
+   * One existing-branch entry's setup at Start (run restart "Start"), each step skipped when its
+   * effect is already there: the local branch, the branch check and the worktree, then the
+   * catch-up while one is saved or this Start's is not yet pushed.
+   */
+  private async setUpExistingEntry(entry: RepositoryEntry, branch: string): Promise<{ ok: true } | { ok: false; error: string; catchUp?: true }> {
+    const main = expandHome(entry.mainCheckoutPath);
+    const path = expandHome(entry.worktreePath);
+    const expected = new Set([entry.runStartCommit!, ...(entry.catchUp ? [entry.catchUp.to] : [])]);
+    try {
+      const origin = await originBranches(this.git, main);
+      if (!origin.ok) return { ok: false, error: `Couldn’t reach origin: ${origin.error}` };
+      const originTip = origin.value.branches.get(branch);
+      let local = await localBranchCommit(this.git, main, branch);
+      if (local === undefined) {
+        if (originTip === undefined || !expected.has(originTip)) return { ok: false, error: `${branch} on origin moved since Kiln read it${originTip ? `: it is now at ${shortSha(originTip)}` : ""}. Reload to see it as it stands.` };
+        const failed = await ensureObjects(this.git, main, originTip, SETUP_TIMEOUT_MS);
+        if (failed) return { ok: false, error: `Couldn’t fetch ${branch} from origin: ${gitError(failed)}` };
+        const made = await runGit(this.git, main, ["branch", "--no-track", branch, originTip]);
+        if (made.exitCode !== 0) return { ok: false, error: gitError(made) };
+        for (const [key, value] of [[`branch.${branch}.remote`, "origin"], [`branch.${branch}.merge`, `refs/heads/${branch}`]] as const) {
+          const set = await runGit(this.git, main, ["config", key, value]);
+          if (set.exitCode !== 0) return { ok: false, error: gitError(set) };
+        }
+        local = originTip;
+      }
+      if (!expected.has(local)) return { ok: false, error: `${branch} moved since Kiln read it: it is now at ${shortSha(local)}. Reload to see it as it stands.` };
+      if (originTip !== undefined && originTip !== local) {
+        const present = await runGit(this.git, main, ["cat-file", "-e", `${originTip}^{commit}`]);
+        if (present.exitCode !== 0 || !await isAncestor(this.git, main, originTip, local)) return { ok: false, error: `${branch} on origin moved ahead of, or away from, the local branch. Kiln never resets or force-pushes; reload to see it as it stands.` };
+      }
+      const worktrees = await listWorktrees(this.git, main);
+      if (!worktrees.ok) return { ok: false, error: worktrees.error };
+      const at = worktrees.worktrees.find(worktree => comparable(worktree.path) === comparable(realPathOfNearestAncestor(resolve(path))));
+      if (at?.locked === "initializing") return { ok: false, error: halfMadeMessage(entry, "then press Start again.") };
+      if (at && at.branch === branch) {
+        const check = await checkFolder(this.git, entry);
+        if (check.state !== "in_place") return { ok: false, error: `${displayPath(path)} isn’t a worktree of ${entry.name} on ${branch}.` };
+      } else if (entry.adoptedWorktree) return { ok: false, error: `The worktree at ${displayPath(path)} is no longer on ${branch}. Reload to see it as it stands.` };
+      else {
+        const added = await runGit(this.git, main, ["worktree", "add", path, branch], SETUP_TIMEOUT_MS);
+        if (added.exitCode !== 0) return { ok: false, error: gitError(added) };
+      }
+      const pushPending = (this.record.branchCatchUps ?? []).some(row => row.repository === entry.name && row.to === local && row.at >= (this.record.startedAt ?? ""));
+      if (entry.catchUp || pushPending) {
+        const to = entry.catchUp?.to ?? local;
+        if (entry.catchUp && local !== to) {
+          // A fast-forward that has not landed runs only while the branch still qualifies against the saved target (§Start, Interruption).
+          const files = await uncommittedFiles(this.git, path);
+          const behind = await isAncestor(this.git, main, local, to);
+          if (files === undefined || files.length > 0 || !behind) return { ok: false, error: `${branch} can no longer be brought up to date safely: it has commits of its own or uncommitted files now. Reload to see it as it stands.` };
+        }
+        try { await catchUpRepository(this.git, entry, branch, to, { save: () => this.save(), record: (from, moved, commits) => this.recordCatchUp(entry, branch, from, moved, commits, undefined) }); }
+        catch (error) { return { ok: false, error: (error as Error).message, catchUp: true }; }
+      }
+    } catch (error) { return { ok: false, error: (error as Error).message }; }
+    return { ok: true };
+  }
+
+  /**
+   * Step 3 of a catch-up (run restart "Catching a Branch Up"): one save records the fast-forward
+   * and removes `catchUp`. At Start, `runStartCommit` and `baseCommit` become `to`; at a stop,
+   * `runStartCommit` takes the entry's `baseCommit` when it has none, then `baseCommit` and the
+   * stopped phase's start commit become `to`.
+   */
+  private recordCatchUp(entry: RepositoryEntry, branch: string, from: string, to: string, commits: number, phaseKey: string | undefined): void {
+    if (from !== to) (this.record.branchCatchUps ??= []).push({ at: this.now().toISOString(), repository: entry.name, branch, from, to, commits });
+    if (phaseKey === undefined) { entry.runStartCommit = to; entry.baseCommit = to; }
+    else {
+      if (entry.runStartCommit === undefined && entry.baseCommit !== undefined) entry.runStartCommit = entry.baseCommit;
+      entry.baseCommit = to;
+      const facts = this.record.phases[phaseKey]?.repositories[entry.name];
+      if (facts) facts.startCommit = to;
+    }
+    delete entry.catchUp;
+    this.save();
+    if (from !== to) this.catchUpRequest?.moved.push({ repository: entry.name, branch, from, to, commits });
+  }
+
+  /**
+   * Settles a `catchUp` still saved on a set-up entry, as `kiln run` prepares (run restart "When a
+   * saved catchUp is settled"): the local tip read in the main checkout; a fast-forward that
+   * landed is recorded, one that didn't is forgotten. A read that fails ends `kiln run`.
+   */
+  private async settleCatchUps(): Promise<void> {
+    const branch = this.record.settings.featureBranch;
+    const atStop = Object.values(this.record.phases).some(facts => facts.sessionIds.length > 0);
+    for (const entry of this.setUpRepositories) {
+      const saved = entry.catchUp;
+      if (!saved) continue;
+      const main = expandHome(entry.mainCheckoutPath);
+      const tip = await runGit(this.git, main, ["rev-parse", "--verify", `refs/heads/${branch}^{commit}`]);
+      if (tip.exitCode !== 0) throw new Error(`Kiln couldn't read ${branch} in ${entry.name} to settle a catch-up: ${gitError(tip)}`);
+      const local = tip.stdout.trim();
+      let landed = local === saved.to;
+      if (!landed) {
+        const ancestor = await runGit(this.git, main, ["merge-base", "--is-ancestor", saved.to, local]);
+        if (ancestor.exitCode !== 0 && ancestor.exitCode !== 1) throw new Error(`Kiln couldn't read ${entry.name}'s history to settle a catch-up: ${gitError(ancestor)}`);
+        landed = ancestor.exitCode === 0;
+      }
+      if (landed) {
+        const counted = await runGit(this.git, main, ["rev-list", "--count", `${saved.from}..${saved.to}`]);
+        this.recordCatchUp(entry, branch, saved.from, saved.to, counted.exitCode === 0 ? Number.parseInt(counted.stdout.trim(), 10) : 0, atStop ? this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan() : undefined);
+      } else { delete entry.catchUp; this.save(); }
+    }
+  }
+
+  /** The stopped phase's catch-up offer, read with its work (run restart "Catching a Branch Up"); a held phase gets none. */
+  private async readStoppedCatchUp(): Promise<CatchUpOffer | undefined> {
+    if (this.record.liveControl) return undefined;
+    const branch = this.record.settings.featureBranch;
+    const readings = await Promise.all(this.setUpRepositories.map(entry => readCatchUp(this.git, { name: entry.name, mainCheckoutPath: entry.mainCheckoutPath, worktreePath: entry.worktreePath, baseBranch: entry.baseBranch }, branch)));
+    const qualifying = readings.filter(reading => reading.qualifies);
+    return qualifying.length ? { base: this.setUpRepositories[0]!.baseBranch, repositories: qualifying.map(reading => ({ name: reading.name, branch, behind: reading.behind })) } : undefined;
+  }
+
+  /**
+   * Before a session starts at a stopped phase (run restart AC-CURRENT-01): catches each qualifying
+   * repository's branch up, read again now. Ticked on the page but no longer qualifying is
+   * `branch_changed`; a command that isn't told to leave the branch proceeds when none qualifies.
+   * Never for a held phase.
+   */
+  private async catchUpAtStop(phaseKey: string): Promise<void> {
+    const request = this.catchUpRequest;
+    if (!request || request.mode === "leave" || this.record.liveControl) return;
+    const branch = this.record.settings.featureBranch;
+    let readings;
+    try { readings = await Promise.all(this.setUpRepositories.map(async entry => ({ entry, reading: await readCatchUp(this.git, { name: entry.name, mainCheckoutPath: entry.mainCheckoutPath, worktreePath: entry.worktreePath, baseBranch: entry.baseBranch }, branch) }))); }
+    catch (error) { throw new CatchUpFailure("branch_catch_up_failed", (error as Error).message); }
+    const qualifying = readings.filter(one => one.reading.qualifies);
+    if (qualifying.length === 0) {
+      if (request.mode === "ticked") throw new CatchUpFailure("branch_changed", "The branch changed since the page was read, so Kiln won't bring it up to date. Review the refreshed page.");
+      return;
+    }
+    for (const { entry, reading } of qualifying) {
+      try { await catchUpRepository(this.git, entry, branch, reading.baseTip, { save: () => this.save(), record: (from, to, commits) => this.recordCatchUp(entry, branch, from, to, commits, phaseKey) }); }
+      catch (error) { throw new CatchUpFailure("branch_catch_up_failed", `Kiln couldn't bring the branch up to date, so nothing started: ${(error as Error).message}`); }
+    }
+    this.stoppedCatchUp = { phaseKey, offer: undefined };
+  }
+
+  /**
+   * What every prompt Kiln sends at a launch or resume carries at its end (run restart "Sessions
+   * are told" and "Catching a Branch Up"): each catch-up not yet told, one sentence each, and,
+   * while an adopted worktree has uncommitted files and no run has begun a conversation, how many.
+   */
+  private async promptAdditions(sessionId: string): Promise<string> {
+    const rows = (this.record.branchCatchUps ?? []).map((row, index) => ({ row, index })).filter(({ row }) => row.toldSessionId === undefined);
+    const multi = this.setUpRepositories.length > 1;
+    const parts = rows.map(({ row }) => catchUpSentence(row, multi));
+    let files = false;
+    const adopted = this.setUpRepositories.filter(entry => entry.adoptedWorktree);
+    if (adopted.length && !this.anyConversationBegan()) {
+      const counts = await Promise.all(adopted.map(async entry => ({ entry, files: await uncommittedFiles(this.git, expandHome(entry.worktreePath)) })));
+      const lines = counts.filter(one => one.files?.length).map(one => `${displayPath(expandHome(one.entry.worktreePath))} has ${one.files!.length} uncommitted ${one.files!.length === 1 ? "file" : "files"}`);
+      if (lines.length) { files = true; parts.push(`This run started in a worktree that already existed, and ${lines.join("; ")}. Look at them before building: they may be work someone began.`); }
+    }
+    this.pendingTell = rows.length || files ? { sessionId, rows: rows.map(({ index }) => index), files } : undefined;
+    return parts.join("\n\n");
+  }
+
+  /** Whether a prompt would carry anything: a catch-up not yet told, or an adopted worktree before any conversation began. */
+  private hasPromptAdditions(): boolean {
+    if ((this.record.branchCatchUps ?? []).some(row => row.toldSessionId === undefined)) return true;
+    return this.setUpRepositories.some(entry => entry.adoptedWorktree) && !this.anyConversationBegan();
+  }
+
+  /** Whether any run of the PRD's sessions has reported Claude `init` or a Codex turn. */
+  private anyConversationBegan(): boolean {
+    for (const key of Object.keys(this.record.phases)) if (this.conversationBegan(key)) return true;
+    return false;
+  }
+
+  /** Marks the catch-ups a prompt carried as told, once that session's run reports init or a turn. */
+  private markTold(session: SessionRecord): void {
+    const tell = this.pendingTell;
+    if (!tell || tell.sessionId !== session.sessionId) return;
+    const runIndex = session.runs.length - 1;
+    if (runIndex < 0 || !sessionBegan(this.stateDirectory, { ...session, runs: [session.runs[runIndex]!] })) return;
+    for (const index of tell.rows) { const row = this.record.branchCatchUps?.[index]; if (row && row.toldSessionId === undefined) row.toldSessionId = session.sessionId; }
+    this.pendingTell = undefined;
+    if (tell.rows.length) this.save();
   }
 
   // ---- Adding a repository after Start (multi-repo AC-ADD-01 to AC-ADD-04) -------------------
@@ -6539,6 +6944,7 @@ export class Engine {
         if (problems.length) throw new Error(problems.join(" ") + " Reconcile earlier completed work before returning control.");
       }
       const completions = { ...previous?.completions };
+      let closedAtStart: Set<string> | undefined;
       for (const phase of active.plan.phases.filter(p => (p.closed || this.waiverClosed(p.id)) && !p.splitInto)) {
         const owner = Object.entries(this.record.phases).find(([key, facts]) => judgedPhase(active.plan.phases, key)?.id === phase.id && (facts.sessionIds.length || facts.waiverId || facts.skippedByWaiver));
         // Completed or skipped on a waiver: carried by its waiver, never by evidence it does not have (waivers "Continuation executions").
@@ -6569,6 +6975,16 @@ export class Engine {
         const affectedNames = namedRepositories(active.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)), this.paths.repositoryName);
         const missing = affectedNames.filter(name => !this.setUpRepositories.some(entry => entry.name === name));
         if (missing.length) throw new Error(`Externally closed Phase ${phase.id} needs completion evidence in repositories not set up: ${missing.join(", ")}. Reconcile their workspace and published work before returning control.`);
+        // On a start from an existing branch, the first plan read accepts a leaf Closed at the PRD
+        // repository's start commit on its Closed line alone (run restart AC-FROM-02, "After Start").
+        const prdEntry = this.setUpRepositories.find(entry => entry.kind === "prd");
+        if (!previous && prdEntry?.runStartCommit) {
+          closedAtStart ??= new Set((await observeGitPlan(git, this.worktreePath, this.paths.prdDirectoryFromRoot, prdEntry.runStartCommit)).plan.phases.filter(p => p.closed && !p.splitInto).map(p => p.id));
+          if (closedAtStart.has(phase.id)) {
+            completions[phase.id] = { kind: "external", scopeRepositories: phaseRepositories(active, phase.id), revision: prdEntry.runStartCommit, repositories: Object.fromEntries(this.setUpRepositories.map(entry => [entry.name, { identity: entry.github, revision: entry.runStartCommit ?? entry.baseCommit! }])) };
+            continue;
+          }
+        }
         // A Closed phase already published on the setup base needs no feature-branch push.
         // Prove exact document bytes, clean assigned workspace and published base independently.
         if (!previous) {
@@ -6689,6 +7105,8 @@ function stopLimit(refusal: LimitRefusal): StopLimit {
 
 /** A finished check whose plan problem holds Resume back, reported as check_unavailable as before. */
 class ResumeHeld extends CompletionCheckUnavailable {}
+/** A catch-up before a session at a stop that could not happen; nothing starts (run restart AC-CURRENT-01). */
+class CatchUpFailure extends Error { constructor(readonly code: "branch_changed" | "branch_catch_up_failed", message: string) { super(message); } }
 
 const ACTIVATION_MISSING = "The activation-recovery phase is missing from the current plan.";
 const DELIVERY_CHECK = "Required development delivery verified";

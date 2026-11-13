@@ -100,6 +100,8 @@ Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-wai
 
 Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (two more changing commands, `carry-on` and `start-again`, whose receipts settle `started` in place of `resumed`).
 
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (`kiln reply`, `kiln resume`, `kiln carry-on` and `kiln start-again` catch an untouched branch up first unless given `--leave-branch-as-is`).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |
@@ -182,6 +184,8 @@ Repeated attempts keep the same conversation entry and distinct stable attempt I
 ## Durable Controls and Retries
 
 Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (two more changing commands, `carry-on` and `start-again`, whose receipts settle `started` in place of `resumed`).
+
+Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (the four session-starting receipts gain `branch_catch_up`, what a catch-up moved before the session).
 
 ### Status-token semantics
 

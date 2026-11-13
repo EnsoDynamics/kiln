@@ -36,6 +36,8 @@ import type { Engine, RepositoryCommits } from "./engine.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
 import { noticeLines } from "./compatibility-notices.js";
+import type { CatchUpOffer, StartPreview } from "./start-from.js";
+import { isPhaseFileName } from "../plan/phase-ids.js";
 
 export const PR_TITLE = "Final pull request";
 
@@ -123,6 +125,25 @@ export interface DocumentsFound {
   /** Links in the requirements Kiln won't follow, when there are any: neither a passed nor a failed check (Kiln Linked Documents AC-LINK-04). */
   unfollowedLinks?: { target: string; from: string; reason: string }[];
   checks: { name: string; passed: boolean }[];
+  /** Where Kiln starts from (run restart AC-FROM-01 to 05, AC-CURRENT-01); absent until the first preview finishes. */
+  start?: StartView;
+}
+
+/** Documents found's Start from, for the chosen starting point (run restart "Interfaces", Snapshot). */
+export interface StartView {
+  from: "new" | "existing";
+  bringUpToDate: boolean;
+  previewId: string;
+  /** Every name, available or not; the selected name's message is `settings.fieldErrors.featureBranch`. */
+  branches: { name: string; available: boolean }[];
+  /** Where the plan is read: the start commit. */
+  planSource?: { kind: "base" | "branch" | "base_after_catch_up"; branch: string; sha: string };
+  repositories: { name: string; hasBranch: boolean; pullRequest?: { number: number; url: string } | { unknown: string }; worktree?: { path: string; adopted: boolean; uncommittedFiles?: number } }[];
+  /** Several repositories with existing worktrees: the one folder holding them, fixed. */
+  workspaceFolder?: string;
+  closedCount: number;
+  startAt?: { id: string; title: string };
+  catchUp?: CatchUpOffer;
 }
 
 export interface PhaseView {
@@ -374,6 +395,8 @@ export interface Snapshot {
     carryOn?: { available: boolean; reason?: string; endsHold?: "takeover" | "message" };
     /** Start Phase N again (AC-CASE-02). */
     startAgain?: { available: boolean; reason?: string };
+    /** Bring the branch up to date first (run restart AC-CURRENT-01): read with work; absent until the first read finishes, when it fails, or when nothing qualifies. */
+    catchUp?: CatchUpOffer;
     /** The stopped session hit a usage limit (usage-limit recovery AC-LIMIT-01 to 03); `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
     limit?: LimitView & { refusedAgainAt?: string };
   };
@@ -542,7 +565,10 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...(folderMissing ? { folderMissing: folderMissingSnapshot(folderMissing, engine) } : {}),
   };
   if (state === "not_started" && documents) {
-    snapshot.documents = { ...documents, ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
+    const preview = engine.startPreview;
+    // With an existing branch, What Kiln found is read from Git at the start commit (run restart AC-FROM-02).
+    const found = preview?.from === "existing" && preview.documents && preview.plan && preview.plan.problems.length === 0 ? gitDocumentsFound(preview, engine) : documents;
+    snapshot.documents = { ...found, ...(preview ? { start: startView(engine, preview) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
   }
   return snapshot;
 }
@@ -806,6 +832,7 @@ function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | und
     ...(began ? { reopen: engine.reopenCheck(phaseKey) } : {}),
     ...optional("carryOn", carryOn),
     ...(start.offered ? { startAgain: { available: start.available, ...optional("reason", start.reason) } } : {}),
+    ...optional("catchUp", engine.stoppedCatchUp?.phaseKey === phaseKey ? engine.stoppedCatchUp.offer : undefined),
   };
 }
 
@@ -1033,8 +1060,8 @@ export function documentsFound(
   plan: PhasePlan,
   found: StartCheckReport["found"] & { repositories: StartCheckReport["repositories"] },
   repositoryName: string,
+  read: (name: string) => string = (name) => readFileSync(join(prdDirectory, name), "utf8"),
 ): DocumentsFound {
-  const read = (name: string) => readFileSync(join(prdDirectory, name), "utf8");
   const prdFile = `${folderName}-prd.md`;
   const criteria = countPrdCriteria(read(prdFile));
   const leaves = leavesOf(plan);
@@ -1061,6 +1088,35 @@ export function documentsFound(
         : [{ name: "Working tree is clean", passed: true }]),
     ],
   };
+}
+
+/** Documents found's Start from, as the engine's latest preview read it. */
+function startView(engine: Engine, preview: StartPreview): StartView {
+  return {
+    from: preview.from,
+    bringUpToDate: preview.bringUpToDate,
+    previewId: preview.previewId,
+    branches: (engine.branchChoices ?? []).map(({ name, available }) => ({ name, available })),
+    ...optional("planSource", preview.planSource),
+    repositories: preview.repositories.map(repository => ({ name: repository.name, hasBranch: repository.hasBranch, ...optional("pullRequest", repository.pullRequest), ...(repository.worktree ? { worktree: { path: displayPath(repository.worktree.path), adopted: repository.worktree.adopted, ...optional("uncommittedFiles", repository.worktree.uncommittedFiles) } } : {}) })),
+    ...optional("workspaceFolder", preview.workspaceFolder === undefined ? undefined : displayPath(preview.workspaceFolder)),
+    closedCount: preview.closedCount,
+    ...optional("startAt", preview.startAt),
+    ...optional("catchUp", preview.catchUp),
+  };
+}
+
+/** What Kiln found, read from the documents at the start commit, with today's checks. */
+function gitDocumentsFound(preview: StartPreview, engine: Engine): DocumentsFound {
+  const { names, contents, unfollowed } = preview.documents!;
+  const folder = engine.paths.folderName;
+  const directory = engine.paths.prdDirectoryFromRoot;
+  const pick = (bare: string) => names.find(name => name === bare || name === `${folder}-${bare}`);
+  const designFile = pick("technical-design.md");
+  const assumptionsFile = pick("assumptions.md");
+  const read = (name: string) => contents[`${directory}/${name}`] ?? "";
+  const repositories = preview.repositories.filter(repository => repository.kind !== "prd").map(repository => ({ name: repository.name, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github }));
+  return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.paths.repositoryName, read);
 }
 
 /** Each repository's commits and latest commit in a phase: what its Done recorded, or what Kiln read for its stop. */

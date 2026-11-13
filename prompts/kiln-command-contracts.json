@@ -749,6 +749,10 @@
           "value": "id",
           "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
         },
+        "leave-branch-as-is": {
+          "value": null,
+          "source": "Leave the feature branch as it is. Without it, a branch with no commits of its own and nothing uncommitted that is behind its base is first moved forward to the base's latest commit and pushed; the receipt's branch_catch_up lists what moved. Never applies to a held phase."
+        },
         "message-file": {
           "value": "path",
           "source": "Caller writes literal UTF-8 message contents into this file, not an attachment. Read relative to caller cwd."
@@ -776,7 +780,8 @@
         "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
         "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
-        "Exactly one literal UTF-8 message source; nonempty after outer trim, at most 4000 UTF-16 units; reject NUL or malformed UTF-8. Read at most 32 KiB within 5 seconds."
+        "Exactly one literal UTF-8 message source; nonempty after outer trim, at most 4000 UTF-16 units; reject NUL or malformed UTF-8. Read at most 32 KiB within 5 seconds.",
+        "A stopped phase's untouched branch (no commits of its own, nothing uncommitted, behind its base) is fast-forwarded to the base's latest commit and pushed before the session, unless --leave-branch-as-is; a failure starts nothing and fails branch_catch_up_failed."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
@@ -902,6 +907,10 @@
           "value": "id",
           "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
         },
+        "leave-branch-as-is": {
+          "value": null,
+          "source": "Leave the feature branch as it is. Without it, a branch with no commits of its own and nothing uncommitted that is behind its base is first moved forward to the base's latest commit and pushed; the receipt's branch_catch_up lists what moved. Never applies to a held phase."
+        },
         "message-reviewed": {
           "value": "receipt-id",
           "source": "Repeat for each uncertain message reviewed in the exact conversation. Copy receipt IDs from status.live_control.reviewRequired or command-status. Acknowledgement never resends or upgrades provider confirmation; only successful explicit Resume/Verify releases the hold.",
@@ -914,7 +923,8 @@
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
         "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
         "Exit the terminal agent first. Reviewed message receipts remain Delivery uncertain. Missing reviews, live/pending terminal owners, unresolved tracked work, history, billing and workspace restrictions retain the hold. Review acknowledgement alone never resumes or advances.",
-        "Deliberate phase and audit takeover keeps its activity and audit round. Already-complete work returns phase_already_complete; use explicit verify-and-advance. --without-sending-reply acknowledges a retained unsent reply separately from --message-reviewed."
+        "Deliberate phase and audit takeover keeps its activity and audit round. Already-complete work returns phase_already_complete; use explicit verify-and-advance. --without-sending-reply acknowledges a retained unsent reply separately from --message-reviewed.",
+        "A stopped phase's untouched branch (no commits of its own, nothing uncommitted, behind its base) is fast-forwarded to the base's latest commit and pushed before the session, unless --leave-branch-as-is; a failure starts nothing and fails branch_catch_up_failed."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
@@ -1040,6 +1050,10 @@
           "value": "id",
           "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
         },
+        "leave-branch-as-is": {
+          "value": null,
+          "source": "Leave the feature branch as it is. Without it, a branch with no commits of its own and nothing uncommitted that is behind its base is first moved forward to the base's latest commit and pushed; the receipt's branch_catch_up lists what moved. Never applies to a held phase."
+        },
         "message-reviewed": {
           "value": "receipt-id",
           "source": "On a phase paused for takeover whose conversation can't be reopened, repeat for each uncertain message reviewed in the conversation, as kiln resume takes them. Copy receipt IDs from status.live_control.reviewRequired or command-status.",
@@ -1061,7 +1075,8 @@
         "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
         "Accepted only where the browser offers Send reply & continue: a stopped phase that began a conversation Kiln can't reopen, or a phase paused for takeover whose conversation can't be reopened and whose paused session has ended. Unavailable while a session for this PRD is running or a billing restriction would stop a launch.",
         "At most one reply source, optional: --message-file or --message-from-stdin, nonempty after outer trim, at most 4000 UTF-16 units. Kiln checks completion first; already-complete work returns phase_already_complete with the reply kept unsent.",
-        "Starts a new conversation; it never reopens the earlier one. The earlier session stays in the phase's history. operation.effects.session reads started once the new run's prompt is submitted and it reports its start."
+        "Starts a new conversation; it never reopens the earlier one. The earlier session stays in the phase's history. operation.effects.session reads started once the new run's prompt is submitted and it reports its start.",
+        "A stopped phase's untouched branch (no commits of its own, nothing uncommitted, behind its base) is fast-forwarded to the base's latest commit and pushed before the session, unless --leave-branch-as-is; a failure starts nothing and fails branch_catch_up_failed."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
@@ -1184,6 +1199,10 @@
         "command-id": {
           "value": "id",
           "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        },
+        "leave-branch-as-is": {
+          "value": null,
+          "source": "Leave the feature branch as it is. Without it, a branch with no commits of its own and nothing uncommitted that is behind its base is first moved forward to the base's latest commit and pushed; the receipt's branch_catch_up lists what moved. Never applies to a held phase."
         }
       },
       "required_exclusive_groups": [],
@@ -1192,7 +1211,8 @@
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
         "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
         "Accepted only where the browser offers Start Phase N again: a stopped phase none of whose sessions began a conversation. Unavailable while a session for this PRD is running, a billing restriction would stop a launch, or Kiln found a Codex safety problem.",
-        "Takes no reply and runs no completion check first; use kiln check-again for that. operation.effects.session reads started once the new run's prompt is submitted and it reports its start."
+        "Takes no reply and runs no completion check first; use kiln check-again for that. operation.effects.session reads started once the new run's prompt is submitted and it reports its start.",
+        "A stopped phase's untouched branch (no commits of its own, nothing uncommitted, behind its base) is fast-forwarded to the base's latest commit and pushed before the session, unless --leave-branch-as-is; a failure starts nothing and fails branch_catch_up_failed."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",

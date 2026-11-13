@@ -76,6 +76,7 @@ The command interface supports the common controls used after work starts. Each 
   | Resume now during a usage wait, or recover another activity | Retain the applicable dedicated recovery behavior; the manual implementation-phase already-complete choice does not change automatic recovery or relabel an audit, final delivery or broken plan as a phase. |
 
   Every outcome distinguishes reply delivery, session resumption and plan advancement. Competing reply/resume/verify/advance actions cannot start duplicate work. Missing conversation history exposes the existing fresh-session path instead of promising same-session resumption. See the prerequisite's AC-REPLY-01, AC-RETURN-01–03, AC-VERIFY-01–04 and AC-COMPAT-01–02.
+  - Superseded in part by: AC-CURRENT-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (`kiln reply` and `kiln resume` may first bring the branch up to date).
 
 - [ ] **AC-ACT-03 — The other routine controls match the browser.** The following are available wherever their existing eligibility rules allow them:
   - Superseded in part by: AC-CHECK-03 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (workspace auditing and acceptance only; independent completion requirements remain).

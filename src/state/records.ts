@@ -272,6 +272,27 @@ export interface RepositoryEntry {
   baseCommit?: string;
   createdBranch?: CreatedBranch;
   setupCompletedAt?: string;
+  /**
+   * Where the run began in this repository (run restart "Data Models"): an existing branch's tip
+   * when the run started, after a catch-up at Start; on a branch cut new, the entry's `baseCommit`
+   * before its first catch-up at a stop. An entry not yet set up that has it is an existing-branch entry.
+   */
+  runStartCommit?: string;
+  /** The worktree existed before Start, and Kiln adopted it. */
+  adoptedWorktree?: true;
+  /** A catch-up begun in this repository and not yet recorded (run restart "Catching a Branch Up"). */
+  catchUp?: { from: string; to: string };
+}
+
+/** One catch-up Kiln made (run restart AC-CURRENT-01); `toldSessionId` is the session whose run reported init after its prompt carried it. */
+export interface BranchCatchUp {
+  at: string;
+  repository: string;
+  branch: string;
+  from: string;
+  to: string;
+  commits: number;
+  toldSessionId?: string;
 }
 
 export type CompatibilityFeature = "live_messages" | "takeover" | "codex_history";
@@ -338,6 +359,13 @@ export interface PrdRecord {
   planReadAt?: string;
   /** Append-only; Kiln never edits or removes an entry (AC-WAIVE-08). */
   waivers?: import("../engine/waivers.js").Waiver[];
+  /**
+   * The starting point chosen on Documents found (run restart AC-FROM-01). On a not-started record,
+   * absent means computed at each preview; on a started record, absent reads as `new`.
+   */
+  start?: { from: "new" | "existing"; bringUpToDate: boolean };
+  /** Each catch-up Kiln made (run restart AC-CURRENT-01). */
+  branchCatchUps?: BranchCatchUp[];
 }
 
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";

@@ -1,7 +1,9 @@
 # Kiln command line and bot control
 
 Everything the browser view does with existing work can also be done from a terminal, which
-lets a script or a chat bot on the same machine report progress and answer stops. `kiln --help`
+lets a script or a chat bot on the same machine report progress and answer stops. Choosing where a
+run starts, a new feature branch or one that already exists, stays in the browser, on Documents
+found. `kiln --help`
 is a short guide for people; every command has complete `kiln <command> --help`, and
 `kiln --help --json` lists every command with full machine-readable metadata. Help works
 without a running controller.
@@ -15,7 +17,8 @@ kiln status <PRD-path> --json     # one run: stop message, failed checks, availa
 ## Starting and resuming
 
 `kiln run <PRD-path>` starts or reopens the controller. A brand-new execution is configured
-and started only in the browser, on the Documents found screen.
+and started only in the browser, on the Documents found screen, including whether it starts on a
+new feature branch or on a branch that already exists.
 
 `kiln run <PRD-path> --resume` immediately continues an already-started execution with its saved agent, model, effort and branches. It preserves intentional pauses and all recovery/billing/delivery restrictions. It cannot configure or start a brand-new execution; that still uses Documents found and Start. For an already-running controller at the restart overview, use the status-bound `kiln continue` command.
 
@@ -31,6 +34,10 @@ Two commands start a new session for a stopped phase, where the browser offers t
 - `kiln carry-on <PRD-path>` starts a new session when the phase's earlier conversation can't be reopened, including for a phase paused for takeover whose paused session has ended. It takes an optional reply from `--message-file <path>` or `--message-from-stdin`, and on a takeover pause the `--message-reviewed <receipt-id>` acknowledgements `kiln resume` takes. It checks completion first: already-complete work returns `phase_already_complete` and starts nothing.
 
 Neither reopens the earlier conversation. Each receipt's `operation.effects.session` reads `started` once the new session's prompt is submitted and it reports its start. Both take the command ID and status-token flags above.
+
+## Bringing an untouched branch up to date
+
+`kiln reply`, `kiln resume`, `kiln carry-on` and `kiln start-again` on a stopped phase first move a branch with no commits of its own and nothing uncommitted, that is behind its base, forward to the base's latest commit and push it, as the browser's ticked **Bring the branch up to date** box does. `--leave-branch-as-is` leaves the branch as it stands. A branch that doesn't qualify is left alone and the command goes on. Each receipt's `branch_catch_up` lists what moved, empty when nothing did; a catch-up that fails starts nothing and the command fails `branch_catch_up_failed`. A phase paused for takeover is never caught up.
 
 ## Live messages and takeover
 

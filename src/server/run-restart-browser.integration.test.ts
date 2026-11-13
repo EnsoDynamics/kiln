@@ -73,7 +73,8 @@ describe.each([1200, 390])("at %ipx wide", width => {
         expect(labels.indexOf("Start Phase 2b again")).toBeLessThan(labels.indexOf("Nothing to check yet"));
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
         await click(page, "Start Phase 2b again");
-        await waitFor(() => server.commands.includes("POST /api/start-again {}"));
+        // No catch-up offer on the page, so the branch is left as it is (AC-CURRENT-01).
+        await waitFor(() => server.commands.includes('POST /api/start-again {"bringUpToDate":false}'));
         await click(page, "Check Phase 2b anyway");
         await waitFor(() => server.commands.some(command => command.startsWith("POST /api/check-again")));
         expect(page.problems).toEqual([]);
@@ -157,6 +158,45 @@ describe.each([1200, 390])("at %ipx wide", width => {
       const body = await text(page);
       expect(body.indexOf("exited with code 1 before beginning a conversation")).toBeLessThan(body.indexOf("Earlier: blocked before any code."));
       expect(body.indexOf("Earlier: blocked before any code.")).toBeLessThan(body.indexOf("Reply here and let Kiln carry on"));
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+});
+
+describe.each([1200, 390])("the catch-up offer at %ipx wide (AC-CURRENT-01, AC-LOOK-01)", width => {
+  const catchUp = { base: "develop", repositories: [{ name: "acme-shop", branch: "feature/customer-returns", behind: 4 }] };
+  it("shows once, above the ways to resolve the stop, ticked, and the buttons send it", async () => {
+    const { server, page } = await open(stopped({ case: "could_not_start", launchFailure, startAgain: { available: true }, nothingToCheck: true, resumeOffered: false, catchUp }, false, ["finalMessage", "resumeCommand"]), width);
+    try {
+      await words(page, "This branch is 4 commits behind develop.");
+      const body = await text(page);
+      expect(body).toContain("Bring the branch up to date with develop first");
+      expect(body).toContain("Offered because the branch has no commits of its own and nothing uncommitted, so nothing can be lost or overwritten. Kiln does this when a button below starts or resumes Phase 2b.");
+      expect(body.split("Bring the branch up to date with develop first").length).toBe(2);
+      expect(body.indexOf("This branch is 4 commits behind")).toBeLessThan(body.indexOf("Fix that, then have Kiln try again"));
+      expect(await page.evaluate("document.querySelector('main input[type=checkbox]').checked")).toBe(true);
+      expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
+      await click(page, "Start Phase 2b again");
+      await waitFor(() => server.commands.includes('POST /api/start-again {"bringUpToDate":true}'));
+      // Unticked, the same button leaves the branch as it is.
+      await page.waitFor("!document.querySelector('main input[type=checkbox]').disabled");
+      await page.evaluate("document.querySelector('main input[type=checkbox]').click()");
+      await page.waitFor("!document.querySelector('main input[type=checkbox]').checked");
+      await click(page, "Start Phase 2b again");
+      await waitFor(() => server.commands.includes('POST /api/start-again {"bringUpToDate":false}'));
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it("covers reply and resume on the handoff page", async () => {
+    const { server, page } = await open(stopped({ case: "needs_input", resumeOffered: true, reopen: { state: "available" }, catchUp }), width);
+    try {
+      await words(page, "This branch is 4 commits behind develop.");
+      const body = await text(page);
+      expect(body.indexOf("How would you like to resolve this?")).toBeLessThan(body.indexOf("This branch is 4 commits behind"));
+      expect(body.indexOf("This branch is 4 commits behind")).toBeLessThan(body.indexOf("Reply here and let Kiln finish"));
+      await click(page, "Have Kiln resume Phase 2b");
+      await waitFor(() => server.commands.some(command => command.startsWith("POST /api/resume ") && command.includes('"bringUpToDate":true')));
       expect(page.problems).toEqual([]);
     } finally { await page.close(); await server.close(); }
   });

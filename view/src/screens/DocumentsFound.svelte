@@ -10,7 +10,12 @@
   // shown fixed. Either says sessions can add a repository (AC-ADD-01, AC-SPACE-03). Under
   // keep-awake, "Resume after a usage limit", in the waiting screen's words (usage-limit recovery
   // AC-AUTO-04).
+  // Start from (run restart AC-FROM-01 to 05, AC-CURRENT-01, mockup docs/changes/kiln-run-restart/
+  // mockups/kiln-run-restart.html): a new feature branch or one that already exists; on an existing
+  // branch What Kiln found reads the plan where the first session starts, Feature branch is a list,
+  // the base reads PR into, and an untouched branch behind its base gets the catch-up offer.
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
+  import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import type { RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
   import type { Effort, Settings } from "../../../src/state/records.js";
   import AccountPanel from "../components/AccountPanel.svelte";
@@ -20,7 +25,11 @@
   import { changeSettings, start, type PageConfig } from "../lib/api.js";
   import {
     accountLines,
+    adoptedWorktreeHelp,
     assumptionsLine,
+    closedPhasesLine,
+    planSourceLine,
+    startCountLine,
     designLine,
     linkedDocumentsLine,
     EFFORT_LABELS,
@@ -50,6 +59,18 @@
   const repositoryName = $derived(snapshot.feature.repositoryName);
   // The PRD's repository's row: its base is fixed once Start set it up.
   const prdRow = $derived(snapshot.repositories.find((row) => row.kind === "prd"));
+  const startFrom = $derived(documents.start);
+  const existing = $derived(startFrom?.from === "existing");
+  const sourceLine = $derived(startFrom ? planSourceLine(startFrom) : undefined);
+  const startRepository = (name: string) => startFrom?.repositories.find((repository) => repository.name === name);
+  const prdStart = $derived(startRepository(repositoryName));
+  const adopted = $derived(existing ? prdStart?.worktree : undefined);
+  const pullRequest = $derived(existing ? prdStart?.pullRequest : undefined);
+  const offer = $derived(existing ? startFrom?.catchUp : undefined);
+  const catchUpTicked = $derived(startFrom?.bringUpToDate ?? true);
+  const startLabel = $derived(startFrom?.startAt ? `Start at Phase ${startFrom.startAt.id}` : "Start");
+  const closedLine = $derived(closedPhasesLine(documents.plan.phases, startFrom));
+  const branchFixed = $derived(fixedLocked || settings.fixed.featureBranch);
 
   // The confirmation box belongs to the view: the same tab keeps it ticked, and a reload asks again.
   let refined = $state(false);
@@ -64,7 +85,7 @@
   let drafts = $state<Partial<Record<TextField, string>>>({});
   const timers: Partial<Record<TextField, ReturnType<typeof setTimeout>>> = {};
 
-  async function save(change: Partial<Settings>) {
+  async function save(change: Partial<Settings> & { start?: { from: "new" | "existing"; bringUpToDate: boolean } }) {
     startReason = undefined;
     const answer = await changeSettings(config, { ...change, ...((change.model !== undefined || change.effort !== undefined) ? { agentId: settings.agentId ?? "claude_code", selectionGeneration: settings.selectionGeneration ?? 0 } : {}) });
     if (!answer.ok) startReason = answer.reason;
@@ -91,6 +112,14 @@
   /** A row's choices: its origin's branches, or its base alone until they arrive. */
   const rowChoices = (row: RepositoryRow) => (row.baseBranches && row.baseBranches.length > 0 ? row.baseBranches : row.baseBranch ? [row.baseBranch] : []);
 
+  /** Start from and the catch-up box are saved with the settings (run restart "The starting point"). */
+  function chooseStart(from: "new" | "existing") {
+    save({ start: { from, bringUpToDate: startFrom?.bringUpToDate ?? true } });
+  }
+  function tickCatchUp(ticked: boolean) {
+    save({ start: { from: "existing", bringUpToDate: ticked } });
+  }
+
   function chooseEffort(effort: Effort) {
     if (!effortDisabled(settings, effort)) save({ effort });
   }
@@ -99,7 +128,7 @@
     if (!startNow.enabled || pressing) return;
     pressing = true;
     startReason = undefined;
-    const answer = await start(config, refined);
+    const answer = await start(config, refined, startFrom?.previewId);
     pressing = false;
     // A setup failure shows as the snapshot's startError; anything else refused shows its reason.
     if (!answer.ok && !answer.fieldErrors && snapshot.documents?.startError === undefined) startReason = answer.reason;
@@ -143,7 +172,8 @@
           <div class="item plan">
             <div class="item-intro">
               <div class="item-head"><span class="item-name">Phase plan</span><span class="mono file">{documents.plan.phaseDocCount} {documents.plan.phaseDocCount === 1 ? "phase doc" : "phase docs"}</span></div>
-              <span class="item-line">{planCountLine(documents.plan)}</span>
+              {#if sourceLine}<span class="item-line">{sourceLine.lead}<span class="mono code">{sourceLine.code}</span>{sourceLine.tail ?? ""}</span>{/if}
+              <span class="item-line">{startCountLine(documents.plan, startFrom)}</span>
             </div>
             <ol class="phases">
               {#each rows as row (row.id)}
@@ -194,27 +224,51 @@
     <section class="panel settings" aria-labelledby="settings-h">
       <h2 id="settings-h" class="eyebrow">How Kiln will deliver it</h2>
 
+      {#if startFrom && !settings.fixed.featureBranch}
+        <fieldset class="start-from">
+          <legend>Start from</legend>
+          <label class="choice">
+            <input type="radio" name="start-from" checked={!existing} disabled={fixedLocked} onchange={() => chooseStart("new")} />
+            <span class="choice-text"><span class="choice-name">A new feature branch</span><span class="help">Kiln cuts it from the base branch. What Kiln does today.</span></span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="start-from" checked={existing} disabled={fixedLocked} onchange={() => chooseStart("existing")} />
+            <span class="choice-text"><span class="choice-name">A branch that already exists</span><span class="help">Work already begun on this PRD, by you or by Kiln before a reset. Kiln carries on from it.</span></span>
+          </label>
+        </fieldset>
+      {/if}
+
       {#if multi}
         <div class="field">
           <label for="workspace">Workspace folder</label>
-          <input id="workspace" type="text" class="mono" value={drafts.workspaceFolder ?? withSlash(settings.workspaceFolder)} disabled={fixedLocked || settings.fixed.workspaceFolder} oninput={(event) => typed("workspaceFolder", event.currentTarget.value)} onblur={() => committed("workspaceFolder")} />
+          {#if existing && startFrom?.workspaceFolder}
+            <input id="workspace" type="text" class="mono" value={withSlash(startFrom.workspaceFolder)} readonly disabled />
+          {:else}
+            <input id="workspace" type="text" class="mono" value={drafts.workspaceFolder ?? withSlash(settings.workspaceFolder)} disabled={fixedLocked || settings.fixed.workspaceFolder} oninput={(event) => typed("workspaceFolder", event.currentTarget.value)} onblur={() => committed("workspaceFolder")} />
+          {/if}
           {#if settings.fieldErrors.workspaceFolder}<span class="message">{settings.fieldErrors.workspaceFolder}</span>{/if}
-          <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+          {#if existing && startFrom?.workspaceFolder}
+            <span class="help">The branch's worktrees are in this folder, so Kiln works here: {startFrom.repositories.filter((repository) => repository.worktree).map((repository) => `${repository.name} with ${repository.worktree!.uncommittedFiles === undefined ? "an unknown number of" : repository.worktree!.uncommittedFiles === 0 ? "no" : repository.worktree!.uncommittedFiles} uncommitted ${repository.worktree!.uncommittedFiles === 1 ? "file" : "files"}`).join(", ")}. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+          {:else}
+            <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+          {/if}
         </div>
 
         <div class="field">
           <label for="branch">Feature branch</label>
-          <input id="branch" type="text" class="mono" value={drafts.featureBranch ?? settings.featureBranch} disabled={fixedLocked || settings.fixed.featureBranch} oninput={(event) => typed("featureBranch", event.currentTarget.value)} onblur={() => committed("featureBranch")} />
+          {@render branchField()}
           {#if settings.fieldErrors.featureBranch}<span class="message">{settings.fieldErrors.featureBranch}</span>{/if}
           <span class="help">Used in every repository.</span>
+          {#if existing}<span class="help">Kiln adds its commits to this branch and pushes them. It never rewrites, resets or force-pushes it.</span>{/if}
         </div>
+        {#if offer}<CatchUpOffer {offer} where="start" ticked={catchUpTicked} disabled={fixedLocked} onchange={tickCatchUp} />{/if}
 
         <div class="field">
           <div class="repos-head"><span id="repos-h" class="label">Repositories</span><span class="help">Branch from, and PR into</span></div>
           <ul aria-labelledby="repos-h" class="repos">
             {#each snapshot.repositories as row (row.name)}
               <li>
-                <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.name}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}</span>
+                <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.name}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}{#if existing && startRepository(row.name)?.hasBranch}<span class="tag">PR into</span>{/if}</span>
                 <select id="base-{row.name}" class="mono" value={row.baseBranch} disabled={fixedLocked || row.fixed} onchange={(event) => chooseBase(row, event.currentTarget.value)}>
                   {#if row.baseBranch === ""}<option value=""></option>{/if}
                   {#each rowChoices(row) as base (base)}<option value={base}>{base}</option>{/each}
@@ -229,20 +283,24 @@
       {:else}
         <div class="field">
           <label for="worktree">Worktree</label>
-          <input id="worktree" type="text" class="mono" value={drafts.worktreePath ?? settings.worktreePath} disabled={fixedLocked || settings.fixed.worktreePath} oninput={(event) => typed("worktreePath", event.currentTarget.value)} onblur={() => committed("worktreePath")} />
+          {#if adopted}
+            <input id="worktree" type="text" class="mono" value={adopted.path} readonly disabled />
+          {:else}
+            <input id="worktree" type="text" class="mono" value={drafts.worktreePath ?? settings.worktreePath} disabled={fixedLocked || settings.fixed.worktreePath} oninput={(event) => typed("worktreePath", event.currentTarget.value)} onblur={() => committed("worktreePath")} />
+          {/if}
           {#if settings.fieldErrors.worktreePath}<span class="message">{settings.fieldErrors.worktreePath}</span>{/if}
-          <span class="help">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+          <span class="help">{adopted ? adoptedWorktreeHelp(adopted.uncommittedFiles) : "One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later."}</span>
         </div>
 
         <div class="field">
           <div class="pair">
             <div class="field">
               <label for="branch">Feature branch</label>
-              <input id="branch" type="text" class="mono" value={drafts.featureBranch ?? settings.featureBranch} disabled={fixedLocked || settings.fixed.featureBranch} oninput={(event) => typed("featureBranch", event.currentTarget.value)} onblur={() => committed("featureBranch")} />
+              {@render branchField()}
               {#if settings.fieldErrors.featureBranch}<span class="message">{settings.fieldErrors.featureBranch}</span>{/if}
             </div>
             <div class="field">
-              <label for="base">Branch from, and PR into</label>
+              <label for="base">{existing && prdStart?.hasBranch ? "PR into" : "Branch from, and PR into"}</label>
               <select id="base" class="mono" value={settings.baseBranch} disabled={fixedLocked || prdRow?.fixed === true} onchange={(event) => save({ baseBranch: event.currentTarget.value })}>
                 {#if settings.baseBranch === ""}<option value=""></option>{/if}
                 {#each baseChoices as base (base)}<option value={base}>{base}</option>{/each}
@@ -250,6 +308,8 @@
               {#if settings.fieldErrors.baseBranch}<span class="message">{settings.fieldErrors.baseBranch}</span>{/if}
             </div>
           </div>
+          {#if existing}<span class="help">Kiln adds its commits to this branch and pushes them. It never rewrites, resets or force-pushes it.</span>{/if}
+          {#if offer}<CatchUpOffer {offer} where="start" ticked={catchUpTicked} disabled={fixedLocked} onchange={tickCatchUp} />{/if}
           <span class="help">{SESSIONS_ADD}</span>
         </div>
       {/if}
@@ -325,19 +385,22 @@
       <span class="lets">Starting lets Kiln</span>
       <ul class="allowed">
         {#if multi}
+          {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code nowrap">{settings.featureBranch}</span> up to date with each repository’s base where offered, as ticked above</span></li>{/if}
           <li>{@render check(14, true)}<span>In each repository, commit and push to <span class="mono code nowrap">{settings.featureBranch}</span></span></li>
+          {#if existing}{#each startFrom?.repositories.filter((repository) => repository.pullRequest) ?? [] as repository (repository.name)}<li>{@render check(14, true)}<span>{#if repository.pullRequest && "number" in repository.pullRequest}In <span class="mono code">{repository.name}</span>, use its open pull request <a href={repository.pullRequest.url}>#{repository.pullRequest.number}</a>{:else}In <span class="mono code">{repository.name}</span>: {repository.pullRequest && "unknown" in repository.pullRequest ? repository.pullRequest.unknown : ""}{/if}</span></li>{/each}{/if}
           <li>{@render check(14, true)}<span>{settings.developmentDeployments?.enabled ? "Early merges may happen on approved repository branches; remaining work stays open for review" : "In each repository, open one pull request into its base branch once every phase closes"}</span></li>
         {:else}
+          {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code">{settings.featureBranch}</span> up to date with <span class="mono code">{offer.base}</span>, as ticked above</span></li>{/if}
           <li>{@render check(14, true)}<span>Commit and push to <span class="mono code">{settings.featureBranch}</span></span></li>
-          <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Early merges may happen on approved repository branches; remaining work stays open for review{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
+          <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Early merges may happen on approved repository branches; remaining work stays open for review{:else if pullRequest && "number" in pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, <a href={pullRequest.url}>#{pullRequest.number}</a>, once every phase closes{:else if pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, or open one, once every phase closes. {pullRequest.unknown}{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
         {/if}
         <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Early merges only into approved repository branches; no unrelated or destructive actions" : "Never merge, deploy, or touch other branches"}</span></li>
       </ul>
     </div>
 
     <div class="column end">
-      <button type="button" class="start" class:ready={startNow.enabled && !pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>Start</button>
-      {#if startNow.note}<span class="help">{startNow.note}</span>{/if}
+      <button type="button" class="start" class:ready={startNow.enabled && !pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
+      {#if closedLine || startNow.note}<span class="help">{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
       {#if documents.startError}<span class="message">{documents.startError}</span>{:else if startReason}<span class="message">{startReason}</span>{/if}
     </div>
   </section>
@@ -348,7 +411,20 @@
 {/snippet}
 
 {#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[] })}
-  <li class="phase"><span class="circle mono">{row.id}</span><span class="title">{row.title}</span>{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}</li>
+  {@const here = startFrom?.startAt?.id === row.id}
+  <li class="phase"><span class="circle mono" class:here>{row.id}</span>{#if here}<strong class="title">{row.title}</strong><span class="starts">Kiln starts here</span>{:else}<span class="title">{row.title}</span>{/if}{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}</li>
+{/snippet}
+
+{#snippet branchField()}
+  {#if existing && startFrom}
+    <!-- Every name, available or not; an unavailable name's reason is the field's message (run restart "The branch list"). -->
+    <select id="branch" class="mono" value={settings.featureBranch} disabled={branchFixed} onchange={(event) => save({ featureBranch: event.currentTarget.value })}>
+      {#if !startFrom.branches.some((branch) => branch.name === settings.featureBranch)}<option value={settings.featureBranch}>{settings.featureBranch}</option>{/if}
+      {#each startFrom.branches as branch (branch.name)}<option value={branch.name}>{branch.name}</option>{/each}
+    </select>
+  {:else}
+    <input id="branch" type="text" class="mono" value={drafts.featureBranch ?? settings.featureBranch} disabled={branchFixed} oninput={(event) => typed("featureBranch", event.currentTarget.value)} onblur={() => committed("featureBranch")} />
+  {/if}
 {/snippet}
 
 {#snippet repositories(names: string[])}
@@ -388,6 +464,14 @@
   .split-title { color: var(--muted); }
   .note { font-size: 12.5px; color: var(--dim); }
   .closed { font-size: 12.5px; color: var(--green); }
+  .circle.here { border-color: var(--text); color: var(--text); }
+  .starts { font-size: 12.5px; color: var(--amber); }
+  .start-from { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .start-from legend { padding: 0; margin-bottom: 8px; }
+  .choice { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line-strong); cursor: pointer; }
+  .choice input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--red); }
+  .choice-text { display: flex; flex-direction: column; gap: 3px; }
+  .choice-name { font-size: 14.5px; font-weight: 600; color: var(--text); }
   .phase-repos { margin-left: auto; padding-left: 12px; font-size: 12px; color: var(--dim); text-align: right; }
   .checks { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
   .passed { display: inline-flex; align-items: center; gap: 6px; }

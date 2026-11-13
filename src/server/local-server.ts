@@ -412,8 +412,20 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   };
 
   app.post("/api/settings", async (c) => {
-    const body = await jsonBody(c);
+    let body = await jsonBody(c);
     if (body === undefined) return refuse(c, 400, "The body must be a JSON object.");
+    // Where Kiln starts from (run restart "Interfaces"): saved with the settings, before Start.
+    if (body.start !== undefined) {
+      const start = body.start as Record<string, unknown> | null;
+      if (!start || typeof start !== "object" || !["new", "existing"].includes(start.from as string) || typeof start.bringUpToDate !== "boolean" || Object.keys(start).some(key => !["from", "bringUpToDate"].includes(key))) return refuse(c, 400, "start must be { from: \"new\" | \"existing\", bringUpToDate: boolean }.");
+      if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+      const { start: _start, ...rest } = body;
+      void _start;
+      const result = await engine.changeStart({ from: start.from as "new" | "existing", bringUpToDate: start.bringUpToDate as boolean });
+      if (!result.ok) return commandRefused(c, result);
+      if (Object.keys(rest).length === 0) return c.json({ settings: snapshot().settings });
+      body = rest;
+    }
     const change = settingsChange(body);
     if (typeof change === "string") return refuse(c, 400, change);
     if (Object.keys(change).every(k => ["keepAwake", "resumeAfterUsageLimit"].includes(k)) && Object.keys(change).length) return legacyControl(c, "settings", { ...(change.keepAwake === undefined ? {} : { keep_awake: change.keepAwake }), ...(change.resumeAfterUsageLimit === undefined ? {} : { resume_after_usage_limit: change.resumeAfterUsageLimit }) });
@@ -445,7 +457,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const body = (await jsonBody(c)) ?? {};
     if (engine.record.pause.activeSince || engine.restartReview) return legacyControl(c, "continue");
     if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
-    const result = await engine.start(body.refinementConfirmed === true ? { refinementConfirmed: true } : {});
+    if (body.previewId !== undefined && typeof body.previewId !== "string") return refuse(c, 400, "previewId must be text.");
+    const result = await engine.start({ ...(body.refinementConfirmed === true ? { refinementConfirmed: true } : {}), ...(typeof body.previewId === "string" ? { previewId: body.previewId } : {}) });
     return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
   });
 
@@ -484,7 +497,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.post("/api/resume", async (c) => {
     const body = await recoveryBody(c);
     if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
-    return legacyControl(c, typeof body.note === "string" && body.note.trim() ? "reply" : "resume", body.note ? { message: body.note } : {}, body);
+    const { bringUpToDate, ...rest } = body;
+    if (bringUpToDate !== undefined && typeof bringUpToDate !== "boolean") return c.json({ ok: false, code: "invalid_request", reason: "bringUpToDate must be true or false." }, 400);
+    return legacyControl(c, typeof rest.note === "string" && rest.note.trim() ? "reply" : "resume", { ...(rest.note ? { message: rest.note } : {}), ...branchInputs(bringUpToDate) }, rest);
   });
 
   // Send reply & continue and Start Phase N again (run restart "Interfaces"): journal actions admitted
@@ -508,7 +523,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   };
   app.post("/api/carry-on", async (c) => {
     const body = await recoveryBody(c);
-    if (body === undefined || Object.keys(body).some(k => !["note", "target", "reviewedReceiptIds"].includes(k)) || body.note !== undefined && typeof body.note !== "string") return c.json({ ok: false, code: "invalid_request", reason: "Invalid carry-on request." }, 400);
+    if (body === undefined || Object.keys(body).some(k => !["note", "target", "reviewedReceiptIds", "bringUpToDate"].includes(k)) || body.note !== undefined && typeof body.note !== "string" || body.bringUpToDate !== undefined && typeof body.bringUpToDate !== "boolean") return c.json({ ok: false, code: "invalid_request", reason: "Invalid carry-on request." }, 400);
     let live: unknown;
     if (body.target !== undefined) {
       if (validLiveTarget(body.target)) live = body.target;
@@ -518,12 +533,12 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       } else return c.json({ ok: false, code: "invalid_request", reason: "Invalid carry-on target." }, 400);
     }
     const note = typeof body.note === "string" ? body.note.trim() : "";
-    return startingControl(c, "carry-on", { ...(note ? { message: note } : {}), ...(live ? { live_target: live } : {}), ...(body.reviewedReceiptIds !== undefined ? { reviewed_receipt_ids: body.reviewedReceiptIds } : {}) });
+    return startingControl(c, "carry-on", { ...(note ? { message: note } : {}), ...(live ? { live_target: live } : {}), ...(body.reviewedReceiptIds !== undefined ? { reviewed_receipt_ids: body.reviewedReceiptIds } : {}), ...branchInputs(body.bringUpToDate as boolean | undefined) });
   });
   app.post("/api/start-again", async (c) => {
     const body = await recoveryBody(c);
-    if (body === undefined || Object.keys(body).length) return c.json({ ok: false, code: "invalid_request", reason: "Start again takes no inputs." }, 400);
-    return startingControl(c, "start-again", {});
+    if (body === undefined || Object.keys(body).some(k => k !== "bringUpToDate") || body.bringUpToDate !== undefined && typeof body.bringUpToDate !== "boolean") return c.json({ ok: false, code: "invalid_request", reason: "Start again takes only bringUpToDate." }, 400);
+    return startingControl(c, "start-again", branchInputs(body.bringUpToDate as boolean | undefined));
   });
   // Check again on the carry-on card: Codex reads the thread once; a held page reruns takeover reconciliation (run restart "Interfaces").
   app.post("/api/reopen-check", async (c) => {
@@ -663,6 +678,15 @@ async function jsonBody(c: Context): Promise<Record<string, unknown> | undefined
 }
 
 /** `POST /api/settings`'s body, checked field by field; a string is why it was refused. */
+/**
+ * A stopped phase's page sends its catch-up box (run restart "Catching a Branch Up"): ticked is
+ * `bring_up_to_date`, so a branch that no longer qualifies returns `branch_changed`; unticked, or
+ * no offer shown, leaves the branch as it is.
+ */
+function branchInputs(bringUpToDate: boolean | undefined): Record<string, boolean> {
+  return bringUpToDate === true ? { bring_up_to_date: true } : { leave_branch: true };
+}
+
 function settingsChange(body: Record<string, unknown>): Partial<Settings> | string {
   const change: Partial<Settings> = {};
   if (body.developmentDeployments !== undefined) {

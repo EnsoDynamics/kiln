@@ -401,6 +401,7 @@ documents: adds
            planSource: { kind: "base" | "branch" | "base_after_catch_up", branch, sha },   // the start commit (§The starting point)
            repositories: [{ name, hasBranch: boolean, pullRequest?: { number, url } | { unknown: string },   // unknown: the failed read, named in Starting lets Kiln (§The preview)
                             worktree?: { path, adopted: boolean, uncommittedFiles?: number } }],
+           workspaceFolder?,                                  // several repositories with existing worktrees: W, fixed (§The branch list, Several repositories)
            closedCount, startAt?: { id, title },
            catchUp?: CatchUpOffer }
   checks: each row may be { name, passed: false, text }      // after a reset
@@ -451,7 +452,7 @@ Schema version 21. Every addition is optional; a record from schema 20 reads unc
 - **`CheckResult.reason?: true`** (§A Stopped Phase's Facts, Nothing to check yet).
 - **`SessionRecord.startedAs?: "carry_on"`**: set on a carry-on session's record. Absent means an ordinary launch. Run causes are unchanged.
 - **`TakeoverHold.history?: ReopenCheck`**: additive under `liveControl` version 1.
-- **Command journal:** actions `carry-on` (inputs `message`, `leave_branch`, `live_target`, `reviewed_receipt_ids`), `start-again` (`leave_branch`) and `reset` (none). A receipt version 1 gains optional `branch_catch_up` (the four session-starting actions), the `effects.session` values `starting` and `started` (`carry-on` and `start-again`) and, for `reset`, `reset: { forgets: ResetPreview.forgets, new_execution_id }`, checkpointed before the record changes (§Doing it, step 2). An older Kiln reading a journal with these actions refuses it as unreadable, as it refuses any receipt it does not validate; nothing older runs against a record of schema 21.
+- **Command journal:** actions `carry-on` (inputs `message`, `leave_branch`, `bring_up_to_date`, `live_target`, `reviewed_receipt_ids`), `start-again` (`leave_branch`, `bring_up_to_date`) and `reset` (none); `reply` and `resume` gain `leave_branch` and `bring_up_to_date`. `leave_branch` is `--leave-branch-as-is`, or the page's box unticked or not offered; `bring_up_to_date` is the page's ticked box, so a branch that no longer qualifies returns `branch_changed`. With neither, a command catches up a branch that qualifies and proceeds when none does. A receipt version 1 gains optional `branch_catch_up` (the four session-starting actions), the `effects.session` values `starting` and `started` (`carry-on` and `start-again`) and, for `reset`, `reset: { forgets: ResetPreview.forgets, new_execution_id }`, checkpointed before the record changes (§Doing it, step 2). An older Kiln reading a journal with these actions refuses it as unreadable, as it refuses any receipt it does not validate; nothing older runs against a record of schema 21.
 
 ## Changes to Earlier Designs
 

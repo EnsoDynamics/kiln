@@ -1210,7 +1210,7 @@ describe("the controls, in a real browser", () => {
       await page.evaluate(`(() => { const box = document.querySelector("textarea"); box.value = "Renumber the migration to 0043, then carry on."; box.dispatchEvent(new Event("input", { bubbles: true })); return true; })()`);
       await click(page, "Send and resume");
       await page.waitFor(`document.body.innerText.includes("Kiln is already checking.")`);
-      expect(server.commands).toEqual([`POST /api/resume ${JSON.stringify({ note: "Renumber the migration to 0043, then carry on." })}`]);
+      expect(server.commands).toEqual([`POST /api/resume ${JSON.stringify({ note: "Renumber the migration to 0043, then carry on.", bringUpToDate: false })}`]);
       // While Kiln holds the stop for a check or a resume, neither button can be pressed.
       const held = needsYouMessageSnapshot();
       held.needsYou!.checking = true;

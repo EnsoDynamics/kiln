@@ -1,5 +1,7 @@
 # Phase 2: Start from an existing branch, and catch an untouched branch up
 
+**Closed:** 2026-11-12
+
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "Architecture" (item 1), "Starting From a Branch", "Catching a Branch Up", "Interfaces" (`POST /api/settings`, `/api/start`, `bringUpToDate` on the session routes, the snapshot's `documents.start` and `needsYou.catchUp`, `--leave-branch-as-is`), "Data Models", "Changes to Earlier Designs" (the Kiln v1, Missing Worktree Recovery, Multi-Repo Delivery, Development Deployments and Continue Added Phases pointers)
 

@@ -150,6 +150,8 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       const instruction = { command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
         inputs: name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}) } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };
       if (flags["message-reviewed"]) Object.assign(instruction.inputs, { reviewed_receipt_ids: flags["message-reviewed"] });
+      // Run restart AC-CURRENT-01: the session-starting commands catch an untouched branch up unless told not to.
+      if (flags["leave-branch-as-is"]) Object.assign(instruction.inputs, { leave_branch: true });
       // The control route picks the recheck or Mark complete and fills in the check run and source (AC-WAIVE-05).
       if (waive) Object.assign(instruction.inputs, waiveInputs(flags));
       // Live target is resolved by the controller from the guarded status or original receipt.

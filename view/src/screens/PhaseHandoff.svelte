@@ -8,6 +8,7 @@
   import LaunchFound from "../components/LaunchFound.svelte";
   import StartAgainCard from "../components/StartAgainCard.svelte";
   import CarryOnCard from "../components/CarryOnCard.svelte";
+  import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
   import NothingToCheck from "../components/NothingToCheck.svelte";
   import type { ItemChange } from "../../../src/engine/waivers.js";
@@ -65,6 +66,9 @@
   // A stopped phase's case (run restart AC-CASE-01); a held page keeps today's headline.
   const restart = $derived(snapshot.liveControl ? undefined : caseHeadline(stop, activity, agent));
   const heldCarryOn = $derived(!!snapshot.liveControl && !!stop.carryOn);
+  // The catch-up offer, once above the ways to resolve the stop, covers every button that starts or resumes the phase (AC-CURRENT-01).
+  let catchUpTicked = $state(true);
+  const bringUpToDate = $derived(!snapshot.liveControl && !!stop.catchUp && catchUpTicked);
 
   /** Send reply & continue, Start again, or the carry-on card's Check again (run restart AC-CARRY-02, 05, AC-CASE-02). */
   async function restartAction(action: "carry" | "start" | "reopen") {
@@ -73,8 +77,8 @@
     const state = page;
     state.pending = action; state.feedback = undefined;
     if (action === "carry") lastAction = "carry";
-    const answer = action === "carry" ? await carryOn(config, { ...(state.draft.trim() ? { note: state.draft } : {}), target: target.live ?? target })
-      : action === "start" ? await startAgain(config) : await reopenCheckAgain(config);
+    const answer = action === "carry" ? await carryOn(config, { ...(state.draft.trim() ? { note: state.draft } : {}), target: target.live ?? target, ...(heldCarryOn ? {} : { bringUpToDate }) })
+      : action === "start" ? await startAgain(config, bringUpToDate) : await reopenCheckAgain(config);
     state.pending = undefined;
     if (!sameRecoveryTarget(connection?.snapshot?.needsYou?.phaseRecovery?.target, target)) return;
     if (!answer.ok) { state.feedback = answer.reason; state.unsent = !!state.draft; return; }
@@ -90,7 +94,7 @@
     if (action === "reply" || action === "resume") lastAction = action;
     if (action === "verify") { state.markChanges = undefined; state.markError = undefined; }
     const answer = action === "reply" || action === "resume"
-      ? await resumePhase(config, target, action === "reply" ? state.draft : undefined)
+      ? await resumePhase(config, target, action === "reply" ? state.draft : undefined, bringUpToDate)
       : await verifyPhase(config, target, action);
     state.pending = undefined;
     if (answer.ok && answer.outcome === "advanced" && connection && connection.snapshot?.billing?.executionId === target.executionId) {
@@ -207,10 +211,12 @@
       </div>
     </section>
   {:else if stop.case === "could_not_start" && stop.startAgain}
+    {@render catchUp()}
     <StartAgainCard activity={inSentence} work={stop.work} control={stop.startAgain} pending={page.pending === "start"} disabled={busy} reason={page.feedback} onpress={() => restartAction("start")} />
     {@render checkSection()}
   {:else if stop.carryOn && stop.reopen}
     <h2>How would you like to resolve this?</h2>
+    {@render catchUp()}
     <div class="peer-choices">
       <CarryOnCard {agent} activity={inSentence} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={busy} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
       <FreshTerminalCard {agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held={false} />
@@ -218,6 +224,7 @@
     {@render checkSection()}
   {:else}
     <h2>How would you like to resolve this?</h2>
+    {#if stop.resumeOffered}{@render catchUp()}{/if}
     <div class="peer-choices">
       <section class="card">
         {#if stop.resumeOffered}
@@ -284,6 +291,10 @@
   <BillingPanel {snapshot} {connected} />
   <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>
+
+{#snippet catchUp()}
+  {#if stop.catchUp && !snapshot.liveControl}<CatchUpOffer offer={stop.catchUp} where="stop" activity={inSentence} bind:ticked={catchUpTicked} disabled={busy} />{/if}
+{/snippet}
 
 <style>
   .handoff { max-width: 1120px; margin: auto; display: flex; flex-direction: column; gap: 20px; }

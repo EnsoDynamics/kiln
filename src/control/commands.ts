@@ -33,6 +33,8 @@ export interface Receipt {
   waiver_id?: string;
   /** `waive-and-advance` only: each item that changed when a `check_results_changed` rerun differed from the offered run (AC-WAIVE-04). */
   changes?: ItemChange[];
+  /** The four session-starting actions: what a catch-up moved before the session, empty when nothing did (run restart AC-CURRENT-01). */
+  branch_catch_up?: { repository: string; branch: string; from: string; to: string; commits: number }[];
 }
 /** The outcomes of `waive-and-advance` that advance the plan (waivers "Command line"). */
 export const WAIVE_ADVANCING_OUTCOMES = ["marked_complete", "checks_passed", "continued"];
@@ -71,10 +73,11 @@ export function validateInstruction(raw: unknown): Instruction {
   const r = raw as Record<string, unknown>;
   if (Object.keys(r).sort().join() !== ["action", "command_id", "execution_id", "inputs", "status_token"].join() || typeof r.command_id !== "string" || !/^[\w.-]{1,128}$/.test(r.command_id) || typeof r.execution_id !== "string" || !r.execution_id || typeof r.status_token !== "string" || !r.status_token || r.status_token.length > 512 || !ACTIONS.includes(r.action as Action) || !r.inputs || typeof r.inputs !== "object" || Array.isArray(r.inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
   const inputs = r.inputs as Record<string, unknown>; const keys = Object.keys(inputs).sort();
-  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids"], resume: ["live_target", "reviewed_receipt_ids"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids"], "start-again": [] };
+  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], resume: ["live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "start-again": ["leave_branch", "bring_up_to_date"] };
   if (keys.some(k => !allowed[r.action as Action].includes(k))) throw new ControlFailure("invalid_input", "Unexpected action input.", 2);
   if (inputs.reviewed_receipt_ids !== undefined && (!Array.isArray(inputs.reviewed_receipt_ids) || inputs.reviewed_receipt_ids.length > 50 || !inputs.reviewed_receipt_ids.every(id => typeof id === "string" && /^[\w.-]{1,128}$/.test(id)))) throw new ControlFailure("invalid_input", "Specify exact reviewed receipt IDs.", 2);
   if (inputs.live_target !== undefined && !validLiveTarget(inputs.live_target)) throw new ControlFailure("invalid_input", "Invalid live hand-back target.", 2);
+  if ([inputs.leave_branch, inputs.bring_up_to_date].some(value => value !== undefined && typeof value !== "boolean") || inputs.leave_branch === true && inputs.bring_up_to_date === true) throw new ControlFailure("invalid_input", "Choose whether to leave the branch as it is or bring it up to date, not both.", 2);
   if (validLiveTarget(inputs.live_target)) inputs.live_target = canonicalLiveTarget(inputs.live_target);
   if (["take-over", "message", "message-review"].includes(String(r.action))) {
     if (!validLiveTarget(inputs.target)) throw new ControlFailure("invalid_input", "An exact live target is required.", 2);

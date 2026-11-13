@@ -21,3 +21,8 @@ Nothing later; this is the last planned phase.
 
 ## Carried forward from Phase 1
 - AC-LOOK-01's `Superseded in part by:` pointer on AC-LOOK-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` was left for this phase: Phase 1 changes nothing on the Folder missing page, which gains only the reset line here. Phase 1 added AC-LOOK-01's other pointers.
+
+## Carried forward from Phase 2
+- Documents found's preview is `Engine.refreshStartPreview` (`src/engine/start-from.ts` `existingBranchPreview` and `newBranchPreview`), run inside `runFieldChecks`, so an event-stream connection (`checkBase`), a settings change and Start each recompute it. A reset's not-started engine gets it the same way; the start-check rerun before the field checks is this phase's.
+- The adopted-worktree rule AC-RESET-04 applies: an adopted worktree's uncommitted files are counted, and only files under the PRD's directory hold Start (`PreviewRepository.worktree.prdFiles`, the preview's `fieldError`).
+- A reset's fresh record has no `start`, so the starting point is computed again: an existing branch named `settings.featureBranch` selects A branch that already exists.

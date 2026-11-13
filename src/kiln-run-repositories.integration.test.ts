@@ -400,6 +400,8 @@ describe("kiln run on a PRD across repositories", () => {
     const kiln = startKiln(f);
     const address = await kiln.address;
     const token = await tokenOf(address);
+    // A branch with the default name selects A branch that already exists (run restart AC-FROM-01); a new branch is chosen here.
+    expect((await api(address, token, "POST", "/api/settings", { start: { from: "new", bringUpToDate: true } })).status).toBe(200);
     // AC-SPACE-01: the branch name must be free in every repository; the message names each it exists in.
     expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toMatchObject({
       status: 409,
@@ -799,5 +801,84 @@ describe("kiln run on a PRD across repositories", () => {
     expect(added).toBeLessThan(lines.findIndex((line) => line.includes("Starting phase 2b")));
     again.signals.emit("SIGINT");
     await again.done;
+  });
+});
+
+describe("starting several repositories on a branch that already exists (run restart AC-FROM-05)", () => {
+  it("uses the branch where a repository has it and cuts it elsewhere, with the existing worktrees fixing the workspace folder", async () => {
+    const f = createWorkspaceFeature([{ noInit: true, actions: [] }]);
+    const workspace = join(f.sandbox.root, "kept-workspace");
+    mkdirSync(workspace, { recursive: true });
+    // The PRD's repository and returns-api have the branch, each checked out at <W>/<name>; storefront doesn't have it.
+    for (const [name, checkout] of [["product", f.product], ["returns-api", f.code["returns-api"]!.checkout]] as const) {
+      git(f.sandbox, checkout, "worktree", "add", "-q", "-b", BRANCH, join(workspace, name));
+      git(f.sandbox, join(workspace, name), "push", "-q", "-u", "origin", BRANCH);
+    }
+    // Phase 1 was closed by hand on the PRD repository's branch.
+    const doc = join(workspace, "product", "docs", "prds", FOLDER, "phase-1-return-intake.md");
+    const lines = readFileSync(doc, "utf8").split("\n");
+    lines.splice(1, 0, "", "**Closed:** 2026-11-12");
+    writeFileSync(doc, lines.join("\n"));
+    git(f.sandbox, join(workspace, "product"), "commit", "-q", "-am", "docs: phase 1 closed by hand");
+    git(f.sandbox, join(workspace, "product"), "push", "-q", "origin", BRANCH);
+    const productTip = git(f.sandbox, join(workspace, "product"), "rev-parse", "HEAD").trim();
+
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    expect((await api(address, token, "POST", "/api/settings", { start: { from: "existing", bringUpToDate: true } })).status).toBe(200);
+    const snapshot = await snapshotOf(address, token);
+    const start = snapshot.documents!.start!;
+    expect(start).toMatchObject({ from: "existing", workspaceFolder: displayPath(workspace), planSource: { kind: "branch", branch: BRANCH, sha: productTip }, startAt: { id: "2b" } });
+    expect(start.repositories.map(repository => [repository.name, repository.hasBranch])).toEqual([["product", true], ["returns-api", true], ["storefront", false]]);
+    expect(snapshot.settings.fieldErrors).toEqual({});
+
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true, previewId: start.previewId })).toEqual({ status: 200, body: { ok: true } });
+    await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length > 0, 60_000);
+    const record = recordOf(f);
+    expect(record.settings.workspaceFolder).toBe(workspace);
+    const entries = Object.fromEntries(record.repositories.map(entry => [entry.name, entry]));
+    expect(entries.product).toMatchObject({ runStartCommit: productTip, adoptedWorktree: true, worktreePath: join(workspace, "product") });
+    expect(entries["returns-api"]).toMatchObject({ adoptedWorktree: true, worktreePath: join(workspace, "returns-api") });
+    expect(entries.storefront!.runStartCommit).toBeUndefined();
+    expect(entries.storefront).toMatchObject({ worktreePath: join(workspace, "storefront"), setupCompletedAt: expect.any(String) });
+    // storefront's branch was cut from its own base.
+    expect(git(f.sandbox, join(workspace, "storefront"), "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe(BRANCH);
+    const [call] = readJsonLines<{ prompt: string; cwd: string }>(`${f.scenarioPath}.calls.jsonl`);
+    expect(call!.prompt).toContain("phase-2b-store-credit.md");
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+});
+
+describe("a repository only the chosen branch's plan names (run restart AC-FROM-05, Which repositories)", () => {
+  it("lists it with its base, sets it up at Start, and leaves out a repository only the checkout's plan names", async () => {
+    // The checkout's plan names returns-api alone; on the branch, phase 3 names notifications instead.
+    const f = createWorkspaceFeature([{ noInit: true, actions: [] }], { "phase-1-return-intake.md": "**Repositories:** returns-api" });
+    git(f.sandbox, f.product, "switch", "-q", "-c", BRANCH);
+    const doc = join(f.product, "docs", "prds", FOLDER, "phase-3-returns-dashboard.md");
+    const [title, ...rest] = readFileSync(doc, "utf8").split("\n");
+    writeFileSync(doc, [title, "", "**Repositories:** notifications", ...rest].join("\n"));
+    const phase1 = join(f.product, "docs", "prds", FOLDER, "phase-1-return-intake.md");
+    writeFileSync(phase1, readFileSync(phase1, "utf8").replace("**Repositories:** returns-api", ""));
+    git(f.sandbox, f.product, "commit", "-q", "-am", "docs: the dashboard needs notifications");
+    git(f.sandbox, f.product, "push", "-q", "-u", "origin", BRANCH);
+    git(f.sandbox, f.product, "switch", "-q", "develop");
+
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    expect((await api(address, token, "POST", "/api/settings", { start: { from: "existing", bringUpToDate: true } })).status).toBe(200);
+    const snapshot = await snapshotOf(address, token);
+    expect(snapshot.feature.multiRepository).toBe(true);
+    expect(snapshot.repositories.map(row => [row.name, row.baseBranch])).toEqual([["product", "develop"], ["notifications", "main"]]);
+    expect(snapshot.settings.fieldErrors).toEqual({});
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true, previewId: snapshot.documents!.start!.previewId })).toEqual({ status: 200, body: { ok: true } });
+    await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length > 0, 60_000);
+    const record = recordOf(f);
+    expect(record.repositories.filter(entry => entry.setupCompletedAt).map(entry => entry.name)).toEqual(["product", "notifications"]);
+    expect(record.repositories.find(entry => entry.name === "notifications")).toMatchObject({ baseBranch: "main" });
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
   });
 });
