@@ -242,6 +242,24 @@ describe.each([1200, 390])("the catch-up offer at %ipx wide (AC-CURRENT-01, AC-L
       expect(body.indexOf("This branch is 4 commits behind")).toBeLessThan(body.indexOf("Reply here and let Kiln finish"));
       await click(page, "Have Kiln resume Phase 2b");
       await waitFor(() => server.commands.some(command => command.startsWith("POST /api/resume ") && command.includes('"bringUpToDate":true')));
+      // Send reply & resume carries the tick too.
+      await page.evaluate(`(() => { const input = document.querySelector('#phase-reply'); input.value = 'Merged now.'; input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await click(page, "Send reply & resume Phase 2b");
+      await waitFor(() => server.commands.some(command => command.startsWith("POST /api/resume ") && command.includes('"note":"Merged now."')));
+      const replied = server.commands.find(command => command.startsWith("POST /api/resume ") && command.includes('"note":"Merged now."'))!;
+      expect(JSON.parse(replied.slice("POST /api/resume ".length))).toMatchObject({ note: "Merged now.", bringUpToDate: true });
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it("covers Send reply & continue on the carry-on card", async () => {
+    const { server, page } = await open(stopped({ case: "built_nothing", conversationRanMs: 120_000, nothingToCheck: true, resumeOffered: false, reopen: { state: "unavailable", reason: "missing" }, carryOn: { available: true }, catchUp }, false, ["resumeCommand"]), width);
+    try {
+      await words(page, "This branch is 4 commits behind develop.");
+      await click(page, "Send reply & continue Phase 2b");
+      await waitFor(() => server.commands.some(command => command.startsWith("POST /api/carry-on ")));
+      const sent = server.commands.find(command => command.startsWith("POST /api/carry-on "))!;
+      expect(JSON.parse(sent.slice("POST /api/carry-on ".length))).toMatchObject({ bringUpToDate: true });
       expect(page.problems).toEqual([]);
     } finally { await page.close(); await server.close(); }
   });

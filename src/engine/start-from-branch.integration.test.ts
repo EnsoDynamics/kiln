@@ -14,6 +14,7 @@ import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import type { Engine } from "./engine.js";
 import { buildSnapshot, documentsFound } from "./snapshot.js";
 import { existingBranchPreview, readCatchUp, stoppedCatchUpOffer } from "./start-from.js";
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -63,7 +64,7 @@ function advanceDevelop(h: Harness, name: string) {
 const originTip = (h: Harness, branch: string) => git(h.sandbox, h.origin, "rev-parse", `refs/heads/${branch}`).trim();
 
 let commandNumber = 0;
-async function submit(engine: Engine, action: "start-again" | "resume" | "carry-on", inputs: Record<string, unknown> = {}): Promise<Receipt> {
+async function submit(engine: Engine, action: "start-again" | "resume" | "carry-on" | "reply" | "waive-and-advance", inputs: Record<string, unknown> = {}): Promise<Receipt> {
   const id = `from-${++commandNumber}`;
   const answer = engine.commands.submit({ command_id: id, execution_id: engine.record.executionId!, status_token: engine.controlView().token, action, inputs }, "caller", true);
   expect(answer.ok, JSON.stringify(answer.errors)).toBe(true);
@@ -698,5 +699,130 @@ describe("an existing-branch start keeps the repositories an earlier Start set u
     git(h.sandbox, worktree, "push", "-q", "origin", BRANCH);
     git(h.sandbox, worktree, "reset", "-q", "--hard", "HEAD~1");
     expect((await h.engine.refreshStartPreview())!.fieldError).toMatch(/^In returns-api: /);
+  });
+});
+
+describe("which branches get no catch-up offer, and which buttons and commands catch up (AC-CURRENT-01, test audit)", () => {
+  it("offers nothing at Start for a branch not behind its base, one with uncommitted files, or one with commits of its own", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    const offer = async () => { await h.engine.refreshStartPreview(); return h.engine.startPreview?.catchUp; };
+    // Level with its base: nothing to catch up.
+    expect(await offer()).toBeUndefined();
+    advanceDevelop(h, "one.txt");
+    expect(await offer()).toEqual({ repositories: [{ name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 }] });
+    // Checked out in a worktree with an uncommitted file, outside the PRD's directory: no offer.
+    const worktree = join(h.sandbox.root, "kept", "acme-shop");
+    git(h.sandbox, h.repository, "worktree", "add", "-q", worktree, BRANCH);
+    writeFileSync(join(worktree, "notes.txt"), "half a thought\n");
+    expect(await offer()).toBeUndefined();
+    rmSync(join(worktree, "notes.txt"));
+    expect(await offer()).toMatchObject({ repositories: [{ behind: 1 }] });
+    // A commit of its own, pushed: no offer, and Start leaves the branch where it is.
+    writeFileSync(join(worktree, "own.txt"), "own\n");
+    git(h.sandbox, worktree, "add", "own.txt"); git(h.sandbox, worktree, "commit", "-q", "-m", "own work");
+    git(h.sandbox, worktree, "push", "-q", "origin", BRANCH);
+    expect(await offer()).toBeUndefined();
+  });
+
+  it("offers nothing at a stop for a branch not behind, with an uncommitted file, or with commits of its own", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.stoppedPhase()).toBe("1");
+    const offer = async () => { await h.engine.refreshStoppedWork(); return buildSnapshot(h.engine).needsYou!.catchUp; };
+    expect(await offer()).toBeUndefined();
+    advanceDevelop(h, "merged-elsewhere.txt");
+    expect(await offer()).toMatchObject({ repositories: [{ behind: 1 }] });
+    const scratch = join(h.engine.worktreePath, "scratch.txt");
+    writeFileSync(scratch, "x\n");
+    expect(await offer()).toBeUndefined();
+    git(h.sandbox, h.engine.worktreePath, "add", "scratch.txt"); git(h.sandbox, h.engine.worktreePath, "commit", "-q", "-m", "own work");
+    expect(await offer()).toBeUndefined();
+  });
+
+  it("catches the branch up before kiln reply resumes the conversation", async () => {
+    const blocked: ScenarioSession = { actions: [{ skill: "enso-method:implement-from-requirements" }, { result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [blocked, exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    const developTip = advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    const receipt = await submit(h.engine, "reply", { message: "The import work is on develop now." });
+    expect(receipt.branch_catch_up, JSON.stringify(receipt)).toEqual([{ repository: "acme-shop", branch: BRANCH, from: before, to: developTip, commits: 1 }]);
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(developTip);
+    expect(originTip(h, BRANCH)).toBe(developTip);
+    const resumed = h.claudeCalls()[1]!;
+    expect(resumed.args).toContain("--resume");
+    expect(resumed.prompt).toContain(`moving it from ${before.slice(0, 7)} to ${developTip.slice(0, 7)}`);
+  });
+
+  it("catches the branch up before kiln carry-on starts its new session", async () => {
+    const unreopenable: ScenarioSession = { noTranscript: true, actions: [{ result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [unreopenable, exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(buildSnapshot(h.engine).needsYou!.carryOn).toMatchObject({ available: true });
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    const developTip = advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    const receipt = await submit(h.engine, "carry-on");
+    expect(receipt.branch_catch_up, JSON.stringify(receipt)).toEqual([{ repository: "acme-shop", branch: BRANCH, from: before, to: developTip, commits: 1 }]);
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(developTip);
+    expect(originTip(h, BRANCH)).toBe(developTip);
+    expect(h.claudeCalls()[1]!.args).not.toContain("--resume");
+    expect(h.claudeCalls()[1]!.prompt).toContain(`moving it from ${before.slice(0, 7)} to ${developTip.slice(0, 7)}`);
+  });
+
+  it("never catches up on Mark complete", async () => {
+    const blocked: ScenarioSession = { actions: [{ skill: "enso-method:implement-from-requirements" }, { result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [blocked, exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toMatchObject({ repositories: [{ behind: 1 }] });
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
+    const offer = h.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error("Mark complete not offered");
+    const receipt = await submit(h.engine, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" });
+    expect(receipt.outcome).toBe("marked_complete");
+    expect(receipt.branch_catch_up).toBeUndefined();
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
+    expect(originTip(h, BRANCH)).toBe(before);
+    expect(h.engine.record.branchCatchUps).toBeUndefined();
+  });
+
+  it("gives a held phase no offer, and a command at the hold doesn't move the branch", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toBeDefined();
+    // Held: a takeover pending on the phase's session.
+    const session = h.engine.latestSession("1")!;
+    h.engine.record.liveControl = { version: 1, revision: 1, takeover: { kind: "takeover", target: { activityKey: "1", sessionId: session.sessionId, attemptId: "missing", providerSessionId: session.sessionId }, operationId: "op", instructionId: "instruction", requestedAt: "2026-11-08T00:00:00Z", state: "pending", observedAt: "2026-11-08T00:00:00Z", reason: "Paused for takeover." } } as never;
+    await h.engine.refreshStoppedWork("1");
+    expect(h.engine.stoppedCatchUp?.offer).toBeUndefined();
+    const id = `held-${++commandNumber}`;
+    h.engine.commands.submit({ command_id: id, execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "start-again", inputs: { bring_up_to_date: true } }, "caller", true);
+    await h.engine.commands.settled();
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
+    expect(h.engine.record.branchCatchUps).toBeUndefined();
+    delete h.engine.record.liveControl;
   });
 });

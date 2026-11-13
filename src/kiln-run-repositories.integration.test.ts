@@ -851,6 +851,43 @@ describe("starting several repositories on a branch that already exists (run res
   });
 });
 
+describe("one catch-up offer over several repositories (run restart AC-CURRENT-01, test audit)", () => {
+  it("moves only the repository whose branch qualifies, gives its count, and leaves the one with commits of its own", async () => {
+    const f = createWorkspaceFeature([{ noInit: true, actions: [] }]);
+    // product's branch has a commit of its own; returns-api's is untouched and falls two behind develop.
+    git(f.sandbox, f.product, "switch", "-q", "-c", BRANCH);
+    writeFileSync(join(f.product, "own.txt"), "own\n");
+    git(f.sandbox, f.product, "add", "own.txt"); git(f.sandbox, f.product, "commit", "-q", "-m", "own work");
+    git(f.sandbox, f.product, "push", "-q", "-u", "origin", BRANCH);
+    const productTip = git(f.sandbox, f.product, "rev-parse", "HEAD").trim();
+    git(f.sandbox, f.product, "switch", "-q", "develop");
+    const apiCheckout = f.code["returns-api"]!.checkout;
+    git(f.sandbox, apiCheckout, "branch", BRANCH);
+    git(f.sandbox, apiCheckout, "push", "-q", "origin", BRANCH);
+    const apiBefore = git(f.sandbox, apiCheckout, "rev-parse", BRANCH).trim();
+    for (const name of ["a.txt", "b.txt"]) { writeFileSync(join(apiCheckout, name), `${name}\n`); git(f.sandbox, apiCheckout, "add", name); git(f.sandbox, apiCheckout, "commit", "-q", "-m", name); }
+    git(f.sandbox, apiCheckout, "push", "-q", "origin", "develop");
+    const apiDevelop = git(f.sandbox, apiCheckout, "rev-parse", "develop").trim();
+
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    expect((await api(address, token, "POST", "/api/settings", { start: { from: "existing", bringUpToDate: true } })).status).toBe(200);
+    const start = (await snapshotOf(address, token)).documents!.start!;
+    expect(start.catchUp).toEqual({ repositories: [{ name: "returns-api", branch: BRANCH, base: "develop", behind: 2 }] });
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true, previewId: start.previewId })).toEqual({ status: 200, body: { ok: true } });
+    await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length > 0, 60_000);
+    const remoteTip = (bare: string) => git(f.sandbox, bare, "rev-parse", `refs/heads/${BRANCH}`).trim();
+    expect(remoteTip(f.code["returns-api"]!.bare)).toBe(apiDevelop);
+    const productBare = git(f.sandbox, f.product, "remote", "get-url", "origin").trim();
+    expect(git(f.sandbox, f.product, "ls-remote", productBare, `refs/heads/${BRANCH}`).split("\t")[0]).toBe(productTip);
+    const record = recordOf(f);
+    expect(record.branchCatchUps).toEqual([expect.objectContaining({ repository: "returns-api", branch: BRANCH, from: apiBefore, to: apiDevelop, commits: 2 })]);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+});
+
 describe("a repository only the chosen branch's plan names (run restart AC-FROM-05, Which repositories)", () => {
   it("lists it with its base, sets it up at Start, and leaves out a repository only the checkout's plan names", async () => {
     // The checkout's plan names returns-api alone; on the branch, phase 3 names notifications instead.
