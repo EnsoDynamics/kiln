@@ -1,5 +1,7 @@
 # Phase 5: Complete starting from an existing branch
 
+**Closed:** 2026-11-13
+
 **Added by delivery audit:** 2026-11-12, after every planned phase closed. It builds what earlier phases left out of the criteria below, confirmed in the whole-PRD audit at `522e983`.
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "Starting From a Branch" (the branch list table, After Start), "Catching a Branch Up", "Interfaces" (the snapshot's `documents.start` and `needsYou.catchUp`)

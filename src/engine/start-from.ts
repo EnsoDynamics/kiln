@@ -54,7 +54,7 @@ export interface OtherPrdBranch { mainCheckoutPath: string; branch: string; feat
 
 /**
  * Every saved record under the state root, other than this PRD's, that is started: each repository
- * entry's main checkout with its feature branch and, for an earlier execution, its branch stem.
+ * entry's main checkout with its feature branch, its branch stem, and each earlier execution's branch.
  */
 export function otherStartedBranches(stateDirectory: string): OtherPrdBranch[] {
   const root = dirname(dirname(stateDirectory));
@@ -67,10 +67,11 @@ export function otherStartedBranches(stateDirectory: string): OtherPrdBranch[] {
     for (const prd of prds) {
       const directory = join(root, repository, prd);
       if (comparable(directory) === comparable(stateDirectory)) continue;
-      let record: { startedAt?: string; featureName?: string; branchStem?: string; settings?: { featureBranch?: string }; repositories?: { mainCheckoutPath?: string }[] };
+      let record: { startedAt?: string; featureName?: string; branchStem?: string; settings?: { featureBranch?: string }; repositories?: { mainCheckoutPath?: string }[]; continuation?: { executions?: { branch?: unknown }[] } };
       try { record = JSON.parse(readFileSync(join(directory, "prd.json"), "utf8")); } catch { continue; }
       if (!record?.startedAt || typeof record.settings?.featureBranch !== "string") continue;
-      const branches = [record.settings.featureBranch, ...(record.branchStem ? [record.branchStem] : [])];
+      const executionBranches = (record.continuation?.executions ?? []).map(row => row.branch).filter((branch): branch is string => typeof branch === "string");
+      const branches = [...new Set([record.settings.featureBranch, ...(record.branchStem ? [record.branchStem] : []), ...executionBranches])];
       for (const entry of record.repositories ?? []) {
         if (typeof entry.mainCheckoutPath !== "string") continue;
         for (const branch of branches) found.push({ mainCheckoutPath: entry.mainCheckoutPath, branch, featureName: record.featureName ?? prd });
@@ -166,7 +167,8 @@ export async function branchList(git: GitContext, repositories: StartRepository[
   return list;
 }
 
-export interface CatchUpOffer { base: string; repositories: { name: string; branch: string; behind: number }[] }
+/** One offer for every qualifying repository, each with its own base and how far behind it the branch is (AC-CURRENT-01). */
+export interface CatchUpOffer { repositories: { name: string; branch: string; base: string; behind: number }[] }
 
 /** A repository of the selection, with the preview's reads for the selected name. */
 export interface PreviewRepository extends StartRepository {
@@ -373,7 +375,7 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
   const prdFiles = prdRead.worktree?.prdFiles;
   if (prdFiles?.length) problems.push({ message: `${displayPath(prdRead.worktree!.path)} has uncommitted changes in the PRD's directory: ${joinNames(prdFiles)}. Commit or discard them in that worktree first.` });
   const qualifying = repositories.filter(repository => repository.qualifies);
-  const catchUp: CatchUpOffer | undefined = qualifying.length ? { base: prd.baseBranch, repositories: qualifying.map(repository => ({ name: repository.name, branch, behind: repository.behind! })) } : undefined;
+  const catchUp: CatchUpOffer | undefined = qualifying.length ? { repositories: qualifying.map(repository => ({ name: repository.name, branch, base: repository.baseBranch, behind: repository.behind! })) } : undefined;
   const leaves = plan ? leavesOf(plan) : [];
   const closedCount = leaves.filter(leaf => leaf.closed).length;
   const open = leaves.find(leaf => !leaf.closed);
@@ -417,6 +419,12 @@ export function newBranchPreview(branch: string, repositories: StartRepository[]
 export interface CatchUpTarget { name: string; mainCheckoutPath: string; worktreePath?: string; baseBranch: string }
 
 export interface CatchUpReading { name: string; base: string; baseTip: string; local?: string; origin?: string; ownCommits: number; behind: number; qualifies: boolean }
+
+/** A stopped phase's offer from each repository's reading: one row per qualifying repository, with its own base. */
+export function stoppedCatchUpOffer(readings: CatchUpReading[], branch: string): CatchUpOffer | undefined {
+  const qualifying = readings.filter(reading => reading.qualifies);
+  return qualifying.length ? { repositories: qualifying.map(reading => ({ name: reading.name, branch, base: reading.base, behind: reading.behind })) } : undefined;
+}
 
 /**
  * Whether a repository's branch qualifies (§Catching a Branch Up), read now: no commits of its own,

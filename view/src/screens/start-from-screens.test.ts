@@ -41,7 +41,7 @@ function untouchedBehind(): Snapshot {
         branches: [{ name: "feature/customer-returns", available: true }, { name: "feature/old-try", available: true }],
         planSource: { kind: "base_after_catch_up", branch: "develop", sha: SHA },
         repositories: [{ name: "acme-shop", hasBranch: true, worktree: { path: "~/work/.worktrees/customer-returns/acme-shop", adopted: true, uncommittedFiles: 0 } }],
-        closedCount: 0, catchUp: { base: "develop", repositories: [{ name: "acme-shop", branch: "feature/customer-returns", behind: 4 }] },
+        closedCount: 0, catchUp: { repositories: [{ name: "acme-shop", branch: "feature/customer-returns", base: "develop", behind: 4 }] },
       },
     },
   });
@@ -122,5 +122,58 @@ describe("Documents found on an untouched branch behind its base (AC-FROM-03 row
     const words = text(html(snapshot));
     expect(words).not.toContain("as ticked above");
     expect(words).toContain("Read from feature/customer-returns");
+  });
+});
+
+describe("Documents found with an unavailable existing branch selected (AC-FROM-01)", () => {
+  it("still reads PR into, with the branch's reason under Feature branch", () => {
+    const snapshot = builtByHand();
+    snapshot.settings.fieldErrors.featureBranch = "That branch is the feature branch of Other returns, which Kiln has started. Choose another branch.";
+    snapshot.documents!.start!.repositories = [{ name: "acme-shop", hasBranch: false }];
+    const words = text(html(snapshot));
+    expect(words).toMatch(/PR into develop/);
+    expect(words).not.toContain("Branch from, and PR into");
+    expect(words).toContain("Other returns, which Kiln has started");
+  });
+});
+
+describe("Starting lets Kiln with development deployments on (AC-FROM-04)", () => {
+  it("names the branch's open pull request beside the early-merge line", () => {
+    const snapshot = builtByHand();
+    snapshot.settings.developmentDeployments = { enabled: true, targets: [] };
+    const words = text(html(snapshot));
+    expect(words).toContain("Commit and push to feature/receipts-by-hand Use its open pull request into develop , #48 , for the work that stays open Early merges may happen on approved repository branches; remaining work stays open for review");
+  });
+
+  it("names a pull request read that failed, too", () => {
+    const snapshot = builtByHand();
+    snapshot.settings.developmentDeployments = { enabled: true, targets: [] };
+    snapshot.documents!.start!.repositories = [{ name: "acme-shop", hasBranch: true, pullRequest: { unknown: "Kiln couldn't read acme/acme-shop's pull requests: offline" } }];
+    expect(text(html(snapshot))).toContain("Use its open pull request into develop , or open one, for the work that stays open. Kiln couldn't read acme/acme-shop's pull requests: offline");
+  });
+});
+
+describe("one catch-up offer across repositories with different bases (AC-CURRENT-01)", () => {
+  it("names each repository's own base", () => {
+    const snapshot = untouchedBehind();
+    snapshot.feature.multiRepository = true;
+    snapshot.documents!.start!.catchUp = { repositories: [
+      { name: "acme-shop", branch: "feature/customer-returns", base: "develop", behind: 4 },
+      { name: "acme-api", branch: "feature/customer-returns", base: "main", behind: 2 },
+    ] };
+    const words = text(html(snapshot));
+    expect(words).toContain("In acme-shop , the branch is 4 commits behind develop . In acme-api , the branch is 2 commits behind main . Bring the branch up to date with each repository’s base first");
+  });
+
+  it("names the one base in the box when every repository shares it", () => {
+    const snapshot = untouchedBehind();
+    snapshot.feature.multiRepository = true;
+    snapshot.documents!.start!.catchUp = { repositories: [
+      { name: "acme-shop", branch: "feature/customer-returns", base: "develop", behind: 4 },
+      { name: "acme-api", branch: "feature/customer-returns", base: "develop", behind: 2 },
+    ] };
+    const words = text(html(snapshot));
+    expect(words).toContain("In acme-api , the branch is 2 commits behind develop . Bring the branch up to date with develop first");
+    expect(words).not.toContain("each repository’s base first");
   });
 });

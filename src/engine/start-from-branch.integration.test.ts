@@ -8,9 +8,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Receipt } from "../control/commands.js";
 import { readPlanAt } from "./plan-reading.js";
 import { createHarness, landingSession, pullRequestSession, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
-import { git } from "../test-support/git-repositories.js";
+import { createBareOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import type { Engine } from "./engine.js";
 import { buildSnapshot, documentsFound } from "./snapshot.js";
+import { existingBranchPreview, readCatchUp, stoppedCatchUpOffer } from "./start-from.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -138,7 +139,7 @@ describe("an untouched branch behind its base (AC-CURRENT-01 at Start)", () => {
 
     await h.engine.refreshStartPreview();
     const snapshot = buildSnapshot(h.engine, checkoutDocuments(h));
-    expect(snapshot.documents!.start).toMatchObject({ from: "existing", bringUpToDate: true, catchUp: { base: "develop", repositories: [{ name: "acme-shop", branch: BRANCH, behind: 2 }] }, planSource: { kind: "base_after_catch_up", branch: "develop", sha: developTip } });
+    expect(snapshot.documents!.start).toMatchObject({ from: "existing", bringUpToDate: true, catchUp: { repositories: [{ name: "acme-shop", branch: BRANCH, base: "develop", behind: 2 }] }, planSource: { kind: "base_after_catch_up", branch: "develop", sha: developTip } });
 
     expect(await h.engine.start({ refinementConfirmed: true, previewId: snapshot.documents!.start!.previewId })).toEqual({ ok: true });
     // The fast-forward and the push happened before any session (AC-CURRENT-01).
@@ -199,6 +200,11 @@ describe("which branches can be chosen (AC-FROM-03)", () => {
     writeFileSync(join(other, "prd.json"), JSON.stringify({ startedAt: "2026-11-12T00:00:00Z", featureName: "Other returns", settings: { featureBranch: "taken-elsewhere" }, repositories: [{ mainCheckoutPath: h.repository }] }));
     git(h.sandbox, h.repository, "branch", "taken-elsewhere");
     expect(await reasonFor("taken-elsewhere")).toBe("That branch is the feature branch of Other returns, which Kiln has started. Choose another branch.");
+    // An earlier execution's branch of another started PRD is that PRD's too, and listed unavailable.
+    writeFileSync(join(other, "prd.json"), JSON.stringify({ startedAt: "2026-11-12T00:00:00Z", featureName: "Other returns", settings: { featureBranch: "taken-elsewhere" }, repositories: [{ mainCheckoutPath: h.repository }], continuation: { executions: [{ executionId: "e1", archiveId: "a1", branch: "earlier-execution", deliveries: [] }] } }));
+    git(h.sandbox, h.repository, "branch", "earlier-execution");
+    expect(await reasonFor("earlier-execution")).toBe("That branch is the feature branch of Other returns, which Kiln has started. Choose another branch.");
+    expect(h.engine.branchChoices!.find(choice => choice.name === "earlier-execution")).toMatchObject({ name: "earlier-execution", available: false });
     // A worktree git left half made.
     const half = join(h.sandbox.root, "half-made");
     git(h.sandbox, h.repository, "worktree", "add", "-q", "-b", "half", half);
@@ -264,6 +270,41 @@ describe("which branches can be chosen (AC-FROM-03)", () => {
   });
 });
 
+describe("one catch-up offer for repositories with different bases (AC-CURRENT-01, several repositories)", () => {
+  it("names each repository's own base, at Start and at a stop", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    advanceDevelop(h, "develop-only.txt");
+    // A second repository whose base is main, with the same untouched branch two commits behind it.
+    const api = createRepository(h.sandbox, "acme-api", createBareOrigin(h.sandbox, "acme-api"));
+    git(h.sandbox, api, "branch", "-m", "main");
+    git(h.sandbox, api, "branch", BRANCH);
+    for (const name of ["a.txt", "b.txt"]) { writeFileSync(join(api, name), `${name}\n`); git(h.sandbox, api, "add", name); git(h.sandbox, api, "commit", "-q", "-m", name); }
+    git(h.sandbox, api, "push", "-q", "origin", "main", BRANCH);
+    const context = { git: h.tools.git, env: h.env };
+    const preview = await existingBranchPreview({
+      git: context, gh: h.tools.gh, env: h.env, prdDirectoryFromRoot: DIRECTORY, branch: BRANCH, bringUpToDate: true,
+      repositories: [
+        { name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" },
+        { name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "main" },
+      ],
+      find: async () => ({ ok: false, problem: "not looked up" }), baseOf: () => "", others: [],
+    });
+    expect(preview.catchUp).toEqual({ repositories: [
+      { name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 },
+      { name: "acme-api", branch: BRANCH, base: "main", behind: 2 },
+    ] });
+    // A stopped phase's offer is built from each repository's own reading, the way the engine builds it.
+    const readings = [
+      await readCatchUp(context, { name: "acme-shop", mainCheckoutPath: h.repository, baseBranch: "develop" }, BRANCH),
+      await readCatchUp(context, { name: "acme-api", mainCheckoutPath: api, baseBranch: "main" }, BRANCH),
+    ];
+    expect(stoppedCatchUpOffer(readings, BRANCH)).toEqual(preview.catchUp);
+  });
+});
+
 describe("a stopped phase's untouched branch (AC-CURRENT-01 at a stop)", () => {
   it("offers the catch-up with the stop, refuses a ticked press once the branch no longer qualifies, and catches up before a command starts the session", async () => {
     harness = await createHarness({ sessions: [exitsBeforeInit, landingSession("src/intake.txt")] });
@@ -273,7 +314,7 @@ describe("a stopped phase's untouched branch (AC-CURRENT-01 at a stop)", () => {
     expect(h.engine.stoppedPhase()).toBe("1");
     const developTip = advanceDevelop(h, "merged-elsewhere.txt");
     await h.engine.refreshStoppedWork();
-    expect(buildSnapshot(h.engine).needsYou!.catchUp).toEqual({ base: "develop", repositories: [{ name: "acme-shop", branch: BRANCH, behind: 1 }] });
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toEqual({ repositories: [{ name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 }] });
 
     // Ticked on the page, but the branch has an uncommitted file now: nothing starts (branch_changed).
     const scratch = join(h.engine.worktreePath, "scratch.txt");

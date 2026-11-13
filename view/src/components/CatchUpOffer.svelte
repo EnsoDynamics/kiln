@@ -8,19 +8,21 @@
   let { offer, where, activity, ticked = $bindable(true), disabled = false, onchange }: { offer: CatchUpOffer; where: "start" | "stop"; activity?: string; ticked?: boolean; disabled?: boolean; onchange?: (ticked: boolean) => void } = $props();
   const commits = (count: number) => `${count} ${count === 1 ? "commit" : "commits"}`;
   const multi = $derived(offer.repositories.length > 1);
+  // Each repository is named with its own base; the box names the base only when every repository shares it.
+  const bases = $derived([...new Set(offer.repositories.map((repository) => repository.base))]);
 </script>
 
 <div class="offer" class:stop={where === "stop"}>
   {#if multi}
     {#each offer.repositories as repository (repository.name)}
-      <span class="behind">In <span class="mono">{repository.name}</span>, the branch is {commits(repository.behind)} behind <code>{offer.base}</code>.</span>
+      <span class="behind">In <span class="mono">{repository.name}</span>, the branch is {commits(repository.behind)} behind <code>{repository.base}</code>.</span>
     {/each}
   {:else}
-    <span class="behind">This branch is {commits(offer.repositories[0]!.behind)} behind <code>{offer.base}</code>.</span>
+    <span class="behind">This branch is {commits(offer.repositories[0]!.behind)} behind <code>{offer.repositories[0]!.base}</code>.</span>
   {/if}
   <label class="tick">
     <input type="checkbox" checked={ticked} {disabled} onchange={(event) => { ticked = event.currentTarget.checked; onchange?.(ticked); }} />
-    <span class="text"><span>Bring the branch up to date with <code>{offer.base}</code> first</span><span class="help">Offered because the branch has no commits of its own and nothing uncommitted, so nothing can be lost or overwritten. {where === "start" ? "Kiln does this when you press Start." : `Kiln does this when a button below starts or resumes ${activity ?? "the phase"}.`}</span></span>
+    <span class="text"><span>{#if bases.length === 1}Bring the branch up to date with <code>{bases[0]}</code> first{:else}Bring the branch up to date with each repository’s base first{/if}</span><span class="help">Offered because the branch has no commits of its own and nothing uncommitted, so nothing can be lost or overwritten. {where === "start" ? "Kiln does this when you press Start." : `Kiln does this when a button below starts or resumes ${activity ?? "the phase"}.`}</span></span>
   </label>
 </div>
 

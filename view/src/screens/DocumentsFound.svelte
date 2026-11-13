@@ -303,7 +303,7 @@
               {#if settings.fieldErrors.featureBranch}<span class="message">{settings.fieldErrors.featureBranch}</span>{/if}
             </div>
             <div class="field">
-              <label for="base">{existing && prdStart?.hasBranch ? "PR into" : "Branch from, and PR into"}</label>
+              <label for="base">{existing ? "PR into" : "Branch from, and PR into"}</label>
               <select id="base" class="mono" value={settings.baseBranch} disabled={fixedLocked || prdRow?.fixed === true} onchange={(event) => save({ baseBranch: event.currentTarget.value })}>
                 {#if settings.baseBranch === ""}<option value=""></option>{/if}
                 {#each baseChoices as base (base)}<option value={base}>{base}</option>{/each}
@@ -393,8 +393,9 @@
           {#if existing}{#each startFrom?.repositories.filter((repository) => repository.pullRequest) ?? [] as repository (repository.name)}<li>{@render check(14, true)}<span>{#if repository.pullRequest && "number" in repository.pullRequest}In <span class="mono code">{repository.name}</span>, use its open pull request <a href={repository.pullRequest.url}>#{repository.pullRequest.number}</a>{:else}In <span class="mono code">{repository.name}</span>: {repository.pullRequest && "unknown" in repository.pullRequest ? repository.pullRequest.unknown : ""}{/if}</span></li>{/each}{/if}
           <li>{@render check(14, true)}<span>{settings.developmentDeployments?.enabled ? "Early merges may happen on approved repository branches; remaining work stays open for review" : "In each repository, open one pull request into its base branch once every phase closes"}</span></li>
         {:else}
-          {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code">{settings.featureBranch}</span> up to date with <span class="mono code">{offer.base}</span>, as ticked above</span></li>{/if}
+          {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code">{settings.featureBranch}</span> up to date with <span class="mono code">{offer.repositories[0]!.base}</span>, as ticked above</span></li>{/if}
           <li>{@render check(14, true)}<span>Commit and push to <span class="mono code">{settings.featureBranch}</span></span></li>
+          {#if settings.developmentDeployments?.enabled && pullRequest}<li>{@render check(14, true)}<span>{#if "number" in pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, <a href={pullRequest.url}>#{pullRequest.number}</a>, for the work that stays open{:else}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, or open one, for the work that stays open. {pullRequest.unknown}{/if}</span></li>{/if}
           <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Early merges may happen on approved repository branches; remaining work stays open for review{:else if pullRequest && "number" in pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, <a href={pullRequest.url}>#{pullRequest.number}</a>, once every phase closes{:else if pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, or open one, once every phase closes. {pullRequest.unknown}{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
         {/if}
         <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Early merges only into approved repository branches; no unrelated or destructive actions" : "Never merge, deploy, or touch other branches"}</span></li>

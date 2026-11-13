@@ -176,7 +176,7 @@ import {
   type PlannedRepository,
   type RepositoryPaths,
 } from "./worktree-setup.js";
-import { branchList, catchUpRepository, catchUpSentence, existingBranchPreview, newBranchPreview, otherStartedBranches, readCatchUp, readRepositoryRefs, uncommittedFiles, type BranchChoice, type CatchUpOffer, type StartPreview, type StartRepository } from "./start-from.js";
+import { branchList, catchUpRepository, catchUpSentence, existingBranchPreview, newBranchPreview, otherStartedBranches, readCatchUp, readRepositoryRefs, stoppedCatchUpOffer, uncommittedFiles, type BranchChoice, type CatchUpOffer, type StartPreview, type StartRepository } from "./start-from.js";
 import { ensureObjects, gitError, isAncestor, shortSha } from "./git-reads.js";
 
 export interface EngineTools {
@@ -6563,8 +6563,7 @@ export class Engine {
     if (this.record.liveControl) return undefined;
     const branch = this.record.settings.featureBranch;
     const readings = await Promise.all(this.setUpRepositories.map(entry => readCatchUp(this.git, { name: entry.name, mainCheckoutPath: entry.mainCheckoutPath, worktreePath: entry.worktreePath, baseBranch: entry.baseBranch }, branch)));
-    const qualifying = readings.filter(reading => reading.qualifies);
-    return qualifying.length ? { base: this.setUpRepositories[0]!.baseBranch, repositories: qualifying.map(reading => ({ name: reading.name, branch, behind: reading.behind })) } : undefined;
+    return stoppedCatchUpOffer(readings, branch);
   }
 
   /**

@@ -198,7 +198,7 @@ describe.each([1200, 390])("at %ipx wide", width => {
 });
 
 describe.each([1200, 390])("the catch-up offer at %ipx wide (AC-CURRENT-01, AC-LOOK-01)", width => {
-  const catchUp = { base: "develop", repositories: [{ name: "acme-shop", branch: "feature/customer-returns", behind: 4 }] };
+  const catchUp = { repositories: [{ name: "acme-shop", branch: "feature/customer-returns", base: "develop", behind: 4 }] };
   it("shows once, above the ways to resolve the stop, ticked, and the buttons send it", async () => {
     const { server, page } = await open(stopped({ case: "could_not_start", launchFailure, startAgain: { available: true }, nothingToCheck: true, resumeOffered: false, catchUp }, false, ["finalMessage", "resumeCommand"]), width);
     try {

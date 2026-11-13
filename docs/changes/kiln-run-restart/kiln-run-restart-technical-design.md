@@ -419,7 +419,7 @@ needsYou: adds
   catchUp?: CatchUpOffer                                      // read with work; absent until the first read finishes, or when it fails (§Catching a Branch Up)
   markComplete: adds builtNothing?: true
 
-CatchUpOffer: { base: string, repositories: [{ name, branch, behind: number }] }
+CatchUpOffer: { repositories: [{ name, branch, base, behind: number }] }   // each repository its own base; the box names the base when all share one, else "each repository’s base"
 
 reset?: { available: boolean, reason?: string }                // started PRDs only; present means the reset line shows (§Reset, Availability)
 liveControl.takeover: adds history?: ReopenCheck
