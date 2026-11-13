@@ -32,6 +32,7 @@ import { classify, readInventory, type BillingSummary } from "../billing/inspect
 import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, resolveAuditSkill, effectiveAudit, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
+import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt } from "../session/prompts.js";
 import { assignAuditObligations } from "./development-owners.js";
 import type { AuditActivity, AuditKind } from "../audit/contracts.js";
@@ -2623,7 +2624,7 @@ export class Engine {
         if (!authority || authority.id !== acceptance.pendingAuthorityId || authority.executionId !== acceptance.newExecutionId || authority.scopeDigest !== acceptance.proposal.scopeDigest || authority.state === "superseded") throw new Error("The accepted target authority is unavailable; no work can start.");
 
       }
-      const archiveRow = { executionId: acceptance.completedExecutionId, archiveId: acceptance.archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), completedAt: old.completedAt!, branch: old.settings.featureBranch, deliveries: executionDeliveries(old) };
+      const archiveRow = { executionId: acceptance.completedExecutionId, archiveId: acceptance.archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), completedAt: old.completedAt!, branch: old.settings.featureBranch, deliveries: executionDeliveries(old), ...this.executionRunningMs(old.completedAt!) };
       acceptance.state = "active"; acceptance.activatedAt = this.now().toISOString(); delete acceptance.reason;
       this.writeContinuationMetadata(() => writeAcceptance(this.stateDirectory, acceptance));
       const continuation = structuredClone(old.continuation!);
@@ -3161,7 +3162,7 @@ export class Engine {
     const old = this.record;
     const at = this.now().toISOString();
     const archiveId = retainExecution(this.stateDirectory, old);
-    const archiveRow: ExecutionSummary = { executionId: old.executionId!, archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), branch: old.settings.featureBranch, deliveries: executionDeliveries(old), endedAt: at, ending: "folder_missing_setup" };
+    const archiveRow: ExecutionSummary = { executionId: old.executionId!, archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), branch: old.settings.featureBranch, deliveries: executionDeliveries(old), endedAt: at, ending: "folder_missing_setup", ...this.executionRunningMs(at) };
     // Each done leaf's receipt, built as plan reconciliation builds it; no completion revision is re-read (AC-SETUP-04).
     const earlier = old.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, old.planReconciliation.baselineId) : undefined;
     const prd = intent.repositories.find(repository => repository.kind === "prd")!;
@@ -6086,6 +6087,30 @@ export class Engine {
   /** A run's last output time: its last saved event's arrival, or its start when it saved none. */
   runLastOutputAt(session: SessionRecord, runIndex: number): string | undefined {
     return runLastOutputAt(this.options.stateDirectory, session, runIndex);
+  }
+
+  /**
+   * The recorded runs of the sessions under `keys`, a run Kiln is no longer running closed at its
+   * last output, and whether one is running now (Kiln v1 AC-WATCH-01; time totals AC-TOTAL-02).
+   */
+  sessionRuns(keys: string[]): { runs: Pick<SessionRun, "startedAt" | "endedAt" | "interruptedAt">[]; running: boolean } {
+    let running = false;
+    const runs = keys.flatMap(key => (this.record.phases[key]?.sessionIds ?? []).flatMap(id => {
+      const session = this.sessionRecord(key, id);
+      if (!session) return [];
+      return session.runs.map((run, index) => {
+        const live = this.current?.session?.sessionId === id && this.current.processRunning && index === session.runs.length - 1 && !run.endedAt && !run.interruptedAt;
+        running ||= live;
+        return { ...run, ...(!live && !run.endedAt && !run.interruptedAt ? { endedAt: this.runLastOutputAt(session, index) ?? run.startedAt } : {}) };
+      });
+    }));
+    return { runs, running };
+  }
+
+  /** This execution's running time up to `until`, saved on its row when it is archived (time totals AC-TOTAL-02). */
+  private executionRunningMs(until: string): { runningMs?: number } {
+    if (!this.record.startedAt) return {};
+    return { runningMs: runTiming(this.sessionRuns(Object.keys(this.record.phases)).runs, this.record.startedAt, until).runningMs };
   }
 
   /** Every output line of a session saved so far. */

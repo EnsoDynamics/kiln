@@ -74,9 +74,11 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
  * Complete's timing advances neither, and gives the span instead of "since".
  */
 export function headerTotals(feature: Snapshot["feature"], now: Date): HeaderTotals | undefined {
-  if (!feature.timing || !feature.startedAt) return undefined;
+  // Earlier executions count too, from the first start (time totals AC-TOTAL-02).
+  const start = feature.timingSince ?? feature.startedAt;
+  if (!feature.timing || !start) return undefined;
   const { running, waiting } = timingAt(feature.timing, now.getTime());
-  const since = feature.state === "complete" && feature.completedAt ? timeSpan(feature.startedAt, feature.completedAt, now) : `since ${clockTime(feature.startedAt, now, { afterWord: true })}`;
+  const since = feature.state === "complete" && feature.completedAt ? timeSpan(start, feature.completedAt, now) : `since ${clockTime(start, now, { afterWord: true })}`;
   return { running: shortDuration(running), waiting: shortDuration(waiting), since };
 }
 

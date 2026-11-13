@@ -54,6 +54,16 @@ describe("the header", () => {
       expect(state.totals).toEqual({ running: "4h 40m", waiting: "58m", since: "9:17 AM to 2:55 PM" });
     });
 
+    it("counts from the first execution's start when the totals include earlier executions (AC-TOTAL-02)", () => {
+      const snapshot = runningSnapshot();
+      snapshot.feature.timingSince = "2026-10-14T13:02:00Z";
+      snapshot.feature.timing = { runningMs: 0, waitingMs: 0, asOf, advancing: "waiting" };
+      expect(headerState(snapshot, true, now).totals?.since).toBe("since Wed 9:02 AM");
+      const complete = completeSnapshot();
+      complete.feature.timingSince = "2026-10-17T11:00:00Z";
+      expect(headerState(complete, true, later).totals?.since).toBe("7:00 AM to 2:55 PM");
+    });
+
     it("shows no line before anything has run, or while a folder is missing", () => {
       expect(headerState(runningSnapshot(), true, now).totals).toBeUndefined();
       const missing = runningSnapshot();

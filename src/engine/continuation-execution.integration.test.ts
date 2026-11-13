@@ -254,6 +254,8 @@ it("offers Not now and a fresh choice in the real browser, then retains readable
     }
     const history = await (await get("/api/executions")).json() as { executions: { executionId: string; completedAt: string }[] };
     expect(history.executions).toMatchObject([{ executionId: oldId, completedAt: "2026-10-01T12:00:00Z" }]);
+    // Its running time is saved with it, for the PRD total (time totals AC-TOTAL-02).
+    expect(h.engine.record.continuation!.executions[0]!.runningMs).toBeGreaterThanOrEqual(0);
     expect(JSON.stringify(history)).not.toContain(h.engine.record.token);
     expect((await get(`/api/sessions/${legacy.sessionId}/output`)).status).toBe(404);
     const old = await (await get(`/api/executions/${oldId}`)).json() as { execution: { phases: { doneAt: string }[]; sessions: { phaseKey: string; sessionId: string }[] } };

@@ -6,6 +6,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { ContinuationState } from "../engine/continuation-state.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
 import { startFixtureController } from "../test-support/controller-server.js";
@@ -106,6 +107,19 @@ describe("the PRD total over a whole run (AC-TOTAL-02)", () => {
     const rowsWaiting = snapshot.phases.reduce((sum, row) => sum + (row.timing?.waitingMs ?? 0), 0);
     expect(snapshot.feature.timing!.waitingMs).toBeGreaterThanOrEqual(rowsWaiting);
     expect(elapsed - running).toBeGreaterThan(0);
+
+    // Earlier executions' saved running time adds in, counted from the first start among them;
+    // one archived before Kiln saved its running time ends the count (time totals AC-TOTAL-02).
+    const row = (id: string, startedAt: string, runningMs?: number) => ({ executionId: id, archiveId: id.repeat(64).slice(0, 64), startedAt, completedAt: engine.record.startedAt!, branch: "feature/proof", deliveries: [], ...(runningMs === undefined ? {} : { runningMs }) });
+    const first = new Date(Date.parse(engine.record.startedAt!) - 3 * 3_600_000).toISOString();
+    const second = new Date(Date.parse(engine.record.startedAt!) - 3_600_000).toISOString();
+    engine.record.continuation = { formatVersion: 1, journalIndexed: true, acceptances: [], executions: [row("a", first, 600_000), row("b", second, 900_000)] } as unknown as ContinuationState;
+    const total = buildSnapshot(engine).feature;
+    const since = Date.parse(engine.record.completedAt!) - Date.parse(first);
+    expect(total.timing).toEqual({ runningMs: running + 1_500_000, waitingMs: since - running - 1_500_000, asOf: engine.record.completedAt });
+    expect(total.timingSince).toBe(first);
+    engine.record.continuation!.executions[0] = row("a", first) as never;
+    expect(buildSnapshot(engine).feature).toMatchObject({ timing: { runningMs: running + 900_000 }, timingSince: second });
   });
 });
 
