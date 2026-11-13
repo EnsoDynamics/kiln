@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "b696de20-0ca6-44cd-a146-f102328dfc0a",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The whole-PRD delivery audit of Kiln Run Restart at 8ae36f3 found 4 of 23 criteria not fully built, with five small missing parts. AC-CASE-04: a stopped phase that can't be resumed shows last lines instead of its last message. AC-CARRY-06: kiln carry-on --message-reviewed is refused on a held phase before the acknowledgements are applied. AC-FROM-05: a multi-repository row loses PR into when the chosen name is unavailable. AC-LOOK-01: Documents found's plan-source box and side-by-side Start from choices are not laid out as drawn. Phase 6 builds them. Two rounds ran; the second confirmed no new gap. No criterion was amended and no behavior was found changed outside the requirements.",
+  "completionPhases": ["6"],
+  "needsYou": [],
+  "settled": []
+}
