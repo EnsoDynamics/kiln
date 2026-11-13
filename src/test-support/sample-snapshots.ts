@@ -297,6 +297,12 @@ export function needsYouCrashedSnapshot(): Snapshot {
   });
 }
 
+/**
+ * Complete's PRD totals (time totals AC-TOTAL-02): the phase rows' 5h 37m of sessions, and the
+ * minute between phases 2a and 2b, from 9:17 AM to 2:55 PM.
+ */
+const COMPLETE_TIMING = { runningMs: 337 * 60_000, waitingMs: 60_000, asOf: "2026-10-17T18:55:00Z" };
+
 /** Complete: pull request #218 ready for review at 2:55 PM. */
 export function completeSnapshot(): Snapshot {
   const done = (phase: { id: string; title: string; file: string }, from: string, to: string, sha: string, commits: number, sessionId: string, byPerson: boolean): PhaseView => ({
@@ -309,7 +315,7 @@ export function completeSnapshot(): Snapshot {
     details: details(from, to, "high", commits, sha, sessionId),
   });
   return underway({
-    feature: { ...FEATURE, state: "complete", phasesDone: 5, completedAt: "2026-10-17T18:55:00Z" },
+    feature: { ...FEATURE, state: "complete", phasesDone: 5, completedAt: "2026-10-17T18:55:00Z", timing: COMPLETE_TIMING },
     phases: [
       PHASE_1,
       PHASE_2,
@@ -400,7 +406,7 @@ const MULTI_PHASE_2A = multiDone(PHASE_2A, "2026-10-17T14:09:00Z", "2026-10-17T1
 export function completeRepositoriesSnapshot(): Snapshot {
   const github = (repository: string, number: number) => `https://github.com/acme/${repository}/pull/${number}`;
   return multiUnderway({
-    feature: { ...MULTI_FEATURE, state: "complete", phasesDone: 5, completedAt: "2026-10-17T18:55:00Z" },
+    feature: { ...MULTI_FEATURE, state: "complete", phasesDone: 5, completedAt: "2026-10-17T18:55:00Z", timing: COMPLETE_TIMING },
     phases: [
       MULTI_PHASE_1,
       PHASE_2,

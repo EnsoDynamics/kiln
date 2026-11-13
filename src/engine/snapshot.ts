@@ -466,7 +466,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
-      ...(includeTiming ? optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)) : {}),
+      // Delivery can reopen a completed PRD and leave completedAt set; its totals keep counting until it is complete again (time totals AC-TOTAL-03).
+      ...(includeTiming ? optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, state === "complete" ? record.completedAt : undefined)) : {}),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),

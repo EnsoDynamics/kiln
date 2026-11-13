@@ -20,7 +20,47 @@ describe("the header", () => {
     expect(headerState(runningSnapshot(), true, now)).toEqual({ kind: "implementing", label: "Implementing phase 2b", facts: ["2 of 5 phases done"] });
     expect(headerState(pausedSnapshot(), true, now)).toEqual({ kind: "paused", label: "Paused", facts: ["2 of 5 phases done"] });
     expect(headerState(needsYouMessageSnapshot(), true, now)).toEqual({ kind: "needs_you", label: "Needs you", facts: ["Phase 2b · Store credit", "Stopped 11:52 AM"] });
-    expect(headerState(completeSnapshot(), true, now)).toEqual({ kind: "complete", label: "PR ready for review", facts: ["5 of 5 phases done", "5h 38m", "Finished 2:55 PM"] });
+    expect(headerState(completeSnapshot(), true, now)).toEqual({ kind: "complete", label: "PR ready for review", facts: ["5 of 5 phases done", "Finished 2:55 PM"], totals: { running: "5h 37m", waiting: "1m", since: "9:17 AM to 2:55 PM" } });
+  });
+
+  describe("the PRD total line (time totals AC-TOTAL-01 to 03)", () => {
+    const asOf = new Date(RUNNING_NOW).toISOString();
+    const later = new Date(RUNNING_NOW + 5 * 60_000);
+
+    it("gives the whole PRD's running and waiting time and when it started, advancing the running counter while a session works", () => {
+      const snapshot = runningSnapshot();
+      snapshot.feature.timing = { runningMs: 100 * 60_000, waitingMs: 30 * 60_000, asOf, advancing: "running" };
+      expect(headerState(snapshot, true, later)).toEqual({ kind: "implementing", label: "Implementing phase 2b", facts: ["2 of 5 phases done"], totals: { running: "1h 45m", waiting: "30m", since: "since 9:17 AM" } });
+    });
+
+    it.each([["paused", pausedSnapshot], ["needs you", needsYouMessageSnapshot]] as const)("advances the waiting counter while %s", (_, make) => {
+      const snapshot = make();
+      snapshot.feature.timing = { runningMs: 100 * 60_000, waitingMs: 30 * 60_000, asOf, advancing: "waiting" };
+      expect(headerState(snapshot, true, later).totals).toEqual({ running: "1h 40m", waiting: "35m", since: "since 9:17 AM" });
+    });
+
+    it("dates a start on an earlier day", () => {
+      const snapshot = runningSnapshot();
+      snapshot.feature.startedAt = "2026-10-14T13:02:00Z";
+      snapshot.feature.timing = { runningMs: 0, waitingMs: 0, asOf, advancing: "waiting" };
+      expect(headerState(snapshot, true, now).totals?.since).toBe("since Wed 9:02 AM");
+    });
+
+    it("gives Complete's fixed totals with the span they cover, off the state row", () => {
+      const snapshot = completeSnapshot();
+      snapshot.feature.timing = { runningMs: 280 * 60_000, waitingMs: 58 * 60_000, asOf: snapshot.feature.completedAt! };
+      const state = headerState(snapshot, true, later);
+      expect(state.facts).toEqual(["5 of 5 phases done", "Finished 2:55 PM"]);
+      expect(state.totals).toEqual({ running: "4h 40m", waiting: "58m", since: "9:17 AM to 2:55 PM" });
+    });
+
+    it("shows no line before anything has run, or while a folder is missing", () => {
+      expect(headerState(runningSnapshot(), true, now).totals).toBeUndefined();
+      const missing = runningSnapshot();
+      missing.feature.timing = { runningMs: 60_000, waitingMs: 0, asOf, advancing: "waiting" };
+      missing.feature.state = "folder_missing";
+      expect(headerState(missing, true, now).totals).toBeUndefined();
+    });
   });
 
   it("reads Last known: phase <n> once the view has lost Kiln, and names the pull request rather than a number (AC-PR-05)", () => {
@@ -230,7 +270,9 @@ describe("development delivery completion", () => {
     snapshot.developmentDelivery = { executionId: "test-execution", phaseId: undefined, revision: 0, authorization: { revision: 1, enabled: true, grants: [] }, assessments: [], checkpoints: [], splits: [], repositoryResults: [{ repository: "app", state, deliveredCheckpointIds: [], reasons: [] }] };
     const result = headerState(snapshot, true, now);
     expect(result.label).toBe(state === "delivered" ? "Development delivered" : state === "review" ? "Ready for review" : "Development delivered; review remaining");
-    expect(result.facts).toEqual(["5 of 5 phases done", "5h 38m", "Finished 2:55 PM"]);
+    snapshot.feature.timing = { runningMs: 338 * 60_000, waitingMs: 0, asOf: snapshot.feature.completedAt! };
+    expect(result.facts).toEqual(["5 of 5 phases done", "Finished 2:55 PM"]);
+    expect(headerState(snapshot, true, now).totals).toEqual({ running: "5h 38m", waiting: "0m", since: "9:17 AM to 2:55 PM" });
     const stop = needsYouMessageSnapshot().needsYou!;
     expect(needsYouCopy(stop, snapshot.settings, now, false, true).finishText).toContain("artifact verification evidence");
   });

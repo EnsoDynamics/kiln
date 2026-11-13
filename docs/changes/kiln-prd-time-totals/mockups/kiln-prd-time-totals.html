@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kiln · PRD time totals · Design preview</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono&amp;display=swap" rel="stylesheet">
+<style>
+/* Kiln's own theme (view/src/theme.css). The chosen treatment, D: a labelled PRD total line under the state row. */
+:root { --bg:#12110e; --panel:#1b1a16; --text:#ede8dd; --muted:#bdb6a8; --dim:#8c8577; --red:#e2694f; --amber:#e6b450; --green:#9cc49a; --line:rgba(237,232,221,.12); }
+body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 Inter,-apple-system,sans-serif; }
+main { max-width:1120px; margin:0 auto; padding:48px clamp(16px,4vw,32px) 96px; display:flex; flex-direction:column; gap:40px; }
+.intro p { margin:4px 0 0; color:var(--muted); font-size:14px; max-width:760px; }
+.eyebrow { margin:0; font-size:12px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
+section { border-top:1px solid var(--line); padding-top:22px; display:flex; flex-direction:column; gap:14px; }
+.where { display:flex; flex-wrap:wrap; gap:4px 20px; font-size:13px; color:var(--dim); }
+.where .mono { font-family:'JetBrains Mono',monospace; color:var(--muted); }
+h1 { margin:0; font-family:'Instrument Serif',Georgia,serif; font-weight:400; font-size:clamp(48px,6.4vw,76px); line-height:.98; letter-spacing:-.01em; }
+.state { display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; }
+.pill { display:inline-flex; align-items:center; padding:8px 16px; border-radius:999px; font-size:14px; font-weight:600; line-height:1.2; white-space:nowrap; border:1px solid transparent; }
+.red { background:var(--red); color:var(--bg); } .amber { background:var(--amber); color:var(--bg); } .green { background:var(--green); color:var(--bg); }
+.strong-outline { border-color:rgba(237,232,221,.4); } .outline { border-color:rgba(237,232,221,.24); }
+.fact { font-size:14px; color:var(--muted); } .dot { color:var(--dim); }
+/* The PRD total line. */
+.totals { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; padding-top:12px; border-top:1px solid var(--line); max-width:640px; font-size:14px; color:var(--muted); }
+.totals .label { font-size:11px; font-weight:600; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); }
+.totals b { color:var(--text); font-weight:500; }
+.totals .since { color:var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <div class="intro">
+    <p class="eyebrow">Kiln · PRD time totals</p>
+    <p>The header on each state, with the PRD total line (AC-TOTAL-01 to 04). Narrow the window to 390 px for phone width. Names, times and counts are illustrative.</p>
+  </div>
+
+  <section>
+    <p class="eyebrow">Not started</p>
+    <div class="where"><span>Repository <span class="mono">acme-billing</span></span><span>PRD folder <span class="mono">docs/prds/invoice-sync/</span></span></div>
+    <h1>Invoice sync</h1>
+    <div class="state"><span class="pill outline">Not started</span></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Implementing</p>
+    <div class="where"><span>Repository <span class="mono">acme-billing</span></span><span>PRD folder <span class="mono">docs/prds/invoice-sync/</span></span></div>
+    <h1>Invoice sync</h1>
+    <div class="state"><span class="pill red">Implementing phase 8</span><span class="fact">7 of 8 phases done</span></div>
+    <div class="totals"><span class="label">PRD total</span><span><b>6h 12m</b> running</span><span class="dot">·</span><span><b>1h 47m</b> waiting</span><span class="dot">·</span><span class="since">since Tue 9:02 AM</span></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Paused</p>
+    <div class="where"><span>Repository <span class="mono">acme-billing</span></span><span>PRD folder <span class="mono">docs/prds/invoice-sync/</span></span></div>
+    <h1>Invoice sync</h1>
+    <div class="state"><span class="pill strong-outline">Paused</span><span class="fact">5 of 8 phases done</span></div>
+    <div class="totals"><span class="label">PRD total</span><span><b>4h 38m</b> running</span><span class="dot">·</span><span><b>2h 5m</b> waiting</span><span class="dot">·</span><span class="since">since Tue 9:02 AM</span></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Needs you</p>
+    <div class="where"><span>Repository <span class="mono">acme-billing</span></span><span>PRD folder <span class="mono">docs/prds/invoice-sync/</span></span></div>
+    <h1>Invoice sync</h1>
+    <div class="state"><span class="pill amber">Needs you</span><span class="fact">Phase 6 · Billing reconciliation</span><span class="dot">·</span><span class="fact">Stopped 2:14 PM</span></div>
+    <div class="totals"><span class="label">PRD total</span><span><b>4h 38m</b> running</span><span class="dot">·</span><span><b>2h 5m</b> waiting</span><span class="dot">·</span><span class="since">since Tue 9:02 AM</span></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Waiting for usage</p>
+    <div class="where"><span>Repository <span class="mono">acme-billing</span></span><span>PRD folder <span class="mono">docs/prds/invoice-sync/</span></span></div>
+    <h1>Invoice sync</h1>
+    <div class="state"><span class="pill strong-outline">Waiting for usage</span><span class="fact">Phase 6 · Billing reconciliation</span><span class="dot">·</span><span class="fact">Waiting since 3:40 PM</span></div>
+    <div class="totals"><span class="label">PRD total</span><span><b>4h 51m</b> running</span><span class="dot">·</span><span><b>2h 40m</b> waiting</span><span class="dot">·</span><span class="since">since Tue 9:02 AM</span></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Complete</p>
+    <div class="where"><span>Repository <span class="mono">acme-billing</span></span><span>PRD folder <span class="mono">docs/prds/invoice-sync/</span></span></div>
+    <h1>Invoice sync</h1>
+    <div class="state"><span class="pill green">PR ready for review</span><span class="fact">8 of 8 phases done</span><span class="dot">·</span><span class="fact">Finished 7:22 PM</span></div>
+    <div class="totals"><span class="label">PRD total</span><span><b>7h 2m</b> running</span><span class="dot">·</span><span><b>3h 18m</b> waiting</span><span class="dot">·</span><span class="since">Tue 9:02 AM to 7:22 PM</span></div>
+  </section>
+</main>
+</body>
+</html>
