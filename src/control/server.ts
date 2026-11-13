@@ -98,7 +98,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
         const command = body as Record<string, unknown>;
         // Public spelling; the browser and journal retain their existing action identity.
         if (command.action === "take_over") command.action = "take-over";
-        if (command.action === "message-review") throw new ControlFailure("invalid_input", "Use resume or verify-and-advance with reviewed receipt IDs.", 2);
+        if (command.action === "message-review") throw new ControlFailure("invalid_input", "Use resume, verify-and-advance or carry-on with reviewed receipt IDs.", 2);
         if (command.action === "waive-and-advance") waiveAndAdvance(current(), command);
         const old = current().commands.all().find(r => r.command_id === command.command_id);
         if (old && old.instruction.action !== command.action) throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);

@@ -316,7 +316,8 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
   const read = new Map<string, PreviewRepository>();
   const readOne = async (repository: StartRepository) => {
     const classified = classifications.get(repository.name)!;
-    if (classified.kind === "unavailable") { read.set(repository.name, { ...repository, hasBranch: false, qualifies: false }); return; }
+    // An unavailable branch the repository has still reads PR into on its row (AC-FROM-05).
+    if (classified.kind === "unavailable") { const one = refs.get(repository.name); read.set(repository.name, { ...repository, hasBranch: !!one && branch !== repository.baseBranch && (one.local.has(branch) || !!one.origin?.branches.has(branch)), qualifies: false }); return; }
     const outcome = await readRepository(input, repository, refs.get(repository.name)!, classified);
     read.set(repository.name, outcome.repository);
     if (outcome.problem) problems.push({ repository: repository.name, message: outcome.problem });

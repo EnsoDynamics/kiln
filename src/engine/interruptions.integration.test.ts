@@ -274,6 +274,10 @@ describe("resuming", () => {
     await waitFor(() => existsSync(working));
     await h.engine.stop("sigint");
     const interruptedAt = sessionOf(h, "1").runs[0]!.interruptedAt!;
+    // A final message recorded before the interruption still leaves the interrupted run's last lines on the first card (run restart AC-CASE-04, Kiln v1 AC-KEEP-05).
+    const interrupted = sessionOf(h, "1");
+    interrupted.runs[0]!.result = { subtype: "success", isError: false, text: "Recorded before the interruption." };
+    writeSessionRecord(h.stateDirectory, interrupted);
 
     const engine = h.reopenFromDisk();
     await engine.prepare();

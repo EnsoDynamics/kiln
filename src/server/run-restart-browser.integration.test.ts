@@ -4,7 +4,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Snapshot } from "../engine/snapshot.js";
-import { needsYouMessageSnapshot } from "../test-support/sample-snapshots.js";
+import { documentsFoundSnapshot, needsYouMessageSnapshot } from "../test-support/sample-snapshots.js";
 import { serveViewFixture, type ViewFixtureServer } from "../test-support/view-fixture-server.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { waitFor } from "../test-support/engine-harness.js";
@@ -231,6 +231,63 @@ describe.each([1200, 390])("the catch-up offer at %ipx wide (AC-CURRENT-01, AC-L
       expect(body.indexOf("This branch is 4 commits behind")).toBeLessThan(body.indexOf("Reply here and let Kiln finish"));
       await click(page, "Have Kiln resume Phase 2b");
       await waitFor(() => server.commands.some(command => command.startsWith("POST /api/resume ") && command.includes('"bringUpToDate":true')));
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+});
+
+/** Documents found starting from an existing branch, phases 1, 2a and 2b closed on it unless `closed` is false. */
+function startingFromBranch(closed: boolean): Snapshot {
+  const base = documentsFoundSnapshot();
+  const ids = closed ? ["1", "2a", "2b"] : [];
+  const phases = base.documents!.plan!.phases.map(phase => ids.includes(phase.id) ? { ...phase, closed: true } : phase);
+  return documentsFoundSnapshot({
+    settings: { featureBranch: "feature/receipts-by-hand" },
+    documents: {
+      plan: { ...base.documents!.plan!, closedCount: ids.length, phases },
+      start: {
+        from: "existing", bringUpToDate: true, previewId: "p".repeat(64),
+        branches: [{ name: "feature/receipts-by-hand", available: true }],
+        planSource: { kind: "branch", branch: "feature/receipts-by-hand", sha: "a".repeat(40) },
+        repositories: [{ name: "acme-shop", hasBranch: true }],
+        closedCount: ids.length, ...(closed ? { startAt: { id: "3", title: "Returns dashboard" } } : {}),
+      },
+    },
+  });
+}
+
+describe("Documents found's plan-source box and Start from choices (AC-LOOK-01)", () => {
+  /** The box's border colour and lines, and each Start from choice's position and border width. */
+  const layout = (page: BrowserPage) => page.evaluate<{ box: { border: string; lines: string[] } | null; choices: { top: number; left: number; border: string }[] }>(`(() => {
+    const box = document.querySelector('.source-box');
+    return {
+      box: box && { border: getComputedStyle(box).borderTopColor, lines: [...box.children].map(e => e.textContent.trim()) },
+      choices: [...document.querySelectorAll('.start-from .choice')].map(e => ({ top: e.getBoundingClientRect().top, left: e.getBoundingClientRect().left, border: getComputedStyle(e).borderTopWidth })),
+    };
+  })()`);
+
+  it("draws where the plan was read and the count in an amber box when phases are closed there, and the choices side by side, the selected one heavier", async () => {
+    const { server, page } = await open(startingFromBranch(true));
+    try {
+      await words(page, "Kiln starts at Phase 3.");
+      const drawn = await layout(page);
+      expect(drawn.box).toEqual({ border: "rgba(230, 180, 80, 0.55)", lines: ["Read from feature/receipts-by-hand", "3 of 5 phases are already closed on that branch. Kiln starts at Phase 3."] });
+      expect(drawn.choices).toHaveLength(2);
+      expect(drawn.choices[0]!.top).toBe(drawn.choices[1]!.top);
+      expect(drawn.choices[0]!.left).toBeLessThan(drawn.choices[1]!.left);
+      expect(drawn.choices.map(choice => choice.border)).toEqual(["1px", "2px"]);
+      expect(page.problems).toEqual([]);
+    } finally { await page.close(); await server.close(); }
+  });
+
+  it("draws the box neutral when no phase is closed where the plan was read, and stacks the choices on a phone", async () => {
+    const { server, page } = await open(startingFromBranch(false), 390);
+    try {
+      await words(page, "Read from feature/receipts-by-hand");
+      const drawn = await layout(page);
+      expect(drawn.box!.border).toBe("rgba(237, 232, 221, 0.18)");
+      expect(drawn.choices[0]!.top).toBeLessThan(drawn.choices[1]!.top);
+      expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
       expect(page.problems).toEqual([]);
     } finally { await page.close(); await server.close(); }
   });

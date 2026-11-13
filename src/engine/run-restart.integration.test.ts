@@ -213,6 +213,9 @@ describe("carrying on when the conversation can't be reopened (AC-CARRY-01, AC-C
     expect(stop.reopen).toEqual({ state: "unavailable", reason: "reopen_failed" });
     expect(stop).toMatchObject({ carryOn: { available: true }, resumeOffered: false });
     expect(stop.launchFailure).toBeUndefined();
+    // The first card gives the latest launch's last recorded final message, not its last lines (AC-CASE-04).
+    expect(stop.finalMessage).toBe("Blocked before any code. Merge the import work into develop, then have me continue.");
+    expect(stop.lastLines).toBeUndefined();
   });
 
   it("names a folder other accounts can change with the command that clears it, and offers reply and resume again once it reads, without restarting Kiln", async () => {

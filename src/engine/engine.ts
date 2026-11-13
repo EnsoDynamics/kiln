@@ -607,7 +607,7 @@ export class Engine {
       "waive-and-advance": this.markCompleteOffer().offered && !busy && !releasePending,
       settings: !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
       "outside-confirmation": false,
-      "carry-on": this.carryOnControl().available && !busy,
+      "carry-on": this.carryOnControl(true).available && !busy,
       "start-again": this.startAgainControl().available && !busy,
       reset: this.resetControl().available,
     };
@@ -619,7 +619,7 @@ export class Engine {
       "outside-confirmation": "Workspace confirmations have been retired; recheck the remaining completion requirements.",
       "verify-and-advance": releasePending ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : "No stopped activity is available to verify.",
       "waive-and-advance": (() => { const offer = this.markCompleteOffer(); return offer.offered ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : offer.reason; })(),
-      "carry-on": this.carryOnControl().reason ?? "Carry on isn't offered here.",
+      "carry-on": this.carryOnControl(true).reason ?? "Carry on isn't offered here.",
       "start-again": this.startAgainControl().reason ?? "Start again isn't offered here.",
       reset: this.resetControl().reason ?? "Reset isn't available.",
     };
@@ -1686,7 +1686,7 @@ export class Engine {
     const key = target!.phaseKey;
     if (action === "verify" && body.intent === "verify" && this.record.liveControl?.takeover.history) return fail("recovery_unavailable", "Verify stays unavailable until the paused conversation is released; carry on in a new session instead.");
     if (action === "resume" && !this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation cannot be resumed. Use the available terminal recovery instructions.");
-    if (action === "carry_on") { const control = this.carryOnControl(); if (!control.offered || control.reason && !control.reason.startsWith("Kiln is checking")) return fail("recovery_unavailable", control.reason ?? "Carry on isn't offered here."); }
+    if (action === "carry_on") { const control = this.carryOnControl(true); if (!control.offered || control.reason && !control.reason.startsWith("Kiln is checking")) return fail("recovery_unavailable", control.reason ?? "Carry on isn't offered here."); }
     this.checking = true;
     this.changed();
     let queued = false;
@@ -2130,15 +2130,21 @@ export class Engine {
   /**
    * Send reply & continue (AC-CARRY-01, AC-CARRY-03, AC-CARRY-06): offered when a stopped phase
    * began a conversation whose reopen check is unavailable, or on a held page whose conversation
-   * can't be reopened; unavailable, with the reason, under the shared limits.
+   * can't be reopened; unavailable, with the reason, under the shared limits. The page's button also waits for each uncertain message to be
+   * acknowledged; a command takes its acknowledgements with it, as `kiln resume` does, so command
+   * admission passes `acknowledging` and the carry-on ownership check refuses whatever is still
+   * unacknowledged (run restart AC-CARRY-06).
+   *
+   *   engine.carryOnControl()      // the page's button: { offered: true, available: false, reason: "Acknowledge each message …" }
+   *   engine.carryOnControl(true)  // admission of `kiln carry-on --message-reviewed <id>`: { offered: true, available: true }
    */
-  carryOnControl(): { offered: boolean; available: boolean; reason?: string } {
+  carryOnControl(acknowledging = false): { offered: boolean; available: boolean; reason?: string } {
     const held = this.heldHistoryKey();
     const key = held ?? this.stoppedPhase();
     if (key === undefined) return { offered: false, available: false };
     if (!held && (!this.conversationBegan(key) || this.reopenCheck(key).state !== "unavailable")) return { offered: false, available: false };
     const hold = this.record.liveControl?.takeover;
-    const reason = (held && (hold?.carryOnObstacle ?? (this.liveView()?.reviewRequired?.length ? "Acknowledge each message Kiln isn't sure was delivered first." : undefined))) || this.launchBusy() || this.launchRestriction();
+    const reason = (held && (hold?.carryOnObstacle ?? (!acknowledging && this.liveView()?.reviewRequired?.length ? "Acknowledge each message Kiln isn't sure was delivered first." : undefined))) || this.launchBusy() || this.launchRestriction();
     return { offered: true, available: !reason, ...(reason ? { reason } : {}) };
   }
 

@@ -107,6 +107,7 @@ When a session stops before its phase is done for any other reason, the person c
   - Superseded in part by: AC-REPLY-01, AC-RETURN-01 and AC-RETURN-02 in [Kiln Needs you handoff](../kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md) (separate reply/hand-back actions and preserving an unsent reply when the phase is already complete).
   - Superseded in part by: AC-OUTSIDE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (no wait after work outside the workspace, Resume offered after an interruption, and the resumed session gets the prompt, after any note, while the confirmation is unticked)
 - [ ] **AC-RESUME-04 — A session that can't be picked up comes back to the person.** When Kiln can't pick the session up (its transcript is gone, for example), whether the person pressed Resume or Resume now or Kiln resumed by itself, the phase returns to Needs you as an interrupted session that can't be resumed does (Kiln v1, AC-KEEP-05): its last lines of output, the fresh-session prompt, and no Resume.
+  - Superseded in part by: AC-CASE-04 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (after the person's Resume, or Kiln's own at the end of a usage-limit wait, of a session that ended on its own, the first card gives its last message, not its last lines)
 
 ## Out of Scope
 

@@ -1,5 +1,7 @@
 # Phase 6: Complete the first card, the held carry-on command and Documents found's layout
 
+**Closed:** 2026-11-13
+
 **Added by delivery audit:** 2026-11-13, after every planned phase closed. It builds what earlier phases left out of the criteria below, confirmed in the whole-PRD audit at `8ae36f3`.
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "A Stopped Phase's Facts" (Case, the first card), "A Held Phase That Can't Be Reopened" (Carry on from a hold), "Interfaces" (`kiln carry-on`), "Starting From a Branch" (The preview)

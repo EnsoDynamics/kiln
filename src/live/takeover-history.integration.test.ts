@@ -304,6 +304,39 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       expect(h.engine.phaseSessions(target.activityKey).at(-1)!.startedAs).toBe("carry_on");
       expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeDefined();
     }, 120000);
+    if (kind === "phase" && recovery === "delivery_recovery") it("kiln carry-on --message-reviewed acknowledges the uncertain message and carries on from a hold that can't be reopened (run restart AC-CARRY-06)", async () => {
+      rmSync(historyFile); await reconcile();
+      expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", history: { state: "unavailable", reason: "missing" } });
+      // The fixture acknowledged the message so its release proof could run; take that back, as a message nobody has acknowledged yet.
+      const saved = h.engine.commands.lookup("uncertain-history").operation as Receipt;
+      delete saved.message!.reviewedAt; h.engine.commands.checkpoint(saved);
+      expect(h.engine.liveView()!.reviewRequired).toEqual([saved.id]);
+      // The page's button waits for the acknowledgement; the command line takes it with the command, as kiln resume does.
+      expect(buildSnapshot(h.engine).needsYou!.carryOn).toMatchObject({ available: false, reason: expect.stringContaining("Acknowledge each message") });
+      const status = await cli(["status"]);
+      expect((status.body.controls as { name: string; available: boolean }[]).find(control => control.name === "carry-on"), JSON.stringify(status.body.controls)).toMatchObject({ available: true });
+      // Without the acknowledgement the command starts nothing.
+      expect((await cli(["carry-on", "--command-id", "held-carry-unreviewed", "--only-if-status-matches", String(status.body.status_token)])).code).toBe(0);
+      await h.engine.commands.settled(); await h.engine.settled();
+      expect(h.engine.commands.lookup("held-carry-unreviewed").operation).toMatchObject({ state: "failed", outcome: "message_review_required", effects: { session: "not_started" } });
+      expect((h.engine.commands.lookup("uncertain-history").operation as Receipt).message?.reviewedAt).toBeUndefined();
+      // With it, the acknowledgement is applied first and the carry-on runs: the phase was finished by hand, so it checks completion and starts nothing.
+      const again = await cli(["status"]);
+      const carried = await cli(["carry-on", "--message-reviewed", saved.id, "--command-id", "held-carry-reviewed", "--only-if-status-matches", String(again.body.status_token)]);
+      expect(carried.code, JSON.stringify(carried.body)).toBe(0);
+      await h.engine.commands.settled(); await h.engine.settled();
+      expect(h.engine.commands.lookup("held-carry-reviewed").operation, JSON.stringify(h.engine.commands.lookup("held-carry-reviewed").operation)).toMatchObject({ state: "completed", outcome: "phase_already_complete" });
+      expect((h.engine.commands.lookup("uncertain-history").operation as Receipt).message).toMatchObject({ delivery: "uncertain", reviewedAt: expect.any(String) });
+      expect(h.engine.liveView()!.reviewRequired).toEqual([]);
+      // The browser's /api/carry-on takes the acknowledgements the same way (reviewedReceiptIds).
+      delete saved.message!.reviewedAt; h.engine.commands.checkpoint(saved);
+      expect(h.engine.liveView()!.reviewRequired).toEqual([saved.id]);
+      const response = await fetch(`${origin}/api/carry-on`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": h.engine.record.token, "X-Kiln-Status": h.engine.controlView().token, "X-Kiln-Command-Id": "held-carry-browser", "Content-Type": "application/json" }, body: JSON.stringify({ target: h.engine.phaseRecoveryTarget(), reviewedReceiptIds: [saved.id] }) });
+      const browser = await response.json() as Record<string, unknown>;
+      expect(browser, JSON.stringify(browser)).toMatchObject({ ok: true, outcome: "already_complete" });
+      expect((h.engine.commands.lookup("uncertain-history").operation as Receipt).message?.reviewedAt).toEqual(expect.any(String));
+      expect(h.claudeCalls()).toHaveLength(originalCalls);
+    }, 120000);
     if (kind === "phase" && recovery === "takeover") it("advances from the carry-on's already-complete choice on a hold that can't be reopened, ending it without release (run restart AC-CARRY-06)", async () => {
       rmSync(historyFile); await reconcile();
       expect(h.engine.controlView().controls.find(c => c.name === "verify-and-advance")).toMatchObject({ available: false });

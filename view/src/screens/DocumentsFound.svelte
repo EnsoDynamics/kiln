@@ -172,9 +172,15 @@
           <div class="item plan">
             <div class="item-intro">
               <div class="item-head"><span class="item-name">Phase plan</span><span class="mono file">{documents.plan!.phaseDocCount} {documents.plan!.phaseDocCount === 1 ? "phase doc" : "phase docs"}</span></div>
-              {#if sourceLine}<span class="item-line">{sourceLine.lead}<span class="mono code">{sourceLine.code}</span>{sourceLine.tail ?? ""}</span>{/if}
-              <span class="item-line">{startCountLine(documents.plan!, startFrom)}</span>
+              {#if !sourceLine}<span class="item-line">{startCountLine(documents.plan!, startFrom)}</span>{/if}
             </div>
+            {#if sourceLine}
+              <!-- Where the plan was read and the count, in a box: amber when phases are closed where it was read (run restart AC-LOOK-01). -->
+              <div class="source-box" class:closed-on={!!startFrom?.startAt && documents.plan!.closedCount > 0}>
+                <span>{sourceLine.lead}<span class="mono code">{sourceLine.code}</span>{sourceLine.tail ?? ""}</span>
+                <span>{startCountLine(documents.plan!, startFrom)}</span>
+              </div>
+            {/if}
             <ol class="phases">
               {#each rows as row (row.id)}
                 {#if row.children.length > 0 || row.splitNote}
@@ -230,14 +236,16 @@
       {#if startFrom && !settings.fixed.featureBranch}
         <fieldset class="start-from">
           <legend>Start from</legend>
-          <label class="choice">
-            <input type="radio" name="start-from" checked={!existing} disabled={fixedLocked} onchange={() => chooseStart("new")} />
-            <span class="choice-text"><span class="choice-name">A new feature branch</span><span class="help">Kiln cuts it from the base branch. What Kiln does today.</span></span>
-          </label>
-          <label class="choice">
-            <input type="radio" name="start-from" checked={existing} disabled={fixedLocked} onchange={() => chooseStart("existing")} />
-            <span class="choice-text"><span class="choice-name">A branch that already exists</span><span class="help">Work already begun on this PRD, by you or by Kiln before a reset. Kiln carries on from it.</span></span>
-          </label>
+          <div class="choices">
+            <label class="choice" class:selected={!existing}>
+              <input type="radio" name="start-from" checked={!existing} disabled={fixedLocked} onchange={() => chooseStart("new")} />
+              <span class="choice-text"><span class="choice-name">A new feature branch</span><span class="help">Kiln cuts it from the base branch. What Kiln does today.</span></span>
+            </label>
+            <label class="choice" class:selected={existing}>
+              <input type="radio" name="start-from" checked={existing} disabled={fixedLocked} onchange={() => chooseStart("existing")} />
+              <span class="choice-text"><span class="choice-name">A branch that already exists</span><span class="help">Work already begun on this PRD, by you or by Kiln before a reset. Kiln carries on from it.</span></span>
+            </label>
+          </div>
         </fieldset>
       {/if}
 
@@ -470,9 +478,13 @@
   .closed { font-size: 12.5px; color: var(--green); }
   .circle.here { border-color: var(--text); color: var(--text); }
   .starts { font-size: 12.5px; color: var(--amber); }
-  .start-from { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .source-box { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line-strong); font-size: 13.5px; color: var(--muted); }
+  .source-box.closed-on { border-color: var(--amber-border); }
+  .start-from { margin: 0; padding: 0; border: 0; min-width: 0; }
   .start-from legend { padding: 0; margin-bottom: 8px; }
-  .choice { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line-strong); cursor: pointer; }
+  .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
+  .choice { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; padding: 14px; border-radius: 12px; border: 1px solid var(--line-strong); cursor: pointer; }
+  .choice.selected { padding: 13px; border: 2px solid var(--text); }
   .choice input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--red); }
   .choice-text { display: flex; flex-direction: column; gap: 3px; }
   .choice-name { font-size: 14.5px; font-weight: 600; color: var(--text); }

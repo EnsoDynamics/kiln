@@ -49,7 +49,7 @@ It takes the command ID and status-token flags above and nothing else; there is 
 
 For a running Claude phase or audit, `kiln message <PRD-path>` sends exact text from `--message-file <path>` or `--message-from-stdin`, preserving outer whitespace. Claude reads it at its next opportunity; the current tool may finish first. `kiln take-over <PRD-path>` holds progression and waits for the next safe stopping point. Both require the same command ID and fresh status-token flags above. Use `kiln handoff` only after status reports safe release; it reads instructions and never opens a terminal.
 
-`reply` resumes a stopped conversation. `request-pause` lets the entire phase/audit and its completion checks finish first. These remain separate from live messaging and takeover. If delivery is uncertain, inspect the message receipt and conversation, then use `resume` or `verify-and-advance` with `--message-reviewed <receipt-id>` for each reviewed uncertain message. Review never resends or confirms provider receipt; only successful explicit hand-back releases the hold. See each command's `--help`.
+`reply` resumes a stopped conversation. `request-pause` lets the entire phase/audit and its completion checks finish first. These remain separate from live messaging and takeover. If delivery is uncertain, inspect the message receipt and conversation, then use `resume`, `verify-and-advance` or, when the conversation can't be reopened, `carry-on` with `--message-reviewed <receipt-id>` for each reviewed uncertain message. Review never resends or confirms provider receipt; only successful explicit hand-back releases the hold. See each command's `--help`.
 
 ## Helper commands sessions use
 

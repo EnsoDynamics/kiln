@@ -305,6 +305,30 @@ describe("one catch-up offer for repositories with different bases (AC-CURRENT-0
   });
 });
 
+describe("a repository that has an unavailable branch (AC-FROM-05, several repositories)", () => {
+  it("still has the branch, so its row reads PR into, while the branch is unavailable naming that repository", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    // acme-api has the branch, its local copy behind origin's; acme-shop doesn't have it.
+    const api = createRepository(h.sandbox, "acme-api", createBareOrigin(h.sandbox, "acme-api"));
+    git(h.sandbox, api, "branch", BRANCH);
+    git(h.sandbox, api, "push", "-q", "origin", "develop", BRANCH);
+    writeFileSync(join(api, "ahead.txt"), "ahead\n"); git(h.sandbox, api, "add", "ahead.txt"); git(h.sandbox, api, "commit", "-q", "-m", "ahead");
+    git(h.sandbox, api, "push", "-q", "origin", `develop:refs/heads/${BRANCH}`);
+    git(h.sandbox, api, "reset", "-q", "--hard", "HEAD~1");
+    const preview = await existingBranchPreview({
+      git: { git: h.tools.git, env: h.env }, gh: h.tools.gh, env: h.env, prdDirectoryFromRoot: DIRECTORY, branch: BRANCH, bringUpToDate: false,
+      repositories: [
+        { name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" },
+        { name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "develop" },
+      ],
+      find: async () => ({ ok: false, problem: "not looked up" }), baseOf: () => "", others: [],
+    });
+    expect(preview.fieldError).toMatch(/^In acme-api: Its local copy is behind or diverged from origin's/);
+    expect(preview.repositories.map(one => ({ name: one.name, hasBranch: one.hasBranch }))).toEqual([{ name: "acme-shop", hasBranch: false }, { name: "acme-api", hasBranch: true }]);
+  });
+});
+
 describe("a stopped phase's untouched branch (AC-CURRENT-01 at a stop)", () => {
   it("offers the catch-up with the stop, refuses a ticked press once the branch no longer qualifies, and catches up before a command starts the session", async () => {
     harness = await createHarness({ sessions: [exitsBeforeInit, landingSession("src/intake.txt")] });

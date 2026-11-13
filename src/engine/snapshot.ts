@@ -759,13 +759,19 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     const ended = pressedResume && interrupted?.interruptedAt === undefined ? interrupted?.endedAt : undefined;
     const lastOutput = interrupted?.interruptedAt === undefined && ended === undefined;
     const stoppedAt = interrupted?.interruptedAt ?? ended ?? (interrupted ? engine.runLastOutputAt(session, interruptedIndex) : undefined) ?? endedAt;
+    // The run before the failed resume ended on its own unless Kiln was resuming an interruption, or one was recorded.
+    const endedOnItsOwn = run?.cause !== "resume" && interrupted?.interruptedAt === undefined;
+    const messageRun = endedOnItsOwn && engine.stoppedPhase() === phaseKey ? session.runs.findLast(candidate => candidate.result?.text?.trim()) : undefined;
+    const finalMessage = messageRun?.result?.text;
     return {
       ...base,
       ...sessionFacts,
       stoppedAt,
       ...(lastOutput ? { stoppedAtIsLastOutput: true as const } : {}),
       ...(pressedResume ? { pressedResume: true as const } : {}),
-      lastLines: lines.slice(-10),
+      // A stopped phase's first card gives the latest launch's last recorded final message (AC-CASE-04),
+      // apart from a resume after an interruption, which keeps the interrupted run's last lines (Kiln v1 AC-KEEP-05).
+      ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : { finalMessage }),
       freshSessionPrompt: prompts(true),
       freshSessionCommand,
       outputLineCount: lines.length,

@@ -5,7 +5,7 @@
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
-import { documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 
 const config = { token: "t", base: "/customer-returns" };
@@ -175,5 +175,21 @@ describe("one catch-up offer across repositories with different bases (AC-CURREN
     const words = text(html(snapshot));
     expect(words).toContain("In acme-api , the branch is 2 commits behind develop . Bring the branch up to date with develop first");
     expect(words).not.toContain("each repository’s base first");
+  });
+});
+
+describe("Documents found with several repositories and an unavailable existing branch (AC-FROM-05)", () => {
+  it("tags PR into on the row of the repository that has the branch, and not on the one that doesn't", () => {
+    const snapshot = documentsFoundRepositoriesSnapshot();
+    snapshot.settings.fieldErrors.featureBranch = "In returns-api: Its local copy is behind or diverged from origin's. Bring the local branch level with origin first.";
+    snapshot.documents!.start = {
+      from: "existing", bringUpToDate: true, previewId: "s".repeat(64), branches: [{ name: "feature/customer-returns", available: false }],
+      repositories: snapshot.repositories!.map(row => ({ name: row.name, hasBranch: row.name === "returns-api" })), closedCount: 0,
+    };
+    const page = html(snapshot);
+    const row = (name: string) => text(page.split(`<label for="base-${name}"`)[1]!.split("</span>")[0]!.replace(/^[^>]*>/, ""));
+    expect(row("returns-api")).toContain("PR into");
+    expect(row("product")).not.toContain("PR into");
+    expect(row("product")).toContain("PRD’s repository");
   });
 });
