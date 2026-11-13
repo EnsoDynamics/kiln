@@ -1,8 +1,9 @@
 # Test audit: Kiln Run Restart
 
-**Status:** 18 to fix (AC-CURRENT-01, AC-CARRY-04, AC-CARRY-06, AC-CARRY-03, AC-FROM-03, AC-RESET-02, AC-RESET-06, AC-CARRY-01, AC-RESET-05, AC-RESET-04, AC-LOOK-01, AC-CARRY-02, AC-RESET-03, AC-FROM-02, AC-CASE-01, AC-FROM-05, AC-CASE-03, AC-RESET-01)
-**Last audit:** 2026-11-13, whole PRD, at `9b8b913`
+**Status:** 17 to fix (AC-CURRENT-01, AC-CARRY-06, AC-CARRY-03, AC-FROM-03, AC-RESET-02, AC-RESET-06, AC-CARRY-01, AC-RESET-05, AC-RESET-04, AC-LOOK-01, AC-CARRY-02, AC-RESET-03, AC-FROM-02, AC-CASE-01, AC-FROM-05, AC-CASE-03, AC-RESET-01)
+**Last audit:** 2026-11-13, whole PRD, at `9b8b913`; first fixing chat 2026-11-13, at `ab4fa90`
 **PRD:** [kiln-run-restart-prd.md](./kiln-run-restart-prd.md)
+**Next:** a whole-PRD delivery audit, because the first fixing chat changed code; then a fixing chat from AC-CURRENT-01.
 
 Every phase (1 to 8) is closed, so all 23 criteria were graded. No criterion is Missing, Not implemented, superseded or changed outside the requirements, and no mapped test was found skipped or failing. The 5 criteria at Adequate each had their riskiest stated part broken on purpose, and a mapped test failed every time; none has had every stated part broken, so none is Strong.
 
@@ -26,7 +27,7 @@ Short names for the test files used below:
 | AC-FROM-03 — Any branch can be chosen, except where the table says (high risk) | Weak | 15 of 19 | SFB "makes the base, the person's own checkout…unavailable", "adopts a worktree…", "makes a local branch that tracks one only on origin"; KRR | `src/engine/start-from.ts` (`classifyBranch`, `branchList`) | 2026-11-13 `9b8b913` |
 | AC-FROM-04 — Kiln adds to the branch and never rewrites it (high risk) | Adequate | 8 of 8 | SFB "selects the existing branch… adds to the branch without rewriting it", "goes straight to final delivery…"; SFS | `src/engine/engine.ts` (`setUpExistingEntry`), `src/engine/start-from.ts` (`readRepository`) | 2026-11-13 `9b8b913` |
 | AC-FROM-05 — Several repositories use the one branch name | Weak | 6 of 8 | KRP "uses the branch where a repository has it…"; SFB "a repository that has an unavailable branch…" | `src/engine/start-from.ts` (`existingBranchPreview`, `branchList`) | 2026-11-13 `9b8b913` |
-| AC-CURRENT-01 — Kiln offers to catch an untouched branch up (high risk) | Weak | 13 of 24 | SFB "offers to bring it up to date…", "catches the branch up before a resume…", "names each repository's own base…"; RRB catch-up tests | `src/engine/start-from.ts` (`readCatchUp`, `catchUpRepository`), `src/engine/engine.ts` (`catchUpAtStop`, `refreshStoppedWork`), `src/control/client.ts` | 2026-11-13 `9b8b913` |
+| AC-CURRENT-01 — Kiln offers to catch an untouched branch up (high risk) | Weak | 24 of 26 | SFB "offers to bring it up to date…", "offers nothing at Start…", "offers nothing at a stop…", "catches the branch up before kiln reply…", "…before kiln carry-on…", "never catches up on Mark complete", "gives a held phase no offer…"; RRC `--leave-branch-as-is` tests; KRP "moves only the repository whose branch qualifies…"; RRB catch-up tests | `src/engine/start-from.ts` (`readCatchUp`, `catchUpRepository`), `src/engine/engine.ts` (`catchUpAtStop`, `refreshStoppedWork`), `src/control/client.ts` | 2026-11-13 `ab4fa90` |
 | AC-CASE-01 — A stopped phase's headline says which case it is | Weak | 10 of 13 | RR, RRB, RRC case tests; THI | `src/engine/engine.ts` (`stoppedCase`), `src/engine/stopped-phase.ts` (`readPhaseWork`) | 2026-11-13 `9b8b913` |
 | AC-CASE-04 — The first card shows the latest launch | Adequate | 7 of 7 | RR "says so, shows What Kiln found…", "returns the carry-on card after a carry-on that never began…"; `src/engine/stopped-phase.test.ts`; RRB | `src/engine/snapshot.ts` (`restartFacts`), `src/engine/stopped-phase.ts` (`launchFailure`) | 2026-11-13 `9b8b913` |
 | AC-CASE-02 — A phase Kiln couldn't launch can be started again | Adequate | 7 of 7 | RR "says so, shows What Kiln found, offers only Start Phase N again…"; RRC "kiln start-again…"; RRB | `src/engine/engine.ts` (`startAgainControl`, `launchAtStop`) | 2026-11-13 `9b8b913` |
@@ -35,7 +36,7 @@ Short names for the test files used below:
 | AC-CARRY-02 — The card says why, and how to clear it | Weak | 7 of 12 | RR reason tests; RRB carry-on and held-page tests; `src/session/claude-history.integration.test.ts`; `src/engine/codex-workflow.integration.test.ts` | `view/src/components/CarryOnCard.svelte`, `src/engine/stopped-phase.ts` (`claudeReopenCheck`) | 2026-11-13 `9b8b913` |
 | AC-CARRY-05 — Carrying on starts a new session that knows what was done (high risk) | Adequate | 10 of 10 | RR "offers carry-on with the reason…", "checks completion first and starts nothing…"; RRC "kiln carry-on…"; RRB | `src/engine/engine.ts` (`recoverPhase`, `launchAtStop`), `src/session/prompts.ts` (`carryOnPrompt`) | 2026-11-13 `9b8b913` |
 | AC-CARRY-03 — Starting a session keeps the existing limits (high risk) | Weak | 4 of 8 | RR "makes them unavailable, with the reason, while a billing restriction…", Codex safety test | `src/engine/engine.ts` (`carryOnControl`, `startAgainControl`, `launchBusy`, `controlView`) | 2026-11-13 `9b8b913` |
-| AC-CARRY-04 — Bots can start these sessions too (high risk) | Weak | 5 of 12 | RRC; `src/control/help.test.ts`; THI | `src/control/commands.ts`, `src/control/help.ts`, `src/control/client.ts` | 2026-11-13 `9b8b913` |
+| AC-CARRY-04 — Bots can start these sessions too (high risk) | Adequate | 16 of 16 | RRC (refusals, stale token, billing, running session, retried command ID, `command-status`, text mode); `src/control/help.test.ts`; THI | `src/control/commands.ts`, `src/control/help.ts`, `src/control/client.ts` | 2026-11-13 `ab4fa90` |
 | AC-CARRY-06 — A held phase can carry on when its conversation can't be reopened (high risk) | Weak | 8 of 13 | THI (macOS only); RRB "draws a held page…", "advances from the carry-on's already-complete choice…" | `src/engine/engine.ts` (takeover reconciliation, `carryOnObstacle`), `src/live/ownership.ts` | 2026-11-13 `9b8b913` |
 | AC-RESET-01 — Reset sits at the bottom of every screen | Weak | 2 of 3 | KRR "the open page resets through its confirmation…"; ERI | `src/engine/snapshot.ts`, `view/src/App.svelte`, `view/src/components/ResetFooter.svelte` | 2026-11-13 `9b8b913` |
 | AC-RESET-02 — Reset waits for Kiln to stop working (high risk) | Weak | 3 of 6 | ERI "is unavailable while a session works…" | `src/engine/engine.ts` (`resetControl`, `controlView`), `view/src/components/ResetFooter.svelte` | 2026-11-13 `9b8b913` |
@@ -46,43 +47,29 @@ Short names for the test files used below:
 | AC-LOOK-01 — The screens match their drawings | Weak | 15 of 20 | SFS; RRB; KRR | `view/src/screens/*.svelte`, `view/src/components/*.svelte` | 2026-11-13 `9b8b913` |
 
 Red checks run (each broke the named part, saw a mapped test fail twice, and was restored byte for byte):
+- **AC-CURRENT-01 (fixing chat, new tests):** Start's and a stop's qualification ignoring uncommitted files, commits of its own, and being behind; `reply` and `carry-on` left out of the catch-up commands; Mark complete catching up; the held-phase offer guards; Start moving every repository rather than only qualifying ones; the CLI dropping `--leave-branch-as-is` (for every command, and for `reply`/`resume` alone); the page's Send reply & resume and Send reply & continue dropping the tick. Each made a new test fail twice.
+- **AC-CARRY-04 (fixing chat, new tests):** carry-on offered where the conversation can be reopened; start-again and carry-on settling as `session_resumed`. Each made a new RRC test fail twice. Red check not possible for the billing, stale-token, running-session and command-ID-replay refusals: each is a guard on whether Kiln launches a session.
 - **AC-FROM-04:** `setUpExistingEntry` resetting the branch to its base (`worktree add -B`): SFB "selects the existing branch…" failed.
 - **AC-CARRY-05:** `recoverPhase` skipping the completion-first check for carry-on: RR "checks completion first and starts nothing…" failed.
 - **AC-FROM-01:** `startChoice` always choosing a new branch: SFB "selects the existing branch…" failed.
 - **AC-CASE-04:** `restartFacts` never setting What Kiln found: RR "says so, shows What Kiln found…" failed.
 - **AC-CASE-02:** Start again launching with a prompt other than the phase's first one: RR "says so, shows What Kiln found…" failed.
 
+## Code fixed by this audit
+
+- **AC-CURRENT-01, a catch-up failing on Kiln's own read (fix commit `1687340`):** a new test caught a stopped phase's catch-up failing `branch_catch_up_failed` with "index.lock: File exists" in 2 of 9 loaded runs. Kiln's own `git status` reads, the stop's background Work read and the one each page open or reconnect runs, took the worktree's index lock while the fast-forward ran. Both reads (`readPhaseWork` in `src/engine/stopped-phase.ts` and `uncommittedFiles` in `src/engine/start-from.ts`) now pass `--no-optional-locks`, so they never take that lock. A deliverable review found that awaiting the stop's background read, the first form tried, left the page-open read racing. Red check not possible: the race can't be reproduced on demand. Because this changed implementation, a whole-PRD delivery audit runs before the next fixing chat.
+
 ## To fix, in order
 
 **Weak**
-- **AC-CURRENT-01** (high risk): 13 of 24.
+- **AC-CURRENT-01** (high risk): 24 of 26.
+  - tried 2026-11-13: added the no-offer cases at Start and at a stop, catch-up on `reply` and `carry-on`, Mark complete, the held-phase offer, a two-repository ticked Start, `--leave-branch-as-is` through the CLI on every command, and the page's reply and carry-on buttons, each seen red. The fresh re-grader still found two parts.
   - Uncovered parts:
-    - no offer for a branch with commits of its own, or with uncommitted files, or not behind its base;
-    - **Send reply & resume** and **Send reply & continue** on a stopped page don't send the tick;
-    - **Mark complete** never catching up;
-    - `kiln reply` and `kiln carry-on` catching up as if ticked;
-    - `--leave-branch-as-is` through the CLI, and on commands other than start-again;
-    - a held phase getting no offer;
-    - with several repositories, each qualifying branch moved and the others left alone.
+    - a command at a held phase that offers carry-on (AC-CARRY-06) doesn't catch up: the test's `start-again` is refused on eligibility, so it would pass with `catchUpAtStop`'s `liveControl` guard removed;
+    - with several repositories at a stop, each qualifying branch moved and the others left alone.
   - Fix:
-    - In SFB, one test runs `refreshStartPreview` for each of the three non-qualifying branches and asserts no `catchUp`, at Start and at a dirty stop.
-    - In the stopped-branch block, add `reply` and `carry-on` submits that assert `branch_catch_up` and the worktree HEAD at develop's tip; add a Mark complete case asserting HEAD unchanged; add a held (`liveControl`) case with no offer and no move.
-    - Add a two-repository ticked Start, one repository qualifying and one with its own commit.
-    - Add a CLI test that `--leave-branch-as-is` sends `leave_branch` on each command.
-    - Add RRB clicks for reply-and-resume and carry-on that assert `bringUpToDate`.
-- **AC-CARRY-04** (high risk): 5 of 12.
-  - Not proved from the command line:
-    - `kiln carry-on` refused where the conversation can be reopened;
-    - both commands refused under billing or while a session runs;
-    - a stale `--only-if-status-matches` refused on its own;
-    - a repeated `--command-id` replaying without a second session, and queried through the CLI;
-    - text-mode output, and output that never promises to resume.
-  - Fix, in RRC:
-    - a reopenable-conversation refusal (exit 3, no new launch);
-    - a stale-token call while each command is offered;
-    - a same-`--command-id` retry plus `command-status`;
-    - a billing spy refusal for both;
-    - one run of each without `--json`, asserting the result and no `/resum/i`.
+    - In THI (macOS) or a hand-built `liveControl` with `history`, submit `carry-on` with `bring_up_to_date: true` at a hold that offers it, and assert it is accepted, `branch_catch_up` is empty and HEAD and origin haven't moved.
+    - In KRP, start on two repositories, stop phase 1, advance both bases with one branch given a commit of its own, run `start-again`, and assert only the qualifying origin moved, with its own count.
 - **AC-CARRY-06** (high risk): 8 of 13.
   - Uncovered parts:
     - while the attempt still runs, the page keeps today's wait text;
