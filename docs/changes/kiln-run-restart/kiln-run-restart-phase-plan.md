@@ -14,6 +14,8 @@ Three phases, executed in order. The PRD holds four capabilities, each with its 
 | [1 stopped phase recovery](phase-1-stopped-phase-recovery.md) | A stopped phase's page says which kind of stop it is and offers start again or carry on in a new session, from the browser or a bot, including for a takeover hold whose conversation can't be reopened. | None |
 | [2 start from existing branch](phase-2-start-from-existing-branch.md) | Documents found can start on a branch that already exists, and Kiln can move an untouched branch forward to its base before a session starts. | 1 (the stopped-phase Work read and the carry-on and start-again actions) |
 | [3 reset](phase-3-reset.md) | A reset button and `kiln reset` make Kiln forget its progress on the PRD and return to Documents found, leaving git untouched. | 2 (Documents found's Start from) |
+| [4 complete stopped-phase recovery](phase-4-complete-stopped-phase-recovery.md) | Added by delivery audit: finish the stopped-phase pages and commands, from naming a failed work read to advancing a held phase from the browser and `kiln handoff`'s fresh-session instructions. | 1 (stopped-phase facts, carry-on and start-again actions, held carry-on) |
+| [5 complete start from existing branch](phase-5-complete-start-from-branch.md) | Added by delivery audit: finish Documents found's labels, branch list and pull request line, and name each repository's own base in the catch-up offer. | 2 (Start from, branch list, catch-up offer) |
 
 ## Acceptance-criterion ownership
 
