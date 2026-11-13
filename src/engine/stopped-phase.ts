@@ -25,6 +25,16 @@ export function conversationBegan(stateDirectory: string, session: SessionRecord
   return session.runs.some((_, index) => runBegan(stateDirectory, session, index));
 }
 
+/**
+ * A session's last recorded final message: the one the carry-on prompt carries and a stopped
+ * phase's first card shows (run restart "A Stopped Phase's Facts", Case).
+ *
+ *   lastRecordedRun(session)?.result?.text  // "Blocked before any code."
+ */
+export function lastRecordedRun(session: SessionRecord): SessionRun | undefined {
+  return session.runs.findLast(run => run.result?.text?.trim());
+}
+
 /** The session whose latest run started last; a record with no run is never the latest launch. */
 export function latestLaunch(sessions: readonly SessionRecord[]): SessionRecord | undefined {
   let latest: SessionRecord | undefined;

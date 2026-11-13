@@ -1,5 +1,5 @@
 import { preparationPermissions } from "./preparation-permissions.js";
-import { claudeReopenCheck, conversationBegan as sessionBegan, readPhaseWork, type WorkRead } from "./stopped-phase.js";
+import { claudeReopenCheck, conversationBegan as sessionBegan, lastRecordedRun, readPhaseWork, type WorkRead } from "./stopped-phase.js";
 import type { ReopenCheck } from "./reopen-check.js";
 import { markReasonRows } from "../state/records.js";
 import { outstandingLines, personItems, settledLines } from "../audit/person-items.js";
@@ -4308,7 +4308,7 @@ export class Engine {
     else {
       const work = await this.refreshStoppedWork(key);
       const earlier = this.recoverySession(key);
-      const lastMessage = earlier?.runs.findLast(run => run.result?.text?.trim())?.result?.text;
+      const lastMessage = earlier && lastRecordedRun(earlier)?.result?.text;
       prompt = carryOnPrompt({ freshSession: preparing ? this.preparationTask() : freshSessionPrompt(values, true), ...(request.note ? { note: request.note } : {}), ...(lastMessage ? { lastMessage } : {}), work: work && !("unknown" in work) ? work.repositories : [], multiRepository: this.setUpRepositories.length > 1 });
     }
     if (this.stopping) { this.checking = false; return; }

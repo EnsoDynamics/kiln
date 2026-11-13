@@ -1,6 +1,6 @@
 import type { PhaseRecoveryView } from "./phase-recovery.js";
 import type { ReopenCheck } from "./reopen-check.js";
-import { launchFailure, type LaunchFailure, type WorkRead } from "./stopped-phase.js";
+import { lastRecordedRun, launchFailure, type LaunchFailure, type WorkRead } from "./stopped-phase.js";
 import { runLastOutputAt } from "../session/claude-session.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
@@ -761,7 +761,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     const stoppedAt = interrupted?.interruptedAt ?? ended ?? (interrupted ? engine.runLastOutputAt(session, interruptedIndex) : undefined) ?? endedAt;
     // The run before the failed resume ended on its own unless Kiln was resuming an interruption, or one was recorded.
     const endedOnItsOwn = run?.cause !== "resume" && interrupted?.interruptedAt === undefined;
-    const messageRun = endedOnItsOwn && engine.stoppedPhase() === phaseKey ? session.runs.findLast(candidate => candidate.result?.text?.trim()) : undefined;
+    const messageRun = endedOnItsOwn && engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : undefined;
     const finalMessage = messageRun?.result?.text;
     return {
       ...base,
@@ -783,7 +783,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const interrupted = stop.interrupted;
   // A stopped phase's first card gives the latest launch's last recorded final message, the one the
   // carry-on prompt carries, so a resume that couldn't spawn still shows it (AC-CASE-04).
-  const messageRun = engine.stoppedPhase() === phaseKey ? session.runs.findLast(candidate => candidate.result?.text?.trim()) : run;
+  const messageRun = engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : run;
   const finalMessage = interrupted === undefined && messageRun?.result?.text?.trim() ? messageRun.result.text : undefined;
   // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
   const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released");
@@ -843,7 +843,7 @@ function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | und
   const ranMs = conversation?.runs.length ? runTiming(conversation.runs.map((run, index) => ({ startedAt: run.startedAt, ...optional("interruptedAt", run.interruptedAt), endedAt: run.endedAt ?? runLastOutputAt(engine.stateDirectory, conversation, index) ?? run.startedAt })), conversation.runs[0]!.startedAt, conversation.runs.at(-1)!.endedAt ?? engine.clock().toISOString()).runningMs : undefined;
   const known = work && !("unknown" in work) ? work : undefined;
   const earlier = failure && conversation && conversation.sessionId !== latest?.sessionId ? conversation : undefined;
-  const earlierRun = earlier?.runs.findLast(run => run.result?.text?.trim());
+  const earlierRun = earlier && lastRecordedRun(earlier);
   const start = engine.startAgainControl();
   return {
     case: engine.stoppedCase(phaseKey),
