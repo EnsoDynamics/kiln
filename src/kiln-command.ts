@@ -332,16 +332,21 @@ async function resetEngine(run: KilnRun): Promise<Engine> {
   const record = readPrdRecord(run.stateDirectory);
   if (!record) throw new Error("the fresh record is missing");
   if (checks.report.github) record.repository.github = checks.report.github;
-  const unset = checks.report.repositories.filter((repository) => record.settings.bases[repository.name] === undefined);
+  await fillNamedBases(git, record, checks.report.repositories);
+  writePrdRecord(run.stateDirectory, record);
+  const engine = makeEngine(run, record, terminalWriter(run), { prdTree: checks.prdTree, plan: checks.report.plan, repositories: checks.report.repositories }, startChecks);
+  engine.resetStart = checks;
+  return engine;
+}
+
+/** Each named repository without a base starts from v1's rule: develop on its origin, else origin's default branch (AC-SPACE-01). */
+async function fillNamedBases(git: { git: string; env: NodeJS.ProcessEnv }, record: PrdRecord, repositories: FoundRepository[]): Promise<void> {
+  const unset = repositories.filter((repository) => record.settings.bases[repository.name] === undefined);
   const origins = await Promise.all(unset.map((repository) => originBranches(git, repository.mainCheckoutPath)));
   unset.forEach((repository, index) => {
     const origin = origins[index]!;
     if (origin.ok) record.settings.bases[repository.name] = defaultBaseBranch(origin.value);
   });
-  writePrdRecord(run.stateDirectory, record);
-  const engine = makeEngine(run, record, terminalWriter(run), { prdTree: checks.prdTree, plan: checks.report.plan, repositories: checks.report.repositories }, startChecks);
-  engine.resetStart = checks;
-  return engine;
 }
 
 /** Nothing more is printed once a stop begins; its own line comes last. */
@@ -402,13 +407,7 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   } else {
     record.repository.github = report.github!;
   }
-  // Each named repository starts from v1's rule: develop on its origin, else origin's default branch (AC-SPACE-01).
-  const unset = report.repositories.filter((repository) => record!.settings.bases[repository.name] === undefined);
-  const origins = await Promise.all(unset.map((repository) => originBranches(git, repository.mainCheckoutPath)));
-  unset.forEach((repository, index) => {
-    const origin = origins[index]!;
-    if (origin.ok) record!.settings.bases[repository.name] = defaultBaseBranch(origin.value);
-  });
+  await fillNamedBases(git, record, report.repositories);
   if (stop.stopping) return stop.done;
   writePrdRecord(run.stateDirectory, record);
 
