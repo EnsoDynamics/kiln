@@ -180,6 +180,13 @@ describe("the Needs you screen's copy", () => {
     for (const phaseId of ["pr", "audit-a1"]) expect(needsYouCopy({ ...noSession, phaseId, kind: "done_check" }, settings, now).line).not.toContain("No Kiln session ran this phase");
   });
 
+  it("says a phase stopped only on Kiln's record is done, naming the session that finished it", () => {
+    const noSession = without(without(without(base, "finalMessage"), "exitCode"), "sessionId");
+    expect(needsYouCopy({ ...noSession, phaseId: "2a", kind: "done_check", bookkeeping: { finishedBy: "2" } }, settings, now)).toMatchObject({ headline: "Phase 2a is done. Only Kiln’s record of it is out of date.", line: expect.stringMatching(/^Phase 2’s session built and closed it, and Kiln accepted it then\./), showFacts: false, firstStep: "none", freshLink: false });
+    // A phase whose own session finished it, with that session's ending on record.
+    expect(needsYouCopy({ ...base, kind: "done_check", bookkeeping: { finishedBy: "2b" } }, settings, now).line).toMatch(/^Its own session built and closed it/);
+  });
+
   it("uses UI-007 item 1's lines for the pull request", () => {
     expect(copyOf({ phaseId: "pr", kind: "pull_request_check", rowsAreCompletionChecks: true })).toMatchObject({
       headline: "The pull-request session ended before it was done.",

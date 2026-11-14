@@ -375,6 +375,11 @@ function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, mul
   if (stop.phaseId.startsWith("audit-")) {
     Object.assign(copy, { headline: "The audit ended before its work was resolved.", finishTitle: "Finish the assigned audit", finishText: "Kiln checks the audit's report, the plan and Git again. Resume continues the audit in its original conversation so it can finish or correct its report.", checkAgainText: "Kiln validates the report, current work and retained delivery obligations before continuing automatically.", footnote: stop.resumeOffered ? "Check again checks completion. To continue unfinished audit work, press Resume; your reply is optional." : "A successful process exit does not establish an audit result.", resumeText: "Kiln checks the audit first. If it is unfinished, Resume sends your reply and the saved audit task to the same conversation." });
   }
+  // Only Kiln's record stops a finished phase: say so, and Needs you leads with Mark complete (AC-WAIVE-02 in Kiln Completion Waivers).
+  if (stop.bookkeeping) {
+    const builder = stop.bookkeeping.finishedBy === stop.phaseId ? "Its own session" : `${capitalized(phaseName(stop.bookkeeping.finishedBy))}’s session`;
+    return { ...copy, headline: `${name} is done. Only Kiln’s record of it is out of date.`, line: `${builder} built and closed it, and Kiln accepted it then. The documents its delivery assessment was made against have changed since, and no session is left to assess it again. Kiln found nothing else missing: mark it complete to carry on.`, showFacts: false, firstStep: "none", freshLink: false };
+  }
   if (stop.kind === "billing") return { ...copy, headline: "The next AI launch is held for review.", line: "Your recorded session and completed work are saved. Review billing below, then explicitly continue.", showFacts: true, firstStep: "none", freshLink: false, finishTitle: "Review billing above", finishText: "Approve the detected billing route, or change its source and recheck. Use Resume for a saved conversation; use Check again if no AI run has started.", sideHeading: "Billing and continuation", checkAgainText: "Local completion checks remain available. Any AI work still requires current billing eligibility.", footnote: "Approval and rechecking do not resume AI work." };
   if (stop.kind === "selection") {
     return {

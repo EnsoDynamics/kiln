@@ -32,6 +32,19 @@ section to the new version.
   field and why, or how many fields need fixing, and says **Not connected to Kiln.** when the
   page has lost Kiln. Before, Start was greyed out with nothing beside it.
 
+### Fixed
+
+- **A phase split midway no longer stops Kiln once it is done.** When a phase's own session
+  split it and built the first sub-phase, a later phase's edits to the shared PRD or design
+  could stop Kiln on that sub-phase with "Phase N needs a current development-delivery
+  assessment", though it had passed its checks when it finished. When Kiln has no record of the
+  documents such a phase was finished against, it now reads them from the commit its session
+  finished on, so later edits to the shared documents no longer reopen it.
+- **A stop that is only Kiln's record says so.** When a finished phase stops Kiln only because
+  its delivery assessment no longer matches the documents, Needs you says the phase is done,
+  names the session that built it, and leads with **Mark complete**, instead of saying no Kiln
+  session ran it and offering a prompt to pick it up yourself.
+
 ## [1.2.2] - 2026-11-14
 
 The header shows the whole PRD's time, the top bar says when a newer Kiln is on npm, and a

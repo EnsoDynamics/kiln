@@ -10,8 +10,8 @@ import { AuditStore } from "../audit/storage.js";
 import { personItems, settledLines } from "../audit/person-items.js";
 import type { WorkSnapshot } from "../audit/contracts.js";
 import { simpleCommands } from "../session/bash-command.js";
-import { deliveryEnabled } from "./development-delivery.js";
-import type { DevelopmentSettings } from "../state/development-delivery.js";
+import { DELIVERY_CHECK, deliveryEnabled, finishedBy } from "./development-delivery.js";
+import { sameOwner, type DevelopmentSettings } from "../state/development-delivery.js";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { selectedChoice } from "../state/records.js";
@@ -31,7 +31,7 @@ import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
-import { PR_PHASE_KEY, type CheckRun, type CheckResult, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
+import { PR_PHASE_KEY, type CheckRun, type CheckResult, type PrdRecord, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import type { ExecutionSummary } from "./continuation-state.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
@@ -413,6 +413,11 @@ export interface Snapshot {
     catchUp?: CatchUpOffer;
     /** The stopped session hit a usage limit (usage-limit recovery AC-LIMIT-01 to 03); `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
     limit?: LimitView & { refusedAgainAt?: string };
+    /**
+     * Only Kiln's record stops a finished phase (AC-WAIVE-02 in Kiln Completion Waivers): a Kiln session finished it,
+     * the phase's own or, `finishedBy`, a split ancestor's that built it, and its one failing item is the assessment.
+     */
+    bookkeeping?: { finishedBy: string };
   };
   /**
    * Waiting for usage (usage-limit recovery AC-LIMIT-04): the limit, how the session ended
@@ -706,6 +711,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const judged = judgedKeyFor(plan, phaseKey);
   const checks = (phaseRecovery ? retainedStop?.checks ?? [] : stop.checks).map(check => auditCheckTitle(phaseKey, check));
   const checkRun = phaseRecovery ? retainedStop?.run : stop.run;
+  const bookkeeping = !hold && !phaseRecovery && stop.kind === "done_check" ? bookkeepingStop(record, judged, checks) : undefined;
   const base = {
     phaseId: judged,
     kind: stop.kind,
@@ -719,7 +725,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
     ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
-    ...restartFacts(engine, phaseKey, checkRun),
+    // A bookkeeping stop has no session to restart or carry on: the work is done.
+    ...(bookkeeping ? { bookkeeping } : restartFacts(engine, phaseKey, checkRun)),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
   // Resume, reply and the terminal command read the latest conversation, or the latest launch when none began (run restart "A session record with no run").
@@ -837,6 +844,23 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
  * the two session-starting buttons. A held page whose conversation can't be reopened gets only
  * its work, the reopen check and the carry-on button (AC-CARRY-06).
  */
+/**
+ * A done-check stop on a phase a Kiln session finished, its check passing then, whose only failing item asks for a
+ * current assessment of the phase's own: the shared documents changed after the finish and no session is left to
+ * assess them again, so only Kiln's record is out of date. Not when a person or a waiver finished it, when it never
+ * had an assessment, or when it had a binding, which only a change to its own phase document ends; a material change to
+ * a closed phase's document stops Kiln as a plan problem before this check.
+ */
+function bookkeepingStop(record: PrdRecord, phaseId: string, checks: CheckResult[]): { finishedBy: string } | undefined {
+  const finished = finishedBy(record, phaseId);
+  const delivery = record.developmentDelivery;
+  if (!finished || finished[1].finishedByPerson || finished[1].waiverId || delivery?.accepted?.some(one => one.phaseId === phaseId)) return undefined;
+  if (!delivery?.assessments.some(one => sameOwner(one, { owner: { kind: "phase", phaseId } }))) return undefined;
+  const failing = checks.filter(check => !check.passed);
+  const assessmentOnly = failing.length > 0 && failing.every(check => check.name === DELIVERY_CHECK && check.facts.length > 0 && check.facts.every(fact => fact === `Phase ${phaseId} needs a current development-delivery assessment.`));
+  return assessmentOnly ? { finishedBy: finished[0] } : undefined;
+}
+
 function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | undefined): Partial<NonNullable<Snapshot["needsYou"]>> {
   const hold = engine.record.liveControl?.takeover;
   const work = engine.workOf(phaseKey);

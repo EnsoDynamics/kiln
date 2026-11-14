@@ -206,7 +206,9 @@
         {#if copy.showFacts && ending}
           <div class="facts mono"><span>{ending}</span><span>{clockTime(stop.stoppedAt, nowDate)}</span>{#if stop.lastSkill}<span>last skill seen: {stop.lastSkill.name}, {earlier(stop.lastSkill.at, stop.stoppedAt)}</span>{/if}</div>
         {/if}
-        {#if stop.finalMessage !== undefined && stop.kind !== "not_resumable"}
+        {#if stop.bookkeeping}
+          <!-- Only the record is out of date: no session ending to show. -->
+        {:else if stop.finalMessage !== undefined && stop.kind !== "not_resumable"}
           <div class="message-block">
             <span class="eyebrow">Last message from {stop.agent ?? snapshot.settings.agent}</span>
             <div class="final">{@html finalMessageHtml(stop.finalMessage)}</div>
@@ -229,6 +231,11 @@
           <button type="button" class="button small" disabled={busy || snapshot.settings.metadataPending} onclick={refreshSelection}>Refresh agent information</button>
         </section>
         {#if snapshot.account}<AccountPanel account={snapshot.account} paused={false} notStarted {now} />{/if}
+      {:else if stop.bookkeeping}
+        <section class="card lead-mark">
+          <!-- Here the checks sit beside or below the card, not above it. -->
+          {#if offer}<MarkComplete offer={{ ...offer, sentence: offer.sentence.map(line => line.replace(/ (failing checks?) above\b/, " $1")) }} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
+        </section>
       {:else}
       {#if stop.resumeOffered && stop.catchUp && !snapshot.liveControl && !(stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn))}<CatchUpOffer offer={stop.catchUp} where="stop" {activity} bind:ticked={catchUpTicked} disabled={busy} />{/if}
       {#if stop.resumeOffered && stop.limit && limitCopy}
@@ -334,7 +341,7 @@
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
         {#if copy.footnote}<p class="footnote">{copy.footnote}</p>{/if}
-        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
+        {#if stop.bookkeeping}<!-- Mark complete leads the page instead. -->{:else if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
       </aside>
     </div>
   </div>
@@ -357,6 +364,8 @@
 
 <style>
   .restart { display: flex; flex-direction: column; gap: 20px; max-width: 1120px; }
+  /* Mark complete leads a bookkeeping stop in its own card, so it needs no rule above it. */
+  .lead-mark :global(.mark-complete) { border-top: 0; padding-top: 0; }
   .peer-choices { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
   .ended { border-color: rgba(230, 180, 80, 0.5); gap: 18px; }

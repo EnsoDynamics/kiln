@@ -50,7 +50,7 @@ import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, oneRowPerChe
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
-import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, acceptPhaseDocuments, acceptAuditDocuments, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
+import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, acceptPhaseDocuments, acceptAuditDocuments, bindAtFinish, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
 import { readTranscript } from "../session/transcripts.js";
 import { readDeliveryHistory } from "./delivery-history.js";
@@ -2666,6 +2666,8 @@ export class Engine {
       if (!owesDevelopmentEvidence(this.record, leaf.id, closedAtBase.has(leaf.id))) continue;
       const accepted = this.record.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, this.record.planReconciliation.baselineId) : undefined;
       if ((this.record.continuation?.acceptances.some(row => row.state === "active" && row.newExecutionId === this.record.executionId) || this.record.folderSetupStart) && !this.record.phases[leaf.id] && (accepted?.completions[leaf.id] || this.record.preparation?.bindings.some(binding => preparesPhase(binding, leaf.id)))) continue;
+      // A finished leaf the loop never bound, before later phases changed the shared documents, is bound from the commit its session finished on.
+      await bindAtFinish(this.deliveryContext(leaf.id), leaf.id);
       const check = phaseDeliveryCheck(this.deliveryContext(leaf.id), leaf.id);
       if (!await this.markChecks(leaf.id, [check])) { this.recordStop(leaf.id, "done_check", [check]); return leaf.id; }
       // Finished and met: from here only a change to its own phase document asks for its assessment again.
