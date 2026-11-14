@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { afterEach, test } from 'node:test';
 import { parse } from 'yaml';
-import { checkRelease, compareVersions, installHooks, metadata, packageName, prepareRelease, publishedVersions, publishingReadiness, releaseNotes, versionParts } from './release.mjs';
+import { checkRelease, compareVersions, installHooks, metadata, overrideDecision, overrideNote, packageName, prepareRelease, publishedVersions, publishingReadiness, releaseNotes, versionParts } from './release.mjs';
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cleanups = [];
@@ -68,8 +68,20 @@ test('workflow policy keeps development cheap and gates release jobs and the exa
   assert.equal(evaluate(candidate.if, { steps: { scope: { outputs: { full: 'true' } } } }), true);
   assert.equal(release.jobs.verify.uses, './.github/workflows/ci.yml');
   assert.equal(release.jobs.verify.with.full, true);
-  assert.equal(release.jobs.publish.if, undefined, 'every push to main that passes verification publishes');
-  assert.deepEqual(release.jobs.publish.needs, ['preflight', 'verify']);
+  // Every push to main that passes verification publishes; a manual run publishes a failed run's
+  // package only through the override check, never when preflight fails or verification runs and fails.
+  assert.deepEqual(release.jobs.publish.needs, ['preflight', 'verify', 'override']);
+  const publishes = (preflight, verify, override) => evaluate(release.jobs.publish.if, { always: () => true, needs: { preflight: { result: preflight }, verify: { result: verify }, override: { result: override } } });
+  assert.equal(publishes('success', 'success', 'skipped'), true);
+  assert.equal(publishes('success', 'skipped', 'success'), true);
+  for (const blocked of [['success', 'failure', 'skipped'], ['success', 'skipped', 'failure'], ['success', 'skipped', 'skipped'], ['failure', 'skipped', 'success'], ['failure', 'success', 'skipped'], ['success', 'failure', 'success']]) assert.equal(publishes(...blocked), false, blocked.join(' '));
+  for (const [input, runsVerify] of [[undefined, true], ['', true], ['123', false]]) {
+    const context = { inputs: { publish_failed_run: input } };
+    assert.equal(evaluate(release.jobs.verify.if, context), runsVerify);
+    assert.equal(Boolean(evaluate(release.jobs.override.if, context)), !runsVerify);
+  }
+  assert.ok(ancestors(release.jobs, 'override').includes('preflight'), 'an override still passes the release preflight');
+  assert.ok(release.jobs.override.steps.some(step => step.run === 'node scripts/release.mjs override "$FAILED_RUN"'));
   assert.equal(release.concurrency['cancel-in-progress'], false);
   assert.equal(evaluate(ci.concurrency['cancel-in-progress'], { github: { event_name: 'push', ref: 'refs/heads/main' } }), false);
 
@@ -86,7 +98,8 @@ test('workflow policy keeps development cheap and gates release jobs and the exa
   assert.equal(ci.jobs.macos.env.KILN_RELEASE_BUILD, 'true');
   const published = release.jobs.publish.steps.find(step => step.run?.startsWith('npm publish '));
   assert.equal(installed.env.KILN_PACKAGE_TARBALL, '${{ runner.temp }}/kiln-package/${{ needs.build.outputs.filename }}');
-  assert.equal(published.env.PACKAGE_FILE, '${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}');
+  assert.equal(published.env.PACKAGE_FILE, '${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename || needs.override.outputs.filename }}');
+  assert.equal(publishDownload.with['run-id'], '${{ inputs.publish_failed_run || github.run_id }}', 'an override publishes the failed run\'s checked archive');
   assert.match(published.run, /npm publish "\$PACKAGE_FILE"/);
   assert.match(published.run, /--ignore-scripts/);
   assert.ok(!release.jobs.publish.steps.some(step => /npm (?:run build|ci)/.test(step.run ?? '')), 'publishing cannot rebuild a different archive');
@@ -94,6 +107,29 @@ test('workflow policy keeps development cheap and gates release jobs and the exa
     const check = steps.findIndex(step => step.run === checksum);
     assert.ok(check >= 0 && check < steps.indexOf(operation), 'checksum must be checked before installation/publication');
   }
+});
+
+test('publishing over failed checks needs a failed Release run of this commit whose package was built', () => {
+  const sha = 'a'.repeat(40);
+  const run = { id: 7, path: '.github/workflows/release.yml', head_branch: 'main', head_sha: sha, status: 'completed', conclusion: 'failure' };
+  const passed = ['Release version and publishing preflight', 'verify / Package and version preflight', 'verify / Ubuntu checks and package'].map(name => ({ name, conclusion: 'success' }));
+  const jobs = [...passed, { name: 'verify / macOS integration tests (shard 2 of 4)', conclusion: 'failure' }, { name: 'publish', conclusion: 'skipped' }];
+  const artifacts = [{ name: 'kiln-npm-package', expired: false }];
+  const valid = { run, jobs, artifacts, sha, version: '1.2.2', reason: 'A macOS timing test.' };
+  assert.deepEqual(overrideDecision(valid), { filename: 'ensodynamics-kiln-1.2.2.tgz', failedJobs: ['verify / macOS integration tests (shard 2 of 4)'] });
+  for (const [change, message] of [
+    [{ reason: ' ' }, /Say why/],
+    [{ run: { ...run, path: '.github/workflows/ci.yml' } }, /not a Release run on main/],
+    [{ run: { ...run, head_branch: 'develop' } }, /not a Release run on main/],
+    [{ run: { ...run, head_sha: 'b'.repeat(40) } }, /not a{40}, the commit on main now/],
+    [{ run: { ...run, status: 'in_progress', conclusion: null } }, /has not failed/],
+    [{ run: { ...run, conclusion: 'success' } }, /has not failed/],
+    [{ jobs: jobs.map(job => job.name === 'verify / Ubuntu checks and package' ? { ...job, conclusion: 'failure' } : job) }, /"verify \/ Ubuntu checks and package" did not pass/],
+    [{ jobs: jobs.filter(job => job.name !== 'Release version and publishing preflight') }, /"Release version and publishing preflight" did not pass/],
+    [{ artifacts: [{ name: 'kiln-npm-package', expired: true }] }, /no unexpired kiln-npm-package/],
+    [{ jobs: [...passed, { name: 'verify / macOS integration tests (shard 2 of 4)', conclusion: 'cancelled' }] }, /no failed job/],
+  ]) assert.throws(() => overrideDecision({ ...valid, ...change }), message);
+  assert.equal(overrideNote('7', ' A macOS timing test. '), '\n---\n\nPublished over failed checks in run 7: A macOS timing test.\n');
 });
 
 function git(root, ...args) {

@@ -216,6 +216,34 @@ export async function publishingReadiness({ mode, token, isPrivate, registryUrl 
   } else throw new Error('NPM_AUTH_MODE must explicitly select token or trusted.');
 }
 
+/**
+ * Whether a failed Release run's package may be published over its failed checks: it must be a
+ * finished, failed Release run of the commit being released, whose preflight and package build
+ * passed and whose package artifact exists. Only checks can be overridden, never the build.
+ *
+ *   overrideDecision({ run, jobs, artifacts, sha, version: '1.2.2', reason: 'macOS timing test' })
+ *   // { filename: 'ensodynamics-kiln-1.2.2.tgz', failedJobs: ['verify / macOS tests and installed candidate'] }
+ */
+export function overrideDecision({ run, jobs, artifacts, sha, version, reason }) {
+  if (!reason?.trim()) throw new Error('Say why the failed checks do not block this release (reason).');
+  if (run.path !== '.github/workflows/release.yml' || run.head_branch !== 'main') throw new Error(`Run ${run.id} is not a Release run on main.`);
+  if (run.head_sha !== sha) throw new Error(`Run ${run.id} checked ${run.head_sha}, not ${sha}, the commit on main now.`);
+  if (run.status !== 'completed' || run.conclusion !== 'failure') throw new Error(`Run ${run.id} has not failed (${run.status}, ${run.conclusion ?? 'no conclusion'}); only a failed run can be published over.`);
+  for (const required of ['Release version and publishing preflight', 'verify / Package and version preflight', 'verify / Ubuntu checks and package']) {
+    const job = jobs.find(one => one.name === required);
+    if (job?.conclusion !== 'success') throw new Error(`Run ${run.id}'s "${required}" did not pass, so its package can't be published.`);
+  }
+  if (!artifacts.some(one => one.name === 'kiln-npm-package' && !one.expired)) throw new Error(`Run ${run.id} has no unexpired kiln-npm-package artifact.`);
+  const failedJobs = jobs.filter(one => one.conclusion === 'failure').map(one => one.name);
+  if (!failedJobs.length) throw new Error(`Run ${run.id} has no failed job to publish over.`);
+  return { filename: `ensodynamics-kiln-${version}.tgz`, failedJobs };
+}
+
+/** The line the release notes end with when a release was published over failed checks. */
+export function overrideNote(failedRun, reason) {
+  return `\n---\n\nPublished over failed checks in run ${failedRun}: ${reason.trim()}\n`;
+}
+
 async function main() {
   const root = process.cwd();
   const [command, argument] = process.argv.slice(2);
@@ -225,7 +253,7 @@ async function main() {
     // The release workflow publishes this as the GitHub Release's notes.
     const notes = releaseNotes(readFileSync(join(root, changelogPath), 'utf8'), argument ?? '');
     if (!notes) throw new Error(`${changelogPath} has no section for ${argument}.`);
-    console.log(notes);
+    console.log(notes + (process.env.FAILED_RUN ? overrideNote(process.env.FAILED_RUN, process.env.REASON ?? '') : ''));
   } else if (command === 'install-hooks') installHooks(root, { fromWorktree: argument === '--from-worktree' });
   else if (command === 'pre-push') await prePush(root, readFileSync(0, 'utf8'));
   else if (command === 'candidate') {
@@ -241,7 +269,19 @@ async function main() {
     if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT is required.');
     writeFileSync(process.env.GITHUB_OUTPUT, `version=${current.version}\n`, { flag: 'a' });
     console.log(`Release ${current.version} preflight passed.`);
-  } else throw new Error('Use metadata, prepare, notes, install-hooks, pre-push, candidate or preflight.');
+  } else if (command === 'override') {
+    if (process.env.GITHUB_REF !== 'refs/heads/main') throw new Error('Releases run only on main.');
+    const api = path => { const result = spawnSync('gh', ['api', `repos/${process.env.GITHUB_REPOSITORY}/actions/${path}`], { encoding: 'utf8', timeout: 60_000 }); if (result.status !== 0) throw new Error(`gh api ${path} failed: ${result.stderr.trim()}`); return JSON.parse(result.stdout); };
+    const run = api(`runs/${argument}`);
+    const jobs = api(`runs/${argument}/jobs?per_page=100`).jobs;
+    const artifacts = api(`runs/${argument}/artifacts`).artifacts;
+    const { version } = metadata(root, 'HEAD');
+    const decision = overrideDecision({ run, jobs, artifacts, sha: process.env.GITHUB_SHA, version, reason: process.env.REASON });
+    if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT is required.');
+    writeFileSync(process.env.GITHUB_OUTPUT, `filename=${decision.filename}\n`, { flag: 'a' });
+    if (process.env.GITHUB_STEP_SUMMARY) writeFileSync(process.env.GITHUB_STEP_SUMMARY, `Publishing ${decision.filename} from run ${argument} over: ${decision.failedJobs.join(', ')}.\n\nReason: ${process.env.REASON.trim()}\n`, { flag: 'a' });
+    console.log(`Publishing ${decision.filename} from run ${argument} over failed checks: ${decision.failedJobs.join(', ')}.`);
+  } else throw new Error('Use metadata, prepare, notes, install-hooks, pre-push, candidate, preflight or override.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

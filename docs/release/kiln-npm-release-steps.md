@@ -61,6 +61,18 @@ Before arming publication, check the token's real npm identity and its selected 
 4. Merge the approved candidate to main. Release preflight runs first, followed by one full candidate verification. Only then does Actions publish the checked archive with provenance and create `v<version>` and its GitHub Release. Do not push a release tag manually.
 5. Check the public registry version, integrity and provenance; install that exact version in a disposable prefix and run its installed help/browser checks. Record the candidate SHA and registry evidence. No public install or provenance verification is claimed before this step.
 
+## Publishing over failed checks
+
+When a release is waiting and a Release run failed only on a test that doesn't matter for it, Doug can publish that run's package without running the checks again:
+
+```sh
+gh workflow run release.yml -R EnsoDynamics/kiln --ref main -f publish_failed_run=<failed run ID> -f reason="<why the failure doesn't block this release>"
+```
+
+Or use **Run workflow** on the Release workflow in GitHub Actions with the same two fields. Only checks can be overridden. The failed run must be a finished Release run of the commit now on main, its preflight, package preflight and Ubuntu package build must have passed, and its package artifact must still exist (seven days). This run's own preflight still refuses an existing tag or a version already on npm. The package published is the one that run built and checksummed. The reason and the run go at the end of the GitHub Release's notes. Fix or disable the failing test afterwards so the next release doesn't need an override.
+
+## Retries
+
 A workflow rerun after a pre-publication infrastructure failure can use GitHub's normal rerun controls, or manually dispatch Release on main. A version already on npm is always rejected. If npm succeeded but GitHub Release creation failed, use the retained archive/checksum to finish the matching GitHub Release under the same release authorization; do not republish or change that version. If the artifact expired, recover the identical npm tarball and verify its registry integrity before attaching it.
 
 ## Move to trusted publishing
