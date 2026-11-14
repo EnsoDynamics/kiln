@@ -16,6 +16,8 @@ import type { LiveTarget } from "./target.js";
 import type { Receipt } from "../control/commands.js";
 import * as ownership from "./ownership.js";
 import * as ownedProcesses from "./owned-processes.js";
+import * as identities from "../platform/process-start-time.js";
+import { withGate } from "./gate.js";
 /** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit · Round 3". */
 const inSentence = (label: string) => /^Phase /.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 
@@ -373,7 +375,9 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
     if (kind === "phase" && recovery === "takeover") it("keeps today's wait text until the attempt ends, keeps carry-on unavailable while its work may still run, and Check again clears the card once the history is back (run restart AC-CARRY-06, AC-CARRY-02)", async () => {
       // The attempt hasn't ended: the hold keeps today's wait text, though the history is gone, and carry-on isn't offered.
       const running = vi.spyOn(ownership, "requireExited").mockRejectedValue(new ownership.OwnershipError("takeover_pending", "Waiting for the paused attempt to exit."));
-      rmSync(historyFile); await reconcile();
+      rmSync(historyFile);
+      // A once-a-second reconciliation already past the exit check when the attempt was marked running can still land after this one; wait for the hold to settle.
+      await waitFor(async () => { await reconcile(); return h.engine.record.liveControl!.takeover.reason === "Waiting for the paused attempt to exit."; }, 10000);
       expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", reason: "Waiting for the paused attempt to exit." });
       expect(h.engine.record.liveControl!.takeover.history).toBeUndefined();
       expect(buildSnapshot(h.engine).needsYou?.carryOn).toBeUndefined();
@@ -410,6 +414,38 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       expect(h.claudeCalls()).toHaveLength(originalCalls);
       work.mockRestore(); await reconcile();
       expect(h.engine.record.liveControl!.takeover.carryOnObstacle).toBeUndefined();
+
+      // Work the attempt started is still running: a real live process the attempt's gate tracks.
+      // Carry-on and the terminal card stay unavailable, saying so, until it ends.
+      const directory = h.engine.latestSession(target.activityKey)!.runs.at(-1)!.live!.gateDirectory;
+      const tool = spawn(process.execPath, ["-e", "process.stdin.resume();process.stdin.on('end',()=>process.exit(0))"], { stdio: ["pipe", "ignore", "ignore"] });
+      const toolExit = new Promise(resolve => tool.once("exit", resolve));
+      try {
+        const toolStart = await identities.processStartTime(tool.pid!);
+        expect(toolStart).toEqual(expect.any(String));
+        await withGate(directory, state => { state.tracked.push({ pid: tool.pid!, startTime: toolStart! }); });
+        await reconcile();
+        const stillRunning = "Work the paused session started is still running.";
+        expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", history: { state: "unavailable", reason: "missing" }, carryOnObstacle: stillRunning });
+        expect(h.engine.carryOnControl()).toEqual({ offered: true, available: false, reason: stillRunning });
+        expect(buildSnapshot(h.engine).needsYou!.carryOn).toMatchObject({ available: false, reason: stillRunning });
+        page = await chrome.open(server!.address, { width: 1200, height: 1100 });
+        await page.waitFor(`document.body.innerText.includes('Reply here and let Kiln carry on')`);
+        expect(await page.evaluate(`${button(`Send reply & continue ${inSentence(h.engine.liveView()!.label)}`)}.disabled`)).toBe(true);
+        expect(await page.evaluate(`Boolean(${button("Copy terminal command")})`)).toBe(false);
+        expect(await page.evaluate<string>("document.body.innerText")).toContain(stillRunning);
+        await page.close(); page = undefined;
+        const tracked = await cli(["status"]);
+        expect((tracked.body.controls as { name: string; available: boolean; reason: string | null }[]).find(control => control.name === "carry-on")).toMatchObject({ available: false, reason: stillRunning });
+        await cli(["carry-on", "--command-id", "held-carry-tracked", "--only-if-status-matches", String(tracked.body.status_token)]);
+        await h.engine.commands.settled(); await h.engine.settled();
+        expect(h.engine.commands.lookup("held-carry-tracked").operation).toMatchObject({ state: expect.stringMatching(/^(refused|failed)$/), effects: { session: "not_started" } });
+        expect(h.claudeCalls()).toHaveLength(originalCalls);
+      } finally { tool.stdin!.end(); await toolExit; }
+      // Once it ends, the next reconciliation clears the obstacle.
+      await reconcile();
+      expect(h.engine.record.liveControl!.takeover.carryOnObstacle).toBeUndefined();
+      expect(h.engine.carryOnControl()).toMatchObject({ available: true });
 
       // The card names the reason from AC-CARRY-02's table; with the history back, Check again clears it.
       // Stop the once-a-second reconciliation so only the button can notice.

@@ -4,7 +4,7 @@
 
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { Receipt } from "../control/commands.js";
 import { readWork } from "../control/private-state.js";
 import { statusProjection } from "../control/projection.js";
@@ -26,16 +26,35 @@ it("is unavailable while a session works, saying how to stop it, refused as a co
     await waitFor(() => h!.engine.current?.processRunning === true);
     // While the launch is being dispatched no pause is offered either; the page then offers Pause after.
     await waitFor(() => !!h!.engine.controlView().controls.find(control => control.name === "request-pause")?.available);
-    // Pause & take over is offered only for a live Claude attempt that supports it; Pause after is offered here.
-    const expected = h.engine.liveView()?.available
-      ? "Reset isn't available while a session is working. Stop it now with Pause & take over above, or pause after the current phase or audit and reset once it ends."
-      : "Reset isn't available while a session is working. Pause after the current phase or audit and reset once it ends.";
+    // Pause & take over is named only where it is offered; Pause after is offered here.
+    const live = h.engine.liveView();
+    const takeOver = "Reset isn't available while a session is working. Stop it now with Pause & take over above, or pause after the current phase or audit and reset once it ends.";
+    const pauseAfter = "Reset isn't available while a session is working. Pause after the current phase or audit and reset once it ends.";
+    for (const [available, reason] of [[true, takeOver], [false, pauseAfter]] as const) {
+      const offered = vi.spyOn(h.engine, "liveView").mockReturnValue({ ...(live ?? {}), available } as NonNullable<typeof live>);
+      expect(h.engine.resetControl(), String(available)).toEqual({ available: false, reason });
+      expect(resetOf(h), String(available)).toMatchObject({ available: false, reason });
+      offered.mockRestore();
+    }
+    const expected = live?.available ? takeOver : pauseAfter;
     expect(resetOf(h)).toMatchObject({ available: false, reason: expected });
     expect(h.engine.resetControl().reason).toBe(expected);
     const view = h.engine.controlView();
     const refused = h.engine.commands.submit({ command_id: "reset-while-working", execution_id: h.engine.record.executionId!, status_token: view.token, action: "reset", inputs: {} }, "caller", true);
     expect(refused.ok).toBe(false);
     expect(refused.errors[0]).toMatchObject({ code: "control_unavailable", message: expected });
+    // Kiln's own work between sessions (its checks, here) makes reset unavailable too, and the command is refused.
+    const internals = h.engine as unknown as { checking: boolean };
+    const current = h.engine.current!;
+    current.processRunning = false; internals.checking = true;
+    try {
+      const ownWork = "Reset isn't available while Kiln is working. Pause after the current phase or audit and reset once it ends.";
+      expect(h.engine.resetControl()).toEqual({ available: false, reason: ownWork });
+      expect(resetOf(h)).toMatchObject({ available: false, reason: ownWork });
+      const working = h.engine.commands.submit({ command_id: "reset-while-kiln-works", execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "reset", inputs: {} }, "caller", true);
+      expect(working.ok).toBe(false);
+      expect(working.errors[0]).toMatchObject({ code: "control_unavailable", message: ownWork });
+    } finally { current.processRunning = true; internals.checking = false; }
     // Once a pause is requested, Pause after is no longer offered: the line waits for the session to end.
     expect(h.engine.pause().ok).toBe(true);
     expect(resetOf(h).reason).toBe("A session is still running. Reset becomes available when it ends.");
@@ -44,6 +63,17 @@ it("is unavailable while a session works, saying how to stop it, refused as a co
     await h.engine.settled();
     await waitFor(() => resetOf(h!).available);
     expect(readPrdRecord(h.stateDirectory)!.startedAt).toBeDefined();
+    // With the phase stopped and nothing to pause after, Kiln's own work still makes reset wait, and refuses the command.
+    internals.checking = true;
+    try {
+      const stillWorking = "Kiln is still working. Reset becomes available when that work ends.";
+      expect(h.engine.resetControl()).toEqual({ available: false, reason: stillWorking });
+      expect(resetOf(h)).toMatchObject({ available: false, reason: stillWorking });
+      const refusedAtStop = h.engine.commands.submit({ command_id: "reset-while-checking", execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "reset", inputs: {} }, "caller", true);
+      expect(refusedAtStop.ok).toBe(false);
+      expect(refusedAtStop.errors[0]).toMatchObject({ code: "control_unavailable", message: stillWorking });
+    } finally { internals.checking = false; }
+    expect(resetOf(h)).toMatchObject({ available: true });
   } finally { rmSync(release, { force: true }); }
 }, 60_000);
 

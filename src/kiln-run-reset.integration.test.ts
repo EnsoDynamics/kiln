@@ -79,15 +79,24 @@ async function cli(h: Harness, args: string[]) {
 function gitState(h: Harness, record: PrdRecord): string {
   const run = (cwd: string, args: string[]) => spawnSync(h.tools.git, args, { cwd, env: h.env, encoding: "utf8" }).stdout;
   const worktree = record.repositories[0]!.worktreePath;
-  return [run(h.repository, ["for-each-ref"]), run(h.repository, ["worktree", "list", "--porcelain"]), run(h.repository, ["ls-remote", "origin"]), run(worktree, ["status", "--porcelain", "--untracked-files=all"]), run(worktree, ["rev-parse", "HEAD"])].join("\n--\n");
+  return [run(h.repository, ["for-each-ref"]), run(h.repository, ["worktree", "list", "--porcelain"]), run(h.repository, ["ls-remote", "origin"]), run(worktree, ["status", "--porcelain", "--untracked-files=all"]), run(worktree, ["rev-parse", "HEAD"]), run(h.repository, ["status", "--porcelain", "--untracked-files=all"]), run(h.repository, ["rev-parse", "HEAD"]), run(h.repository, ["symbolic-ref", "-q", "HEAD"])].join("\n--\n");
 }
+
+/** A gh call that would change a pull request or anything else on GitHub (AC-RESET-05). */
+const MUTATING_GH = /^(create|edit|merge|close|reopen|ready|comment|review|delete)$/;
+const mutatingGhCalls = (calls: string[][]) => calls.filter(args => args.some(arg => MUTATING_GH.test(arg)) || args[0] === "api" && args.some(arg => /^(-X|--method)$/.test(arg)));
 
 const control = (status: Record<string, unknown>, name: string) => (status.controls as { name: string; available: boolean; reason: string | null }[]).find(one => one.name === name);
 const text = "document.body.innerText";
 
 it("the open page resets through its confirmation, returns to Documents found without reconnecting, shows a failing start check until a reload finds it fixed, and git is untouched", async () => {
   const h = await stoppedPrd();
+  // Settings chosen away from their defaults, which the reset forgets (AC-RESET-04).
+  const chosen = readPrdRecord(h.stateDirectory)!;
+  const away = { agentChoices: { claude_code: { model: "sonnet", effort: "medium" } }, keepAwake: false, resumeAfterUsageLimit: false };
+  writePrdRecord(h.stateDirectory, { ...chosen, settings: { ...chosen.settings, ...away } as PrdRecord["settings"] });
   const before = readPrdRecord(h.stateDirectory)!;
+  expect(before.settings).toMatchObject(away);
   const gitBefore = gitState(h, before);
   await withKilnRun(h, async ({ address, stdout }) => {
     const page = await chrome.open(address, { width: 1200, height: 1100 });
@@ -130,6 +139,10 @@ it("the open page resets through its confirmation, returns to Documents found wi
       rmSync(join(h.repository, "scratch.txt"));
       await page.evaluate("location.reload()");
       await page.waitFor(`${text}.includes("Working tree is clean") && !${text}.includes("Fix what failed")`, 30_000);
+      // AC-RESET-04: with every start check passing, Start is available again.
+      // As on a first visit, Start then waits only for the refinement box.
+      await page.evaluate(`[...document.querySelectorAll("label")].find(l => l.innerText.includes("These documents have been through requirements refinement")).querySelector("input").click()`);
+      await page.waitFor(`document.querySelector("button.start") && !document.querySelector("button.start").disabled`, 30_000);
       expect(page.problems).toEqual([]);
     } finally { await page.close(); }
   });
@@ -140,6 +153,8 @@ it("the open page resets through its confirmation, returns to Documents found wi
   expect(after.token).toBe(before.token);
   expect(after.phases).toEqual({});
   expect(after.repositories).toEqual([]);
+  // Its settings for the PRD are forgotten: back at their defaults, to be chosen again on Documents found.
+  expect(after.settings).toMatchObject({ agentChoices: { claude_code: { model: "opus", effort: "high" } }, keepAwake: true, resumeAfterUsageLimit: true, featureBranch: before.settings.featureBranch });
   // The new engine writes its own inspection projection; nothing else of the old execution is left.
   expect(readdirSync(h.stateDirectory).filter(name => !["prd.json", "instance.lock", "controls", "control-index"].includes(name)).sort()).toEqual(["inspection-aliases.json", "inspection-bindings.json", "inspection-view.json"]);
   for (const name of ["inspection-aliases.json", "inspection-bindings.json", "inspection-view.json"]) expect((JSON.parse(readFileSync(join(h.stateDirectory, name), "utf8")) as { execution_id: string }).execution_id).toBe(after.executionId);
@@ -151,6 +166,13 @@ it("the open page resets through its confirmation, returns to Documents found wi
 
 it("kiln reset resets at once from a bot, its receipt stays queryable and retries replay it, and kiln status lists reset on started PRDs only", async () => {
   const h = await stoppedPrd();
+  const record = readPrdRecord(h.stateDirectory)!;
+  // Uncommitted work in the worktree, and an open pull request for the branch, that the reset must leave alone (AC-RESET-05).
+  writeFileSync(join(record.repositories[0]!.worktreePath, "in-progress.txt"), "not committed\n");
+  h.setPulls([{ number: 42, title: "Customer returns", url: "https://github.com/acme/acme-shop/pull/42", isDraft: false, isCrossRepository: false, headRefName: record.settings.featureBranch, baseRefName: "develop", additions: 1, deletions: 0, commits: [{}] }]);
+  const gitBefore = gitState(h, record);
+  const pullsBefore = readFileSync(h.ghStatePath, "utf8");
+  const ghBefore = h.ghCalls().length;
   await withKilnRun(h, async () => {
     const status = await cli(h, ["status"]);
     expect(control(status.body, "reset")).toMatchObject({ available: true, reason: null });
@@ -175,6 +197,11 @@ it("kiln reset resets at once from a bot, its receipt stays queryable and retrie
   expect(stopped.body.status_token).toBeNull();
   expect(control(stopped.body, "reset")).toMatchObject({ available: false });
   expect((await cli(h, ["command-status", "--command-id", "bot-reset"])).body.operation).toMatchObject({ state: "completed", outcome: "reset" });
+  // AC-RESET-05: the branch, worktree, its uncommitted file, the checkout and the pull request are as they were.
+  expect(gitState(h, record)).toBe(gitBefore);
+  expect(readFileSync(join(record.repositories[0]!.worktreePath, "in-progress.txt"), "utf8")).toBe("not committed\n");
+  expect(readFileSync(h.ghStatePath, "utf8")).toBe(pullsBefore);
+  expect(mutatingGhCalls(h.ghCalls().slice(ghBefore))).toEqual([]);
 }, 120_000);
 
 it("a reset a step left unfinished is finished by the next kiln run before it reads the record, and one that recorded nothing is settled not_applied", async () => {

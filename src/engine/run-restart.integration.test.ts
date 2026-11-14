@@ -370,6 +370,24 @@ describe("the limits both session-starting buttons keep (AC-CARRY-03)", () => {
     } finally { engine.current = saved; }
   });
 
+  it("makes Send reply & continue unavailable, with the running-session reason, while a session for the PRD runs and its stop is still on record", async () => {
+    harness = await createHarness({ sessions: [blocked("Blocked.", { noTranscript: true }), { actions: [] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(control(h.engine, "carry-on")).toMatchObject({ available: true });
+    const running = "A session for this PRD is running.";
+    const engine = h.engine as unknown as { current: unknown };
+    const saved = engine.current; engine.current = { phaseKey: "1", processRunning: true };
+    try {
+      expect(h.engine.carryOnControl()).toEqual({ offered: true, available: false, reason: running });
+      expect(h.engine.carryOnControl(true)).toEqual({ offered: true, available: false, reason: running });
+      expect(buildSnapshot(h.engine).needsYou!.carryOn).toMatchObject({ available: false, reason: running });
+      expect(control(h.engine, "carry-on")).toEqual({ name: "carry-on", available: false, reason: running });
+    } finally { engine.current = saved; }
+    expect(control(h.engine, "carry-on")).toMatchObject({ available: true });
+  });
+
   it("shows today's Conversation recovery unavailable for a Codex safety problem, whatever else holds, and refuses Start again on it (AC-CARRY-01 row 3)", async () => {
     harness = await createHarness({ sessions: [blocked("Blocked.", { noTranscript: true })] });
     const h = harness;

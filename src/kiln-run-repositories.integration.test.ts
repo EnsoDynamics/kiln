@@ -968,3 +968,50 @@ describe("a repository only the chosen branch's plan names (run restart AC-FROM-
     await kiln.done;
   });
 });
+
+describe("a reset over several repositories (run restart AC-RESET-05, test audit)", () => {
+  it("leaves every repository's branch, worktree, uncommitted files, checkout and origin exactly as they were, and changes nothing on GitHub", async () => {
+    const f = createWorkspaceFeature([{ noInit: true, actions: [] }, { noInit: true, actions: [] }]);
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 200, body: { ok: true } });
+    // Phase 1's session exits before beginning a conversation, so the phase stops and Kiln stops working.
+    await waitFor(async () => (await snapshotOf(address, token)).needsYou?.startAgain !== undefined, 60_000);
+    const record = recordOf(f);
+    expect(record.repositories.map(entry => entry.name).sort()).toEqual(["product", "returns-api", "storefront"]);
+    // Uncommitted work in every worktree, and in each person's own checkout.
+    for (const entry of record.repositories) {
+      writeFileSync(join(entry.worktreePath, "in-progress.txt"), `${entry.name} work\n`);
+      writeFileSync(join(entry.mainCheckoutPath, "scratch.txt"), `${entry.name} scratch\n`);
+    }
+    const run = (cwd: string, args: string[]) => git(f.sandbox, cwd, ...args);
+    const state = () => record.repositories.map(entry => [entry.name,
+      run(entry.mainCheckoutPath, ["for-each-ref"]), run(entry.mainCheckoutPath, ["worktree", "list", "--porcelain"]), run(entry.mainCheckoutPath, ["ls-remote", "origin"]),
+      run(entry.mainCheckoutPath, ["status", "--porcelain", "--untracked-files=all"]), run(entry.mainCheckoutPath, ["rev-parse", "HEAD"]),
+      run(entry.worktreePath, ["status", "--porcelain", "--untracked-files=all"]), run(entry.worktreePath, ["rev-parse", "HEAD"]), run(entry.worktreePath, ["branch", "--show-current"])].join("\n--\n"));
+    const before = state();
+    const ghCalls = () => readJsonLines<string[]>(`${f.ghStatePath}.calls.jsonl`);
+    const ghBefore = ghCalls().length;
+    const pullsBefore = readFileSync(f.ghStatePath, "utf8");
+
+    const origin = new URL(address).origin;
+    const reset = await fetch(`${origin}/api/reset`, { method: "POST", headers: { "X-Kiln-Token": token, Origin: origin, "X-Kiln-Status": (await snapshotOf(address, token)).controlToken!, "X-Kiln-Command-Id": "reset-two-repositories" } });
+    expect(reset.status, await reset.clone().text()).toBe(200);
+    expect(await reset.json()).toMatchObject({ ok: true, outcome: "reset" });
+    await waitFor(async () => (await snapshotOf(address, token)).documents !== undefined, 30_000);
+    expect(recordOf(f).startedAt).toBeUndefined();
+
+    // Every repository is exactly as it was: refs, worktrees, origin, both checkouts' files and HEADs.
+    expect(state()).toEqual(before);
+    for (const entry of record.repositories) {
+      expect(readFileSync(join(entry.worktreePath, "in-progress.txt"), "utf8")).toBe(`${entry.name} work\n`);
+      expect(readFileSync(join(entry.mainCheckoutPath, "scratch.txt"), "utf8")).toBe(`${entry.name} scratch\n`);
+    }
+    // Nothing on GitHub changed: no pull request was opened, edited, merged or closed.
+    expect(readFileSync(f.ghStatePath, "utf8")).toBe(pullsBefore);
+    expect(ghCalls().slice(ghBefore).filter(args => args.some(arg => /^(create|edit|merge|close|reopen|ready|comment|review|delete)$/.test(arg)) || args[0] === "api" && args.some(arg => /^(-X|--method)$/.test(arg)))).toEqual([]);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+});
