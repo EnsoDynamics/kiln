@@ -2,13 +2,15 @@
 
 **Source:** Doug's review on 2026-11-13 and 2026-11-14 of a long Kiln run whose closing audits kept sending it back for more work, and the settings and stop screens he worked through on mockups those two days.
 
-**Changes:** [Kiln Method-Neutral Audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md)
+**Changes:** [Kiln Method-Neutral Audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md)
 
 **Mockup:** [Open the mockup](mockups/kiln-audit-loop-limits.html).
 
+**Assumptions:** [Kiln Audit Loop Limits assumptions](kiln-audit-loop-limits-assumptions.md)
+
 ## Summary
 
-Kiln gets a limit on how many times its closing audits can send it back for more work before it checks with the person. Before Start, the person sets how many **delivery audit loops** and **test audit loops** Kiln makes on its own, and what happens after the last test audit loop: deliver unless something serious is left, or always stop and ask. When a limit is reached, Kiln stops at Needs you with what the loops did and what is left, and the person can allow more loops, take the audit over, or accept what is left and deliver. On the same screen, a new PRD on Claude Code now starts at Medium effort.
+Kiln gets a limit on how many times its closing audits can send it back for more work before it checks with the person. Before Start, the person sets how many **delivery audit loops** and **test audit loops** Kiln makes on its own, and what happens after the last test audit loop: deliver unless something serious is left, or always stop and ask. When a limit is reached, Kiln stops at Needs you with what the loops did and what is left, and the person can allow more loops, take the audit over, or, after the test audit, accept what is left and deliver. On the same screen, a new PRD on Claude Code now starts at Medium effort.
 
 ## Business Context
 
@@ -20,7 +22,7 @@ Run by hand, the Enso Method has that decision built in: a person starts each fi
 
 All of the work the audits ask for comes from the PRD's own acceptance criteria. The limit is not about unexpected work. It is a point at which Kiln asks whether to keep going.
 
-This needs no change to the Enso Method. The test audit skill already lets a person accept weak tests, and takes their words quoted in its prompt.
+This needs no change to the Enso Method. The test audit skill already accepts Weak rows on a person's own words, said in its chat or quoted in its prompt with where they were said, and accepts a criterion with no test at all, a failing test or a high-risk criterion still weak only when the person names it. So the default setting's own wording, once the person has chosen or kept it on screen, is their acceptance, and Kiln quotes it; Kiln never decides which tests are accepted.
 
 ## Acceptance Criteria
 
@@ -36,53 +38,84 @@ The person chooses the limits before the run starts, on the same screen as Kiln'
   | **Test audit loops, at most** | A whole number, 1 or more | 3 |
   | **After the last test audit loop** | **Deliver, unless something serious is left**, or **Always stop and ask me** | Deliver, unless something serious is left |
 
-- [ ] **AC-LOOP-02 — A delivery audit loop is one round of finding and building.** One delivery audit loop is an audit that adds phases to the plan for criteria that are not finished, followed by Kiln building those phases. Phases a test audit adds for a criterion that was never built count the same way. An audit that adds no phase is not a loop, so the delivery audit Kiln repeats after a test fix changed code counts for nothing.
-- [ ] **AC-LOOP-03 — A test audit loop is one session of saved test fixes.** A test audit session counts as a loop when the test audit before it saved test work for another session. The first test audit is not a loop, even when it fixes a few gaps itself.
-- [ ] **AC-LOOP-04 — Loops are counted from Start, or from when the person last allowed more.** Each count begins at zero when the run starts and again each time the person allows more loops at a stop (AC-STOP-02). A run that is reset begins again with the default settings and both counts at zero.
-- [ ] **AC-LOOP-05 — The settings can be changed while Kiln runs.** The person can change all three during a run, as they can model and effort. A change applies from Kiln's next decision about whether to start a loop.
-- [ ] **AC-LOOP-06 — A run started before this feature gets the defaults.** A run that began under an earlier Kiln continues with the three defaults, counting only loops made after the upgrade.
+- [ ] **AC-LOOP-02 — A delivery audit loop is one round of building what an audit added.** A delivery audit loop starts each time Kiln starts building phases that an audit, delivery or test, added for unfinished criteria.
+- [ ] **AC-LOOP-03 — A test audit loop is one session of test fixes after an audit.** A test audit session is a loop when Kiln starts it to continue test work a test audit saved, even with a delivery audit run in between, or, when the person chooses **Allow _N_ more loops** at a stop whose report saved none, to fix what that report listed (AC-STOP-02). No other test audit session is a loop, even one that fixes gaps itself.
+- [ ] **AC-LOOP-04 — Loops are counted from Start, or from when the person last allowed more.** Each count starts at zero at Start, and again when the person chooses **Allow _N_ more loops** of that kind (AC-STOP-02). Resetting a run restores the default settings and both counts to zero.
+- [ ] **AC-LOOP-05 — Kiln never starts a loop past its limit, and the limits can change while it runs.** Kiln starts a loop only while one of that kind is left under the current limit. The person can change all three settings during a run, and a change applies from Kiln's next decision whether to start a loop.
+- [ ] **AC-LOOP-06 — Kiln quotes only two sentences as the person's words.** Each sentence is shown beside the choice that gives it, and whenever Kiln quotes one it says where and when the person chose it:
+
+  | Sentence | Where the person chose it |
+  |---|---|
+  | "I accept the remaining Weak rows after the last test audit loop." | **Deliver, unless something serious is left**, chosen or kept on Documents found, or chosen later on the run's page or with `kiln settings` |
+  | "I accept the remaining Weak rows, and AC-REFUND-04, AC-APPROVAL-01 and AC-RETURNS-03.", naming each item the audit listed, if it listed any: a row by its criterion's ID, anything else in the audit's words | **Accept what is left and deliver**, pressed at a test audit stop or given with its stop command (AC-STOP-02, AC-STOP-03) |
+
+- [ ] **AC-LOOP-07 — A run begun before this feature runs under Always stop and ask me.** A run begun under an earlier Kiln never showed the setting, so it runs under **Always stop and ask me**, with both limits at 3, until the person chooses, and counts the loops it has already made, as its saved audit history shows them (RUN-002).
 
 ### Stop When the Delivery Audit Keeps Finding Unfinished Work
 
 Kiln never delivers work the delivery audit says is unfinished. When the loops are used up and an audit still finds something, the person reads what it found. A criterion that keeps coming back may be asking for too much.
 
-- [ ] **AC-DELIV-01 — Kiln stops when an audit adds phases after the last loop.** With a limit of 3, Kiln builds what the audits add three times. When an audit adds phases a fourth time, Kiln stops at Needs you (AC-STOP-01) instead of building them. The added phases stay in the plan, open and not started.
+- [ ] **AC-DELIV-01 — Kiln stops instead of building past the limit.** When an audit adds phases and no delivery audit loop is left, Kiln stops at Needs you (AC-STOP-01) instead of building them; they stay in the plan, open and not started.
   - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (a report that added phases advances automatically only while delivery audit loops remain)
 
 ### Finish the Test Work at the Last Loop
 
-The last session of test fixes is told that it is the last, and what the person chose to happen afterward. Under the default, the tests that are still weak after it are accepted in the person's name, except the kinds the method will only accept when a person names them.
+The last session of test fixes, and any test audit after it, is told no more loops follow. Under the default, it carries the person's acceptance of the remaining Weak tests, and anything else left stops the run, except unfinished criteria, which go back to building, or stop if no delivery audit loop is left (AC-TEST-02).
 
-- [ ] **AC-TEST-01 — The last session is told it is the last.** When the test audit session about to start is the last loop allowed, its prompt says so, gives the number of loops, and states the person's choice for **After the last test audit loop** as the person's own decision, with when they chose it.
-- [ ] **AC-TEST-02 — Under the default, the prompt carries the person's acceptance of what is left.** When the choice is **Deliver, unless something serious is left**, the last session's prompt says that the person accepts the tests still below the method's target once this session's fixes are done, and that this acceptance does not cover anything the installed test audit skill accepts only when the person names it. Today those are a criterion with no test at all, a failing test, and a high-risk criterion whose tests are still weak. Kiln does not decide which tests are accepted: the session applies the skill's own rules and records each acceptance where the skill says to. When the choice is **Always stop and ask me**, the prompt carries no acceptance.
-- [ ] **AC-TEST-03 — What Kiln does after the last session depends on its report.** Under either choice:
+- [ ] **AC-TEST-01 — Sessions with no loop after them are told so.** The prompt of the last test audit loop, and of every test audit session Kiln starts once no test loop is left, says no more test loops follow, gives the limit, and carries the **After the last test audit loop** choice as the table says: the person's, or, for a run begun before this feature, the one Kiln applied (AC-LOOP-07).
 
-  | The last session's report | Kiln |
+  | The choice | The prompt also carries |
   |---|---|
-  | Nothing left to test | Carries on as it does today after a passing test audit |
-  | Lists something a person must decide | Stops at Needs you with those items (AC-STOP-01) |
-  | Saved more test work for another session | Stops at Needs you instead of starting that session (AC-STOP-01) |
+  | **Deliver, unless something serious is left** | The default's sentence (AC-LOOP-06), quoted word for word as the person's |
+  | **Always stop and ask me** | Nothing from this setting |
 
-  - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (a report that saved test work advances automatically only while test audit loops remain)
-- [ ] **AC-TEST-04 — Tests accepted under the setting are shown, never hidden.** When a last session ran under **Deliver, unless something serious is left**, its row and its detail say that it was the last loop and that remaining tests were accepted under the person's setting, and the final pull request's description says the same and includes that audit's summary.
+- [ ] **AC-TEST-02 — Once no test loop is left, every test audit report is handled alike.** When a test audit session reports and no test loop is left, Kiln acts on the first row that fits, under either choice and whether or not that session was a loop.
+
+  | The report | Kiln |
+  |---|---|
+  | Adds phases, whatever else it lists | As after a delivery audit that added them, including any stop it asks for (AC-LOOP-02, AC-DELIV-01) |
+  | Passed: saves no test work and lists nothing a person must decide or do before delivery | Carries on as it does today after a passing test audit |
+  | Lists something a person must decide or do before delivery | Stops at Needs you with those items |
+  | Saves test work for another session | Stops at Needs you instead of going on |
+
+  - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (once no test audit loop is left, a test audit report that saved test work, or passed while still listing an item a person must decide or do before delivery, stops at Needs you instead of advancing)
+- [ ] **AC-TEST-03 — The last loop is shown, never hidden.** The last test audit loop's row and detail say it was the last, and those of each session whose prompt quoted the default's sentence (AC-TEST-01) or an Accept sentence (AC-STOP-02) say which sentence it carried. The pull request session gets a line saying the same, with the latest such session's summary, to include word for word, as for settled items.
 
 ### Decide at the Stop
 
-A stop for used-up loops is an ordinary Needs you stop: nothing failed. The page gives the person what they need to judge whether the work left matters, and the ways to go on.
+A **loop stop** is a stop under AC-DELIV-01 or AC-TEST-02, because no loop of that kind is left. It is an ordinary Needs you stop: nothing failed. The page gives the person what they need to judge whether the work left matters, and the ways to go on.
 
-- [ ] **AC-STOP-01 — The page says which loops ran and what is left.** The Needs you page is headed **Delivery audit loops used: 3 of 3** or **Test audit loops used: 3 of 3**, with the real numbers. It lists each loop with what it did (the phases built, or the test session) and how long it ran, and shows the latest audit's own summary and each item it listed for a person, as the audit wrote them. At a test audit stop it also states the person's **After the last test audit loop** choice and, under **Deliver, unless something serious is left**, the criteria the last session accepted under it. Kiln adds no judgment of its own about which items matter.
-- [ ] **AC-STOP-02 — The person can allow more loops.** The page has **Allow _N_ more loops**, where N is a whole number the person fills in, 1 or more, starting at 2. Choosing it restarts that count at zero with N as the limit for the rest of the run, and Kiln carries on: at a delivery audit stop it builds the phases the audit added, and at a test audit stop it starts the next test audit session.
-- [ ] **AC-STOP-03 — At a test audit stop, the person can accept what the audit listed and deliver.** The page has a button that accepts every item the audit listed. Kiln then starts one test audit session, which is not counted as a loop, whose prompt carries the person's acceptance of each listed item as the audit wrote it, with when they gave it. If that session reports nothing left to test, Kiln carries on to delivery. Otherwise it stops at Needs you. A delivery audit stop has no such button.
-- [ ] **AC-STOP-04 — Everything a Needs you stop already offers still works.** Taking over the audit's session, replying to it, checking again and marking the audit complete are available at these stops as at any other.
-- [ ] **AC-STOP-05 — A bot can do everything the page does.** Everything this PRD adds to the page for a run that has started can also be done from the command line, so a person talking to a bot can steer the run with the same choices:
+- [ ] **AC-STOP-01 — The page says which loops ran and what is left.** A loop stop's page shows the following, with no judgment of Kiln's own about which items matter:
+
+  | Part of the page | What it shows |
+  |---|---|
+  | Heading | **Delivery audit loops used: 3 of 3** or **Test audit loops used: 3 of 3**, with the loops counted and the current limit |
+  | The loops | Each loop in the current count, and any audit session since, with what it did and how long it ran |
+  | What the audit found | The latest audit's own summary, and each item it listed for a person, as the audit wrote them |
+  | At a test audit stop | The person's **After the last test audit loop** choice |
+
+- [ ] **AC-STOP-02 — The person chooses how the run goes on.** At a loop stop, a report that adds phases or saves test work holds the run there until a loop of that kind is left or the person accepts, even when the audit is marked complete (RUN-001). Each control does what the table says:
+
+  | Control | What Kiln does | Counted as a loop |
+  |---|---|---|
+  | **Allow _N_ more loops**, N a whole number of 1 or more, filled in as 2 | Sets that kind's limit to N, restarts its count (AC-LOOP-04), and starts the next loop of that kind (AC-LOOP-02, AC-LOOP-03) | Yes |
+  | **Accept what is left and deliver**, at a test audit stop only | Starts one test audit session that fixes nothing; its report is handled as AC-TEST-02 says | No |
+  | Take over the audit's session, or Reply | As at any Needs you stop | No |
+  | Check again, or Mark the audit complete | As at any Needs you stop, except that a held run stays held | No |
+  | Raise a limit in the settings (AC-LOOP-05) | Starts nothing by itself; the loop the held report asks for starts at the next Check again or `kiln run` | Yes, once it starts |
+
+  Accept's prompt quotes its sentence, naming every listed item, as the person's (AC-LOOP-06), then each item as the audit wrote it, and asks the session to record what those words accept and to list by name every row or item they do not; Kiln does not sort the items. Kiln also quotes each Accept sentence the person gave to any later test audit it starts before delivering.
+  - Replaces in part: AC-STOP-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-WAIVE-12 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (at a loop stop, a passing Check again or an audit marked complete does not start the loop its report asks for)
+  - Replaces in part: AC-STOP-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Allow _N_ more loops and Accept what is left and deliver also start a session after a stop)
+- [ ] **AC-STOP-03 — A bot can do everything the page does.** Everything this PRD adds to the page for a run that has started can also be done from the command line:
 
   | On the page | From the command line |
   |---|---|
-  | Change any of the three loop settings during a run (AC-LOOP-05) | A command, as for keep-awake today |
+  | Change any of the three loop settings during a run (AC-LOOP-05) | `kiln settings`, beside `--keep-awake` |
   | See the loop counts, the limits and the setting chosen (AC-SHOW-01) | `kiln status` |
-  | See a loop stop's facts: loops used, what each did, the audit's summary and items (AC-STOP-01) | `kiln status`, which also lists the controls available at the stop |
-  | Allow _N_ more loops (AC-STOP-02) | A command taking N |
-  | Accept what the audit listed and deliver (AC-STOP-03) | A command |
+  | See a loop stop's page (AC-STOP-01) | `kiln status`, which also lists the controls available at the stop |
+  | Allow _N_ more loops (AC-STOP-02) | A stop command taking N, beside the existing stop commands |
+  | Accept what is left and deliver (AC-STOP-02) | A stop command beside them |
 
   Settings chosen before Start stay in the browser, as every other setting for a run not yet started does.
 
@@ -102,7 +135,7 @@ A change to the same settings panel, made with this PRD because it touches the s
 ## Out of Scope
 
 - **Answering an item while Kiln keeps running.** An item an audit lists for the person's review is still settled at a stop, as today.
-- **An "always deliver" choice** that would accept a criterion with no test, a failing test or a weak high-risk criterion without the person naming it. The method does not allow that, and Kiln does not work around it; AC-STOP-03 lets the person accept those by name at the stop.
+- **An "always deliver" choice** that would accept a criterion with no test, a failing test or a weak high-risk criterion without the person naming it. The method does not allow that, and Kiln does not work around it; once an audit has listed them, the person can accept them by name at the stop (AC-STOP-02).
 - **A limit on time or cost.** The limits count loops only.
 - **Starting the test audit while delivery audit work is outstanding.** The test audit cannot judge criteria that are not built, and later building would invalidate its results.
 - **Any change to the Enso Method's skills.**
