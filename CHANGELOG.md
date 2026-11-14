@@ -10,6 +10,8 @@ section to the new version.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-14
+
 ### Added
 
 - **A stopped phase says what happened and how to get going again.** When a phase's session
