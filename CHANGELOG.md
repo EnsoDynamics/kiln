@@ -18,6 +18,9 @@ section to the new version.
   labelled **Completion checks**.
 - An item an audit lists for a person while Kiln carries on now reads **for your review**
   instead of **waiting for you**, since Kiln keeps working and nothing waits on it yet.
+- When a field above holds **Start** on Documents found, the line under **Start** now says which
+  field and why, or how many fields need fixing, and says **Not connected to Kiln.** when the
+  page has lost Kiln. Before, Start was greyed out with nothing beside it.
 
 ## [1.2.2] - 2026-11-14
 

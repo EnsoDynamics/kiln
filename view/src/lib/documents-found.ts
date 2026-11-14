@@ -161,8 +161,26 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (snapshot.billing && !snapshot.billing.canLaunch) return { enabled: false, note: snapshot.billing.next?.readinessError ?? "Review billing before starting." };
   if (settings.metadataPending) return { enabled: false, note: "Reading agent information…" };
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };
-  const held = Object.values(settings.fieldErrors).some((message) => message !== undefined) || repositories.some((row) => row.fieldErrors.baseBranch !== undefined);
-  return { enabled: connected && !held };
+  if (!connected) return { enabled: false, note: "Not connected to Kiln." };
+  const held = heldBy(snapshot);
+  if (held.length === 1) return { enabled: false, note: `${held[0]!.field}: ${held[0]!.message}` };
+  if (held.length > 1) return { enabled: false, note: `Fix the ${held.length} fields marked above to start.` };
+  return { enabled: true };
+}
+
+const FIELD_LABELS: Record<string, string> = { workspaceFolder: "Workspace folder", worktreePath: "Worktree", featureBranch: "Feature branch", baseBranch: "Base branch", model: "Model" };
+
+/**
+ * The field messages holding Start, so the note under it says why (UI-010 item 4). The PRD's
+ * repository row repeats the base field's message, so only the other rows are counted.
+ */
+function heldBy(snapshot: Snapshot): { field: string; message: string }[] {
+  const multi = snapshot.feature.multiRepository;
+  const prdName = snapshot.repositories.find((row) => row.kind === "prd")?.name;
+  const label = (key: string) => (key === "baseBranch" && multi && prdName ? `${prdName}’s base branch` : FIELD_LABELS[key] ?? key);
+  const fields = Object.entries(snapshot.settings.fieldErrors).flatMap(([key, message]) => (message === undefined ? [] : [{ field: label(key), message }]));
+  const rows = snapshot.repositories.flatMap((row) => (row.kind !== "prd" && row.fieldErrors.baseBranch !== undefined ? [{ field: `${row.name}’s base branch`, message: row.fieldErrors.baseBranch }] : []));
+  return [...fields, ...rows];
 }
 
 /** Documents found's account lines under Agent: the email and plan, then the usage line. */
