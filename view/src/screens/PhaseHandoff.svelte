@@ -206,7 +206,7 @@
       <CarryOnCard {agent} activity={inSentence} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={!connected || !!page.pending} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
       <FreshTerminalCard {agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held blocked={snapshot.liveControl?.takeover?.carryOnObstacle} />
     </div>
-  {:else if pendingTakeover && !page.choice}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
+  {:else if pendingTakeover && !page.choice}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre class="prompt">{stop.freshSessionPrompt}</pre><CopyButton text={stop.freshSessionPrompt} label="Copy fresh-session prompt" />{/if}</section>
   {:else if page.choice}
     <section class="card choice" aria-live="polite">
       <h2 tabindex="-1" bind:this={choiceHeading}>{activity} is already complete.</h2>
@@ -339,6 +339,6 @@
   .actions { display: flex; flex-wrap: wrap; gap: 12px; }
   .button { white-space: normal; align-self: flex-start; } .button:disabled { opacity: .45; }
   .lines { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 4px 10px; overflow-wrap: anywhere; font-size: 12px; }
-  summary { cursor: pointer; } details pre { margin: 12px 0; max-height: 22em; overflow-y: auto; }
+  summary { cursor: pointer; } details pre { margin: 12px 0; } details pre, pre.prompt { max-height: 22em; overflow-y: auto; }
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
 </style>
