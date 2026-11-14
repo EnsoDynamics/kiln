@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Audit Loop Limits
 
-Started: 2026-11-14   Current pass: 1   Status: In progress
+Started: 2026-11-14   Current pass: 3   Status: In progress
 Branch: feature/kiln-audit-loop-limits (worktree .worktrees/kiln-audit-loop-limits/kiln)
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 2687 · growth baseline 2687
@@ -18,6 +18,7 @@ Last updated: 2026-11-14 (pass 1 checkpoint)
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 13 (10 discovery + 2 conflict + Q1 carried) | 13 | 10 | 1 | 1 | 0 | 1 |
+| 2 | 8 (3 repeats) | 11 (Q9, Q14, Q15 carried + 8) | 10 | 0 | 1 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -30,13 +31,22 @@ Last updated: 2026-11-14 (pass 1 checkpoint)
 | Q6 | 1 | Allow on an unsettled needs_you activity: requestedLaunch is in-memory, so which record write appends the loop? (C6) | Technical | MEDIUM | 70 → 90 | Resolved | TD §Loop Ledger |
 | Q7 | 1 | Earlier Accept sentences must reach every later test audit (incl. non-last loops after Allow), not only last-loop prompts (C4) | Technical | MEDIUM | 75 → 95 | Resolved | TD §Prompts, Verification |
 | Q8 | 1 | Recording page vs command line for settings changes and Accept: receipt source is "caller" for both; add optional via input as waive-and-advance does (C5) | Technical | MEDIUM | 85 → 95 | Resolved | TD §Interfaces, §Settings, §Loop Ledger, Verification |
-| Q9 | 1 | Activity holding two loops (needs_you continued by Allow): which label/duration/did per row, detail, stop page (C7) | Technical | MEDIUM | 70 → 88 | Deferred (88 < 90) | — |
+| Q9 | 1 | Activity holding two loops (needs_you continued by Allow): which label/duration/did per row, detail, stop page (C7) | Technical | MEDIUM | 70 → 93 | Resolved | TD §Loop Ledger, §Display, §Snapshot, Verification |
 | Q10 | 1 | Should allow-more-loops/accept-and-deliver catch up an untouched branch and take --leave-branch-as-is like reply/carry-on (C8) | Technical | LOW | 65 → 90 | Resolved | TD §Loop Stops |
 | Q11 | 1 | Ledger reconstruction at upgrade: in Engine constructor (like activityHistory) rather than before first gate decision, so a stopped upgraded run shows counts (C9) | Technical | LOW | 80 → 95 | Resolved | TD §Upgrade, Verification |
 | Q12 | 1 | Continuation allocated and completed at once under a waived readiness problem (completeAuditAtOnce): not a loop (C10) | Technical | LOW | 80 → 95 | Resolved | TD §Loop Ledger, Verification |
 | Q13 | 1 | Where the "Audit loop left" row lives (built from stop.loop beside run rows, not in stop.checks) and how an Acceptance is marked used (C11) | Technical | LOW | 75 → 90 | Resolved | TD §Loop Ledger, §Loop Stops, §Display, Verification |
-| Q14 | 1 | Reframed from Q5: Allow/Accept need no allocation of their own except at a needs_you stop; elsewhere one write saves epoch/Acceptance, clears stop, settles like Check again (loops_allowed / acceptance_recorded, session not_started) and the gate starts the session | Technical | HIGH | 85 → — | Pending (pass 2) | — |
-| Q15 | 1 | TD Open Questions RUN-001 alternative claims 'the gate and ledger are unchanged' — under it Mark complete must let one loop start when none is left; how is that recorded? (conformance) | Technical | LOW | — → — | Pending (pass 2) | — |
+| Q14 | 1 | Reframed from Q5: Allow/Accept need no allocation of their own except at a needs_you stop; elsewhere one write saves epoch/Acceptance, clears stop, settles like Check again (loops_allowed / acceptance_recorded, session not_started) and the gate starts the session | Technical | HIGH | 85 → 92 | Resolved | TD §Loop Stops, §Interfaces, Verification |
+| Q15 | 1 | TD Open Questions RUN-001 alternative claims 'the gate and ledger are unchanged' — under it Mark complete must let one loop start when none is left; how is that recorded? (conformance) | Technical | LOW | — → 90 | Resolved | TD Open Questions (RUN-001) |
+| Q16 | 2 | Under RUN-001's case, Mark complete's offer sentence (forecastNext) says it runs added phases / moves to test audit while the gate will hold (N1) | Technical | MEDIUM | 80 → 92 | Resolved | TD §The Loop Gate, §Loop Stops, §Interfaces, Open Questions |
+| Q17 | 2 | Accept session's passed report must put each accepted outstanding item in `settled` (with id, how quoting the sentence) or validate-report refuses it (N2) | Technical | MEDIUM | 85 → 95 | Resolved | TD §Loop Ledger, §Loop Stops, §Prompts, Verification |
+| Q18 | 2 | What a loop_limit stop stores in stop.checks and what each Check again run records; markCompleteOffer order (N3) | Technical | LOW | 80 → 92 | Resolved | TD §Loop Stops |
+| Q19 | 2 | Which Acceptance is a session's own when one activity holds two Accept sessions (sessionId on Acceptance) (N4) | Technical | LOW | 80 → 90 | Resolved | TD §Loop Ledger, §Prompts |
+| Q20 | 2 | A row's `criterion` lost when an item is relisted by id: PersonItem gains optional criterion (N5) | Technical | LOW | 80 → 90 | Resolved | TD §Report Contract, §Prompts |
+| Q21 | 2 | Labelling upgraded runs' observed loops beyond the limit ("loop 4 of 3", "used 5 of 3"); what reads `observed` (N6) | Technical | LOW | 75 → 85 | Deferred (85 < 90) | — |
+| Q22 | 2 | Pull request line: which sentences (all of that session's `carried`) and which report summary (N7) | Technical | LOW | 80 → 90 | Resolved | TD §Prompts, Verification |
+| Q23 | 2 | needs_you test stop's `loop` flag: set once or recomputed on every recheck as limits change (N8) | Technical | LOW | 75 → 90 | Resolved | TD §Loop Stops, §The Loop Gate, §Display |
+| Q24 | 2 | TD §Changes to Earlier Designs misses Completion Audits design (AC-RUN-01/07, AC-TEST-02/03, AC-LOOP-02/03 sections still live?) and Live Session Control design (AC-BACK-03/04) (conformance) | Technical | LOW | — → — | Pending (pass 3) | — |
 
 ## Question notes
 
@@ -70,6 +80,15 @@ Reframed to a wording fix: PRD already settles it (AC-STOP-02 "as at any Needs y
 ### Q14 (reframed from Q5)
 85%: At a needs_you stop, Allow/Accept dispatch under their own receipt like carry-on: controlDispatch, requestedLaunch audit kind, settles session_started or dispatch_not_started. Elsewhere: one record write saves epoch+limit (Allow) or Acceptance (Accept), clears loop_limit stop, stamps controlApplied; control settles like Check again (loops_allowed / acceptance_recorded, session not_started, kick after); the gate starts the session under Kiln's automatic receipt; interrupted with nothing saved and stop in place → not_applied, like Mark complete. Evidence engine.ts:3932, 544, 704-710, 721-726, 779-790, 812, 1767-1783, 4097-4106. Allocating in the control's write would leave a pending activity behind a stop on crash. Gap: confirm receipt outcomes and the controlApplied reconciliation. Conflicts left in TD for Q14: §Loop Stops says accepted-report-stop Allow/Accept 'allocate a new test audit activity'; §Interfaces says the two actions 'settle like start-again'.
 
+### Q19
+90%: append to TD "Which loop a session belongs to": "A session's own `Acceptance` is the one that starts it: for a launch from the Accept control, the control's own; for any other launch, including a relaunch after a restart, the `Acceptance` on that activity whose `sessionId` is absent or names the activity's last session record with no run, which `launchSession` reuses (run restart "A session record with no run"). Every other used `Acceptance`, one on the same activity included, is earlier. The session with an own `Acceptance` gets `audit-accept.txt`." Reason: auditPrompt builds before launchSession picks the id (engine.ts:4168 vs 4574); "latest marker" would be wrong after a later Allow. Evidence engine.ts:4574-4600, 3859-3864, 2302.
+
+### Q21
+85% (deferred): for §Upgrade: "Observed loops take `limitAtStart` from the migrated limit, 3. Each kind is numbered in activity order. `last` is false on every observed loop, so rows read **loop N of 3**, past the limit too ("loop 4 of 3"), and the stop heading counts them all ("Test audit loops used: 5 of 3"), never clamped. An observed loop's detail, and its line on a stop page, add "counted from this run's history when Kiln was upgraded"." And TD:58 comment: `last` is `number == limitAtStart`, never for `observed`. Basis: PRD:100 heading = counted + current limit; AC-SHOW-01 "last loop" = the last one allowed; observed loops' prompts never said last. Doubt: display judgment ("loop 4 of 3" reads oddly).
+
+### Q16 Q18 Q23
+Full prose in the pass-2 investigator report; summarized: Q16 gate decision as pure function; forecastNext asks it (stopped audit treated as settled with countedOutcome, never writes); nextActivity {kind:"loop_stop", key, title}; next wording "…then stops at Needs you because no delivery/test audit loop is left…". Q18 recordStop(key,"loop_limit",[],loop) stores checks [] + finished stop run; each held Check again updateStop(key,[],false) new recheck run; loop_limit branch before recheckStop's doneCheck fallback (5393-5402); recheckRunsCompletion false for loop_limit (5242-5250); markCompleteOffer tests loop_limit right after nothing-waiting check, offered:false no awaitingRecheck, reason text; held Check again settles completion_checks_failed (810). Q23 PhaseStop.loop stored only on loop_limit; loopStopOf(key) derives items_listed live for a done_check test stop whose latest attempt is needs_you and no test loop left; status token includes settings (636); ledger absent → not a loop stop, Check again retries the rebuild.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -88,4 +107,4 @@ Pass 1: 2026-11-14 · 2 open entries · 0 moved to design · 1 written up (RUN-0
 |---|---|---|
 
 ## Next action
-Pass 2: carried Q14, Q9, Q15 first; run discovery for new questions (cap 12 total).
+Pass 3: Q21 (deferred), Q24 first; then discovery.
