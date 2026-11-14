@@ -61,12 +61,12 @@ Acceptance:                — one per Accept the person gave (AC-STOP-02)
   at, via: "page" | "command_line", stopActivityKey, sentence, items: { name, problem, action }[]
 ```
 
-**What starts a loop.** The count of a kind is the number of `loops` of that kind after its latest epoch. An epoch opens at Start (both kinds) and at **Allow N more loops** (that kind).
+**What starts a loop.** The count of a kind is the number of `loops` of that kind after its latest epoch. An epoch opens at Start (both kinds), at **Allow N more loops** (that kind), and once at upgrade (§Upgrade).
 
 - **Delivery (AC-LOOP-02):** the first time Kiln launches a leaf at or under a phase that an audit's effective result appended (`effectiveAudit(...).completionPhases()`), for an audit with no loop yet. One audit's phases, however many and however split, are one loop; later leaves of the same set join its `activityKeys`. Phases appended by a test audit count the same way.
 - **Test (AC-LOOP-03):** Kiln starts a test audit session and the latest settled test audit before it counts as `continue_test`, whether the new one is a continuation or a fresh round after a delivery audit in between; or the person's **Allow N more loops** starts a session at a stop whose report saved no test work (§Loop Stops). No other test audit session is a loop.
 
-The loop is appended in the same record write that launches its first session, so a crash cannot start a loop without counting it.
+A loop is appended in the same record write that commits Kiln to it, so a crash cannot start a loop without counting it: for a delivery loop, the write that launches its first leaf; for a test loop, the write in which `allocateAudit` adds the activity (a pending activity resumed after a restart is already counted), or for an Allow session on an unsettled activity, the write that requests its launch.
 
 ## The Loop Gate (AC-LOOP-05, AC-DELIV-01, AC-TEST-02)
 
@@ -77,11 +77,11 @@ The engine's `nextActivity` already decides every next step: resume a pending au
 | The next leaf starts a delivery loop (above) | A delivery loop is left: count it and run the leaf. None left: **delivery loop stop** on the audit that appended it; the phases stay open and unstarted |
 | The latest settled test audit's effective result appended phases | Handled by the row above when its phases come up |
 | No test loop is left, and the latest settled test audit, with no later delivery audit, counts as `continue_test` | **Test loop stop** on that audit, unless an unused acceptance names it (Accept below), even when `changedImplementation` would route to a delivery audit first |
-| No test loop is left, and that test audit is accepted as `passed` while still listing `needsYou` items | **Test loop stop** with those items |
+| No test loop is left, and that test audit's report was accepted (not marked complete) as `passed` while still listing `needsYou` items | **Test loop stop** with those items |
 | `auditNext` asks for a test audit that would be a test loop | Left: count it and allocate. None left: **test loop stop** on the predecessor |
 | Otherwise | As today |
 
-A `needs_you` test report is already a stop with a failing **Audit work resolved** check. When no test loop is left at that moment, the stop is also marked as a test loop stop (`PhaseStop.loop`, below), so it gets the loop page and controls; Mark complete stays offered there, as at any failing check.
+A `needs_you` test report is already a stop with a failing **Audit work resolved** check. When no test loop is left at that moment, the stop is also marked as a test loop stop (`PhaseStop.loop`, below), so it gets the loop page and controls; Mark complete stays offered there, as at any failing check. Marking it complete settles those items, so the counted `passed` result goes on as today: AC-STOP-02 holds a run only for added phases or saved test work, which is why the `passed`-with-items row above reads only an accepted report.
 
 Because the gate reads only the record, settings and effective results, Check again, `kiln run`, a restart and a changed setting all reach the same decision; nothing is remembered between decisions except the ledger.
 
@@ -93,21 +93,25 @@ Because the gate reads only the record, settings and effective results, Check ag
 loop?: { kind: "delivery" | "test"; reason: "phases_added" | "test_work_saved" | "items_listed"; heldAuditKey: string }
 ```
 
-A hold on an accepted or marked-complete report (`phases_added`, `test_work_saved`, or `items_listed` from a `passed` report) is a `loop_limit` stop on the held audit's key. It has no failing check, so Mark complete is not offered, matching the mockup's delivery stop. An `items_listed` stop from a `needs_you` report stays a `done_check` stop with `loop` set.
+A hold on an accepted or marked-complete report (`phases_added`, `test_work_saved`, or `items_listed` from an accepted `passed` report) is a `loop_limit` stop on the held audit's key, which is already done; the development-owner check records stops on a finished audit's key the same way, so `stoppedPhaseKey`, the status and the activity row need nothing new. Its one reason row, **Audit loop left**, is kept outside the stop's check run, as the Billing approval row is, so it is never waivable and Mark complete is not offered, matching the mockup's delivery stop. An `items_listed` stop from a `needs_you` report stays a `done_check` stop with `loop` set.
 
-**Check again** on a `loop_limit` stop reruns the gate: if a loop of that kind is now left (a raised limit), the stop clears and the loop starts; otherwise it stays, with a new check run. A **Mark complete** at a loop stop completes the audit as AC-WAIVE-12 says and then reaches the gate like any other step, which holds again when its counted result needs a loop that is not left. That is RUN-001's assumption, built as the open entry states it; it needs no special case.
+**Reply and Take over** treat a `loop_limit` stop as a `done_check` stop on a finished audit (`resumeOffered`, the carry-on offer and the takeover target), so they reach the held audit's conversation exactly as at a development-owner stop today; afterwards the gate decides as for any other step. Neither counts as a loop.
+
+**Check again** on a `loop_limit` stop, and the recheck that Reply runs first, reruns the gate in a `recheckStop` branch of its own: if a loop of that kind is now left (a raised limit), the stop clears and the loop starts; otherwise it stays, with a new check run. A **Mark complete** at a `done_check` loop stop completes the audit as AC-WAIVE-12 says and then reaches the gate like any other step, which holds again when its counted result added phases or saved test work and no loop of that kind is left. That is RUN-001's assumption, built as the open entry states it; it needs no special case.
+
+**Which session a stop control starts.** A `needs_you` report is never accepted, so its activity is unsettled and can take a new report: Allow and Accept at that stop request a `carry_on` launch of the stopped activity (the internal launch Send reply & continue uses, not `start-again`, which refuses once a conversation began), with the loop or Accept prompt in place of the note. A held report that was accepted has a settled activity, which refuses any further report (`result_conflict`): there, Allow and Accept allocate a new test audit activity, a continuation when the held report saved test work and a new round otherwise.
 
 **Allow N more loops** (`allow-more-loops`, `count` ≥ 1):
 
 1. Sets that kind's limit to N in settings and opens an epoch with `cause: allowed`.
 2. A `loop_limit` stop clears and the gate starts the loop the held report asks for.
-3. A test loop stop whose report saved no test work (`items_listed`) starts a new session of the stopped test audit activity, through the same path as `start-again`, with the loop prompt (§Prompts), counted as a test loop.
+3. A test loop stop whose report saved no test work (`items_listed`) starts a test audit session as above, with the loop prompt (§Prompts), counted as a test loop.
 
 **Accept what is left and deliver** (`accept-and-deliver`), offered only at a test loop stop:
 
 1. Builds the Accept sentence from the stop's listed items (§Prompts) and appends an `Acceptance`.
-2. At an `items_listed` stop, starts a new session of the stopped activity with the Accept prompt. At a `test_work_saved` stop, allocates a test continuation of the held audit with that prompt; the gate lets it through because the acceptance names that stop. Neither is a loop.
-3. Its report is gated like any other, which is AC-TEST-02 since no test loop is left.
+2. Starts a test audit session as above, with the Accept prompt. At a `test_work_saved` stop that is a continuation of the held audit, which `allocateAudit` admits because the held audit is the latest test audit and counts as `continue_test`; the gate lets it through because the acceptance names that stop. It is not a loop.
+3. Its report is gated like any other, which is AC-TEST-02 since no test loop is left. A continuation's `continue_test` must change work other than Markdown beside the PRD (`validate-report`), which an Accept session that fixes nothing cannot, so the Accept prompt has it report `passed` when its words accept everything left, and `needs_you` naming each row or item they do not; a `continue_test` it writes anyway is refused at admission, visibly, like any invalid report.
 
 Take over and Reply are unchanged. Both new actions refuse (`not_at_loop_stop`) anywhere else, and Accept refuses at a delivery loop stop.
 
@@ -120,7 +124,7 @@ The Accept sentence names a row by its criterion's ID. Kiln does not parse prose
 Two templates join `prompts/`, filled into a new `{{loops}}` slot of `audit-session.txt` (empty when nothing applies):
 
 - **`audit-loop-limits.txt`**, for a test audit session that is the last test loop, or that Kiln starts once no test loop is left (including an Accept session): no more test audit loops follow; the limit; the **After the last test audit loop** choice, with "applied by Kiln because this run began before the setting existed" when the source is `kiln_for_earlier_run`. Under `deliver_unless_serious` it quotes, word for word as the person's, "I accept the remaining Weak rows after the last test audit loop.", with where and when (`afterLastTestSource`). Under `stop_and_ask` it carries nothing more from the setting. It then quotes every earlier `Acceptance`, each with its page or command line and time.
-- **`audit-accept.txt`**, for the Accept session: quotes its sentence as the person's, with where and when; lists each item as the audit wrote it; says to fix nothing, record what those words accept, and list by name every row or item they do not accept. Kiln sorts nothing.
+- **`audit-accept.txt`**, for the Accept session: quotes its sentence as the person's, with where and when; lists each item as the audit wrote it; says to fix nothing, record what those words accept, and list by name every row or item they do not accept as a `needsYou` item, reporting `passed` only when nothing is left (§Loop Stops). Kiln sorts nothing.
 
 The Allow session at an `items_listed` stop gets a short note in the same slot: the person allowed more test audit loops to fix what the previous report listed, followed by that report's items.
 
@@ -130,7 +134,7 @@ The Allow session at an `items_listed` stop gets a short note in the same slot: 
 
 ## Interfaces (AC-STOP-03)
 
-**Control journal.** `settings` takes `delivery_audit_loops`, `test_audit_loops` and `after_last_test_audit_loop` (`deliver_unless_serious | stop_and_ask`) beside `keep_awake`; the receipt's `settings` echo includes them. New actions `allow-more-loops` (`{ count }`) and `accept-and-deliver` (`{}`) join `STARTING_ACTIONS`, since each can start a session, and settle like `start-again`. The controller advertises an `audit_loops` feature; the CLI refuses with `instance_incompatible` against a controller without it.
+**Control journal.** `settings` takes `delivery_audit_loops`, `test_audit_loops` and `after_last_test_audit_loop` (`deliver_unless_serious | stop_and_ask`) beside `keep_awake`; the receipt's `settings` echo includes them, and the receipt validator accepts a receipt saved before them without the new fields. The two new commands get entries in `prompts/kiln-command-contracts.json` beside the existing stop commands. New actions `allow-more-loops` (`{ count }`) and `accept-and-deliver` (`{}`) join `STARTING_ACTIONS`, since each can start a session, and settle like `start-again`. The controller advertises an `audit_loops` feature; the CLI refuses with `instance_incompatible` against a controller without it.
 
 **Command line.**
 
@@ -170,12 +174,12 @@ The stop's `controls` list adds the two actions with availability and reason. `k
 
 ## Upgrade (AC-LOOP-07, RUN-002)
 
-Schema 22. Migration, run once when a schema-21 record is read:
+Schema 22, in two steps, because `migrateRecord` sees only the record while the audit history lives in the audit store and session records:
 
-- **Not started:** the defaults, as for a new record; the person sees the panel before Start.
-- **Started:** limits 3 and 3, `afterLastTest: stop_and_ask` with `afterLastTestSource: kiln_for_earlier_run`, and a ledger rebuilt from saved audit history (RUN-002) in one `start` epoch, each loop `observed`:
+- **Record migration** (`migrateRecord`, run once when a schema-21 record is read). **Not started:** the defaults, as for a new record; the person sees the panel before Start. **Started:** limits 3 and 3, `afterLastTest: stop_and_ask` with `afterLastTestSource: kiln_for_earlier_run`, and no `auditLoops` ledger yet.
+- **Ledger reconstruction**, by the engine before its first gate decision, the way `activityHistory` rebuilds `record.activities` from the state directory: a started record with no ledger gets one rebuilt from saved audit history (RUN-002), with one `upgrade` epoch per kind at the run's `startedAt`, each loop `observed`, saved in one write:
   - a delivery loop for each audit whose effective result appended phases of which at least one leaf has a session or is done;
-  - a test loop for each test audit activity whose latest settled test predecessor counts as `continue_test`.
+  - a test loop for each test audit activity whose latest settled test predecessor counts as `continue_test`, numbered in activity order.
 
 A run already past a limit stops at its next gate decision, right after the restart that brought it to the new Kiln. Schema-21 Kilns refuse schema 22 under the existing newer-schema rule; there is no downgrade path.
 
@@ -213,4 +217,5 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 
 ## Open Questions
 
+- At an `items_listed` stop on an accepted `passed` test report with `changedImplementation: true` (the only `passed` test report that may list items), does a new test audit started by Allow or Accept let `auditNext` skip the delivery audit that implementation change requires? `untouchedBetweenAudits` compares each audit's accepted snapshot with the next one's start, so a later test audit that changed only tests may vouch for the chain. Check with an engine-harness run; if it skips, Allow and Accept there run the delivery audit first.
 - RUN-001 is open with the stakeholder. If they choose the alternative, Mark complete at a loop stop also opens one loop of that kind, and the stop page says so beside the button; the gate and ledger are unchanged.
