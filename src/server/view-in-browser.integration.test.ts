@@ -71,6 +71,33 @@ const withResumeCard = (phase: string) => `(() => {
   return true;
 })()`;
 /**
+ * A Needs you side panel drawn before checks at a stop, as AC-STOPCHECK-01 changes it before any
+ * recheck: the rows saved at the stop read Why Kiln stopped, failing first, the passing ones under
+ * Also checked when Kiln stopped, and the wording that calls them the completion checks waits.
+ */
+const AT_A_STOP = `(() => {
+  const aside = document.querySelector("aside");
+  const eyebrow = aside.querySelector("span");
+  eyebrow.textContent = "Why Kiln stopped";
+  const list = aside.querySelector("ul");
+  const passing = [...list.children].filter((li) => [...li.querySelectorAll("span")].some((e) => e.textContent === "Yes"));
+  if (passing.length) {
+    const also = eyebrow.cloneNode(true);
+    also.textContent = "Also checked when Kiln stopped";
+    const rest = list.cloneNode(false);
+    passing.forEach((li) => rest.append(li));
+    list.after(also, rest);
+  }
+  const checked = [...aside.querySelectorAll("span")].find((e) => /^Checked /.test(e.textContent));
+  checked.textContent = checked.textContent.replace(/^Checked /, "Checked when Kiln stopped, ");
+  [...aside.querySelectorAll("p")].find((e) => e.textContent.startsWith("This is the same check"))?.remove();
+  const finish = [...document.querySelectorAll("p")].find((e) => e.textContent.includes("Kiln only looks at the"));
+  if (finish) finish.textContent = finish.textContent.replace(/ Kiln only looks at the (three|four) checks on the right, so it doesn’t matter how/, " It doesn’t matter how");
+  return true;
+})()`;
+/** Two additions to a mockup, in order. */
+const both = (first: string, second: string) => `(${first}) && (${second})`;
+/**
  * A Complete mockup drawn before time totals, as AC-TOTAL-01 changes it: the running time leaves
  * the state row, and the PRD total line sits under it, in kiln-prd-time-totals.html's style.
  */
@@ -497,7 +524,7 @@ const SCREENS: {
     mockup: `${RECOVERY_MOCKUPS}kiln-screen-needs-you-resume.html`,
     snapshot: needsYouMessageSnapshot,
     clock: Date.parse("2026-10-17T15:53:00Z"),
-    addition: EMPTY_NOTE,
+    addition: both(EMPTY_NOTE, AT_A_STOP),
     copy: [
       "Customer returns Needs you Phase 2b · Store credit · Stopped 11:52 AM",
       "Phase 2b ended before it was done. Kiln doesn’t try to interpret why. This is how the session ended. exit 0 11:52 AM last skill seen: deliverable-review, 8 min earlier",
@@ -505,9 +532,9 @@ const SCREENS: {
       "Full session output · 612 lines",
       "Let Kiln carry on Reply and continue in Kiln Kiln checks Git first. If the phase isn’t done, it picks up the same session, with its full history, and sends your reply before continuing with Phase 2b. Then the plan continues as usual. Your reply to Claude Optional Your reply goes to the same Claude session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply. Resume Uses whichever Claude account is signed in now. Close the session first if you opened it in a terminal.",
       "Or pick it up yourself 1 Open the same Claude Code session in a terminal cd ~/devel/acme-shop-kiln/customer-returns claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Copy command Full history, right where it stopped. Kiln stays out of it.",
-      "2 Finish the phase with Claude, the way you normally would Finish it however you like. Kiln only looks at the three checks on the right, so it doesn’t matter how the phase gets closed, committed and pushed.",
+      "2 Finish the phase with Claude, the way you normally would Finish it however you like. It doesn’t matter how the phase gets closed, committed and pushed.",
       "3 Come back and check again Kiln re-checks Git. If the phase is done, it starts the next one, or pauses first if you pressed Pause after this phase. Session can’t be opened? Copy a prompt for a fresh session instead",
-      "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 12 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 11:52 AM. This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+      "Why Kiln stopped Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 12 files changed, not committed Also checked when Kiln stopped Pushed Yes Matches origin at 5d81b37 Check again Checked when Kiln stopped, 11:52 AM.",
     ],
   },
   {
@@ -516,6 +543,7 @@ const SCREENS: {
     mockup: `${RECOVERY_MOCKUPS}kiln-screen-needs-you-usage-limit.html`,
     snapshot: needsYouUsageLimitSnapshot,
     clock: USAGE_LIMIT_NOW,
+    addition: AT_A_STOP,
     copy: [
       "Customer returns Needs you Phase 2b · Store credit · Stopped 2:28 PM",
       "Phase 2b stopped at the 5-hour usage limit. Claude Code reported that this account’s 5-hour usage limit is used up. Resets at 3:40 PM, in 1h 12m. exit 1 2:28 PM last skill seen: implement-from-requirements, 3 min earlier",
@@ -525,7 +553,7 @@ const SCREENS: {
       "Signed in now alex@acme-shop.dev · Max plan 5-hour window 100% Usage updated 1 min ago. Switch accounts and this changes within 5 minutes. Close the session first if you opened it in a terminal.",
       "Your reply to Claude Optional Your reply goes to the same Claude session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply. Resume This account’s 5-hour usage limit is at 100% until 3:40 PM.",
       "Or pick it up yourself 1 Open the same Claude Code session in a terminal cd ~/devel/acme-shop-kiln/customer-returns claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Copy command",
-      "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 3 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 2:28 PM.",
+      "Why Kiln stopped Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 3 files changed, not committed Also checked when Kiln stopped Pushed Yes Matches origin at 5d81b37 Check again Checked when Kiln stopped, 2:28 PM.",
     ],
   },
   {
@@ -550,13 +578,13 @@ const SCREENS: {
     mockup: "kiln-screen-needs-you-crashed.html",
     snapshot: needsYouCrashedSnapshot,
     clock: Date.parse("2026-10-17T17:22:00Z"),
-    addition: withResumeCard("Phase 3"),
+    addition: both(withResumeCard("Phase 3"), AT_A_STOP),
     copy: [
       "Needs you Phase 3 · Returns dashboard · Stopped 1:21 PM",
       "Phase 3 ended before it was done. The session exited with an error and no final message. These are the last lines it wrote. exit 1 1:21 PM last skill seen: test-hardening, 6 min earlier",
       "13:20:51 claude Running the dashboard Playwright suite. It needs the dev server on 5173; starting it. 13:20:52 tool Bash npm run dev & 13:20:55 stderr Error: listen EADDRINUSE: address already in use :::5173 13:21:03 exit Process exited with code 1",
       "Full session output · 2,031 lines",
-      "Phase doc closed Not yet No Closed line in phase-3-returns-dashboard.md Everything committed Yes Latest commit a41c9e2, tree clean Pushed Not yet a41c9e2 isn’t on origin yet Check again Checked 1:21 PM.",
+      "Why Kiln stopped Phase doc closed Not yet No Closed line in phase-3-returns-dashboard.md Pushed Not yet a41c9e2 isn’t on origin yet Also checked when Kiln stopped Everything committed Yes Latest commit a41c9e2, tree clean Check again Checked when Kiln stopped, 1:21 PM.",
     ],
   },
   {

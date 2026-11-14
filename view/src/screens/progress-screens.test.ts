@@ -97,7 +97,9 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
     const words = text(page);
     expect(words).toContain("Phase 3 hasn’t started. Kiln read the phase plan and found the problem shown on the right. Pick it up yourself 1 Fix the phase plan Kiln only checks that the plan reads");
     expect(words).toContain("2 Come back and check again Kiln reads the plan again. If it reads, Kiln starts phase 3, or pauses first if you pressed Pause. Session can’t be opened? Copy a prompt for a fresh session instead");
-    expect(words).toContain("Kiln continues when Phase plan reads Not yet phase-2-refund-routing.md lists 2c, which has no file Check again");
+    // A plan problem reruns only its own check, so Check again says nothing of the completion checks (AC-STOPCHECK-01, 02).
+    expect(words).toContain("Why Kiln stopped Phase plan reads Not yet phase-2-refund-routing.md lists 2c, which has no file Check again Checked when Kiln stopped, 11:52 AM.");
+    expect(words).not.toContain("Check again runs all of");
     for (const absent of ["Last message from Claude Code", "Full session output", "exit ", "last skill seen", "claude --resume", "Reply and continue in Kiln"]) expect(words).not.toContain(absent);
   });
 
@@ -124,8 +126,13 @@ describe("Needs you, for the stops nobody drew (UI-007)", () => {
     expect(words).toContain("Needs you PR · Final pull request · Stopped 11:52 AM");
     expect(words).toContain("The pull-request session ended before it was done.");
     expect(words).toContain("2 Open the pull request with Claude, the way you normally would");
-    expect(words).toContain("Kiln finishes when Pull request open Not yet No open pull request from feature/customer-returns into develop");
-    expect(words).toContain("This is the check Kiln runs after the pull-request session.");
+    // Saved at the stop, the row reads Why Kiln stopped, and the footnote calling it the completion check waits (AC-STOPCHECK-01).
+    expect(words).toContain("Why Kiln stopped Pull request open Not yet No open pull request from feature/customer-returns into develop");
+    expect(words).not.toContain("This is the check Kiln runs after the pull-request session.");
+    snapshot.needsYou!.rowsAreCompletionChecks = true;
+    const checked = text(needsYou(snapshot));
+    expect(checked).toContain("Completion checks Pull request open Not yet No open pull request from feature/customer-returns into develop");
+    expect(checked).toContain("This is the check Kiln runs after the pull-request session.");
   });
 
   it("says Checking… while Check again's check runs, in place of when it last checked", () => {
@@ -228,13 +235,13 @@ describe("Needs you says nothing of its own about why (AC-STOP-04, AC-STOP-02)",
       "a session that ended with a final message",
       needsYouMessageSnapshot,
       "Phase 2b ended before it was done. Kiln doesn’t try to interpret why. This is how the session ended. exit 0 11:52 AM last skill seen: deliverable-review, 8 min earlier Last message from Claude Code Critical finding, stopping to surface: the reviewer found that develop has since added its own migration 0042 (gift cards), so this branch’s 0042_store_credits clashes with it. The store-credit tests pass here, but the migration won’t apply once this branch meets develop. Recommendation: rebase feature/customer-returns on develop and renumber this migration to 0043. Nothing for 2b is committed yet. Full session output · 612 lines",
-      "Kiln continues when Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 12 files changed, not committed Pushed Yes Matches origin at 5d81b37 Check again Checked 11:52 AM. This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+      "Why Kiln stopped Phase doc closed Not yet No Closed line in phase-2b-store-credit.md Everything committed Not yet 12 files changed, not committed Also checked when Kiln stopped Pushed Yes Matches origin at 5d81b37 Check again Checked when Kiln stopped, 11:52 AM.",
     ],
     [
       "a session that crashed with no final message",
       needsYouCrashedSnapshot,
       "Phase 3 ended before it was done. The session exited with an error and no final message. These are the last lines it wrote. exit 1 1:21 PM last skill seen: test-hardening, 6 min earlier 13:20:51 claude Running the dashboard Playwright suite. It needs the dev server on 5173; starting it. 13:20:52 tool Bash npm run dev & 13:20:55 stderr Error: listen EADDRINUSE: address already in use :::5173 13:21:03 exit Process exited with code 1 Full session output · 2,031 lines",
-      "Kiln continues when Phase doc closed Not yet No Closed line in phase-3-returns-dashboard.md Everything committed Yes Latest commit a41c9e2, tree clean Pushed Not yet a41c9e2 isn’t on origin yet Check again Checked 1:21 PM. This is the same check Kiln runs after every phase. Later phases wait until it passes.",
+      "Why Kiln stopped Phase doc closed Not yet No Closed line in phase-3-returns-dashboard.md Pushed Not yet a41c9e2 isn’t on origin yet Also checked when Kiln stopped Everything committed Yes Latest commit a41c9e2, tree clean Check again Checked when Kiln stopped, 1:21 PM.",
     ],
   ])("shows %s with only fixed statements, the recorded facts and the session's own words, whole", (_name, make, ended, side) => {
     const page = needsYou(make());

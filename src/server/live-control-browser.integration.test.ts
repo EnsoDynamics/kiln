@@ -62,7 +62,8 @@ it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery
       `If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out ${inSentence(label)} and moves to the next step.`,
       "No special handoff phrase is needed.", "record those decisions in the requirements before you exit",
     ]) expect(text).toContain(expected);
-    expect(await page.evaluate(`document.querySelector('ul.checks').getAttribute('aria-label')`)).toBe(`${label} completion requirements`);
+    // Before a recheck the rows saved at the stop are listed as Why Kiln stopped (checks at a stop AC-STOPCHECK-01).
+    expect(await page.evaluate(`document.querySelector('ul.checks').getAttribute('aria-label')`)).toBe("Why Kiln stopped");
     expect(text).not.toMatch(/finishes the phase|finish the phase|phase was already complete|The phase can still/);
     expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
     snapshot.unsentReplies = [{ id: "saved", text: "retained instruction" }];

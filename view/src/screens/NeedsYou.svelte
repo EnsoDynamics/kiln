@@ -37,7 +37,7 @@
   import CheckFacts from "../components/CheckFacts.svelte";
   import MarkComplete from "../components/MarkComplete.svelte";
   import { finalMessageHtml } from "../lib/markdown.js";
-  import { endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
+  import { activityInSentence, endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { outputTail } from "../lib/session-view.js";
   import { clockTime, earlier } from "../lib/time.js";
@@ -87,6 +87,11 @@
   // result is shown, none can be pressed (AC-RESUME-02, AC-WAIVE-06); a disconnected page submits nothing.
   const busy = $derived(pressing || resuming || marking || stop.checking === true || !connected);
   const VERDICT = { passed: "Yes", waived: "Waived", failed: "Not yet" } as const;
+  // Until a check of the completion checks has run, the failing rows saved at the stop read Why Kiln stopped and any passing ones sit beneath (AC-STOPCHECK-01 to 03).
+  const reasonRows = $derived(stop.rowsAreCompletionChecks ? stop.checks : stop.checks.filter(check => verdict(check) === "failed"));
+  const alsoRows = $derived(stop.rowsAreCompletionChecks ? [] : stop.checks.filter(check => verdict(check) !== "failed"));
+  const checkedText = $derived(stop.checking ? "Checking…" : stop.checkedAt ? `${stop.checkRun?.origin === "recheck" ? stop.checkRun.finished ? "Checked again" : "Checked" : "Checked when Kiln stopped,"} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked");
+  const runsAll = $derived(!stop.rowsAreCompletionChecks && stop.recheckRunsAll ? `Check again runs all of ${activityInSentence(stop.phaseId, snapshot)}’s completion checks.` : undefined);
   // A stopped phase's case (run restart AC-CASE-01): its own headline, first card and way forward.
   const activity = $derived(`Phase ${stop.phaseId}`);
   const agentName = $derived(stop.agent ?? snapshot.settings.agent);
@@ -171,18 +176,12 @@
     {:else}
       <aside class="card side">
         <span class="eyebrow">{copy.sideHeading}</span>
-        <ul class="checks">
-          {#each stop.checks as check, index (index)}
-            {@const state = verdict(check)}
-            <li>
-              <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
-              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={state === "passed"} class:waived={state === "waived"}>{VERDICT[state]}</span></span><CheckFacts {snapshot} {check} changes={markChanges} /></span>
-            </li>
-          {/each}
-        </ul>
+        {@render checkRows(reasonRows)}
+        {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
         <div class="again">
           <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check {activity} again</button>
-          <span class="checked">{stop.checking ? "Checking…" : stop.checkedAt ? `Checked${stop.checkRun?.origin === "recheck" && stop.checkRun.finished ? " again" : ""} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked"}</span>
+          <span class="checked">{checkedText}</span>
+          {#if runsAll}<span class="checked">{runsAll}</span>{/if}
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
         {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
@@ -326,18 +325,12 @@
     <div class="column-side">
       <aside class="card side">
         <span class="eyebrow">{copy.sideHeading}</span>
-        <ul class="checks">
-          {#each stop.checks as check, index (index)}
-            {@const state = verdict(check)}
-            <li>
-              <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
-              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={state === "passed"} class:waived={state === "waived"}>{VERDICT[state]}</span></span><CheckFacts {snapshot} {check} changes={markChanges} /></span>
-            </li>
-          {/each}
-        </ul>
+        {@render checkRows(reasonRows)}
+        {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
         <div class="again">
           <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
-          <span class="checked">{stop.checking ? "Checking…" : stop.checkedAt ? `Checked${stop.checkRun?.origin === "recheck" && stop.checkRun.finished ? " again" : ""} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked"}</span>
+          <span class="checked">{checkedText}</span>
+          {#if runsAll}<span class="checked">{runsAll}</span>{/if}
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
         {#if copy.footnote}<p class="footnote">{copy.footnote}</p>{/if}
@@ -349,6 +342,18 @@
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
   <BillingPanel {snapshot} />
 </main>
+
+{#snippet checkRows(list: typeof stop.checks)}
+  <ul class="checks">
+    {#each list as check, index (index)}
+      {@const state = verdict(check)}
+      <li>
+        <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
+        <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={state === "passed"} class:waived={state === "waived"}>{VERDICT[state]}</span></span><CheckFacts {snapshot} {check} changes={markChanges} /></span>
+      </li>
+    {/each}
+  </ul>
+{/snippet}
 
 <style>
   .restart { display: flex; flex-direction: column; gap: 20px; max-width: 1120px; }

@@ -33,6 +33,7 @@ Handing work back to Claude and asking Kiln to confirm the work is done are diff
   - Superseded in part by: AC-CARRY-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (row 2's terminal card has no resume-unavailable note).
 - [ ] **AC-NEXT-02 — Checking has its own section.** On the hand-back page, below the two cards, **Is {activity} already done?** shows the completion checks, each with its facts, and when they were checked ("when Kiln stopped" until the person checks again), with **Check {activity} again**. That button replaces **Verify {activity} & advance** with the same behavior (AC-VERIFY-01 to 04). When a recheck still fails, the section says how many checks fail and, where AC-NEXT-01 offers resuming, points to Have Kiln resume for unfinished work.
   - Superseded in part by: AC-CASE-03 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (no checks shown until asked).
+  - Superseded in part by: AC-STOPCHECK-01 in `docs/changes/kiln-checks-at-a-stop/kiln-checks-at-a-stop-prd.md` (how the rows are labelled before a check has run since the stop).
 - [ ] **AC-WAIVE-01 — Checking never waives anything.** Check again on either page, resuming, and `kiln resume`, `kiln verify-and-advance` and `kiln check-again` on the command line never create a waiver. Kiln never creates a waiver on its own, during recovery, or when a later check passes.
 
 ### Mark complete when Kiln's check is wrong

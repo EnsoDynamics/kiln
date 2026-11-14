@@ -117,6 +117,8 @@ export interface PhaseStop {
   limit?: StopLimit;
   /** The latest check run of this stop (schema 19). */
   run?: CheckRun;
+  /** The rows came from a finished check since the stop that ran the activity's completion checks (checks at a stop AC-STOPCHECK-03). */
+  rowsAreCompletionChecks?: true;
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */

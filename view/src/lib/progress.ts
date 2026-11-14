@@ -326,6 +326,24 @@ export interface NeedsYouCopy {
 }
 
 export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false, developmentDelivery = false): NeedsYouCopy {
+  const copy = stopCopy(stop, settings, now, multiRepository, developmentDelivery);
+  if (stop.rowsAreCompletionChecks) return { ...copy, sideHeading: "Completion checks" };
+  // Rows saved at the stop read Why Kiln stopped, and wording that calls them the completion checks waits until they are (AC-STOPCHECK-01).
+  const rowsAsChecks = new Set(["This is the same check Kiln runs after every phase. Later phases wait until it passes.", "This is the check Kiln runs after the pull-request session.", "These are the current delivery finalization checks."]);
+  return {
+    ...copy,
+    sideHeading: "Why Kiln stopped",
+    footnote: rowsAsChecks.has(copy.footnote) ? "" : copy.footnote,
+    finishText: copy.finishText.replace(/ Kiln only looks at the (three|four) checks on the right, so it doesn’t matter how/, " It doesn’t matter how"),
+  };
+}
+
+/** "Phase 3", "delivery audit", "final delivery": the stopped activity mid-sentence, as the hand-back page names it. */
+export function activityInSentence(id: string, snapshot: Snapshot): string {
+  return id.startsWith("audit-") ? phaseName(id, snapshot) : id === PR_ID ? "final delivery" : `Phase ${id}`;
+}
+
+function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository: boolean, developmentDelivery: boolean): NeedsYouCopy {
   const isPr = stop.phaseId === PR_ID;
   const name = stop.phaseId.startsWith("audit-") ? "This audit" : capitalized(phaseName(stop.phaseId));
   const copy: NeedsYouCopy = {
