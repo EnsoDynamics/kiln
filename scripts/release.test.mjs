@@ -31,25 +31,31 @@ test('workflow policy keeps development cheap and gates release jobs and the exa
     assert.equal(full, expected);
     const context = { needs: { preflight: { outputs: { full: String(full) } } } };
     const runners = Object.entries(ci.jobs).filter(([name, job]) => name !== 'preflight' && (!job.if || evaluate(job.if, context))).map(([, job]) => job['runs-on']).sort();
-    assert.deepEqual(runners, expected ? ['macos-latest', 'ubuntu-latest', 'windows-latest'] : ['ubuntu-latest']);
+    assert.deepEqual(runners, expected ? ['macos-latest', 'macos-latest', 'ubuntu-latest', 'windows-latest'] : ['ubuntu-latest', 'ubuntu-latest']);
   }
-  const developmentVerify = ci.jobs.build.steps.find(step => step.run === 'npm run verify');
-  const candidateBuild = ci.jobs.build.steps.find(step => step.run === 'npm run verify:development');
+  // npm run verify is verify:development plus the integration suite, which four shards split on each platform.
+  const scripts = JSON.parse(readFileSync(join(sourceRoot, 'package.json'), 'utf8')).scripts;
+  assert.equal(scripts.verify, `${scripts['verify:development']} && npm run test:integration`);
   const developmentPackage = ci.jobs.build.steps.find(step => step.run === 'npm run test:package');
-  assert.ok(developmentVerify && candidateBuild && developmentPackage);
+  assert.ok(ci.jobs.build.steps.some(step => step.run === 'npm run verify:development' && !step.if), 'every build runs everything but the integration suite');
+  assert.ok(developmentPackage);
+  for (const [name, runner, full] of [['integration', 'ubuntu-latest', 'false'], ['macos-integration', 'macos-latest', 'true']]) {
+    const job = ci.jobs[name];
+    assert.equal(job['runs-on'], runner);
+    assert.equal(evaluate(job.if, { needs: { preflight: { outputs: { full } } } }), true, 'development runs the integration suite on Ubuntu; main keeps it on macOS');
+    assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4]);
+    assert.equal(job.strategy['fail-fast'], false);
+    assert.ok(job.steps.some(step => step.run === 'npm run test:integration -- --shard=${{ matrix.shard }}/4'), 'the shards together run every integration file');
+  }
   for (const full of ['false', 'true']) {
     const context = { needs: { preflight: { outputs: { full } } } };
-    assert.equal(evaluate(developmentVerify.if, context), full === 'false', 'development must run the full suite on Ubuntu');
-    assert.equal(evaluate(candidateBuild.if, context), full === 'true', 'main keeps its full suite on macOS');
     assert.equal(evaluate(developmentPackage.if, context), full === 'false');
   }
   const developmentPackIndex = ci.jobs.build.steps.findIndex(step => step.id === 'pack');
   assert.ok(developmentPackIndex >= 0 && developmentPackIndex < ci.jobs.build.steps.indexOf(developmentPackage));
   assert.equal(developmentPackage.env.KILN_PACKAGE_TARBALL, '${{ runner.temp }}/kiln-package/${{ steps.pack.outputs.filename }}');
-  assert.equal(ci.jobs.build['timeout-minutes'], 45);
-  const scripts = JSON.parse(readFileSync(join(sourceRoot, 'package.json'), 'utf8')).scripts;
-  assert.ok(scripts.verify.split('&&').map(command => command.trim()).includes('npm run test:integration'));
-  assert.ok(ci.jobs.macos.steps.some(step => step.run === 'npm run verify'));
+  assert.equal(ci.jobs.build['timeout-minutes'], 20);
+  assert.ok(ci.jobs.macos.steps.some(step => step.run === 'npm run verify:development'));
   assert.ok(ci.jobs.windows.steps.some(step => step.run === 'npm run build'));
   assert.ok(ci.jobs.windows.steps.some(step => step.run === 'npm pack --ignore-scripts'));
   for (const name of Object.keys(ci.jobs).filter(name => name !== 'preflight')) assert.ok(ancestors(ci.jobs, name).includes('preflight'), `${name} must wait for package/version checks`);

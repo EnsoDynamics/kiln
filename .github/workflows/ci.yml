@@ -77,7 +77,7 @@ jobs:
     name: Ubuntu checks and package
     needs: preflight
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     outputs:
       filename: ${{ steps.pack.outputs.filename }}
     # Candidate archives, the one the release publishes included, print the plain version (AC-HELP-03).
@@ -90,10 +90,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - if: needs.preflight.outputs.full != 'true'
-        run: npm run verify
-      - if: needs.preflight.outputs.full == 'true'
-        run: npm run verify:development
+      # Everything in npm run verify except the integration suite, which the shard jobs below run.
+      - run: npm run verify:development
       - id: pack
         run: node scripts/pack-release.mjs "$RUNNER_TEMP/kiln-package"
       - if: needs.preflight.outputs.full != 'true'
@@ -109,12 +107,52 @@ jobs:
           retention-days: 7
           compression-level: 0
 
+  # The integration suite is about 100 minutes of test time with two files at once, so each
+  # platform splits it across four runners; together the shards run every integration file.
+  integration:
+    name: Ubuntu integration tests (shard ${{ matrix.shard }} of 4)
+    needs: preflight
+    if: needs.preflight.outputs.full != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration -- --shard=${{ matrix.shard }}/4
+
+  macos-integration:
+    name: macOS integration tests (shard ${{ matrix.shard }} of 4)
+    needs: preflight
+    if: needs.preflight.outputs.full == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration -- --shard=${{ matrix.shard }}/4
+
   macos:
     name: macOS tests and installed candidate
     needs: [preflight, build]
     if: needs.preflight.outputs.full == 'true'
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
     # The installed candidate must print the plain version (AC-HELP-03).
     env:
       KILN_RELEASE_BUILD: 'true'
@@ -125,7 +163,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm run verify
+      # The macOS integration shards run the rest of npm run verify.
+      - run: npm run verify:development
       - uses: actions/download-artifact@v8
         with:
           name: kiln-npm-package
