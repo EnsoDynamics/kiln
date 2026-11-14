@@ -464,7 +464,10 @@ describe("restart review before model work", () => {
           } finally { await narrow.close(); }
           await page.evaluate("[...document.querySelectorAll('button')].find(e => e.textContent.includes('Resume Kiln')).click()");
           await waitFor(() => h.claudeCalls().length === 2);
-          await page.waitFor("document.body.innerText.includes('needs your input')");
+          // The resumed session asks a question and builds nothing, so once Kiln has read the phase's
+          // work the headline names that case (run restart AC-CASE-01); before the read lands it briefly
+          // reads "needs your input".
+          await page.waitFor("document.body.innerText.includes('Phase 2b stopped before building anything.')");
           expect(page.problems).toEqual([]);
         } finally { await page.close(); }
       }, false);
