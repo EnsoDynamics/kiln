@@ -15,6 +15,7 @@ import { findTranscripts } from "../session/transcripts.js";
 import type { LiveTarget } from "./target.js";
 import type { Receipt } from "../control/commands.js";
 import * as ownership from "./ownership.js";
+import * as ownedProcesses from "./owned-processes.js";
 /** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit · Round 3". */
 const inSentence = (label: string) => /^Phase /.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 
@@ -368,6 +369,95 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       open.mockRestore(); await reconcile();
       expect(h.engine.record.liveControl!.takeover.carryOnObstacle).toBeUndefined();
       expect(h.claudeCalls()).toHaveLength(originalCalls);
+    }, 120000);
+    if (kind === "phase" && recovery === "takeover") it("keeps today's wait text until the attempt ends, keeps carry-on unavailable while its work may still run, and Check again clears the card once the history is back (run restart AC-CARRY-06, AC-CARRY-02)", async () => {
+      // The attempt hasn't ended: the hold keeps today's wait text, though the history is gone, and carry-on isn't offered.
+      const running = vi.spyOn(ownership, "requireExited").mockRejectedValue(new ownership.OwnershipError("takeover_pending", "Waiting for the paused attempt to exit."));
+      rmSync(historyFile); await reconcile();
+      expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", reason: "Waiting for the paused attempt to exit." });
+      expect(h.engine.record.liveControl!.takeover.history).toBeUndefined();
+      expect(buildSnapshot(h.engine).needsYou?.carryOn).toBeUndefined();
+      page = await chrome.open(server!.address, { width: 1200, height: 1100 });
+      await page.waitFor(`document.body.innerText.includes('Wait before opening Claude')`);
+      let body = await page.evaluate<string>("document.body.innerText");
+      expect(body).toContain("Waiting for the paused attempt to exit.");
+      expect(body).not.toContain("Reply here and let Kiln carry on");
+      await page.close(); page = undefined;
+      const waiting = await cli(["status"]);
+      expect((waiting.body.controls as { name: string; available: boolean }[]).find(control => control.name === "carry-on")).toMatchObject({ available: false });
+      await cli(["carry-on", "--command-id", "held-carry-running", "--only-if-status-matches", String(waiting.body.status_token)]);
+      await h.engine.commands.settled(); await h.engine.settled();
+      expect(h.engine.commands.lookup("held-carry-running").operation, JSON.stringify(h.engine.commands.lookup("held-carry-running"))).toMatchObject({ state: expect.stringMatching(/^(refused|failed)$/), effects: { session: "not_started" } });
+      expect(h.claudeCalls()).toHaveLength(originalCalls);
+
+      // The attempt has ended, but Kiln can't confirm the work it started has: carry-on and the terminal card are unavailable, saying why.
+      running.mockRestore();
+      const work = vi.spyOn(ownedProcesses, "captureOwnedProcesses").mockRejectedValue(new Error("the process table can't be read"));
+      await reconcile();
+      const hold = h.engine.record.liveControl!.takeover;
+      expect(hold).toMatchObject({ state: "pending", history: { state: "unavailable", reason: "missing" }, carryOnObstacle: "Kiln couldn't read the paused session's processes: the process table can't be read" });
+      expect(buildSnapshot(h.engine).needsYou!.carryOn).toMatchObject({ available: false, reason: hold.carryOnObstacle });
+      page = await chrome.open(server!.address, { width: 1200, height: 1100 });
+      await page.waitFor(`document.body.innerText.includes('Reply here and let Kiln carry on')`);
+      expect(await page.evaluate(`${button(`Send reply & continue ${inSentence(h.engine.liveView()!.label)}`)}.disabled`)).toBe(true);
+      expect(await page.evaluate(`Boolean(${button("Copy terminal command")})`)).toBe(false);
+      expect(await page.evaluate<string>("document.body.innerText")).toContain("Kiln couldn't read the paused session's processes: the process table can't be read");
+      await page.close(); page = undefined;
+      const blocked = await cli(["status"]);
+      await cli(["carry-on", "--command-id", "held-carry-work", "--only-if-status-matches", String(blocked.body.status_token)]);
+      await h.engine.commands.settled(); await h.engine.settled();
+      expect(h.engine.commands.lookup("held-carry-work").operation).toMatchObject({ state: expect.stringMatching(/^(refused|failed)$/), effects: { session: "not_started" } });
+      expect(h.claudeCalls()).toHaveLength(originalCalls);
+      work.mockRestore(); await reconcile();
+      expect(h.engine.record.liveControl!.takeover.carryOnObstacle).toBeUndefined();
+
+      // The card names the reason from AC-CARRY-02's table; with the history back, Check again clears it.
+      // Stop the once-a-second reconciliation so only the button can notice.
+      clearInterval((h.engine as unknown as { takeoverTimer: NodeJS.Timeout }).takeoverTimer);
+      page = await chrome.open(server!.address, { width: 1200, height: 1100 });
+      await page.waitFor(`document.body.innerText.includes('Reply here and let Kiln carry on')`);
+      body = await page.evaluate<string>("document.body.innerText");
+      expect(body).toContain("Claude Code has no saved conversation for this session.");
+      expect(await page.evaluate(`${button(`Send reply & continue ${inSentence(h.engine.liveView()!.label)}`)}.disabled`)).toBe(false);
+      writeFileSync(historyFile, originalHistory);
+      expect(h.engine.record.liveControl!.takeover.history).toBeDefined();
+      await page.evaluate(`${button("Check again")}.click()`);
+      await page.waitFor(`!document.body.innerText.includes('Reply here and let Kiln carry on')`);
+      expect(h.engine.record.liveControl!.takeover.history).toBeUndefined();
+      expect(h.engine.record.liveControl!.takeover.state).toBe("released");
+      expect(h.claudeCalls()).toHaveLength(originalCalls);
+    }, 120000);
+    if (kind === "phase" && recovery === "delivery_recovery") it("shows the uncertain message above the cards, holds the button until it is acknowledged, and sends it on only if the reply includes it (run restart AC-CARRY-06)", async () => {
+      rmSync(historyFile); await reconcile();
+      expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", history: { state: "unavailable", reason: "missing" } });
+      const saved = h.engine.commands.lookup("uncertain-history").operation as Receipt;
+      delete saved.message!.reviewedAt; h.engine.commands.checkpoint(saved);
+      expect(h.engine.liveView()!.reviewRequired).toEqual([saved.id]);
+      // Undo the hand finish, so the carry-on starts a session.
+      git(h.sandbox, h.engine.worktreePath, "revert", "--no-edit", "HEAD"); git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", h.engine.record.settings.featureBranch);
+      const scenario = JSON.parse(readFileSync(h.scenarioPath, "utf8")) as { sessions: unknown[] };
+      scenario.sessions.push({ actions: [{ result: "Carried on." }, { exit: 0 }] });
+      writeFileSync(h.scenarioPath, JSON.stringify(scenario));
+      page = await chrome.open(server!.address, { width: 1200, height: 1100 });
+      await page.waitFor(`document.body.innerText.includes('Reply here and let Kiln carry on') && document.body.innerText.includes('Inspect this exact uncertain instruction.')`);
+      const send = button(`Send reply & continue ${inSentence(h.engine.liveView()!.label)}`);
+      const acknowledge = button("I reviewed this message in the conversation");
+      // The message and its acknowledgement come before both cards.
+      expect(await page.evaluate(`(() => { const ack = ${acknowledge}; const carry = ${send}; const terminal = Array.from(document.querySelectorAll('h2,h3')).find(h => h.textContent.includes('Start a fresh session in your terminal')); return !!ack && !!carry && !!terminal && !!(ack.compareDocumentPosition(carry) & Node.DOCUMENT_POSITION_FOLLOWING) && !!(ack.compareDocumentPosition(terminal) & Node.DOCUMENT_POSITION_FOLLOWING); })()`)).toBe(true);
+      expect(await page.evaluate(`${send}.disabled`)).toBe(true);
+      await page.evaluate(`${acknowledge}.click()`);
+      await page.waitFor(`!${send}.disabled`);
+      expect((h.engine.commands.lookup("uncertain-history").operation as Receipt).message?.reviewedAt).toEqual(expect.any(String));
+      // A reply without the message: the new session is given the reply and not the uncertain message.
+      await page.evaluate(`(() => { const box = document.querySelector('textarea'); box.value = 'Carry on from the review.'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await page.evaluate(`${send}.click()`);
+      await waitFor(() => h.claudeCalls().length === originalCalls + 1, 30000);
+      await h.engine.settled();
+      const prompt = h.claudeCalls().at(-1)!.prompt;
+      expect(prompt).toContain("Carry on from the review.");
+      expect(prompt).not.toContain("Inspect this exact uncertain instruction.");
+      expect(h.engine.phaseSessions(target.activityKey).at(-1)!.startedAs).toBe("carry_on");
+      expect(h.engine.record.liveControl).toBeUndefined();
     }, 120000);
     if (recovery === "takeover") it("rechecks history after the terminal ownership read before publishing release", async () => {
       const real = ownership.requireNoTerminal;

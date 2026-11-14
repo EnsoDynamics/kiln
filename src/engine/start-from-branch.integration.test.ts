@@ -4,7 +4,7 @@
 
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Receipt } from "../control/commands.js";
 import { readPlanAt } from "./plan-reading.js";
 import { readBaseline } from "./plan-reconciliation.js";
@@ -15,6 +15,7 @@ import type { Engine } from "./engine.js";
 import { buildSnapshot, documentsFound } from "./snapshot.js";
 import { existingBranchPreview, readCatchUp, stoppedCatchUpOffer } from "./start-from.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
+import * as ownership from "../live/ownership.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -780,6 +781,43 @@ describe("which branches get no catch-up offer, and which buttons and commands c
     expect(originTip(h, BRANCH)).toBe(developTip);
     expect(h.claudeCalls()[1]!.args).not.toContain("--resume");
     expect(h.claudeCalls()[1]!.prompt).toContain(`moving it from ${before.slice(0, 7)} to ${developTip.slice(0, 7)}`);
+  });
+
+  it("carries on from a held phase whose conversation can't be reopened without moving the branch, though the box is ticked", async () => {
+    const unreopenable: ScenarioSession = { noTranscript: true, actions: [{ result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [unreopenable, { actions: [{ result: "Carried on." }] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    // The same untouched branch qualifies at an ordinary stop (the test above catches it up)...
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toBeDefined();
+    // ...but here the phase is held: its takeover's attempt has ended and the conversation can't be reopened (AC-CARRY-06).
+    const session = h.engine.latestSession("1")!;
+    const attemptId = session.runs[0]!.control?.attemptId ?? (h.engine as unknown as { legacyAttempt(s: unknown, i: number): string }).legacyAttempt(session, 0);
+    h.engine.record.liveControl = { version: 1, revision: 1, takeover: { target: { executionId: h.engine.record.executionId!, activityId: "phase-1", activityKey: "1", sessionId: session.sessionId, attemptId, providerSessionId: session.sessionId }, operationId: "op", instructionId: "instruction", requestedAt: "2026-11-08T00:00:00Z", state: "pending", observedAt: "2026-11-08T00:00:00Z", reason: "Paused for takeover.", history: { state: "unavailable", reason: "missing" } } } as never;
+    // The ended attempt's process reads are the takeover suite's to prove; here they pass.
+    // Each ownership check also lets a takeover reconciliation run, as the once-a-second timer can between the launch clearing the stop and the new process running.
+    const internals = h.engine as unknown as { requireCarryOnOwnership(): Promise<void>; reconcileTakeover(): Promise<void> };
+    const stopsSeen: unknown[] = [];
+    vi.spyOn(internals, "requireCarryOnOwnership").mockImplementation(async () => { await internals.reconcileTakeover(); stopsSeen.push(h.engine.record.phases["1"]?.stop); });
+    vi.spyOn(ownership, "requireNoTerminal").mockResolvedValue(undefined);
+    expect(h.engine.carryOnControl(true)).toMatchObject({ offered: true, available: true });
+    const receipt = await submit(h.engine, "carry-on", { bring_up_to_date: true });
+    expect(receipt, JSON.stringify(receipt)).toMatchObject({ outcome: "session_started", effects: { session: "started" } });
+    expect(receipt.branch_catch_up).toEqual([]);
+    expect(h.claudeCalls()).toHaveLength(2);
+    // The dispatch check ran after the launch cleared the stop, and the reconciliation didn't put it back (AC-CARRY-06: the carry-on ends the hold).
+    expect(stopsSeen.length).toBeGreaterThanOrEqual(2);
+    expect(stopsSeen.at(0)).toBeDefined();
+    expect(stopsSeen.at(-1)).toBeUndefined();
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
+    expect(originTip(h, BRANCH)).toBe(before);
+    expect(h.engine.record.branchCatchUps).toBeUndefined();
+    vi.restoreAllMocks();
   });
 
   it("never catches up on Mark complete", async () => {

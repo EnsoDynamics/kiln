@@ -15,6 +15,7 @@ import * as auditWorkflow from "./audit/workflow.js";
 beforeEach(() => { vi.spyOn(auditWorkflow, "auditNext").mockResolvedValue("final_delivery"); });
 afterEach(() => { vi.restoreAllMocks(); });
 import type { Snapshot } from "./engine/snapshot.js";
+import type { Receipt } from "./control/commands.js";
 import { displayPath } from "./engine/worktree-setup.js";
 import { runKilnCommand } from "./kiln-command.js";
 import { readPrdRecord, type PrdRecord } from "./state/records.js";
@@ -883,6 +884,54 @@ describe("one catch-up offer over several repositories (run restart AC-CURRENT-0
     expect(git(f.sandbox, f.product, "ls-remote", productBare, `refs/heads/${BRANCH}`).split("\t")[0]).toBe(productTip);
     const record = recordOf(f);
     expect(record.branchCatchUps).toEqual([expect.objectContaining({ repository: "returns-api", branch: BRANCH, from: apiBefore, to: apiDevelop, commits: 2 })]);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+});
+
+describe("one catch-up offer over several repositories at a stop (run restart AC-CURRENT-01, test audit)", () => {
+  it("moves at a stop only the repository whose branch qualifies, with its count, and leaves the one with commits of its own", async () => {
+    const f = createWorkspaceFeature([{ noInit: true, actions: [] }, { noInit: true, actions: [] }]);
+    // Both branches exist and are level with develop at Start; product's has a commit of its own.
+    git(f.sandbox, f.product, "switch", "-q", "-c", BRANCH);
+    writeFileSync(join(f.product, "own.txt"), "own\n");
+    git(f.sandbox, f.product, "add", "own.txt"); git(f.sandbox, f.product, "commit", "-q", "-m", "own work");
+    git(f.sandbox, f.product, "push", "-q", "-u", "origin", BRANCH);
+    const productTip = git(f.sandbox, f.product, "rev-parse", "HEAD").trim();
+    git(f.sandbox, f.product, "switch", "-q", "develop");
+    const apiCheckout = f.code["returns-api"]!.checkout;
+    git(f.sandbox, apiCheckout, "branch", BRANCH);
+    git(f.sandbox, apiCheckout, "push", "-q", "origin", BRANCH);
+    const apiBefore = git(f.sandbox, apiCheckout, "rev-parse", BRANCH).trim();
+
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    expect((await api(address, token, "POST", "/api/settings", { start: { from: "existing", bringUpToDate: false } })).status).toBe(200);
+    const start = (await snapshotOf(address, token)).documents!.start!;
+    expect(start.catchUp).toBeUndefined();
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true, previewId: start.previewId })).toEqual({ status: 200, body: { ok: true } });
+    // Phase 1's session exits before beginning a conversation, so the phase stops with Start again offered.
+    await waitFor(async () => (await snapshotOf(address, token)).needsYou?.startAgain !== undefined, 60_000);
+
+    // Both bases move on: develop gains a commit in product and two in returns-api.
+    const productBare = git(f.sandbox, f.product, "remote", "get-url", "origin").trim();
+    writeFileSync(join(f.product, "merged.txt"), "merged\n"); git(f.sandbox, f.product, "add", "merged.txt"); git(f.sandbox, f.product, "commit", "-q", "-m", "merged elsewhere"); git(f.sandbox, f.product, "push", "-q", "origin", "develop");
+    for (const name of ["a.txt", "b.txt"]) { writeFileSync(join(apiCheckout, name), `${name}\n`); git(f.sandbox, apiCheckout, "add", name); git(f.sandbox, apiCheckout, "commit", "-q", "-m", name); }
+    git(f.sandbox, apiCheckout, "push", "-q", "origin", "develop");
+    const apiDevelop = git(f.sandbox, apiCheckout, "rev-parse", "develop").trim();
+
+    // A page open reads the stop afresh: the offer names returns-api alone, two behind.
+    await waitFor(async () => (await snapshotOf(address, token)).needsYou?.catchUp !== undefined, 30_000);
+    expect((await snapshotOf(address, token)).needsYou!.catchUp).toEqual({ repositories: [{ name: "returns-api", branch: BRANCH, base: "develop", behind: 2 }] });
+    const origin = new URL(address).origin;
+    const pressed = await fetch(`${origin}/api/start-again`, { method: "POST", headers: { "X-Kiln-Token": token, Origin: origin, "Content-Type": "application/json", "X-Kiln-Status": (await snapshotOf(address, token)).controlToken!, "X-Kiln-Command-Id": "stop-catch-up" }, body: JSON.stringify({ bringUpToDate: true }) });
+    const answer = await pressed.json() as { operation?: Receipt };
+    expect(answer.operation?.branch_catch_up, JSON.stringify(answer)).toEqual([{ repository: "returns-api", branch: BRANCH, from: apiBefore, to: apiDevelop, commits: 2 }]);
+    const remoteTip = (bare: string) => git(f.sandbox, bare, "rev-parse", `refs/heads/${BRANCH}`).trim();
+    expect(remoteTip(f.code["returns-api"]!.bare)).toBe(apiDevelop);
+    expect(git(f.sandbox, f.product, "ls-remote", productBare, `refs/heads/${BRANCH}`).split("\t")[0]).toBe(productTip);
+    expect(recordOf(f).branchCatchUps).toEqual([expect.objectContaining({ repository: "returns-api", branch: BRANCH, from: apiBefore, to: apiDevelop, commits: 2 })]);
     kiln.signals.emit("SIGINT");
     await kiln.done;
   });

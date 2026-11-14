@@ -335,12 +335,39 @@ describe("the limits both session-starting buttons keep (AC-CARRY-03)", () => {
     const second = h.engine.commands.submit({ command_id: "carry-2", execution_id: h.engine.record.executionId!, status_token: token, action: "carry-on", inputs: {} }, "caller", true);
     expect(first.ok).toBe(true); expect(second.ok).toBe(false);
     await waitFor(() => existsSync(flag(working)));
-    // While the carry-on session runs, the page's buttons are refused for the running session.
+    // While the carry-on session runs, the page's buttons are refused for the running session, and bots see both unavailable with a reason.
     expect(h.engine.carryOnControl().offered).toBe(false);
     expect((h.engine as unknown as { launchBusy(): string | undefined }).launchBusy()).toBe("A session for this PRD is running.");
+    for (const name of ["carry-on", "start-again"]) expect(control(h.engine, name), name).toMatchObject({ available: false, reason: expect.any(String) });
     writeFileSync(flag(release), "go");
     await h.engine.commands.settled(); await h.engine.settled();
     expect(h.engine.phaseSessions("1")).toHaveLength(2);
+  });
+
+  it("makes Start Phase N again unavailable, with the reason, while a billing restriction would stop a launch and while a session runs", async () => {
+    harness = await createHarness({ sessions: [{ noInit: true, actions: [] }, { noInit: true, actions: [] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(buildSnapshot(h.engine).needsYou!.case).toBe("could_not_start");
+    expect(control(h.engine, "start-again")).toMatchObject({ available: true });
+    const view = h.engine.billing.view;
+    const restricted = vi.spyOn(h.engine.billing, "view", "get").mockReturnValue({ ...view, canLaunch: false, next: { ...(view.next ?? { route: "metered", sources: [], diagnostics: [] }), route: "metered", approved: false } as NonNullable<typeof view.next> });
+    const billing = "Billing restrictions would stop a launch. Review and approve this billing setup, or change its source and recheck.";
+    expect(h.engine.startAgainControl()).toEqual({ offered: true, available: false, reason: billing });
+    expect(buildSnapshot(h.engine).needsYou!.startAgain).toEqual({ available: false, reason: billing });
+    expect(control(h.engine, "start-again")).toMatchObject({ available: false, reason: billing });
+    const refused = h.engine.commands.submit({ command_id: "start-billing", execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "start-again", inputs: {} }, "caller", true);
+    await h.engine.commands.settled(); await h.engine.settled();
+    expect(refused.ok, JSON.stringify(refused)).toBe(false);
+    expect(h.engine.phaseSessions("1")).toHaveLength(1);
+    restricted.mockRestore();
+    // A session running for the PRD, with this stop still on record.
+    const engine = h.engine as unknown as { current: unknown };
+    const saved = engine.current; engine.current = { phaseKey: "1", processRunning: true };
+    try {
+      expect(h.engine.startAgainControl()).toEqual({ offered: true, available: false, reason: "A session for this PRD is running." });
+    } finally { engine.current = saved; }
   });
 
   it("shows today's Conversation recovery unavailable for a Codex safety problem, whatever else holds, and refuses Start again on it (AC-CARRY-01 row 3)", async () => {

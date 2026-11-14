@@ -1165,7 +1165,7 @@ export class Engine {
     finally {
       hold.observedAt = this.now().toISOString();
       let newStop = false;
-      if (!this.current?.processRunning) {
+      if (!this.current?.processRunning && this.launchClearedStop !== hold.target.activityKey) {
         const facts = this.record.phases[hold.target.activityKey]!;
         newStop = facts.stop === undefined;
         facts.stop ??= { kind: "done_check", at: hold.requestedAt, checkedAt: hold.observedAt, checks: [] };
@@ -4708,11 +4708,29 @@ export class Engine {
     return returned && reading !== undefined ? readingAccount(reading) : undefined;
   }
 
+  /** Set while a process run that cleared its phase's stop has not yet returned, so a takeover reconciliation doesn't record the stop again (run restart AC-CARRY-06). */
+  private launchClearedStop: string | undefined;
+
   /**
    * Runs one process of a session, holding keep-awake while it runs and reading sleep around it;
    * `started` runs just before it becomes the current phase's, and returning false stops it there.
    */
   private async runProcess(
+    phaseKey: string,
+    session: SessionRecord,
+    args: string[],
+    prompt: string,
+    cause: SessionRun["cause"],
+    cwd: string,
+    note?: string,
+    started?: () => boolean,
+    account?: AccountIdentity,
+  ): Promise<void> {
+    try { await this.runProcessOnce(phaseKey, session, args, prompt, cause, cwd, note, started, account); }
+    finally { if (this.launchClearedStop === phaseKey) this.launchClearedStop = undefined; }
+  }
+
+  private async runProcessOnce(
     phaseKey: string,
     session: SessionRecord,
     args: string[],
@@ -4754,6 +4772,7 @@ export class Engine {
     const additions = this.hasPromptAdditions() ? await this.promptAdditions(session.sessionId) : (this.pendingTell = undefined, "");
     if (additions) prompt = `${prompt}\n\n${additions}`;
     if (this.commands.blocked || this.stopping || session.agentId !== "codex" && started?.() === false) return;
+    if (started && session.agentId !== "codex") this.launchClearedStop = phaseKey;
     if (!this.controlDispatch) this.controlDispatch = this.commands.beginAutomatic(`${this.record.executionId}:${phaseKey}:${session.sessionId}:${session.runs.length}`);
     const dispatchedControl = this.controlDispatch;
     if (dispatchedControl) {
@@ -7067,7 +7086,10 @@ export class Engine {
   /** The phase that holds a Needs you stop, if any. */
   stoppedPhaseKey(): string | undefined {
     if (this.recoveredLive && this.current?.processRunning) return undefined;
-    return this.record.liveControl && !this.current?.processRunning ? this.record.liveControl.takeover.target.activityKey : this.record.billing?.hold?.phaseKey ?? Object.entries(this.record.phases).find(([, facts]) => facts.stop !== undefined)?.[0];
+    // A hold is a stop only while its stop is recorded: a launch from the hold clears the stop before its process runs (run restart AC-CARRY-06).
+    const held = this.record.liveControl && !this.current?.processRunning ? this.record.liveControl.takeover.target.activityKey : undefined;
+    if (held !== undefined && this.record.phases[held]?.stop !== undefined) return held;
+    return this.record.billing?.hold?.phaseKey ?? Object.entries(this.record.phases).find(([, facts]) => facts.stop !== undefined)?.[0];
   }
 
   isPhaseDone(phaseKey: string): boolean {

@@ -138,6 +138,27 @@ describe.each([1200, 390])("at %ipx wide", width => {
     } finally { await page.close(); await server.close(); }
   });
 
+  it("draws Start Phase N again and Send reply & continue Phase N unavailable, each with its reason (AC-CARRY-03)", async () => {
+    const billing = "Billing restrictions would stop a launch. Review and approve this billing setup, or change its source and recheck.";
+    const running = "A session for this PRD is running.";
+    for (const [snapshot, label, reason] of [
+      [stopped({ case: "could_not_start", launchFailure, startAgain: { available: false, reason: billing }, nothingToCheck: true, resumeOffered: false }, false, ["finalMessage", "resumeCommand"]), "Start Phase 2b again", billing],
+      [stopped({ case: "could_not_start", launchFailure, startAgain: { available: false, reason: running }, nothingToCheck: true, resumeOffered: false }, false, ["finalMessage", "resumeCommand"]), "Start Phase 2b again", running],
+      [stopped({ case: "built_nothing", conversationRanMs: 120_000, nothingToCheck: true, resumeOffered: false, reopen: { state: "unavailable", reason: "missing" }, carryOn: { available: false, reason: billing } }, false, ["resumeCommand"]), "Send reply & continue Phase 2b", billing],
+      [stopped({ case: "built_nothing", conversationRanMs: 120_000, nothingToCheck: true, resumeOffered: false, reopen: { state: "unavailable", reason: "missing" }, carryOn: { available: false, reason: running } }, false, ["resumeCommand"]), "Send reply & continue Phase 2b", running],
+    ] as const) {
+      const { server, page } = await open(snapshot, width);
+      try {
+        await words(page, reason);
+        const button = `[...document.querySelectorAll('button')].find(e => e.textContent.trim() === ${JSON.stringify(label)})`;
+        expect(await page.evaluate(`${button}.disabled`), label).toBe(true);
+        // The reason sits in the same card as the button.
+        expect(await page.evaluate(`${button}.closest('section').innerText.includes(${JSON.stringify(reason)})`)).toBe(true);
+        expect(page.problems).toEqual([]);
+      } finally { await page.close(); await server.close(); }
+    }
+  });
+
   it("draws a held page whose conversation can't be reopened: today's headline and pause panel, the carry-on card that ends the pause, and no wait text", async () => {
     const snapshot = stopped({ resumeOffered: false, reopen: { state: "unavailable", reason: "missing" }, carryOn: { available: true, endsHold: "takeover" }, work: { repositories: [{ name: "acme-shop", commits: [{ sha: "a1b2c3d", subject: "x" }, { sha: "d4e5f6a", subject: "y" }], uncommittedFiles: 3 }], builtNothing: false } }, false, ["resumeCommand"]);
     const target = { executionId: "execution", activityId: "act", activityKey: "2b", sessionId: snapshot.needsYou!.sessionId!, providerSessionId: snapshot.needsYou!.sessionId!, attemptId: "attempt" };
