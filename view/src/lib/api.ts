@@ -149,3 +149,14 @@ export async function authorizeContinuation(config: PageConfig, executionId: str
   const answer = await send(config, "POST", "/api/development-authorization", { executionId, proposalId, authorizationRevision, target, ...identity });
   if (answer.ok || !answer.uncertain) commands.delete(key); return answer;
 }
+
+/** npm's newer Kiln, or undefined when there is none or Kiln can't say (newer version notice, AC-NEWER-02). */
+export async function newerVersion(config: PageConfig): Promise<string | undefined> {
+  try {
+    const response = await fetch("/api/newer-version", { headers: { "X-Kiln-Token": config.token } });
+    const answer = response.ok ? ((await response.json()) as { latest?: unknown }) : {};
+    return typeof answer.latest === "string" ? answer.latest : undefined;
+  } catch {
+    return undefined;
+  }
+}

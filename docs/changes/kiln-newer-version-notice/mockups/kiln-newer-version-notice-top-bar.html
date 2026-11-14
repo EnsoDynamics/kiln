@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kiln newer version notice: top bar</title>
+<!-- The top bar when npm has a newer Kiln (AC-NEWER-03): the pill beside the running version, and
+     the panel it opens. Colors and type are the view's own (view/src/theme.css). -->
+<style>
+  :root { --bg: #12110e; --panel: #1b1a16; --deep: #0d0c0a; --text: #ede8dd; --muted: #bdb6a8; --dim: #8c8577; --amber: #e6b450; --amber-border: rgba(230,180,80,0.55); --green: #9cc49a; --line: rgba(237,232,221,0.12); --line-strong: rgba(237,232,221,0.18); --line-stronger: rgba(237,232,221,0.24); --serif: "Instrument Serif", Georgia, serif; --sans: Inter, -apple-system, sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); }
+  .top { display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; border-bottom: 1px solid var(--line); }
+  .left { display: flex; align-items: center; gap: 14px; position: relative; }
+  .kiln { display: inline-flex; align-items: center; gap: 9px; }
+  .word { font-family: var(--serif); font-size: 28px; line-height: 1; }
+  .version { font: 12px/1 var(--mono); color: var(--dim); }
+  .newer { font: inherit; font-size: 12px; color: var(--amber); padding: 4px 9px; border: 1px solid var(--amber-border); border-radius: 999px; background: rgba(230,180,80,0.08); cursor: pointer; }
+  .right { display: flex; align-items: center; gap: 16px; font-size: 13px; color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 999px; background: var(--green); margin-right: 8px; }
+  .divider { width: 1px; height: 22px; background: var(--line-strong); }
+  .panel { position: absolute; top: calc(100% + 12px); left: 92px; width: 430px; background: var(--panel); border: 1px solid var(--line-stronger); border-radius: 8px; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+  .title { font-size: 14px; font-weight: 600; }
+  .title span { font-weight: 400; color: var(--dim); }
+  .command { display: flex; align-items: center; gap: 8px; background: var(--deep); border: 1px solid var(--line); border-radius: 6px; padding: 8px 8px 8px 12px; }
+  .command code { flex: 1; font: 13px/1.3 var(--mono); }
+  .copy { font: inherit; font-size: 12px; color: var(--muted); background: transparent; padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 4px; }
+  .note { font-size: 12px; line-height: 1.5; color: var(--dim); }
+  .note a { color: var(--muted); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="left">
+    <span class="kiln"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5" stroke="#ede8dd" stroke-width="1.6"></path><path d="M2.5 20.5h19" stroke="#ede8dd" stroke-width="1.6" stroke-linecap="round"></path><path d="M12 18c-1.8 0-2.8-1.2-2.8-2.6 0-1.7 1.5-2.5 1.9-4.1 1 .7 3.6 2.1 3.6 4.2 0 1.4-1 2.5-2.7 2.5z" fill="#e2694f"></path></svg><span class="word">kiln</span></span>
+    <span class="version">v1.1.6</span>
+    <button class="newer" aria-expanded="true">v1.2.0 available</button>
+    <div class="panel">
+      <div class="title">Kiln v1.2.0 is out <span>· you're on v1.1.6</span></div>
+      <div class="command"><code>npm install -g @ensodynamics/kiln</code><button class="copy">Copy</button></div>
+      <div class="note">This Kiln stays on v1.1.6 until you start it again. <a href="https://github.com/EnsoDynamics/kiln/releases/tag/v1.2.0">What changed</a></div>
+    </div>
+  </div>
+  <div class="right"><span><span class="dot"></span>Connected to Kiln · updated 2s ago</span><span class="divider"></span><span>The Enso Method</span></div>
+</header>
+<div style="height: 260px"></div>
+</body>
+</html>

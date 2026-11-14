@@ -23,9 +23,9 @@ afterEach(async () => {
   await harness?.cleanup();
 });
 
-async function serve(sessions = [landingSession()]) {
+async function serve(sessions = [landingSession()], newerVersion?: Promise<string | undefined>) {
   harness = await createHarness({ sessions });
-  server = await startLocalServer({ engine: harness.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token, heartbeatMs: 100 });
+  server = await startLocalServer({ engine: harness.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: harness.engine.record.token, heartbeatMs: 100, ...(newerVersion ? { newerVersion } : {}) });
   const origin = new URL(server.address).origin;
   return { h: harness, port: Number(new URL(origin).port), origin, token: harness.engine.record.token };
 }
@@ -93,6 +93,25 @@ describe("the local server", () => {
       expect((await raw(port, "/customer-returns", { Host: host })).status, host).toBe(403);
       expect((await raw(port, "/api/snapshot", { Host: host, "X-Kiln-Token": token })).status, host).toBe(403);
     }
+  });
+
+  it("answers npm's newer Kiln once the check settles, only with the token (newer version notice, AC-NEWER-01)", async () => {
+    let settle!: (version: string | undefined) => void;
+    const { port, token } = await serve(undefined, new Promise(resolve => { settle = resolve; }));
+    const host = `127.0.0.1:${port}`;
+    expect((await raw(port, "/api/newer-version", { Host: host })).status).toBe(403);
+    // The view and its snapshot don't wait for npm; the answer arrives when the check does.
+    expect((await raw(port, "/api/snapshot", { Host: host, "X-Kiln-Token": token })).status).toBe(200);
+    const pending = raw(port, "/api/newer-version", { Host: host, "X-Kiln-Token": token });
+    settle("1.2.0");
+    const answer = await pending;
+    expect(answer.status).toBe(200);
+    expect(JSON.parse(answer.body)).toEqual({ latest: "1.2.0" });
+  });
+
+  it("answers no newer Kiln when there is none or no check ran", async () => {
+    const { port, token } = await serve();
+    expect(JSON.parse((await raw(port, "/api/newer-version", { Host: `127.0.0.1:${port}`, "X-Kiln-Token": token })).body)).toEqual({ latest: null });
   });
 
   it("refuses API requests without the PRD's token, and changes from another site's Origin", async () => {

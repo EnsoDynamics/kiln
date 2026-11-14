@@ -7,6 +7,7 @@ import { runAudit } from "./audit-command.js";
 import { commandContracts } from "./control/help.js";
 import { readFileSync } from "node:fs";
 import { readBuildInfo, versionLine } from "./build-info.js";
+import { newerKilnVersion } from "./newer-version.js";
 // The `kiln` command line: `kiln run <path>` (PRD AC-START-01, AC-CLI-02) resolves the PRD,
 // takes the PRD's instance lock and port, and moves the feature forward (AC-CLI-01; technical
 // design, "Where a Feature Stands"). `kiln add-repository <name>` asks a running Kiln for a
@@ -279,11 +280,15 @@ function terminalWriter(run: KilnRun): (line: string) => void {
   };
 }
 
+/** npm asked once per `kiln` process, however many times it serves the view (newer version notice, AC-NEWER-01). */
+let newerVersionCheck: Promise<string | undefined> | undefined;
+
 /** Serves the browser view, then opens it; resolves with its address and what came of opening it. */
 async function serveAndOpen(run: KilnRun, engine: Engine, documents?: Parameters<typeof startLocalServer>[0]["documents"]): Promise<{ address: string; opening: BrowserOpening }> {
   const server = await startLocalServer({
     engine,
     ...(documents ? { documents } : {}),
+    newerVersion: newerVersionCheck ??= newerKilnVersion(KILN_VERSION, readBuildInfo(new URL("./build-info.json", import.meta.url))),
     port: run.port,
     folderName: run.location.folderName,
     featureName: run.location.featureName,
