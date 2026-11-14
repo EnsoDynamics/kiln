@@ -6,11 +6,15 @@ section, and the newer version notice in Kiln's top bar links here.
 Work merged since the last release goes under Unreleased. Preparing a release renames that
 section to the new version.
 
-<!-- Kiln 1.0.1 and 1.1.5 were prepared but never published; their changes shipped in 1.0.2 and 1.1.6. -->
+<!-- Kiln 1.0.1, 1.1.5 and 1.2.0 were prepared but never published; their changes shipped in 1.0.2, 1.1.6 and 1.2.1. -->
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-11-14
+## [1.2.1] - 2026-11-14
+
+The header shows the whole PRD's time, the top bar says when a newer Kiln is on npm, and a
+stopped run can carry on, start again or be reset. Kiln 1.2.0 did not reach npm; its changes
+ship here.
 
 ### Added
 
