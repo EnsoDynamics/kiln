@@ -339,6 +339,6 @@
   .actions { display: flex; flex-wrap: wrap; gap: 12px; }
   .button { white-space: normal; align-self: flex-start; } .button:disabled { opacity: .45; }
   .lines { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 4px 10px; overflow-wrap: anywhere; font-size: 12px; }
-  summary { cursor: pointer; } details pre { margin: 12px 0; }
+  summary { cursor: pointer; } details pre { margin: 12px 0; max-height: 22em; overflow-y: auto; }
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
 </style>

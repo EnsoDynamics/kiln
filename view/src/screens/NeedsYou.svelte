@@ -395,7 +395,7 @@
   .step p { margin: 0; font-size: 14.5px; color: var(--muted); line-height: 1.6; text-wrap: pretty; }
   .block { display: flex; flex-direction: column; gap: 10px; }
   pre { margin: 0; white-space: pre-wrap; font-family: var(--mono); font-size: 13px; line-height: 1.7; color: var(--text); background: var(--deep); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; overflow-wrap: anywhere; }
-  pre.prompt { font-size: 12.5px; color: var(--muted); }
+  pre.prompt { font-size: 12.5px; color: var(--muted); max-height: 22em; overflow-y: auto; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
   .hint { font-size: 13px; color: var(--dim); }
   .resume > p.hint { margin: 0; line-height: 1.6; }
