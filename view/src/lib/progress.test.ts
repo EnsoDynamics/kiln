@@ -102,7 +102,7 @@ describe("a plan row", () => {
   it("says items an audit left for the person are waiting until a later audit accounts for them (AC-NEUTRAL-03)", () => {
     const audit = { id: "audit-1", title: "Delivery audit", file: "Round 1", kind: "delivery_audit" as const, state: "done" as const, finishedByPerson: false, sessionStartedAt: "2026-10-17T15:00:00Z", doneAt: "2026-10-17T15:09:00Z" };
     const shape = (personItems?: { count: number; waiting: boolean }) => ({ ...audit, audit: { outcome: "completion_phases", checks: [], criteria: [], repositories: [], blockers: [], pendingActions: [], ...(personItems ? { personItems } : {}) } });
-    expect(rowFacts(shape({ count: 1, waiting: true }), "done", RUNNING_NOW)).toBe("9m · 1 item waiting for you");
+    expect(rowFacts(shape({ count: 1, waiting: true }), "done", RUNNING_NOW)).toBe("9m · 1 item for your review");
     expect(rowFacts(shape({ count: 2, waiting: false }), "done", RUNNING_NOW)).toBe("9m · listed 2 items for you");
     expect(rowFacts(shape(), "done", RUNNING_NOW)).toBe("9m");
   });

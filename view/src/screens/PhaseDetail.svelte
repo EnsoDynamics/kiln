@@ -83,7 +83,7 @@
       {#each row.audit.repositories as repository}<p class="mono">{repository.name}: {repository.revision}</p>{/each}
       {#each row.audit.criteria as criterion}<p>{criterion.key}: {criterion.status}</p>{#each criterion.findings as finding}<p>{finding}</p>{/each}{/each}
       {#each row.audit.checks.filter(c => !c.passed) as check}<p>{check.name}: {check.facts.join(" ")}</p>{/each}
-      {#if row.audit.personItems}<p>{row.audit.personItems.waiting ? "Waiting for you while Kiln builds the work. Every later audit must settle each item or list it again:" : "Listed for you while Kiln built the work; a later audit accounted for each:"}</p>{/if}
+      {#if row.audit.personItems}<p>{row.audit.personItems.waiting ? "For your review while Kiln builds the work. Every later audit must settle each item or list it again:" : "Listed for you while Kiln built the work; a later audit accounted for each:"}</p>{/if}
       {#each row.audit.blockers as blocker}<p>{blocker}</p>{/each}
       {#each row.audit.pendingActions as action}<p>Human action: {action}</p>{/each}
       {#each row.audit.settledItems ?? [] as item}<p>Settled: {item}</p>{/each}

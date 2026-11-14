@@ -303,8 +303,8 @@ describe("Phase detail", () => {
     const listed = row("audit-da1", 1, { outcome: "completion_phases", summary: "Added Phase 5.", blockers: [item], personItems: { count: 1, waiting: true } });
     snapshot.activities = [...snapshot.phases, listed];
     const page = (id: string) => text(strip(render(PhaseDetail, { props: { snapshot, phaseId: id, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
-    expect(text(running(snapshot))).toMatch(/Delivery audit Round 1 9m · 1 item waiting for you/);
-    expect(page("audit-da1")).toContain(`Outcome: added phases Added Phase 5. Waiting for you while Kiln builds the work. Every later audit must settle each item or list it again: ${item}`);
+    expect(text(running(snapshot))).toMatch(/Delivery audit Round 1 9m · 1 item for your review/);
+    expect(page("audit-da1")).toContain(`Outcome: added phases Added Phase 5. For your review while Kiln builds the work. Every later audit must settle each item or list it again: ${item}`);
     listed.audit!.personItems = { count: 1, waiting: false };
     snapshot.activities.push(row("audit-da2", 2, { outcome: "passed", summary: "Nothing left.", settledItems: [`${item} Listed by Delivery audit round 1, settled by Delivery audit round 2: Kept the names.`] }));
     expect(text(running(snapshot))).toMatch(/Delivery audit Round 1 9m · listed 1 item for you/);

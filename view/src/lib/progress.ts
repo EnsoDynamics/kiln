@@ -178,7 +178,7 @@ export function rowFacts(row: PhaseView, state: RowState, now: number): string |
     const parts = [row.timing ? timingText(row.timing, now) : shortDuration(Date.parse(row.doneAt) - Date.parse(row.sessionStartedAt))];
     if (row.finishedByPerson) parts.push("finished by you");
     // An audit that added phases can leave items for a person while those phases build (AC-NEUTRAL-03).
-    if (row.audit?.personItems) parts.push(row.audit.personItems.waiting ? `${plural(row.audit.personItems.count, "item", "items")} waiting for you` : `listed ${plural(row.audit.personItems.count, "item", "items")} for you`);
+    if (row.audit?.personItems) parts.push(row.audit.personItems.waiting ? `${plural(row.audit.personItems.count, "item", "items")} for your review` : `listed ${plural(row.audit.personItems.count, "item", "items")} for you`);
     if (row.pushedRepositoryCount !== undefined) {
       if (row.pushedRepositoryCount > 0) parts.push(`pushed to ${plural(row.pushedRepositoryCount, "repository", "repositories")}`);
     } else if (row.pushedSha) parts.push(`pushed ${row.pushedSha.slice(0, 7)}`);

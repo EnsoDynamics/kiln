@@ -16,6 +16,8 @@ section to the new version.
   passing ones under **Also checked when Kiln stopped**, and the page says when **Check again**
   will run all of the activity's completion checks. Once those checks have run, the rows are
   labelled **Completion checks**.
+- An item an audit lists for a person while Kiln carries on now reads **for your review**
+  instead of **waiting for you**, since Kiln keeps working and nothing waits on it yet.
 
 ## [1.2.2] - 2026-11-14
 
