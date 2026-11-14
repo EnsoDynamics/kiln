@@ -77,7 +77,9 @@ it.each([false, true])("keeps completed history with removed old artifacts throu
       expect(stdout).toContain("Phases: 9 · Catalog capability 9; 10 · Catalog capability 10");
       expect(stdout).toContain(`Review ${address}`);
       expect(await page.evaluate("document.body.innerText")).toContain("Earlier catalog delivery");
-      expect(await page.evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Continue with 7')).disabled")).toBe(false);
+      // The terminal reports the check before the page has its new snapshot, and the button stays
+      // disabled until then; wait for the page to catch up rather than read it at once.
+      await page.waitFor("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Continue with 7') && !b.disabled)");
       const saved = readPrdRecord(h.stateDirectory)!;
       expect(saved.completedAt).toBe(original.completedAt); expect(saved.pullRequests).toEqual(original.pullRequests);
       expect(saved.developmentDelivery!.currentComplete).toBe(true); expect(h.claudeCalls()).toEqual([]);

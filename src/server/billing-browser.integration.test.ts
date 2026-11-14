@@ -18,7 +18,10 @@ async function open(width = 1280) {
   await page.waitFor(`document.querySelector('[aria-label="Claude billing"]')`); return page;
 }
 const panel = `document.querySelector('[aria-label="Claude billing"]')`;
-const clickChoice = `${panel}.querySelector('input[type=checkbox]').click()`;
+const choiceBox = `${panel}?.querySelector('input[type=checkbox]')`;
+// The choice renders only while billing is connected and approvable, and is disabled while a billing
+// read or a save is in flight; a click in either window is lost, so wait for a usable box first.
+async function clickChoice(page: Awaited<ReturnType<typeof open>>) { await page.waitFor(`${choiceBox} && !${choiceBox}.disabled`); await page.evaluate(`${choiceBox}.click()`); }
 const recheck = `[...${panel}.querySelectorAll('button')].find(b => b.textContent.includes('Recheck billing'))`;
 describe("Claude billing browser controls", () => {
   // AC-BILL-01/02/04/06: actual protected-server presentations, not renderer fixtures.
@@ -97,7 +100,7 @@ describe("Claude billing browser controls", () => {
     writeFileSync(`/tmp/kiln-billing-resume-held-${mode === "verify" ? 360 : 1280}.png`, await page.screenshot());
     await page.evaluate(`${recheck}.click()`); await page.waitFor(`!${recheck}.disabled`);
     expect(await page.evaluate(`${resume}.disabled`)).toBe(true); expect(h.claudeCalls()).toHaveLength(1);
-    await page.evaluate(clickChoice); await page.waitFor(`!${reply}.disabled && !${resume}.disabled`);
+    await clickChoice(page); await page.waitFor(`!${reply}.disabled && !${resume}.disabled`);
     expect(h.claudeCalls()).toHaveLength(1); // Approval itself never resumes or sends the draft.
     const phase = "docs/prds/customer-returns/phase-1-return-intake.md"; const file = join(h.engine.worktreePath, phase);
     writeFileSync(file, readFileSync(file, "utf8").replace("\n", "\n\n**Closed:** 2026-10-26\n"));
@@ -107,7 +110,7 @@ describe("Claude billing browser controls", () => {
       await page.evaluate(`${resume}.click()`); await page.waitFor(`document.body.textContent.includes('Phase 1 is already complete.')`);
       expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
     }
-    await page.evaluate(clickChoice); await page.waitFor(`!${panel}.querySelector('input').checked`);
+    await clickChoice(page); await page.waitFor(`!${panel}.querySelector('input').checked`);
     // The box unticks in the browser at once; the engine hears of it when the request lands.
     await waitFor(() => !h!.engine.billing.view.canLaunch);
     const accept = mode === "verify" ? verify : button("Advance without sending reply");
@@ -136,12 +139,12 @@ describe("Claude billing browser controls", () => {
     expect(await page.evaluate(`${panel}.innerText`)).toContain("ANTHROPIC_API_KEY");
     // Change behind the displayed reading; the click must conflict, stay unticked and start nothing.
     h.env.ANTHROPIC_API_KEY = "replacement-browser-canary";
-    await page.evaluate(clickChoice); await page.waitFor(`${panel}.innerText.includes('Billing changed')`);
+    await clickChoice(page); await page.waitFor(`${panel}.innerText.includes('Billing changed')`);
     expect(h.engine.record.billing!.approval).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(0);
     await page.waitFor(`!${panel}.querySelector('input').checked`);
-    await page.evaluate(clickChoice); await waitFor(() => !!h!.engine.record.billing!.approval);
+    await clickChoice(page); await waitFor(() => !!h!.engine.record.billing!.approval);
     await page.waitFor(`${panel}.querySelector('input').checked`); expect(h.claudeCalls()).toHaveLength(0);
-    await page.evaluate(clickChoice); await waitFor(() => !h!.engine.record.billing!.approval); await page.waitFor(`!${panel}.querySelector('input').checked`);
+    await clickChoice(page); await waitFor(() => !h!.engine.record.billing!.approval); await page.waitFor(`!${panel}.querySelector('input').checked`);
     expect(await page.evaluate(`document.body.innerText`)).not.toContain("private-browser-canary");
     // Resize via a second actual browser page to prove the narrow layout too.
     const narrow = await chrome!.open(server!.address, { width: 360 }); await narrow.waitFor(`${panel}.querySelector('input')`);
@@ -265,7 +268,7 @@ describe("Claude billing browser controls", () => {
     expect(await page.evaluate(`document.querySelector('main h1').getBoundingClientRect().top < ${panel}.getBoundingClientRect().top`)).toBe(true);
     expect(await page.evaluate(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Check again' && !b.disabled)`)).toBe(true);
     writeFileSync("/tmp/kiln-billing-held-360.png", await page.screenshot());
-    await page.evaluate(clickChoice); await waitFor(() => !!h!.engine.record.billing!.approval); await page.waitFor(`${panel}.querySelector('input').checked`);
+    await clickChoice(page); await waitFor(() => !!h!.engine.record.billing!.approval); await page.waitFor(`${panel}.querySelector('input').checked`);
     expect(h.claudeCalls()).toHaveLength(0);
     await page.evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Check again').click()`);
     await waitFor(() => h!.claudeCalls().length === 1); await h.engine.settled();

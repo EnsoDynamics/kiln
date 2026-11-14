@@ -61,6 +61,15 @@ async function reconcile() {
   const hold = h.engine.record.liveControl!.takeover;
   expect((await post("live/reconcile", { instructionId: hold.instructionId, target })).status).toBe(200);
 }
+/**
+ * Removes the saved history and reconciles until the hold records it as unavailable. Kiln records
+ * that only once the paused attempt's process and its final observations have finished, which can
+ * take more than one reconciliation on a loaded machine (run restart AC-CARRY-06).
+ */
+async function historyGone() {
+  rmSync(historyFile);
+  await waitFor(async () => { await reconcile(); return h.engine.record.liveControl?.takeover.history !== undefined; }, 10000);
+}
 async function released() {
   await waitFor(async () => { await reconcile(); return h.engine.record.liveControl?.takeover.state === "released"; }, 10000);
 }
@@ -277,7 +286,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
         const response = await fetch(`${origin}/api/carry-on`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": h.engine.record.token, "X-Kiln-Status": h.engine.controlView().token, "X-Kiln-Command-Id": commandId, "Content-Type": "application/json" }, body: JSON.stringify(body) });
         return { status: response.status, body: await response.json() as Record<string, unknown> };
       };
-      rmSync(historyFile); await reconcile();
+      await historyGone();
       expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", history: { state: "unavailable", reason: "missing" } });
       expect(h.engine.record.liveControl!.takeover.carryOnObstacle).toBeUndefined();
       const stop = buildSnapshot(h.engine).needsYou!;
@@ -308,7 +317,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeDefined();
     }, 120000);
     if (kind === "phase" && recovery === "delivery_recovery") it("kiln carry-on --message-reviewed acknowledges the uncertain message and carries on from a hold that can't be reopened (run restart AC-CARRY-06)", async () => {
-      rmSync(historyFile); await reconcile();
+      await historyGone();
       expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", history: { state: "unavailable", reason: "missing" } });
       // The fixture acknowledged the message so its release proof could run; take that back, as a message nobody has acknowledged yet.
       const saved = h.engine.commands.lookup("uncertain-history").operation as Receipt;
@@ -341,7 +350,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       expect(h.claudeCalls()).toHaveLength(originalCalls);
     }, 120000);
     if (kind === "phase" && recovery === "takeover") it("advances from the carry-on's already-complete choice on a hold that can't be reopened, ending it without release (run restart AC-CARRY-06)", async () => {
-      rmSync(historyFile); await reconcile();
+      await historyGone();
       expect(h.engine.controlView().controls.find(c => c.name === "verify-and-advance")).toMatchObject({ available: false });
       const response = await fetch(`${origin}/api/carry-on`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": h.engine.record.token, "X-Kiln-Status": h.engine.controlView().token, "X-Kiln-Command-Id": "held-advance-carry", "Content-Type": "application/json" }, body: JSON.stringify({ target: h.engine.phaseRecoveryTarget() }) });
       expect(await response.json()).toMatchObject({ ok: true, outcome: "already_complete" });
@@ -354,7 +363,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
     }, 120000);
     if (kind === "phase" && recovery === "takeover") it("keeps carry-on and the terminal copy buttons unavailable, saying why, while Claude is open on the conversation (run restart AC-CARRY-06)", async () => {
       const open = vi.spyOn(ownership, "requireNoTerminal").mockRejectedValue(new ownership.OwnershipError("terminal_in_use", "Exit Claude in your terminal before handing this conversation back to Kiln."));
-      rmSync(historyFile); await reconcile();
+      await historyGone();
       const hold = h.engine.record.liveControl!.takeover;
       expect(hold.history).toMatchObject({ state: "unavailable" });
       expect(hold.carryOnObstacle).toBe("Claude is open on this conversation in a terminal. Exit it first.");
@@ -464,7 +473,7 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       expect(h.claudeCalls()).toHaveLength(originalCalls);
     }, 120000);
     if (kind === "phase" && recovery === "delivery_recovery") it("shows the uncertain message above the cards, holds the button until it is acknowledged, and sends it on only if the reply includes it (run restart AC-CARRY-06)", async () => {
-      rmSync(historyFile); await reconcile();
+      await historyGone();
       expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", history: { state: "unavailable", reason: "missing" } });
       const saved = h.engine.commands.lookup("uncertain-history").operation as Receipt;
       delete saved.message!.reviewedAt; h.engine.commands.checkpoint(saved);
