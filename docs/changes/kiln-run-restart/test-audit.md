@@ -1,9 +1,9 @@
 # Test audit: Kiln Run Restart
 
-**Status:** 17 to fix (AC-CURRENT-01, AC-CARRY-06, AC-CARRY-03, AC-FROM-03, AC-RESET-02, AC-RESET-06, AC-CARRY-01, AC-RESET-05, AC-RESET-04, AC-LOOK-01, AC-CARRY-02, AC-RESET-03, AC-FROM-02, AC-CASE-01, AC-FROM-05, AC-CASE-03, AC-RESET-01)
-**Last audit:** 2026-11-13, whole PRD, at `9b8b913`; first fixing chat 2026-11-13, at `ab4fa90`
+**Status:** 16 to fix (AC-CARRY-06, AC-CARRY-03, AC-FROM-03, AC-RESET-02, AC-RESET-06, AC-CARRY-01, AC-RESET-05, AC-RESET-04, AC-LOOK-01, AC-CARRY-02, AC-RESET-03, AC-FROM-02, AC-CASE-01, AC-FROM-05, AC-CASE-03, AC-RESET-01); stuck: AC-CURRENT-01
+**Last audit:** 2026-11-13, whole PRD, at `9b8b913`; first fixing chat 2026-11-13, at `ab4fa90`; second fixing chat 2026-11-13, at `56811fe`
 **PRD:** [kiln-run-restart-prd.md](./kiln-run-restart-prd.md)
-**Next:** a whole-PRD delivery audit, because the first fixing chat changed code; then a fixing chat from AC-CURRENT-01.
+**Next:** a whole-PRD delivery audit, because the second fixing chat changed code; then a fixing chat from AC-CARRY-06. AC-CURRENT-01 waits for Doug to say how to proceed.
 
 Every phase (1 to 8) is closed, so all 23 criteria were graded. No criterion is Missing, Not implemented, superseded or changed outside the requirements, and no mapped test was found skipped or failing. The 5 criteria at Adequate each had their riskiest stated part broken on purpose, and a mapped test failed every time; none has had every stated part broken, so none is Strong.
 
@@ -27,7 +27,7 @@ Short names for the test files used below:
 | AC-FROM-03 — Any branch can be chosen, except where the table says (high risk) | Weak | 15 of 19 | SFB "makes the base, the person's own checkout…unavailable", "adopts a worktree…", "makes a local branch that tracks one only on origin"; KRR | `src/engine/start-from.ts` (`classifyBranch`, `branchList`) | 2026-11-13 `9b8b913` |
 | AC-FROM-04 — Kiln adds to the branch and never rewrites it (high risk) | Adequate | 8 of 8 | SFB "selects the existing branch… adds to the branch without rewriting it", "goes straight to final delivery…"; SFS | `src/engine/engine.ts` (`setUpExistingEntry`), `src/engine/start-from.ts` (`readRepository`) | 2026-11-13 `9b8b913` |
 | AC-FROM-05 — Several repositories use the one branch name | Weak | 6 of 8 | KRP "uses the branch where a repository has it…"; SFB "a repository that has an unavailable branch…" | `src/engine/start-from.ts` (`existingBranchPreview`, `branchList`) | 2026-11-13 `9b8b913` |
-| AC-CURRENT-01 — Kiln offers to catch an untouched branch up (high risk) | Weak | 24 of 26 | SFB "offers to bring it up to date…", "offers nothing at Start…", "offers nothing at a stop…", "catches the branch up before kiln reply…", "…before kiln carry-on…", "never catches up on Mark complete", "gives a held phase no offer…"; RRC `--leave-branch-as-is` tests; KRP "moves only the repository whose branch qualifies…"; RRB catch-up tests | `src/engine/start-from.ts` (`readCatchUp`, `catchUpRepository`), `src/engine/engine.ts` (`catchUpAtStop`, `refreshStoppedWork`), `src/control/client.ts` | 2026-11-13 `ab4fa90` |
+| AC-CURRENT-01 — Kiln offers to catch an untouched branch up (high risk) | Weak, stuck | 26 of 27 | SFB "offers to bring it up to date…", "offers nothing at Start…", "offers nothing at a stop…", "catches the branch up before kiln reply…", "…before kiln carry-on…", "never catches up on Mark complete", "gives a held phase no offer…", "carries on from a held phase…"; RRC `--leave-branch-as-is` tests; KRP "moves only the repository whose branch qualifies…", "moves at a stop only the repository…"; RRB catch-up tests | `src/engine/start-from.ts` (`readCatchUp`, `catchUpRepository`), `src/engine/engine.ts` (`catchUpAtStop`, `refreshStoppedWork`), `src/control/client.ts` | 2026-11-13 `56811fe` |
 | AC-CASE-01 — A stopped phase's headline says which case it is | Weak | 10 of 13 | RR, RRB, RRC case tests; THI | `src/engine/engine.ts` (`stoppedCase`), `src/engine/stopped-phase.ts` (`readPhaseWork`) | 2026-11-13 `9b8b913` |
 | AC-CASE-04 — The first card shows the latest launch | Adequate | 7 of 7 | RR "says so, shows What Kiln found…", "returns the carry-on card after a carry-on that never began…"; `src/engine/stopped-phase.test.ts`; RRB | `src/engine/snapshot.ts` (`restartFacts`), `src/engine/stopped-phase.ts` (`launchFailure`) | 2026-11-13 `9b8b913` |
 | AC-CASE-02 — A phase Kiln couldn't launch can be started again | Adequate | 7 of 7 | RR "says so, shows What Kiln found, offers only Start Phase N again…"; RRC "kiln start-again…"; RRB | `src/engine/engine.ts` (`startAgainControl`, `launchAtStop`) | 2026-11-13 `9b8b913` |
@@ -35,9 +35,9 @@ Short names for the test files used below:
 | AC-CARRY-01 — Kiln carries on only when the conversation can't be reopened (high risk) | Weak | 4 of 7 | RR carry-on and Codex safety tests; RRB "draws the carry-on card…" | `src/engine/engine.ts` (`carryOnControl`, `resumeOffered`), `view/src/screens/NeedsYou.svelte`, `PhaseHandoff.svelte` | 2026-11-13 `9b8b913` |
 | AC-CARRY-02 — The card says why, and how to clear it | Weak | 7 of 12 | RR reason tests; RRB carry-on and held-page tests; `src/session/claude-history.integration.test.ts`; `src/engine/codex-workflow.integration.test.ts` | `view/src/components/CarryOnCard.svelte`, `src/engine/stopped-phase.ts` (`claudeReopenCheck`) | 2026-11-13 `9b8b913` |
 | AC-CARRY-05 — Carrying on starts a new session that knows what was done (high risk) | Adequate | 10 of 10 | RR "offers carry-on with the reason…", "checks completion first and starts nothing…"; RRC "kiln carry-on…"; RRB | `src/engine/engine.ts` (`recoverPhase`, `launchAtStop`), `src/session/prompts.ts` (`carryOnPrompt`) | 2026-11-13 `9b8b913` |
-| AC-CARRY-03 — Starting a session keeps the existing limits (high risk) | Weak | 4 of 8 | RR "makes them unavailable, with the reason, while a billing restriction…", Codex safety test | `src/engine/engine.ts` (`carryOnControl`, `startAgainControl`, `launchBusy`, `controlView`) | 2026-11-13 `9b8b913` |
+| AC-CARRY-03 — Starting a session keeps the existing limits (high risk) | Weak | 6 of 7 | RR "makes them unavailable, with the reason, while a billing restriction…", "makes Start Phase N again unavailable…", Codex safety test; RRB "draws Start Phase N again and Send reply & continue Phase N unavailable…" | `src/engine/engine.ts` (`carryOnControl`, `startAgainControl`, `launchBusy`, `controlView`) | 2026-11-13 `56811fe` |
 | AC-CARRY-04 — Bots can start these sessions too (high risk) | Adequate | 16 of 16 | RRC (refusals, stale token, billing, running session, retried command ID, `command-status`, text mode); `src/control/help.test.ts`; THI | `src/control/commands.ts`, `src/control/help.ts`, `src/control/client.ts` | 2026-11-13 `ab4fa90` |
-| AC-CARRY-06 — A held phase can carry on when its conversation can't be reopened (high risk) | Weak | 8 of 13 | THI (macOS only); RRB "draws a held page…", "advances from the carry-on's already-complete choice…" | `src/engine/engine.ts` (takeover reconciliation, `carryOnObstacle`), `src/live/ownership.ts` | 2026-11-13 `9b8b913` |
+| AC-CARRY-06 — A held phase can carry on when its conversation can't be reopened (high risk) | Weak | 13 of 15 | THI (macOS only), including "keeps today's wait text until the attempt ends…" and "shows the uncertain message above the cards…"; RRB "draws a held page…", "advances from the carry-on's already-complete choice…" | `src/engine/engine.ts` (takeover reconciliation, `carryOnOwnership`, `stoppedPhaseKey`, `launchSession`), `src/live/ownership.ts` | 2026-11-13 `56811fe` |
 | AC-RESET-01 — Reset sits at the bottom of every screen | Weak | 2 of 3 | KRR "the open page resets through its confirmation…"; ERI | `src/engine/snapshot.ts`, `view/src/App.svelte`, `view/src/components/ResetFooter.svelte` | 2026-11-13 `9b8b913` |
 | AC-RESET-02 — Reset waits for Kiln to stop working (high risk) | Weak | 3 of 6 | ERI "is unavailable while a session works…" | `src/engine/engine.ts` (`resetControl`, `controlView`), `view/src/components/ResetFooter.svelte` | 2026-11-13 `9b8b913` |
 | AC-RESET-03 — Reset asks first, and says what goes and what stays | Weak | 6 of 9 | KRR "the open page resets…"; `view/src/lib/reset.test.ts` | `src/engine/engine.ts` (`resetPreview`), `view/src/lib/reset.ts` | 2026-11-13 `9b8b913` |
@@ -48,6 +48,7 @@ Short names for the test files used below:
 
 Red checks run (each broke the named part, saw a mapped test fail twice, and was restored byte for byte):
 - **AC-CURRENT-01 (fixing chat, new tests):** Start's and a stop's qualification ignoring uncommitted files, commits of its own, and being behind; `reply` and `carry-on` left out of the catch-up commands; Mark complete catching up; the held-phase offer guards; Start moving every repository rather than only qualifying ones; the CLI dropping `--leave-branch-as-is` (for every command, and for `reply`/`resume` alone); the page's Send reply & resume and Send reply & continue dropping the tick. Each made a new test fail twice.
+- **Second fixing chat, new tests:** catch-up at a held phase (`catchUpAtStop`'s hold guard removed); a stop catching up every repository rather than only qualifying ones; carry-on offered before a held attempt ends; the carry-on ownership obstacle dropped; held-page **Check again** not rechecking; the button not waiting for the acknowledgement; the uncertain message forwarded into the carry-on prompt; Start again ignoring billing; the running-session limit dropped; the page's carry-on button ignoring its control's availability. Each made a new test fail twice.
 - **AC-CARRY-04 (fixing chat, new tests):** carry-on offered where the conversation can be reopened; start-again and carry-on settling as `session_resumed`. Each made a new RRC test fail twice. Red check not possible for the billing, stale-token, running-session and command-ID-replay refusals: each is a guard on whether Kiln launches a session.
 - **AC-FROM-04:** `setUpExistingEntry` resetting the branch to its base (`worktree add -B`): SFB "selects the existing branch…" failed.
 - **AC-CARRY-05:** `recoverPhase` skipping the completion-first check for carry-on: RR "checks completion first and starts nothing…" failed.
@@ -59,41 +60,27 @@ Red checks run (each broke the named part, saw a mapped test fail twice, and was
 
 - **AC-CURRENT-01, a catch-up failing on Kiln's own read (fix commit `1687340`):** a new test caught a stopped phase's catch-up failing `branch_catch_up_failed` with "index.lock: File exists" in 2 of 9 loaded runs. Kiln's own `git status` reads, the stop's background Work read and the one each page open or reconnect runs, took the worktree's index lock while the fast-forward ran. Both reads (`readPhaseWork` in `src/engine/stopped-phase.ts` and `uncommittedFiles` in `src/engine/start-from.ts`) now pass `--no-optional-locks`, so they never take that lock. A deliverable review found that awaiting the stop's background read, the first form tried, left the page-open read racing. Red check not possible: the race can't be reproduced on demand. Because this changed implementation, a whole-PRD delivery audit runs before the next fixing chat.
 
+- **AC-CARRY-06, `kiln run` crashing when a carry-on starts from a held page (fix commit `56811fe`):** a new test with the page open caught an uncaught TypeError in the server's snapshot timer. After a carry-on from a hold clears the phase's stop, and before the new process runs, `stoppedPhaseKey()` still returned the hold's phase, and `needsYouView` read its missing stop. A hold now counts as the stopped phase only while its stop is recorded. Seen red: the test fails with the unhandled error on every run without the fix.
+- **AC-CARRY-06, the held page coming back once a carry-on began (same commit):** in the same window, the once-a-second takeover reconciliation recorded the stop again, and it outlived the new run's init, which ends the hold. A deliverable review found it; a new assertion in SFB "carries on from a held phase…" (a reconciliation during the launch's ownership check) failed twice before the fix. A session process run (a launch or a resume) that has cleared its stop now keeps reconciliation from recording it again until that run returns; a second review caught the first form leaking past a resume. Because this changed implementation, a whole-PRD delivery audit runs before the next fixing chat.
+
 ## To fix, in order
 
+**Stuck** (waiting for Doug to say how to proceed)
+- **AC-CURRENT-01** (high risk): 26 of 27. `stuck`
+  - tried 2026-11-13 (first fixing chat): added the no-offer cases at Start and at a stop, catch-up on `reply` and `carry-on`, Mark complete, the held-phase offer, a two-repository ticked Start, `--leave-branch-as-is` on every command, and the page's reply and carry-on buttons, each seen red. The re-grader still found two parts.
+  - tried 2026-11-13 (second fixing chat): added a ticked carry-on at a held phase that starts a session without moving the branch, and a stop over two repositories where only the qualifying one moves, each seen red. The re-grader found a part not named before.
+  - Uncovered part: with more than one repository qualifying, each one's branch moves. Every test that moves branches has exactly one qualifying repository, so a loop that stopped after the first (in `catchUpAtStop` or in Start's per-repository catch-up) would fail nothing.
+  - Fix, if Doug says to go on: in KRP, make both product's and returns-api's branches untouched and behind (1 and 2 commits), press **Start Phase N again** ticked at a stop, and assert two `branch_catch_up` rows, both origins at their develop tips and two `branchCatchUps`; the same through `/api/start` at Start.
+
 **Weak**
-- **AC-CURRENT-01** (high risk): 24 of 26.
-  - tried 2026-11-13: added the no-offer cases at Start and at a stop, catch-up on `reply` and `carry-on`, Mark complete, the held-phase offer, a two-repository ticked Start, `--leave-branch-as-is` through the CLI on every command, and the page's reply and carry-on buttons, each seen red. The fresh re-grader still found two parts.
-  - Uncovered parts:
-    - a command at a held phase that offers carry-on (AC-CARRY-06) doesn't catch up: the test's `start-again` is refused on eligibility, so it would pass with `catchUpAtStop`'s `liveControl` guard removed;
-    - with several repositories at a stop, each qualifying branch moved and the others left alone.
-  - Fix:
-    - In THI (macOS) or a hand-built `liveControl` with `history`, submit `carry-on` with `bring_up_to_date: true` at a hold that offers it, and assert it is accepted, `branch_catch_up` is empty and HEAD and origin haven't moved.
-    - In KRP, start on two repositories, stop phase 1, advance both bases with one branch given a commit of its own, run `start-again`, and assert only the qualifying origin moved, with its own count.
-- **AC-CARRY-06** (high risk): 8 of 13.
-  - Uncovered parts:
-    - while the attempt still runs, the page keeps today's wait text;
-    - the uncertain message shows above the cards with its acknowledgement;
-    - unavailable while the attempt's work still runs (`ownership_unknown`);
-    - an uncertain message reaches the new session only when the reply includes it.
-  - Weak part: the real-engine page asserts only the why heading, and **Check again** is never pressed.
-  - Fix, in THI:
-    - remove the history before the attempt ends, and assert the wait text and that `kiln carry-on` is refused;
-    - render the `delivery_recovery` hold in Chrome, and assert the message and acknowledgement above the cards and the button disabled until acknowledged;
-    - make `requireExited` throw `ownership_unknown`, and assert carry-on unavailable with its reason;
-    - carry on with `--message-reviewed` and a reply with, then without, the message, and assert the prompt;
-    - assert the AC-CARRY-02 sentence, then press **Check again** after restoring history.
-- **AC-CARRY-03** (high risk): 4 of 8.
-  - Uncovered parts:
-    - Start again unavailable while a session runs;
-    - Start again unavailable under billing.
-  - Weak parts:
-    - carry-on's running-session refusal is checked through the private `launchBusy()`, not `controlView()`;
-    - no stopped page draws either button unavailable with its reason.
-  - Fix:
-    - In RR, assert `controlView` for carry-on and start-again while the carry-on session runs.
-    - Add a could-not-start case under a billing spy and under a running session.
-    - Add two RRB fixture cases asserting the disabled button and the reason text.
+- **AC-CARRY-06** (high risk): 13 of 15.
+  - tried 2026-11-13: added the wait text before the attempt ends, the carry-on obstacle, the reason sentence and **Check again**, the uncertain message above the cards with the button waiting for its acknowledgement, and the message reaching the new session only through the reply, each seen red. The fresh re-grader still found two parts.
+  - Weak parts: the button and the terminal card's copy buttons unavailable while work the attempt started is still running. The only test mocks `captureOwnedProcesses` to throw (Kiln can't confirm), so `carryOnOwnership`'s `gate.tracked` loop and its `gate.obstacle` check are never reached; deleting the loop fails no test.
+  - Fix: in THI (`phase`, `takeover`), remove the history, push a live process's real identity into the attempt gate's `tracked` list with `withGate` (the pattern in `src/live/owned-processes.integration.test.ts` "drops tracked processes…"), reconcile, and assert the obstacle "Work the paused session started is still running.", `needsYou.carryOn` unavailable with it, **Send reply & continue** disabled and "Copy terminal command" absent on the page, the terminal card's own reason, and `kiln carry-on` starting nothing; then end the process and assert the obstacle clears.
+- **AC-CARRY-03** (high risk): 6 of 7.
+  - tried 2026-11-13: added Start again's billing and running-session limits (engine, snapshot, controls and a refused submit), the running-session controls for bots, and the page drawing both buttons unavailable with their reasons, each seen red. The fresh re-grader still found one part.
+  - Weak part: **Send reply & continue**'s reason while a session runs is never pinned; removing `this.launchBusy() ||` from `carryOnControl` fails no test, because `recoverPhase` still refuses.
+  - Fix: in RR, on the carry-on stop, set `current` to `{ phaseKey: "1", processRunning: true }` as the Start again test does, and assert `carryOnControl()` and `needsYou.carryOn` give "A session for this PRD is running."; tighten the running-session `controlView` assertions to that sentence.
 - **AC-FROM-03** (high risk): 15 of 19.
   - Uncovered parts:
     - a branch whose recorded worktree folder now holds something else (`holds_something_else`);

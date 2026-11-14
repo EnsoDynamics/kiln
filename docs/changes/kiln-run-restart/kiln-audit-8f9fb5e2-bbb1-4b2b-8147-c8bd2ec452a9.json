@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "8f9fb5e2-bbb1-4b2b-8147-c8bd2ec452a9",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The second fixing chat of the Kiln Run Restart whole-PRD test audit worked AC-CURRENT-01, AC-CARRY-06 and AC-CARRY-03, adding tests that each failed against a deliberate break. Fresh re-graders still graded all three Weak: AC-CARRY-06 at 13 of 15 parts (work the attempt started still running is only mocked as unreadable), AC-CARRY-03 at 6 of 7 (carry-on's running-session reason isn't pinned), and AC-CURRENT-01 at 26 of 27 (no test has two repositories qualifying at once), which after its second re-grade is now stuck. New tests exposed two real bugs in a carry-on from a held phase, both fixed in commit 56811fe: the page server's snapshot timer threw an uncaught exception, and the takeover reconciliation re-recorded the stop so the held page outlived the hold. Two deliverable reviews passed the final fix, and lint, typecheck, unit, release and integration suites all passed. Sixteen Weak rows remain under To fix in docs/changes/kiln-run-restart/test-audit.md, and a fresh delivery audit is due because code changed.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "problem": "AC-CURRENT-01 (catching an untouched branch up, high risk) is stuck at Weak, 26 of 27 parts, after two fixing chats: no test has more than one repository qualifying for a catch-up at once, so a loop that moved only the first would go unnoticed.",
+      "action": "Say how to proceed: let a fixing chat add the two-qualifying-repository tests described under Stuck in test-audit.md, or accept AC-CURRENT-01 at Weak."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": true
+}
