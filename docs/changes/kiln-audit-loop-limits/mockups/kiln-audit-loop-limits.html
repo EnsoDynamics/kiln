@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Audit Loop Limits mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0d0c0a;color:#ede8dd;font-family:Inter,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:32px 16px;display:flex;flex-direction:column;gap:40px}
+h2{margin:0 0 4px;font-size:18px;font-weight:600}
+.note{margin:0 0 12px;font-size:14px;color:#bdb6a8}
+.screen{overflow-x:auto;border:1px solid rgba(237,232,221,0.18);border-radius:12px}
+</style>
+</head>
+<body>
+<main>
+<section>
+<h2>1. Audit loop settings, before Start</h2>
+<p class="note">Covers AC-LOOP-01 to AC-LOOP-03, AC-LOOP-05.</p>
+<div class="screen">
+<div style="width: 1100px; height: 860px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #bdb6a8">DOCUMENTS FOUND · SETTINGS</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 36px">Audit loops</h1>
+<p style="margin: 0; font-size: 15px; line-height: 1.6; color: #bdb6a8; max-width: 820px">After the planned phases close, the audits can send Kiln back to finish or to prove acceptance criteria. Each trip back is a loop. These set how many Kiln makes on its own.</p>
+</div>
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 8px 28px; display: flex; flex-direction: column">
+<div style="display: flex; align-items: flex-start; gap: 24px; padding: 20px 0; border-bottom: 1px solid rgba(237,232,221,0.12)">
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px">
+<label for="dloops" style="font-size: 16px; font-weight: 600">Delivery audit loops, at most</label>
+<span style="font-size: 14px; line-height: 1.55; color: #bdb6a8; max-width: 720px">Kiln fixes what the delivery audit finds up to 3 times. Each loop is one audit that finds unfinished criteria, then the phases Kiln builds for them. If a 4th audit still finds something, Kiln stops at Needs you. It never delivers work the audit says is unfinished.</span>
+</div>
+<input id="dloops" type="number" value="3" min="1" style="width: 84px; min-height: 44px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 16px; text-align: center">
+</div>
+<div style="display: flex; align-items: flex-start; gap: 24px; padding: 20px 0; border-bottom: 1px solid rgba(237,232,221,0.12)">
+<div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px">
+<label for="tloops" style="font-size: 16px; font-weight: 600">Test audit loops, at most</label>
+<span style="font-size: 14px; line-height: 1.55; color: #bdb6a8; max-width: 720px">After the test audit, Kiln runs up to 3 sessions of test fixes, each one a loop, and tells the 3rd it is the last. The audit itself isn't a loop, even when it fixes a few small gaps on the spot. If a test shows a criterion was never finished, that is build work and counts as a delivery audit loop.</span>
+</div>
+<input id="tloops" type="number" value="3" min="1" style="width: 84px; min-height: 44px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 0 12px; font-family: 'JetBrains Mono', monospace; font-size: 16px; text-align: center">
+</div>
+<fieldset style="border: none; margin: 0; padding: 20px 0; display: flex; flex-direction: column; gap: 14px">
+<legend style="padding: 0; font-size: 16px; font-weight: 600">After the last test audit loop</legend>
+<div style="display: flex; align-items: flex-start; gap: 14px; margin-top: 14px">
+<input type="radio" id="after-deliver" name="after" checked style="width: 20px; height: 20px; margin: 2px 0 0 0; accent-color: #e2694f">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="after-deliver" style="font-size: 15px; font-weight: 600">Deliver, unless something serious is left</label>
+<span style="font-size: 14px; line-height: 1.55; color: #bdb6a8; max-width: 760px">Kiln accepts the remaining Weak tests for you and lists them in test-audit.md and in the pull request. It stops and asks you when a criterion has no test at all, a test is failing, or a high-risk criterion is still Weak.</span>
+</div>
+</div>
+<div style="display: flex; align-items: flex-start; gap: 14px">
+<input type="radio" id="after-stop" name="after" style="width: 20px; height: 20px; margin: 2px 0 0 0; accent-color: #e2694f">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="after-stop" style="font-size: 15px; font-weight: 600">Always stop and ask me</label>
+<span style="font-size: 14px; line-height: 1.55; color: #bdb6a8; max-width: 760px">Nothing is accepted for you. Kiln stops at Needs you with what is left.</span>
+</div>
+</div>
+</fieldset>
+</section>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">These can be changed while Kiln runs, like model, effort and keep-awake.</p>
+</div>
+</div>
+</section>
+<section>
+<h2>2. Delivery audit loops used up</h2>
+<p class="note">Covers AC-DELIV-01, AC-STOP-01, AC-STOP-02, AC-STOP-04.</p>
+<div class="screen">
+<div style="width: 1100px; height: 640px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">[PRD NAME] · NEEDS YOU</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 44px; line-height: 1.1">Delivery audit loops used: 3 of 3</h1>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #bdb6a8; max-width: 840px">The delivery audit has found unfinished criteria four times. Kiln built phases for the first three and stopped at the fourth. Read what it found before deciding: a criterion that keeps coming back may be asking for too much.</p>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px">
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #bdb6a8">THE THREE LOOPS</span>
+<div style="display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.5">
+<div style="display: flex; justify-content: space-between; gap: 12px"><span>Round 1 found 3 criteria incomplete</span><span style="color: #bdb6a8">Phase 6 built</span></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><span>Round 2 found 3 criteria incomplete</span><span style="color: #bdb6a8">Phase 7 built</span></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><span>Round 3 found [N] criteria incomplete</span><span style="color: #bdb6a8">Phase 8 built</span></div>
+</div>
+</section>
+<section style="background: #1b1a16; border: 1px solid rgba(230,180,80,0.55); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">WHAT ROUND 4 FOUND</span>
+<p style="margin: 0; font-size: 15px; line-height: 1.6">[THE AUDIT'S OWN SUMMARY: which criteria are still incomplete and what is missing]</p>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">It added Phase 9 to the plan. Kiln has not started it.</p>
+</section>
+</div>
+<div style="display: flex; align-items: center; gap: 16px">
+<label for="more-1" style="font-size: 15px; font-weight: 600">Allow</label>
+<input id="more-1" type="number" value="2" min="1" style="width: 64px; min-height: 44px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 0 8px; font-family: 'JetBrains Mono', monospace; font-size: 16px; text-align: center">
+<span style="font-size: 15px; font-weight: 600">more loops</span>
+<button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; border: none; background: #e2694f; color: #12110e; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Build Phase 9 and keep going</button>
+<button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Take over the audit session</button>
+</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">To drop or change a criterion, edit the PRD, then run the delivery audit again.</p>
+</div>
+</div>
+</section>
+<section>
+<h2>3. Last test audit loop under the default setting</h2>
+<p class="note">Covers AC-TEST-02 to AC-TEST-04, AC-STOP-01 to AC-STOP-04.</p>
+<div class="screen">
+<div style="width: 1100px; height: 860px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">KILN RUN RESTART · NEEDS YOU</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 44px; line-height: 1.1">Test audit loops used: 3 of 3</h1>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #bdb6a8; max-width: 840px">Your setting is <span style="color: #ede8dd">Deliver, unless something serious is left</span>. The last session accepted the ordinary Weak tests for you. Three high-risk criteria are still Weak, so Kiln stopped for those.</p>
+</div>
+
+<section style="background: #1b1a16; border: 1px solid rgba(230,180,80,0.55); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">YOUR DECISION · HIGH RISK, STILL WEAK</span>
+<div style="display: flex; flex-direction: column; gap: 8px; font-size: 15px; line-height: 1.5">
+<div style="display: flex; justify-content: space-between; gap: 12px"><span>AC-FROM-03 · Any branch can be chosen, except where the table says</span><span style="color: #bdb6a8">15 of 19 parts</span></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><span>AC-RESET-04</span><span style="color: #bdb6a8">8 of 11 parts</span></div>
+<div style="display: flex; justify-content: space-between; gap: 12px"><span>AC-CARRY-01</span><span style="color: #bdb6a8">4 of 7 parts</span></div>
+</div>
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 6px">
+<label for="more-2" style="font-size: 15px; font-weight: 600">Allow</label>
+<input id="more-2" type="number" value="2" min="1" style="width: 64px; min-height: 44px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 0 8px; font-family: 'JetBrains Mono', monospace; font-size: 16px; text-align: center">
+<span style="font-size: 15px; font-weight: 600">more loops</span>
+<button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; border: none; background: #e2694f; color: #12110e; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Keep fixing these</button>
+<button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Accept these three and deliver</button>
+<button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Take over the audit session</button>
+</div>
+</section>
+
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #bdb6a8">ACCEPTED FOR YOU · 8 WEAK, NONE HIGH RISK</span>
+<p style="margin: 0; font-size: 15px; line-height: 1.6">AC-LOOK-01, AC-CARRY-02, AC-RESET-03, AC-FROM-02, AC-CASE-01, AC-FROM-05, AC-CASE-03, AC-RESET-01</p>
+<p style="margin: 0; font-size: 14px; line-height: 1.55; color: #bdb6a8">Recorded in test-audit.md with what each leaves unproven, and listed in the pull request. Accepted under your setting, chosen at Start on [DATE].</p>
+</section>
+
+<section style="border-top: 1px solid rgba(237,232,221,0.12); padding-top: 18px; display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #bdb6a8">THE THREE LOOPS</span>
+<div style="display: flex; flex-direction: column; gap: 6px; font-size: 15px; line-height: 1.5; color: #bdb6a8">
+<span>Loop 1 · test fixes, round 1 continuation 2 · 4h 9m</span>
+<span>Loop 2 · test fixes, round 2 · 2h 26m</span>
+<span>Loop 3 · test fixes, round 3 · told it was the last · [TIME]</span>
+</div>
+</section>
+</div>
+</div>
+</section>
+</main>
+</body>
+</html>
