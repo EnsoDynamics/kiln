@@ -8,169 +8,234 @@
 <style>
 body{margin:0;background:#0d0c0a;color:#ede8dd;font-family:Inter,sans-serif}
 main{max-width:1300px;margin:0 auto;padding:32px 16px;display:flex;flex-direction:column;gap:40px}
-h2{margin:0 0 4px;font-size:18px;font-weight:600}
+main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 .note{margin:0 0 12px;font-size:14px;color:#bdb6a8}
 .screen{overflow-x:auto;border:1px solid rgba(237,232,221,0.18);border-radius:12px}
-.frame{box-sizing:border-box;padding:48px 56px;background:#12110e;color:#ede8dd;display:flex;flex-direction:column;gap:22px}
-.eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.08em;color:#8c8577}
-.eyebrow.amber{color:#e6b450}
-.title{margin:0;font-family:'Instrument Serif',serif;font-weight:400;font-size:44px;line-height:1.1}
-.lead{margin:0;font-size:16px;line-height:1.6;color:#bdb6a8;max-width:840px}
-.panel{background:#1b1a16;border:1px solid rgba(237,232,221,0.12);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:12px}
-.panel.amber{border-color:rgba(230,180,80,0.55)}
-.panel.new{border-color:#b89b5e}
-.dim{opacity:0.55}
-.label{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.08em;color:#bdb6a8}
-.label.amber{color:#e6b450}
-.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
-.row{display:flex;justify-content:space-between;gap:12px;font-size:15px;line-height:1.5}
-.muted{color:#bdb6a8}
-.small{margin:0;font-size:14px;line-height:1.5;color:#bdb6a8}
-.body{margin:0;font-size:15px;line-height:1.6}
-.item{display:grid;grid-template-columns:28px 1fr;gap:10px;font-size:15px;line-height:1.6}
-.num{font-family:'JetBrains Mono',monospace;color:#e6b450}
-code{font-family:'JetBrains Mono',monospace;font-size:13px;background:#12110e;border:1px solid rgba(237,232,221,0.14);border-radius:6px;padding:2px 6px}
-.buttons{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
-.btn{min-height:44px;padding:0 20px;border-radius:999px;background:transparent;color:#ede8dd;border:1px solid rgba(237,232,221,0.24);font-family:Inter,sans-serif;font-size:15px;font-weight:600}
-.btn.primary{background:#e2694f;color:#12110e;border:none}
-.mark{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;border:1px solid rgba(230,180,80,0.55);color:#e6b450;font-size:12px;font-weight:600}
-.dot{width:10px;height:10px;border-radius:50%;border:1.5px solid #8c8577;display:inline-block}
-.dot.done{background:#7fae7a;border-color:#7fae7a}
-.dot.now{background:#e6b450;border-color:#e6b450}
-.newtag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.08em;color:#e6b450}
 </style>
 </head>
 <body>
 <main>
-
 <section>
-<h2>0. Documents found, with the preflight setting and the marked phase</h2>
-<p class="note">What this PRD adds is outlined; everything else on the page is dimmed. Covers AC-PREFLIGHT-04, AC-ATTEND-01 and AC-ATTEND-02.</p>
+<h2>1. Documents found, before Start</h2>
+<p class="note">The existing screen with what this PRD adds outlined and tagged NEW: the Preflight row first in the phase plan, the Needs you there marker with its text shown as it appears when pointed at, and the line above Start. No setting is added. Covers AC-PREFLIGHT-01, AC-ATTEND-01 and AC-ATTEND-02.</p>
 <div class="screen">
-<div class="frame" style="width:1280px">
-<div style="display:flex;flex-direction:column;gap:6px">
-<span class="eyebrow">KILN · DOCUMENTS FOUND</span>
-<h1 class="title" style="font-size:40px">Customer Returns</h1>
+<div style="width: 1280px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #a69f90">acme-shop · docs/prds/customer-returns</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 40px">Customer Returns</h1>
+<div style="display: flex; align-items: center; gap: 12px"><span style="padding: 3px 12px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.24); font-size: 13px">Not started</span><span style="font-size: 15px; color: #bdb6a8">Review what Kiln found and how it will deliver, then start.</span></div>
 </div>
-<div class="grid">
-<section class="panel">
-<span class="label">WHAT KILN FOUND</span>
-<p class="small dim">PRD, technical design and 9 phases, read from docs/prds/customer-returns.</p>
-<div style="display:flex;flex-direction:column;gap:8px">
-<div class="row"><span><span class="dot"></span>&nbsp; Phase 1 · Carrier account and label printing &nbsp;<span class="mark">Needs you there</span></span></div>
-<p class="small" style="padding-left:24px">Attended: create the return-label template in the carrier's desktop console, which has no API.</p>
-<div class="row dim"><span><span class="dot"></span>&nbsp; Phase 2 · Which items can be returned</span></div>
-<div class="row dim"><span><span class="dot"></span>&nbsp; Phase 3 · Starting a return</span></div>
-<div class="row dim"><span><span class="dot"></span>&nbsp; Phases 4 to 9</span></div>
-</div>
-</section>
-<section class="panel">
-<span class="label">HOW KILN WILL DELIVER IT</span>
-<p class="small dim">Model and effort, early merges, audit loops and the other settings, unchanged.</p>
-<div class="panel new" style="padding:16px 18px;gap:6px">
-<span class="newtag">NEW</span>
-<label class="body" style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" checked style="margin-top:5px"> <span>Check access and stops before the first phase</span></label>
-<p class="small" style="padding-left:24px">Runs the Enso Method's preflight first. If it finds nothing, Kiln goes straight on to Phase 1.</p>
-</div>
-</section>
-</div>
-<section class="panel new" style="flex-direction:row;align-items:center;justify-content:space-between;gap:24px">
-<p class="body"><strong>Phase 1 needs you there.</strong> Phases 2 to 9 run without you.</p>
-<button type="button" class="btn primary">Start</button>
-</section>
-</div>
-</div>
-</section>
 
-<section>
-<h2>1. The preflight found things to settle</h2>
-<p class="note">Kiln stops before any phase starts. The items are the preflight session's own words. Covers AC-PREFLIGHT-01 and AC-PREFLIGHT-03.</p>
-<div class="screen">
-<div class="frame" style="width:1100px">
-<div style="display:flex;flex-direction:column;gap:8px">
-<span class="eyebrow amber">CUSTOMER RETURNS · NEEDS YOU</span>
-<h1 class="title">Preflight: 2 items need you</h1>
-<p class="lead">Nothing has been built. Settle these and check again, and Kiln starts Phase 1.</p>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 18px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #a69f90">What Kiln found</h2>
+<div style="display: flex; flex-direction: column; gap: 3px"><div style="display: flex; justify-content: space-between; gap: 12px"><span style="font-size: 15px; font-weight: 600"><span style="color: #7fae7a">✓</span>&nbsp; PRD</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #a69f90">customer-returns-prd.md</span></div><span style="padding-left: 24px; font-size: 14px; color: #bdb6a8">14 acceptance criteria</span></div>
+<div style="display: flex; flex-direction: column; gap: 3px"><div style="display: flex; justify-content: space-between; gap: 12px"><span style="font-size: 15px; font-weight: 600"><span style="color: #7fae7a">✓</span>&nbsp; Technical design</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #a69f90">technical-design.md</span></div><span style="padding-left: 24px; font-size: 14px; color: #bdb6a8">Covers all 14 criteria</span></div>
+<div style="display: flex; flex-direction: column; gap: 3px"><div style="display: flex; justify-content: space-between; gap: 12px"><span style="font-size: 15px; font-weight: 600"><span style="color: #7fae7a">✓</span>&nbsp; Assumptions</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #a69f90">assumptions.md</span></div><span style="padding-left: 24px; font-size: 14px; color: #bdb6a8">3 open, built on as written</span></div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; gap: 12px"><span style="font-size: 15px; font-weight: 600"><span style="color: #7fae7a">✓</span>&nbsp; Phase plan</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #a69f90">5 phase docs</span></div>
+<span style="padding-left: 24px; font-size: 14px; color: #bdb6a8">5 phases, none closed</span>
+<div style="margin-left: 24px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 10px; border: 1px solid #b89b5e; border-radius: 10px; padding: 8px 10px; margin: 0 -10px">
+<span style="width: 26px; height: 26px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #8c8577; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 10px">PF</span>
+<span style="font-size: 15px">Preflight</span>
+<span style="font-size: 13px; color: #bdb6a8">checks access and stops, then goes straight on</span>
+<span style="margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span>
 </div>
-<div class="grid">
-<section class="panel amber">
-<span class="label amber">WHAT THE PREFLIGHT FOUND</span>
-<div class="item"><span class="num">1.</span><span>The cloud sign-in for the development account expires in 8 hours. Run <code>aws sso login --profile app-dev-longlived</code>.</span></div>
-<div class="item"><span class="num">2.</span><span>Phase 4 waits on a deploy the design does not list. Remove it: yes or no.</span></div>
-</section>
-<section class="panel">
-<span class="label">THE BUILD WILL STOP</span>
-<p class="body">At Phase 1, which needs you at the carrier's console (marked Attended). Phases 2 to 9 run without you.</p>
-<span class="label" style="margin-top:8px">THE PLAN</span>
-<div class="row"><span><span class="dot now"></span>&nbsp; Preflight</span><span class="muted">4m</span></div>
-<div class="row muted"><span><span class="dot"></span>&nbsp; Phase 1 · Carrier account and label printing</span><span>not started</span></div>
-</section>
+<div style="position: relative; display: flex; align-items: center; gap: 10px">
+<span style="width: 26px; height: 26px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #8c8577; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px">1</span>
+<span style="font-size: 15px">Carrier account and label printing</span>
+<button type="button" style="padding: 3px 10px; border-radius: 999px; background: transparent; border: 1px solid rgba(230,180,80,0.55); color: #e6b450; font-family: Inter, sans-serif; font-size: 12px; font-weight: 600">Needs you there</button>
+<div role="tooltip" style="position: absolute; left: 150px; top: 34px; width: 320px; box-sizing: border-box; background: #26241e; border: 1px solid rgba(230,180,80,0.55); border-radius: 10px; padding: 10px 12px; font-size: 13px; line-height: 1.5; box-shadow: 0 8px 24px rgba(0,0,0,0.5)">Create the return-label template in the carrier's desktop console, which has no API.<span style="display: block; margin-top: 4px; font-size: 12px; color: #a69f90">From the phase document's Attended line</span></div>
 </div>
-<div class="buttons">
-<button type="button" class="btn primary">Check again</button>
-<button type="button" class="btn">Reply</button>
-<button type="button" class="btn">Mark complete</button>
+<div style="display: flex; align-items: center; gap: 10px"><span style="width: 26px; height: 26px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #8c8577; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px">2</span><span style="font-size: 15px">Which items can be returned</span></div>
+<div style="display: flex; align-items: center; gap: 10px"><span style="width: 26px; height: 26px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #8c8577; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px">3</span><span style="font-size: 15px">Starting a return</span></div>
+<div style="display: flex; align-items: center; gap: 10px"><span style="width: 26px; height: 26px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #8c8577; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px">4</span><span style="font-size: 15px">Refund by condition</span></div>
+<div style="display: flex; align-items: center; gap: 10px"><span style="width: 26px; height: 26px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #8c8577; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px">5</span><span style="font-size: 15px">Refund method</span></div>
 </div>
-<p class="small">Check again runs a fresh preflight. Reply answers a yes-or-no item. Mark complete starts Phase 1 with the items as they are.</p>
 </div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 16px; padding-top: 14px; border-top: 1px solid rgba(237,232,221,0.12); font-size: 13px; color: #bdb6a8">
+<span><span style="color: #7fae7a">✓</span> Plan reads</span><span><span style="color: #7fae7a">✓</span> Every phase cites criteria</span><span><span style="color: #7fae7a">✓</span> Dependencies point backward</span><span><span style="color: #7fae7a">✓</span> Checkout clean</span><span><span style="color: #7fae7a">✓</span> Tools found</span>
 </div>
 </section>
 
-<section>
-<h2>2. A clean preflight, opened later from the plan</h2>
-<p class="note">Kiln did not pause: Phase 1 started as soon as the preflight reported ready. Covers AC-PREFLIGHT-02.</p>
-<div class="screen">
-<div class="frame" style="width:1100px">
-<div style="display:flex;flex-direction:column;gap:8px">
-<span class="eyebrow">CUSTOMER RETURNS · PREFLIGHT</span>
-<h1 class="title">Preflight: ready</h1>
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 20px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #a69f90">How Kiln will deliver it</h2>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 14.5px; font-weight: 600">Start from</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<div style="border: 2px solid #ede8dd; border-radius: 12px; padding: 13px; font-size: 14.5px; font-weight: 600">A new feature branch</div>
+<div style="border: 1px solid rgba(237,232,221,0.18); border-radius: 12px; padding: 14px; font-size: 14.5px; font-weight: 600">A branch that already exists</div>
 </div>
-<div class="grid">
-<section class="panel">
-<span class="label">THE PREFLIGHT'S REPORT</span>
-<p class="body">9 phases.</p>
-<p class="body">The build will stop at Phase 1, which needs you at the carrier's console (marked Attended). Phases 2 to 9 run without you.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Worktree</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">/home/person/devel/customer-returns</span></div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Feature branch</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">feature/customer-returns</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Branch from, and PR into</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">develop</span></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Agent</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-size: 14px">Claude Code</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Model</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-size: 14px">Opus 5.5</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 14.5px; font-weight: 600">Effort</span>
+<div style="display: flex; gap: 6px; font-size: 13.5px"><span style="border: 1px solid rgba(237,232,221,0.24); border-radius: 999px; padding: 6px 14px">Low</span><span style="border: 1px solid rgba(237,232,221,0.24); border-radius: 999px; padding: 6px 14px">Medium</span><span style="background: #ede8dd; color: #12110e; border-radius: 999px; padding: 6px 14px">High</span><span style="border: 1px solid rgba(237,232,221,0.24); border-radius: 999px; padding: 6px 14px">Extra high</span><span style="border: 1px solid rgba(237,232,221,0.24); border-radius: 999px; padding: 6px 14px">Max</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; font-size: 14.5px">
+<span>☑ Keep this computer awake while a session works or Kiln waits</span>
+<span>☑ Resume after a usage limit</span>
+</div>
+<dl style="margin: 0; display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px 16px; font-size: 14px">
+<dt style="color: #a69f90">Pushes</dt><dd style="margin: 0">After every phase</dd>
+<dt style="color: #a69f90">Ends at</dt><dd style="margin: 0">One PR, ready for review. Kiln won't merge.</dd>
+</dl>
 </section>
-<section class="panel">
-<span class="label">THE PLAN</span>
-<div class="row"><span><span class="dot done"></span>&nbsp; Preflight</span><span class="muted">3m</span></div>
-<div class="row"><span><span class="dot now"></span>&nbsp; Phase 1 · Carrier account and label printing &nbsp;<span class="mark">Needs you there</span></span><span class="muted">running</span></div>
-<div class="row muted"><span><span class="dot"></span>&nbsp; Phase 2 · Which items can be returned</span><span>not started</span></div>
-</section>
 </div>
-</div>
-</div>
-</section>
 
-<section>
-<h2>3. A marked phase stops for the person</h2>
-<p class="note">The page says the stop was planned, above the reason Kiln stopped. Covers AC-ATTEND-03.</p>
-<div class="screen">
-<div class="frame" style="width:1100px">
-<div style="display:flex;flex-direction:column;gap:8px">
-<span class="eyebrow amber">CUSTOMER RETURNS · NEEDS YOU</span>
-<h1 class="title">Phase 1 needs you</h1>
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: grid; grid-template-columns: 150px minmax(0, 1fr) minmax(0, 1fr); gap: 32px; align-items: start">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #a69f90">Before you start</h2>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 13.5px; line-height: 1.5; color: #bdb6a8">Kiln can't tell from the files whether these documents went through requirements refinement; that workflow deletes its working file when it finishes.</span>
+<div style="display: flex; gap: 10px; align-items: flex-start; font-size: 14.5px"><input id="refined" type="checkbox" checked style="margin-top: 3px; width: 16px; height: 16px"><label for="refined">These documents have been through requirements refinement</label></div>
 </div>
-<section class="panel amber">
-<span class="label amber">THIS PHASE WAS PLANNED AS NEEDING YOU</span>
-<p class="body">Create the return-label template in the carrier's desktop console, which has no API.</p>
-</section>
-<section class="panel dim">
-<span class="label">WHY KILN STOPPED</span>
-<p class="body">The session's hand-back and its checks, as at any stop.</p>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 14.5px; font-weight: 600">Starting lets Kiln</span>
+<span style="font-size: 14px"><span style="color: #7fae7a">✓</span> Commit and push to <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">feature/customer-returns</span></span>
+<span style="font-size: 14px"><span style="color: #7fae7a">✓</span> Open one pull request into <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">develop</span> once every phase closes</span>
+<span style="font-size: 14px; color: #bdb6a8">✕ Never merge, and never push to <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">develop</span></span>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #b89b5e; border-radius: 12px; padding: 12px 14px; margin-top: 6px">
+<span style="font-size: 14.5px; line-height: 1.5"><strong>Phase 1 needs you there.</strong> Phases 2 to 5 run without you. <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span></span>
+</div>
+<button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 32px; border-radius: 999px; background: #e2694f; color: #12110e; border: none; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Start</button>
+</div>
 </section>
 </div>
 </div>
 </section>
 
 <section>
-<h2>4. An older Enso Method, with no preflight skill</h2>
-<p class="note">The setting is shown but cannot be used, and Start begins Phase 1 as it does today. Covers AC-PREFLIGHT-05.</p>
+<h2>2. The preflight found things to settle</h2>
+<p class="note">Kiln stops before any phase starts. The items are the preflight session's own words. Covers AC-PREFLIGHT-03.</p>
 <div class="screen">
-<div class="frame" style="width:640px;padding:32px">
-<div class="panel" style="padding:16px 18px;gap:6px">
-<label class="body" style="display:flex;gap:10px;align-items:flex-start;opacity:0.5"><input type="checkbox" disabled style="margin-top:5px"> <span>Check access and stops before the first phase</span></label>
-<p class="small" style="padding-left:24px">The installed Enso Method has no preflight skill. Update it to use this.</p>
+<div style="width: 1100px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">CUSTOMER RETURNS · NEEDS YOU</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 44px; line-height: 1.1">Preflight: 2 items need you</h1>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #bdb6a8">Nothing has been built. Settle these and check again, and Kiln starts Phase 1.</p>
+</div>
+<section style="background: #1b1a16; border: 1px solid rgba(230,180,80,0.55); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">WHAT THE PREFLIGHT FOUND</span>
+<div style="display: grid; grid-template-columns: 28px 1fr; gap: 10px; font-size: 15px; line-height: 1.6">
+<span style="font-family: 'JetBrains Mono', monospace; color: #e6b450">1.</span>
+<span>The cloud sign-in for the development account expires in 8 hours. Run <code style="font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #12110e; border: 1px solid rgba(237,232,221,0.14); border-radius: 6px; padding: 2px 6px">aws sso login --profile app-dev-longlived</code></span>
+</div>
+<div style="display: grid; grid-template-columns: 28px 1fr; gap: 10px; font-size: 15px; line-height: 1.6">
+<span style="font-family: 'JetBrains Mono', monospace; color: #e6b450">2.</span>
+<span>Phase 4 waits on a deploy the design does not list. Remove it: yes or no.</span>
+</div>
+</section>
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
+<button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; background: #e2694f; color: #12110e; border: none; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check Preflight again</button>
+<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Reply</button>
+<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Mark complete</button>
+</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">Check again runs a fresh preflight. Reply answers a yes-or-no item. Mark complete starts Phase 1 with the items as they are.</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2>3. Running, after a clean preflight</h2>
+<p class="note">Kiln did not pause and showed no page for the preflight. Its row in the plan says what it found, as a finished phase's row shows its commit. Covers AC-PREFLIGHT-02 and AC-ATTEND-01.</p>
+<div class="screen">
+<div style="width: 1100px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #a69f90">acme-shop · docs/prds/customer-returns</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 36px">Customer Returns</h1>
+<div style="display: flex; align-items: center; gap: 12px"><span style="padding: 3px 12px; border-radius: 999px; background: #e2694f; color: #12110e; font-size: 13px; font-weight: 600">Running</span><span style="font-size: 15px; color: #bdb6a8">Phase 1 of 5 · started 2 minutes ago</span></div>
+</div>
+<section style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #a69f90">Phase plan</h2><span style="font-size: 13px; color: #bdb6a8">0 of 5 done</span></div>
+<div style="border-top: 1px solid rgba(237,232,221,0.12)">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 14px 12px; margin: 8px -12px; border: 1px solid #b89b5e; border-radius: 12px">
+<div style="display: flex; align-items: center; gap: 16px">
+<span style="width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; background: #7fae7a; color: #12110e; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500">PF</span>
+<span style="flex: 1; font-size: 16px; font-weight: 500">Preflight</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span>
+<span style="font-size: 13px; color: #bdb6a8">3m</span>
+<span style="padding: 3px 12px; border-radius: 999px; background: rgba(127,174,122,0.18); color: #a8d0a3; font-size: 13px; font-weight: 600">✓ Ready</span>
+</div>
+<div style="padding-left: 46px; display: grid; grid-template-columns: 110px 1fr; gap: 4px 16px; font-size: 13px; color: #bdb6a8">
+<span style="color: #a69f90">Found</span><span>Nothing to settle</span>
+<span style="color: #a69f90">Will stop</span><span>At Phase 1, which needs you at the carrier's console</span>
+</div>
+</div>
+<div style="display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,0.12)">
+<span style="width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; background: #e2694f; color: #12110e; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500">1</span>
+<span style="flex: 1; font-size: 16px; font-weight: 500; display: flex; align-items: center; gap: 10px">Carrier account and label printing<span style="padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(230,180,80,0.55); color: #e6b450; font-size: 12px; font-weight: 600">Needs you there</span></span>
+<span style="font-size: 13px; color: #bdb6a8">2m</span>
+<span style="padding: 3px 12px; border-radius: 999px; background: #e2694f; color: #12110e; font-size: 13px; font-weight: 600">Implementing</span>
+</div>
+<div style="display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,0.12)">
+<span style="width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #ede8dd; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px">2</span>
+<span style="flex: 1; font-size: 16px; font-weight: 500">Which items can be returned</span>
+<span style="padding: 3px 12px; border-radius: 999px; border: 1px solid #ede8dd; font-size: 13px">Next</span>
+</div>
+<div style="display: flex; align-items: center; gap: 16px; padding: 14px 0">
+<span style="width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; border: 1.5px dashed #8c8577; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #bdb6a8">3</span>
+<span style="flex: 1; font-size: 16px; font-weight: 500; color: #bdb6a8">Starting a return, then phases 4 and 5</span>
+<span style="padding: 3px 12px; border-radius: 999px; border: 1px dashed #8c8577; font-size: 13px; color: #bdb6a8">Planned</span>
+</div>
+</div>
+</section>
+</div>
+</div>
+</section>
+
+<section>
+<h2>4. A marked phase stops for the person</h2>
+<p class="note">The existing Needs you page with one card added, above the session's hand-back. Covers AC-ATTEND-03.</p>
+<div class="screen">
+<div style="width: 1100px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #a69f90">acme-shop · docs/prds/customer-returns</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 36px">Customer Returns</h1>
+<div style="display: flex; align-items: center; gap: 12px"><span style="padding: 3px 12px; border-radius: 999px; background: #e6b450; color: #12110e; font-size: 13px; font-weight: 600">Needs you</span><span style="font-size: 15px; color: #bdb6a8">Phase 1 · Carrier account and label printing · stopped 6 minutes ago</span></div>
+</div>
+<div style="display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; align-items: start">
+<div style="display: flex; flex-direction: column; gap: 20px">
+<section style="background: #1b1a16; border: 1px solid #b89b5e; border-radius: 16px; padding: 22px 24px; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; justify-content: space-between; gap: 12px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">THIS PHASE WAS PLANNED AS NEEDING YOU</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span></div>
+<p style="margin: 0; font-size: 15px; line-height: 1.6">Create the return-label template in the carrier's desktop console, which has no API.</p>
+</section>
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 22px; font-weight: 600">The session ended and handed back to you</h2>
+<p style="margin: 0; font-size: 15px; line-height: 1.6; color: #bdb6a8">Its last message, in full:</p>
+<p style="margin: 0; font-size: 15px; line-height: 1.6; border-left: 0; background: #12110e; border: 1px solid rgba(237,232,221,0.14); border-radius: 10px; padding: 14px 16px">The carrier account settings and the label code are built and tested against the sandbox. The return-label template has to be created in the carrier's desktop console. The steps are in the phase document under Pending human actions.</p>
+</section>
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #a69f90">Carry on in this session</h2>
+<label for="note" style="font-size: 14.5px; color: #bdb6a8">Tell the session what you did, or leave it empty</label>
+<textarea id="note" rows="2" style="background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: Inter, sans-serif; font-size: 14px; resize: none">The template is created. Its id is RL-2041.</textarea>
+<button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 22px; border-radius: 999px; background: #e2694f; color: #12110e; border: none; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Send and carry on</button>
+</section>
+</div>
+<aside style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #a69f90">Why Kiln stopped</span>
+<div style="display: grid; grid-template-columns: 18px 1fr; gap: 10px; font-size: 14.5px; line-height: 1.5">
+<span style="width: 14px; height: 14px; box-sizing: border-box; margin-top: 4px; border-radius: 50%; border: 1.5px solid #e6b450"></span>
+<span><strong>Phase closed</strong> <span style="color: #e6b450">Failing</span><span style="display: block; font-size: 13px; color: #bdb6a8">The phase document has no Closed line</span></span>
+</div>
+<span style="font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #a69f90">Also checked when Kiln stopped</span>
+<div style="display: grid; grid-template-columns: 18px 1fr; gap: 10px; font-size: 14.5px; line-height: 1.5">
+<span style="color: #7fae7a">✓</span>
+<span><strong>Work committed</strong> <span style="color: #a8d0a3">Passed</span><span style="display: block; font-size: 13px; color: #bdb6a8">3 commits on feature/customer-returns</span></span>
+</div>
+<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: #e2694f; color: #12110e; border: none; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check again</button>
+<span style="font-size: 13px; color: #bdb6a8">Checked 6 minutes ago. Check again runs all of Phase 1's completion checks.</span>
+<button type="button" disabled style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #a69f90; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Mark complete</button>
+<span style="font-size: 13px; color: #bdb6a8">Check again first.</span>
+</aside>
 </div>
 </div>
 </div>
