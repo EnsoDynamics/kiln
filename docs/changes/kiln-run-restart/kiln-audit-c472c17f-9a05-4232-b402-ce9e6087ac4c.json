@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "c472c17f-9a05-4232-b402-ce9e6087ac4c",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The third fixing chat of the Kiln Run Restart whole-PRD test audit worked six high-risk Weak rows and added tests in commit 0e101a1, each seen to fail against a deliberate break. Fresh re-graders now grade AC-CARRY-03, AC-CARRY-06, AC-RESET-02, AC-RESET-05 and AC-RESET-06 Adequate. AC-RESET-04 is still Weak at 8 of 11 parts: waivers, audits, earlier deliveries and the agent, worktree and base settings are never shown to be forgotten. Only tests changed. The full suite passed apart from one timing race under load in an existing carry-on test, which now waits for the hold to settle and then passed three times. Eleven Weak rows remain under To fix in docs/changes/kiln-run-restart/test-audit.md, starting with AC-FROM-03, and AC-CURRENT-01 is still stuck waiting for a person.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "AC-CURRENT-01 (catching an untouched branch up, high risk) is stuck at Weak, 26 of 27 parts, after two fixing chats: no test has more than one repository qualifying for a catch-up at once, so a loop that moved only the first would go unnoticed. The behavior itself is built: catchUpAtStop and Start's setup move every qualifying repository.",
+      "action": "Say how to proceed: let a fixing chat add the two-qualifying-repository tests described under Stuck in test-audit.md, or accept AC-CURRENT-01 at Weak."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": false
+}
