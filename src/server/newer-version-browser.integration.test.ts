@@ -3,7 +3,9 @@
 // (AC-NEWER-01); the pill opens the panel, and the pill again, Escape or a press outside closes it
 // (AC-NEWER-03); on a phone the panel stays on screen; nothing the page loads leaves the machine.
 
+import { readFileSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest";
+import { buildDetails, type BuildInfo } from "../build-label.js";
 import { createHarness, landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
@@ -92,5 +94,25 @@ it("keeps the open panel on screen at phone width", async () => {
     expect(await page.evaluate<number>(`document.documentElement.scrollWidth`)).toBeLessThanOrEqual(390);
   } finally {
     await page.close();
+  }
+});
+
+// Kiln v1 AC-LOOK-05: the top bar names the build the view was made with: the version alone for a
+// release build, and for any other its commit and build time in the browser's time zone, on a
+// phone too without widening the page.
+it("shows the running build's version, and a development build's commit and time in the browser's zone", async () => {
+  const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
+  const info = JSON.parse(readFileSync(new URL("../../dist/build-info.json", import.meta.url), "utf8")) as BuildInfo;
+  const address = await serve(Promise.resolve(undefined));
+  for (const width of [1200, 390]) {
+    // A zone no test machine runs in, so the browser's own zone has to be the one shown.
+    const page = await chrome.open(address, { width, height: 900, timeZone: "Asia/Kolkata" });
+    try {
+      await page.waitFor(`document.body.innerText.includes("Customer returns")`);
+      const shown = await page.evaluate<string>(`document.querySelector("[data-testid=kiln-version]").textContent`);
+      expect(shown, String(width)).toBe(`v${version}${buildDetails(info, new Date(), { locale: "en-US", timeZone: "Asia/Kolkata" })}`);
+      if (info.kind === "development") expect(shown).toMatch(new RegExp(`^v${version.replace(/\./g, "\\.")} · dev ${info.commit}( \\(modified\\))? · built [A-Z][a-z]{2} \\d{1,2}, \\d{1,2}:\\d{2} [AP]M GMT\\+5:30$`));
+      expect(await page.evaluate<boolean>("document.documentElement.scrollWidth <= innerWidth"), String(width)).toBe(true);
+    } finally { await page.close(); }
   }
 });

@@ -5,8 +5,10 @@ import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import TopBar from "./TopBar.svelte";
 import { version } from "../../../package.json";
+import type { BuildInfo } from "../../../src/build-label.js";
 
-const html = (props: { connected: boolean; lastEventAt: number | undefined; now: number; latest?: string; open?: boolean }) => render(TopBar, { props }).body.replace(/<!--[\s\S]*?-->/g, "");
+const RELEASE = { kind: "release" } as const;
+const html = (props: { connected: boolean; lastEventAt: number | undefined; now: number; latest?: string; open?: boolean; build?: BuildInfo }) => render(TopBar, { props: { build: RELEASE, ...props } }).body.replace(/<!--[\s\S]*?-->/g, "");
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
 describe("the top bar", () => {
@@ -48,5 +50,15 @@ describe("the top bar", () => {
     expect(panel).toContain("npm install -g @ensodynamics/kiln Copy");
     expect(panel).toContain(`This Kiln stays on v${version} until you start it again. What changed`);
     expect(open).toContain('href="https://github.com/EnsoDynamics/kiln/blob/main/CHANGELOG.md"');
+  });
+
+  it("follows a development build's version with its commit and build time in the browser's time zone (AC-LOOK-05)", () => {
+    process.env.TZ = "America/New_York";
+    const now = Date.parse("2026-11-14T19:00:00Z");
+    const dev = html({ connected: true, lastEventAt: now, now, build: { kind: "development", builtAt: "2026-11-14T17:55:00Z", commit: "c363f8f" } });
+    expect(text(dev)).toBe(`kiln v${version} · dev c363f8f · built Nov 14, 12:55 PM EST Connected to Kiln · updated 0s ago The Enso Method`);
+    expect(text(html({ connected: true, lastEventAt: now, now, build: { kind: "development", builtAt: "2026-11-14T17:55:00Z", commit: "c363f8f", modified: true } }))).toContain(`v${version} · dev c363f8f (modified) · built Nov 14, 12:55 PM EST`);
+    // A view no build embedded, as under vite dev, counts as run from source.
+    expect(text(render(TopBar, { props: { connected: true, lastEventAt: now, now } }).body.replace(/<!--[\s\S]*?-->/g, ""))).toContain(`kiln v${version} · dev Connected`);
   });
 });

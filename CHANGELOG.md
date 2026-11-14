@@ -12,6 +12,10 @@ section to the new version.
 
 ### Changed
 
+- A development build now names the commit it was built from, and when, with the time zone:
+  `kiln --version` prints `1.2.2 · dev c363f8f · built Nov 14, 12:55 PM EST`, and the browser's
+  top bar shows the same beside the version, in the browser's time zone. A build made from a
+  checkout with uncommitted changes adds `(modified)`. Release builds still show the version alone.
 - At Needs you, the rows saved when Kiln stopped are now labelled **Why Kiln stopped**, with any
   passing ones under **Also checked when Kiln stopped**, and the page says when **Check again**
   will run all of the activity's completion checks. Once those checks have run, the rows are
