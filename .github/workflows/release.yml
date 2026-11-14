@@ -71,10 +71,14 @@ jobs:
           PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}
           NODE_AUTH_TOKEN: ${{ vars.NPM_AUTH_MODE == 'token' && secrets.NPM_TOKEN || '' }}
         run: npm publish "$PACKAGE_FILE" --access public --provenance --ignore-scripts
+      - name: Write the release notes from the changelog
+        env:
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: node scripts/release.mjs notes "$RELEASE_VERSION" > "$RUNNER_TEMP/kiln-release-notes.md"
       - name: Create the version tag and GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
           PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}
           CHECKSUM_FILE: ${{ runner.temp }}/kiln-package/SHA256SUMS
-        run: gh release create "v$RELEASE_VERSION" "$PACKAGE_FILE" "$CHECKSUM_FILE" --target "$GITHUB_SHA" --title "Kiln $RELEASE_VERSION" --notes-file "docs/release/notes/kiln-release-notes-$RELEASE_VERSION.md"
+        run: gh release create "v$RELEASE_VERSION" "$PACKAGE_FILE" "$CHECKSUM_FILE" --target "$GITHUB_SHA" --title "Kiln $RELEASE_VERSION" --notes-file "$RUNNER_TEMP/kiln-release-notes.md"

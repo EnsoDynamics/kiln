@@ -47,6 +47,6 @@ describe("the top bar", () => {
     expect(panel).toContain(`Kiln v99.0.0 is out · you're on v${version}`);
     expect(panel).toContain("npm install -g @ensodynamics/kiln Copy");
     expect(panel).toContain(`This Kiln stays on v${version} until you start it again. What changed`);
-    expect(open).toContain('href="https://github.com/EnsoDynamics/kiln/releases/tag/v99.0.0"');
+    expect(open).toContain('href="https://github.com/EnsoDynamics/kiln/blob/main/CHANGELOG.md"');
   });
 });
