@@ -6,6 +6,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      publish_failed_run:
+        description: To publish over failed checks, the ID of a failed Release run of the commit now on main; its checked package is published without rerunning anything
+        type: string
+        default: ''
+      reason:
+        description: Why the failed checks don't block this release (required with publish_failed_run; shown in the release notes)
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -40,15 +49,44 @@ jobs:
 
   verify:
     needs: preflight
+    if: ${{ !inputs.publish_failed_run }}
     uses: ./.github/workflows/ci.yml
     with:
       full: true
 
+  # Publishing over failed checks: Doug's choice when a release is waiting on a test failure that
+  # doesn't matter for it. Only checks can be overridden: the failed run must be a Release run of the
+  # commit now on main whose preflight and package build passed, so the package it built and
+  # checksummed is the one published, and this run's preflight still gates the version.
+  override:
+    name: Publish over failed checks
+    needs: preflight
+    if: ${{ inputs.publish_failed_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      filename: ${{ steps.check.outputs.filename }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FAILED_RUN: ${{ inputs.publish_failed_run }}
+          REASON: ${{ inputs.reason }}
+        run: node scripts/release.mjs override "$FAILED_RUN"
+
   publish:
-    needs: [preflight, verify]
+    needs: [preflight, verify, override]
+    # A normal release publishes once verification passes; an override publishes the failed run's
+    # package once the override check passes.
+    if: ${{ always() && needs.preflight.result == 'success' && (needs.verify.result == 'success' || needs.verify.result == 'skipped' && needs.override.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      actions: read
       contents: write
       id-token: write
     steps:
@@ -63,22 +101,26 @@ jobs:
         with:
           name: kiln-npm-package
           path: ${{ runner.temp }}/kiln-package
+          run-id: ${{ inputs.publish_failed_run || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Verify the checked package
         working-directory: ${{ runner.temp }}/kiln-package
         run: sha256sum --check SHA256SUMS
       - name: Publish the checked archive without rebuilding
         env:
-          PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}
+          PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename || needs.override.outputs.filename }}
           NODE_AUTH_TOKEN: ${{ vars.NPM_AUTH_MODE == 'token' && secrets.NPM_TOKEN || '' }}
         run: npm publish "$PACKAGE_FILE" --access public --provenance --ignore-scripts
       - name: Write the release notes from the changelog
         env:
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+          FAILED_RUN: ${{ inputs.publish_failed_run }}
+          REASON: ${{ inputs.reason }}
         run: node scripts/release.mjs notes "$RELEASE_VERSION" > "$RUNNER_TEMP/kiln-release-notes.md"
       - name: Create the version tag and GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
-          PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename }}
+          PACKAGE_FILE: ${{ runner.temp }}/kiln-package/${{ needs.verify.outputs.filename || needs.override.outputs.filename }}
           CHECKSUM_FILE: ${{ runner.temp }}/kiln-package/SHA256SUMS
         run: gh release create "v$RELEASE_VERSION" "$PACKAGE_FILE" "$CHECKSUM_FILE" --target "$GITHUB_SHA" --title "Kiln $RELEASE_VERSION" --notes-file "$RUNNER_TEMP/kiln-release-notes.md"

@@ -35,7 +35,9 @@ async function setup(value: Record<string, unknown> = {}) {
   await h.engine.agents.refresh(); await h.engine.settled();
 }
 async function refresh(value: Record<string, unknown>) {
-  set(value); await h.engine.agents.refresh(); await h.engine.settled();
+  // A refresh joins a read already under way, which may have started before set() changed the
+  // stand-in's answer; the second refresh is always a read that starts after the change.
+  set(value); await h.engine.agents.refresh(); await h.engine.agents.refresh(); await h.engine.settled();
 }
 
 it("waits on explicit blocked permission, resumes once with the original pair, persists repeat-refusal suppression, and releases after a blocked-to-allowed transition", async () => {

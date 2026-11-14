@@ -5,12 +5,14 @@ import { documentsFound } from "../engine/snapshot.js";
 import { readPlanAt } from "../engine/plan-reading.js";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
-import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
+import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
 import { join } from "node:path";
 let h: Harness | undefined; let engine: Engine | undefined; let chrome: HeadlessChrome | undefined; let server: LocalServer | undefined;
 afterEach(async () => { await chrome?.close(); await server?.close(); engine?.close(); await h?.cleanup(); chrome = undefined; server = undefined; engine = undefined; h = undefined; });
-const clickLabel = (text: string) => `[...document.querySelectorAll('label')].find(e => e.textContent.trim() === ${JSON.stringify(text)}).querySelector('input').click()`;
+const labelBox = (text: string) => `[...document.querySelectorAll('label')].find(e => e.textContent.trim() === ${JSON.stringify(text)})?.querySelector('input')`;
+// The box is disabled while the previous save is in flight, and a click then is ignored; wait for it first.
+async function clickLabel(page: BrowserPage, text: string) { await page.waitFor(`${labelBox(text)} && !${labelBox(text)}.disabled`); await page.evaluate(`${labelBox(text)}.click()`); }
 describe("current PRD targets and grant browser controls", () => {
   it("uses one checkbox for all listed branches, tracks base edits, and separately approves a repository added after Start", async () => {
     h = await createHarness({ sessions: [{ actions: [] }], files: { "customer-returns-prd.md": "# PRD: Customer returns\n\n## Acceptance Criteria\n- [ ] **AC-RET-01 — Deliver API/web.** Verify development.\n", "technical-design.md": "# Technical Design\n\nAPI/web are separate from the documents-only product repository.\n", "phase-1-deliver.md": "# Phase 1: Deliver\n\n**Repositories:** returns-api, returns-web\n\n## Acceptance criteria covered\nAC-RET-01\n" } });
@@ -28,10 +30,10 @@ describe("current PRD targets and grant browser controls", () => {
     expect(await engine.changeSettings({ developmentDeployments: { enabled: true, targets: [{ target: { repository: "github.com/acme/acme-shop", baseBranch: "develop" } }] } })).toMatchObject({ ok: true });
     await page.waitFor(`document.body.innerText.includes('keeps its earlier branch permissions')`);
     expect(await page.evaluate(`document.querySelectorAll('.merge-target').length`)).toBe(1);
-    await page.evaluate(clickLabel("Allow early merges"));
+    await clickLabel(page, "Allow early merges");
     await waitFor(() => engine!.record.settings.developmentDeployments?.enabled === false);
     await page.waitFor(`document.querySelectorAll('.merge-target').length === 0`);
-    await page.evaluate(clickLabel("Allow early merges"));
+    await clickLabel(page, "Allow early merges");
     await page.waitFor(`document.querySelectorAll('.merge-target h4').length === 3`);
     expect(await page.evaluate(`document.querySelectorAll('.delivery input[type=checkbox]').length`)).toBe(1);
     expect(await page.evaluate(`document.querySelectorAll('.merge-target input').length`)).toBe(0);
@@ -42,10 +44,10 @@ describe("current PRD targets and grant browser controls", () => {
     await page.evaluate(`(() => { const input=document.querySelector('#base-returns-api'); input.value='preview'; input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
     await page.waitFor(`[...document.querySelectorAll('.merge-target h4')].some(e => e.textContent.trim() === 'May merge into returns-api / preview')`);
     expect(engine.record.settings.developmentDeployments).toEqual({ enabled: true, targets: [] });
-    await page.evaluate(clickLabel("Allow early merges"));
+    await clickLabel(page, "Allow early merges");
     await waitFor(() => engine!.record.settings.developmentDeployments?.enabled === false);
     await page.waitFor(`document.querySelectorAll('.merge-target').length === 0`);
-    await page.evaluate(clickLabel("Allow early merges"));
+    await clickLabel(page, "Allow early merges");
     await waitFor(() => engine!.record.settings.developmentDeployments?.enabled === true);
     await page.close(); page = await chrome.open(server.address);
     await page.waitFor(`document.body.innerText.includes('All repository branches listed below are covered')`);
