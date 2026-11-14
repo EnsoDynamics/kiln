@@ -60,6 +60,13 @@ export async function serveViewFixture(options: {
       });
       return;
     }
+    // Every page asks once on load whether npm has a newer Kiln; the fixture has none, and the
+    // question is not a command, so it never reaches `respond` (newer version notice, AC-NEWER-01).
+    if (url.pathname === "/api/newer-version") {
+      response.writeHead(200, headers("application/json"));
+      response.end(JSON.stringify({ latest: null }));
+      return;
+    }
     if (url.pathname.startsWith("/api/sessions/")) {
       const before = Number.parseInt(url.searchParams.get("before") ?? "", 10);
       const limit = Number.parseInt(url.searchParams.get("limit") ?? "", 10) || 200;

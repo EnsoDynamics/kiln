@@ -977,10 +977,11 @@ describe("the done check's facts", () => {
     expect(h.engine.record.planReconciliation?.check?.status).toBe("failed");
     git(h.sandbox, worktree, "remote", "set-url", "origin", join(h.sandbox.root, "missing.git"));
     expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: false, code: "check_unavailable", reason: expect.stringMatching(/^Couldn't reach origin: /) });
-    // A check that could not finish keeps the earlier rows and records an unfinished run, so Mark complete is not offered.
+    // A check that could not finish keeps the earlier rows and records an unfinished run, so Mark complete
+    // is not offered, but shows unusable, waiting for a recheck (waivers AC-WAIVE-02).
     expect(h.engine.record.phases["1"]!.stop!.checks).toEqual(after.checks);
     expect(h.engine.record.phases["1"]!.stop!.run).toMatchObject({ origin: "recheck", finished: false });
-    expect(h.engine.markCompleteOffer()).toMatchObject({ offered: false });
+    expect(h.engine.markCompleteOffer()).toMatchObject({ offered: false, reason: expect.stringMatching(/could not finish/), awaitingRecheck: { label: "Mark phase 1 complete" } });
   });
 
   it("saves every event as received with its arrival time, leaving out partial-message deltas", async () => {

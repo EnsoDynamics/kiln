@@ -52,8 +52,10 @@ describe("the hand-back page keeps resuming and checking apart (AC-NEXT-01/02)",
     expect(words).not.toContain("Verify Phase 2b & advance");
     expect(words).not.toContain("Resume Phase 2b in Kiln");
     expect(words).not.toContain("Open the conversation in your terminal");
-    // Mark complete waits for a recheck (AC-WAIVE-02).
-    expect(words).not.toContain("Mark Phase 2b complete");
+    // Mark complete shows below the checks but waits for a recheck (AC-WAIVE-02).
+    order(words, "Check Phase 2b again", "Phase 2b is done, and Kiln’s check is wrong?", "Mark Phase 2b complete", "Check again first. If a check still fails, this button becomes available.");
+    expect(button(html, "Mark Phase 2b complete")).toContain("disabled");
+    expect(words).not.toContain("Mark it complete. Kiln skips");
     expect(words).not.toContain("still has");
   });
 
@@ -162,9 +164,18 @@ describe("Mark complete on the standard Needs you page (AC-WAIVE-02)", () => {
     expect(words).not.toContain("Checked again");
   });
 
-  it("isn't offered before a recheck", () => {
+  it("shows Mark complete unusable before a recheck, saying to check again first", () => {
     const snapshot = finalDeliveryNeedsYouSnapshot();
-    snapshot.needsYou!.markComplete = { offered: false, reason: "No check has run since final delivery stopped." };
+    snapshot.needsYou!.markComplete = { offered: false, reason: "No check has run since final delivery stopped.", awaitingRecheck: { label: "Mark final delivery complete", heading: "Final delivery is done, and Kiln’s check is wrong?" } };
+    const html = needsYou(snapshot);
+    order(text(html), "Check again", "Final delivery is done, and Kiln’s check is wrong?", "Mark final delivery complete", "Check again first.");
+    expect(button(html, "Mark final delivery complete")).toContain("disabled");
+    expect(text(html)).not.toContain("Mark it complete. Kiln skips");
+  });
+
+  it("shows no Mark complete when nothing is left to waive", () => {
+    const snapshot = finalDeliveryNeedsYouSnapshot();
+    snapshot.needsYou!.markComplete = { offered: false, reason: "Every check passed. Check again advances without a waiver." };
     expect(text(needsYou(snapshot))).not.toContain("Mark final delivery complete");
   });
 

@@ -14,6 +14,8 @@ export interface ExecutionSummary {
   branch: string; deliveries: { repository: string; url: string }[];
   /** Schema 20; a summary without them reads as `ending: "completed"`, `endedAt = completedAt`. */
   endedAt?: string; ending?: "completed" | "folder_missing_setup";
+  /** Its sessions' recorded running time, saved when it was archived (time totals AC-TOTAL-02); absent on rows archived before. */
+  runningMs?: number;
 }
 /** How an archived execution ended, with older summaries read as completed. */
 export function executionEnding(row: ExecutionSummary): { ending: "completed" | "folder_missing_setup"; endedAt: string } {
@@ -102,7 +104,7 @@ export function assertContinuationState(value: ContinuationState | undefined): v
   ids.clear();
   for (const row of value.executions) {
     const ended = row.ending === "folder_missing_setup";
-    if (!safeIdentity(row.executionId) || ids.has(row.executionId) || !/^[a-f0-9]{64}$/.test(row.archiveId) || (row.completedAt === undefined ? !ended : !Number.isFinite(Date.parse(row.completedAt))) || row.ending !== undefined && !["completed", "folder_missing_setup"].includes(row.ending) || (row.endedAt === undefined ? ended : !Number.isFinite(Date.parse(row.endedAt))) || typeof row.branch !== "string" || !Array.isArray(row.deliveries)) throw new Error("Invalid historical execution reference.");
+    if (!safeIdentity(row.executionId) || ids.has(row.executionId) || !/^[a-f0-9]{64}$/.test(row.archiveId) || (row.completedAt === undefined ? !ended : !Number.isFinite(Date.parse(row.completedAt))) || row.ending !== undefined && !["completed", "folder_missing_setup"].includes(row.ending) || (row.endedAt === undefined ? ended : !Number.isFinite(Date.parse(row.endedAt))) || typeof row.branch !== "string" || !Array.isArray(row.deliveries) || row.runningMs !== undefined && !(Number.isSafeInteger(row.runningMs) && row.runningMs >= 0)) throw new Error("Invalid historical execution reference.");
     ids.add(row.executionId);
   }
 }

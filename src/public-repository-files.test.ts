@@ -51,6 +51,6 @@ describe("the public repository files", () => {
       expect(guide, path).toMatch(/scoped npm token kept in the maintainer's password manager until (?:OIDC )?trusted publishing replaces it/);
       expect(guide, path).not.toMatch(/2FA|two-factor|Keeper|bypass|expires 20\d\d|\b20\d\d-\d\d-\d\d\b.*expir|vault record|bootstrap token\*\*/i);
     }
-    expect(read("docs/release/kiln-npm-release-steps.md")).toContain("`docs/release/notes/kiln-release-notes-<version>.md`");
+    expect(read("docs/release/kiln-npm-release-steps.md")).toContain("kept in one `CHANGELOG.md` at the repository root");
   });
 });

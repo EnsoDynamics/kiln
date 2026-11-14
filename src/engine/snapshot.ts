@@ -33,6 +33,7 @@ import type { StartCheckReport } from "../start-checks.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { PR_PHASE_KEY, type CheckRun, type CheckResult, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
+import type { ExecutionSummary } from "./continuation-state.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
 import { noticeLines } from "./compatibility-notices.js";
@@ -272,6 +273,8 @@ export interface Snapshot {
     startedAt?: string;
     completedAt?: string;
     timing?: Timing;
+    /** When the PRD total starts, when it counts earlier executions too (time totals AC-TOTAL-02); otherwise `startedAt`. */
+    timingSince?: string;
     stoppedAt?: string;
   };
   documents?: DocumentsFound & { starting?: true; startError?: string };
@@ -517,7 +520,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
-      ...(includeTiming ? optional("timing", timingFor(engine, Object.keys(record.phases), record.startedAt, record.completedAt)) : {}),
+      // Delivery can reopen a completed PRD and leave completedAt set; its totals keep counting until it is complete again (time totals AC-TOTAL-03).
+      ...(includeTiming ? prdTimingFields(prdTiming(engine, timingFor(engine, Object.keys(record.phases), record.startedAt, state === "complete" ? record.completedAt : undefined)), record.startedAt) : {}),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),
@@ -983,17 +987,33 @@ export function codexResumeCommand(folder: string, session: SessionRecord, platf
 /** Timing is derived from saved runs; historical open runs stop at their last evidence. */
 function timingFor(engine: Engine, keys: string[], from?: string, doneAt?: string): Timing | undefined {
   if (!from) return undefined;
-  let running = false;
-  const runs = keys.flatMap(key => (engine.record.phases[key]?.sessionIds ?? []).flatMap(id => {
-    const session = engine.sessionRecord(key, id);
-    if (!session) return [];
-    return session.runs.map((run, index) => {
-      const live = engine.current?.session?.sessionId === id && engine.current.processRunning && index === session.runs.length - 1 && !run.endedAt && !run.interruptedAt;
-      running ||= live;
-      return { ...run, ...(!live && !run.endedAt && !run.interruptedAt ? { endedAt: engine.runLastOutputAt(session, index) ?? run.startedAt } : {}) };
-    });
-  }));
+  const { runs, running } = engine.sessionRuns(keys);
   return runTiming(runs, from, doneAt ?? new Date().toISOString(), doneAt ? undefined : running ? "running" : "waiting");
+}
+
+/**
+ * The PRD's totals (time totals AC-TOTAL-02): this execution's timing with every earlier
+ * execution's running time added in, counted from the first start among them. An execution
+ * archived before Kiln saved its running time ends the count; the total starts after it.
+ */
+function prdTiming(engine: Engine, current: Timing | undefined): { timing: Timing; since: string } | undefined {
+  const { record } = engine;
+  if (!current || !record.startedAt) return undefined;
+  const earlier: ExecutionSummary[] = [];
+  for (const row of [...(record.continuation?.executions ?? [])].reverse()) {
+    if (row.runningMs === undefined || !row.startedAt) break;
+    earlier.unshift(row);
+  }
+  if (!earlier.length) return { timing: current, since: record.startedAt };
+  const since = earlier[0]!.startedAt!;
+  const runningMs = current.runningMs + earlier.reduce((sum, row) => sum + row.runningMs!, 0);
+  return { timing: { ...current, runningMs, waitingMs: Math.max(0, Date.parse(current.asOf) - Date.parse(since) - runningMs) }, since };
+}
+
+/** The feature's timing, and `timingSince` only when the total reaches back past this execution's start. */
+function prdTimingFields(total: ReturnType<typeof prdTiming>, startedAt?: string): { timing?: Timing; timingSince?: string } {
+  if (!total) return {};
+  return { timing: total.timing, ...(total.since !== startedAt ? { timingSince: total.since } : {}) };
 }
 
 function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean): PhaseView[] {

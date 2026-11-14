@@ -325,6 +325,11 @@ export type MarkCompleteOffer = {
   noReport: boolean;
   /** The phase has built nothing, so the sentence says so (run restart AC-CASE-03). */
   builtNothing?: true;
-} | { offered: false; reason: string };
+} | {
+  offered: false;
+  reason: string;
+  /** Set when only a finished recheck is missing: the page shows the button, unusable, saying to check again first (AC-WAIVE-02). */
+  awaitingRecheck?: { label: string; heading: string };
+};
 
 export type MarkCompleteOutcome = "marked_complete" | "continued" | "checks_passed" | "check_results_changed" | "check_unavailable";

@@ -6,7 +6,7 @@
 import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
 import type { Effort } from "../../../src/state/records.js";
 import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
-import { clockTime, limitTime, shortDuration, timeSpan, timingText } from "./time.js";
+import { clockTime, limitTime, shortDuration, timeSpan, timingAt, timingText } from "./time.js";
 
 export const PR_ID = "pr";
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
@@ -38,12 +38,51 @@ export function settingsModel(settings: Snapshot["settings"]): string {
 
 export type HeaderKind = "implementing" | "interrupted" | "paused" | "needs_you" | "waiting" | "complete";
 
+/** The header's PRD total line: the whole PRD's running and waiting time, and since when (time totals AC-TOTAL-01). */
+export interface HeaderTotals {
+  running: string;
+  waiting: string;
+  since: string;
+}
+
+export interface HeaderState {
+  kind: HeaderKind;
+  label: string;
+  facts: string[];
+  totals?: HeaderTotals;
+}
+
 /**
- * The pill under the feature name and the facts beside it (AC-WATCH-02). A wait reads Waiting
- * for usage. Disconnected views label it last known without asserting the work stopped
- * (live-session control AC-LIVE-02).
+ * The pill under the feature name, the facts beside it (AC-WATCH-02) and, once the PRD has
+ * started, its total line (time totals AC-TOTAL-01). A wait reads Waiting for usage.
+ * Disconnected views label it last known without asserting the work stopped (live-session
+ * control AC-LIVE-02); the caller passes the last-seen time as `now` there, so the totals hold.
+ *
+ *   headerState(running, true, now).totals  // { running: "6h 12m", waiting: "1h 47m", since: "since Tue 9:02 AM" }
  */
-export function headerState(snapshot: Snapshot, connected: boolean, now: Date): { kind: HeaderKind; label: string; facts: string[] } {
+export function headerState(snapshot: Snapshot, connected: boolean, now: Date): HeaderState {
+  const state = headerStateOnly(snapshot, connected, now);
+  // A missing folder replaces where the PRD stands (missing-worktree recovery AC-GONE-02).
+  if (snapshot.feature.state === "folder_missing") return state;
+  const totals = headerTotals(snapshot.feature, now);
+  return totals ? { ...state, totals } : state;
+}
+
+/**
+ * Every session's running time and the rest of the time since the PRD started (AC-TOTAL-02),
+ * with the counter the snapshot's timing marks as advancing carried on to `now` (AC-TOTAL-03).
+ * Complete's timing advances neither, and gives the span instead of "since".
+ */
+export function headerTotals(feature: Snapshot["feature"], now: Date): HeaderTotals | undefined {
+  // Earlier executions count too, from the first start (time totals AC-TOTAL-02).
+  const start = feature.timingSince ?? feature.startedAt;
+  if (!feature.timing || !start) return undefined;
+  const { running, waiting } = timingAt(feature.timing, now.getTime());
+  const since = feature.state === "complete" && feature.completedAt ? timeSpan(start, feature.completedAt, now) : `since ${clockTime(start, now, { afterWord: true })}`;
+  return { running: shortDuration(running), waiting: shortDuration(waiting), since };
+}
+
+function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): HeaderState {
   const { feature } = snapshot;
   const done = `${feature.phasesDone} of ${feature.phasesTotal} phases done`;
   const current = feature.currentPhaseId ?? snapshot.current?.phaseId;
@@ -66,8 +105,8 @@ export function headerState(snapshot: Snapshot, connected: boolean, now: Date): 
     case "folder_missing":
       return { kind: "needs_you", label: "Folder missing", facts: ["Nothing is running"] };
     case "complete": {
+      // The totals are on the PRD total line, not beside the pill (time totals AC-TOTAL-01).
       const facts = [done];
-      if (feature.startedAt && feature.completedAt) facts.push(feature.timing ? timingText(feature.timing, now.getTime()) : shortDuration(Date.parse(feature.completedAt) - Date.parse(feature.startedAt)));
       if (feature.completedAt) facts.push(`Finished ${clockTime(feature.completedAt, now, { afterWord: true })}`);
       return { kind: "complete", label: snapshot.developmentDelivery?.authorization.enabled ? (snapshot.developmentDelivery.repositoryResults.some(one => one.state === "mixed") || snapshot.developmentDelivery.repositoryResults.some(one => one.state === "delivered") && snapshot.developmentDelivery.repositoryResults.some(one => one.state === "review") ? "Development delivered; review remaining" : snapshot.developmentDelivery.repositoryResults.some(one => one.state === "review") ? "Ready for review" : "Development delivered") : snapshot.mergedBranches?.length ? (snapshot.pullRequests?.length ? "Ready for review · some work already merged" : "Already merged") : "PR ready for review", facts };
     }

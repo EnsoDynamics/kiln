@@ -166,3 +166,13 @@ export async function resetPreview(config: PageConfig): Promise<import("../../..
 export const reset = (config: PageConfig) => send(config, "POST", "/api/reset");
 /** Check again on the carry-on card (run restart AC-CARRY-02). */
 export const reopenCheckAgain = (config: PageConfig) => send(config, "POST", "/api/reopen-check");
+/** npm's newer Kiln, or undefined when there is none or Kiln can't say (newer version notice, AC-NEWER-02). */
+export async function newerVersion(config: PageConfig): Promise<string | undefined> {
+  try {
+    const response = await fetch("/api/newer-version", { headers: { "X-Kiln-Token": config.token } });
+    const answer = response.ok ? ((await response.json()) as { latest?: unknown }) : {};
+    return typeof answer.latest === "string" ? answer.latest : undefined;
+  } catch {
+    return undefined;
+  }
+}

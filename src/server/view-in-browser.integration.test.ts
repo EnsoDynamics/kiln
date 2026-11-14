@@ -70,6 +70,30 @@ const withResumeCard = (phase: string) => `(() => {
   eyebrow.textContent = "Or pick it up yourself";
   return true;
 })()`;
+/**
+ * A Complete mockup drawn before time totals, as AC-TOTAL-01 changes it: the running time leaves
+ * the state row, and the PRD total line sits under it, in kiln-prd-time-totals.html's style.
+ */
+const WITH_PRD_TOTAL = (running: string, waiting: string, span: string) => `(() => {
+  const time = [...document.querySelectorAll("span")].find((e) => e.textContent === "5h 38m");
+  const row = time.parentElement;
+  time.previousElementSibling.remove();
+  time.remove();
+  const line = document.createElement("p");
+  line.style.cssText = "flex-basis: 100%; margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding-top: 12px; border-top: 1px solid rgba(237, 232, 221, 0.12); max-width: 640px; font-size: 14px; color: #bdb6a8; box-sizing: border-box";
+  const dim = "color: #8c8577";
+  const strong = (value) => '<b style="color: #ede8dd; font-weight: 500">' + value + "</b>";
+  line.innerHTML = '<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; ' + dim + '">PRD total</span>'
+    + "<span>" + strong(${JSON.stringify(running)}) + " running</span>"
+    + '<span aria-hidden="true" style="' + dim + '">·</span>'
+    + "<span>" + strong(${JSON.stringify(waiting)}) + " waiting</span>"
+    + '<span aria-hidden="true" style="' + dim + '">·</span>'
+    + '<span style="' + dim + '">' + ${JSON.stringify(span)} + "</span>";
+  row.append(line);
+  return true;
+})()`;
+/** Complete's totals in the sample (sample-snapshots.ts COMPLETE_TIMING). */
+const COMPLETE_TOTAL = WITH_PRD_TOTAL("5h 37m", "1m", "9:17 AM to 2:55 PM");
 /** "Resume after a usage limit" in the waiting mockup's words (usage-limit recovery AC-AUTO-04). */
 const LIMIT_SETTING = { label: "Resume after a usage limit", help: "Switch off to finish the phase yourself; Needs you then shows how." };
 /**
@@ -539,9 +563,10 @@ const SCREENS: {
     name: "complete",
     mockup: "kiln-screen-complete.html",
     snapshot: completeSnapshot,
+    addition: COMPLETE_TOTAL,
     clock: Date.parse("2026-10-17T19:00:00Z"),
     copy: [
-      "Customer returns PR ready for review 5 of 5 phases done · 5h 38m · Finished 2:55 PM",
+      "Customer returns PR ready for review 5 of 5 phases done · Finished 2:55 PM PRD total 5h 37m running · 1m waiting · 9:17 AM to 2:55 PM",
       "Pull request #218 · feature/customer-returns → develop Customer returns: intake, refund routing, dashboard and restock 17 commits · +2,184 −312 Open on GitHub Human review is next. Kiln stops at “PR ready” and doesn’t merge.",
       "2b Store credit phase-2b-store-credit.md 1h 19m · finished by you · pushed 7f3a91c Done",
       "4 Restock check-in phase-4-restock-check-in.md 58m · pushed 0c4d8a2 Done Details PR Final pull request pull request session 9m Opened #218",
@@ -553,11 +578,12 @@ const SCREENS: {
     name: "complete-repositories",
     mockup: `${REPOSITORIES_MOCKUPS}kiln-screen-complete-repositories.html`,
     snapshot: completeRepositoriesSnapshot,
+    addition: COMPLETE_TOTAL,
     clock: Date.parse("2026-10-17T19:00:00Z"),
     // The mockup draws phase 2b's Details open.
     open: ["2b"],
     copy: [
-      "Customer returns PR ready for review 5 of 5 phases done · 5h 38m · Finished 2:55 PM",
+      "Customer returns PR ready for review 5 of 5 phases done · Finished 2:55 PM PRD total 5h 37m running · 1m waiting · 9:17 AM to 2:55 PM",
       "4 pull requests · feature/customer-returns One in each repository that changed product #12 PRD’s repository Customer returns: phase documents feature/customer-returns → main · 5 commits · +5 −0 Open on GitHub returns-api #57",
       "notifications #9 added in phase 2b Customer returns: store credit emails feature/customer-returns → main · 2 commits · +88 −8 Open on GitHub Human review is next. The pull requests say which to merge first. Kiln stops at “PR ready” and doesn’t merge.",
       "1 Return intake phase-1-return-intake.md 52m · pushed to 2 repositories Done",

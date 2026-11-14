@@ -39,6 +39,7 @@ import { classify, readInventory, type BillingSummary } from "../billing/inspect
 import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, resolveAuditSkill, effectiveAudit, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
+import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt } from "../session/prompts.js";
 import { assignAuditObligations } from "./development-owners.js";
 import type { AuditActivity, AuditKind } from "../audit/contracts.js";
@@ -1814,8 +1815,9 @@ export class Engine {
    * Whether Mark complete is offered at the current stop, and what it would do (AC-WAIVE-02,
    * AC-WAIVE-03): the one predicate the snapshot, CLI and server share. Offered exactly when the
    * activity holds a Needs you stop whose latest run is a finished recheck with an unmet check, and
-   * nothing is checking, dispatching or writing. `admitting`: the journal's own instruction is the
-   * one in progress.
+   * nothing is checking, dispatching or writing. When only that finished recheck is missing, the
+   * refusal carries `awaitingRecheck`, the wording the page shows on the unusable button.
+   * `admitting`: the journal's own instruction is the one in progress.
    */
   markCompleteOffer(admitting = false): MarkCompleteOffer {
     const key = this.stoppedPhaseKey();
@@ -1823,17 +1825,15 @@ export class Engine {
     const name = this.activityName(key);
     if (this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.billing.busy || !admitting && this.commands?.busy) return { offered: false, reason: "Kiln is checking, dispatching or writing. Try again when it has finished." };
     const { run, checks } = this.stopRun(key);
-    if (!run || run.origin !== "recheck") return { offered: false, reason: `No check has run since ${name} stopped. Run without --confirm to check again first.` };
-    if (!run.finished) return { offered: false, reason: "The last check could not finish. Check again when its evidence can be read." };
     const failing = checks.filter(check => !check.passed);
+    const { label, heading, continueInOrder } = this.offerWording(key, failing);
+    // Only a finished recheck is missing when the stop's checks still fail, or none has run yet.
+    const awaiting = !run || failing.length ? { awaitingRecheck: { label, heading } } : {};
+    if (!run || run.origin !== "recheck") return { offered: false, reason: `No check has run since ${name} stopped. Run without --confirm to check again first.`, ...awaiting };
+    if (!run.finished) return { offered: false, reason: "The last check could not finish. Check again when its evidence can be read.", ...awaiting };
     if (!failing.length) return { offered: false, reason: "Every check passed. Check again advances without a waiver." };
     const items = unmetItems(checks);
-    const stopKind = this.record.phases[key]?.stop?.kind;
-    const problemStop = (stopKind === "plan" || stopKind === "selection") && failing.some(check => KNOWN_PROBLEM_CHECKS.includes(check.name));
     const complete = this.alreadyComplete(key);
-    const started = this.activityRan(key) || complete;
-    const continueInOrder = problemStop && !started;
-    const lower = name.charAt(0).toLowerCase() + name.slice(1);
     const audit = this.auditActivity(key);
     const preview = audit && !complete ? this.auditWaiverPreview(audit) : undefined;
     const nextActivity = continueInOrder || complete ? null : this.forecastNext(key, preview?.countedOutcome);
@@ -1846,11 +1846,23 @@ export class Engine {
     const builtNothing = !!work && !("unknown" in work) && work.builtNothing;
     return {
       offered: true,
-      label: continueInOrder ? "Continue in normal order" : `Mark ${lower} complete`,
-      heading: continueInOrder ? "Kiln can’t work out the next step, and you want it to carry on?" : `${name} is done, and Kiln’s check is wrong?`,
-      continueInOrder, checkRunId: run.id, items, failingChecks: failing.length, nextActivity, resultingLabel, noReport: preview?.report === "none",
+      label, heading, continueInOrder, checkRunId: run.id, items, failingChecks: failing.length, nextActivity, resultingLabel, noReport: preview?.report === "none",
       sentence: previewSentence({ activity: name, failingChecks: failing.length, next, resultingLabel, repositoryWork, resumeOffered: this.resumeOffered(key), noReport: preview?.report === "none", continueInOrder, builtNothing }),
       ...(builtNothing ? { builtNothing: true as const } : {}),
+    };
+  }
+
+  /** Mark complete's button and heading: Continue in normal order for a plan or readiness problem on an activity that has not started (AC-WAIVE-04). */
+  private offerWording(key: string, failing: readonly CheckResult[]): { label: string; heading: string; continueInOrder: boolean } {
+    const name = this.activityName(key);
+    const stopKind = this.record.phases[key]?.stop?.kind;
+    const problemStop = (stopKind === "plan" || stopKind === "selection") && failing.some(check => KNOWN_PROBLEM_CHECKS.includes(check.name));
+    const continueInOrder = problemStop && !(this.activityRan(key) || this.alreadyComplete(key));
+    const lower = name.charAt(0).toLowerCase() + name.slice(1);
+    return {
+      label: continueInOrder ? "Continue in normal order" : `Mark ${lower} complete`,
+      heading: continueInOrder ? "Kiln can’t work out the next step, and you want it to carry on?" : `${name} is done, and Kiln’s check is wrong?`,
+      continueInOrder,
     };
   }
 
@@ -3037,7 +3049,7 @@ export class Engine {
         if (!authority || authority.id !== acceptance.pendingAuthorityId || authority.executionId !== acceptance.newExecutionId || authority.scopeDigest !== acceptance.proposal.scopeDigest || authority.state === "superseded") throw new Error("The accepted target authority is unavailable; no work can start.");
 
       }
-      const archiveRow = { executionId: acceptance.completedExecutionId, archiveId: acceptance.archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), completedAt: old.completedAt!, branch: old.settings.featureBranch, deliveries: executionDeliveries(old) };
+      const archiveRow = { executionId: acceptance.completedExecutionId, archiveId: acceptance.archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), completedAt: old.completedAt!, branch: old.settings.featureBranch, deliveries: executionDeliveries(old), ...this.executionRunningMs(old.completedAt!) };
       acceptance.state = "active"; acceptance.activatedAt = this.now().toISOString(); delete acceptance.reason;
       this.writeContinuationMetadata(() => writeAcceptance(this.stateDirectory, acceptance));
       const continuation = structuredClone(old.continuation!);
@@ -3575,7 +3587,7 @@ export class Engine {
     const old = this.record;
     const at = this.now().toISOString();
     const archiveId = retainExecution(this.stateDirectory, old);
-    const archiveRow: ExecutionSummary = { executionId: old.executionId!, archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), branch: old.settings.featureBranch, deliveries: executionDeliveries(old), endedAt: at, ending: "folder_missing_setup" };
+    const archiveRow: ExecutionSummary = { executionId: old.executionId!, archiveId, ...(old.startedAt ? { startedAt: old.startedAt } : {}), branch: old.settings.featureBranch, deliveries: executionDeliveries(old), endedAt: at, ending: "folder_missing_setup", ...this.executionRunningMs(at) };
     // Each done leaf's receipt, built as plan reconciliation builds it; no completion revision is re-read (AC-SETUP-04).
     const earlier = old.planReconciliation?.baselineId ? readBaseline(this.stateDirectory, old.planReconciliation.baselineId) : undefined;
     const prd = intent.repositories.find(repository => repository.kind === "prd")!;
@@ -7076,6 +7088,30 @@ export class Engine {
   /** A run's last output time: its last saved event's arrival, or its start when it saved none. */
   runLastOutputAt(session: SessionRecord, runIndex: number): string | undefined {
     return runLastOutputAt(this.options.stateDirectory, session, runIndex);
+  }
+
+  /**
+   * The recorded runs of the sessions under `keys`, a run Kiln is no longer running closed at its
+   * last output, and whether one is running now (Kiln v1 AC-WATCH-01; time totals AC-TOTAL-02).
+   */
+  sessionRuns(keys: string[]): { runs: Pick<SessionRun, "startedAt" | "endedAt" | "interruptedAt">[]; running: boolean } {
+    let running = false;
+    const runs = keys.flatMap(key => (this.record.phases[key]?.sessionIds ?? []).flatMap(id => {
+      const session = this.sessionRecord(key, id);
+      if (!session) return [];
+      return session.runs.map((run, index) => {
+        const live = this.current?.session?.sessionId === id && this.current.processRunning && index === session.runs.length - 1 && !run.endedAt && !run.interruptedAt;
+        running ||= live;
+        return { ...run, ...(!live && !run.endedAt && !run.interruptedAt ? { endedAt: this.runLastOutputAt(session, index) ?? run.startedAt } : {}) };
+      });
+    }));
+    return { runs, running };
+  }
+
+  /** This execution's running time up to `until`, saved on its row when it is archived (time totals AC-TOTAL-02). */
+  private executionRunningMs(until: string): { runningMs?: number } {
+    if (!this.record.startedAt) return {};
+    return { runningMs: runTiming(this.sessionRuns(Object.keys(this.record.phases)).runs, this.record.startedAt, until).runningMs };
   }
 
   /** Every output line of a session saved so far. */
