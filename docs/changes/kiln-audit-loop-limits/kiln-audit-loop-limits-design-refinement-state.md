@@ -19,6 +19,7 @@ Last updated: 2026-11-14 (pass 1 checkpoint)
 |---|---|---|---|---|---|---|---|
 | 1 | 13 (10 discovery + 2 conflict + Q1 carried) | 13 | 10 | 1 | 1 | 0 | 1 |
 | 2 | 8 (3 repeats) | 11 (Q9, Q14, Q15 carried + 8) | 10 | 0 | 1 | 0 | 0 |
+| 3 | 1 (0 repeats) | 3 (Q21, Q24 carried + 1) | 3 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -43,10 +44,11 @@ Last updated: 2026-11-14 (pass 1 checkpoint)
 | Q18 | 2 | What a loop_limit stop stores in stop.checks and what each Check again run records; markCompleteOffer order (N3) | Technical | LOW | 80 → 92 | Resolved | TD §Loop Stops |
 | Q19 | 2 | Which Acceptance is a session's own when one activity holds two Accept sessions (sessionId on Acceptance) (N4) | Technical | LOW | 80 → 90 | Resolved | TD §Loop Ledger, §Prompts |
 | Q20 | 2 | A row's `criterion` lost when an item is relisted by id: PersonItem gains optional criterion (N5) | Technical | LOW | 80 → 90 | Resolved | TD §Report Contract, §Prompts |
-| Q21 | 2 | Labelling upgraded runs' observed loops beyond the limit ("loop 4 of 3", "used 5 of 3"); what reads `observed` (N6) | Technical | LOW | 75 → 85 | Deferred (85 < 90) | — |
+| Q21 | 2 | Labelling upgraded runs' observed loops beyond the limit ("loop 4 of 3", "used 5 of 3"); what reads `observed` (N6) | Technical | LOW | 75 → 92 | Resolved | TD §Upgrade, §Display, Verification |
 | Q22 | 2 | Pull request line: which sentences (all of that session's `carried`) and which report summary (N7) | Technical | LOW | 80 → 90 | Resolved | TD §Prompts, Verification |
 | Q23 | 2 | needs_you test stop's `loop` flag: set once or recomputed on every recheck as limits change (N8) | Technical | LOW | 75 → 90 | Resolved | TD §Loop Stops, §The Loop Gate, §Display |
-| Q24 | 2 | TD §Changes to Earlier Designs misses Completion Audits design (AC-RUN-01/07, AC-TEST-02/03, AC-LOOP-02/03 sections still live?) and Live Session Control design (AC-BACK-03/04) (conformance) | Technical | LOW | — → — | Pending (pass 3) | — |
+| Q24 | 2 | TD §Changes to Earlier Designs misses Completion Audits design (AC-RUN-01/07, AC-TEST-02/03, AC-LOOP-02/03 sections still live?) and Live Session Control design (AC-BACK-03/04) (conformance) | Technical | LOW | — → 92 | Resolved | TD §Changes to Earlier Designs |
+| Q25 | 3 | At an items_listed loop_limit stop, a raised limit + Check again: run continues as today (delivery audit, then fresh test round) and that round is not a loop — PRD AC-LOOP-03 counts only a continuation or an Allow session there | Technical | LOW | 85 → 95 | Resolved | TD §Loop Stops, Verification |
 
 ## Question notes
 
@@ -101,10 +103,11 @@ Changed after pass 1: AC-LOOP-04, AC-DELIV-01 (Q2), AC-STOP-02 (Q3)
 Pass 1: 2026-11-14 · 2 open entries · 0 moved to design · 1 written up (RUN-002 part: upgraded run runs under Always stop and ask, 3 and 3) · 0 settled by lookup · 0 moved to technical · 0 raised as questions · 2 stay business (RUN-001 above the line, title restated to the narrower Mark-complete-at-failing-check case, Gate 1 found WAIVE-006 wording; RUN-002 below the line). Folded 2026-11-14 (RUN-001 restated, Impact MEDIUM → LOW; RUN-002 (part) Written up).
 
 ## Noticed, out of scope
+- Completion Waivers TD:233 names Live Session Control §Terminal Ownership and Hand-back, but the reverse pointer in the Live Session Control TD names §Display Contract (pre-existing mismatch).
 
 ## Blockers
 | Blocker | Questions affected | What unblocks it |
 |---|---|---|
 
 ## Next action
-Pass 3: Q21 (deferred), Q24 first; then discovery.
+Phase 7: final conformance + conflict re-check (AC-LOOP-04, AC-DELIV-01, AC-STOP-02) running; then final verification.

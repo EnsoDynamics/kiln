@@ -51,7 +51,7 @@ AuditLoop:
   kind: "delivery" | "test"
   number: integer          — 1-based within its epoch
   limitAtStart: integer    — the limit in force when it started
-  last: boolean            — number == limitAtStart
+  last: boolean            — number == limitAtStart, never set on an `observed` loop
   startedAt: ISO-8601 UTC
   sourceAuditId: string    — the audit whose report this loop acts on
   activityKeys: string[]   — delivery: the leaves built in the loop; test: the audit activity
@@ -112,7 +112,7 @@ A hold on an accepted or marked-complete report (`phases_added`, `test_work_save
 
 **Reply and Take over** treat a `loop_limit` stop as a `done_check` stop on a finished audit (`resumeOffered`, the carry-on offer and the takeover target), so they reach the held audit's conversation exactly as at a development-owner stop today; afterwards the gate decides as for any other step. Neither counts as a loop.
 
-**Check again** on a `loop_limit` stop, and the recheck that Reply runs first, reruns the gate in a `recheckStop` branch of its own, ahead of its final `doneCheck` fallback: if a loop of that kind is now left (a raised limit), the stop clears and the loop starts; otherwise the stop stays and `updateStop(key, [], false)` saves a new finished `recheck` run, with no completion rows rerun. `recheckRunsCompletion` returns false for `loop_limit`, so the page never says Check again runs the audit's completion checks. A held Check again settles `completion_checks_failed` with the hold reason.
+**Check again** on a `loop_limit` stop, and the recheck that Reply runs first, reruns the gate in a `recheckStop` branch of its own, ahead of its final `doneCheck` fallback: if a loop of that kind is now left (a raised limit), the stop clears and the loop starts; otherwise the stop stays and `updateStop(key, [], false)` saves a new finished `recheck` run, with no completion rows rerun. At an `items_listed` stop on an accepted `passed` report, "the loop starts" means the run continues as it does today: `auditNext` returns the delivery audit, since that report changed implementation, and then a new test round, which is not a loop and takes no Allow note, because only an epoch with `cause: allowed` naming the held audit marks a round as one. `recheckRunsCompletion` returns false for `loop_limit`, so the page never says Check again runs the audit's completion checks. A held Check again settles `completion_checks_failed` with the hold reason.
 
 A **Mark complete** at a stop on an audit with a failing check, a `needs_you` loop stop included, completes the audit as AC-WAIVE-12 says and then reaches the gate like any other step, which holds again when its counted result added phases or saved test work and no loop of that kind is left. That is RUN-001's assumption, built as the open entry states it; routing needs no special case, and only the offer's wording forecasts the hold. When the gate would hold, the offer's `nextActivity` (bots' `next_activity`) is `{ kind: "loop_stop", key: <stopped audit key>, title: "Delivery audit loop stop" | "Test audit loop stop" }`, and its `next` reads "counts the audit as its report says, then stops at Needs you because no delivery audit loop is left to build the phases it added" ("as passed" with no report, as today), or for a test hold "… because no test audit loop is left to continue its test work". With no ledger, `next` stays "moves to the next step".
 
@@ -187,8 +187,8 @@ auditLoops:
   test: { used, limit }
   stop?:                       — at a loop stop
     kind, heading              — "Delivery audit loops used: 3 of 3"
-    loops: { label, activity, did, durationMs }[]   — each loop in the current count, then each audit session since;
-                                                      durationMs and did as for an activity's loop (§Display Contract)
+    loops: { label, activity, did, durationMs, observed? }[]   — each loop in the current count, then each audit session since;
+                                                      durationMs, did and observed as for an activity's loop (§Display Contract)
     audit: { summary, items: { name, problem, action }[] }   — the latest audit, as it wrote them
     afterLastTest?             — test stops only
     acceptSentence?            — test stops only, the sentence Accept would quote
@@ -199,7 +199,7 @@ The stop's `controls` list adds the two actions with availability and reason. Ma
 ## Display Contract (AC-LOOP-01, AC-STOP-01, AC-SHOW-01, AC-TEST-03)
 
 - **Documents found and the run's settings panel:** the **Audit loops** section of mockup screens 0 and 1, help text computed from the values shown; Effort's help line as screen 0.
-- **Activity rows:** `PhaseView` gains `loops?: { number, limit, last, sessionId? }[]` (`sessionId` on test loops) from the ledger (each with the limit in force when it started), one per loop the activity holds (§The Loop Ledger, "Which loop a session belongs to"). The row reads by the latest: **loop N of M**, or **last loop** when `last`. The detail lists each loop with its time, `runTiming` over its own sessions' runs, and what it did: its latest attempt holding a report, as the outcome in words, then that report's `summary`, absent when it left none. A delivery loop names the phases it built. A row whose session carried a sentence says which one, and its detail quotes it.
+- **Activity rows:** `PhaseView` gains `loops?: { number, limit, last, sessionId?, observed? }[]` (`sessionId` on test loops, `observed` copied from the ledger loop) from the ledger (each with the limit in force when it started), one per loop the activity holds (§The Loop Ledger, "Which loop a session belongs to"). The row reads by the latest: **loop N of M**, or **last loop** when `last`. The detail lists each loop with its time, `runTiming` over its own sessions' runs, and what it did: its latest attempt holding a report, as the outcome in words, then that report's `summary`, absent when it left none. A delivery loop names the phases it built. A row whose session carried a sentence says which one, and its detail quotes it. A loop with `observed` adds "counted from this run's history when Kiln was upgraded" to its entry in the detail, and to its line on a stop page (§Upgrade).
 - **Needs you:** a loop stop (a `loop_limit` stop, or a `needs_you` loop stop by `loopStopOf`) renders mockup screens 2 and 3 from `auditLoops.stop`, with no ranking or judgment of Kiln's. A `loop_limit` stop shows the **Audit loop left** row and Mark complete's refusal reason (§Loop Stops). **Allow _N_ more loops** takes N, filled in as 2.
 
 ## Upgrade (AC-LOOP-07, RUN-002)
@@ -209,7 +209,9 @@ Schema 22, in two steps, because `migrateRecord` sees only the record while the 
 - **Record migration** (`migrateRecord`, run once when a schema-21 record is read). **Not started:** the defaults, as for a new record; the person sees the panel before Start. **Started:** limits 3 and 3, `afterLastTest: stop_and_ask` with `afterLastTestSource: kiln_for_earlier_run`, and no `auditLoops` ledger yet.
 - **Ledger reconstruction**, by the Engine constructor right after `activityHistory` rebuilds `record.activities` from the state directory, so a run sitting at a stop shows its counts before any decision: a started record with no ledger gets one rebuilt from its own execution's saved audit history, never an archived execution's (RUN-002), with one `upgrade` epoch per kind at the run's `startedAt`, each loop `observed`, stored by the constructor's closing save:
   - a delivery loop for each audit whose effective result appended phases of which at least one leaf has a session or is done;
-  - a test loop for each test audit activity whose latest settled test predecessor counts as `continue_test`, numbered in activity order.
+  - a test loop for each test audit activity whose latest settled test predecessor counts as `continue_test`.
+
+  Observed loops take `limitAtStart` 3, the migrated limit, numbered per kind in activity order. `last` is false on every observed loop: no limit allowed it and its prompt never said no loop follows (AC-TEST-01, AC-TEST-03). So rows read **loop N of 3**, past the limit too (**loop 4 of 3**), and the stop heading counts them all (**Test audit loops used: 5 of 3**), never clamped. An observed loop's detail, and its line on a stop page, add "counted from this run's history when Kiln was upgraded".
 
   Leaves at or under an appended phase come from `record.plan`. If the rebuild throws, the ledger stays absent and the first gate decision retries it; if that retry fails too, the run stops visibly on the error. It never guesses a count.
 
@@ -229,6 +231,10 @@ Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §HTTP API (`POST /api/check-again` at a loop stop starts nothing the gate refuses) and §Account and Usage, Effort (Claude Code defaults to `medium`).
 
+Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (completion phases an audit appended and a saved test continuation start only through the loop gate while a loop of that kind is left; otherwise the run holds at a loop stop, beside pause, interruption, usage wait and blocker) and §Progress and Detail Contract (completion-phase and test audit rows that are part of a loop also show **loop N of M** or **last loop**, and the loop in their detail).
+
+Replaces in part: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Activity-specific evaluate, then act (at a takeover audit's loop stop, Verify or explicit advance accepts the report but the run holds there; the next work waits for Allow N more loops, a raised limit and Check again, or Accept what is left and deliver).
+
 ## Delivery
 
 - **After the build:** a `CHANGELOG.md` entry under Unreleased (`Added`: audit loop limits; `Changed`: Claude Code starts at Medium effort); release through the usual release steps.
@@ -241,9 +247,9 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 |---|---|---|
 | AC-LOOP-01, AC-EFFORT-01 | Settings; Display | Documents found shows the three settings with defaults and live help text; a new Claude Code PRD shows Medium, a Codex one High, a saved PRD keeps its effort |
 | AC-LOOP-02, AC-LOOP-03 | Loop Ledger | Phases from one delivery audit, split into leaves, are one loop; phases a test audit appended count as a delivery loop; a continuation and a fresh round after a delivery audit following `continue_test` are test loops; a test audit after a passing one, an Accept session, and an audit completed at once under a waived readiness problem are not; an Allow at a `needs_you` stop interrupted before its launch's `started()` leaves only the stop, and after it a counted pending activity that relaunches |
-| AC-LOOP-04, AC-LOOP-05, RUN-003 | Ledger epochs; Gate | Allow restarts the count; reset returns defaults and zero counts; lowering a limit mid-session stops at the next decision; raising it during a hold starts the loop at Check again and at `kiln run`; a run that used both limits and is continued with **Continue with N phases** starts both counts at zero with its three settings and their source unchanged, builds its first audit-added phases without a stop, and its archived rows keep their loop labels |
+| AC-LOOP-04, AC-LOOP-05, RUN-003 | Ledger epochs; Gate | Allow restarts the count; reset returns defaults and zero counts; lowering a limit mid-session stops at the next decision; raising it during a `phases_added` or `test_work_saved` hold starts the loop at Check again and at `kiln run`; at an `items_listed` stop on an accepted `passed` report, a raised limit and Check again runs the delivery audit, then a test round that is not counted as a loop; a run that used both limits and is continued with **Continue with N phases** starts both counts at zero with its three settings and their source unchanged, builds its first audit-added phases without a stop, and its archived rows keep their loop labels |
 | AC-LOOP-06 | Settings; Prompts | The sentence and its source in each prompt that quotes it, for a Documents found choice, a page change and a `kiln settings` change; the Accept sentence with criterion IDs and audit-worded items, including a criterion given only on an item's first listing and carried through a relisting by id; after an Accept and then an Allow, a non-last test loop's prompt quotes the earlier Acceptance and its session's `carried` lists it |
-| AC-LOOP-07, RUN-002 | Upgrade | A schema-21 started run with three continuations stops at its first decision; its prompts carry the Kiln-applied choice; a not-started record gets the defaults; a schema-21 finished run continued after the upgrade gets `start` epochs, not a reconstructed ledger; an upgraded run sitting at a stop shows its rebuilt counts in status before any Check again |
+| AC-LOOP-07, RUN-002 | Upgrade | A schema-21 started run with three continuations stops at its first decision; its prompts carry the Kiln-applied choice; a not-started record gets the defaults; a schema-21 finished run continued after the upgrade gets `start` epochs, not a reconstructed ledger; an upgraded run sitting at a stop shows its rebuilt counts in status before any Check again; an upgraded run with 5 test continuations reads **Test audit loops used: 5 of 3**, its rows **loop 4 of 3** and **loop 5 of 3** with the upgrade annotation, and none **last loop** |
 | AC-DELIV-01 | Gate; Loop Stops | The fourth audit's phases stay open and unstarted at a delivery loop stop with no Mark complete offered |
 | AC-TEST-01 | Prompts | Last-loop and post-limit prompts under both choices, including a fresh test round after the limit |
 | AC-TEST-02 | Gate | Each table row once no test loop is left: phases added, passed, `passed` with items, `needs_you`, `continue_test` with and without `changedImplementation` |
