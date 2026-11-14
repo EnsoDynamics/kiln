@@ -2,7 +2,7 @@
 
 **Source:** Doug's review on 2026-11-13 and 2026-11-14 of a long Kiln run whose closing audits kept sending it back for more work, and the settings and stop screens he worked through on mockups those two days.
 
-**Changes:** [Kiln Method-Neutral Audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md)
+**Changes:** [Kiln Method-Neutral Audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md), [Kiln Completion Audits](../kiln-completion-audits/kiln-completion-audits-prd.md), [Kiln Multi-Repo Delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), [Kiln Live Session Control](../kiln-live-session-control/kiln-live-session-control-prd.md), [Kiln Bot Control](../../prds/kiln-bot-control/kiln-bot-control-prd.md), [Kiln Continue Added Phases](../kiln-continue-added-phases/kiln-continue-added-phases-prd.md)
 
 **Mockup:** [Open the mockup](mockups/kiln-audit-loop-limits.html).
 
@@ -38,10 +38,14 @@ The person chooses the limits before the run starts, on the same screen as Kiln'
   | **Test audit loops, at most** | A whole number, 1 or more | 3 |
   | **After the last test audit loop** | **Deliver, unless something serious is left**, or **Always stop and ask me** | Deliver, unless something serious is left |
 
+  - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Documents found gains the three **Audit loops** settings)
+  - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Documents found, the run's settings and the loop stop page gain this change's sections; the rest of each layout remains)
+
 - [ ] **AC-LOOP-02 — A delivery audit loop is one round of building what an audit added.** A delivery audit loop starts each time Kiln starts building phases that an audit, delivery or test, added for unfinished criteria.
 - [ ] **AC-LOOP-03 — A test audit loop is one session of test fixes after an audit.** A test audit session is a loop when Kiln starts it to continue test work a test audit saved, even with a delivery audit run in between, or, when the person chooses **Allow _N_ more loops** at a stop whose report saved none, to fix what that report listed (AC-STOP-02). No other test audit session is a loop, even one that fixes gaps itself.
-- [ ] **AC-LOOP-04 — Loops are counted from Start, or from when the person last allowed more.** Each count starts at zero at Start, and again when the person chooses **Allow _N_ more loops** of that kind (AC-STOP-02). Resetting a run restores the default settings and both counts to zero.
+- [ ] **AC-LOOP-04 — Loops are counted from Start, or from when the person last allowed more.** Each count starts at zero at Start, and again when the person chooses **Allow _N_ more loops** of that kind (AC-STOP-02). Continuing a finished run with **Continue with _N_ phases** is a Start: both counts start at zero, the three settings carry over unchanged, and the earlier run's loops are not counted again (RUN-003). Resetting a run restores the default settings and both counts to zero.
 - [ ] **AC-LOOP-05 — Kiln never starts a loop past its limit, and the limits can change while it runs.** Kiln starts a loop only while one of that kind is left under the current limit. The person can change all three settings during a run, and a change applies from Kiln's next decision whether to start a loop.
+  - Replaces in part: AC-WATCH-07 and AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the three loop settings are shown with the run's settings and can change during a run)
 - [ ] **AC-LOOP-06 — Kiln quotes only two sentences as the person's words.** Each sentence is shown beside the choice that gives it, and whenever Kiln quotes one it says where and when the person chose it:
 
   | Sentence | Where the person chose it |
@@ -57,6 +61,9 @@ Kiln never delivers work the delivery audit says is unfinished. When the loops a
 
 - [ ] **AC-DELIV-01 — Kiln stops instead of building past the limit.** When an audit adds phases and no delivery audit loop is left, Kiln stops at Needs you (AC-STOP-01) instead of building them; they stay in the plan, open and not started.
   - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (a report that added phases advances automatically only while delivery audit loops remain)
+  - Replaces in part: AC-LOOP-02, AC-LOOP-03 and AC-TEST-03 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (phases an audit adds are built only while a delivery audit loop is left; otherwise Kiln stops at Needs you)
+  - Replaces in part: AC-RUN-07 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a loop stop, when no loop of the needed kind is left, also holds continuation)
+  - Replaces in part: AC-CONTINUE-05 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (completion phases audits add after a continuation are built only while a delivery audit loop is left)
 
 ### Finish the Test Work at the Last Loop
 
@@ -79,6 +86,7 @@ The last session of test fixes, and any test audit after it, is told no more loo
   | Saves test work for another session | Stops at Needs you instead of going on |
 
   - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (once no test audit loop is left, a test audit report that saved test work, or passed while still listing an item a person must decide or do before delivery, stops at Needs you instead of advancing)
+  - Replaces in part: AC-TEST-02 and AC-RUN-07 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (test audit continuations start only while a test audit loop is left; once none is left, saved test work stops at Needs you, and that loop stop holds continuation)
 - [ ] **AC-TEST-03 — The last loop is shown, never hidden.** The last test audit loop's row and detail say it was the last, and those of each session whose prompt quoted the default's sentence (AC-TEST-01) or an Accept sentence (AC-STOP-02) say which sentence it carried. The pull request session gets a line saying the same, with the latest such session's summary, to include word for word, as for settled items.
 
 ### Decide at the Stop
@@ -101,12 +109,14 @@ A **loop stop** is a stop under AC-DELIV-01 or AC-TEST-02, because no loop of th
   | **Allow _N_ more loops**, N a whole number of 1 or more, filled in as 2 | Sets that kind's limit to N, restarts its count (AC-LOOP-04), and starts the next loop of that kind (AC-LOOP-02, AC-LOOP-03) | Yes |
   | **Accept what is left and deliver**, at a test audit stop only | Starts one test audit session that fixes nothing; its report is handled as AC-TEST-02 says | No |
   | Take over the audit's session, or Reply | As at any Needs you stop | No |
-  | Check again, or Mark the audit complete | As at any Needs you stop, except that a held run stays held | No |
+  | Check again, or Mark the audit complete | As at any Needs you stop, except that a held run stays held. Mark the audit complete is offered only where a check fails, as at any Needs you stop, so not at a stop that holds an accepted report | No |
   | Raise a limit in the settings (AC-LOOP-05) | Starts nothing by itself; the loop the held report asks for starts at the next Check again or `kiln run` | Yes, once it starts |
 
   Accept's prompt quotes its sentence, naming every listed item, as the person's (AC-LOOP-06), then each item as the audit wrote it, and asks the session to record what those words accept and to list by name every row or item they do not; Kiln does not sort the items. Kiln also quotes each Accept sentence the person gave to any later test audit it starts before delivering.
   - Replaces in part: AC-STOP-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-WAIVE-12 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (at a loop stop, a passing Check again or an audit marked complete does not start the loop its report asks for)
   - Replaces in part: AC-STOP-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Allow _N_ more loops and Accept what is left and deliver also start a session after a stop)
+  - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Allow _N_ more loops and Accept what is left and deliver join the browser view's controls)
+  - Replaces in part: AC-BACK-03 and AC-BACK-04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (at a takeover audit's loop stop, a passing Check again does not advance, and the next work waits for a loop or an Accept)
 - [ ] **AC-STOP-03 — A bot can do everything the page does.** Everything this PRD adds to the page for a run that has started can also be done from the command line:
 
   | On the page | From the command line |
@@ -118,12 +128,14 @@ A **loop stop** is a stop under AC-DELIV-01 or AC-TEST-02, because no loop of th
   | Accept what is left and deliver (AC-STOP-02) | A stop command beside them |
 
   Settings chosen before Start stay in the browser, as every other setting for a run not yet started does.
+  - Replaces in part: AC-ACT-01 and AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (two more commands join the controls for a run already started; the runtime-preferences control also sets the three loop settings)
 
 ### Show Where the Run Stands
 
 A person looking at a run should see how close it is to a limit without opening anything.
 
 - [ ] **AC-SHOW-01 — Each loop's row says which loop it is.** In the run's list of activity, a phase or test audit session that is part of a loop shows its number and the limit, such as **loop 2 of 3**, and the last one allowed shows **last loop**.
+  - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (completion-phase and test audit rows that are part of a loop also show its number and the limit, or **last loop**)
 
 ### Start Claude Code at Medium Effort
 
@@ -131,6 +143,7 @@ A change to the same settings panel, made with this PRD because it touches the s
 
 - [ ] **AC-EFFORT-01 — A new PRD on Claude Code starts at Medium effort.** On Documents found, a PRD whose settings have not been saved yet starts with Claude Code at **Medium** effort instead of High. A PRD on Codex still starts at High (AC-MODEL-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md`), and a PRD whose settings were already saved keeps the effort it has.
   - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the starting effort for Claude Code only)
+  - Replaces in part: validated assumption UI-004 in `docs/prds/kiln-v1/assumptions.md` (Claude Code's starting effort is Medium)
 
 ## Out of Scope
 
