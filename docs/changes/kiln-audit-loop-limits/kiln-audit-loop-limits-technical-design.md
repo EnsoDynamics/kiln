@@ -32,7 +32,7 @@ auditLoops:
 
 `defaultSettings` returns the defaults, so a first `kiln run` and a reset both get them (AC-LOOP-04's reset clause). Before Start the three values ride in the Documents found draft like the other settings. At Start, `afterLastTestSource` becomes `{ person, at: <Start time>, where: documents_found }` whichever value was showing, because choosing or keeping it on that screen is the person's choice. A later change of `afterLastTest` on the run's page or with `kiln settings` sets a new source with that time, and `where` from the instruction's `via` (§Interfaces): `run_page` for `browser`, `command_line` for `command_line`. Changing only a limit leaves the source alone. A value outside these ranges is a field error on the page and `invalid_input` on the command line; nothing is clamped.
 
-The settings are read fresh at each gate decision, never cached on a loop, which is all AC-LOOP-05 needs: a change while a session runs applies at the next decision.
+The settings are read fresh at each gate decision, never cached on a loop (AC-LOOP-05).
 
 **Effort.** `defaultSettings` gives Claude Code `medium` instead of `high`. Codex's first-selection default (`high`) and the existing rule that replaces an effort the chosen model does not support are unchanged, and a saved choice is never rewritten.
 
@@ -46,8 +46,7 @@ AuditLoopLedger:
             heldAuditKey?: string }[]   — cause allowed: the held audit key of the stop it cleared
   loops: AuditLoop[]
   acceptances: Acceptance[]
-  itemsListedStops: string[]   — audit keys of each `items_listed` stop on an accepted report, saved in the
-                                 write that records the stop; the gate stops on such an audit once (§Loop Stops)
+  itemsListedStops: string[]   — audit keys of each `items_listed` stop on an accepted report (§Loop Stops)
 
 AuditLoop:
   kind: "delivery" | "test"
@@ -127,13 +126,13 @@ When the stop's test report was accepted with `changedImplementation: true` (eve
 **Allow N more loops** (`allow-more-loops`, `count` ≥ 1):
 
 1. Sets that kind's limit to N in settings and opens an epoch with `cause: allowed` naming the stop's held audit.
-2. A `loop_limit` stop clears, and once the receipt settles the gate starts the loop the held report asks for.
-3. A test loop stop whose report saved no test work (`items_listed`) gets a test audit session with the loop prompt (§Prompts), counted as a test loop: at a `needs_you` stop the control starts it on the stopped activity; at an accepted report the gate starts it as the new round after the delivery audit, both as above.
+2. At a `loop_limit` stop, as above.
+3. A test loop stop whose report saved no test work (`items_listed`) gets a test audit session with the loop prompt (§Prompts), counted as a test loop, as above.
 
 **Accept what is left and deliver** (`accept-and-deliver`), offered only at a test loop stop:
 
 1. Builds the Accept sentence from the stop's listed items (§Prompts) and appends an `Acceptance`.
-2. Leads to a test audit session with the Accept prompt, as above: at a `needs_you` stop the control starts it on the stopped activity; elsewhere the gate starts it once the receipt settles. At a `test_work_saved` stop whose report did not change implementation, that is a continuation of the held audit, which `allocateAudit` admits because the held audit is the latest test audit and counts as `continue_test`; when the report changed implementation, it is the new round after the delivery audit. Either way the gate lets it through because the acceptance names that stop, and the acceptance is marked used (its `activityKey`) in the write that commits the session (§The Loop Ledger). It is not a loop.
+2. Leads to a test audit session with the Accept prompt, as above. At a `test_work_saved` stop whose report did not change implementation, that is a continuation of the held audit, which `allocateAudit` admits because the held audit is the latest test audit and counts as `continue_test`; when the report changed implementation, it is the new round after the delivery audit. Either way the gate lets it through because the acceptance names that stop, and the acceptance is marked used (its `activityKey`) in the write that commits the session (§The Loop Ledger). It is not a loop.
 3. Its report is gated like any other, which is AC-TEST-02 since no test loop is left. A continuation's `continue_test` must change work other than Markdown beside the PRD (`validate-report`), which an Accept session that fixes nothing cannot. A `passed` report that changed no implementation must already have an empty `needsYou` and account for every outstanding item by id in `needsYou` or `settled`, so the Accept prompt has it settle each outstanding item its words accept and report `passed` only when they accept everything left, and `needs_you` otherwise (§Prompts). A `continue_test` it writes anyway, or a `passed` report that leaves an outstanding item out, is refused at admission, visibly, like any invalid report.
 
 Take over and Reply are unchanged. Allow and Accept never catch the branch up and take no `--leave-branch-as-is`: run restart's AC-CURRENT-01 covers a stopped phase's session, and a loop stop is on a finished audit whose page has no catch-up offer, so both stay out of the engine's catch-up actions. Both new actions refuse (`not_at_loop_stop`) anywhere else, and Accept refuses at a delivery loop stop.
@@ -215,7 +214,7 @@ Schema 22, in two steps, because `migrateRecord` sees only the record while the 
   - a delivery loop for each audit whose effective result appended phases of which at least one leaf has a session or is done;
   - a test loop for each test audit activity whose latest settled test predecessor counts as `continue_test`.
 
-  Observed loops take `limitAtStart` 3, the migrated limit, numbered per kind in activity order. `last` is false on every observed loop: no limit allowed it and its prompt never said no loop follows (AC-TEST-01, AC-TEST-03). So rows read **loop N of 3**, past the limit too (**loop 4 of 3**), and the stop heading counts them all (**Test audit loops used: 5 of 3**), never clamped. An observed loop's detail, and its line on a stop page, add "counted from this run's history when Kiln was upgraded".
+  Observed loops take `limitAtStart` 3, the migrated limit, numbered per kind in activity order. `last` is false on every observed loop: no limit allowed it and its prompt never said no loop follows (AC-TEST-01, AC-TEST-03). So rows read **loop N of 3**, past the limit too (**loop 4 of 3**), and the stop heading counts them all (**Test audit loops used: 5 of 3**), never clamped. An observed loop's detail and stop-page line: §Display Contract.
 
   Leaves at or under an appended phase come from `record.plan`. If the rebuild throws, the ledger stays absent and the first gate decision retries it; if that retry fails too, the run stops visibly on the error. It never guesses a count.
 
