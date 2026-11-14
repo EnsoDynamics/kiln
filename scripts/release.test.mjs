@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { afterEach, test } from 'node:test';
 import { parse } from 'yaml';
-import { checkRelease, compareVersions, installHooks, metadata, packageName, prepareRelease, publishedVersions, publishingReadiness, releaseNotesPath, versionParts } from './release.mjs';
+import { checkRelease, compareVersions, installHooks, metadata, packageName, prepareRelease, publishedVersions, publishingReadiness, releaseNotes, versionParts } from './release.mjs';
 
 const sourceRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cleanups = [];
@@ -96,13 +96,12 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-function writeVersion(root, version, notes = `# Kiln ${version}\n\nWhat changed.\n`) {
+function writeVersion(root, version, notes = `What changed in ${version}.`, unreleased = '') {
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: packageName, version, publishConfig: { access: 'public' }, repository: { url: 'git+https://github.com/EnsoDynamics/kiln.git' } }));
   writeFileSync(join(root, 'package-lock.json'), JSON.stringify({ name: packageName, version, lockfileVersion: 3, packages: { '': { name: packageName, version } } }));
   if (notes === null) return ['package.json', 'package-lock.json'];
-  mkdirSync(join(root, 'docs/release/notes'), { recursive: true });
-  writeFileSync(join(root, releaseNotesPath(version)), notes);
-  return ['package.json', 'package-lock.json', releaseNotesPath(version)];
+  writeFileSync(join(root, 'CHANGELOG.md'), `# Changelog\n\n## [Unreleased]\n\n${unreleased}\n\n## [${version}] - 2026-11-01\n\n${notes}\n\n## [0.9.0] - 2026-10-01\n\nAn older release.\n`);
+  return ['package.json', 'package-lock.json', 'CHANGELOG.md'];
 }
 
 function fixture(version = '1.0.0') {
@@ -192,32 +191,55 @@ test('accepts an advanced version and rejects duplicates, regression and existin
 });
 
 // AC-NOTES-02: a version without written notes is refused before the registry or any platform check.
-test('rejects a version with missing or empty release notes before consulting the registry', async () => {
+test('rejects a version with no changelog section or an empty one before consulting the registry', async () => {
   for (const notes of [null, '', ' \n\t\n']) {
     const f = fixture(); f.save('1.0.1', notes);
     const npm = await registry({ body: { name: packageName, versions: { '1.0.0': {} } } });
-    await assert.rejects(checkRelease({ root: f.root, base: f.base, registryUrl: npm.url }), new RegExp(`no written release notes\\. Write ${releaseNotesPath('1.0.1').replace(/\./g, '\\.')}`));
+    await assert.rejects(checkRelease({ root: f.root, base: f.base, registryUrl: npm.url }), /no written release notes\. Add a "## \[1\.0\.1\]" section to CHANGELOG\.md/);
     assert.equal(npm.requests(), 0);
   }
   // Notes only in the working tree do not count: the check reads the candidate commit.
   const f = fixture(); f.save('1.0.1', null);
-  writeFileSync(join(f.root, releaseNotesPath('1.0.1')), '# Kiln 1.0.1\n');
+  writeVersion(f.root, '1.0.1');
   await assert.rejects(checkRelease({ root: f.root, base: f.base, registryUrl: (await registry()).url }), /no written release notes/);
   const done = fixture(); done.save('1.0.1');
-  assert.equal((await checkRelease({ root: done.root, base: done.base, registryUrl: (await registry({ body: { name: packageName, versions: { '1.0.0': {} } } })).url })).notesPath, releaseNotesPath('1.0.1'));
+  assert.equal((await checkRelease({ root: done.root, base: done.base, registryUrl: (await registry({ body: { name: packageName, versions: { '1.0.0': {} } } })).url })).notes, 'What changed in 1.0.1.');
 });
 
-test('the release workflow publishes the written notes instead of generating them, and the repository has notes for its version', () => {
+test('a release\'s notes are its changelog section, up to the next one', () => {
+  const changelog = '# Changelog\n\n## [Unreleased]\n\n### Added\n\n- A new thing.\n\n## [1.2.0] - 2026-11-20\n\n### Fixed\n\n- A fix.\n\n## [1.1.0] - 2026-11-01\n\n- Older.\n';
+  assert.equal(releaseNotes(changelog, 'Unreleased'), '### Added\n\n- A new thing.');
+  assert.equal(releaseNotes(changelog, '1.2.0'), '### Fixed\n\n- A fix.');
+  assert.equal(releaseNotes(changelog, '1.1.0'), '- Older.');
+  assert.equal(releaseNotes(changelog, '1.1'), '', 'a version is matched whole');
+  assert.equal(releaseNotes(changelog, '1.3.0'), '');
+});
+
+test('the release workflow publishes the changelog section instead of generating notes, and the changelog has a section for every published version', () => {
   const release = parse(readFileSync(join(sourceRoot, '.github/workflows/release.yml'), 'utf8'));
-  const create = release.jobs.publish.steps.find(step => step.run?.startsWith('gh release create '));
-  assert.ok(create);
+  const steps = release.jobs.publish.steps;
+  const create = steps.find(step => step.run?.startsWith('gh release create '));
+  const write = steps.find(step => step.run?.startsWith('node scripts/release.mjs notes '));
+  assert.ok(create && write);
   assert.doesNotMatch(create.run, /--generate-notes/);
-  assert.match(create.run, /--notes-file "docs\/release\/notes\/kiln-release-notes-\$RELEASE_VERSION\.md"/);
-  assert.equal(releaseNotesPath('$RELEASE_VERSION'), 'docs/release/notes/kiln-release-notes-$RELEASE_VERSION.md');
-  const checkout = release.jobs.publish.steps.findIndex(step => step.uses?.startsWith('actions/checkout@'));
-  assert.ok(checkout >= 0 && checkout < release.jobs.publish.steps.indexOf(create), 'the notes file is read from the release commit checked out before the release is created');
-  const { version } = JSON.parse(readFileSync(join(sourceRoot, 'package.json'), 'utf8'));
-  assert.ok(readFileSync(join(sourceRoot, releaseNotesPath(version)), 'utf8').trim());
+  assert.match(write.run, /notes "\$RELEASE_VERSION" > "\$RUNNER_TEMP\/kiln-release-notes\.md"$/);
+  assert.match(create.run, /--notes-file "\$RUNNER_TEMP\/kiln-release-notes\.md"/);
+  const checkout = steps.findIndex(step => step.uses?.startsWith('actions/checkout@'));
+  assert.ok(checkout >= 0 && checkout < steps.indexOf(write) && steps.indexOf(write) < steps.indexOf(create), 'the notes are read from the release commit checked out before the release is created');
+  const changelog = readFileSync(join(sourceRoot, 'CHANGELOG.md'), 'utf8');
+  for (const version of ['1.0.0', '1.0.2', '1.0.3', '1.1.0', '1.1.1', '1.1.2', '1.1.3', '1.1.4', '1.1.6']) assert.ok(releaseNotes(changelog, version), version);
+  assert.match(changelog, /^## \[Unreleased\]$/m);
+});
+
+test('the notes command prints a version\'s section and refuses a missing one', () => {
+  const f = fixture();
+  const script = join(sourceRoot, 'scripts', 'release.mjs');
+  const printed = spawnSync(process.execPath, [script, 'notes', '1.0.0'], { cwd: f.root, encoding: 'utf8', timeout: 10_000 });
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.equal(printed.stdout, 'What changed in 1.0.0.\n');
+  const missing = spawnSync(process.execPath, [script, 'notes', '1.0.1'], { cwd: f.root, encoding: 'utf8', timeout: 10_000 });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /no section for 1\.0\.1/);
 });
 
 test('registry failures and unexpected contracts never imply an unpublished version', async () => {
@@ -233,13 +255,21 @@ test('registry failures and unexpected contracts never imply an unpublished vers
   }
 });
 
-test('preparation bumps both package files once and preserves an intentional higher version', async () => {
+test('preparation bumps both package files once, moves Unreleased to the version, and preserves an intentional higher version', async () => {
   const f = fixture(); origin(f.root);
+  writeVersion(f.root, '1.0.0', 'What changed in 1.0.0.', '### Fixed\n\n- A fix since 1.0.0.');
   const npm = await registry({ body: { name: packageName, versions: { '1.0.0': {} } } });
-  await prepareRelease(f.root, undefined, { registryUrl: npm.url });
+  await prepareRelease(f.root, undefined, { registryUrl: npm.url, today: '2026-11-20' });
   assert.equal(metadata(f.root).version, '1.0.1');
-  await prepareRelease(f.root, undefined, { registryUrl: npm.url });
+  const changelog = readFileSync(join(f.root, 'CHANGELOG.md'), 'utf8');
+  assert.match(changelog, /## \[Unreleased\]\n\n## \[1\.0\.1\] - 2026-11-20\n\n### Fixed/);
+  assert.equal(releaseNotes(changelog, 'Unreleased'), '');
+  assert.equal(releaseNotes(changelog, '1.0.1'), '### Fixed\n\n- A fix since 1.0.0.');
+  assert.equal(releaseNotes(changelog, '1.0.0'), 'What changed in 1.0.0.');
+  // Preparing again keeps the version and its section as they are.
+  await prepareRelease(f.root, undefined, { registryUrl: npm.url, today: '2026-11-21' });
   assert.equal(metadata(f.root).version, '1.0.1');
+  assert.equal(readFileSync(join(f.root, 'CHANGELOG.md'), 'utf8'), changelog);
   writeVersion(f.root, '1.1.0');
   await prepareRelease(f.root, undefined, { registryUrl: npm.url });
   assert.equal(metadata(f.root).version, '1.1.0');
@@ -247,15 +277,29 @@ test('preparation bumps both package files once and preserves an intentional hig
   assert.equal(git(f.root, 'tag', '--list'), '');
 });
 
+test('preparation refuses when Unreleased is empty and the version has no section, changing nothing', async () => {
+  const f = fixture(); origin(f.root);
+  const npm = await registry({ body: { name: packageName, versions: { '1.0.0': {} } } });
+  const before = readFileSync(join(f.root, 'CHANGELOG.md'), 'utf8');
+  await assert.rejects(prepareRelease(f.root, undefined, { registryUrl: npm.url }), /nothing under Unreleased to release as 1\.0\.1/);
+  assert.equal(metadata(f.root).version, '1.0.0');
+  assert.equal(readFileSync(join(f.root, 'CHANGELOG.md'), 'utf8'), before);
+});
+
 test('first preparation retains 1.0.0 and explicit minor/major choices remain deliberate', async () => {
   const f = fixture(null); origin(f.root); f.save('1.0.0');
   const npm = await registry({ status: 404, body: { error: 'Not found' } });
   await prepareRelease(f.root, undefined, { registryUrl: npm.url });
   assert.equal(metadata(f.root).version, '1.0.0');
+  writeVersion(f.root, '1.0.0', 'What changed in 1.0.0.', '- New work.');
   await prepareRelease(f.root, 'minor', { registryUrl: npm.url });
   assert.equal(metadata(f.root).version, '1.1.0');
+  writeFileSync(join(f.root, 'CHANGELOG.md'), readFileSync(join(f.root, 'CHANGELOG.md'), 'utf8').replace('## [Unreleased]\n', '## [Unreleased]\n\n- More work.\n'));
   await prepareRelease(f.root, 'major', { registryUrl: npm.url });
   assert.equal(metadata(f.root).version, '2.0.0');
+  const changelog = readFileSync(join(f.root, 'CHANGELOG.md'), 'utf8');
+  assert.equal(releaseNotes(changelog, '1.1.0'), '- New work.');
+  assert.equal(releaseNotes(changelog, '2.0.0'), '- More work.');
 });
 
 test('the installed Git hook rejects a real stale-version main push and permits development', () => {

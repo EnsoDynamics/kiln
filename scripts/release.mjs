@@ -81,21 +81,34 @@ export async function publishedVersions(registryUrl = registry) {
   return Object.keys(body.versions);
 }
 
-/** Where each version's written release notes live; the release publishes them on its GitHub Release. */
-export const releaseNotesPath = version => `docs/release/notes/kiln-release-notes-${version}.md`;
+/** Kiln's one changelog. Each release's notes are its `## [<version>]` section, which the release publishes on its GitHub Release. */
+export const changelogPath = 'CHANGELOG.md';
+
+/**
+ * The notes under a changelog heading, up to the next `## ` heading; empty when there is no such section.
+ *
+ *   releaseNotes('## [Unreleased]\n\n## [1.2.0] - 2026-11-20\n\n- Fixed a thing.\n', '1.2.0')  // '- Fixed a thing.'
+ */
+export function releaseNotes(changelog, version) {
+  const lines = changelog.split('\n');
+  const start = lines.findIndex(line => line.startsWith(`## [${version}]`));
+  if (start < 0) return '';
+  const end = lines.findIndex((line, index) => index > start && line.startsWith('## '));
+  return lines.slice(start + 1, end < 0 ? undefined : end).join('\n').trim();
+}
 
 /** Every release needs written notes at the candidate commit (AC-NOTES-02), read from Git objects as the hook checks. */
 function requireReleaseNotes(root, { version, sha }) {
-  const path = releaseNotesPath(version);
-  const listed = git(root, 'ls-tree', '--name-only', sha ?? commit(root, 'HEAD'), '--', path);
-  const notes = listed ? git(root, 'show', `${sha ?? commit(root, 'HEAD')}:${path}`) : '';
-  if (!notes.trim()) throw new Error(`Release ${version} has no written release notes. Write ${path} and commit it.`);
-  return path;
+  const at = sha ?? commit(root, 'HEAD');
+  const listed = git(root, 'ls-tree', '--name-only', at, '--', changelogPath);
+  const notes = listed ? releaseNotes(git(root, 'show', `${at}:${changelogPath}`), version) : '';
+  if (!notes) throw new Error(`Release ${version} has no written release notes. Add a "## [${version}]" section to ${changelogPath} (npm run release:prepare moves Unreleased there) and commit it.`);
+  return notes;
 }
 
 export async function checkRelease({ root, ref = 'HEAD', base, registryUrl = registry, tag }) {
   const current = metadata(root, ref);
-  current.notesPath = requireReleaseNotes(root, current);
+  current.notes = requireReleaseNotes(root, current);
   const previous = baseVersion(root, base);
   if (previous && compareVersions(current.version, previous) <= 0) {
     throw new Error(`Release version ${current.version} must be greater than main's ${previous}. Run npm run release:prepare and commit both package files.`);
@@ -109,7 +122,7 @@ export async function checkRelease({ root, ref = 'HEAD', base, registryUrl = reg
   return current;
 }
 
-export async function prepareRelease(root, increment, { registryUrl = registry } = {}) {
+export async function prepareRelease(root, increment, { registryUrl = registry, today = new Date().toISOString().slice(0, 10) } = {}) {
   if (increment && !['patch', 'minor', 'major'].includes(increment)) throw new Error('Use release:prepare with patch, minor or major.');
   git(root, 'fetch', 'origin', 'main', '--tags');
   const current = metadata(root);
@@ -129,12 +142,20 @@ export async function prepareRelease(root, increment, { registryUrl = registry }
     versionParts(version);
   }
   if (versions.includes(version) || git(root, 'tag', '--list', `v${version}`)) throw new Error(`Version ${version} is already used; choose a new version intentionally.`);
+  // The release takes what Unreleased holds, unless the version already has its section.
+  const changelog = readFileSync(join(root, changelogPath), 'utf8');
+  let promoted;
+  if (!releaseNotes(changelog, version)) {
+    if (!releaseNotes(changelog, 'Unreleased')) throw new Error(`${changelogPath} has nothing under Unreleased to release as ${version}. Write what changed there first.`);
+    promoted = changelog.replace(/^## \[Unreleased\][^\n]*\n/m, `## [Unreleased]\n\n## [${version}] - ${today}\n`);
+  }
   if (version !== current.version) {
     current.pkg.version = current.lock.version = current.lock.packages[''].version = version;
     writeFileSync(join(root, 'package.json'), `${JSON.stringify(current.pkg, null, 2)}\n`);
     writeFileSync(join(root, 'package-lock.json'), `${JSON.stringify(current.lock, null, 2)}\n`);
   }
-  console.log(`Release version ${version}${version === current.version ? ' retained' : ' prepared'}. Review and commit both package files before releasing.`);
+  if (promoted) writeFileSync(join(root, changelogPath), promoted);
+  console.log(`Release version ${version}${version === current.version ? ' retained' : ' prepared'}${promoted ? `; ${changelogPath}'s Unreleased notes are now its section` : ''}. Review and commit the package files and ${changelogPath} before releasing.`);
 }
 
 export function installHooks(root = process.cwd(), { fromWorktree = false } = {}) {
@@ -200,7 +221,12 @@ async function main() {
   const [command, argument] = process.argv.slice(2);
   if (command === 'metadata') console.log(`Package metadata agrees at ${metadata(root, argument ?? 'HEAD').version}.`);
   else if (command === 'prepare') await prepareRelease(root, argument);
-  else if (command === 'install-hooks') installHooks(root, { fromWorktree: argument === '--from-worktree' });
+  else if (command === 'notes') {
+    // The release workflow publishes this as the GitHub Release's notes.
+    const notes = releaseNotes(readFileSync(join(root, changelogPath), 'utf8'), argument ?? '');
+    if (!notes) throw new Error(`${changelogPath} has no section for ${argument}.`);
+    console.log(notes);
+  } else if (command === 'install-hooks') installHooks(root, { fromWorktree: argument === '--from-worktree' });
   else if (command === 'pre-push') await prePush(root, readFileSync(0, 'utf8'));
   else if (command === 'candidate') {
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
@@ -215,7 +241,7 @@ async function main() {
     if (!process.env.GITHUB_OUTPUT) throw new Error('GITHUB_OUTPUT is required.');
     writeFileSync(process.env.GITHUB_OUTPUT, `version=${current.version}\n`, { flag: 'a' });
     console.log(`Release ${current.version} preflight passed.`);
-  } else throw new Error('Use metadata, prepare, install-hooks, pre-push, candidate or preflight.');
+  } else throw new Error('Use metadata, prepare, notes, install-hooks, pre-push, candidate or preflight.');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

@@ -56,7 +56,7 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     await page.evaluate("history.back()"); await words(page, "Reply here and let Kiln finish");
     expect(await page.evaluate("document.querySelector('textarea').value")).toBe(reply);
     await click(page, `Have Kiln resume Phase ${stop.phaseId}`); await words(page, "already complete");
-    expect(JSON.parse(server.commands.at(-1)!.split(" /api/resume ")[1]!)).toEqual({ target });
+    expect(JSON.parse(server.commands.at(-1)!.split(" /api/resume ")[1]!)).toEqual({ target, bringUpToDate: false });
     expect(await page.evaluate("document.activeElement.textContent")).toContain("already complete");
     await words(page, "Advance without sending reply");
     writeFileSync(`/tmp/kiln-handoff-${agent === "Codex" ? "codex" : "claude"}-choice-desktop.png`, await page.screenshot());
@@ -80,7 +80,7 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     expect(await page.evaluate("document.querySelector('.return .between [role=status]').textContent")).toContain(await page.evaluate(`new Date(${JSON.stringify(stop.checkedAt)}).toLocaleTimeString()`));
     outcome = "already_complete";
     await click(page, `Send reply & resume Phase ${stop.phaseId}`); await words(page, "already complete");
-    expect(JSON.parse(server.commands.at(-1)!.split(" /api/resume ")[1]!)).toEqual({ target, note: reply });
+    expect(JSON.parse(server.commands.at(-1)!.split(" /api/resume ")[1]!)).toEqual({ target, note: reply, bringUpToDate: false });
     outcome = "still_stopped";
     await click(page, "Advance without sending reply"); await words(page, "failing check");
     expect(JSON.parse(server.commands.at(-1)!.split(" /api/check-again ")[1]!)).toEqual({ target, intent: "advance", withoutSendingReply: true });

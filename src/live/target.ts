@@ -13,6 +13,10 @@ export interface TakeoverHold {
   kind?: "delivery_recovery";
   target: LiveTarget; operationId: string; instructionId: string; requestedAt: string;
   state: "pending" | "released"; latestActivityAt?: string; observedAt: string; reason: string; handBackOperationId?: string;
+  /** Set while the hold's attempt has ended and its saved conversation can't be reopened (run restart AC-CARRY-06): the hold then ends by a carry-on. */
+  history?: import("../engine/reopen-check.js").ReopenCheck;
+  /** The carry-on ownership check's obstacle while `history` is set, or absent when it passes. */
+  carryOnObstacle?: string;
 }
 export interface LiveView {
   target: LiveTarget; label: string; observedAt: string; available: boolean; reason: string;

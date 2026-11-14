@@ -227,7 +227,7 @@ describe("kiln run on a feature not started", () => {
       assumptions: { file: "assumptions.md", total: 4, notYetConfirmed: 2 },
       plan: { phaseDocCount: 5, leafCount: 4, closedCount: 1 },
     });
-    expect(snapshot.documents!.plan.phases).toEqual([
+    expect(snapshot.documents!.plan!.phases).toEqual([
       { id: "1", title: "Return intake", closed: false, repositories: [] },
       { id: "2", title: "Refunds", splitInto: ["2a", "2b"], closed: false, repositories: [] },
       { id: "2a", title: "Card refunds", closed: true, repositories: [] },

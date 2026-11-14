@@ -21,6 +21,7 @@ import {
   RUNNING_NOW,
   runningRepositoriesSnapshot,
   runningSnapshot,
+  waitingSnapshot,
 } from "../../../src/test-support/sample-snapshots.js";
 import Complete from "./Complete.svelte";
 import DocumentsFound from "./DocumentsFound.svelte";
@@ -28,6 +29,7 @@ import NeedsYou from "./NeedsYou.svelte";
 import Paused from "./Paused.svelte";
 import PhaseDetail from "./PhaseDetail.svelte";
 import Running from "./Running.svelte";
+import Waiting from "./Waiting.svelte";
 
 const strip = (markup: string) => markup.replace(/<!--[\s\S]*?-->/g, "");
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
@@ -482,5 +484,46 @@ describe("verified delivery history", () => {
     expect(page).toContain("No delivery PR or merge could be reliably attributed");
     expect(page).toContain("3 recorded commits have no verified PR or merge link");
     expect(page).toContain("GitHub unavailable");
+  });
+});
+
+describe("the PRD total line on every header (time totals AC-TOTAL-01, AC-TOTAL-03)", () => {
+  const asOf = new Date(RUNNING_NOW).toISOString();
+  const later = RUNNING_NOW + 30 * 60_000;
+  const totalsLine = (html: string) => text(/<p class="totals[\s\S]*?<\/p>/.exec(html)?.[0] ?? "");
+
+  it("shows the labelled line under the state row on Running, Paused, Needs you and Complete", () => {
+    const runningPage = running(runningSnapshot());
+    expect(totalsLine(runningPage)).toBe("");
+    const live = runningSnapshot();
+    live.feature.timing = { runningMs: 100 * 60_000, waitingMs: 30 * 60_000, asOf, advancing: "running" };
+    expect(totalsLine(running(live))).toBe("PRD total 1h 40m running · 30m waiting · since 9:17 AM");
+
+    const paused = pausedSnapshot();
+    paused.feature.timing = { runningMs: 100 * 60_000, waitingMs: 30 * 60_000, asOf, advancing: "waiting" };
+    expect(totalsLine(strip(render(Paused, { props: { snapshot: paused, connected: true, now: later, lastSeenAt: later } }).body))).toBe("PRD total 1h 40m running · 1h waiting · since 9:17 AM");
+
+    const stop = needsYouMessageSnapshot();
+    stop.feature.timing = { runningMs: 100 * 60_000, waitingMs: 30 * 60_000, asOf, advancing: "waiting" };
+    expect(totalsLine(strip(render(NeedsYou, { props: { snapshot: stop, now: later } }).body))).toBe("PRD total 1h 40m running · 1h waiting · since 9:17 AM");
+
+    const done = completeSnapshot();
+    done.feature.timing = { runningMs: 280 * 60_000, waitingMs: 58 * 60_000, asOf: done.feature.completedAt! };
+    const complete = strip(render(Complete, { props: { snapshot: done, connected: true, now: later, lastSeenAt: later } }).body);
+    expect(totalsLine(complete)).toBe("PRD total 4h 40m running · 58m waiting · 9:17 AM to 2:55 PM");
+    expect(text(complete)).toContain("5 of 5 phases done · Finished 2:55 PM");
+  });
+
+  it("shows the line, its waiting counting, on the usage-limit wait", () => {
+    const wait = waitingSnapshot();
+    wait.feature.timing = { runningMs: 100 * 60_000, waitingMs: 30 * 60_000, asOf, advancing: "waiting" };
+    expect(totalsLine(strip(render(Waiting, { props: { snapshot: wait, now: later } }).body))).toBe("PRD total 1h 40m running · 1h waiting · since 9:17 AM");
+  });
+
+  it("holds the totals at their last-known values once the view loses Kiln", () => {
+    const live = runningSnapshot();
+    live.feature.timing = { runningMs: 100 * 60_000, waitingMs: 30 * 60_000, asOf, advancing: "running" };
+    const lost = strip(render(Running, { props: { snapshot: live, connected: false, now: later, lastSeenAt: RUNNING_NOW } }).body);
+    expect(totalsLine(lost)).toBe("PRD total 1h 40m running · 30m waiting · since 9:17 AM");
   });
 });

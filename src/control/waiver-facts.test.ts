@@ -141,7 +141,8 @@ describe("the command line's Mark complete preview", () => {
     expect(preview).toMatchObject({ offered: true, check_run_id: offer.checkRunId, resulting_label: "Complete · 1 check waived", items: [{ check: "Required development delivery verified", kind: "development_requirement", subject: requirement.subject, text: requirement.text }],
       next_argv: ["kiln", "waive-and-advance", "/work/shop/docs/prds/orders", "--confirm", "--without-sending-reply", "--only-if-status-matches", "exec:token-2", "--command-id", "<new-command-id>"] });
     expect((preview.items as Record<string, unknown>[])[0]).not.toHaveProperty("against");
-    expect(markCompletePreview({ offered: false, reason: "No check has run since Phase 3 stopped." }, "/p", "t")).toEqual({ offered: false, reason: "No check has run since Phase 3 stopped." });
+    // The page's unusable button wording stays out of kiln status (waivers AC-WAIVE-02, AC-WAIVE-05).
+    expect(markCompletePreview({ offered: false, reason: "No check has run since Phase 3 stopped.", awaitingRecheck: { label: "Mark Phase 3 complete", heading: "Phase 3 is done, and Kiln’s check is wrong?" } }, "/p", "t")).toEqual({ offered: false, reason: "No check has run since Phase 3 stopped." });
     expect(markCompletePreview(offer, "/p", null).next_argv).toBeNull();
   });
 

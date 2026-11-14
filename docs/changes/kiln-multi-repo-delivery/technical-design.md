@@ -129,6 +129,8 @@ Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-ad
 
 ### Settings before Start (AC-SPACE-01, AC-REPO-03)
 
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Starting From a Branch, Several repositories (a repository that has the chosen branch uses it; existing worktrees fix the workspace folder).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Worktree and Branch Setup (defaults and field checks, per repository)
 
 | Field | Multi-repository | One repository |
@@ -153,6 +155,8 @@ The base check's `ls-remote --symref` and, when a tip isn't local, the objects-o
 ### Setup at Start
 
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted current-base continuation workspaces. Existing per-repository safety and delivery checks remain.
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Start (a repository that has the chosen branch uses it, adopting its worktree).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Worktree and Branch Setup (setup and a failed Start, per repository); `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands (setup is done when every repository's is)
 
@@ -346,6 +350,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The pull-request ch
 Every qualifying repository must have a ready PR or a containment proof; a mixture is valid. Stayed in the workspace and Codex's existing evidence checks still gate completion. Run the same check before the final session, at Check again, Resume and restart. A passing check skips unnecessary sessions. Keep `pullRequests` for actual review PRs and persist additive `mergedBranches: [{ repository, head, base, featureCommit, baseCommit, url }]` with `completedAt`; expose the same fields in the snapshot. Existing records without this optional field retain their current behavior. Complete, the final plan row, header and terminal distinguish all-merged and mixed outcomes rather than claiming a nonexistent PR or further review. Kiln gains no merge, deployment or cleanup authority.
 
 ### Delivery-history evidence (AC-PRS-03)
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §After Start (the delivery history's base range starts at `runStartCommit` when the entry has one).
 
 After completion and when a completed run is opened, enrich its display in the background. This is a bounded read, not a completion gate: retain `completedAt`, phase receipts and review-PR facts, and never start a model session, merge or deploy. Persist optional `deliveryHistory` with its read timestamp and per-repository events, work-commit count, unattributed count and explicit problems. Show pending state and partial/unavailable evidence honestly. This replaces the v1 design's no-further-GitHub-queries rule only for auxiliary delivery history; the original completion facts remain historical.
 

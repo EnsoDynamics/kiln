@@ -5,8 +5,9 @@
   // the last snapshot and says so ("Connection").
   import { onDestroy, onMount } from "svelte";
   import ExecutionHistory from "./components/ExecutionHistory.svelte";
+  import ResetFooter from "./components/ResetFooter.svelte";
   import TopBar from "./components/TopBar.svelte";
-  import type { PageConfig } from "./lib/api.js";
+  import { newerVersion, type PageConfig } from "./lib/api.js";
   import { Connection } from "./lib/connection.svelte.js";
   import { Router } from "./lib/router.svelte.js";
   import { setViewContext } from "./lib/view-context.js";
@@ -70,8 +71,10 @@
     if (router.route.screen === "phase" && snapshot && connected && phaseScreen === undefined) router.replace(config.base);
   });
 
+  let latest = $state<string | undefined>();
   onMount(() => {
     connection.open();
+    void newerVersion(config).then(answer => (latest = answer));
     stopRouting = router.start(window.location);
     ticker = setInterval(() => (now = Date.now()), 1000);
   });
@@ -83,7 +86,7 @@
 </script>
 
 <div class="page">
-  <TopBar {connected} lastEventAt={lastSeenAt} {now} home={config.base} {router} />
+  <TopBar {connected} lastEventAt={lastSeenAt} {now} home={config.base} {router} {latest} />
   {#if connection.notice}<div class="command-notice" role="status">{connection.notice}<button type="button" onclick={() => { connection.notice = undefined; }}>Dismiss</button></div>{/if}
   {#if snapshot}
     {#if snapshot.compatibility?.length}
@@ -120,6 +123,8 @@
       <Running {snapshot} {connected} {now} {lastSeenAt} />
     {/if}
     {#key snapshot.continuation?.acceptance?.newExecutionId}<ExecutionHistory {snapshot} {config} {connected} />{/key}
+    <!-- The reset line comes after everything else on the page, Earlier deliveries included (run restart AC-RESET-01). -->
+    {#if snapshot.reset}<ResetFooter control={snapshot.reset} {config} {connected} />{/if}
   {/if}
 </div>
 

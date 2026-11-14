@@ -33,6 +33,8 @@ This is one bounded change to manual recovery of implementation phases at Needs 
 | A phase also has a billing, usage, workspace or other existing recovery restriction | Retain the applicable facts, instructions and eligibility rules alongside the new handoff flow; this change grants no new permission and removes no required check. |
 | The plan is broken before a phase can run, no session has ever started, Kiln is automatically waiting for usage, or the stopped work is an audit or final-delivery activity | Existing dedicated recovery behavior remains. Do not relabel these activities as an implementation phase or apply this phase-completion confirmation to automatic recovery. |
 
+Superseded in part by: AC-CASE-02 and AC-CARRY-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the Scope table: for a phase Kiln couldn't launch, this page replaces the reply, terminal and recovery flows; the "A phase’s conversation cannot be resumed" row: the page offers a Kiln-run new session).
+
 ## Acceptance Criteria
 
 ### Understand what stopped and how to help
@@ -47,6 +49,7 @@ The person first sees the agent’s own message, then chooses where to resolve i
   - Replaces in part: AC-VIEW-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (the implementation-phase Needs you layout, retaining agent-specific information).
   - Replaces in part: AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (implementation-phase Needs you arrangement only; repository-specific recovery facts and obligations remain).
   - Replaces in part: AC-LOOK-01 and AC-LOOK-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the implementation-phase Needs you layout and its phase-focused headline; existing feature identity remains visible).
+  - Superseded in part by: AC-CASE-01 and AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the headline; the three stopped-phase pages and the held page AC-CARRY-06 changes, and the reset line on every screen; the rest of each layout remains).
 
 ### Answer here or talk it through in the terminal
 
@@ -58,6 +61,7 @@ A short answer can be sent directly from Kiln. A longer discussion uses the same
 - [x] **AC-TERMINAL-01 — The terminal choice reopens the exact conversation.** The adjacent terminal choice supplies the existing copyable command for the correct workspace and saved agent session. Opening the saved conversation requires no additional recovery prompt to copy or paste, including after a permission change; fresh-session setup remains a separate option. It explicitly serves either a discussion or finishing the phase personally. Copying the command does not launch or resume work. It directs the person to exit the terminal agent session before using the return choices.
   - Superseded in part by: AC-BACK-01 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the existing terminal and hand-back flow also serves deliberate takeover of Claude phases and audits).
   - Superseded in part by: AC-NEXT-01/02 and AC-WAIVE-02 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (the hand-back page's arrangement and action names, and Mark complete after a failed recheck; every action's behavior remains).
+  - Superseded in part by: AC-CASE-02 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (this page replaces the reply, terminal and recovery flows).
 - [x] **AC-TERMINAL-02 — Handing back needs no special phrase.** A short visible tip recommends asking the agent to record decisions in the requirements when the conversation changed the plan. The page explicitly says no special handoff phrase is needed. Kiln does not require a phrase, a typed summary, or a requirements edit merely to resume the conversation.
   - Superseded in part by: AC-BACK-01 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the existing terminal and hand-back flow also serves deliberate takeover of Claude phases and audits).
 
@@ -92,6 +96,7 @@ The completion action answers “is this phase finished?” It does not ask the 
   - Superseded in part by: AC-BACK-03 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (takeover audits show and recheck their assigned report, currentness, workspace and delivery predicates).
   - Superseded in part by: AC-WAIVE-10/11 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (the rows list every failing item and tag waived ones, and counts report waived checks separately).
   - Retains the evidence obligations of AC-STOP-03 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-CHECK-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md`; the layout replacement is owned by AC-PAGE-02.
+  - Superseded in part by: AC-CASE-03 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (no checks shown until asked).
 - [x] **AC-VERIFY-03 — A recheck produces fresh results or a visible error.** Every completed Verify attempt refreshes all applicable results and their check time, including an attempt that still fails a requirement. While checking, the action says it is checking. If the check itself cannot finish, show the error and do not advance or present earlier results as newly checked; any retained results retain their previous successful-check time. The same Verify action retries the check after the problem is addressed. A passing check may leave this page for the resulting execution state; the outcome remains explicit.
   - Superseded in part by: AC-BACK-03 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (takeover audits show and recheck their assigned report, currentness, workspace and delivery predicates).
 - [x] **AC-VERIFY-04 — Pending actions cannot start competing work.** From submitting a reply, requesting resume, verifying completion or explicitly advancing until its result is shown or work starts, competing resume/verify/advance submissions are unavailable. Refusals explain why, preserve unsent text, and leave the person with the actions actually available. A disconnected view cannot submit work as if Kiln were connected.
@@ -102,6 +107,7 @@ Clearer choices must not change what counts as finished or which work the person
 
 - [x] **AC-COMPAT-01 — The current agent, evidence and permissions remain authoritative.** All affected controls and instructions use the recorded agent and phase, and retain the current account/model, billing, workspace, required confirmations, missing-history and launch eligibility rules. Resuming a conversation does not establish completion or clear failed evidence. Both Claude Code and Codex retain their existing terminal and fresh-session recovery capabilities; no control promises a resumable conversation when none is available.
   - Superseded in part by: AC-CHECK-01 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (workspace auditing and acceptance only; independent completion requirements remain).
+  - Superseded in part by: AC-CASE-02 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (a phase Kiln couldn't launch offers no fresh-session prompt).
 - [x] **AC-COMPAT-02 — Ordinary continuation remains automatic.** After a resumed phase genuinely completes, and after a successful explicit Verify/advance, Kiln follows the existing plan without introducing another manual handoff between phases, audits or final delivery. Existing requested pauses, limits and blockers remain effective. The explicit already-complete choice in AC-RETURN-02 is confined to the person’s manual phase-resume request.
 
 ## Mockup and review examples

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "16aec907-4806-4ab7-bb2c-947a5546b55b",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The whole-PRD test audit of Kiln Run Restart at 9b8b913 graded all 23 criteria. Five are Adequate (AC-FROM-01, AC-FROM-04, AC-CASE-02, AC-CASE-04, AC-CARRY-05), and a deliberate break of each one's riskiest part made a mapped test fail. The other 18 are Weak: each has stated parts no test would notice breaking, ten of them high risk. No criterion is Missing or unbuilt, and no mapped test is skipped or failing. The audit changed no tests or code; the remaining work is recorded in order under To fix in docs/changes/kiln-run-restart/test-audit.md for fixing sessions.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}

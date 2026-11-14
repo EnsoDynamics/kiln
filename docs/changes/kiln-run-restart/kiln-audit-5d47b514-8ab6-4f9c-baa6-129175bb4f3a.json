@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "5d47b514-8ab6-4f9c-baa6-129175bb4f3a",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The first fixing chat of the Kiln Run Restart whole-PRD test audit worked the two highest rows. AC-CARRY-04 is now Adequate (16 of 16 parts), and AC-CURRENT-01 rose from 13 of 24 to 24 of 26 parts but stays Weak: a fresh re-grader still finds a command at a held phase that offers carry-on, and several repositories caught up at a stop, unproven. Every new test was seen to fail against a deliberate break, apart from launch guards the audit doesn't break. A new test exposed a real race: Kiln's own git status reads could hold the worktree's index lock and make a stopped phase's catch-up fail; both reads now pass --no-optional-locks (commit 1687340), so a fresh delivery audit is due. The full suite passed. The remaining 17 Weak rows are recorded in order under To fix in docs/changes/kiln-run-restart/test-audit.md.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": true
+}

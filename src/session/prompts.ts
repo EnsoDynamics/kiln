@@ -118,6 +118,41 @@ export function freshSessionPrompt(values: PhasePromptValues, previousSessionRan
   return `${prompt.slice(0, firstBreak)} ${note}${prompt.slice(firstBreak)}`;
 }
 
+/** The longest earlier final message a carry-on prompt carries, in characters (run restart "Carry on"). */
+export const CARRY_ON_MESSAGE_LIMIT = 16_000;
+
+export interface CarryOnPromptValues {
+  /** The phase's fresh-session prompt. */
+  freshSession: string;
+  /** The person's reply, trimmed; absent or empty for none. */
+  note?: string;
+  /** The latest conversation's last final message, verbatim; absent when none was recorded. */
+  lastMessage?: string;
+  /** Each set-up repository's commits (short SHA and subject) and its uncommitted file count. */
+  work: { name: string; commits: { sha: string; subject: string }[]; uncommittedFiles: number }[];
+  multiRepository: boolean;
+}
+
+/**
+ * The first message of a carry-on session (run restart AC-CARRY-05): the phase's fresh-session
+ * prompt, then the person's reply with the reply policy a resume note gets, the earlier session's
+ * last message verbatim (cut at 16,000 characters, saying so) and the phase's work.
+ *
+ *   carryOnPrompt({ freshSession, note: "The import work is merged now.", lastMessage: "Blocked before any code…", work: [{ name: "harbor-ledger", commits: [], uncommittedFiles: 0 }], multiRepository: false })
+ */
+export function carryOnPrompt(values: CarryOnPromptValues): string {
+  const message = values.lastMessage === undefined || values.lastMessage.trim() === ""
+    ? "No final message was recorded."
+    : values.lastMessage.length > CARRY_ON_MESSAGE_LIMIT ? `${values.lastMessage.slice(0, CARRY_ON_MESSAGE_LIMIT)}\n\n[Kiln cut this message at ${CARRY_ON_MESSAGE_LIMIT.toLocaleString("en-US")} characters.]` : values.lastMessage;
+  const work = values.work.map(entry => {
+    const commits = entry.commits.length ? entry.commits.map(commit => `  - \`${commit.sha.slice(0, 7)}\` ${commit.subject}`).join("\n") : "  - No commits";
+    const files = `  - ${entry.uncommittedFiles === 0 ? "No" : entry.uncommittedFiles} uncommitted ${entry.uncommittedFiles === 1 ? "file" : "files"}`;
+    return values.multiRepository ? `- \`${entry.name}\`:\n${commits}\n${files}` : `${commits}\n${files}`.replace(/^ {2}/gm, "");
+  }).join("\n");
+  const note = values.note?.trim();
+  return [values.freshSession, ...(note ? [fill(template("resume-note.txt"), { note }), template("resume-reply-policy.txt")] : []), fill(template("carry-on.txt"), { lastMessage: message, work })].join("\n\n");
+}
+
 /** The cause in a resumed session's prompt, from the run's `interruptedBy`. */
 const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigterm: "Kiln was stopped", sleep: "the computer slept" } as const;
 

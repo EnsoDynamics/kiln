@@ -118,7 +118,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     let message: string | undefined;
     if (mutation) {
       if (!flags["command-id"] || !flags["only-if-status-matches"]) throw new ControlFailure("invalid_input", "Changing commands require command ID and status token.", 2);
-      if (name === "reply" || name === "message") message = await readMessage(typeof flags["message-file"] === "string" ? flags["message-file"] : undefined, context.cwd, name === "message" ? "live" : "reply");
+      if (name === "reply" || name === "message" || name === "carry-on" && (flags["message-file"] || flags["message-from-stdin"])) message = await readMessage(typeof flags["message-file"] === "string" ? flags["message-file"] : undefined, context.cwd, name === "message" ? "live" : "reply");
       for (const key of ["keep-awake", "resume-after-usage-limit"]) if (flags[key] && !["on", "off"].includes(String(flags[key]))) throw new ControlFailure("invalid_input", "Settings accept on or off.", 2);
     }
 
@@ -145,10 +145,13 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       if (feature && !owner.features?.includes(feature)) throw new ControlFailure("instance_incompatible", "This controller does not support the requested live control. Restart it with updated Kiln.");
       const waive = name === "waive-and-advance";
       if (waive && !owner.features?.includes("waive_and_advance")) throw new ControlFailure("instance_incompatible", "This controller does not support waive-and-advance. Restart it with updated Kiln.");
+      if ((name === "carry-on" || name === "start-again" || name === "reset") && !owner.features?.includes(name.replace("-", "_"))) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
       const token = String(flags["only-if-status-matches"]);
       const instruction = { command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
-        inputs: name === "message" ? { text: message } : name === "reply" ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}) } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };
+        inputs: name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}) } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };
       if (flags["message-reviewed"]) Object.assign(instruction.inputs, { reviewed_receipt_ids: flags["message-reviewed"] });
+      // Run restart AC-CURRENT-01: the session-starting commands catch an untouched branch up unless told not to.
+      if (flags["leave-branch-as-is"]) Object.assign(instruction.inputs, { leave_branch: true });
       // The control route picks the recheck or Mark complete and fills in the check run and source (AC-WAIVE-05).
       if (waive) Object.assign(instruction.inputs, waiveInputs(flags));
       // Live target is resolved by the controller from the guarded status or original receipt.

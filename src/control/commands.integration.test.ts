@@ -288,7 +288,7 @@ it("automatic restart recovery excludes browser and API resume and persists one 
 
 it('rejects complete and partial timed-out transport bodies before real journal admission, while timely EOF and replay work', async () => {
   const { Hono } = await import('hono'); const { installInspectionRoutes } = await import('./server.js');
-  await setup(); const app = new Hono(); await installInspectionRoutes(app, h.engine, () => undefined);
+  await setup(); const app = new Hono(); await installInspectionRoutes(app, () => h.engine, () => undefined);
   const body = instruction('settings', 'body-eof', { keep_awake: true });
   const encoded = new TextEncoder().encode(JSON.stringify(body));
   const before = readReceipts(h.stateDirectory); const calls = h.claudeCalls().length; const setting = h.engine.record.settings.keepAwake;

@@ -98,6 +98,8 @@ describe("Start from the base branch (AC-SETUP-02, AC-SETUP-03, AC-SETUP-04)", (
     const row = record.continuation!.executions.find(one => one.executionId === oldExecution)!;
     expect(row).toMatchObject({ ending: "folder_missing_setup", branch: "feature/customer-returns" });
     expect(row.completedAt).toBeUndefined();
+    // Its running time is saved with it, for the PRD total (time totals AC-TOTAL-02).
+    expect(row.runningMs).toBeGreaterThanOrEqual(0);
     expect(readExecution(h.stateDirectory, row).record.phases["1"]!.doneAt).toBeDefined();
     // Phase 1, closed in develop, never runs again: the next session is Phase 2b, in the new folder.
     const launched = h.claudeCalls().slice(calls);

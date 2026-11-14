@@ -48,7 +48,7 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
 <div id="bar"><strong>Mockup only</strong>
  <label style="margin:0;color:inherit;font-size:13px">State
   <select id="state">
-   <option value="stopped">1 · Kiln stopped: resume, or check again</option>
+   <option value="stopped">1 · Kiln stopped: resume, or check again; Mark complete shown, waiting for a recheck</option>
    <option value="failed">2 · Checked again, still failing: Mark complete offered</option>
    <option value="changed">3 · Mark complete clicked, but results changed</option>
    <option value="mixed">4 · Several kinds of failure, including Closed and Pushed</option>
@@ -116,6 +116,7 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
    <p class="kp-muted" id="waive-hint">Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to the next step. Phase 3 will show as “Complete · 1 check waived”.</p>
    <p class="kp-feedback" id="push-warning" hidden>example-app has 1 commit not pushed. Work that is not committed and pushed will be missing from the final pull request. To push it instead, have Kiln resume Phase 3.</p>
    <div class="kp-actions"><button class="js-busy" id="waive">Mark Phase 3 complete</button></div>
+   <p class="kp-muted" id="check-first" hidden>Check again first. If a check still fails, this button becomes available.</p>
    <p class="kp-feedback" id="changed-note" role="status" hidden><strong>The results changed since your last check.</strong> Nothing was marked complete. A new item, marked New above, is failing under Required development delivery verified. Review it, then choose again.</p>
   </div>
  </section>
@@ -405,10 +406,10 @@ Test audit       Round 1           running</div>
   $('checked').textContent=(rechecked?'Checked again '+(changed?'7:15:48':'7:14:05')+' PM':'Checked when Kiln stopped, 7:12:40 PM')+' · '+(4-n)+' of 4 passed';
   $('still-failing').hidden=!rechecked||changed;
   $('still-failing').innerHTML='<strong>Phase 3 still has '+n+' failing check'+plural+'.</strong> If the work isn’t finished, have Kiln resume it above.';
-  $('override').hidden=!rechecked;
+  $('override').hidden=false; $('waive-hint').hidden=!rechecked; $('check-first').hidden=rechecked;
   $('waive-hint').textContent='Mark it complete. Kiln skips the '+n+' failing check'+plural+' above, records '+(n>1?'them':'it')+' as waived, never as passed, and moves to the next step. Phase 3 will show as “Complete · '+n+' check'+plural+' waived”.';
   $('push-warning').hidden=!mixed; $('changed-note').hidden=!changed;
-  busy(false);
+  busy(false); $('waive').disabled=!rechecked;
  }
  $('recheck').addEventListener('click',()=>{ $('recheck').textContent='Checking…';busy(true);setTimeout(()=>{$('recheck').textContent='Check Phase 3 again';state.value='failed';render();},700);});
  $('waive').addEventListener('click',()=>{ $('waive').textContent='Checking…';busy(true);setTimeout(()=>{$('waive').textContent='Mark Phase 3 complete';state.value='after';render();window.scrollTo(0,0);},900);});

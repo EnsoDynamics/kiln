@@ -47,6 +47,8 @@ export interface LocalServerOptions {
   viewDirectory?: string;
   /** How often the event stream sends a heartbeat: every 5 seconds. */
   heartbeatMs?: number;
+  /** npm's newer Kiln, when there is one, asked once as this `kiln` started (newer version notice, AC-NEWER-01). */
+  newerVersion?: Promise<string | undefined>;
 }
 
 export interface LocalServer {
@@ -54,6 +56,12 @@ export interface LocalServer {
   readonly address: string;
   /** Ends every event stream and closes the server. */
   close(): Promise<void>;
+  /**
+   * Moves everything the server serves to the engine a reset built (run restart "Architecture",
+   * item 2): open event streams resubscribe, the inspection projection is written from it and each
+   * page is sent its snapshot, so open pages stay connected.
+   */
+  replaceEngine(next: Engine): void;
 }
 
 const HEARTBEAT_MS = 5_000;
@@ -86,14 +94,17 @@ export const SECURITY_HEADERS: Record<string, string> = {
  *   await server.close();
  */
 export async function startLocalServer(options: LocalServerOptions): Promise<LocalServer> {
-  const { engine, port, folderName } = options;
+  const { port, folderName } = options;
+  // The holder: every route, stream and projection reads the engine through this one binding.
+  let engine = options.engine;
+  let documents = options.documents;
   // The package's dist/view, from the compiled server in dist/ or its source in src/.
   const viewDirectory = options.viewDirectory ?? fileURLToPath(new URL("../../dist/view/", import.meta.url));
   const viewRoot = existsSync(viewDirectory) ? realpathSync.native(viewDirectory) : viewDirectory;
   const allowedHosts = new Set(port === 0 ? [] : [`127.0.0.1:${port}`, `localhost:${port}`]);
   const streams = new Set<SSEStreamingApi>();
   let closing = false;
-  const snapshot = (): Snapshot => ({ ...buildSnapshot(engine, options.documents), controlToken: engine.controlView().token, unsentReplies: engine.commands.unsent(engine.controlView().target).map(r => ({ id: r.id, text: r.reply_text! })) });
+  const snapshot = (): Snapshot => ({ ...buildSnapshot(engine, documents ?? engine.resetDocuments()), controlToken: engine.controlView().token, unsentReplies: engine.commands.unsent(engine.controlView().target).map(r => ({ id: r.id, text: r.reply_text! })) });
 
   bindLegacySessions(engine);
   let inspectionCacheError: string | undefined;
@@ -103,12 +114,16 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   };
   preserveInspection();
   let pendingInspection: NodeJS.Timeout | undefined;
-  const offInspection = engine.onChange(() => {
-    if (closing || pendingInspection) return;
+  const onInspectionChange = () => {
+    // A stopped engine (a reset under way) writes no projection into the directory the reset cleans.
+    if (closing || pendingInspection || engine.stopping) return;
     // Output bursts share one observation; live reads still project current engine facts.
     pendingInspection = setTimeout(() => { pendingInspection = undefined; preserveInspection(); }, SNAPSHOT_THROTTLE_MS);
     pendingInspection.unref();
-  });
+  };
+  let offInspection = engine.onChange(onInspectionChange);
+  /** Each open event stream's subscriptions, moved to a new engine by a reset. */
+  const subscriptions = new Map<SSEStreamingApi, { bind: () => () => void; off: () => void; send: () => void }>();
 
   const app = new Hono();
   app.onError((error, c) => c.json({ ok: false, reason: error instanceof NewerSchemaError ? error.message : "Kiln could not read the requested state." }, error instanceof NewerSchemaError ? 409 : 500));
@@ -136,7 +151,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     await next();
   });
 
-  await installInspectionRoutes(app, engine, () => inspectionCacheError);
+  await installInspectionRoutes(app, () => engine, () => inspectionCacheError);
 
   app.get("/api/delivery/evidence/:digest", c => {
     const digest = c.req.param("digest");
@@ -238,6 +253,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   });
 
   app.get("/api/snapshot", (c) => c.json(snapshot()));
+  // Settles within the check's own timeout, so a view that loads first gets the answer when it arrives.
+  app.get("/api/newer-version", async c => c.json({ latest: (await options.newerVersion) ?? null }));
 
   // Check again on the Folder missing page: the folder check, the facts and, once every folder passes, leaving the mode (AC-SETUP-06).
   app.post("/api/folder-setup/check", async (c) => {
@@ -278,25 +295,34 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
         if (closing || pending) return;
         pending = setTimeout(sendSnapshot, Math.max(0, SNAPSHOT_THROTTLE_MS - (Date.now() - lastSent)));
       };
-      const offChange = engine.onChange(onChange);
-      const offClaude = engine.claude?.onChange(onChange);
-      const offOutput = engine.onOutput((sessionId, lines) => void stream.writeSSE({ event: "output", data: JSON.stringify({ sessionId, lines }) }));
-      const offPartial = engine.onPartial((sessionId, partial) => void stream.writeSSE({ event: "partial", data: JSON.stringify({ sessionId, ...partial }) }));
+      const bind = () => {
+        const offs = [
+          engine.onChange(onChange),
+          engine.claude?.onChange(onChange),
+          engine.onOutput((sessionId, lines) => void stream.writeSSE({ event: "output", data: JSON.stringify({ sessionId, lines }) })),
+          engine.onPartial((sessionId, partial) => void stream.writeSSE({ event: "partial", data: JSON.stringify({ sessionId, ...partial }) })),
+        ];
+        return () => { for (const off of offs) off?.(); };
+      };
+      const subscription = { bind, off: bind(), send: sendSnapshot };
+      subscriptions.set(stream, subscription);
       const heartbeat = setInterval(() => void stream.writeSSE({ event: "heartbeat", data: new Date().toISOString() }), options.heartbeatMs ?? HEARTBEAT_MS);
       const closed = new Promise<void>((resolve) => stream.onAbort(resolve));
+      // An engine a reset built reruns the start checks first, before the field checks (run restart AC-RESET-04).
+      await engine.rerunStartChecks().catch(() => undefined);
       // Each page load or reconnect asks origin again, before Start (Worktree and Branch Setup).
       engine.checkBase();
       // ...and an unfinished run's folders again; the result is published through this stream (AC-GONE-01).
       // The check is awaited before the first snapshot, so a page never opens on a stale phase state.
       if (engine.isUnderway && !engine.currentlyComplete) await engine.folderGuard().catch(() => undefined);
+      // A stopped or held phase's work is read before the first snapshot too, so its case is that of the branch as the page opens (run restart "Work").
+      if (engine.isUnderway && !engine.currentlyComplete && !engine.folderMissing) await engine.refreshStoppedWork().catch(() => undefined);
       sendSnapshot();
       await closed;
       clearInterval(heartbeat);
       clearTimeout(pending);
-      offChange();
-      offClaude?.();
-      offOutput();
-      offPartial();
+      subscription.off();
+      subscriptions.delete(stream);
       streams.delete(stream);
     }),
   );
@@ -410,8 +436,20 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   };
 
   app.post("/api/settings", async (c) => {
-    const body = await jsonBody(c);
+    let body = await jsonBody(c);
     if (body === undefined) return refuse(c, 400, "The body must be a JSON object.");
+    // Where Kiln starts from (run restart "Interfaces"): saved with the settings, before Start.
+    if (body.start !== undefined) {
+      const start = body.start as Record<string, unknown> | null;
+      if (!start || typeof start !== "object" || !["new", "existing"].includes(start.from as string) || typeof start.bringUpToDate !== "boolean" || Object.keys(start).some(key => !["from", "bringUpToDate"].includes(key))) return refuse(c, 400, "start must be { from: \"new\" | \"existing\", bringUpToDate: boolean }.");
+      if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+      const { start: _start, ...rest } = body;
+      void _start;
+      const result = await engine.changeStart({ from: start.from as "new" | "existing", bringUpToDate: start.bringUpToDate as boolean });
+      if (!result.ok) return commandRefused(c, result);
+      if (Object.keys(rest).length === 0) return c.json({ settings: snapshot().settings });
+      body = rest;
+    }
     const change = settingsChange(body);
     if (typeof change === "string") return refuse(c, 400, change);
     if (Object.keys(change).every(k => ["keepAwake", "resumeAfterUsageLimit"].includes(k)) && Object.keys(change).length) return legacyControl(c, "settings", { ...(change.keepAwake === undefined ? {} : { keep_awake: change.keepAwake }), ...(change.resumeAfterUsageLimit === undefined ? {} : { resume_after_usage_limit: change.resumeAfterUsageLimit }) });
@@ -443,7 +481,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const body = (await jsonBody(c)) ?? {};
     if (engine.record.pause.activeSince || engine.restartReview) return legacyControl(c, "continue");
     if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
-    const result = await engine.start(body.refinementConfirmed === true ? { refinementConfirmed: true } : {});
+    if (body.previewId !== undefined && typeof body.previewId !== "string") return refuse(c, 400, "previewId must be text.");
+    const result = await engine.start({ ...(body.refinementConfirmed === true ? { refinementConfirmed: true } : {}), ...(typeof body.previewId === "string" ? { previewId: body.previewId } : {}) });
     return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
   });
 
@@ -482,7 +521,77 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.post("/api/resume", async (c) => {
     const body = await recoveryBody(c);
     if (body === undefined) return c.json({ ok: false, code: "invalid_request", reason: "The body must be a JSON object." }, 400);
-    return legacyControl(c, typeof body.note === "string" && body.note.trim() ? "reply" : "resume", body.note ? { message: body.note } : {}, body);
+    const { bringUpToDate, ...rest } = body;
+    if (bringUpToDate !== undefined && typeof bringUpToDate !== "boolean") return c.json({ ok: false, code: "invalid_request", reason: "bringUpToDate must be true or false." }, 400);
+    return legacyControl(c, typeof rest.note === "string" && rest.note.trim() ? "reply" : "resume", { ...(rest.note ? { message: rest.note } : {}), ...branchInputs(bringUpToDate) }, rest);
+  });
+
+  // Send reply & continue and Start Phase N again (run restart "Interfaces"): journal actions admitted
+  // only against the page's own full status token, as Mark complete is, and answered once settled.
+  const startingControl = async (c: Context, action: "carry-on" | "start-again", inputs: Record<string, unknown>) => {
+    const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
+    if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "This action needs the page's status token and command id." }, 400);
+    try {
+      const answer = engine.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action, inputs }, "caller", true);
+      if (!answer.ok) { const refusal = answer.errors[0]!; return c.json({ ok: false, code: refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409); }
+      await engine.commands.settled();
+      const op = engine.commands.lookup(id).operation as Receipt;
+      const extra = { command_id: id, operation: op, controlToken: engine.controlView().token };
+      if (op.state === "indeterminate") return c.json({ ok: false, code: "operation_indeterminate", reason: op.reason, ...extra }, 503);
+      if (op.state === "failed" || op.state === "refused") return c.json({ ok: false, code: op.outcome ?? "control_unavailable", reason: op.reason, ...extra }, op.outcome === "state_write_failed" ? 500 : op.outcome === "check_unavailable" ? 503 : 409);
+      return c.json({ ok: true, outcome: op.outcome === "phase_already_complete" ? "already_complete" : op.outcome, ...extra });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
+  };
+  app.post("/api/carry-on", async (c) => {
+    const body = await recoveryBody(c);
+    if (body === undefined || Object.keys(body).some(k => !["note", "target", "reviewedReceiptIds", "bringUpToDate"].includes(k)) || body.note !== undefined && typeof body.note !== "string" || body.bringUpToDate !== undefined && typeof body.bringUpToDate !== "boolean") return c.json({ ok: false, code: "invalid_request", reason: "Invalid carry-on request." }, 400);
+    let live: unknown;
+    if (body.target !== undefined) {
+      if (validLiveTarget(body.target)) live = body.target;
+      else if (validRecoveryTarget(body.target)) {
+        if (!engine.commands.has(c.req.header("X-Kiln-Command-Id") ?? "") && !sameRecoveryTarget(engine.phaseRecoveryTarget(), body.target)) return c.json({ ok: false, code: "stale_target", reason: "Refresh the stopped phase before carrying on." }, 409);
+        live = body.target.live;
+      } else return c.json({ ok: false, code: "invalid_request", reason: "Invalid carry-on target." }, 400);
+    }
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+    return startingControl(c, "carry-on", { ...(note ? { message: note } : {}), ...(live ? { live_target: live } : {}), ...(body.reviewedReceiptIds !== undefined ? { reviewed_receipt_ids: body.reviewedReceiptIds } : {}), ...branchInputs(body.bringUpToDate as boolean | undefined) });
+  });
+  app.post("/api/start-again", async (c) => {
+    const body = await recoveryBody(c);
+    if (body === undefined || Object.keys(body).some(k => k !== "bringUpToDate") || body.bringUpToDate !== undefined && typeof body.bringUpToDate !== "boolean") return c.json({ ok: false, code: "invalid_request", reason: "Start again takes only bringUpToDate." }, 400);
+    return startingControl(c, "start-again", branchInputs(body.bringUpToDate as boolean | undefined));
+  });
+  // Check again on the carry-on card: Codex reads the thread once; a held page reruns takeover reconciliation (run restart "Interfaces").
+  app.post("/api/reopen-check", async (c) => {
+    await engine.reopenCheckAgain();
+    return c.json({ ok: true });
+  });
+
+  // Reset Kiln for this PRD (run restart "Interfaces"): the confirmation's facts, read when it opens.
+  app.get("/api/reset/preview", async (c) => c.json(await engine.resetPreview()));
+  // The reset itself, a journal action admitted against the page's full status token, answered once
+  // the new engine is published, or 500 `restart_required` when a step failed after the engine stopped.
+  app.post("/api/reset", async (c) => {
+    const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
+    if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "Reset needs the page's status token and command id." }, 400);
+    const admitting = engine;
+    try {
+      const answer = admitting.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action: "reset", inputs: {} }, "caller", true);
+      if (!answer.ok) { const refusal = answer.errors[0]!; return c.json({ ok: false, code: refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409); }
+      await admitting.commands.settled();
+      const outcome = await admitting.resetOutcome;
+      if (outcome && !outcome.ok) return c.json({ ok: false, code: "restart_required", reason: outcome.reason }, 500);
+      // A retry once the new engine is published returns the kept receipt from the new journal.
+      const op = admitting.commands.lookup(id).operation as Receipt;
+      if (op.state !== "completed") return c.json({ ok: false, code: op.outcome ?? "operation_indeterminate", reason: op.reason }, op.state === "indeterminate" ? 500 : 409);
+      return c.json({ ok: true, outcome: "reset", controlToken: outcome?.ok && outcome.controlToken ? outcome.controlToken : engine.controlView().token });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
   });
 
   // Mark complete (waivers "Local HTTP", AC-WAIVE-03 to 06): the one `waive-and-advance` journal
@@ -562,6 +671,19 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   allowedHosts.add(`localhost:${bound.port}`);
   return {
     address: `http://127.0.0.1:${bound.port}/${folderName}`,
+    replaceEngine: (next: Engine) => {
+      offInspection();
+      engine = next;
+      documents = undefined;
+      offInspection = engine.onChange(onInspectionChange);
+      bindLegacySessions(engine);
+      preserveInspection();
+      for (const subscription of subscriptions.values()) {
+        subscription.off();
+        subscription.off = subscription.bind();
+        subscription.send();
+      }
+    },
     close: async () => {
       closing = true;
       offInspection();
@@ -576,7 +698,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 }
 
 /** The routes that act while a folder is missing: Check again, and refreshing agent information. */
-const FOLDER_MISSING_ROUTES = new Set(["/api/folder-setup/check", "/api/folder-setup/panel", "/api/folder-setup/start", "/api/metadata/refresh"]);
+const FOLDER_MISSING_ROUTES = new Set(["/api/folder-setup/check", "/api/folder-setup/panel", "/api/folder-setup/start", "/api/metadata/refresh", "/api/reset"]);
 
 function tokenMatches(given: string | undefined, token: string): boolean {
   if (given === undefined) return false;
@@ -617,6 +739,15 @@ async function jsonBody(c: Context): Promise<Record<string, unknown> | undefined
 }
 
 /** `POST /api/settings`'s body, checked field by field; a string is why it was refused. */
+/**
+ * A stopped phase's page sends its catch-up box (run restart "Catching a Branch Up"): ticked is
+ * `bring_up_to_date`, so a branch that no longer qualifies returns `branch_changed`; unticked, or
+ * no offer shown, leaves the branch as it is.
+ */
+function branchInputs(bringUpToDate: boolean | undefined): Record<string, boolean> {
+  return bringUpToDate === true ? { bring_up_to_date: true } : { leave_branch: true };
+}
+
 function settingsChange(body: Record<string, unknown>): Partial<Settings> | string {
   const change: Partial<Settings> = {};
   if (body.developmentDeployments !== undefined) {

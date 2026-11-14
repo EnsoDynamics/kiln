@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "a5d72426-7394-4b1d-a0a9-ceac3fc2ecd4",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The whole-PRD delivery audit of Kiln Run Restart at 522e983 found 10 of 23 criteria not fully built, with eleven missing parts, each small. Phase 4 completes stopped-phase recovery: AC-CASE-01, 02 and 04, and AC-CARRY-04, 05 and 06. Phase 5 completes starting from an existing branch: AC-FROM-01, 03 and 04, and AC-CURRENT-01. The audit ran four rounds, the cap, and the fourth still confirmed new gaps. No criterion was amended, and no behavior was found changed outside the requirements.",
+  "completionPhases": ["4", "5"],
+  "needsYou": [],
+  "settled": []
+}

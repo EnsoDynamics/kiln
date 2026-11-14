@@ -1,5 +1,7 @@
 # Phase 3: Reset Kiln for a PRD
 
+**Closed:** 2026-11-12
+
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "Architecture" (item 2, the engine holder), "Reset", "Interfaces" (`GET /api/reset/preview`, `POST /api/reset`, the snapshot's `reset`, `kiln reset` and the **Start over** help group), "Data Models" (the `reset` journal action and receipt), "Changes to Earlier Designs" (the Kiln v1 state and `kiln run` pointers, Missing Worktree Recovery's Folder Check pointer, Bot Control's retained receipt, Public Release Readiness's help groups)
 
@@ -18,3 +20,11 @@ Nothing later; this is the last planned phase.
 ## Phase-specific notes
 - `docs/kiln-command-line-and-bot-control.md` gains `kiln reset`, with its outcome read through `kiln command-status`.
 - The Delivery section's minor release follows this phase, once the PRD's audits close.
+
+## Carried forward from Phase 1
+- AC-LOOK-01's `Superseded in part by:` pointer on AC-LOOK-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` was left for this phase: Phase 1 changes nothing on the Folder missing page, which gains only the reset line here. Phase 1 added AC-LOOK-01's other pointers.
+
+## Carried forward from Phase 2
+- Documents found's preview is `Engine.refreshStartPreview` (`src/engine/start-from.ts` `existingBranchPreview` and `newBranchPreview`), run inside `runFieldChecks`, so an event-stream connection (`checkBase`), a settings change and Start each recompute it. A reset's not-started engine gets it the same way; the start-check rerun before the field checks is this phase's.
+- The adopted-worktree rule AC-RESET-04 applies: an adopted worktree's uncommitted files are counted, and only files under the PRD's directory hold Start (`PreviewRepository.worktree.prdFiles`, the preview's `fieldError`).
+- A reset's fresh record has no `start`, so the starting point is computed again: an existing branch named `settings.featureBranch` selects A branch that already exists.

@@ -303,7 +303,7 @@ The alternative is to count a draft as open, so someone who prefers drafts still
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
 | UI-001 | A usage limit turns amber at 80% used, on Running and Paused only | 2026-10-17 | PRD AC-WATCH-08; Technical Design, Account and Usage |
-| UI-003 | A feature branch name already taken is flagged beside its field and holds Start | 2026-10-17 | PRD AC-START-07; Technical Design, Worktree and Branch Setup. Deleting the old branch yourself frees the name |
+| UI-003 | A feature branch name already taken is flagged beside its field and holds Start | 2026-10-17 | PRD AC-START-07; Technical Design, Worktree and Branch Setup. Deleting the old branch yourself frees the name. Superseded in part by AC-FROM-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md`: a name already taken can be chosen as the branch to start from |
 | UI-004 | A new PRD starts on the latest Opus at high effort; the list offers the account's models | 2026-10-17 | PRD AC-START-06; Technical Design, Account and Usage |
 | UI-005 | Kiln never waits for a usage limit to reset; a limit stop is a Needs you like any other | 2026-10-17 | PRD AC-WATCH-08; Technical Design, Account and Usage |
 | UI-006 | At Needs you the browser shows only the Needs you screen; the plan's Needs you row shows only on Disconnected | 2026-10-17 | Technical Design, HTTP API |

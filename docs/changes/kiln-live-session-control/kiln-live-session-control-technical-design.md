@@ -112,6 +112,8 @@ Use bounded helper reads (5 seconds) and hook timeout (10 seconds) with failure 
 
 ### Release is a separate fact
 
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Held Phase That Can't Be Reopened (a hold whose conversation can't be reopened ends by a carry-on session or its advance, on the carry-on ownership check).
+
 After yielding, stop accepting user input and let the provider drain admitted work. Background tool return is not process completion: the probe returned `hook_stopped`, then a background-task completion and another model result before the process closed. Keep the no-new-work gate in force across these callbacks. Do not cancel background work to accelerate readiness.
 
 The accounting boundary is the attempt, its admitted provider operations/tasks, and controller-tracked process identities: AC-TAKE-02 requires release of the attempt and tracked tool processes, while AC-TAKE-04 retains unresolved tracked ownership. Every known unfinished operation or tracked identity blocks readiness until terminal evidence resolves it. This does not promise containment of all downstream effects of a completed shell command or remote call. A deliberately detached child may outlive its completed launcher without becoming a provider-tracked task; the tested macOS kqueue path cannot discover all such descendants. Do not claim those arbitrary external effects are stopped, and do not introduce universal descendant/remote-effect containment as an extra release prerequisite. A known unresolved tracked child remains blocking even if it detached; the distinction is retained ownership evidence, not whether its process group changed.
@@ -146,6 +148,8 @@ This admission contract implements AC-TAKE-04's Kiln-controlled action boundary 
 Once release is proved, show the actual cwd and platform-correct quoted `cd <folder> && claude --resume <provider-session-id>`, without an additional recovery prompt to copy or paste. Copy does not launch. With unavailable history, display existing recovery guidance and no enabled same-conversation copy/resume promise.
 
 ### Activity-specific evaluate, then act
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Held Phase That Can't Be Reopened (a hold whose conversation can't be reopened ends by a carry-on session or its advance, on the carry-on ownership check).
 
 Extend the handoff target to activity and attempt identity for takeover/recovery, while retaining existing ordinary phase endpoint compatibility. Audits keep assigned kind, activity UUID, round, continuation, report path and conversation. Never allocate a new round merely because a person took over.
 
@@ -196,6 +200,8 @@ Use the exact requested/completed wording in AC-LIVE-04 across overview/detail/N
 Store unsent live drafts in page memory keyed by exact attempt above route/screen lifetime. Reconnect, output navigation and input loss preserve them; a successor never inherits them. Keep a submitted copy until receipt recovery settles. Announce async receipts/pauses accessibly; retain keyboard focus sensibly and label disabled reasons beside controls. Historical sessions, ordinary Needs you, usage waits and between-activity states retain state-specific controls. Codex/final-delivery views explain Claude-only live availability while keeping existing controls.
 
 ## Bot Extension
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Held Phase That Can't Be Reopened (a hold whose conversation can't be reopened ends by a carry-on session or its advance, on the carry-on ownership check).
 
 When both capabilities are installed, add `message` and `take-over` to the bot command contract/help and capability features. Both accept `<PRD-path>`, required `--only-if-status-matches` and `--command-id`. Message accepts exactly one of `--message-file` or `--message-from-stdin`; transport bounds, authentication, target resolution and retry lookup follow the bot design. Preserve exact live text rather than applying `reply` normalization.
 

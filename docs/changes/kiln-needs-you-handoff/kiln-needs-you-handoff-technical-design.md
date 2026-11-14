@@ -39,6 +39,8 @@ Superseded in part by: [Kiln bot control](../../prds/kiln-bot-control/kiln-bot-c
 
 ### Applicability and ownership
 
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts and §Starting a Session at a Stop (the three cases; carry on and start again; the recovery target names the latest conversation, or the latest launch when none began; missing history no longer leaves only the terminal).
+
 Expose the new handoff flow only for a stopped implementation activity with a previously started phase session. Use recorded activity/session identity, not the visible phase label: a launched leaf may have split, and the displayed judged leaf can differ from its storage key. Missing resumable history removes both reply and no-reply Resume, while retaining the fresh-session path and Verify. Billing, usage, outside-workspace and Codex recovery facts remain visible with their existing eligibility rules.
 
 All recovery submissions share the engine’s existing exclusive checking/dispatch boundary. Acquire it before asynchronous checks; retain it through completion acceptance or the resumed run’s start/refusal. Refuse competing Resume, Verify, advance and legacy recovery commands server-side, including from a second tab. Coordinate repository additions, confirmation edits and execution-affecting settings through existing ownership boundaries so an evaluation cannot accept stale obligations. Client disabling adds immediate feedback; it is not the lock.
@@ -72,6 +74,8 @@ Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-c
 Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
 
 Superseded in part by: [Kiln bot control](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md), §Durable Controls and Retries (shared durable instruction identity, stop-bound retained unsent replies, explicit acknowledgement before advancement and safe same-ID browser retry). Existing completion predicates and manual evaluate-then-act behavior remain.
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts and §Starting a Session at a Stop (the three cases; carry on and start again; the recovery target names the latest conversation, or the latest launch when none began; missing history no longer leaves only the terminal).
 
 Retain loopback binding, Host/Origin/token checks and existing endpoints. Require a target for the affected manual phase requests so a delayed press cannot act on a different stop. Dedicated recovery outside this scope retains its existing request/response contracts.
 
@@ -154,6 +158,8 @@ Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-c
 Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Display Contract (hand-back arrangement and action names under AC-NEXT-01/02).
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts and §Starting a Session at a Stop (the three cases; carry on and start again; the recovery target names the latest conversation, or the latest launch when none began; missing history no longer leaves only the terminal).
 
 Build the arrangement and action wording from the saved mockup; sample agent, phase, question and check count are illustrative. Keep feature/repository/PRD identity and connection state visible. Lead with the recorded last message verbatim, or existing output/error evidence if absent; never assert that a failed check means the agent asked a question. Then show peer reply/terminal choices, followed by **Back from your terminal?**, with unfinished-work Resume and finished-personally Verify beside its visible check results. Stack in that reading order on narrow screens.
 
