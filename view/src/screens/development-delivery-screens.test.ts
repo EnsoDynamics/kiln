@@ -130,8 +130,8 @@ it.each(["phase detail", "needs you", "waiting"])("retains distinct pending, mer
       ? render(NeedsYou, { props: { snapshot, now: RUNNING_NOW } }).body
       : render(Waiting, { props: { snapshot, now: RUNNING_NOW } }).body;
   const text = words(html);
-  expect(text).toContain("github.com/acme/returns-api · returns-api-dev");
-  expect(text).toContain("Merge confirmed");
+  expect(text).toContain("github.com/acme/returns-api · returns-api-dev : 1 merge confirmed · latest #41 Merge details (1)");
+  expect(html).toMatch(/<details class="merge-details[^"]*"><summary[^>]*>Merge details \(1\)<\/summary>[\s\S]*Merge confirmed/);
   expect(html).toContain(`href="${mergeUrl}"`);
   expect(text).toContain("Source 123456789abc · Result abcdef123456");
   expect(text).toContain("deploy: planned / awaiting evidence");

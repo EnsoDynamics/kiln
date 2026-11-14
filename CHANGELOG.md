@@ -18,6 +18,10 @@ section to the new version.
   labelled **Completion checks**.
 - An item an audit lists for a person while Kiln carries on now reads **for your review**
   instead of **waiting for you**, since Kiln keeps working and nothing waits on it yet.
+- A long fresh-session prompt at Needs you now scrolls inside a box of fixed height, so the
+  **Copy prompt** button below it stays in view.
+- **Early merges allowed** now shows one line per merge target, with how many merges landed and
+  a link to the latest; each merge's evidence sits under **Merge details**.
 
 ## [1.2.2] - 2026-11-14
 

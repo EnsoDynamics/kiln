@@ -16,6 +16,17 @@
   const saved = $derived(optimistic ?? snapshot.settings.developmentDeployments ?? { enabled: false, targets: [] });
   const delivery = $derived(snapshot.developmentDelivery);
   const legacyChoices = $derived(saved.targets.length > 0);
+  /** One line per merge target: how many early merges landed, how many are still open, and the latest merge. */
+  const mergeSummaries = $derived.by(() => {
+    const rows = new Map<string, { key: string; confirmed: number; unresolved: number; latest?: { number: number; url: string } }>();
+    for (const checkpoint of delivery?.checkpoints ?? []) {
+      const key = `${checkpoint.target.repository} · ${checkpoint.target.environment}`;
+      const row = rows.get(key) ?? { key, confirmed: 0, unresolved: 0 };
+      if (checkpoint.merge) { row.confirmed += 1; row.latest = { number: checkpoint.merge.number, url: checkpoint.merge.url }; } else row.unresolved += 1;
+      rows.set(key, row);
+    }
+    return [...rows.values()];
+  });
   async function save(settings: DevelopmentSettings) {
     if (!config || saving) return;
     optimistic = { ...saved, ...settings };
@@ -61,12 +72,14 @@
     <h3>Early merges allowed</h3>
     <p>Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
     <ul>{#each delivery.authorization.grants as grant}<li>{grant.target.repository} · {grant.target.baseBranch}{#if grant.target.environment}{" · "}Existing scope: {grant.target.environment}{/if}</li>{/each}</ul>
+    {#each mergeSummaries as row (row.key)}<p class="merge-summary"><strong>{row.key}</strong>: {row.confirmed} {row.confirmed === 1 ? "merge" : "merges"} confirmed{#if row.unresolved}{" · "}{row.unresolved} unresolved{/if}{#if row.latest}{" · "}latest <a href={row.latest.url} target="_blank" rel="noreferrer">#{row.latest.number}</a>{/if}</p>{/each}
+    {#if delivery.checkpoints.length}<details class="merge-details"><summary>Merge details ({delivery.checkpoints.length})</summary>
     {#each delivery.checkpoints as checkpoint (checkpoint.id)}
       {@const waived = waivedRequirements(snapshot, checkpoint, delivery.checkpoints)}
       <article>
         <h4>{checkpoint.target.repository} · {checkpoint.target.environment}</h4>
-        <p>{checkpoint.merge ? "Merge confirmed" : "Merge unresolved"}{#if checkpoint.merge} · <a href={checkpoint.merge.url} target="_blank" rel="noreferrer">#{checkpoint.merge.number}</a>{/if}</p>
-        <p>Source {checkpoint.headSha.slice(0, 12)}{#if checkpoint.merge} · Result {checkpoint.merge.resultSha.slice(0, 12)}{/if}</p>
+        <p>{checkpoint.merge ? "Merge confirmed" : "Merge unresolved"}{#if checkpoint.merge}{" · "}<a href={checkpoint.merge.url} target="_blank" rel="noreferrer">#{checkpoint.merge.number}</a>{/if}</p>
+        <p>Source {checkpoint.headSha.slice(0, 12)}{#if checkpoint.merge}{" · "}Result {checkpoint.merge.resultSha.slice(0, 12)}{/if}</p>
         {#each checkpoint.operations as operation (operation.id)}<p>{operation.kind}: {operation.state === "prepared" ? "planned / awaiting evidence" : operation.state}{#if operation.reason} · {operation.reason}{/if}</p>{/each}
         {#each checkpoint.evidence.filter(fact => fact.status === "success" || !waived.has(fact.requirementId)) as fact}<p>{checkpoint.requirements.find(one => one.id === fact.requirementId)?.purpose}: {fact.status} · {fact.environment} · {fact.revision.slice(0, 12)} · {new Date(fact.observedAt).toLocaleString()}</p>{#if config}<button type="button" onclick={() => inspect(fact.rawDigest)}>Inspect {fact.requirementId} evidence</button>{/if}{#if inspected[fact.rawDigest]}<pre>{inspected[fact.rawDigest]}</pre>{/if}{/each}
         {#each [...waived] as [requirementId, waiver] (requirementId)}
@@ -80,6 +93,7 @@
         {#if checkpoint.unresolvedReason}<p role="alert">{checkpoint.unresolvedReason}</p>{/if}
       </article>
     {/each}
+    </details>{/if}
     {#each delivery.repositoryResults as result}<p><strong>{result.repository}: {result.state}</strong>{#if result.reviewPullRequest} · <a href={result.reviewPullRequest.url} target="_blank" rel="noreferrer">Review #{result.reviewPullRequest.number}</a>{/if}{#each result.reasons as reason}<span> · {reason}</span>{/each}</p>{/each}
     {#if delivery.checkedAt}<p>Last checked {new Date(delivery.checkedAt).toLocaleString()}</p>{/if}
   {/if}
@@ -111,5 +125,7 @@
   h3, h4 { font-size: 14px; }
   a { color: inherit; }
   .waived { color: var(--amber); font-weight: 600; }
+  .merge-summary { margin: 8px 0; }
+  .merge-details > summary { cursor: pointer; color: var(--muted); margin: 8px 0; }
   pre { overflow: auto; max-height: 320px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>
