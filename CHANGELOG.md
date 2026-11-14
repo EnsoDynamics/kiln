@@ -24,6 +24,9 @@ section to the new version.
   need attention, are waiting or were waived, with a link to the latest. Each merge that needs
   attention shows its reason under that line; the rest of each merge's evidence sits under
   **Merge details**. A merge replaced by a later one is no longer counted.
+- When a field above holds **Start** on Documents found, the line under **Start** now says which
+  field and why, or how many fields need fixing, and says **Not connected to Kiln.** when the
+  page has lost Kiln. Before, Start was greyed out with nothing beside it.
 
 ## [1.2.2] - 2026-11-14
 

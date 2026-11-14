@@ -15,7 +15,7 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-11-07
+**Last Updated**: 2026-11-14
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the business assumptions we're making to proceed with Kiln v1. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong.
@@ -138,6 +138,7 @@ Each variant **changes as little drawn copy as possible**, and every sentence st
 
 **4. The grey busy notes** that replace a drawn note while Kiln works, with its button unavailable:
 - **Under Start on Documents found** (drawn as "Confirm refinement to start."): while Kiln sets up the worktree after Start, **"Setting up the worktree…"**; while it checks the base branch on `origin`, **"Checking develop on origin…"**, naming the chosen base branch. When both apply, the note shows **setting up**.
+- **Under Start on Documents found, when a field message holds Start** (ruled 2026-11-14: a held Start says why beside it): one message names its field and repeats it, **"Worktree: That folder already exists and isn’t empty. Choose a new one."** (the fields are named **Workspace folder**, **Worktree**, **Feature branch**, **Base branch** and **Model**; with several repositories each base is named for its repository, **"returns-api’s base branch"**); two or more read **"Fix the 2 fields marked above to start."** While the view isn't connected to Kiln, the note reads **"Not connected to Kiln."**
 - **Under Check again on Needs you** (drawn as "Checked 1:21 PM."): while the check runs, which can take up to 2 minutes when `origin` doesn't answer, **"Checking…"**
 
 **5. What Kiln prints on `kiln run` for a feature already underway** (AC-START-09). The terminal mockup draws one case, a resumed session; every case keeps its two lines and colors:
