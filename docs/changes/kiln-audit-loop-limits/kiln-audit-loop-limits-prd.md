@@ -8,7 +8,7 @@
 
 ## Summary
 
-Kiln gets a limit on how many times its closing audits can send it back for more work before it checks with the person. Before Start, the person sets how many **delivery audit loops** and **test audit loops** Kiln makes on its own, and what happens after the last test audit loop: deliver unless something serious is left, or always stop and ask. When a limit is reached, Kiln stops at Needs you with what the loops did and what is left, and the person can allow more loops, take the audit over, or accept what is left and deliver.
+Kiln gets a limit on how many times its closing audits can send it back for more work before it checks with the person. Before Start, the person sets how many **delivery audit loops** and **test audit loops** Kiln makes on its own, and what happens after the last test audit loop: deliver unless something serious is left, or always stop and ask. When a limit is reached, Kiln stops at Needs you with what the loops did and what is left, and the person can allow more loops, take the audit over, or accept what is left and deliver. On the same screen, a new PRD on Claude Code now starts at Medium effort.
 
 ## Business Context
 
@@ -70,17 +70,34 @@ The last session of test fixes is told that it is the last, and what the person 
 
 A stop for used-up loops is an ordinary Needs you stop: nothing failed. The page gives the person what they need to judge whether the work left matters, and the ways to go on.
 
-- [ ] **AC-STOP-01 — The page says which loops ran and what is left.** The Needs you page is headed **Delivery audit loops used: 3 of 3** or **Test audit loops used: 3 of 3**, with the real numbers. It lists each loop with what it did (the phases built, or the test session) and how long it ran, and shows the latest audit's own summary and each item it listed for a person, as the audit wrote them. Kiln adds no judgment of its own about which items matter.
+- [ ] **AC-STOP-01 — The page says which loops ran and what is left.** The Needs you page is headed **Delivery audit loops used: 3 of 3** or **Test audit loops used: 3 of 3**, with the real numbers. It lists each loop with what it did (the phases built, or the test session) and how long it ran, and shows the latest audit's own summary and each item it listed for a person, as the audit wrote them. At a test audit stop it also states the person's **After the last test audit loop** choice and, under **Deliver, unless something serious is left**, the criteria the last session accepted under it. Kiln adds no judgment of its own about which items matter.
 - [ ] **AC-STOP-02 — The person can allow more loops.** The page has **Allow _N_ more loops**, where N is a whole number the person fills in, 1 or more, starting at 2. Choosing it restarts that count at zero with N as the limit for the rest of the run, and Kiln carries on: at a delivery audit stop it builds the phases the audit added, and at a test audit stop it starts the next test audit session.
 - [ ] **AC-STOP-03 — At a test audit stop, the person can accept what the audit listed and deliver.** The page has a button that accepts every item the audit listed. Kiln then starts one test audit session, which is not counted as a loop, whose prompt carries the person's acceptance of each listed item as the audit wrote it, with when they gave it. If that session reports nothing left to test, Kiln carries on to delivery. Otherwise it stops at Needs you. A delivery audit stop has no such button.
 - [ ] **AC-STOP-04 — Everything a Needs you stop already offers still works.** Taking over the audit's session, replying to it, checking again and marking the audit complete are available at these stops as at any other.
-- [ ] **AC-STOP-05 — A bot can answer the stop from the command line.** `kiln status` reports a loop stop with the same facts as the page and lists the controls available, and allowing more loops and accepting what the audit listed can each be done with a command.
+- [ ] **AC-STOP-05 — A bot can do everything the page does.** Everything this PRD adds to the page for a run that has started can also be done from the command line, so a person talking to a bot can steer the run with the same choices:
+
+  | On the page | From the command line |
+  |---|---|
+  | Change any of the three loop settings during a run (AC-LOOP-05) | A command, as for keep-awake today |
+  | See the loop counts, the limits and the setting chosen (AC-SHOW-01) | `kiln status` |
+  | See a loop stop's facts: loops used, what each did, the audit's summary and items (AC-STOP-01) | `kiln status`, which also lists the controls available at the stop |
+  | Allow _N_ more loops (AC-STOP-02) | A command taking N |
+  | Accept what the audit listed and deliver (AC-STOP-03) | A command |
+
+  Settings chosen before Start stay in the browser, as every other setting for a run not yet started does.
 
 ### Show Where the Run Stands
 
 A person looking at a run should see how close it is to a limit without opening anything.
 
 - [ ] **AC-SHOW-01 — Each loop's row says which loop it is.** In the run's list of activity, a phase or test audit session that is part of a loop shows its number and the limit, such as **loop 2 of 3**, and the last one allowed shows **last loop**.
+
+### Start Claude Code at Medium Effort
+
+A change to the same settings panel, made with this PRD because it touches the same screen: Medium is enough for most Enso Method sessions on Claude Code, and the person can still choose more.
+
+- [ ] **AC-EFFORT-01 — A new PRD on Claude Code starts at Medium effort.** On Documents found, a PRD whose settings have not been saved yet starts with Claude Code at **Medium** effort instead of High. A PRD on Codex still starts at High (AC-MODEL-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md`), and a PRD whose settings were already saved keeps the effort it has.
+  - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the starting effort for Claude Code only)
 
 ## Out of Scope
 

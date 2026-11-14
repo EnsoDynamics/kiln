@@ -16,6 +16,104 @@ h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <body>
 <main>
 <section>
+<h2>0. Documents found, with the audit loop settings in place</h2>
+<p class="note">The whole settings panel, with what this PRD changes outlined and everything else dimmed. Covers AC-LOOP-01, AC-LOOP-05, AC-STOP-05 and AC-EFFORT-01.</p>
+<div class="screen">
+<div style="width: 1280px; height: 1780px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #8c8577">KILN · DOCUMENTS FOUND</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 40px">Customer Returns</h1>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start">
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 14px; opacity: 0.55">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">What Kiln found</h2>
+<p style="margin: 0; font-size: 14.5px; line-height: 1.6; color: #bdb6a8">The PRD, its technical design, assumptions and 5 phase documents, with 0 of 5 phases closed. Unchanged by this PRD.</p>
+<div style="display: flex; flex-direction: column; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #bdb6a8">
+<span>customer-returns-prd.md</span>
+<span>technical-design.md</span>
+<span>assumptions.md</span>
+<span>phase-1-return-eligibility.md … phase-5-refund-method.md</span>
+</div>
+</section>
+
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 20px">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">How Kiln will deliver it</h2>
+
+<fieldset style="border: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; opacity: 0.55">
+<legend style="padding: 0; margin-bottom: 10px; font-size: 14.5px; font-weight: 600">Start from</legend>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<div style="border: 2px solid #ede8dd; border-radius: 12px; padding: 13px; font-size: 14.5px; font-weight: 600">A new feature branch</div>
+<div style="border: 1px solid rgba(237,232,221,0.18); border-radius: 12px; padding: 14px; font-size: 14.5px; font-weight: 600">A branch that already exists</div>
+</div>
+</fieldset>
+
+<div style="display: flex; flex-direction: column; gap: 6px; opacity: 0.55">
+<span style="font-size: 14.5px; font-weight: 600">Worktree</span>
+<span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">/home/person/devel/customer-returns</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; opacity: 0.55">
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Feature branch</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">feature/customer-returns</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Branch from, and PR into</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 13px">develop</span></div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; opacity: 0.55">
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Agent</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-size: 14px">Claude Code</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 14.5px; font-weight: 600">Model</span><span style="background: #12110e; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-size: 14px">[MODEL]</span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; border: 2px solid rgba(230,180,80,0.55); border-radius: 14px; padding: 14px 20px">
+<span style="font-size: 14.5px; font-weight: 600">Effort <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450; margin-left: 6px">NEW DEFAULT</span></span>
+<div style="display: flex; gap: 6px; font-size: 13.5px"><span style="border: 1px solid rgba(237,232,221,0.24); border-radius: 999px; padding: 6px 14px">Low</span><span style="background: #ede8dd; color: #12110e; border-radius: 999px; padding: 6px 14px">Medium</span><span style="border: 1px solid rgba(237,232,221,0.24); border-radius: 999px; padding: 6px 14px">High</span><span style="border: 1px solid rgba(237,232,221,0.24); border-radius: 999px; padding: 6px 14px">Max</span></div>
+<span style="font-size: 12.5px; line-height: 1.55; color: #8c8577">Claude Code now starts at Medium. Codex still starts at High.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 12px; opacity: 0.55; font-size: 14.5px">
+<span>☑ Keep this computer awake while a session works or Kiln waits</span>
+<span>☑ Resume after a usage limit</span>
+</div>
+
+<fieldset style="border: 2px solid rgba(230,180,80,0.55); border-radius: 14px; margin: 0; padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 16px">
+<legend style="padding: 0 8px; font-size: 14.5px; font-weight: 600">Audit loops <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450; margin-left: 6px">NEW</span></legend>
+<span style="font-size: 12.5px; line-height: 1.55; color: #8c8577">After the planned phases close, the audits can send Kiln back to finish or prove acceptance criteria. Each trip back is a loop.</span>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 6px 16px; align-items: start">
+<label for="c-dloops" style="font-size: 14.5px; font-weight: 600">Delivery audit loops, at most</label>
+<input id="c-dloops" type="number" value="3" min="1" style="grid-row: span 2; width: 72px; min-height: 44px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 15px; text-align: center">
+<span style="font-size: 12.5px; line-height: 1.55; color: #8c8577">Kiln fixes what the delivery audit finds up to 3 times. If a 4th audit still finds something, Kiln stops at Needs you.</span>
+</div>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 72px; gap: 6px 16px; align-items: start">
+<label for="c-tloops" style="font-size: 14.5px; font-weight: 600">Test audit loops, at most</label>
+<input id="c-tloops" type="number" value="3" min="1" style="grid-row: span 2; width: 72px; min-height: 44px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 0 10px; font-family: 'JetBrains Mono', monospace; font-size: 15px; text-align: center">
+<span style="font-size: 12.5px; line-height: 1.55; color: #8c8577">Up to 3 sessions of test fixes after the test audit. The 3rd is told it is the last.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-size: 14.5px; font-weight: 600">After the last test audit loop</span>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<label for="c-deliver" style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 10px; border: 2px solid #ede8dd; border-radius: 12px; padding: 13px">
+<input type="radio" id="c-deliver" name="c-after" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
+<span style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 14.5px; font-weight: 600">Deliver, unless something serious is left</span><span style="font-size: 12.5px; line-height: 1.5; color: #8c8577">Accepts the remaining Weak tests for you. Stops for missing tests, failing tests, or weak high-risk criteria.</span></span>
+</label>
+<label for="c-stop" style="display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 10px; border: 1px solid rgba(237,232,221,0.18); border-radius: 12px; padding: 14px">
+<input type="radio" id="c-stop" name="c-after" style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f">
+<span style="display: flex; flex-direction: column; gap: 3px"><span style="font-size: 14.5px; font-weight: 600">Always stop and ask me</span><span style="font-size: 12.5px; line-height: 1.5; color: #8c8577">Nothing is accepted for you.</span></span>
+</label>
+</div>
+</div>
+<span style="font-size: 12.5px; line-height: 1.55; color: #8c8577">These can be changed while Kiln runs, from the page or the command line.</span>
+</fieldset>
+
+<dl style="margin: 0; display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px 16px; font-size: 14px; opacity: 0.55">
+<dt style="color: #8c8577">Pushes</dt><dd style="margin: 0">After every phase</dd>
+<dt style="color: #8c8577">Ends at</dt><dd style="margin: 0">One PR, ready for review. Kiln won’t merge.</dd>
+</dl>
+</section>
+</div>
+
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; gap: 32px; opacity: 0.55">
+<h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Before you start</h2>
+<span style="font-size: 14.5px; color: #bdb6a8">Refinement confirmation, what starting lets Kiln do, and Start. Unchanged.</span>
+</section>
+</div>
+</div>
+</section>
+<section>
 <h2>1. Audit loop settings, before Start</h2>
 <p class="note">Covers AC-LOOP-01 to AC-LOOP-03, AC-LOOP-05.</p>
 <div class="screen">
