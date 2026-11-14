@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "8a3640b0-24eb-4a06-9ec7-a46ba7faf187",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "The fresh whole-PRD delivery audit of Kiln Run Restart at 06c6ab8, run after the test audit's fix to Kiln's own git status reads (commit 1687340), found all 23 criteria implemented. That fix only adds --no-optional-locks to two read-only status calls and removes no behavior. One round of eight fresh assessors confirmed no gap, so the assessment ended there. No criterion was amended and no behavior was found changed outside the requirements. The test audit's remaining Weak rows continue next.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": []
+}

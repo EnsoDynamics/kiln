@@ -842,6 +842,8 @@ describe("Start and the settings", () => {
     const taken = join(h.sandbox.root, ".worktrees", "customer-returns", "acme-shop");
     mkdirSync(taken, { recursive: true });
     writeFileSync(join(taken, "x"), "");
+    // A branch with the default name selects A branch that already exists (run restart AC-FROM-01); on a new branch the name is taken.
+    expect(await h.engine.changeStart({ from: "new", bringUpToDate: true })).toEqual({ ok: true });
     const refused = await h.engine.start({ refinementConfirmed: true });
     expect(refused).toMatchObject({
       ok: false,

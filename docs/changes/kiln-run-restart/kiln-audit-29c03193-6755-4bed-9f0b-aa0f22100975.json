@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "29c03193-6755-4bed-9f0b-aa0f22100975",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The whole-PRD delivery audit of Kiln Run Restart at aae107e found 3 of 23 criteria not fully built, with two missing parts. AC-FROM-02 and AC-FROM-05: on a multi-repository start from an existing branch where the PRD's repository has no copy of the branch, the first plan read does not accept the phases Closed at that repository's base commit, so Kiln can stop on a phase closed before the run. AC-LOOK-01: Documents found's catch-up offer is not drawn in its box. Phase 7 builds them. Three rounds ran; rounds 1 and 2 each confirmed one new gap and round 3 confirmed none. No criterion was amended and no behavior was found changed outside the requirements.",
+  "completionPhases": ["7"],
+  "needsYou": [],
+  "settled": []
+}

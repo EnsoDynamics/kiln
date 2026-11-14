@@ -12,6 +12,26 @@ section to the new version.
 
 ### Added
 
+- **A stopped phase says what happened and how to get going again.** When a phase's session
+  stops, the Needs you page names the case: the agent couldn't launch, the session ended
+  having built nothing, or it stopped partway. It then offers the button that fits. **Start
+  Phase N again** relaunches a phase that never began. **Send reply & continue** has Kiln
+  carry on in a new session that is told what was already done, used when the earlier
+  conversation can't be reopened; the card says why and offers **Check again** once the cause
+  is cleared. A phase that built nothing shows **Nothing to check yet** instead of failing
+  completion checks. A held phase can carry on the same way, and `kiln carry-on` and
+  `kiln start-again` give bots the same controls.
+- **Kiln can be reset for a PRD.** A **Reset** line at the bottom of every screen, or
+  `kiln reset`, has Kiln forget its progress on the PRD and return to Documents found, as if it
+  had never run it. It asks first, saying what goes and what stays, waits until no session is
+  working, and touches nothing in git: branches, worktrees and pull requests stay as they are.
+- **Kiln can start on a branch that already exists.** Documents found asks where to start
+  from: a new feature branch, as before, or an existing branch, such as one where some phases
+  were built by hand or Kiln's own branch from before a reset. Kiln reads the phase plan from
+  that branch, starts at its first open phase, adds to the branch and never rewrites it. When
+  the branch has no commits of its own yet, Kiln offers to bring it up to date with the base
+  branch first, at the start or at a stop. Several repositories can share the one branch name.
+
 - **The header shows the PRD's total time.** Once a PRD has started, every progress screen
   adds a **PRD total** line under the state: the running time and waiting time of the whole
   PRD so far, and when it started. Running time covers every session the PRD has run, its

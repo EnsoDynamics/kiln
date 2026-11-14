@@ -198,7 +198,7 @@ For a stopped phase the engine derives, and the snapshot carries:
 
 **Work.** Per set-up repository: commits reachable from the feature branch's tip but not from the phase's start commit there nor from the base's tip on origin; and the count of uncommitted files in the worktree. A phase **built nothing** when every repository has zero of both. Work is read when the stop is recorded, at each recheck, when the page is opened or reloaded, and before a session starts, and the catch-up offer is read with it (§Catching a Branch Up). When a read fails, work is unknown: the page names the read, uses today's headline and shows today's checks. A hold with `history` set has work too (§A Held Phase That Can't Be Reopened).
 
-**Case.** `could_not_start` when no session began a conversation; `built_nothing` when one did and the phase built nothing; `needs_input` otherwise, today's page. The headline, the duration line (`conversationRanMs`: the running time the phase rows show, `runTiming`'s `runningMs` over the latest conversation's runs, a run with no recorded end ending at its last saved output) and the first card follow AC-CASE-01 and AC-CASE-04. The first card is **What Kiln found**, drawn from `launchFailure`, when that is set; any earlier conversation's last message follows it. Otherwise it is today's **Last message from**, giving the latest launch's last recorded final message (the one the carry-on prompt carries), or its last lines when none was recorded. Under its facts row, a resume that couldn't spawn shows today's spawn-error warning line.
+**Case.** `could_not_start` when no session began a conversation; `built_nothing` when one did and the phase built nothing; `needs_input` otherwise, today's page. The headline, the duration line (`conversationRanMs`: the running time the phase rows show, `runTiming`'s `runningMs` over the latest conversation's runs, a run with no recorded end ending at its last saved output) and the first card follow AC-CASE-01 and AC-CASE-04. The first card is **What Kiln found**, drawn from `launchFailure`, when that is set; any earlier conversation's last message follows it. Otherwise it is today's **Last message from**, giving the latest launch's last recorded final message (the one the carry-on prompt carries), or its last lines when none was recorded. A stop after an interruption keeps the interrupted run's last lines, as today (Kiln v1 AC-KEEP-05, Kiln Multi-Repo Delivery AC-OUTSIDE-04): an interrupted stop, or a resume that couldn't reopen the conversation after Kiln resumed an interruption or after one was recorded. Under its facts row, a resume that couldn't spawn shows today's spawn-error warning line.
 
 **`launchFailure`** is set when the latest launch has a run and never began a conversation. `ran` is `claude` or `codex`. `folder` is `workingDirectoryOf(session)`, and `at` is the run's start. `sentence` is the card's sentence from the table below, which calls the folder "the worktree" when it is the PRD's worktree, and `<folder>` otherwise. `error` is shown in the block below it, then the facts row "Kiln · launch failed · `<at>` · no conversation". "Last output lines" means the session's last 10 saved output lines, the reader the ended-early page uses. The first matching row applies.
 
@@ -245,7 +245,7 @@ ReopenCheck:
 | `not_a_file` | The saved path isn't an ordinary file | 3 |
 | `no_messages` | The file holds no usable message | 4 |
 | `unreadable` | A read error, the read deadline, a record over the size Kiln reads, or a line that isn't JSON and wasn't cut off | 5 |
-| `reopen_failed` | The latest conversation is Claude's, and its last run is a resumed run (cause other than `launch`) that spawned and ended without reporting `init`. It is read from that run, never from the stop's kind, so it still holds after a carry-on fails and its `done_check` stop replaces the `not_resumable` one. A hold's check never gives this reason, because release reads the file alone. A resume that couldn't spawn is never this reason: the check reads the file as for any stop, so reply and resume stay offered while it is `available` | 6 |
+| `reopen_failed` | The latest conversation is Claude's, and its last run is a resumed run (cause other than `launch`) that spawned and ended, with its exit code or signal recorded, without reporting `init`. A run whose end Kiln recorded only as an observed exit, as a recovered process's is after Kiln was stopped outright, is not this reason: Kiln never read its stream. It is read from that run, never from the stop's kind, so it still holds after a carry-on fails and its `done_check` stop replaces the `not_resumable` one. A hold's check never gives this reason, because release reads the file alone. A resume that couldn't spawn is never this reason: the check reads the file as for any stop, so reply and resume stay offered while it is `available` | 6 |
 | `codex` | A Codex conversation with no safety problem, for a cause in the Codex table below | 7 |
 
 `fixCommand` is given only when `defects` is exactly `writable_by_others`: `chmod o-w <path>` for a folder, `chmod go-w <path>` for the file, with `<path>` absolute and shell-quoted. Running it makes that path pass, and **Check again** names the next path that fails, if any. A link, another owner, or more than one defect gets no command.
@@ -401,6 +401,7 @@ documents: adds
            planSource: { kind: "base" | "branch" | "base_after_catch_up", branch, sha },   // the start commit (§The starting point)
            repositories: [{ name, hasBranch: boolean, pullRequest?: { number, url } | { unknown: string },   // unknown: the failed read, named in Starting lets Kiln (§The preview)
                             worktree?: { path, adopted: boolean, uncommittedFiles?: number } }],
+           workspaceFolder?,                                  // several repositories with existing worktrees: W, fixed (§The branch list, Several repositories)
            closedCount, startAt?: { id, title },
            catchUp?: CatchUpOffer }
   checks: each row may be { name, passed: false, text }      // after a reset
@@ -418,7 +419,7 @@ needsYou: adds
   catchUp?: CatchUpOffer                                      // read with work; absent until the first read finishes, or when it fails (§Catching a Branch Up)
   markComplete: adds builtNothing?: true
 
-CatchUpOffer: { base: string, repositories: [{ name, branch, behind: number }] }
+CatchUpOffer: { repositories: [{ name, branch, base, behind: number }] }   // each repository its own base; the box names the base when all share one, else "each repository’s base"
 
 reset?: { available: boolean, reason?: string }                // started PRDs only; present means the reset line shows (§Reset, Availability)
 liveControl.takeover: adds history?: ReopenCheck
@@ -451,7 +452,7 @@ Schema version 21. Every addition is optional; a record from schema 20 reads unc
 - **`CheckResult.reason?: true`** (§A Stopped Phase's Facts, Nothing to check yet).
 - **`SessionRecord.startedAs?: "carry_on"`**: set on a carry-on session's record. Absent means an ordinary launch. Run causes are unchanged.
 - **`TakeoverHold.history?: ReopenCheck`**: additive under `liveControl` version 1.
-- **Command journal:** actions `carry-on` (inputs `message`, `leave_branch`, `live_target`, `reviewed_receipt_ids`), `start-again` (`leave_branch`) and `reset` (none). A receipt version 1 gains optional `branch_catch_up` (the four session-starting actions), the `effects.session` values `starting` and `started` (`carry-on` and `start-again`) and, for `reset`, `reset: { forgets: ResetPreview.forgets, new_execution_id }`, checkpointed before the record changes (§Doing it, step 2). An older Kiln reading a journal with these actions refuses it as unreadable, as it refuses any receipt it does not validate; nothing older runs against a record of schema 21.
+- **Command journal:** actions `carry-on` (inputs `message`, `leave_branch`, `bring_up_to_date`, `live_target`, `reviewed_receipt_ids`), `start-again` (`leave_branch`, `bring_up_to_date`) and `reset` (none); `reply` and `resume` gain `leave_branch` and `bring_up_to_date`. `leave_branch` is `--leave-branch-as-is`, or the page's box unticked or not offered; `bring_up_to_date` is the page's ticked box, so a branch that no longer qualifies returns `branch_changed`. With neither, a command catches up a branch that qualifies and proceeds when none does. A receipt version 1 gains optional `branch_catch_up` (the four session-starting actions), the `effects.session` values `starting` and `started` (`carry-on` and `start-again`) and, for `reset`, `reset: { forgets: ResetPreview.forgets, new_execution_id }`, checkpointed before the record changes (§Doing it, step 2). An older Kiln reading a journal with these actions refuses it as unreadable, as it refuses any receipt it does not validate; nothing older runs against a record of schema 21.
 
 ## Changes to Earlier Designs
 
@@ -480,7 +481,7 @@ Each pointer is added under the named heading when this change is built.
 
 ## Delivery
 
-- **Expected build spend:** about $10 of agent usage, for short disposable Claude Code and Codex sessions proving that a carry-on session receives the reply, last message and work (AC-CARRY-05), that start again launches a first session (AC-CASE-02), that a hold ends when the carry-on run reports Claude `init` (AC-CARRY-06), and that a carry-on from an unheld stopped Codex phase reads `started` on its `turnId`. Everything else is proved on disposable repositories with bare origins and the existing fake-agent harness.
+- **Expected build spend:** about $10 of agent usage, for short disposable Claude Code and Codex sessions proving that a carry-on session receives the reply, last message and work (AC-CARRY-05), that start again launches a first session (AC-CASE-02), that a hold ends when the carry-on run reports Claude `init` (AC-CARRY-06), and that a carry-on from an unheld stopped Codex phase reads `started` on its `turnId`. Everything else is proved on disposable repositories with bare origins and the existing fake-agent harness. The real-agent proof is `scripts/proof-run/run-restart-provider-proof.mjs claude_code|codex`, run by hand after `npm run build`.
 - **After the build:** a minor release (three new commands) by `docs/release/kiln-npm-release-steps.md`, once the PRD's audits close.
 
 ## Criteria Coverage

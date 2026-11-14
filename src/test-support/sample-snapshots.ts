@@ -350,7 +350,7 @@ export function documentsFoundRepositoriesSnapshot(): Snapshot {
     feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
     documents: {
       ...documents,
-      plan: { ...documents.plan, phases: documents.plan.phases.map((phase) => ({ ...phase, repositories: repositories[phase.id]! })) },
+      plan: { ...documents.plan!, phases: documents.plan!.phases.map((phase) => ({ ...phase, repositories: repositories[phase.id]! })) },
       checks: [
         { name: "Every phase cites its criteria", passed: true },
         { name: "Dependencies point backward", passed: true },

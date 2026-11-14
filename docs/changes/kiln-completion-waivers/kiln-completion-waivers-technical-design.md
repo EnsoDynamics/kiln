@@ -209,6 +209,8 @@ The snapshot and the status JSON carry, from the same marked results:
 
 ## Display Contract
 
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts, Nothing to check yet (no checks shown for a phase that built nothing until asked; the sentence above Mark complete).
+
 Build arrangement and wording from the approved mockup.
 
 - **Hand-back page (AC-NEXT-01/02).** The card title "Open the conversation in your terminal" becomes **Talk it through in your terminal**, or stays **Start a fresh session in your terminal** when the saved conversation cannot be opened.

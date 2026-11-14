@@ -208,7 +208,7 @@ describe("where Resume isn't offered (AC-RESUME-01)", () => {
 });
 
 describe("a session that can't be picked up (AC-RESUME-04)", () => {
-  it("comes back to Needs you as an interrupted session that can't be resumed does: its last lines, the fresh-session prompt, and no Resume", async () => {
+  it("comes back to Needs you with the fresh-session prompt and no Resume, its first card giving the last message (run restart AC-CASE-04)", async () => {
     harness = await createHarness({ sessions: [askingSession(), { noInit: true, actions: [] } as ScenarioSession] });
     const h = harness;
     await h.engine.start({ refinementConfirmed: true });
@@ -222,7 +222,9 @@ describe("a session that can't be picked up (AC-RESUME-04)", () => {
     expect(needsYou).toMatchObject({ kind: "not_resumable", resumeOffered: false, pressedResume: true, stoppedAt: h.engine.latestSession("1")!.runs[0]!.endedAt });
     expect(needsYou.stoppedAtIsLastOutput).toBeUndefined();
     expect(needsYou.resumeCommand).toBeUndefined();
-    expect(needsYou.lastLines!.map((line) => line.text)).toContain(`No conversation found with session ID: ${h.engine.latestSession("1")!.sessionId}`);
+    // The session had ended on its own before the Resume, so the first card gives its last message (run restart AC-CASE-04).
+    expect(needsYou.finalMessage).toBe("Which fields does the intake form need?");
+    expect(needsYou.lastLines).toBeUndefined();
     expect(needsYou.freshSessionPrompt).toContain("A previous session stopped partway through this phase");
     expect(phaseEvents(h)).toEqual(["prd_started", "1 started", "1 stopped", "1 resumed", "1 stopped"]);
     expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: false, status: 409 });

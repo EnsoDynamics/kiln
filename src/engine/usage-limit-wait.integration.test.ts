@@ -499,6 +499,10 @@ describe("Kiln's own resume refused again (AC-AUTO-05)", () => {
     const stop = h.engine.record.phases["1"]!.stop!;
     expect(stop.kind).toBe("not_resumable");
     expect(stop.limit).toBeUndefined();
+    // The refused run ended on its own, so the first card gives the latest launch's last recorded message (run restart AC-CASE-04).
+    const needsYou = buildSnapshot(h.engine).needsYou!;
+    expect(needsYou.finalMessage).toBe("You've hit your limit");
+    expect(needsYou.lastLines).toBeUndefined();
   });
 });
 

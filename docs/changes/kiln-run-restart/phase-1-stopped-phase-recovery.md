@@ -1,5 +1,7 @@
 # Phase 1: Stopped phase says what happened and can carry on
 
+**Closed:** 2026-11-12
+
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "Architecture" (item 3), "A Stopped Phase's Facts", "Starting a Session at a Stop", "A Held Phase That Can't Be Reopened", "Interfaces" (the carry-on, start-again and reopen-check routes; the snapshot's `needsYou` additions; the `carry-on` and `start-again` commands), "Data Models", "Changes to Earlier Designs" (the Needs You Handoff, Completion Waivers, Live Session Control and Bot Control pointers)
 

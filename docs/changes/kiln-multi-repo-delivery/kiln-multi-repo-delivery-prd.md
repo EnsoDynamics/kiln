@@ -57,6 +57,7 @@ Kiln sets up everything the sessions need before the first phase starts, so ever
 
   Before Start, the person can change the workspace folder, the feature branch name and each repository's base branch, and Kiln checks the feature branch name is free in every repository (UI-003 in `docs/prds/kiln-v1/assumptions.md`). When Start fails partway, each repository already set up keeps its worktree, branch and base, and the workspace folder and feature branch name can't change any more. The person can still change the base of a repository not yet set up, unless Kiln already made the feature branch there: the branch name is fixed and Kiln never deletes a branch (Kiln v1, AC-GIT-02), so that branch can't be made again from another base. The next Start checks and makes only what is still missing.
   - Replaces in part: AC-START-06, AC-START-07, AC-GIT-01 and AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a worktree and the feature branch in every one of the PRD's repositories, in one workspace, each with its own base branch, and what a failed Start fixes)
+  - Superseded in part by: AC-FROM-05 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (a repository that has the branch uses it).
 - [ ] **AC-SPACE-02 — Each session can work in every repository of the PRD.** Each phase's session can read, change, commit and push in every one of the workspace's worktrees, those added during the phase included. It is told the PRD's repositories, where each worktree is, and that it commits and pushes to the feature branch in each repository it changes. It is also told to stay inside the workspace, and to ask Kiln for a repository it needs that the workspace doesn't have (AC-ADD-01) rather than change that repository's own checkout. A multi-repository PRD's sessions start in the workspace folder, and wherever else v1 says "the PRD's worktree", it now means the workspace.
   - Replaces in part: AC-RUN-02, AC-RUN-03, AC-RUN-07, AC-MULTI-03 and AC-PROOF-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the session works across the workspace, and may ask Kiln for another repository)
 - [ ] **AC-SPACE-03 — A one-repository PRD keeps v1's layout and screens.** While the PRD's only repository is its own, it is delivered as the table says, a PRD already underway when this change ships included. Once it has an added repository, it is a multi-repository PRD and its screens show the repositories.
@@ -173,6 +174,7 @@ The PRD ends with each changed repository ready for review or already merged int
   - Superseded in part by: AC-DISPLAY-01 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (the ongoing settings explanation and stated delivery endpoint for authorized development deployments).
   - Superseded in part by: AC-PERMIT-02 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (the authorization summary and unconditional prohibition on merging and deploying, for explicitly authorized targets).
   - Replaces in part: AC-START-06, AC-START-08, AC-WATCH-07 and AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (per repository, and where Kiln stops)
+  - Superseded in part by: AC-FROM-04 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (Starting lets Kiln names the chosen branch, its open pull request, and bringing an untouched branch up to date).
 
 ### Look Like This Change's Mockups
 
@@ -203,6 +205,7 @@ Four screens are drawn for this change. The others it touches follow the nearest
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the screens this change alters, as the table says)
   - Replaces in part: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (its Needs you screens' failed facts, named by repository, as the table says)
   - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Needs you after work outside the workspace gains Resume and its note, where that change's mockups put them)
+  - Superseded in part by: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the three stopped-phase pages and the held page AC-CARRY-06 changes, and the reset line on every screen; the rest of each layout remains).
 
 ### Proven on Real Features
 

@@ -1,0 +1,866 @@
+// Starting from a branch that already exists, and catching an untouched branch up (Kiln Run
+// Restart, Phase 2: AC-FROM-01 to 05, AC-CURRENT-01), through the engine and its command journal
+// against real Git with bare origins and the stand-in claude.
+
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { Receipt } from "../control/commands.js";
+import { readPlanAt } from "./plan-reading.js";
+import { readBaseline } from "./plan-reconciliation.js";
+import { createHarness, landingSession, pullRequestSession, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
+import { createBareOrigin, createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
+import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
+import type { Engine } from "./engine.js";
+import { buildSnapshot, documentsFound } from "./snapshot.js";
+import { existingBranchPreview, readCatchUp, stoppedCatchUpOffer } from "./start-from.js";
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
+import * as ownership from "../live/ownership.js";
+
+let harness: Harness | undefined;
+afterEach(() => harness?.cleanup());
+
+const BRANCH = "feature/customer-returns";
+const DIRECTORY = "docs/prds/customer-returns";
+const exitsBeforeInit: ScenarioSession = { noInit: true, actions: [] };
+
+/** Documents found as `kiln run` reads it from the person's checkout. */
+function checkoutDocuments(h: Harness) {
+  const plan = readPlanAt(h.repository, DIRECTORY);
+  if (!plan.ok) throw new Error(plan.problem);
+  return documentsFound(join(h.repository, DIRECTORY), "customer-returns", plan.plan, { designFile: "technical-design.md", assumptionsFile: "assumptions.md", phaseDocCount: 5, repositories: [] }, "acme-shop");
+}
+
+/** Adds a phase document's Closed line in a checkout. */
+function close(h: Harness, checkout: string, file: string) {
+  const path = join(checkout, DIRECTORY, file);
+  const lines = readFileSync(path, "utf8").split("\n");
+  lines.splice(1, 0, "", "**Closed:** 2026-11-12");
+  writeFileSync(path, lines.join("\n"));
+}
+
+/** A branch someone built phases 1 and 2b on by hand (2a is closed in the fixture already), pushed, with the person's checkout back on develop. */
+function branchBuiltByHand(h: Harness): string {
+  git(h.sandbox, h.repository, "switch", "-q", "-c", BRANCH);
+  close(h, h.repository, "phase-1-return-intake.md");
+  close(h, h.repository, "phase-2b-store-credit.md");
+  writeFileSync(join(h.repository, "intake.txt"), "by hand\n");
+  git(h.sandbox, h.repository, "add", "-A");
+  git(h.sandbox, h.repository, "commit", "-q", "-m", "feat: intake and store credit, by hand");
+  git(h.sandbox, h.repository, "push", "-q", "-u", "origin", BRANCH);
+  const tip = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+  git(h.sandbox, h.repository, "switch", "-q", "develop");
+  return tip;
+}
+
+/** A commit on develop, pushed: the base moves ahead. */
+function advanceDevelop(h: Harness, name: string) {
+  writeFileSync(join(h.repository, name), `${name}\n`);
+  git(h.sandbox, h.repository, "add", name);
+  git(h.sandbox, h.repository, "commit", "-q", "-m", `chore: ${name}`);
+  git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  return git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+}
+
+const originTip = (h: Harness, branch: string) => git(h.sandbox, h.origin, "rev-parse", `refs/heads/${branch}`).trim();
+
+let commandNumber = 0;
+async function submit(engine: Engine, action: "start-again" | "resume" | "carry-on" | "reply" | "waive-and-advance", inputs: Record<string, unknown> = {}): Promise<Receipt> {
+  const id = `from-${++commandNumber}`;
+  const answer = engine.commands.submit({ command_id: id, execution_id: engine.record.executionId!, status_token: engine.controlView().token, action, inputs }, "caller", true);
+  expect(answer.ok, JSON.stringify(answer.errors)).toBe(true);
+  await engine.commands.settled();
+  await engine.settled();
+  return engine.commands.lookup(id).operation as Receipt;
+}
+
+describe("starting on a branch someone built phases on (AC-FROM-01, AC-FROM-02, AC-FROM-04)", () => {
+  it("selects the existing branch, reads the plan there, starts at its first open phase and adds to the branch without rewriting it", async () => {
+    harness = await createHarness({ sessions: [landingSession("src/dashboard.txt"), pullRequestSession(49)] });
+    const h = harness;
+    const handTip = branchBuiltByHand(h);
+    h.setPulls([{ number: 48, url: "https://github.com/acme/acme-shop/pull/48", title: "Customer returns", isDraft: false, isCrossRepository: false, headRefName: BRANCH, baseRefName: "develop", additions: 1, deletions: 0, commits: 1 }]);
+    const documents = checkoutDocuments(h);
+    // The checkout's own plan shows only 2a closed.
+    expect(documents.plan!.closedCount).toBe(1);
+
+    // A branch with the name Kiln would give a new one exists, so A branch that already exists is selected (AC-FROM-01).
+    await h.engine.refreshStartPreview();
+    expect(h.engine.record.start).toBeUndefined();
+    expect(h.engine.startChoice.from).toBe("existing");
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    let snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.documents!.start).toMatchObject({
+      from: "existing",
+      planSource: { kind: "branch", branch: BRANCH, sha: handTip },
+      closedCount: 3,
+      startAt: { id: "3", title: "Returns dashboard" },
+      repositories: [{ name: "acme-shop", hasBranch: true, pullRequest: { number: 48 } }],
+    });
+    expect(snapshot.documents!.start!.branches).toEqual(expect.arrayContaining([{ name: BRANCH, available: true }, { name: "develop", available: false }]));
+    expect(snapshot.documents!.start!.catchUp).toBeUndefined();
+    // What Kiln found is read at the branch's tip: its closed marks (AC-FROM-02).
+    expect(snapshot.documents!.plan!.closedCount).toBe(3);
+    expect(snapshot.documents!.plan!.phases.filter(phase => phase.closed).map(phase => phase.id)).toEqual(["1", "2a", "2b"]);
+    expect(snapshot.settings.fieldErrors.featureBranch).toBeUndefined();
+
+    // Start acts on what the page showed: a stale preview is refused.
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: "0".repeat(64) })).toMatchObject({ ok: false, status: 409, code: "start_changed" });
+    expect(h.engine.record.startedAt).toBeUndefined();
+    snapshot = buildSnapshot(h.engine, documents);
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: snapshot.documents!.start!.previewId })).toEqual({ ok: true });
+    await h.engine.settled();
+
+    const entry = h.engine.record.repositories[0]!;
+    expect(entry).toMatchObject({ runStartCommit: handTip, baseCommit: git(h.sandbox, h.repository, "merge-base", handTip, "develop").trim() });
+    expect(h.engine.record.start).toEqual({ from: "existing", bringUpToDate: true });
+    // Phases closed on the branch count as closed before the run: Kiln's first session is Phase 3's.
+    const calls = h.claudeCalls();
+    expect(calls[0]!.prompt).toContain("phase-3-returns-dashboard.md");
+    expect(h.engine.record.phases["1"]).toBeUndefined();
+    expect(h.engine.record.phases["2b"]).toBeUndefined();
+    expect(h.engine.record.phases["3"]!.doneAt).toBeDefined();
+    // Kiln added to the branch and never rewrote it: the hand-built commit is in origin's branch.
+    git(h.sandbox, h.repository, "fetch", "-q", "origin");
+    expect(git(h.sandbox, h.repository, "merge-base", "--is-ancestor", handTip, `origin/${BRANCH}`)).toBe("");
+    expect(git(h.sandbox, h.repository, "log", "--format=%s", `${handTip}..origin/${BRANCH}`).trim().split("\n")).toEqual(["feat: the phase"]);
+    // Final delivery uses the branch's open pull request into the base: #48, and no second one (AC-FROM-04).
+    expect(h.engine.record.completedAt).toBeDefined();
+    expect(h.engine.record.pullRequests?.map(pull => pull.number)).toEqual([48]);
+    expect(h.claudeCalls()).toHaveLength(1);
+  });
+});
+
+describe("an untouched branch behind its base (AC-CURRENT-01 at Start)", () => {
+  it("offers to bring it up to date, reads the plan at the base's tip, fast-forwards and pushes it at Start, and tells the first session", async () => {
+    harness = await createHarness({ sessions: [landingSession("src/a.txt"), landingSession("src/b.txt"), landingSession("src/c.txt"), landingSession("src/d.txt"), pullRequestSession()] });
+    const h = harness;
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    const before = originTip(h, BRANCH);
+    advanceDevelop(h, "one.txt");
+    const developTip = advanceDevelop(h, "two.txt");
+
+    await h.engine.refreshStartPreview();
+    const snapshot = buildSnapshot(h.engine, checkoutDocuments(h));
+    expect(snapshot.documents!.start).toMatchObject({ from: "existing", bringUpToDate: true, catchUp: { repositories: [{ name: "acme-shop", branch: BRANCH, base: "develop", behind: 2 }] }, planSource: { kind: "base_after_catch_up", branch: "develop", sha: developTip } });
+
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: snapshot.documents!.start!.previewId })).toEqual({ ok: true });
+    // The fast-forward and the push happened before any session (AC-CURRENT-01).
+    expect(originTip(h, BRANCH)).toBe(developTip);
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(developTip);
+    await h.engine.settled();
+    const entry = h.engine.record.repositories[0]!;
+    expect(entry.runStartCommit).toBe(developTip);
+    expect(entry.catchUp).toBeUndefined();
+    expect(h.engine.record.branchCatchUps).toEqual([expect.objectContaining({ repository: "acme-shop", branch: BRANCH, from: before, to: developTip, commits: 2, toldSessionId: h.engine.phaseSessions("1")[0]!.sessionId })]);
+    const calls = h.claudeCalls();
+    expect(calls[0]!.prompt).toContain(`Kiln brought ${BRANCH} up to date with its base before this session, moving it from ${before.slice(0, 7)} to ${developTip.slice(0, 7)}.`);
+    // Told once: the next session's prompt doesn't repeat it.
+    expect(calls[1]!.prompt).not.toContain("up to date with its base");
+  });
+
+  it("leaves the branch as it is when the box is unticked", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    const before = originTip(h, BRANCH);
+    advanceDevelop(h, "one.txt");
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: false })).toEqual({ ok: true });
+    const snapshot = buildSnapshot(h.engine, checkoutDocuments(h));
+    expect(snapshot.documents!.start).toMatchObject({ bringUpToDate: false, planSource: { kind: "branch", sha: before } });
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: snapshot.documents!.start!.previewId })).toEqual({ ok: true });
+    await h.engine.settled();
+    expect(originTip(h, BRANCH)).toBe(before);
+    expect(h.engine.record.branchCatchUps).toBeUndefined();
+  });
+});
+
+describe("which branches can be chosen (AC-FROM-03)", () => {
+  it("makes the base, the person's own checkout, a gone worktree and a local copy behind origin's unavailable, each with its reason", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const reasonFor = async (name: string) => {
+      await h.engine.changeSettings({ featureBranch: name });
+      await h.engine.changeStart({ from: "existing", bringUpToDate: true });
+      return buildSnapshot(h.engine).settings.fieldErrors.featureBranch;
+    };
+    // The base branch.
+    expect(await reasonFor("develop")).toBe("That's the base branch. Choose A new feature branch to start from it.");
+    // Checked out in the person's own checkout.
+    git(h.sandbox, h.repository, "switch", "-q", "-c", "mine");
+    expect(await reasonFor("mine")).toMatch(/^That branch is checked out in your own checkout, .+\. Switch that checkout to another branch to start from it\.$/);
+    git(h.sandbox, h.repository, "switch", "-q", "develop");
+    // Still recorded at a worktree folder that is gone.
+    const gone = join(h.sandbox.root, "gone-worktree");
+    git(h.sandbox, h.repository, "worktree", "add", "-q", "-b", "elsewhere", gone);
+    rmSync(gone, { recursive: true, force: true });
+    expect(await reasonFor("elsewhere")).toMatch(/^Git still records this branch at .+gone-worktree, which is gone\. .*worktree prune\.$/);
+    git(h.sandbox, h.repository, "worktree", "prune");
+    // The feature branch of another PRD Kiln has started in this repository.
+    const other = join(dirname(dirname(h.stateDirectory)), "acme-shop-other", "docs--prds--other");
+    mkdirSync(other, { recursive: true });
+    writeFileSync(join(other, "prd.json"), JSON.stringify({ startedAt: "2026-11-12T00:00:00Z", featureName: "Other returns", settings: { featureBranch: "taken-elsewhere" }, repositories: [{ mainCheckoutPath: h.repository }] }));
+    git(h.sandbox, h.repository, "branch", "taken-elsewhere");
+    expect(await reasonFor("taken-elsewhere")).toBe("That branch is the feature branch of Other returns, which Kiln has started. Choose another branch.");
+    // An earlier execution's branch of another started PRD is that PRD's too, and listed unavailable.
+    writeFileSync(join(other, "prd.json"), JSON.stringify({ startedAt: "2026-11-12T00:00:00Z", featureName: "Other returns", settings: { featureBranch: "taken-elsewhere" }, repositories: [{ mainCheckoutPath: h.repository }], continuation: { executions: [{ executionId: "e1", archiveId: "a1", branch: "earlier-execution", deliveries: [] }] } }));
+    git(h.sandbox, h.repository, "branch", "earlier-execution");
+    expect(await reasonFor("earlier-execution")).toBe("That branch is the feature branch of Other returns, which Kiln has started. Choose another branch.");
+    expect(h.engine.branchChoices!.find(choice => choice.name === "earlier-execution")).toMatchObject({ name: "earlier-execution", available: false });
+    // A worktree git left half made.
+    const half = join(h.sandbox.root, "half-made");
+    git(h.sandbox, h.repository, "worktree", "add", "-q", "-b", "half", half);
+    git(h.sandbox, h.repository, "worktree", "lock", "--reason", "initializing", half);
+    expect(await reasonFor("half")).toMatch(/half-made was left half made\. Remove it with git -C .+ worktree remove -f -f .+half-made, then reload\.$/);
+    // A local copy behind origin's: Kiln's first push would be rejected.
+    git(h.sandbox, h.repository, "branch", "behind");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop:refs/heads/behind");
+    advanceDevelop(h, "x.txt");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop:refs/heads/behind");
+    expect(await reasonFor("behind")).toMatch(/Kiln's first push would be rejected/);
+    // Diverged from origin's: rejected the same way.
+    git(h.sandbox, h.repository, "branch", "diverged", "develop~1");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop:refs/heads/diverged");
+    git(h.sandbox, h.repository, "worktree", "add", "-q", join(h.sandbox.root, "diverged-tree"), "diverged");
+    writeFileSync(join(h.sandbox.root, "diverged-tree", "own.txt"), "own\n");
+    git(h.sandbox, join(h.sandbox.root, "diverged-tree"), "add", "own.txt");
+    git(h.sandbox, join(h.sandbox.root, "diverged-tree"), "commit", "-q", "-m", "own work");
+    git(h.sandbox, h.repository, "worktree", "remove", join(h.sandbox.root, "diverged-tree"));
+    expect(await reasonFor("diverged")).toMatch(/behind or diverged from origin's, so Kiln's first push would be rejected/);
+    // A local branch ahead of origin's, built by hand and not yet pushed, stays available.
+    git(h.sandbox, h.repository, "branch", "ahead", "develop");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop~1:refs/heads/ahead");
+    expect(await reasonFor("ahead")).toBeUndefined();
+    expect(h.engine.branchChoices!.find(choice => choice.name === "ahead")).toEqual({ name: "ahead", available: true });
+    // A branch only on origin is listed too.
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop:refs/heads/only-on-origin");
+    await h.engine.refreshStartPreview();
+    expect(h.engine.branchChoices!.find(choice => choice.name === "only-on-origin")).toEqual({ name: "only-on-origin", available: true });
+    await reasonFor("behind");
+    expect(h.engine.branchChoices!.find(choice => choice.name === "behind")).toMatchObject({ available: false });
+    // Start stays unavailable while the message shows.
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409 });
+    expect(h.engine.record.startedAt).toBeUndefined();
+  });
+
+  it("adopts a worktree the branch is checked out in, counts its uncommitted files, holds Start while any are in the PRD's directory, and tells the first session", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    const existing = join(h.sandbox.root, "kept", "acme-shop");
+    mkdirSync(join(h.sandbox.root, "kept"), { recursive: true });
+    git(h.sandbox, h.repository, "worktree", "add", "-q", "-b", BRANCH, existing);
+    git(h.sandbox, existing, "push", "-q", "-u", "origin", BRANCH);
+    writeFileSync(join(existing, "notes.txt"), "half done\n");
+    writeFileSync(join(existing, DIRECTORY, "draft.md"), "draft\n");
+
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    let snapshot = buildSnapshot(h.engine);
+    expect(h.engine.startPreview!.repositories[0]!.worktree).toMatchObject({ path: existing, adopted: true, uncommittedFiles: 2, prdFiles: [`${DIRECTORY}/draft.md`] });
+    expect(snapshot.settings.fieldErrors.featureBranch).toMatch(/has uncommitted changes in the PRD's directory: docs\/prds\/customer-returns\/draft\.md\. Commit or discard them in that worktree first\.$/);
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409 });
+
+    rmSync(join(existing, DIRECTORY, "draft.md"));
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    snapshot = buildSnapshot(h.engine, checkoutDocuments(h));
+    expect(snapshot.documents!.start!.repositories[0]!.worktree).toMatchObject({ adopted: true, uncommittedFiles: 1 });
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: snapshot.documents!.start!.previewId })).toEqual({ ok: true });
+    await h.engine.settled();
+    expect(h.engine.record.repositories[0]).toMatchObject({ worktreePath: existing, adoptedWorktree: true });
+    expect(h.engine.worktreePath).toBe(existing);
+    expect(h.claudeCalls()[0]!.cwd).toBe(existing);
+    expect(h.claudeCalls()[0]!.prompt).toMatch(/has 1 uncommitted file\. Look at them before building/);
+  });
+});
+
+describe("one catch-up offer for repositories with different bases (AC-CURRENT-01, several repositories)", () => {
+  it("names each repository's own base, at Start and at a stop", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    advanceDevelop(h, "develop-only.txt");
+    // A second repository whose base is main, with the same untouched branch two commits behind it.
+    const api = createRepository(h.sandbox, "acme-api", createBareOrigin(h.sandbox, "acme-api"));
+    git(h.sandbox, api, "branch", "-m", "main");
+    git(h.sandbox, api, "branch", BRANCH);
+    for (const name of ["a.txt", "b.txt"]) { writeFileSync(join(api, name), `${name}\n`); git(h.sandbox, api, "add", name); git(h.sandbox, api, "commit", "-q", "-m", name); }
+    git(h.sandbox, api, "push", "-q", "origin", "main", BRANCH);
+    const context = { git: h.tools.git, env: h.env };
+    const preview = await existingBranchPreview({
+      git: context, gh: h.tools.gh, env: h.env, prdDirectoryFromRoot: DIRECTORY, branch: BRANCH, bringUpToDate: true,
+      repositories: [
+        { name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" },
+        { name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "main" },
+      ],
+      find: async () => ({ ok: false, problem: "not looked up" }), baseOf: () => "", others: [],
+    });
+    expect(preview.catchUp).toEqual({ repositories: [
+      { name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 },
+      { name: "acme-api", branch: BRANCH, base: "main", behind: 2 },
+    ] });
+    // A stopped phase's offer is built from each repository's own reading, the way the engine builds it.
+    const readings = [
+      await readCatchUp(context, { name: "acme-shop", mainCheckoutPath: h.repository, baseBranch: "develop" }, BRANCH),
+      await readCatchUp(context, { name: "acme-api", mainCheckoutPath: api, baseBranch: "main" }, BRANCH),
+    ];
+    expect(stoppedCatchUpOffer(readings, BRANCH)).toEqual(preview.catchUp);
+  });
+});
+
+describe("a repository that has an unavailable branch (AC-FROM-05, several repositories)", () => {
+  it("still has the branch, so its row reads PR into, while the branch is unavailable naming that repository", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    // acme-api has the branch, its local copy behind origin's; acme-shop doesn't have it.
+    const api = createRepository(h.sandbox, "acme-api", createBareOrigin(h.sandbox, "acme-api"));
+    git(h.sandbox, api, "branch", BRANCH);
+    git(h.sandbox, api, "push", "-q", "origin", "develop", BRANCH);
+    writeFileSync(join(api, "ahead.txt"), "ahead\n"); git(h.sandbox, api, "add", "ahead.txt"); git(h.sandbox, api, "commit", "-q", "-m", "ahead");
+    git(h.sandbox, api, "push", "-q", "origin", `develop:refs/heads/${BRANCH}`);
+    git(h.sandbox, api, "reset", "-q", "--hard", "HEAD~1");
+    const preview = await existingBranchPreview({
+      git: { git: h.tools.git, env: h.env }, gh: h.tools.gh, env: h.env, prdDirectoryFromRoot: DIRECTORY, branch: BRANCH, bringUpToDate: false,
+      repositories: [
+        { name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" },
+        { name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "develop" },
+      ],
+      find: async () => ({ ok: false, problem: "not looked up" }), baseOf: () => "", others: [],
+    });
+    expect(preview.fieldError).toMatch(/^In acme-api: Its local copy is behind or diverged from origin's/);
+    expect(preview.repositories.map(one => ({ name: one.name, hasBranch: one.hasBranch }))).toEqual([{ name: "acme-shop", hasBranch: false }, { name: "acme-api", hasBranch: true }]);
+  });
+});
+
+describe("a stopped phase's untouched branch (AC-CURRENT-01 at a stop)", () => {
+  it("offers the catch-up with the stop, refuses a ticked press once the branch no longer qualifies, and catches up before a command starts the session", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit, landingSession("src/intake.txt")] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.stoppedPhase()).toBe("1");
+    const developTip = advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toEqual({ repositories: [{ name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 }] });
+
+    // Ticked on the page, but the branch has an uncommitted file now: nothing starts (branch_changed).
+    const scratch = join(h.engine.worktreePath, "scratch.txt");
+    writeFileSync(scratch, "x\n");
+    const changed = await submit(h.engine, "start-again", { bring_up_to_date: true });
+    expect(changed).toMatchObject({ state: "failed", outcome: "branch_changed", branch_catch_up: [] });
+    expect(h.claudeCalls()).toHaveLength(1);
+    rmSync(scratch);
+    await h.engine.refreshStoppedWork();
+
+    // The command catches the branch up as if ticked, then starts the session (CLI default).
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    const started = await submit(h.engine, "start-again");
+    expect(started).toMatchObject({ state: "completed", outcome: "session_started", branch_catch_up: [{ repository: "acme-shop", branch: BRANCH, from: before, to: developTip, commits: 1 }] });
+    // origin holds the base's tip, and the session's own work on top.
+    expect(git(h.sandbox, h.origin, "merge-base", "--is-ancestor", developTip, `refs/heads/${BRANCH}`)).toBe("");
+    const entry = h.engine.record.repositories[0]!;
+    // Where the run began stays; the phase now starts at the base's tip.
+    expect(entry).toMatchObject({ runStartCommit: before, baseCommit: developTip });
+    expect(h.claudeCalls()[1]!.prompt).toContain(`moving it from ${before.slice(0, 7)} to ${developTip.slice(0, 7)}`);
+    expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();
+  });
+
+  it("leaves the branch as it is when the command is told to", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit, exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    advanceDevelop(h, "merged-elsewhere.txt");
+    const receipt = await submit(h.engine, "start-again", { leave_branch: true });
+    expect(receipt.branch_catch_up).toEqual([]);
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
+    expect(h.engine.record.branchCatchUps).toBeUndefined();
+  });
+});
+
+describe("an interrupted catch-up (AC-CURRENT-01, settling a saved catchUp)", () => {
+  it("records a fast-forward that landed before Kiln stopped, and forgets one that never ran", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const entry = h.engine.record.repositories[0]!;
+    const before = entry.baseCommit!;
+    const developTip = advanceDevelop(h, "landed.txt");
+    // A fast-forward that landed while its record still holds catchUp.
+    git(h.sandbox, h.engine.worktreePath, "fetch", "-q", "origin", "develop");
+    git(h.sandbox, h.engine.worktreePath, "merge", "-q", "--ff-only", developTip);
+    entry.catchUp = { from: before, to: developTip };
+    let engine = h.reopen();
+    expect(await engine.prepare()).toEqual({ ok: true });
+    expect(engine.record.repositories[0]).toMatchObject({ baseCommit: developTip, runStartCommit: before });
+    expect(engine.record.repositories[0]!.catchUp).toBeUndefined();
+    expect(engine.record.branchCatchUps).toEqual([expect.objectContaining({ from: before, to: developTip, commits: 1 })]);
+
+    // One that never ran: removed, nothing recorded.
+    const later = advanceDevelop(h, "never.txt");
+    engine.record.repositories[0]!.catchUp = { from: developTip, to: later };
+    engine = h.reopen();
+    expect(await engine.prepare()).toEqual({ ok: true });
+    expect(engine.record.repositories[0]!.catchUp).toBeUndefined();
+    expect(engine.record.repositories[0]!.baseCommit).toBe(developTip);
+    expect(engine.record.branchCatchUps).toHaveLength(1);
+  });
+});
+
+describe("a Start that fails, is retried, or is interrupted (run restart \"Start\")", () => {
+  it("gives back everything an existing-branch Start set when its catch-up fails, removes nothing in git, and the next Start adopts what was left", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    const before = originTip(h, BRANCH);
+    const developTip = advanceDevelop(h, "one.txt");
+    // origin refuses the catch-up's push.
+    const hook = join(h.origin, "hooks", "pre-receive");
+    writeFileSync(hook, `#!/bin/sh\nwhile read old new ref; do [ "$ref" = "refs/heads/${BRANCH}" ] && { echo "refused by test" >&2; exit 1; }; done\nexit 0\n`);
+    chmodSync(hook, 0o755);
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    const failed = await h.engine.start({ refinementConfirmed: true, previewId: h.engine.startPreview!.previewId });
+    expect(failed).toMatchObject({ ok: false, status: 409, reason: expect.stringMatching(/^Couldn’t bring the branch up to date: /) });
+    const record = h.engine.record;
+    expect(record.startedAt).toBeUndefined();
+    expect(record.branchCatchUps).toBeUndefined();
+    for (const entry of record.repositories) {
+      expect(entry.runStartCommit).toBeUndefined(); expect(entry.baseCommit).toBeUndefined(); expect(entry.catchUp).toBeUndefined(); expect(entry.adoptedWorktree).toBeUndefined(); expect(entry.setupCompletedAt).toBeUndefined();
+    }
+    // Kiln removed nothing: the worktree and the fast-forwarded local branch stay; origin's copy didn't move.
+    expect(git(h.sandbox, h.repository, "rev-parse", BRANCH).trim()).toBe(developTip);
+    expect(originTip(h, BRANCH)).toBe(before);
+
+    // The next Start adopts the worktree left behind and finishes the catch-up with its push.
+    rmSync(hook);
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    expect(h.engine.startPreview!.repositories[0]).toMatchObject({ worktree: { adopted: true }, qualifies: true });
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: h.engine.startPreview!.previewId })).toEqual({ ok: true });
+    await h.engine.settled();
+    expect(originTip(h, BRANCH)).toBe(developTip);
+    expect(h.engine.record.repositories[0]).toMatchObject({ adoptedWorktree: true, runStartCommit: developTip, setupCompletedAt: expect.any(String) });
+  });
+
+  it("makes a local branch that tracks one only on origin", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    git(h.sandbox, h.repository, "push", "-q", "origin", `develop:refs/heads/${BRANCH}`);
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    expect(h.engine.startPreview!.repositories[0]).toMatchObject({ hasBranch: true, tipFrom: "origin" });
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: h.engine.startPreview!.previewId })).toEqual({ ok: true });
+    await h.engine.settled();
+    expect(git(h.sandbox, h.repository, "config", `branch.${BRANCH}.remote`).trim()).toBe("origin");
+    expect(git(h.sandbox, h.repository, "config", `branch.${BRANCH}.merge`).trim()).toBe(`refs/heads/${BRANCH}`);
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe(BRANCH);
+  });
+
+  it("finishes an interrupted Start on the next kiln run, recording a fast-forward that landed and pushing it", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    const before = originTip(h, BRANCH);
+    const developTip = advanceDevelop(h, "one.txt");
+    // Start's save happened and the fast-forward landed; then Kiln stopped before recording it.
+    const record = h.engine.record;
+    record.startedAt = record.refinementConfirmedAt = new Date().toISOString();
+    record.start = { from: "existing", bringUpToDate: true };
+    record.repositories = [{ name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop", worktreePath: record.settings.worktreePath, baseCommit: before, runStartCommit: before, catchUp: { from: before, to: developTip } }];
+    git(h.sandbox, h.repository, "branch", "-f", BRANCH, developTip);
+    const engine = h.reopen();
+    expect(await engine.prepare()).toEqual({ ok: true });
+    expect(engine.record.repositories[0]).toMatchObject({ runStartCommit: developTip, baseCommit: developTip, setupCompletedAt: expect.any(String) });
+    expect(engine.record.repositories[0]!.catchUp).toBeUndefined();
+    expect(engine.record.branchCatchUps).toEqual([expect.objectContaining({ from: before, to: developTip, commits: 1 })]);
+    expect(originTip(h, BRANCH)).toBe(developTip);
+  });
+});
+
+describe("more of AC-CURRENT-01 at a stop and AC-FROM-02", () => {
+  it("catches the branch up before a resume, through the journal, and a failed push starts nothing", async () => {
+    const blocked: ScenarioSession = { actions: [{ skill: "enso-method:implement-from-requirements" }, { result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [blocked, landingSession("src/intake.txt")] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.stoppedCase("1")).toBe("built_nothing");
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    const developTip = advanceDevelop(h, "merged-elsewhere.txt");
+    // origin refuses the push: nothing starts, the reason is given, and what moved stays recorded.
+    const hook = join(h.origin, "hooks", "pre-receive");
+    writeFileSync(hook, `#!/bin/sh\nwhile read old new ref; do [ "$ref" = "refs/heads/${BRANCH}" ] && { echo "refused by test" >&2; exit 1; }; done\nexit 0\n`);
+    chmodSync(hook, 0o755);
+    const failed = await submit(h.engine, "resume");
+    expect(failed).toMatchObject({ state: "failed", outcome: "branch_catch_up_failed", branch_catch_up: [{ from: before, to: developTip }] });
+    expect(failed.reason).toMatch(/^Kiln couldn't bring the branch up to date, so nothing started: /);
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(originTip(h, BRANCH)).toBe(before);
+    // The retry only pushes, then resumes the same conversation.
+    rmSync(hook);
+    const resumed = await submit(h.engine, "resume");
+    expect(resumed).toMatchObject({ state: "completed", outcome: "session_resumed", branch_catch_up: [] });
+    expect(git(h.sandbox, h.origin, "merge-base", "--is-ancestor", developTip, `refs/heads/${BRANCH}`)).toBe("");
+    expect(h.claudeCalls()[1]!.args).toContain("--resume");
+    expect(h.claudeCalls()[1]!.prompt).toContain(`moving it from ${before.slice(0, 7)} to ${developTip.slice(0, 7)}`);
+  });
+
+  it("maps the page's box through the HTTP route: unticked leaves the branch, ticked catches it up", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit, exitsBeforeInit, exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    const developTip = advanceDevelop(h, "merged-elsewhere.txt");
+    const { startLocalServer } = await import("../server/local-server.js");
+    const server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+    try {
+      const press = async (bringUpToDate: boolean) => {
+        const origin = new URL(server.address).origin;
+        const response = await fetch(`${origin}/api/start-again`, { method: "POST", headers: { "X-Kiln-Token": h.engine.record.token, Origin: origin, "Content-Type": "application/json", "X-Kiln-Status": h.engine.controlView().token, "X-Kiln-Command-Id": `http-${bringUpToDate}` }, body: JSON.stringify({ bringUpToDate }) });
+        await h.engine.commands.settled();
+        await h.engine.settled();
+        // The stand-in exits before beginning a conversation, so each press answers dispatch_not_started once settled.
+        return ((await response.json()) as { code?: string }).code;
+      };
+      expect(await press(false)).toBe("dispatch_not_started");
+      expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
+      expect(await press(true)).toBe("dispatch_not_started");
+      expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(developTip);
+    } finally { await server.close(); }
+  });
+
+  it("goes straight to final delivery when every phase is closed on the chosen branch", async () => {
+    harness = await createHarness({ sessions: [pullRequestSession(52)] });
+    const h = harness;
+    git(h.sandbox, h.repository, "switch", "-q", "-c", BRANCH);
+    for (const file of ["phase-1-return-intake.md", "phase-2b-store-credit.md", "phase-3-returns-dashboard.md"]) close(h, h.repository, file);
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "docs: every phase built by hand");
+    git(h.sandbox, h.repository, "push", "-q", "-u", "origin", BRANCH);
+    git(h.sandbox, h.repository, "switch", "-q", "develop");
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    expect(h.engine.startPreview).toMatchObject({ closedCount: 4 });
+    expect(h.engine.startPreview!.startAt).toBeUndefined();
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: h.engine.startPreview!.previewId })).toEqual({ ok: true });
+    await h.engine.settled();
+    expect(Object.keys(h.engine.record.phases)).toEqual(["pr"]);
+    expect(h.claudeCalls()).toHaveLength(1);
+    expect(h.engine.record.completedAt).toBeDefined();
+  });
+});
+
+describe("phases closed at the start when the PRD's repository cuts the branch new (AC-FROM-02, AC-FROM-05, several repositories)", () => {
+  it("accepts each phase Closed at the PRD repository's base on its Closed line, though another repository's adopted branch has commits of its own", async () => {
+    // Every phase is Closed on develop, Phase 1 touching returns-api too (2a is closed in the fixture already).
+    const files = prdDirectoryFiles();
+    for (const [file, extra] of [["phase-1-return-intake.md", ["", "**Repositories:** returns-api"]], ["phase-2b-store-credit.md", []], ["phase-3-returns-dashboard.md", []]] as const) {
+      const [title, ...rest] = files[file]!.split("\n");
+      files[file] = [title, "", "**Closed:** 2026-11-10", ...extra, ...rest].join("\n");
+    }
+    harness = await createHarness({ files, sessions: [pullRequestSession(61)] });
+    const h = harness;
+    // returns-api already has the branch, checked out in a worktree with a commit of its own and a
+    // file left uncommitted outside the PRD's directory (AC-FROM-03 allows both); acme-shop doesn't have it.
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const api = createRepository(h.sandbox, "returns-api", origin.url);
+    git(h.sandbox, api, "push", "-q", "origin", "develop");
+    const adopted = join(h.sandbox.root, "kept", "returns-api");
+    mkdirSync(dirname(adopted), { recursive: true });
+    git(h.sandbox, api, "worktree", "add", "-q", "-b", BRANCH, adopted);
+    writeFileSync(join(adopted, "intake-api.txt"), "by hand\n");
+    git(h.sandbox, adopted, "add", "intake-api.txt");
+    git(h.sandbox, adopted, "commit", "-q", "-m", "feat: intake endpoint, by hand");
+    git(h.sandbox, adopted, "push", "-q", "-u", "origin", BRANCH);
+    writeFileSync(join(adopted, "notes.txt"), "half done\n");
+    const apiTip = git(h.sandbox, adopted, "rev-parse", "HEAD").trim();
+    Object.assign(h.env, h.sandbox.env);
+
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    expect(h.engine.startPreview!.repositories.map(one => ({ name: one.name, hasBranch: one.hasBranch }))).toEqual([{ name: "acme-shop", hasBranch: false }, { name: "returns-api", hasBranch: true }]);
+    expect(h.engine.startPreview).toMatchObject({ closedCount: 4 });
+    expect(await h.engine.start({ refinementConfirmed: true, previewId: h.engine.startPreview!.previewId })).toEqual({ ok: true });
+    await h.engine.settled();
+
+    const [shop, apiEntry] = h.engine.record.repositories;
+    expect(shop).toMatchObject({ name: "acme-shop", baseCommit: git(h.sandbox, h.repository, "rev-parse", "develop").trim() });
+    expect(shop).not.toHaveProperty("runStartCommit");
+    expect(apiEntry).toMatchObject({ name: "returns-api", runStartCommit: apiTip, worktreePath: adopted, adoptedWorktree: true });
+    // The first plan read accepted every phase at acme-shop's base, so no plan stop: Kiln goes on to final delivery.
+    // Each is an outside completion at acme-shop's baseCommit, with returns-api at its runStartCommit.
+    const { completions } = readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!);
+    for (const id of ["1", "2a", "2b", "3"]) {
+      expect(completions[id]).toMatchObject({ kind: "external", revision: shop!.baseCommit, repositories: { "acme-shop": { revision: shop!.baseCommit }, "returns-api": { revision: apiTip } } });
+    }
+    expect(completions["1"]!.scopeRepositories).toEqual(["returns-api"]);
+    expect(Object.keys(h.engine.record.phases)).toEqual(["pr"]);
+    expect(h.claudeCalls()).toHaveLength(1);
+  });
+});
+
+describe("where Documents found says the plan was read (AC-FROM-02, completed in Phase 8 of Kiln Run Restart)", () => {
+  it("names the chosen branch only over documents read there: not when its read is skipped or fails", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const documents = checkoutDocuments(h);
+    // A branch that shares no history with develop: a read problem after its tip, so the documents are never read there.
+    git(h.sandbox, h.repository, "switch", "-q", "--orphan", BRANCH);
+    writeFileSync(join(h.repository, "orphan.txt"), "unrelated\n");
+    git(h.sandbox, h.repository, "add", "orphan.txt");
+    git(h.sandbox, h.repository, "commit", "-q", "-m", "unrelated history");
+    git(h.sandbox, h.repository, "push", "-q", "-u", "origin", BRANCH);
+    git(h.sandbox, h.repository, "switch", "-q", "-f", "develop");
+    git(h.sandbox, h.repository, "clean", "-q", "-fd");
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toEqual({ ok: true });
+    expect(h.engine.startPreview!.planSource).toMatchObject({ kind: "branch", branch: BRANCH });
+    expect(h.engine.startPreview!.fieldError).toMatch(/shares no history with develop/);
+    let snapshot = buildSnapshot(h.engine, documents);
+    // The page shows the checkout's documents, so it doesn't say they were read from the branch.
+    expect(snapshot.documents!.plan!.closedCount).toBe(1);
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+    expect(snapshot.documents!.start).not.toHaveProperty("startAt");
+
+    // A branch with history whose tip lacks the PRD's documents: the read throws.
+    git(h.sandbox, h.repository, "push", "-q", "origin", `:${BRANCH}`);
+    git(h.sandbox, h.repository, "branch", "-q", "-D", BRANCH);
+    git(h.sandbox, h.repository, "switch", "-q", "-c", BRANCH);
+    git(h.sandbox, h.repository, "rm", "-q", "-r", DIRECTORY);
+    git(h.sandbox, h.repository, "commit", "-q", "-m", "docs: the PRD moved away");
+    git(h.sandbox, h.repository, "push", "-q", "-u", "origin", BRANCH);
+    git(h.sandbox, h.repository, "switch", "-q", "develop");
+    await h.engine.changeStart({ from: "existing", bringUpToDate: false });
+    expect(h.engine.startPreview!.fieldError).toMatch(/doesn't have this PRD's documents/);
+    snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+  });
+
+  it("names the base for a new branch only while the checkout's PRD documents match the base's", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const documents = checkoutDocuments(h);
+    expect(await h.engine.changeStart({ from: "new", bringUpToDate: true })).toEqual({ ok: true });
+    expect(buildSnapshot(h.engine, documents).documents!.start!.planSource).toMatchObject({ kind: "base", branch: "develop" });
+
+    // develop on origin gets different PRD documents; the checkout keeps its own.
+    close(h, h.repository, "phase-1-return-intake.md");
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "docs: phase 1 closed on develop");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    git(h.sandbox, h.repository, "reset", "-q", "--hard", "HEAD~1");
+    await h.engine.changeStart({ from: "new", bringUpToDate: false });
+    const snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.settings.fieldErrors.baseBranch).toMatch(/different PRD documents from this checkout/);
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+    expect(snapshot.documents!.start).not.toHaveProperty("startAt");
+  });
+
+  it("doesn't name the base once the PRD's repository is set up, when its documents are checked against the feature branch instead", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const documents = checkoutDocuments(h);
+    // A new-branch Start set the PRD's repository up, then failed later: its feature branch holds the checkout's documents.
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    const worktree = join(h.sandbox.root, "set-up", "acme-shop");
+    h.engine.record.repositories.push({ name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop", worktreePath: worktree, baseCommit: git(h.sandbox, h.repository, "rev-parse", "develop").trim(), setupCompletedAt: "2026-11-13T10:00:00.000Z" });
+    h.engine.record.start = { from: "new", bringUpToDate: true };
+    await h.engine["runFieldChecks"](false);
+    const snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.settings.fieldErrors.baseBranch).toBeUndefined();
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+  });
+});
+
+describe("an existing-branch start keeps the repositories an earlier Start set up (AC-FROM-05, completed in Phase 8 of Kiln Run Restart)", () => {
+  it("keeps a repository set up before a failed Start though the start commit's plan doesn't name it", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const api = createRepository(h.sandbox, "returns-api", origin.url);
+    git(h.sandbox, api, "push", "-q", "origin", "develop");
+    const workspace = join(h.sandbox.root, "workspace");
+    const worktree = join(workspace, "returns-api");
+    mkdirSync(workspace, { recursive: true });
+    git(h.sandbox, api, "worktree", "add", "-q", "-b", BRANCH, worktree);
+    git(h.sandbox, worktree, "push", "-q", "-u", "origin", BRANCH);
+    Object.assign(h.env, h.sandbox.env);
+    // An earlier existing-branch Start set returns-api up and failed at a later step, keeping it set up; neither plan names returns-api now.
+    const baseCommit = git(h.sandbox, api, "rev-parse", "develop").trim();
+    h.engine.record.repositories.push({ name: "returns-api", kind: "named", mainCheckoutPath: api, github: "acme/returns-api", baseBranch: "develop", worktreePath: worktree, baseCommit, setupCompletedAt: "2026-11-13T10:00:00.000Z" });
+    h.engine.record.start = { from: "existing", bringUpToDate: true };
+    const preview = await h.engine.refreshStartPreview();
+    expect(preview!.repositories.map(one => ({ name: one.name, hasBranch: one.hasBranch }))).toEqual([{ name: "acme-shop", hasBranch: false }, { name: "returns-api", hasBranch: true }]);
+    expect(preview!.workspaceFolder).toBe(worktree.slice(0, -"/returns-api".length));
+    expect(h.engine.plannedRepositories.map(one => one.name)).toEqual(["acme-shop", "returns-api"]);
+    expect(preview!.fieldError).toBeUndefined();
+
+    // The set-up repository decides the name's availability too: its local copy falls behind origin's.
+    writeFileSync(join(worktree, "ahead.txt"), "ahead\n"); git(h.sandbox, worktree, "add", "ahead.txt"); git(h.sandbox, worktree, "commit", "-q", "-m", "ahead");
+    git(h.sandbox, worktree, "push", "-q", "origin", BRANCH);
+    git(h.sandbox, worktree, "reset", "-q", "--hard", "HEAD~1");
+    expect((await h.engine.refreshStartPreview())!.fieldError).toMatch(/^In returns-api: /);
+  });
+});
+
+describe("which branches get no catch-up offer, and which buttons and commands catch up (AC-CURRENT-01, test audit)", () => {
+  it("offers nothing at Start for a branch not behind its base, one with uncommitted files, or one with commits of its own", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    git(h.sandbox, h.repository, "branch", BRANCH);
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    const offer = async () => { await h.engine.refreshStartPreview(); return h.engine.startPreview?.catchUp; };
+    // Level with its base: nothing to catch up.
+    expect(await offer()).toBeUndefined();
+    advanceDevelop(h, "one.txt");
+    expect(await offer()).toEqual({ repositories: [{ name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 }] });
+    // Checked out in a worktree with an uncommitted file, outside the PRD's directory: no offer.
+    const worktree = join(h.sandbox.root, "kept", "acme-shop");
+    git(h.sandbox, h.repository, "worktree", "add", "-q", worktree, BRANCH);
+    writeFileSync(join(worktree, "notes.txt"), "half a thought\n");
+    expect(await offer()).toBeUndefined();
+    rmSync(join(worktree, "notes.txt"));
+    expect(await offer()).toMatchObject({ repositories: [{ behind: 1 }] });
+    // A commit of its own, pushed: no offer, and Start leaves the branch where it is.
+    writeFileSync(join(worktree, "own.txt"), "own\n");
+    git(h.sandbox, worktree, "add", "own.txt"); git(h.sandbox, worktree, "commit", "-q", "-m", "own work");
+    git(h.sandbox, worktree, "push", "-q", "origin", BRANCH);
+    expect(await offer()).toBeUndefined();
+  });
+
+  it("offers nothing at a stop for a branch not behind, with an uncommitted file, or with commits of its own", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.stoppedPhase()).toBe("1");
+    const offer = async () => { await h.engine.refreshStoppedWork(); return buildSnapshot(h.engine).needsYou!.catchUp; };
+    expect(await offer()).toBeUndefined();
+    advanceDevelop(h, "merged-elsewhere.txt");
+    expect(await offer()).toMatchObject({ repositories: [{ behind: 1 }] });
+    const scratch = join(h.engine.worktreePath, "scratch.txt");
+    writeFileSync(scratch, "x\n");
+    expect(await offer()).toBeUndefined();
+    git(h.sandbox, h.engine.worktreePath, "add", "scratch.txt"); git(h.sandbox, h.engine.worktreePath, "commit", "-q", "-m", "own work");
+    expect(await offer()).toBeUndefined();
+  });
+
+  it("catches the branch up before kiln reply resumes the conversation", async () => {
+    const blocked: ScenarioSession = { actions: [{ skill: "enso-method:implement-from-requirements" }, { result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [blocked, exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    const developTip = advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    const receipt = await submit(h.engine, "reply", { message: "The import work is on develop now." });
+    expect(receipt.branch_catch_up, JSON.stringify(receipt)).toEqual([{ repository: "acme-shop", branch: BRANCH, from: before, to: developTip, commits: 1 }]);
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(developTip);
+    expect(originTip(h, BRANCH)).toBe(developTip);
+    const resumed = h.claudeCalls()[1]!;
+    expect(resumed.args).toContain("--resume");
+    expect(resumed.prompt).toContain(`moving it from ${before.slice(0, 7)} to ${developTip.slice(0, 7)}`);
+  });
+
+  it("catches the branch up before kiln carry-on starts its new session", async () => {
+    const unreopenable: ScenarioSession = { noTranscript: true, actions: [{ result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [unreopenable, exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(buildSnapshot(h.engine).needsYou!.carryOn).toMatchObject({ available: true });
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    const developTip = advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    const receipt = await submit(h.engine, "carry-on");
+    expect(receipt.branch_catch_up, JSON.stringify(receipt)).toEqual([{ repository: "acme-shop", branch: BRANCH, from: before, to: developTip, commits: 1 }]);
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(developTip);
+    expect(originTip(h, BRANCH)).toBe(developTip);
+    expect(h.claudeCalls()[1]!.args).not.toContain("--resume");
+    expect(h.claudeCalls()[1]!.prompt).toContain(`moving it from ${before.slice(0, 7)} to ${developTip.slice(0, 7)}`);
+  });
+
+  it("carries on from a held phase whose conversation can't be reopened without moving the branch, though the box is ticked", async () => {
+    const unreopenable: ScenarioSession = { noTranscript: true, actions: [{ result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [unreopenable, { actions: [{ result: "Carried on." }] }] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    // The same untouched branch qualifies at an ordinary stop (the test above catches it up)...
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toBeDefined();
+    // ...but here the phase is held: its takeover's attempt has ended and the conversation can't be reopened (AC-CARRY-06).
+    const session = h.engine.latestSession("1")!;
+    const attemptId = session.runs[0]!.control?.attemptId ?? (h.engine as unknown as { legacyAttempt(s: unknown, i: number): string }).legacyAttempt(session, 0);
+    h.engine.record.liveControl = { version: 1, revision: 1, takeover: { target: { executionId: h.engine.record.executionId!, activityId: "phase-1", activityKey: "1", sessionId: session.sessionId, attemptId, providerSessionId: session.sessionId }, operationId: "op", instructionId: "instruction", requestedAt: "2026-11-08T00:00:00Z", state: "pending", observedAt: "2026-11-08T00:00:00Z", reason: "Paused for takeover.", history: { state: "unavailable", reason: "missing" } } } as never;
+    // The ended attempt's process reads are the takeover suite's to prove; here they pass.
+    // Each ownership check also lets a takeover reconciliation run, as the once-a-second timer can between the launch clearing the stop and the new process running.
+    const internals = h.engine as unknown as { requireCarryOnOwnership(): Promise<void>; reconcileTakeover(): Promise<void> };
+    const stopsSeen: unknown[] = [];
+    vi.spyOn(internals, "requireCarryOnOwnership").mockImplementation(async () => { await internals.reconcileTakeover(); stopsSeen.push(h.engine.record.phases["1"]?.stop); });
+    vi.spyOn(ownership, "requireNoTerminal").mockResolvedValue(undefined);
+    expect(h.engine.carryOnControl(true)).toMatchObject({ offered: true, available: true });
+    const receipt = await submit(h.engine, "carry-on", { bring_up_to_date: true });
+    expect(receipt, JSON.stringify(receipt)).toMatchObject({ outcome: "session_started", effects: { session: "started" } });
+    expect(receipt.branch_catch_up).toEqual([]);
+    expect(h.claudeCalls()).toHaveLength(2);
+    // The dispatch check ran after the launch cleared the stop, and the reconciliation didn't put it back (AC-CARRY-06: the carry-on ends the hold).
+    expect(stopsSeen.length).toBeGreaterThanOrEqual(2);
+    expect(stopsSeen.at(0)).toBeDefined();
+    expect(stopsSeen.at(-1)).toBeUndefined();
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
+    expect(originTip(h, BRANCH)).toBe(before);
+    expect(h.engine.record.branchCatchUps).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+
+  it("never catches up on Mark complete", async () => {
+    const blocked: ScenarioSession = { actions: [{ skill: "enso-method:implement-from-requirements" }, { result: "Blocked before any code." }] };
+    harness = await createHarness({ sessions: [blocked, exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    git(h.sandbox, h.engine.worktreePath, "push", "-q", "origin", BRANCH);
+    advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toMatchObject({ repositories: [{ behind: 1 }] });
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));
+    const offer = h.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error("Mark complete not offered");
+    const receipt = await submit(h.engine, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" });
+    expect(receipt.outcome).toBe("marked_complete");
+    expect(receipt.branch_catch_up).toBeUndefined();
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
+    expect(originTip(h, BRANCH)).toBe(before);
+    expect(h.engine.record.branchCatchUps).toBeUndefined();
+  });
+
+  it("gives a held phase no offer, and a command at the hold doesn't move the branch", async () => {
+    harness = await createHarness({ sessions: [exitsBeforeInit] });
+    const h = harness;
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const before = h.engine.record.repositories[0]!.baseCommit!;
+    advanceDevelop(h, "merged-elsewhere.txt");
+    await h.engine.refreshStoppedWork();
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toBeDefined();
+    // Held: a takeover pending on the phase's session.
+    const session = h.engine.latestSession("1")!;
+    h.engine.record.liveControl = { version: 1, revision: 1, takeover: { kind: "takeover", target: { activityKey: "1", sessionId: session.sessionId, attemptId: "missing", providerSessionId: session.sessionId }, operationId: "op", instructionId: "instruction", requestedAt: "2026-11-08T00:00:00Z", state: "pending", observedAt: "2026-11-08T00:00:00Z", reason: "Paused for takeover." } } as never;
+    await h.engine.refreshStoppedWork("1");
+    expect(h.engine.stoppedCatchUp?.offer).toBeUndefined();
+    const id = `held-${++commandNumber}`;
+    h.engine.commands.submit({ command_id: id, execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "start-again", inputs: { bring_up_to_date: true } }, "caller", true);
+    await h.engine.commands.settled();
+    expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
+    expect(h.engine.record.branchCatchUps).toBeUndefined();
+    delete h.engine.record.liveControl;
+  });
+});

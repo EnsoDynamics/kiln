@@ -34,7 +34,7 @@ describe("Documents found", () => {
 
   it("keeps each phase's number in its circle and its title word for word, marking a closed one in green (AC-LOOK-03, UI-010 item 12)", () => {
     const base = documentsFoundSnapshot();
-    const plan = { ...base.documents!.plan, closedCount: 1, phases: base.documents!.plan.phases.map((phase) => (phase.id === "1" ? { ...phase, closed: true } : phase)) };
+    const plan = { ...base.documents!.plan!, closedCount: 1, phases: base.documents!.plan!.phases.map((phase) => (phase.id === "1" ? { ...phase, closed: true } : phase)) };
     const page = html(documentsFoundSnapshot({ documents: { plan } }));
     expect(page).toMatch(/<span class="circle mono[^"]*">1<\/span><span class="title[^"]*">Return intake<\/span><span class="closed[^"]*">closed<\/span>/);
     expect(page).toMatch(/<span class="circle dashed mono[^"]*">2<\/span>/);

@@ -9,12 +9,14 @@ import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import type { ItemChange, MarkCompleteOffer } from "../engine/waivers.js";
 import { markCompletePreview } from "./waiver-facts.js";
 
-export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance"] as const;
+export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again", "reset"] as const;
+/** The actions that start a new session of a stopped phase (run restart AC-CARRY-04): their receipts settle `started`, never `resumed`. */
+export const STARTING_ACTIONS: readonly string[] = ["carry-on", "start-again"];
 export type Action = typeof ACTIONS[number];
 const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant", "folder-setup-start"] as const;
 export type JournalAction = Action | typeof INTERNAL_ACTIONS[number];
 export interface Instruction { command_id: string; execution_id: string; status_token: string; action: JournalAction; inputs: Record<string, unknown> }
-export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
+export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "started" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
 export interface Receipt {
   message?: import("../live/target.js").LiveMessage;
   live_target?: import("../live/target.js").LiveTarget;
@@ -31,7 +33,13 @@ export interface Receipt {
   waiver_id?: string;
   /** `waive-and-advance` only: each item that changed when a `check_results_changed` rerun differed from the offered run (AC-WAIVE-04). */
   changes?: ItemChange[];
+  /** The four session-starting actions: what a catch-up moved before the session, empty when nothing did (run restart AC-CURRENT-01). */
+  branch_catch_up?: { repository: string; branch: string; from: string; to: string; commits: number }[];
+  /** `reset` only: what the reset discards and the execution it starts, checkpointed before the record changes (run restart "Doing it", step 2). */
+  reset?: { forgets: ResetForgets; new_execution_id: string };
 }
+/** The counts a reset's confirmation names under Kiln forgets (run restart AC-RESET-03). */
+export interface ResetForgets { phaseResults: number; sessions: number; stops: number; waivers: number; audits: number; deliveries: number }
 /** The outcomes of `waive-and-advance` that advance the plan (waivers "Command line"). */
 export const WAIVE_ADVANCING_OUTCOMES = ["marked_complete", "checks_passed", "continued"];
 /** Rechecks whose failed outcome carries the stop's Mark complete preview (AC-WAIVE-05). */
@@ -58,21 +66,32 @@ export interface ControlHost {
 const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const pending = (r: Receipt) => ["accepted", "in_progress", "indeterminate"].includes(r.state);
 function uncertainEffects(r: Receipt): void {
-  if (r.stage === "dispatching" && r.effects.session !== "resumed") {
+  if (r.stage === "dispatching" && r.effects.session !== "resumed" && r.effects.session !== "started") {
     r.effects.session = "unknown";
     if (r.reply_text !== null && r.effects.reply !== "delivered") r.effects.reply = "unknown";
   }
   if (["verify-and-advance", "check-again", "waive-and-advance"].includes(r.instruction.action) && r.effects.plan !== "advanced") r.effects.plan = "unknown";
+}
+/**
+ * A carry-on that finds the phase already complete keeps its reply unsent, as a reply does
+ * (run restart AC-CARRY-05): the text is kept only then, since a started carry-on's reply rides
+ * in the new session's prompt rather than being delivered to a conversation.
+ */
+function keepUnsentCarryOnReply(r: Receipt): void {
+  const message = r.instruction.inputs.message;
+  if (r.instruction.action !== "carry-on" || r.outcome !== "phase_already_complete" || typeof message !== "string" || !message.trim()) return;
+  r.reply_text = message; r.effects.reply = "not_sent";
 }
 export function validateInstruction(raw: unknown): Instruction {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ControlFailure("invalid_input", "A command object is required.", 2);
   const r = raw as Record<string, unknown>;
   if (Object.keys(r).sort().join() !== ["action", "command_id", "execution_id", "inputs", "status_token"].join() || typeof r.command_id !== "string" || !/^[\w.-]{1,128}$/.test(r.command_id) || typeof r.execution_id !== "string" || !r.execution_id || typeof r.status_token !== "string" || !r.status_token || r.status_token.length > 512 || !ACTIONS.includes(r.action as Action) || !r.inputs || typeof r.inputs !== "object" || Array.isArray(r.inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
   const inputs = r.inputs as Record<string, unknown>; const keys = Object.keys(inputs).sort();
-  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids"], resume: ["live_target", "reviewed_receipt_ids"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"] };
+  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], resume: ["live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "start-again": ["leave_branch", "bring_up_to_date"], reset: [] };
   if (keys.some(k => !allowed[r.action as Action].includes(k))) throw new ControlFailure("invalid_input", "Unexpected action input.", 2);
   if (inputs.reviewed_receipt_ids !== undefined && (!Array.isArray(inputs.reviewed_receipt_ids) || inputs.reviewed_receipt_ids.length > 50 || !inputs.reviewed_receipt_ids.every(id => typeof id === "string" && /^[\w.-]{1,128}$/.test(id)))) throw new ControlFailure("invalid_input", "Specify exact reviewed receipt IDs.", 2);
   if (inputs.live_target !== undefined && !validLiveTarget(inputs.live_target)) throw new ControlFailure("invalid_input", "Invalid live hand-back target.", 2);
+  if ([inputs.leave_branch, inputs.bring_up_to_date].some(value => value !== undefined && typeof value !== "boolean") || inputs.leave_branch === true && inputs.bring_up_to_date === true) throw new ControlFailure("invalid_input", "Choose whether to leave the branch as it is or bring it up to date, not both.", 2);
   if (validLiveTarget(inputs.live_target)) inputs.live_target = canonicalLiveTarget(inputs.live_target);
   if (["take-over", "message", "message-review"].includes(String(r.action))) {
     if (!validLiveTarget(inputs.target)) throw new ControlFailure("invalid_input", "An exact live target is required.", 2);
@@ -84,6 +103,10 @@ export function validateInstruction(raw: unknown): Instruction {
     if (inputs.by !== undefined && !validBy(inputs.by)) throw new ControlFailure("invalid_input", "--by takes a name of 1 to 64 printable characters.", 2);
     if (!["browser", "command_line"].includes(inputs.via as string)) throw new ControlFailure("invalid_input", "Mark complete needs the entry point that admitted it.", 2);
     if (inputs.without_sending_reply !== undefined && typeof inputs.without_sending_reply !== "boolean") throw new ControlFailure("invalid_input", "Specify boolean control values.", 2);
+  } else if (r.action === "carry-on") {
+    // The reply is optional (AC-CARRY-05); when given it is a literal reply, as `kiln reply` takes.
+    if (inputs.message !== undefined && (typeof inputs.message !== "string" || inputs.message.includes("\0") || inputs.message.trim().length > 4000)) throw new ControlFailure("invalid_input", "A literal reply of at most 4,000 characters is required.", 2);
+    if (typeof inputs.message === "string") { if (inputs.message.trim()) inputs.message = inputs.message.trim(); else delete inputs.message; }
   } else if (r.action === "reply") {
     if (typeof inputs.message !== "string" || !inputs.message.trim() || inputs.message.includes("\0") || inputs.message.trim().length > 4000) throw new ControlFailure("invalid_input", "A nonempty literal reply of at most 4,000 characters is required.", 2);
     inputs.message = inputs.message.trim();
@@ -96,12 +119,12 @@ function validReceipt(r: Receipt | undefined): r is Receipt {
     && ["accepted", "in_progress", "completed", "refused", "failed", "indeterminate"].includes(r.state)
     && ["intent", "applying", "dispatching", "settled"].includes(r.stage)
     && !!r.effects && ["not_applicable", "not_sent", "submitted", "delivered", "unknown"].includes(r.effects.reply)
-    && ["not_started", "starting", "resumed", "unknown"].includes(r.effects.session) && ["not_advanced", "advanced", "unknown"].includes(r.effects.plan)
+    && ["not_started", "starting", "started", "resumed", "unknown"].includes(r.effects.session) && ["not_advanced", "advanced", "unknown"].includes(r.effects.plan)
     && Number.isFinite(Date.parse(r.accepted_at)) && Number.isFinite(Date.parse(r.updated_at))
     && (r.outcome === null || typeof r.outcome === "string") && (r.reason === null || typeof r.reason === "string")
     && (r.acknowledged_by === null || typeof r.acknowledged_by === "string")
     && (r.settings === undefined || typeof r.settings.keep_awake === "boolean" && typeof r.settings.resume_after_usage_limit === "boolean")
-    && !!r.instruction && (r.instruction.action === "reply" ? r.reply_text === r.instruction.inputs?.message : r.reply_text === null)
+    && !!r.instruction && (r.instruction.action === "reply" ? r.reply_text === r.instruction.inputs?.message : r.instruction.action === "carry-on" ? r.reply_text === null || r.outcome === "phase_already_complete" && r.reply_text === r.instruction.inputs?.message : r.reply_text === null)
     && (r.message === undefined || r.instruction.action === "message" && validLiveTarget(r.live_target) && r.message.text === r.instruction.inputs.text && typeof r.message.uuid === "string" && !!r.message.uuid && ["submitting", "submitted", "received", "not_sent", "uncertain"].includes(r.message.delivery) && [r.message.writeStartedAt, r.message.writeCompletedAt, r.message.writeSettledAt, r.message.receivedAt, r.message.resultAt, r.message.reviewedAt].every(v => v === undefined || Number.isFinite(Date.parse(v))))
     && [r.session_id, r.phase_key, r.attempt_id, r.waiver_id].every(v => v === undefined || typeof v === "string")
     && (r.changes === undefined || Array.isArray(r.changes) && r.changes.every(c => !!c && typeof c.check === "string" && typeof c.subject === "string" && ["newly_failing", "newly_passing", "text_changed"].includes(c.change)));
@@ -240,6 +263,7 @@ export class CommandJournal {
     const known = this.host.reconcile(r);
     if (known) {
       Object.assign(r, known);
+      keepUnsentCarryOnReply(r);
       // A Mark complete proven applied after a restart advanced the plan when its outcome does (waivers "Command line").
       if (r.instruction.action === "waive-and-advance" && r.state === "completed" && WAIVE_ADVANCING_OUTCOMES.includes(r.outcome ?? "")) r.effects.plan = "advanced";
       if (r.effects.plan === "advanced" && r.instruction.inputs.without_sending_reply === true) {
@@ -347,6 +371,7 @@ export class CommandJournal {
       else {
         r.state = r.message?.delivery === "uncertain" ? "indeterminate" : "completed"; r.outcome = answer.outcome ?? "completed";
         if (r.instruction.action === "waive-and-advance" && answer.reason !== undefined) r.reason = answer.reason;
+        keepUnsentCarryOnReply(r);
         if (r.outcome === "advanced" || r.instruction.action === "waive-and-advance" && WAIVE_ADVANCING_OUTCOMES.includes(r.outcome)) {
           r.effects.plan = "advanced";
           for (const prior of unsent) { prior.acknowledged_by = r.id; this.save(prior); }

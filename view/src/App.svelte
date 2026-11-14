@@ -5,6 +5,7 @@
   // the last snapshot and says so ("Connection").
   import { onDestroy, onMount } from "svelte";
   import ExecutionHistory from "./components/ExecutionHistory.svelte";
+  import ResetFooter from "./components/ResetFooter.svelte";
   import TopBar from "./components/TopBar.svelte";
   import { newerVersion, type PageConfig } from "./lib/api.js";
   import { Connection } from "./lib/connection.svelte.js";
@@ -122,6 +123,8 @@
       <Running {snapshot} {connected} {now} {lastSeenAt} />
     {/if}
     {#key snapshot.continuation?.acceptance?.newExecutionId}<ExecutionHistory {snapshot} {config} {connected} />{/key}
+    <!-- The reset line comes after everything else on the page, Earlier deliveries included (run restart AC-RESET-01). -->
+    {#if snapshot.reset}<ResetFooter control={snapshot.reset} {config} {connected} />{/if}
   {/if}
 </div>
 

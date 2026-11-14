@@ -1,4 +1,7 @@
 import type { PhaseRecoveryView } from "./phase-recovery.js";
+import type { ReopenCheck } from "./reopen-check.js";
+import { lastRecordedRun, launchFailure, type LaunchFailure, type WorkRead } from "./stopped-phase.js";
+import { runLastOutputAt } from "../session/claude-session.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
 import { RESULT_CHECK } from "../audit/admission.js";
@@ -34,6 +37,8 @@ import type { ExecutionSummary } from "./continuation-state.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
 import { noticeLines } from "./compatibility-notices.js";
+import type { CatchUpOffer, StartPreview } from "./start-from.js";
+import { isPhaseFileName } from "../plan/phase-ids.js";
 
 export const PR_TITLE = "Final pull request";
 
@@ -109,9 +114,11 @@ export function sessionIdentity(session: SessionRecord): SessionIdentityView {
 
 export interface DocumentsFound {
   prd: { file: string; criteriaCount: number; firstLabel?: string; lastLabel?: string };
-  design: { file: string; criteriaCited: number };
+  /** Absent only on a page a reset built, when the start checks could not read it (run restart AC-RESET-04). */
+  design?: { file: string; criteriaCited: number };
   assumptions: { file: string; total: number; notYetConfirmed: number } | null;
-  plan: {
+  /** Absent only on a page a reset built, when the plan could not be read (run restart AC-RESET-04). */
+  plan?: {
     phaseDocCount: number;
     leafCount: number;
     closedCount: number;
@@ -120,7 +127,29 @@ export interface DocumentsFound {
   };
   /** Links in the requirements Kiln won't follow, when there are any: neither a passed nor a failed check (Kiln Linked Documents AC-LINK-04). */
   unfollowedLinks?: { target: string; from: string; reason: string }[];
-  checks: { name: string; passed: boolean }[];
+  /** A failed row, on a page a reset built, names the check in `kiln run`'s words (run restart AC-RESET-04). */
+  checks: { name: string; passed: boolean; text?: string }[];
+  /** On a page a reset built: a start check failed, so Start is unavailable until a reload finds them all passing. */
+  checksFailed?: true;
+  /** Where Kiln starts from (run restart AC-FROM-01 to 05, AC-CURRENT-01); absent until the first preview finishes. */
+  start?: StartView;
+}
+
+/** Documents found's Start from, for the chosen starting point (run restart "Interfaces", Snapshot). */
+export interface StartView {
+  from: "new" | "existing";
+  bringUpToDate: boolean;
+  previewId: string;
+  /** Every name, available or not; the selected name's message is `settings.fieldErrors.featureBranch`. */
+  branches: { name: string; available: boolean }[];
+  /** Where the plan is read: the start commit. */
+  planSource?: { kind: "base" | "branch" | "base_after_catch_up"; branch: string; sha: string };
+  repositories: { name: string; hasBranch: boolean; pullRequest?: { number: number; url: string } | { unknown: string }; worktree?: { path: string; adopted: boolean; uncommittedFiles?: number } }[];
+  /** Several repositories with existing worktrees: the one folder holding them, fixed. */
+  workspaceFolder?: string;
+  closedCount: number;
+  startAt?: { id: string; title: string };
+  catchUp?: CatchUpOffer;
 }
 
 export interface PhaseView {
@@ -249,6 +278,8 @@ export interface Snapshot {
     stoppedAt?: string;
   };
   documents?: DocumentsFound & { starting?: true; startError?: string };
+  /** Started PRDs only: present means the reset line shows (run restart "Availability"). */
+  reset?: { available: boolean; reason?: string };
   settings: {
     developmentDeployments?: DevelopmentSettings;
     agent: string;
@@ -356,6 +387,26 @@ export interface Snapshot {
     };
     /** The interrupted run's timing, retained while independent recovery requirements are checked. */
     interrupted?: { at: string; atIsLastOutput: boolean };
+    /** A stopped phase's case (run restart AC-CASE-01); absent on every other page, a held one included. */
+    case?: "could_not_start" | "built_nothing" | "needs_input";
+    /** The phase's work (AC-CASE-01); absent until the first read finishes. A held page whose conversation can't be reopened has it too. */
+    work?: WorkRead;
+    /** How long the latest conversation ran (AC-CASE-01's duration line). */
+    conversationRanMs?: number;
+    /** What Kiln found: the latest launch has a run and never began a conversation (AC-CASE-04). */
+    launchFailure?: LaunchFailure;
+    /** The earlier conversation's last message, shown after What Kiln found (AC-CASE-04). */
+    conversationMessage?: { finalMessage?: string; lastLines?: OutputLine[]; endedAt: string };
+    /** The phase built nothing and its checks haven't run since it stopped (AC-CASE-03). */
+    nothingToCheck?: true;
+    /** Whether the latest conversation can be reopened (AC-CARRY-01, AC-CARRY-02). */
+    reopen?: ReopenCheck;
+    /** Send reply & continue (AC-CARRY-05, AC-CARRY-06); `endsHold` on a held page. */
+    carryOn?: { available: boolean; reason?: string; endsHold?: "takeover" | "message" };
+    /** Start Phase N again (AC-CASE-02). */
+    startAgain?: { available: boolean; reason?: string };
+    /** Bring the branch up to date first (run restart AC-CURRENT-01): read with work; absent until the first read finishes, when it fails, or when nothing qualifies. */
+    catchUp?: CatchUpOffer;
     /** The stopped session hit a usage limit (usage-limit recovery AC-LIMIT-01 to 03); `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
     limit?: LimitView & { refusedAgainAt?: string };
   };
@@ -523,9 +574,21 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...optional("needsYou", needsYou),
     ...optional("waiting", waiting),
     ...(folderMissing ? { folderMissing: folderMissingSnapshot(folderMissing, engine) } : {}),
+    // Every screen of a started PRD ends with the reset line (run restart AC-RESET-01).
+    ...(record.startedAt !== undefined ? { reset: engine.resetControl() } : {}),
   };
   if (state === "not_started" && documents) {
-    snapshot.documents = { ...documents, ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
+    const preview = engine.startPreview;
+    // With an existing branch, What Kiln found is read from Git at the start commit (run restart AC-FROM-02).
+    const fromGit = preview?.from === "existing" && preview.documents && preview.plan && preview.plan.problems.length === 0 ? gitDocumentsFound(preview, engine) : undefined;
+    // A start check that failed on a page a reset built stays named, and holds Start, whichever documents show (AC-RESET-04).
+    // On a page a reset built, its start checks decide the check rows: a clean tree it didn't find isn't shown as passed.
+    const cleanRow = (name: string) => name.startsWith("Working tree");
+    const resetRows = engine.resetStart ? (fromGit?.checks ?? []).filter(check => !cleanRow(check.name) || documents.checks.some(row => row.passed && row.name === check.name)) : fromGit?.checks;
+    const found = fromGit ? { ...fromGit, checks: [...resetRows!, ...documents.checks.filter(check => !check.passed)], ...(documents.checksFailed ? { checksFailed: true as const } : {}) } : documents;
+    // The page says where the plan was read only over documents read there (AC-FROM-02): the start commit's, or a base the checkout matches.
+    const readAtStart = preview?.from === "existing" ? fromGit !== undefined : preview !== undefined && engine.baseDocumentsMatched === preview.previewId;
+    snapshot.documents = { ...found, ...(preview ? { start: startView(engine, preview, readAtStart) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
   }
   return snapshot;
 }
@@ -650,8 +713,11 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
     ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
+    ...restartFacts(engine, phaseKey, checkRun),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
+  // Resume, reply and the terminal command read the latest conversation, or the latest launch when none began (run restart "A session record with no run").
+  const recovery = session ? engine.recoverySession(phaseKey) ?? session : undefined;
   // The folder the session started in; with no session, the one the phase's next session would start in (AC-SPACE-04).
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   const auditTask = engine.auditRecoveryTask(phaseKey, folder);
@@ -699,13 +765,19 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     const ended = pressedResume && interrupted?.interruptedAt === undefined ? interrupted?.endedAt : undefined;
     const lastOutput = interrupted?.interruptedAt === undefined && ended === undefined;
     const stoppedAt = interrupted?.interruptedAt ?? ended ?? (interrupted ? engine.runLastOutputAt(session, interruptedIndex) : undefined) ?? endedAt;
+    // The run before the failed resume ended on its own unless Kiln was resuming an interruption, or one was recorded.
+    const endedOnItsOwn = run?.cause !== "resume" && interrupted?.interruptedAt === undefined;
+    const messageRun = endedOnItsOwn && engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : undefined;
+    const finalMessage = messageRun?.result?.text;
     return {
       ...base,
       ...sessionFacts,
       stoppedAt,
       ...(lastOutput ? { stoppedAtIsLastOutput: true as const } : {}),
       ...(pressedResume ? { pressedResume: true as const } : {}),
-      lastLines: lines.slice(-10),
+      // A stopped phase's first card gives the latest launch's last recorded final message (AC-CASE-04),
+      // apart from a resume after an interruption, which keeps the interrupted run's last lines (Kiln v1 AC-KEEP-05).
+      ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : { finalMessage }),
       freshSessionPrompt: prompts(true),
       freshSessionCommand,
       outputLineCount: lines.length,
@@ -715,9 +787,13 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   }
   // An interrupted session Kiln stopped instead of resuming shows when it was interrupted and its last lines (AC-OUTSIDE-04).
   const interrupted = stop.interrupted;
-  const finalMessage = interrupted === undefined && run?.result?.text?.trim() ? run.result.text : undefined;
-  // `claude --resume` needs the transcript Kiln couldn't find (OUT-003).
-  const resumable = everStarted && !engine.transcriptMissing(session) && (!record.liveControl || record.liveControl.takeover.state === "released");
+  // A stopped phase's first card gives the latest launch's last recorded final message, the one the
+  // carry-on prompt carries, so a resume that couldn't spawn still shows it (AC-CASE-04).
+  const messageRun = engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : run;
+  const finalMessage = interrupted === undefined && messageRun?.result?.text?.trim() ? messageRun.result.text : undefined;
+  // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
+  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released");
+  const resumeFolder = engine.workingDirectoryOf(recovery!);
   return {
     ...base,
     ...sessionFacts,
@@ -731,7 +807,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(everStarted ? optional("lastSkill", session.lastSkill) : {}),
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
     ...(resumable ? {
-      resumeCommand: session.agentId === "codex" ? codexResumeCommand(folder, session) : record.liveControl ? resumeCommand(folder, session.sessionId, process.platform, true) : resumeCommand(folder, session.sessionId),
+      resumeCommand: recovery!.agentId === "codex" ? codexResumeCommand(resumeFolder, recovery!) : record.liveControl ? resumeCommand(resumeFolder, recovery!.sessionId, process.platform, true) : resumeCommand(resumeFolder, recovery!.sessionId),
       ...(engine.deliveryAuthority() ? { resumePrompt: resumePrompt({
         deliveryAuthority: engine.deliveryAuthority(),
         agentId: session.agentId ?? "claude_code",
@@ -746,6 +822,46 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     outputLineCount: lines.length,
     sessionEndedAt: endedAt,
     steps: sessionSteps(engine, phaseKey, session),
+  };
+}
+
+/**
+ * A stopped phase's restart facts (run restart "A Stopped Phase's Facts"): its case, work, the
+ * latest conversation's running time, What Kiln found, Nothing to check yet, the reopen check and
+ * the two session-starting buttons. A held page whose conversation can't be reopened gets only
+ * its work, the reopen check and the carry-on button (AC-CARRY-06).
+ */
+function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | undefined): Partial<NonNullable<Snapshot["needsYou"]>> {
+  const hold = engine.record.liveControl?.takeover;
+  const work = engine.workOf(phaseKey);
+  const carry = engine.carryOnControl();
+  const carryOn = carry.offered ? { available: carry.available, ...optional("reason", carry.reason) } : undefined;
+  if (hold) {
+    if (!hold.history || engine.heldHistoryKey() !== phaseKey) return {};
+    const uncertain = engine.messageReceipts(hold.target).some(r => r.message?.delivery === "uncertain");
+    return { ...optional("work", work), reopen: hold.history, ...(carryOn ? { carryOn: { ...carryOn, endsHold: hold.kind === "delivery_recovery" || uncertain ? "message" as const : "takeover" as const } } : {}) };
+  }
+  if (engine.stoppedPhase() !== phaseKey) return {};
+  const began = engine.conversationBegan(phaseKey);
+  const latest = engine.latestSession(phaseKey);
+  const conversation = began ? engine.recoverySession(phaseKey) : undefined;
+  const failure = latest && latest.runs.length ? launchFailure(engine.stateDirectory, latest, engine.workingDirectoryOf(latest), engine.worktreePath, one => engine.outputLines(one)) : undefined;
+  const ranMs = conversation?.runs.length ? runTiming(conversation.runs.map((run, index) => ({ startedAt: run.startedAt, ...optional("interruptedAt", run.interruptedAt), endedAt: run.endedAt ?? runLastOutputAt(engine.stateDirectory, conversation, index) ?? run.startedAt })), conversation.runs[0]!.startedAt, conversation.runs.at(-1)!.endedAt ?? engine.clock().toISOString()).runningMs : undefined;
+  const known = work && !("unknown" in work) ? work : undefined;
+  const earlier = failure && conversation && conversation.sessionId !== latest?.sessionId ? conversation : undefined;
+  const earlierRun = earlier && lastRecordedRun(earlier);
+  const start = engine.startAgainControl();
+  return {
+    case: engine.stoppedCase(phaseKey),
+    ...optional("work", work),
+    ...optional("conversationRanMs", ranMs),
+    ...optional("launchFailure", failure),
+    ...(earlier ? { conversationMessage: { ...(earlierRun?.result?.text ? { finalMessage: earlierRun.result.text } : { lastLines: engine.outputLines(earlier).slice(-10) }), endedAt: earlier.runs.at(-1)!.endedAt ?? earlier.runs.at(-1)!.startedAt } } : {}),
+    ...(known?.builtNothing && checkRun?.origin === "stop" ? { nothingToCheck: true as const } : {}),
+    ...(began ? { reopen: engine.reopenCheck(phaseKey) } : {}),
+    ...optional("carryOn", carryOn),
+    ...(start.offered ? { startAgain: { available: start.available, ...optional("reason", start.reason) } } : {}),
+    ...optional("catchUp", engine.stoppedCatchUp?.phaseKey === phaseKey ? engine.stoppedCatchUp.offer : undefined),
   };
 }
 
@@ -989,8 +1105,8 @@ export function documentsFound(
   plan: PhasePlan,
   found: StartCheckReport["found"] & { repositories: StartCheckReport["repositories"] },
   repositoryName: string,
+  read: (name: string) => string = (name) => readFileSync(join(prdDirectory, name), "utf8"),
 ): DocumentsFound {
-  const read = (name: string) => readFileSync(join(prdDirectory, name), "utf8");
   const prdFile = `${folderName}-prd.md`;
   const criteria = countPrdCriteria(read(prdFile));
   const leaves = leavesOf(plan);
@@ -1017,6 +1133,74 @@ export function documentsFound(
         : [{ name: "Working tree is clean", passed: true }]),
     ],
   };
+}
+
+/**
+ * Documents found on a page a reset built (run restart AC-RESET-04, "Start checks on the page"):
+ * the documents the start checks could read, the passed checks, and each failed one in `kiln run`'s
+ * words. `adoptsCheckout` lets the uncommitted-files check give way for a selection that adopts the
+ * checkout `kiln run` was run from (AC-FROM-03 row 6).
+ *
+ *   startCheckDocuments(prdDirectory, "customer-returns", report, "acme-shop", prdDirectoryFromRoot, false)  // { prd, design, plan, checks, ... }
+ */
+export function startCheckDocuments(prdDirectory: string, folderName: string, report: StartCheckReport, repositoryName: string, prdDirectoryFromRoot: string, adoptsCheckout: boolean): DocumentsFound {
+  const problems = report.problems.filter(problem => !(adoptsCheckout && problem === report.uncommitted));
+  const failed = [...report.missingDocuments.map(document => `Missing from ${prdDirectoryFromRoot}/: ${document.name} ${document.description}`), ...problems];
+  const read = (name: string) => readFileSync(join(prdDirectory, name), "utf8");
+  const prdFile = `${folderName}-prd.md`;
+  let criteria: ReturnType<typeof countPrdCriteria> = { count: 0, labels: [] } as unknown as ReturnType<typeof countPrdCriteria>;
+  try { criteria = countPrdCriteria(read(prdFile)); } catch { /* A PRD the checks couldn't read is named among the failed checks. */ }
+  const readable = (name: string | undefined) => { if (!name) return undefined; try { return read(name); } catch { return undefined; } };
+  const design = readable(report.found.designFile);
+  const assumptions = readable(report.found.assumptionsFile);
+  const plan = report.plan && report.plan.problems.length === 0 ? report.plan : undefined;
+  const leaves = plan ? leavesOf(plan) : [];
+  const cleanName = report.repositories.length > 0 ? `Working tree of ${repositoryName} is clean` : "Working tree is clean";
+  return {
+    prd: { file: prdFile, criteriaCount: criteria.count, ...optional("firstLabel", criteria.firstLabel), ...optional("lastLabel", criteria.lastLabel) },
+    ...(design !== undefined ? { design: { file: report.found.designFile!, criteriaCited: countDesignCitations(design, criteria.labels) } } : {}),
+    assumptions: assumptions !== undefined ? { file: report.found.assumptionsFile!, ...countAssumptions(assumptions) } : null,
+    ...(plan ? { plan: { phaseDocCount: report.found.phaseDocCount, leafCount: leaves.length, closedCount: leaves.filter(leaf => leaf.closed).length, phases: plan.phases.map(phase => ({ id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories })) } } : {}),
+    ...(report.found.unfollowedLinks?.length ? { unfollowedLinks: report.found.unfollowedLinks.filter((link, index, all) => all.findIndex(other => other.from === link.from && other.target === link.target) === index).map(link => ({ target: link.target, from: link.from, reason: link.reason })) } : {}),
+    checks: [
+      ...(plan ? [{ name: "Every phase cites its criteria", passed: true }, { name: "Dependencies point backward", passed: true }] : []),
+      ...(report.repositories.length > 0 && !report.problems.some(problem => problem.includes("repositor")) ? [{ name: `Named repositories found beside ${repositoryName}`, passed: true }] : []),
+      // Uncommitted files an adopted worktree holds are counted on the page, never shown as a clean tree.
+      ...(report.uncommitted !== undefined || report.problems.some(problem => problem.startsWith("Couldn't read the checkout's status")) ? [] : [{ name: cleanName, passed: true }]),
+      ...failed.map(text => ({ name: text, passed: false, text })),
+    ],
+    ...(failed.length ? { checksFailed: true as const } : {}),
+  };
+}
+
+/** Documents found's Start from, as the engine's latest preview read it. */
+function startView(engine: Engine, preview: StartPreview, readAtStart: boolean): StartView {
+  return {
+    from: preview.from,
+    bringUpToDate: preview.bringUpToDate,
+    previewId: preview.previewId,
+    branches: (engine.branchChoices ?? []).map(({ name, available }) => ({ name, available })),
+    ...optional("planSource", readAtStart ? preview.planSource : undefined),
+    repositories: preview.repositories.map(repository => ({ name: repository.name, hasBranch: repository.hasBranch, ...optional("pullRequest", repository.pullRequest), ...(repository.worktree ? { worktree: { path: displayPath(repository.worktree.path), adopted: repository.worktree.adopted, ...optional("uncommittedFiles", repository.worktree.uncommittedFiles) } } : {}) })),
+    ...optional("workspaceFolder", preview.workspaceFolder === undefined ? undefined : displayPath(preview.workspaceFolder)),
+    closedCount: preview.closedCount,
+    // The closed marks belong to the plan read at the start commit, so Start at Phase N waits for it too.
+    ...optional("startAt", readAtStart ? preview.startAt : undefined),
+    ...optional("catchUp", preview.catchUp),
+  };
+}
+
+/** What Kiln found, read from the documents at the start commit, with today's checks. */
+function gitDocumentsFound(preview: StartPreview, engine: Engine): DocumentsFound {
+  const { names, contents, unfollowed } = preview.documents!;
+  const folder = engine.paths.folderName;
+  const directory = engine.paths.prdDirectoryFromRoot;
+  const pick = (bare: string) => names.find(name => name === bare || name === `${folder}-${bare}`);
+  const designFile = pick("technical-design.md");
+  const assumptionsFile = pick("assumptions.md");
+  const read = (name: string) => contents[`${directory}/${name}`] ?? "";
+  const repositories = preview.repositories.filter(repository => repository.kind !== "prd").map(repository => ({ name: repository.name, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github }));
+  return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.paths.repositoryName, read);
 }
 
 /** Each repository's commits and latest commit in a phase: what its Done recorded, or what Kiln read for its stop. */

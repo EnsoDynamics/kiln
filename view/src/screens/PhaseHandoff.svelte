@@ -3,7 +3,14 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { sameRecoveryTarget } from "../../../src/engine/phase-recovery.js";
   import type { PhaseRecoveryPage } from "../lib/phase-recovery-page.js";
-  import { markComplete, resumePhase, verifyPhase } from "../lib/api.js";
+  import { carryOn, markComplete, reopenCheckAgain, resumePhase, startAgain, verifyPhase } from "../lib/api.js";
+  import { caseHeadline } from "../lib/restart.js";
+  import LaunchFound from "../components/LaunchFound.svelte";
+  import StartAgainCard from "../components/StartAgainCard.svelte";
+  import CarryOnCard from "../components/CarryOnCard.svelte";
+  import CatchUpOffer from "../components/CatchUpOffer.svelte";
+  import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
+  import NothingToCheck from "../components/NothingToCheck.svelte";
   import type { ItemChange } from "../../../src/engine/waivers.js";
   import { checksWord, countsOf, passedOf, secondsTime, verdict } from "../lib/waivers.js";
   import CheckFacts from "../components/CheckFacts.svelte";
@@ -33,10 +40,13 @@
   // Mid-sentence the activity reads as the mockup writes it: "Phase 3" keeps its capital, "delivery audit" and "final delivery" do not.
   const inSentence = $derived(/^Phase /.test(activity) ? activity : activity.charAt(0).toLowerCase() + activity.slice(1));
   const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending");
+  const heldCarryOn = $derived(!!snapshot.liveControl && !!stop.carryOn);
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
   const connected = $derived(connection?.connected ?? false);
-  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover || !!snapshot.liveControl?.reviewRequired?.length);
+  // A held page whose conversation can't be reopened stays pending with its history, yet carries on
+  // and advances from the carry-on's already-complete choice (run restart AC-CARRY-06).
+  const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover && !heldCarryOn || !!snapshot.liveControl?.reviewRequired?.length);
   const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
   const nowDate = $derived(new Date(now));
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
@@ -57,7 +67,27 @@
   let choiceHeading: HTMLHeadingElement | undefined = $state();
   let replyField: HTMLTextAreaElement | undefined = $state();
   let resumeButton: HTMLButtonElement | undefined = $state();
-  let lastAction: "reply" | "resume" = $state("resume");
+  let lastAction: "reply" | "resume" | "carry" = $state("resume");
+  // A stopped phase's case (run restart AC-CASE-01); a held page keeps today's headline.
+  const restart = $derived(snapshot.liveControl ? undefined : caseHeadline(stop, activity, agent));
+  // The catch-up offer, once above the ways to resolve the stop, covers every button that starts or resumes the phase (AC-CURRENT-01).
+  let catchUpTicked = $state(true);
+  const bringUpToDate = $derived(!snapshot.liveControl && !!stop.catchUp && catchUpTicked);
+
+  /** Send reply & continue, Start again, or the carry-on card's Check again (run restart AC-CARRY-02, 05, AC-CASE-02). */
+  async function restartAction(action: "carry" | "start" | "reopen") {
+    if (busy && !(heldCarryOn && action !== "start" && !page.pending && connected)) return;
+    const target = recovery.target;
+    const state = page;
+    state.pending = action; state.feedback = undefined;
+    if (action === "carry") lastAction = "carry";
+    const answer = action === "carry" ? await carryOn(config, { ...(state.draft.trim() ? { note: state.draft } : {}), target: target.live ?? target, ...(heldCarryOn ? {} : { bringUpToDate }) })
+      : action === "start" ? await startAgain(config, bringUpToDate) : await reopenCheckAgain(config);
+    state.pending = undefined;
+    if (!sameRecoveryTarget(connection?.snapshot?.needsYou?.phaseRecovery?.target, target)) return;
+    if (!answer.ok) { state.feedback = answer.reason; state.unsent = !!state.draft; return; }
+    if (answer.outcome === "already_complete") { state.choice = true; state.unsent = !!state.draft; await tick(); choiceHeading?.focus(); }
+  }
 
   async function act(action: "reply" | "resume" | "verify" | "advance") {
     if (busy || (action === "reply" || action === "resume") && resumeBlocked) return;
@@ -68,7 +98,7 @@
     if (action === "reply" || action === "resume") lastAction = action;
     if (action === "verify") { state.markChanges = undefined; state.markError = undefined; }
     const answer = action === "reply" || action === "resume"
-      ? await resumePhase(config, target, action === "reply" ? state.draft : undefined)
+      ? await resumePhase(config, target, action === "reply" ? state.draft : undefined, bringUpToDate)
       : await verifyPhase(config, target, action);
     state.pending = undefined;
     if (answer.ok && answer.outcome === "advanced" && connection && connection.snapshot?.billing?.executionId === target.executionId) {
@@ -114,8 +144,22 @@
 
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
-  <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : `${activity} needs your input.`}</h1>
-  <p>Answer here, or talk it through in your terminal.</p>
+  <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : restart?.headline ?? `${activity} needs your input.`}</h1>
+  <p>{restart?.line ?? "Answer here, or talk it through in your terminal."}</p>
+  {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
+  {#if stop.launchFailure && stop.conversationMessage}
+    <section class="card message" aria-label="Earlier conversation">
+      {#if stop.conversationMessage.finalMessage !== undefined}
+        <span class="eyebrow">Last message from {agent}</span>
+        <div class="final">{@html finalMessageHtml(stop.conversationMessage.finalMessage)}</div>
+      {:else if stop.conversationMessage.lastLines?.length}
+        <span class="eyebrow">Last output from {agent}</span>
+        <div class="lines mono">{#each stop.conversationMessage.lastLines as line (line.line)}<OutputRow {line} now={nowDate} />{/each}</div>
+      {/if}
+      <div class="facts mono">{agent} · Session ended · {clockTime(stop.conversationMessage.endedAt, nowDate)}</div>
+    </section>
+  {/if}
+  {#if !stop.launchFailure}
   <section class="card message" aria-label="Stopped session">
     {#if stop.finalMessage !== undefined}
       <span class="eyebrow">Last message from {agent}</span>
@@ -128,6 +172,7 @@
     {#if stop.spawnError}<p class="warning">{stop.spawnError.message}</p>{/if}
     {#if stop.sessionId}<a href={outputLink} onclick={event => routedClick(event, router, outputLink)}>Full session output{#if stop.outputLineCount !== undefined} · {stop.outputLineCount} lines{/if}</a>{/if}
   </section>
+  {/if}
   <CodexSessionFacts facts={stop} />
   {#if stop.limit && limit}
     <section class="card">
@@ -147,9 +192,18 @@
       {#if !page.choice}<button class="button solid" disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{/if}
     </section>
   {/if}
-  {#if (pendingTakeover || page.choice) && stop.sessionId && snapshot.liveControl}<LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} />{/if}
+  {#if (pendingTakeover || page.choice) && stop.sessionId && snapshot.liveControl && !(heldCarryOn && !page.choice)}<LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} />{/if}
   {#if snapshot.liveControl?.takeover}<PausePanel {snapshot} {connected} />{/if}
-  {#if pendingTakeover}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
+  {#if heldCarryOn && !page.choice && stop.carryOn && stop.reopen}
+    <!-- A held phase whose conversation can't be reopened (run restart AC-CARRY-06): the carry-on and terminal cards in place of the wait text. -->
+    {#if stop.sessionId && snapshot.liveControl?.messages?.some(m => m.delivery === "uncertain")}<section class="card" aria-label="Messages to review"><LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} review /></section>{/if}
+    <h2>How would you like to resolve this?</h2>
+    <p>Exit {agent} first if it is open on this conversation. While it is, or while work the paused session started is still running, neither choice below is available, and Kiln says why.</p>
+    <div class="peer-choices">
+      <CarryOnCard {agent} activity={inSentence} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={!connected || !!page.pending} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
+      <FreshTerminalCard {agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held blocked={snapshot.liveControl?.takeover?.carryOnObstacle} />
+    </div>
+  {:else if pendingTakeover && !page.choice}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
   {:else if page.choice}
     <section class="card choice" aria-live="polite">
       <h2 tabindex="-1" bind:this={choiceHeading}>{activity} is already complete.</h2>
@@ -160,8 +214,23 @@
         <button class="button" disabled={busy} onclick={back}>Back to recovery page</button>
       </div>
     </section>
+  {:else if stop.case === "could_not_start" && stop.startAgain}
+    {@render catchUp()}
+    <StartAgainCard activity={inSentence} work={stop.work} control={stop.startAgain} pending={page.pending === "start"} disabled={busy} reason={page.feedback} onpress={() => restartAction("start")} />
+    {@render checkSection()}
+  {:else if stop.carryOn && stop.reopen}
+    <h2>How would you like to resolve this?</h2>
+    {@render catchUp()}
+    <div class="peer-choices">
+      <CarryOnCard {agent} activity={inSentence} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={busy} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
+      <FreshTerminalCard {agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held={false} />
+    </div>
+    {@render checkSection()}
   {:else}
     <h2>How would you like to resolve this?</h2>
+    <!-- A failed work read is named on every stopped page (run restart "A Stopped Phase's Facts", Work). -->
+    {#if stop.work && "unknown" in stop.work}<p class="warning" role="status">{stop.work.unknown}</p>{/if}
+    {#if stop.resumeOffered}{@render catchUp()}{/if}
     <div class="peer-choices">
       <section class="card">
         {#if stop.resumeOffered}
@@ -202,6 +271,12 @@
         {#if snapshot.liveControl.reviewRequired?.length}<p>Review each uncertain message in the conversation before resuming, checking again or marking {inSentence} complete. Acknowledgement alone keeps the execution held.</p>{/if}
       </section>
     {/if}
+    {@render checkSection()}
+  {/if}
+  {#snippet checkSection()}
+    {#if stop.nothingToCheck}
+      <NothingToCheck {snapshot} activity={inSentence} pending={page.pending === "verify"} disabled={busy} warning={recovery.checkError ? `Could not refresh: ${recovery.checkError.reason}` : undefined} onpress={() => act("verify")} />
+    {:else}
     <section class="card return" aria-label={`Is ${inSentence} already done?`}>
       <div class="between"><h2>Is {inSentence} already done?</h2><span class="hint" role="status">{checkedLine}</span></div>
       <p>If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out {inSentence} and moves to the next step. Nothing is committed or pushed for you.</p>
@@ -216,11 +291,16 @@
       {#if stillFailing}<p class="feedback" role="status"><strong>{activity} still has {checksWord(counts.failed).replace("check", "failing check")}.</strong>{#if stop.resumeOffered} If the work isn’t finished, have Kiln resume it above.{/if}</p>{/if}
       {#if offer}<MarkComplete {offer} pending={page.pending === "mark"} disabled={busy} changes={page.markChanges} error={page.markError} onmark={mark} />{:else if waiting}<MarkComplete {waiting} />{/if}
     </section>
-  {/if}
-  {#if page.feedback}<p class="warning" role="status">{page.feedback}</p>{/if}
+    {/if}
+  {/snippet}
+  {#if page.feedback && !stop.carryOn && !stop.startAgain}<p class="warning" role="status">{page.feedback}</p>{/if}
   <BillingPanel {snapshot} {connected} />
   <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>
+
+{#snippet catchUp()}
+  {#if stop.catchUp && !snapshot.liveControl}<CatchUpOffer offer={stop.catchUp} where="stop" activity={inSentence} bind:ticked={catchUpTicked} disabled={busy} />{/if}
+{/snippet}
 
 <style>
   .handoff { max-width: 1120px; margin: auto; display: flex; flex-direction: column; gap: 20px; }

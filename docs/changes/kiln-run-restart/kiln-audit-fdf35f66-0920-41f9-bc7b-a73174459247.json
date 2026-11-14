@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "executionId": "0e235d65-8f2f-48f3-af87-73553010a566",
+  "activityId": "fdf35f66-0920-41f9-bc7b-a73174459247",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "A fresh whole-PRD delivery audit of Kiln Run Restart ran at 2620426. It followed the test audit's fix in commit 56811fe, which changed how a carry-on from a held phase ends its hold. All 23 criteria are implemented, including AC-CARRY-06, whose code that fix changed. One round of nine fresh assessors confirmed no gap, so the assessment ended there. No criterion was amended, and no behavior was found changed outside the requirements. AC-CURRENT-01's test strength is still open for a person to settle.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "AC-CURRENT-01 (catching an untouched branch up, high risk) is stuck at Weak, 26 of 27 parts, after two fixing chats: no test has more than one repository qualifying for a catch-up at once, so a loop that moved only the first would go unnoticed. The behavior itself is built: catchUpAtStop and Start's setup move every qualifying repository.",
+      "action": "Say how to proceed: let a fixing chat add the two-qualifying-repository tests described under Stuck in test-audit.md, or accept AC-CURRENT-01 at Weak."
+    }
+  ],
+  "settled": []
+}

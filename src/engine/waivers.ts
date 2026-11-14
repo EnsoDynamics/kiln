@@ -280,6 +280,8 @@ export interface PreviewWording {
   resumeOffered: boolean;
   noReport: boolean;
   continueInOrder: boolean;
+  /** The phase has built nothing: no commits and no uncommitted changes (run restart AC-CASE-03). */
+  builtNothing?: boolean;
 }
 
 /**
@@ -295,6 +297,7 @@ export function previewSentence(wording: PreviewWording): string[] {
   if (wording.continueInOrder) {
     lines.push(`Continue anyway. Kiln records the problem above as waived, never as passed, and follows its normal order. Each step it reaches this way shows a warning.`);
   } else {
+    if (wording.builtNothing) lines.push(`${wording.activity} has built nothing: no commits and no uncommitted changes.`);
     lines.push(`Mark it complete. Kiln skips the ${n} failing check${n === 1 ? "" : "s"} above, records ${them} as waived, never as passed, and ${wording.next}. ${wording.activity} will show as “${wording.resultingLabel}”${wording.noReport ? " with a warning: no audit report" : ""}.`);
   }
   if (wording.repositoryWork.length) {
@@ -320,6 +323,8 @@ export type MarkCompleteOffer = {
   /** The sentence above the button, one paragraph per entry (AC-WAIVE-03). */
   sentence: string[];
   noReport: boolean;
+  /** The phase has built nothing, so the sentence says so (run restart AC-CASE-03). */
+  builtNothing?: true;
 } | {
   offered: false;
   reason: string;

@@ -44,6 +44,8 @@ No new process, service or watcher. The engine owns the folder check, the facts,
 
 ## The Folder Check (AC-GONE-01)
 
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Reset, Availability (while Folder missing is set, `kiln status` returns the status token and lists `reset`, and `reset` is admitted from the page and from the command line).
+
 For each repository entry with `setupCompletedAt`, Kiln classifies the saved folder (`expandHome(entry.worktreePath)`):
 
 | Classification | Predicate |
@@ -141,6 +143,8 @@ Each starting point's line follows AC-SETUP-03: that start's latest commit (the 
 
 ## Start (AC-SETUP-04, 05, AC-SAFE-01 to 04)
 
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Catching a Branch Up (AC-SAFE-03: Kiln may fast-forward and push a branch with no commits of its own).
+
 `POST /api/folder-setup/start` carries the draft, `factsId` and `previewId`, under the command journal like continuation acceptance. Startup reconciliation settles the Start command's receipt from its intent: completed when `activated` or `resumed`, failed otherwise, as accept and retry receipts are settled from the saved acceptance. Kiln reruns the folder check, the facts and the preview. While a session process this Kiln started is still live (`current.processRunning` or the engine loop running), Start returns `busy` (409) and does nothing. While Start is refused as busy, it is disabled, and the Before you start box shows, under the button in place of its help line, 'A session is still running. Start becomes available when it ends, or when you stop Kiln in the terminal.' A process left by an earlier Kiln is handled as the restart decision handles it, before the folder guard (§The Folder Check). A Claude phase or audit session's process is adopted as `current` (recovered live) and watched, never interrupted, so Start returns `busy` until it ends, and the box shows 'A session started by an earlier Kiln is still running (process <pid>). Start becomes available when it ends.' A Codex or pull-request session's process is stopped by Start with `stopLiveProcess` after the intent is written and before step 1, so before any Git write; Starting lets Kiln lists that stop. Stopping Kiln ends only a session this Kiln started. When a watched process ends, the loop records the session's end, judges nothing, clears `current` and ends, so the next Start proceeds. If every folder now passes, Folder missing ends and Start does nothing, as when any folder check passes (§The Folder Check). When a read the chosen start depends on fails in that rerun (AC-FACTS-03), Start returns `folder_missing_check_failed` (503) and the refreshed page is published. A different `factsId` or `previewId` returns `folder_setup_changed`, and the refreshed page is published. Otherwise Kiln writes a **start intent** sidecar (§Data Models) before any Git write, then does the steps below. Each step first checks whether its effect already exists as the intent describes; a step that fails leaves the intent with what was done and what remains, and the page shows both. The run's record changes only in the final step. After a failed Start, the page is republished with the facts and preview recomputed, so the next Start compares against that page and the intent's own completed steps never cause `folder_setup_changed`. A step already done is not listed again in Starting lets Kiln.
 
 **From the base branch (AC-SETUP-04).**
@@ -168,6 +172,8 @@ Codex records are not rewritten: a Codex conversation resumes only in its record
 A session that started in a worktree before a repository was added still matches a set-up worktree, so it stays resumable.
 
 ## Interfaces
+
+Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Reset, Availability (while Folder missing is set, `kiln status` returns the status token and lists `reset`, and `reset` is admitted from the page and from the command line).
 
 ### HTTP (same-origin, token, as today)
 

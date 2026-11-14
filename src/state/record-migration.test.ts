@@ -80,7 +80,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(20);
+    expect(SCHEMA_VERSION).toBe(21);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -118,9 +118,19 @@ describe("schema 20: the saved plan's read time (missing worktree recovery, Data
     const nineteen = migrateRecord(schemaOne({}));
     nineteen.schemaVersion = 19;
     const twenty = migrateRecord(nineteen);
-    expect(twenty.schemaVersion).toBe(20);
+    expect(twenty.schemaVersion).toBe(SCHEMA_VERSION);
     expect(twenty).not.toHaveProperty("planReadAt");
     expect(() => migrateRecord({ ...twenty, planReadAt: "yesterday-ish" })).toThrow(/plan read time/);
+  });
+});
+
+describe("schema 21: stop rows that report why a phase stopped (run restart AC-CASE-03, Data Models)", () => {
+  it("marks a saved stop's and billing hold's reason rows by name, and leaves completion rows unmarked", () => {
+    const twenty = migrateRecord(schemaOne({ phases: { "1": { sessionIds: ["s1"], finishedByPerson: false, repositories: {}, stop: { kind: "not_resumable", at: "2026-11-11T21:33:00Z", checkedAt: "2026-11-11T21:33:00Z", checks: [{ name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history."] }, { name: "Phase doc closed", passed: false, facts: ["phase-1.md has no Closed line"] }] } } } }));
+    twenty.schemaVersion = 20;
+    const migrated = migrateRecord(twenty);
+    expect(migrated.schemaVersion).toBe(21);
+    expect(migrated.phases["1"]!.stop!.checks.map(check => [check.name, check.reason ?? false])).toEqual([["Claude recovery", true], ["Phase doc closed", false]]);
   });
 });
 

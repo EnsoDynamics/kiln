@@ -28,7 +28,8 @@
       <p><strong>At the next safe stopping point.</strong> Finish the current operation, then stop before starting more work. Open the same conversation in your terminal; the phase/audit can remain unfinished.</p>
       {#if held && held.kind !== "delivery_recovery"}
         <p role="status"><strong>{held.state === "released" ? "Paused for terminal takeover." : "Pausing for takeover — finishing the current operation."}</strong></p>
-        {#if held.state !== "released"}<p>Wait before opening Claude. Terminal access becomes available after Kiln releases the conversation.</p><p>{held.reason}</p>{#if held.latestActivityAt && Date.parse(held.observedAt) - Date.parse(held.latestActivityAt) >= 30000}<p>Waiting {Math.floor((Date.parse(held.observedAt) - Date.parse(held.latestActivityAt)) / 1000)} seconds since the last observed activity. There is no automatic cancellation deadline.</p>{/if}{/if}
+        <!-- A hold whose conversation can't be reopened shows the carry-on and terminal cards in place of this wait text (run restart AC-CARRY-06). -->
+        {#if held.state !== "released" && !held.history}<p>Wait before opening Claude. Terminal access becomes available after Kiln releases the conversation.</p><p>{held.reason}</p>{#if held.latestActivityAt && Date.parse(held.observedAt) - Date.parse(held.latestActivityAt) >= 30000}<p>Waiting {Math.floor((Date.parse(held.observedAt) - Date.parse(held.latestActivityAt)) / 1000)} seconds since the last observed activity. There is no automatic cancellation deadline.</p>{/if}{/if}
       {:else}
         <button class="button wide" disabled={!connected || pressing || submitting || !snapshot.liveControl?.available} onclick={() => press(true)}>Pause &amp; take over</button>
         {#if submitting}<p>Wait for this message submission’s outcome before pausing.</p>{/if}

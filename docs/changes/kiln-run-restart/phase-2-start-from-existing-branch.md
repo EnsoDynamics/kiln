@@ -1,5 +1,7 @@
 # Phase 2: Start from an existing branch, and catch an untouched branch up
 
+**Closed:** 2026-11-12
+
 **Parent PRD:** docs/changes/kiln-run-restart/kiln-run-restart-prd.md
 **Technical design:** docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md — relevant sections: "Architecture" (item 1), "Starting From a Branch", "Catching a Branch Up", "Interfaces" (`POST /api/settings`, `/api/start`, `bringUpToDate` on the session routes, the snapshot's `documents.start` and `needsYou.catchUp`, `--leave-branch-as-is`), "Data Models", "Changes to Earlier Designs" (the Kiln v1, Missing Worktree Recovery, Multi-Repo Delivery, Development Deployments and Continue Added Phases pointers)
 
@@ -17,3 +19,9 @@ Reset, including the start-check rerun on a page a reset built and a reset run f
 
 ## Phase-specific notes
 - `docs/kiln-command-line-and-bot-control.md` gains `--leave-branch-as-is` here, and its claim that a terminal can do everything the browser does is corrected for choosing where a run starts.
+
+## Carried forward from Phase 1
+- The stopped-phase Work read is `Engine.refreshStoppedWork` (`src/engine/stopped-phase.ts` `readPhaseWork`), run at a stop, each recheck, page open (`/api/events`) and before a carry-on; the catch-up offer is read there. `Engine.stoppedPhase()` is the stopped-phase predicate; a held phase is never one.
+- The journal's `carry-on` and `start-again` actions take no `leave_branch` input yet (`src/control/commands.ts` `validateInstruction`), and `/api/carry-on` and `/api/start-again` take no `bringUpToDate`; the contracts in `prompts/kiln-command-contracts.json` have no `--leave-branch-as-is`.
+- The stopped-phase cards are `view/src/components/CarryOnCard.svelte` and `StartAgainCard.svelte`, rendered from `PhaseHandoff.svelte` and `NeedsYou.svelte`; the offer sits above them, once.
+- The real-agent proof for the stopped-phase actions is `scripts/proof-run/run-restart-provider-proof.mjs`.

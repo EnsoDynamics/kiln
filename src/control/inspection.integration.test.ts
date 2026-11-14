@@ -196,7 +196,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   it('independently inventories every supported command and legacy helper without confusing execution contracts',async()=>{
     sandbox=createSandbox();const root=(await command(['--help','--json'])).json();
     const actual=(root.commands as {path:string[]}[]).map(c=>c.path.join(' ')).sort();
-    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
+    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
     const reply=JSON.parse((await command(['reply','--help','--json'])).stdout).command;
     expect(Object.keys(reply.flags)).toEqual(expect.arrayContaining(['message-file','message-from-stdin','command-id','only-if-status-matches','help','json']));
     expect(reply.examples).toHaveLength(2);expect(reply.required_exclusive_groups).toContainEqual({exactly_one:['message-file','message-from-stdin']});
@@ -285,7 +285,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
     expect(detail.agent).toBe('claude_code');expect(detail.stop).toMatchObject({reason:'done_check',final_message:'Literal final question: "UPS?"\nDo not run $(anything).',message_complete:true,session_id:h.engine.latestSession('1')!.sessionId,phaseId:'1',checked_at:h.engine.record.phases['1']!.stop!.checkedAt,checks:browser.checks,failed_checks:browser.checks.filter(c=>!c.passed),resumeOffered:true,resumeCommand:browser.resumeCommand,freshSessionCommand:browser.freshSessionCommand,freshSessionPrompt:browser.freshSessionPrompt});
     // AC-ACT-01: pin the complete inventory, not an every() over a possibly empty list.
-    const controlNames=['reply','resume','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','settings','message','take-over'].sort();
+    const controlNames=['reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','settings','message','take-over'].sort();
     const controls=detail.controls as {name:string;available:boolean;reason:string|null}[];
     expect(controls.map(c=>c.name).sort()).toEqual(controlNames);
     for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);expect(c).toMatchObject({required_inputs:['PRD-path','--only-if-status-matches','--command-id'],invocation:['kiln',c.name,path]});}
@@ -779,7 +779,7 @@ it('finalizes a valid unavailable response when audit parsing finishes after the
   const store = new AuditStore(h.stateDirectory); const id = store.put({ repositories: [], deadlineMarker: 'audit-parse-deadline' });
   h.engine.record.activities = [{ activityId: 'late', key: 'audit-late', sequence: 1, kind: 'delivery_audit', createdAt: h.engine.record.startedAt }];
   h.engine.record.completionAudits!.activities = [{ activityId: 'late', sequence: 1, kind: 'delivery_audit', round: 1, continuationIndex: 1, createdAt: h.engine.record.startedAt, sessionIds: [], reportPath: 'fixture.json', skill: { name: 'delivery-audit', path: 'fixture', digest: id }, snapshots: [id], attempts: [] }]; writePrdRecord(h.stateDirectory, h.engine.record);
-  const app = new Hono(); await installInspectionRoutes(app, h.engine, () => undefined);
+  const app = new Hono(); await installInspectionRoutes(app, () => h!.engine, () => undefined);
   const parse = JSON.parse; const now = Date.now; let late = false;
   // Narrow late-parse injection; data still crosses the real guarded file reader,
   // projection, route and finalized response spool. This is not elapsed-time proof.

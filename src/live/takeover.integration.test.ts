@@ -247,7 +247,7 @@ it.skipIf(process.platform !== "darwin")("withholds terminal readiness for a rea
     const { findTranscripts } = await import("../session/transcripts.js"); const { renameSync } = await import("node:fs");
     const history = findTranscripts(h.env.CLAUDE_CONFIG_DIR!, target.sessionId).main!;
     renameSync(history, `${history}.unavailable`);
-    try { await h.engine.reconcileTakeover(); expect(h.engine.record.liveControl!.takeover.state).toBe("pending"); expect(h.engine.record.liveControl!.takeover.reason).toContain("missing or unreadable"); expect(buildSnapshot(h.engine).needsYou!.resumeCommand).toBeUndefined(); }
+    try { await h.engine.reconcileTakeover(); expect(h.engine.record.liveControl!.takeover.state).toBe("pending"); expect(h.engine.record.liveControl!.takeover).toMatchObject({ history: { state: "unavailable", reason: "missing" }, reason: expect.stringContaining("can't reopen the saved conversation history") }); expect(buildSnapshot(h.engine).needsYou!.resumeCommand).toBeUndefined(); }
     finally { renameSync(`${history}.unavailable`, history); }
     await waitForRelease(); expect(h.engine.record.liveControl!.takeover.state).toBe("released");
   } finally { child.stdin!.end(); await exit; }

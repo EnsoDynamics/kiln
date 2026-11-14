@@ -38,6 +38,11 @@ export interface StartCheckReport {
   github?: string;
   /** The named repositories found beside the PRD's repository, in plan order. */
   repositories: FoundRepository[];
+  /**
+   * The uncommitted-files problem, also in `problems`, kept apart so a page built by a reset can let
+   * it give way for a selection that adopts this checkout (run restart "A reset run from the adopted worktree").
+   */
+  uncommitted?: string;
 }
 
 /**
@@ -128,11 +133,12 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     tools.gh ? runHelper(tools.gh, ["auth", "status", "--hostname", "github.com"], { cwd: location.checkoutRoot, env }) : undefined,
   ]);
 
+  let uncommitted: string | undefined;
   if (status.exitCode !== 0) {
     problems.push(`Couldn't read the checkout's status: ${(status.stderr || status.failure || "").trim()}`);
   } else {
     const changed = status.stdout.split(/\r?\n/).filter((line) => line.trim() !== "").map((line) => line.slice(3));
-    if (changed.length > 0) problems.push(uncommittedChangesProblem(location.checkoutRoot, changed));
+    if (changed.length > 0) { uncommitted = uncommittedChangesProblem(location.checkoutRoot, changed); problems.push(uncommitted); }
   }
 
   // Node.js and Git below their minimums are start problems (AC-AGENT-05). A version Kiln can't
@@ -165,5 +171,6 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     plan,
     ...(github ? { github: `${github.owner}/${github.name}` } : {}),
     repositories,
+    ...(uncommitted ? { uncommitted } : {}),
   };
 }

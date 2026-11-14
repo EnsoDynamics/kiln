@@ -673,7 +673,9 @@ const closedAtBaseCache = new Map<string, ReadonlySet<string>>();
  * so the answer is cached. A record with no base commit yet names none, so every closed leaf owes its evidence.
  */
 export async function leavesClosedAtRunBase(context: DeliveryContext): Promise<ReadonlySet<string>> {
-  const base = context.record.repositories.find(one => one.name === context.record.repository.name)?.baseCommit;
+  // Where the run began: an existing branch's tip, or where a branch cut new stood before its first catch-up (run restart "After Start").
+  const entry = context.record.repositories.find(one => one.name === context.record.repository.name);
+  const base = entry?.runStartCommit ?? entry?.baseCommit;
   if (!base) return new Set();
   const key = `${context.prdWorktree}\0${context.prdDirectory}\0${base}`;
   let closed = closedAtBaseCache.get(key);
