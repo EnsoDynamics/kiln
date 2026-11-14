@@ -10,6 +10,13 @@ section to the new version.
 
 ## [Unreleased]
 
+### Changed
+
+- At Needs you, the rows saved when Kiln stopped are now labelled **Why Kiln stopped**, with any
+  passing ones under **Also checked when Kiln stopped**, and the page says when **Check again**
+  will run all of the activity's completion checks. Once those checks have run, the rows are
+  labelled **Completion checks**.
+
 ## [1.2.2] - 2026-11-14
 
 The header shows the whole PRD's time, the top bar says when a newer Kiln is on npm, and a

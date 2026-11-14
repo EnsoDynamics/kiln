@@ -1194,7 +1194,7 @@ export class Engine {
     if (!outcome.passed) return false;
     const facts = this.record.phases[key]!;
     facts.stop ??= { kind: "done_check", at: this.record.liveControl.takeover.requestedAt, checkedAt: this.now().toISOString(), checks: [] };
-    this.updateStop(key, outcome.checks);
+    this.updateStop(key, outcome.checks, true);
     if (this.controlDispatch) { this.controlDispatch.outcome = "phase_already_complete"; this.controlDispatch.effects.session = "not_started"; this.record.controlApplied = { operationId: this.controlDispatch.id, outcome: "phase_already_complete" }; }
     this.returningTakeover = false; this.checking = false; this.save();
     return true;
@@ -1712,7 +1712,7 @@ export class Engine {
       const facts = this.record.phases[key]!;
       const previousStop = structuredClone(facts.stop);
       if (!facts.stop) facts.stop = { kind: "done_check", at: target!.stoppedAt, checks: [], checkedAt: this.now().toISOString() };
-      try { this.updateStop(key, outcome.checks); }
+      try { this.updateStop(key, outcome.checks, true); }
       catch (error) { if (previousStop) facts.stop = previousStop; else delete facts.stop; throw error; }
       this.phaseCheckError = undefined;
       if (outcome.passed) {
@@ -5234,6 +5234,23 @@ export class Engine {
   }
 
   /**
+   * Whether Check again at this stop runs the activity's completion checks (AC-STOPCHECK-02). The
+   * hand-back page's Check again is recoverPhase, which always runs the done check; elsewhere it is
+   * recheckStop, read from the same branches. A launch, plan or readiness problem reruns its own
+   * check, and a development check on an activity already complete reruns only that check.
+   */
+  recheckRunsCompletion(phaseKey: string): boolean {
+    if (this.phaseRecoveryTarget()?.phaseKey === phaseKey) return true;
+    const hold = this.record.billing?.hold;
+    if (hold?.phaseKey === phaseKey) return !!(hold.sessionId ? this.sessionRecord(phaseKey, hold.sessionId) : this.latestSession(phaseKey))?.runs.length;
+    const stop = this.record.phases[phaseKey]?.stop;
+    if (!stop || stop.kind === "selection" || stop.kind === "plan") return false;
+    const activation = this.record.developmentAuthorization?.activationRecovery;
+    if (activation && recoveryStopKey(activation) === phaseKey && this.record.phases[phaseKey]!.sessionIds.length === 0) return false;
+    return phaseKey === PR_PHASE_KEY || !(stop.kind === "done_check" && this.alreadyComplete(phaseKey) && stop.checks.every(check => check.passed || check.name === DELIVERY_CHECK));
+  }
+
+  /**
    * Check again, or `kiln run` on a stopped phase: the stop's own check, run again. It keeps the
    * stop, with a new check run, while that check still fails, and clears it only when it passes
    * (waivers "Check Runs"). `routeAudits: false` is Mark complete's rerun, which never routes a
@@ -5260,7 +5277,7 @@ export class Engine {
           await this.recordDone(phaseKey, outcome as DoneCheckOutcome, true); return "done";
         }
         // The run's rows only: the Billing approval row is shown beside them, outside the run, and is never waivable.
-        if (outcome !== "stopping") { hold.checks = markReasonRows(outcome.checks); hold.run = this.newRun("recheck"); this.save(); }
+        if (outcome !== "stopping") { hold.checks = markReasonRows(outcome.checks); hold.rowsAreCompletionChecks = true; hold.run = this.newRun("recheck"); this.save(); }
         return "still_stopped";
       }
       await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true);
@@ -5269,7 +5286,8 @@ export class Engine {
       const rows = await this.completionRows(phaseKey);
       const checks = [...rows, { name: "Billing approval", passed: false, facts: [hold.reason] }];
       await this.markChecks(phaseKey, checks);
-      hold.checks = markReasonRows(checks); hold.run = this.newRun("recheck"); this.save();
+      // A launch hold on an activity that has not run keeps the Why Kiln stopped label (AC-STOPCHECK-02, 03).
+      hold.checks = markReasonRows(checks); delete hold.rowsAreCompletionChecks; hold.run = this.newRun("recheck"); this.save();
       return "still_stopped";
     }
     const stop = facts.stop!;
@@ -5288,7 +5306,7 @@ export class Engine {
       } catch (error) {
         if (this.stopping) return "still_stopped";
         const checks: CheckResult[] = [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }];
-        if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks); return "still_stopped"; }
+        if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks, false); return "still_stopped"; }
       }
       return this.clearStop(phaseKey);
     }
@@ -5299,7 +5317,7 @@ export class Engine {
         if (this.stopping) return "still_stopped";
         const checks = [{ name: "Preparation permissions", passed: false, facts: [(error as Error).message] }, ...await this.completionRows(phaseKey)];
         await this.markChecks(phaseKey, checks);
-        this.updateStop(phaseKey, checks);
+        this.updateStop(phaseKey, checks, false);
         return "still_stopped";
       }
       return this.clearStop(phaseKey);
@@ -5312,9 +5330,10 @@ export class Engine {
       if (issue || probe) {
         const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [issue] } : probe!;
         // An activity that has not run: its own completion rows beside the launch check (waivers "Check Runs").
+        // An activity that has not run: its own completion rows beside the launch check, still labelled Why Kiln stopped (AC-STOPCHECK-02, 03).
         const checks = [launch, ...(this.activityRan(phaseKey) ? [] : await this.completionRows(phaseKey))];
         await this.markChecks(phaseKey, checks);
-        this.updateStop(phaseKey, checks);
+        this.updateStop(phaseKey, checks, false);
         return "still_stopped";
       }
       return this.clearStop(phaseKey);
@@ -5327,7 +5346,8 @@ export class Engine {
         const checks = this.activityRan(phaseKey) && !this.alreadyComplete(phaseKey) ? await this.completionRows(phaseKey) : [planCheck(read)];
         // A problem a waiver already covers no longer stops Kiln: it follows its normal order (AC-WAIVE-04).
         if (await this.markChecks(phaseKey, checks)) return this.clearStop(phaseKey);
-        this.updateStop(phaseKey, checks);
+        // A plan problem is why Kiln stopped, whichever rows carry it (AC-STOPCHECK-02, 03).
+        this.updateStop(phaseKey, checks, false);
         return "still_stopped";
       }
       // A repository the phase names that the workspace lacks is tried again (multi-repo AC-ADD-04).
@@ -5337,13 +5357,13 @@ export class Engine {
         if (!added.ok) {
           const checks = [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }];
           if (await this.markChecks(phaseKey, checks)) return this.clearStop(phaseKey);
-          this.updateStop(phaseKey, checks);
+          this.updateStop(phaseKey, checks, false);
           return "still_stopped";
         }
       }
       const activation = this.record.developmentAuthorization?.activationRecovery;
       if (activation && recoveryStopKey(activation) === phaseKey && stop.checks.some(check => check.facts.includes(ACTIVATION_MISSING)) && !judgedPhase(this.record.plan ?? [], phaseKey)) {
-        this.updateStop(phaseKey, [{ name: CHECK_NAMES.plan, passed: false, facts: [ACTIVATION_MISSING] }]);
+        this.updateStop(phaseKey, [{ name: CHECK_NAMES.plan, passed: false, facts: [ACTIVATION_MISSING] }], false);
         return "still_stopped";
       }
       // The plan reads again. Nothing ran, so nothing is marked Done; the loop goes round again.
@@ -5363,7 +5383,7 @@ export class Engine {
       // A stop saved on a phase Closed before this run began, which owes no development evidence (AC-DEV-03), clears.
       if (!audit && !owesDevelopmentEvidence(this.record, phaseKey, (await leavesClosedAtRunBase(this.deliveryContext(phaseKey))).has(phaseKey))) return this.clearStop(phaseKey);
       const checks = [audit ? ownerDeliveryCheck(this.deliveryContext(phaseKey), { kind: "audit", activityId: audit.activityId }) : phaseDeliveryCheck(this.deliveryContext(phaseKey), phaseKey)];
-      if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks); return "still_stopped"; }
+      if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks, false); return "still_stopped"; }
       return this.clearStop(phaseKey);
     }
     if (phaseKey === PR_PHASE_KEY) {
@@ -5377,14 +5397,14 @@ export class Engine {
         return "complete";
       }
       if (routeAudits && this.finalNeedsAudits(check)) return "done";
-      this.updateStop(phaseKey, check.checks);
+      this.updateStop(phaseKey, check.checks, true);
       return "still_stopped";
     }
     const outcome = await this.doneCheck(phaseKey);
     if (outcome === "stopping" || this.stopping) return "still_stopped";
     if (outcome.unavailable) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable(outcome.unavailable); }
     if (!outcome.passed) {
-      this.updateStop(phaseKey, outcome.checks);
+      this.updateStop(phaseKey, outcome.checks, true);
       return "still_stopped";
     }
     if (!this.auditActivity(phaseKey)) delete facts.stop;
@@ -5775,10 +5795,16 @@ export class Engine {
     if (limit !== undefined) this.askReading();
   }
 
-  /** A recheck of the stop: its rows and a new check run, `finished: false` when it could not finish (waivers "Check Runs"). */
-  private updateStop(phaseKey: string, checks: CheckResult[], finished = true): void {
+  /**
+   * A recheck of the stop: its rows and a new check run, `finished: false` when it could not finish (waivers "Check Runs").
+   * `completion` says whether the rows are the activity's completion checks or only the check that stopped Kiln (AC-STOPCHECK-03).
+   */
+  private updateStop(phaseKey: string, checks: CheckResult[], completion: boolean, finished = true): void {
     const stop = this.record.phases[phaseKey]!.stop!;
-    if (finished) stop.checks = markReasonRows(itemize(checks, phaseKey));
+    if (finished) {
+      stop.checks = markReasonRows(itemize(checks, phaseKey));
+      if (completion) stop.rowsAreCompletionChecks = true; else delete stop.rowsAreCompletionChecks;
+    }
     stop.checkedAt = this.now().toISOString();
     stop.run = this.newRun("recheck", finished);
     this.save();

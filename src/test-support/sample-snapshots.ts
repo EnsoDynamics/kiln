@@ -688,6 +688,7 @@ export function handBackSnapshot(options: { resumeOffered?: boolean; rechecked?:
     counts: { passed: checks.length - failed, waived: 0, failed },
     checkedAt: rechecked ? "2026-10-17T15:56:05Z" : "2026-10-17T15:52:00Z",
     checkRun: rechecked ? { id: "run-2b-recheck", at: "2026-10-17T15:56:05Z", origin: "recheck", finished: true } : { id: "run-2b-stop", at: "2026-10-17T15:52:00Z", origin: "stop", finished: true },
+    ...(rechecked ? { rowsAreCompletionChecks: true as const } : { recheckRunsAll: true as const }),
     markComplete: rechecked && !checking ? markCompleteOfferSample(mixed) : checking ? { offered: false, reason: "Kiln is checking." } : { offered: false, reason: "No check has run since Phase 2b stopped.", awaitingRecheck: { label: "Mark Phase 2b complete", heading: "Phase 2b is done, and Kiln’s check is wrong?" } },
     ...(checking ? { checking: true as const } : {}),
     phaseRecovery: { target: { executionId: "display-execution", phaseKey: "2b", sessionId: SESSION_2B, stoppedAt: "2026-10-17T15:52:00Z" }, completion: "incomplete" },
@@ -734,7 +735,7 @@ export function finalDeliveryNeedsYouSnapshot(): Snapshot {
   snapshot.waivers = [WAIVER];
   snapshot.needsYou = {
     ...stop, phaseId: "pr", resumeOffered: true, checks, counts: { passed: 0, waived: 0, failed: 1 },
-    checkedAt: "2026-10-17T16:41:00Z", checkRun: { id: "run-pr-recheck", at: "2026-10-17T16:41:00Z", origin: "recheck", finished: true },
+    checkedAt: "2026-10-17T16:41:00Z", checkRun: { id: "run-pr-recheck", at: "2026-10-17T16:41:00Z", origin: "recheck", finished: true }, rowsAreCompletionChecks: true,
     markComplete: {
       offered: true, label: "Mark final delivery complete", heading: "Final delivery is done, and Kiln’s check is wrong?", continueInOrder: false, checkRunId: "run-pr-recheck",
       items: [{ check: checks[0]!.name, kind: "other", subject: "acme-shop", text: checks[0]!.facts[1]!, against: "acme-shop=9e04c7d2" }],

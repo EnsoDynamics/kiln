@@ -352,6 +352,10 @@ export interface Snapshot {
     checkedAt?: string;
     /** The latest check run: `origin: stop` until the person checks again (AC-NEXT-02). */
     checkRun?: CheckRun;
+    /** Set once a finished check since the stop ran the completion checks; until then the rows read Why Kiln stopped (AC-STOPCHECK-01, 03). */
+    rowsAreCompletionChecks?: true;
+    /** Check again at this stop runs the activity's completion checks (AC-STOPCHECK-02). */
+    recheckRunsAll?: true;
     /** Whether Mark complete is offered, and what it would do (AC-WAIVE-02, AC-WAIVE-03). */
     markComplete?: MarkCompleteOffer;
     phaseRecovery?: PhaseRecoveryView;
@@ -695,7 +699,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const retainedStop = record.phases[phaseKey]?.stop;
   // A hold's own run and rows govern (waivers "Check Runs"); where the activity has run, the Billing approval row is shown beside them, outside the run.
   const holdRows = hold ? hold.checks ?? retainedStop?.checks ?? record.phases[phaseKey]?.wait?.checks ?? [] : [];
-  const stop = hold ? { kind: "billing" as const, at: hold.at, checkedAt: hold.run?.at ?? hold.at, ...optional("run", hold.run), checks: holdRows.some(check => check.name === "Billing approval") ? holdRows : [...holdRows, { name: "Billing approval", passed: false, facts: [hold.reason, ...hold.observed.sources] }], ...(retainedStop?.limit ? { limit: retainedStop.limit } : {}) } : retainedStop!;
+  const stop = hold ? { kind: "billing" as const, at: hold.at, checkedAt: hold.run?.at ?? hold.at, ...optional("run", hold.run), ...optional("rowsAreCompletionChecks", hold.rowsAreCompletionChecks), checks: holdRows.some(check => check.name === "Billing approval") ? holdRows : [...holdRows, { name: "Billing approval", passed: false, facts: [hold.reason, ...hold.observed.sources] }], ...(retainedStop?.limit ? { limit: retainedStop.limit } : {}) } : retainedStop!;
   const phaseRecovery = engine.phaseRecoveryView();
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
@@ -708,6 +712,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     checks,
     counts: checkCounts(checks),
     ...optional("checkRun", checkRun),
+    ...((phaseRecovery ? retainedStop?.rowsAreCompletionChecks : stop.rowsAreCompletionChecks) ? { rowsAreCompletionChecks: true as const } : {}),
+    ...(engine.recheckRunsCompletion(phaseKey) ? { recheckRunsAll: true as const } : {}),
     markComplete: engine.markCompleteOffer(),
     ...(phaseRecovery ? { phaseRecovery, ...optional("checkedAt", retainedStop?.checkedAt) } : { checkedAt: stop.checkedAt }),
     ...(engine.checking ? { checking: true as const } : {}),

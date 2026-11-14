@@ -15,7 +15,9 @@
   </div>
   {#if warning}<p class="warning" role="alert">{warning}</p>{/if}
   {#if reasons.length}
-    <ul class="checks">
+    <!-- The row kept for the stop's own reason carries the same label as the checks section (AC-STOPCHECK-04). -->
+    <span class="eyebrow">Why Kiln stopped</span>
+    <ul class="checks" aria-label="Why Kiln stopped">
       {#each reasons as check, index (index)}<li><strong>{check.name}</strong><CheckFacts {snapshot} {check} /></li>{/each}
     </ul>
   {/if}
