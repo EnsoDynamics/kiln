@@ -21,7 +21,7 @@ The check runs once per `kiln` process: `serveAndOpen` in `kiln-command.ts` star
 
 ## The View (AC-NEWER-03)
 
-`App.svelte` asks for `/api/newer-version` once on mount, with the page's token, and passes `latest` to `TopBar`. A failed request leaves it undefined. `TopBar` shows the pill only when `latest` is set, and owns the panel's open state: the pill toggles it; Escape and a pointer press outside the pill and panel close it. The panel uses the existing `CopyButton` (compact, labelled `Copy`) for the command. The link opens the GitHub release tag in a new tab. Colors come from `theme.css` (`--amber`, `--amber-border`, `--panel`, `--deep`), as the mockup draws.
+`App.svelte` asks for `/api/newer-version` once on mount, with the page's token, and passes `latest` to `TopBar`. A failed request leaves it undefined. `TopBar` shows the pill only when `latest` is set, and owns the panel's open state: the pill toggles it; Escape and a pointer press outside the pill and panel close it. The panel uses the existing `CopyButton` (compact, labelled `Copy`) for the command. The link opens `CHANGELOG.md` on GitHub's `main` branch in a new tab: every release's section, newest first, rather than one release's notes. Colors come from `theme.css` (`--amber`, `--amber-border`, `--panel`, `--deep`), as the mockup draws.
 
 ## Tests
 

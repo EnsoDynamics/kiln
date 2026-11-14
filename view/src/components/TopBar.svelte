@@ -37,7 +37,7 @@
           <div class="panel" id="newer-kiln" data-testid="newer-kiln">
             <div class="title">Kiln v{latest} is out <span class="dim">· you're on v{version}</span></div>
             <div class="command"><code>npm install -g @ensodynamics/kiln</code><CopyButton text="npm install -g @ensodynamics/kiln" label="Copy" compact /></div>
-            <p class="note">This Kiln stays on v{version} until you start it again. <a href="https://github.com/EnsoDynamics/kiln/releases/tag/v{latest}" target="_blank" rel="noreferrer">What changed</a></p>
+            <p class="note">This Kiln stays on v{version} until you start it again. <a href="https://github.com/EnsoDynamics/kiln/blob/main/CHANGELOG.md" target="_blank" rel="noreferrer">What changed</a></p>
           </div>
         {/if}
       </div>

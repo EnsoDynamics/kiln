@@ -4,12 +4,22 @@ These instructions apply only to this repository.
 
 Engineering standards: commercesong-engineering-standards
 
+## The changelog
+
+`CHANGELOG.md` is the one record of what changed in each release, and each GitHub Release
+shows its section. Work that changes what a Kiln user sees adds a short entry under
+`## [Unreleased]` when it merges to `develop`, under `Added`, `Changed`, `Fixed` or
+`Removed`, written for users rather than for someone reading the diff. Internal refactors,
+tests, CI and documentation-only changes get no entry. Never write a version number for
+unreleased work: `npm run release:prepare` turns Unreleased into the version's section.
+
 ## Preparing a release
 
 When Doug asks to prepare Kiln for release, include version preparation without
 requiring him to request a version bump separately. Read
 [Kiln npm release setup and operation](docs/release/kiln-npm-release-steps.md)
-and inspect the changes since the last release before choosing the version:
+and inspect the changes since the last release, starting from `CHANGELOG.md`'s
+Unreleased section, before choosing the version:
 
 - **Patch** (`1.0.0` → `1.0.1`): compatible fixes and small improvements that do
   not add public functionality. Run `npm run release:prepare`.

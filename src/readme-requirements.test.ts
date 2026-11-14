@@ -57,10 +57,11 @@ describe("the README's requirements", () => {
 
 // AC-NOTES-01: the 1.0.0 notes say what Kiln is, how to install it, what it requires and where to report problems.
 describe("the 1.0.0 release notes", () => {
-  const notes = readFileSync(new URL(`../docs/release/notes/kiln-release-notes-1.0.0.md`, import.meta.url), "utf8");
+  // The 1.0.0 section of the changelog, up to the next release's heading.
+  const notes = /^## \[1\.0\.0\][^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/m.exec(readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8"))?.[1] ?? "";
 
   it("say what Kiln is, how to install it and where to report problems", () => {
-    expect(notes).toMatch(/^# Kiln \d+\.\d+\.\d+\n/);
+    expect(notes.trim()).not.toBe("");
     expect(notes).toContain("Kiln builds a PRD you already planned with the [Enso Method]");
     expect(notes).toContain("npm install -g @ensodynamics/kiln");
     expect(notes).toContain("https://github.com/EnsoDynamics/kiln/issues");
