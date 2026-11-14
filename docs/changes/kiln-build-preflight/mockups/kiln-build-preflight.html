@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Build Preflight mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0d0c0a;color:#ede8dd;font-family:Inter,sans-serif}
+main{max-width:1300px;margin:0 auto;padding:32px 16px;display:flex;flex-direction:column;gap:40px}
+h2{margin:0 0 4px;font-size:18px;font-weight:600}
+.note{margin:0 0 12px;font-size:14px;color:#bdb6a8}
+.screen{overflow-x:auto;border:1px solid rgba(237,232,221,0.18);border-radius:12px}
+.frame{box-sizing:border-box;padding:48px 56px;background:#12110e;color:#ede8dd;display:flex;flex-direction:column;gap:22px}
+.eyebrow{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.08em;color:#8c8577}
+.eyebrow.amber{color:#e6b450}
+.title{margin:0;font-family:'Instrument Serif',serif;font-weight:400;font-size:44px;line-height:1.1}
+.lead{margin:0;font-size:16px;line-height:1.6;color:#bdb6a8;max-width:840px}
+.panel{background:#1b1a16;border:1px solid rgba(237,232,221,0.12);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:12px}
+.panel.amber{border-color:rgba(230,180,80,0.55)}
+.panel.new{border-color:#b89b5e}
+.dim{opacity:0.55}
+.label{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:0.08em;color:#bdb6a8}
+.label.amber{color:#e6b450}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:15px;line-height:1.5}
+.muted{color:#bdb6a8}
+.small{margin:0;font-size:14px;line-height:1.5;color:#bdb6a8}
+.body{margin:0;font-size:15px;line-height:1.6}
+.item{display:grid;grid-template-columns:28px 1fr;gap:10px;font-size:15px;line-height:1.6}
+.num{font-family:'JetBrains Mono',monospace;color:#e6b450}
+code{font-family:'JetBrains Mono',monospace;font-size:13px;background:#12110e;border:1px solid rgba(237,232,221,0.14);border-radius:6px;padding:2px 6px}
+.buttons{display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.btn{min-height:44px;padding:0 20px;border-radius:999px;background:transparent;color:#ede8dd;border:1px solid rgba(237,232,221,0.24);font-family:Inter,sans-serif;font-size:15px;font-weight:600}
+.btn.primary{background:#e2694f;color:#12110e;border:none}
+.mark{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;border:1px solid rgba(230,180,80,0.55);color:#e6b450;font-size:12px;font-weight:600}
+.dot{width:10px;height:10px;border-radius:50%;border:1.5px solid #8c8577;display:inline-block}
+.dot.done{background:#7fae7a;border-color:#7fae7a}
+.dot.now{background:#e6b450;border-color:#e6b450}
+.newtag{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.08em;color:#e6b450}
+</style>
+</head>
+<body>
+<main>
+
+<section>
+<h2>0. Documents found, with the preflight setting and the marked phase</h2>
+<p class="note">What this PRD adds is outlined; everything else on the page is dimmed. Covers AC-PREFLIGHT-04, AC-ATTEND-01 and AC-ATTEND-02.</p>
+<div class="screen">
+<div class="frame" style="width:1280px">
+<div style="display:flex;flex-direction:column;gap:6px">
+<span class="eyebrow">KILN · DOCUMENTS FOUND</span>
+<h1 class="title" style="font-size:40px">Customer Returns</h1>
+</div>
+<div class="grid">
+<section class="panel">
+<span class="label">WHAT KILN FOUND</span>
+<p class="small dim">PRD, technical design and 9 phases, read from docs/prds/customer-returns.</p>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div class="row"><span><span class="dot"></span>&nbsp; Phase 1 · Carrier account and label printing &nbsp;<span class="mark">Needs you there</span></span></div>
+<p class="small" style="padding-left:24px">Attended: create the return-label template in the carrier's desktop console, which has no API.</p>
+<div class="row dim"><span><span class="dot"></span>&nbsp; Phase 2 · Which items can be returned</span></div>
+<div class="row dim"><span><span class="dot"></span>&nbsp; Phase 3 · Starting a return</span></div>
+<div class="row dim"><span><span class="dot"></span>&nbsp; Phases 4 to 9</span></div>
+</div>
+</section>
+<section class="panel">
+<span class="label">HOW KILN WILL DELIVER IT</span>
+<p class="small dim">Model and effort, early merges, audit loops and the other settings, unchanged.</p>
+<div class="panel new" style="padding:16px 18px;gap:6px">
+<span class="newtag">NEW</span>
+<label class="body" style="display:flex;gap:10px;align-items:flex-start"><input type="checkbox" checked style="margin-top:5px"> <span>Check access and stops before the first phase</span></label>
+<p class="small" style="padding-left:24px">Runs the Enso Method's preflight first. If it finds nothing, Kiln goes straight on to Phase 1.</p>
+</div>
+</section>
+</div>
+<section class="panel new" style="flex-direction:row;align-items:center;justify-content:space-between;gap:24px">
+<p class="body"><strong>Phase 1 needs you there.</strong> Phases 2 to 9 run without you.</p>
+<button type="button" class="btn primary">Start</button>
+</section>
+</div>
+</div>
+</section>
+
+<section>
+<h2>1. The preflight found things to settle</h2>
+<p class="note">Kiln stops before any phase starts. The items are the preflight session's own words. Covers AC-PREFLIGHT-01 and AC-PREFLIGHT-03.</p>
+<div class="screen">
+<div class="frame" style="width:1100px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<span class="eyebrow amber">CUSTOMER RETURNS · NEEDS YOU</span>
+<h1 class="title">Preflight: 2 items need you</h1>
+<p class="lead">Nothing has been built. Settle these and check again, and Kiln starts Phase 1.</p>
+</div>
+<div class="grid">
+<section class="panel amber">
+<span class="label amber">WHAT THE PREFLIGHT FOUND</span>
+<div class="item"><span class="num">1.</span><span>The cloud sign-in for the development account expires in 8 hours. Run <code>aws sso login --profile app-dev-longlived</code>.</span></div>
+<div class="item"><span class="num">2.</span><span>Phase 4 waits on a deploy the design does not list. Remove it: yes or no.</span></div>
+</section>
+<section class="panel">
+<span class="label">THE BUILD WILL STOP</span>
+<p class="body">At Phase 1, which needs you at the carrier's console (marked Attended). Phases 2 to 9 run without you.</p>
+<span class="label" style="margin-top:8px">THE PLAN</span>
+<div class="row"><span><span class="dot now"></span>&nbsp; Preflight</span><span class="muted">4m</span></div>
+<div class="row muted"><span><span class="dot"></span>&nbsp; Phase 1 · Carrier account and label printing</span><span>not started</span></div>
+</section>
+</div>
+<div class="buttons">
+<button type="button" class="btn primary">Check again</button>
+<button type="button" class="btn">Reply</button>
+<button type="button" class="btn">Mark complete</button>
+</div>
+<p class="small">Check again runs a fresh preflight. Reply answers a yes-or-no item. Mark complete starts Phase 1 with the items as they are.</p>
+</div>
+</div>
+</section>
+
+<section>
+<h2>2. A clean preflight, opened later from the plan</h2>
+<p class="note">Kiln did not pause: Phase 1 started as soon as the preflight reported ready. Covers AC-PREFLIGHT-02.</p>
+<div class="screen">
+<div class="frame" style="width:1100px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<span class="eyebrow">CUSTOMER RETURNS · PREFLIGHT</span>
+<h1 class="title">Preflight: ready</h1>
+</div>
+<div class="grid">
+<section class="panel">
+<span class="label">THE PREFLIGHT'S REPORT</span>
+<p class="body">9 phases.</p>
+<p class="body">The build will stop at Phase 1, which needs you at the carrier's console (marked Attended). Phases 2 to 9 run without you.</p>
+</section>
+<section class="panel">
+<span class="label">THE PLAN</span>
+<div class="row"><span><span class="dot done"></span>&nbsp; Preflight</span><span class="muted">3m</span></div>
+<div class="row"><span><span class="dot now"></span>&nbsp; Phase 1 · Carrier account and label printing &nbsp;<span class="mark">Needs you there</span></span><span class="muted">running</span></div>
+<div class="row muted"><span><span class="dot"></span>&nbsp; Phase 2 · Which items can be returned</span><span>not started</span></div>
+</section>
+</div>
+</div>
+</div>
+</section>
+
+<section>
+<h2>3. A marked phase stops for the person</h2>
+<p class="note">The page says the stop was planned, above the reason Kiln stopped. Covers AC-ATTEND-03.</p>
+<div class="screen">
+<div class="frame" style="width:1100px">
+<div style="display:flex;flex-direction:column;gap:8px">
+<span class="eyebrow amber">CUSTOMER RETURNS · NEEDS YOU</span>
+<h1 class="title">Phase 1 needs you</h1>
+</div>
+<section class="panel amber">
+<span class="label amber">THIS PHASE WAS PLANNED AS NEEDING YOU</span>
+<p class="body">Create the return-label template in the carrier's desktop console, which has no API.</p>
+</section>
+<section class="panel dim">
+<span class="label">WHY KILN STOPPED</span>
+<p class="body">The session's hand-back and its checks, as at any stop.</p>
+</section>
+</div>
+</div>
+</section>
+
+<section>
+<h2>4. An older Enso Method, with no preflight skill</h2>
+<p class="note">The setting is shown but cannot be used, and Start begins Phase 1 as it does today. Covers AC-PREFLIGHT-05.</p>
+<div class="screen">
+<div class="frame" style="width:640px;padding:32px">
+<div class="panel" style="padding:16px 18px;gap:6px">
+<label class="body" style="display:flex;gap:10px;align-items:flex-start;opacity:0.5"><input type="checkbox" disabled style="margin-top:5px"> <span>Check access and stops before the first phase</span></label>
+<p class="small" style="padding-left:24px">The installed Enso Method has no preflight skill. Update it to use this.</p>
+</div>
+</div>
+</div>
+</section>
+
+</main>
+</body>
+</html>
