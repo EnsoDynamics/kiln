@@ -1,7 +1,7 @@
 // What the published package's manifest promises: one command (AC-CLI-02), and nothing that
 // runs at install time, so installing Kiln sets up no background or system service (AC-KEEP-01).
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,11 +63,17 @@ describe("the package manifest", () => {
     }
   });
 
-  // AC-HELP-03: every build ends by recording its kind; only KILN_RELEASE_BUILD=true makes a
-  // release build, and the release archive can't be packed from a development build.
+  // AC-HELP-03: every build records its kind, before the view's build so the top bar embeds the
+  // same record (AC-LOOK-05); only KILN_RELEASE_BUILD=true makes a release build, and the release
+  // archive can't be packed from a development build.
   it("stamps each build as a release or a timed development build, and packs a candidate only from a release build", () => {
-    expect(manifest.scripts.build).toMatch(/ && node scripts\/write-build-info\.mjs$/);
-    const root = mkdtempSync(join(tmpdir(), "kiln-build-info-"));
+    expect(manifest.scripts.build).toMatch(/ && tsc -p tsconfig\.build\.json && node scripts\/write-build-info\.mjs && vite build /);
+    // Kiln's folder sits inside another repository here, as a source tree unpacked into one would.
+    const outer = mkdtempSync(join(tmpdir(), "kiln-build-info-"));
+    const root = join(outer, "kiln");
+    const gitIn = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=Kiln test", "-c", "user.email=kiln@example.com", ...args], { cwd, encoding: "utf8" }).trim();
+    gitIn(outer, "init", "-q"); gitIn(outer, "commit", "-q", "--allow-empty", "-m", "unrelated");
+    mkdirSync(root);
     try {
       mkdirSync(join(root, "scripts"));
       mkdirSync(join(root, "dist"));
@@ -78,7 +84,7 @@ describe("the package manifest", () => {
         else env.KILN_RELEASE_BUILD = release;
         const result = spawnSync(process.execPath, [join(root, "scripts", "write-build-info.mjs")], { encoding: "utf8", env });
         expect(result.status, result.stderr).toBe(0);
-        return JSON.parse(readFileSync(join(root, "dist", "build-info.json"), "utf8")) as { kind: string; builtAt?: string };
+        return JSON.parse(readFileSync(join(root, "dist", "build-info.json"), "utf8")) as { kind: string; builtAt?: string; commit?: string; modified?: boolean };
       };
       expect(build("true")).toEqual({ kind: "release" });
       for (const release of [undefined, "false"]) {
@@ -87,14 +93,30 @@ describe("the package manifest", () => {
         expect(info.kind, String(release)).toBe("development");
         expect(Date.parse(info.builtAt!)).toBeGreaterThanOrEqual(before - 1000);
         expect(Date.parse(info.builtAt!)).toBeLessThanOrEqual(Date.now());
+        // Kiln's folder holds no checkout of its own, so there is no commit to name, not the enclosing repository's (AC-HELP-03).
+        expect(info).not.toHaveProperty("commit");
       }
+      // From a Git checkout, a development build names its short commit, and whether the checkout had uncommitted changes.
+      const git = (...args: string[]) => gitIn(root, ...args);
+      writeFileSync(join(root, ".gitignore"), "dist/\n");
+      git("init", "-q"); git("add", "."); git("commit", "-q", "-m", "build");
+      expect(build()).toMatchObject({ kind: "development", commit: git("rev-parse", "--short", "HEAD"), modified: false });
+      writeFileSync(join(root, "scripts", "local-edit.txt"), "not committed\n");
+      expect(build()).toMatchObject({ kind: "development", commit: git("rev-parse", "--short", "HEAD"), modified: true });
+      expect(build("true")).toEqual({ kind: "release" });
+      // A checkout Git can't read fails the build rather than dropping the commit.
+      rmSync(join(root, ".git"), { recursive: true, force: true });
+      writeFileSync(join(root, ".git"), "not a git directory\n");
+      expect(spawnSync(process.execPath, [join(root, "scripts", "write-build-info.mjs")], { encoding: "utf8", env: { ...process.env, KILN_RELEASE_BUILD: "" } }).status).not.toBe(0);
+      rmSync(join(root, ".git")); rmSync(join(root, ".gitignore")); rmSync(join(root, "scripts", "local-edit.txt"));
+      build();
       // dist/ now holds a development build: packing it as a release candidate is refused before npm runs.
       for (const file of ["package.json", "package-lock.json"]) copyFileSync(fileURLToPath(new URL(`../${file}`, import.meta.url)), join(root, file));
       const pack = spawnSync(process.execPath, [fileURLToPath(new URL("../scripts/pack-release.mjs", import.meta.url)), join(root, "out")], { cwd: root, encoding: "utf8", env: { ...process.env, KILN_RELEASE_BUILD: "true" } });
       expect(pack.status).not.toBe(0);
       expect(pack.stderr).toContain("dist/ holds a development build");
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      rmSync(outer, { recursive: true, force: true });
     }
   });
 });

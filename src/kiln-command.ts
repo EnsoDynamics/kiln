@@ -137,7 +137,7 @@ class StopControl {
  */
 export async function runKilnCommand(args: string[], context: CommandContext): Promise<number> {
   // AC-HELP-03: answered before anything else, so it needs no controller, Git or sign-in. A build
-  // other than the release's says it is a dev build and when it was built (build-info.ts).
+  // other than the release's names its commit and when it was built (build-info.ts).
   if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) {
     context.stdout.write(`${versionLine(KILN_VERSION, readBuildInfo(new URL("./build-info.json", import.meta.url)))}\n`);
     return 0;
