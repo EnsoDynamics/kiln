@@ -10,6 +10,7 @@ import type { Snapshot } from "../../../src/engine/snapshot.js";
 import type { ItemChange } from "../../../src/engine/waivers.js";
 import type { DeliveryCheckpoint } from "../../../src/state/development-delivery.js";
 import {
+  bookkeepingNeedsYouSnapshot,
   completeWaivedSnapshot,
   finalDeliveryNeedsYouSnapshot,
   handBackSnapshot,
@@ -206,6 +207,28 @@ describe("Mark complete on the standard Needs you page (AC-WAIVE-02)", () => {
     snapshot.needsYou!.markComplete = { ...markCompleteOfferSample(), heading: "Delivery audit is done, and Kiln’s check is wrong?", label: "Mark delivery audit complete", noReport: true,
       sentence: ["No audit report. Kiln couldn’t read a report from this audit, so it can’t tell what the audit found.", "Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, counts the audit as passed and moves on to the test audit. Delivery audit will show as “Complete · 1 check waived” with a warning: no audit report."] };
     order(text(needsYou(snapshot)), "Delivery audit is done, and Kiln’s check is wrong?", "! No audit report Kiln couldn’t read a report from this audit, so it can’t tell what the audit found.", "counts the audit as passed and moves on to the test audit", "Mark delivery audit complete");
+  });
+});
+
+describe("a stop that is only Kiln's record leads with Mark complete (AC-WAIVE-02)", () => {
+  it("says the phase is done, credits the session that split it off and built it, and puts Mark complete first", () => {
+    const html = needsYou(bookkeepingNeedsYouSnapshot());
+    const words = text(html);
+    order(words, "Phase 2a is done. Only Kiln’s record of it is out of date.", "Phase 2’s session built and closed it, and Kiln accepted it then.", "Kiln found nothing else missing: mark it complete to carry on.",
+      "Phase 2a is done, and Kiln’s check is wrong?", "Mark Phase 2a complete", "Completion checks", "Phase 2a needs a current development-delivery assessment.", "Check again");
+    expect(button(html, "Mark Phase 2a complete")).not.toContain("disabled");
+    expect(words.split("Mark Phase 2a complete")).toHaveLength(2);
+    // The checks sit beside or below Mark complete here, so its sentence doesn't point above.
+    expect(words).toContain("Kiln skips the 1 failing check, records it as waived");
+    for (const absent of ["No Kiln session ran this phase", "Pick it up yourself", "Copy prompt", "Session can’t be opened?"]) expect(words).not.toContain(absent);
+  });
+
+  it("keeps Mark complete first, unusable, before a recheck", () => {
+    const snapshot = bookkeepingNeedsYouSnapshot();
+    snapshot.needsYou!.markComplete = { offered: false, reason: "No check has run since Phase 2a stopped.", awaitingRecheck: { label: "Mark Phase 2a complete", heading: "Phase 2a is done, and Kiln’s check is wrong?" } };
+    const html = needsYou(snapshot);
+    order(text(html), "Phase 2a is done. Only Kiln’s record of it is out of date.", "Mark Phase 2a complete", "Check again first.", "Check again");
+    expect(button(html, "Mark Phase 2a complete")).toContain("disabled");
   });
 });
 

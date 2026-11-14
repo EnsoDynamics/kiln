@@ -746,6 +746,31 @@ export function finalDeliveryNeedsYouSnapshot(): Snapshot {
   return snapshot;
 }
 
+/**
+ * Phase 2a stopped only on Kiln's record: Phase 2's session split Phase 2 midway and built 2a, and 2a's assessment no
+ * longer matches the documents (AC-WAIVE-02's bookkeeping stop). Rechecked, so Mark complete is offered.
+ */
+export function bookkeepingNeedsYouSnapshot(): Snapshot {
+  const snapshot = needsYouMessageSnapshot();
+  const stale = "Phase 2a needs a current development-delivery assessment.";
+  const checks: CheckResult[] = [{ name: DELIVERY_CHECK, passed: false, facts: [stale], items: [{ kind: "other", subject: stale, text: stale, against: "documents:8638ec13" }] }];
+  // No session ran on 2a itself: its stop carries no session ending.
+  const stop = { ...snapshot.needsYou! };
+  for (const key of ["finalMessage", "exitCode", "lastSkill", "resumeCommand", "outputLineCount", "sessionEndedAt"] as const) delete stop[key];
+  snapshot.feature = { ...snapshot.feature, currentPhaseId: "2a" };
+  snapshot.needsYou = {
+    ...stop, phaseId: "2a", kind: "done_check", resumeOffered: false, bookkeeping: { finishedBy: "2" }, checks, counts: { passed: 0, waived: 0, failed: 1 },
+    checkedAt: "2026-10-17T16:41:00Z", checkRun: { id: "run-2a-recheck", at: "2026-10-17T16:41:00Z", origin: "recheck", finished: true }, rowsAreCompletionChecks: true,
+    markComplete: {
+      offered: true, label: "Mark Phase 2a complete", heading: "Phase 2a is done, and Kiln’s check is wrong?", continueInOrder: false, checkRunId: "run-2a-recheck",
+      items: [{ check: DELIVERY_CHECK, kind: "other", subject: stale, text: stale, against: "documents:8638ec13" }],
+      failingChecks: 1, nextActivity: { kind: "phase", key: "2b", title: "Store credit" }, resultingLabel: "Complete · 1 check waived", noReport: false,
+      sentence: ["Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves on to Phase 2b. Phase 2a will show as “Complete · 1 check waived”."],
+    },
+  };
+  return snapshot;
+}
+
 /** A delivery audit with no usable report, marked complete (waivers mockup state 10, after Mark complete). */
 export function noReportAuditSnapshot(): Snapshot {
   const snapshot = waivedPhaseSnapshot();
