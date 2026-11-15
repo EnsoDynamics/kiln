@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "3c4beb90-c02a-478d-b73a-e2c023122834",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The test audit graded all 16 acceptance criteria of Kiln Audit Loop Limits at commit 1bd85fb. Four are Adequate (AC-LOOP-01, AC-TEST-01, AC-SHOW-01, AC-EFFORT-01), and a deliberate break of each was caught by its tests. The other twelve are Weak, none Missing, and none is unbuilt: each has a stated part no test would notice breaking, including three high-risk criteria (AC-DELIV-01, AC-TEST-02, AC-STOP-02). The gaps and their fixes are saved in test-audit.md for fixing sessions, high-risk rows first.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}
