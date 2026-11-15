@@ -2,7 +2,7 @@
 
 **Source:** A review on 2026-11-14 of unattended runs that stopped part-way for a reason the person could have cleared in a minute before starting: a sign-in that expired, a machine that could not run the tests, a phase that needed them at a desktop application.
 
-**Changes:** [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln Continue Added Phases](../kiln-continue-added-phases/kiln-continue-added-phases-prd.md), [Kiln Run Restart](../kiln-run-restart/kiln-run-restart-prd.md)
+**Changes:** [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md), [Kiln Completion Waivers](../kiln-completion-waivers/kiln-completion-waivers-prd.md), [Kiln Continue Added Phases](../kiln-continue-added-phases/kiln-continue-added-phases-prd.md), [Kiln Run Restart](../kiln-run-restart/kiln-run-restart-prd.md), [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md)
 
 **Depends on:** the Enso Method release that adds the `build-preflight` skill and the `**Attended:**` line on phase documents. Kiln built from this PRD still runs with an older method (AC-PREFLIGHT-05).
 
@@ -46,7 +46,7 @@ The preflight runs once, at the start, while the person is still there. A clean 
 
 - AC-PREFLIGHT-04 — retired before the build. It was a setting to turn the preflight off; there is none (AC-PREFLIGHT-01).
 - [ ] **AC-PREFLIGHT-05 — An older method is not an error.** When the run's agent finds no `build-preflight` skill in the installed method, the plan shows no Preflight row and the run starts as it does today.
-- [ ] **AC-PREFLIGHT-06 — A preflight with no report stops and shows how it ended.** When the session ends without either opening line, Kiln stops at Needs you on AC-PREFLIGHT-03's page, with its controls, and nothing else in the run starts. The headline says the preflight left no report, and how the session ended (AC-STOP-02 in Kiln v1) takes the items' place. Mark complete saves a waiver of no items; the sentence beneath the controls first says there was no report, and the Preflight's waived label carries AC-WAIVE-12's no-report warning, naming the preflight in place of the audit.
+- [ ] **AC-PREFLIGHT-06 — A preflight with no report does not hold up the run.** When the session ends without either opening line, Kiln goes on to the activity the preflight came before, as after a clean preflight. The Preflight row shows **No report** as a warning where a clean row shows Ready, with "Ended without a report" beneath it, and opening the row shows how the session ended (AC-STOP-02 in Kiln v1). A session Kiln will resume after a usage limit has not ended.
 - AC-PREFLIGHT-07 — retired before the build. It showed the report's stops on the items page; the phase markers are the only heads-up (AC-ATTEND-01, RUN-002).
 
 ### Show Which Phases Need a Person
@@ -55,6 +55,8 @@ A phase marked as needing a person is not a surprise if it is shown before the r
 
 - [ ] **AC-ATTEND-01 — Marked phases are shown in the plan.** On Documents found and on the run's phase plan, a phase whose document carries an `**Attended:**` line shows a **Needs you there** marker beside its name, closed or not. Pointing at the marker or pressing it shows the line's text.
 - AC-ATTEND-02 — retired before the build. It was a line above Start naming where the run would need the person; the markers do that job (AC-ATTEND-01, RUN-002).
+- [ ] **AC-ATTEND-05 — Documents found says when an early merge would stop the run.** When a phase this run will build carries an `**Early merge:**` line and **Allow early merges** is off, a note beside that checkbox names each such phase and says the run will stop there until early merges are allowed. Ticking the box removes the note.
+  - Replaces in part: AC-PERMIT-01 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (what Documents found shows beside Allow early merges)
 - [ ] **AC-ATTEND-03 — A stop in a marked phase says so.** When a marked phase stops at Needs you, a card at the top of the page's main column, above how the session ended, says the phase was planned as needing the person and gives the `**Attended:**` line's text.
 - [ ] **AC-ATTEND-04 — A marked phase runs like any other.** Kiln starts and runs a marked phase with the same session and instructions as any other phase, and never holds it back or pauses before it. The marker and AC-ATTEND-03's card are only a heads-up (RUN-001).
 
@@ -63,5 +65,5 @@ A phase marked as needing a person is not a surprise if it is shown before the r
 - What the preflight checks and how its items are worded. The `build-preflight` skill owns both.
 - Handing a marked phase to a desktop agent. That remains the roadmap's [computer-use handoff idea](../../roadmap/kiln-desktop-computer-use-handoff-idea.md).
 - Running Kiln's own start checks differently. They still run first and still stop Start on their own.
-- New wording in `kiln status`. A preflight stop is reported as any other stop is, and a preflight marked complete as a waived audit is, AC-WAIVE-12's no-report warning included.
+- New wording in `kiln status`. A preflight stop is reported as any other stop is, and a preflight marked complete as a waived audit is.
 - Holding the installed method at one version for the length of a run.

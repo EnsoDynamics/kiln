@@ -242,37 +242,66 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </section>
 
 <section>
-<h2>5. The preflight left no report</h2>
-<p class="note">State 2's page when the preflight session ended without a report. Covers AC-PREFLIGHT-06.</p>
+<h2>5. Running, after a preflight that left no report</h2>
+<p class="note">Kiln did not stop. The Preflight row warns that the session ended without a report; opening it shows how the session ended. Covers AC-PREFLIGHT-06.</p>
 <div class="screen">
-<div style="width: 1100px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
+<div style="width: 1100px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 20px">
 <div style="display: flex; flex-direction: column; gap: 8px">
-<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">CUSTOMER RETURNS · NEEDS YOU</span>
-<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 44px; line-height: 1.1">The preflight left no report</h1>
-<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #bdb6a8">Nothing has been built. The preflight session ended without saying whether the build is ready.</p>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #a69f90">acme-shop · docs/prds/customer-returns</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 36px">Customer Returns</h1>
+<div style="display: flex; align-items: center; gap: 12px"><span style="padding: 3px 12px; border-radius: 999px; background: #e2694f; color: #12110e; font-size: 13px; font-weight: 600">Running</span><span style="font-size: 15px; color: #bdb6a8">Phase 1 of 5 · started 2 minutes ago</span></div>
 </div>
-<section style="background: #1b1a16; border: 1px solid rgba(230,180,80,0.55); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
-<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">HOW THE SESSION ENDED</span>
-<dl style="margin: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 16px; font-size: 14.5px">
-<dt style="color: #a69f90">Stopped</dt><dd style="margin: 0">4 minutes ago, exit code 1</dd>
-<dt style="color: #a69f90">Last skill</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px">build-preflight</dd>
-</dl>
-<p style="margin: 0; font-size: 15px; line-height: 1.6; color: #bdb6a8">It ended without a final message. Its last lines of output:</p>
-<pre style="margin: 0; white-space: pre-wrap; background: #12110e; border: 1px solid rgba(237,232,221,0.14); border-radius: 10px; padding: 14px 16px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6">Running the test suite to confirm this machine can build the project
-npm test
-Error: connect ECONNREFUSED 127.0.0.1:5432
-Session ended with exit code 1</pre>
-</section>
-<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 10px">
-<label for="pf5-reply" style="font-size: 14.5px; color: #bdb6a8">Reply to the preflight session. It acts on your words and checks again.</label>
-<textarea id="pf5-reply" rows="2" style="background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: Inter, sans-serif; font-size: 14px; resize: none">The database wasn't running. It is now; carry on.</textarea>
-<button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Reply</button>
-</section>
-<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
-<button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; background: #e2694f; color: #12110e; border: none; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check Preflight again</button>
-<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Mark complete</button>
+<section style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #a69f90">Phase plan</h2><span style="font-size: 13px; color: #bdb6a8">0 of 5 done</span></div>
+<div style="border-top: 1px solid rgba(237,232,221,0.12)">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 14px 12px; margin: 8px -12px; border: 1px solid #b89b5e; border-radius: 12px">
+<div style="display: flex; align-items: center; gap: 16px">
+<span style="width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; background: #e6b450; color: #12110e; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500">PF</span>
+<span style="flex: 1; font-size: 16px; font-weight: 500">Preflight</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span>
+<span style="font-size: 13px; color: #bdb6a8">3m</span>
+<span style="padding: 3px 12px; border-radius: 999px; background: rgba(230,180,80,0.16); color: #e6b450; font-size: 13px; font-weight: 600">⚠ No report</span>
 </div>
-<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">There was no preflight report. Check Preflight again runs a fresh preflight. Mark complete starts Phase 1 without one, and the Preflight row shows it was marked complete, with a warning that Kiln couldn't tell what the preflight found.</p>
+<div style="padding-left: 46px; display: grid; grid-template-columns: 110px 1fr; gap: 4px 16px; font-size: 13px; color: #bdb6a8">
+<span style="color: #a69f90">Found</span><span>Ended without a report</span>
+</div>
+</div>
+<div style="display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,0.12)">
+<span style="width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; background: #e2694f; color: #12110e; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500">1</span>
+<span style="flex: 1; font-size: 16px; font-weight: 500; display: flex; align-items: center; gap: 10px">Carrier account and label printing<span style="padding: 3px 10px; border-radius: 999px; border: 1px solid rgba(230,180,80,0.55); color: #e6b450; font-size: 12px; font-weight: 600">Needs you there</span></span>
+<span style="font-size: 13px; color: #bdb6a8">2m</span>
+<span style="padding: 3px 12px; border-radius: 999px; background: #e2694f; color: #12110e; font-size: 13px; font-weight: 600">Implementing</span>
+</div>
+<div style="display: flex; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,0.12)">
+<span style="width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid #ede8dd; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px">2</span>
+<span style="flex: 1; font-size: 16px; font-weight: 500">Which items can be returned</span>
+<span style="padding: 3px 12px; border-radius: 999px; border: 1px solid #ede8dd; font-size: 13px">Next</span>
+</div>
+<div style="display: flex; align-items: center; gap: 16px; padding: 14px 0">
+<span style="width: 30px; height: 30px; box-sizing: border-box; border-radius: 50%; border: 1.5px dashed #8c8577; display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #bdb6a8">3</span>
+<span style="flex: 1; font-size: 16px; font-weight: 500; color: #bdb6a8">Starting a return, then phases 4 and 5</span>
+<span style="padding: 3px 12px; border-radius: 999px; border: 1px dashed #8c8577; font-size: 13px; color: #bdb6a8">Planned</span>
+</div>
+</div>
+</section>
+</div>
+</div>
+</section>
+
+<section>
+<h2>6. Documents found, a phase merges early and early merges are off</h2>
+<p class="note">The existing early-merge choice with what this PRD adds outlined and tagged NEW. Kiln read Phase 3's Early merge line; with the box off, the run would stop there. Ticking the box removes the note, and nothing stops. Covers AC-ATTEND-05.</p>
+<div class="screen">
+<div style="width: 1100px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 20px">
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; gap: 10px; align-items: center; font-size: 15px; font-weight: 600"><input id="early" type="checkbox" style="width: 16px; height: 16px"><label for="early">Allow early merges</label></div>
+<p style="margin: 0; font-size: 14px; line-height: 1.55; color: #bdb6a8">Kiln normally keeps work on its feature branch for a review PR. Allow early merges when a PRD criterion needs deployment or verification. Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
+<p style="margin: 0; font-size: 14px; color: #bdb6a8">Applies to this PRD only. Each new PRD starts with early merges off.</p>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #b89b5e; border-radius: 12px; padding: 12px 14px; margin-top: 4px">
+<span style="font-size: 14.5px; line-height: 1.5"><strong>Phase 3 merges into <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">develop</span> early.</strong> Left off, the run stops there until you allow it.</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span>
+</div>
+</section>
 </div>
 </div>
 </section>
