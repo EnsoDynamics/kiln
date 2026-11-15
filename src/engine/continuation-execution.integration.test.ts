@@ -428,3 +428,37 @@ it("starts both loop counts at zero on Continue with N phases, keeping the three
   // The earlier run's loops stay in its archived record and are not counted again.
   expect(h.engine.historicalExecution(saved.executionId!)?.record.auditLoops?.loops).toHaveLength(2);
 });
+
+it("after Continue with N phases, completion phases an audit adds wait for a delivery audit loop (Kiln Audit Loop Limits AC-DELIV-01, AC-CONTINUE-05 in part)", async () => {
+  const f = await createCometContinuation(); h = f.h; f.integrate();
+  const { writeFileSync } = await import("node:fs"); const { join } = await import("node:path");
+  const { COMET_DIRECTORY } = await import("../test-support/comet-continuation-fixture.js");
+  writeFileSync(join(h.repository, COMET_DIRECTORY, "value.mjs"), "export const value = () => 42;\n");
+  writeFileSync(join(h.repository, COMET_DIRECTORY, "value.test.mjs"), "import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n");
+  writeFileSync(join(h.repository, ".gitignore"), ".proof/\n");
+  git(h.sandbox, h.repository, "add", COMET_DIRECTORY, ".gitignore"); git(h.sandbox, h.repository, "commit", "-qm", "test: seed audit evidence"); f.publish();
+  h.engine.close();
+  const saved = readPrdRecord(h.stateDirectory)!;
+  saved.settings.auditLoops = { deliveryLimit: 1, testLimit: 3, afterLastTest: "deliver_unless_serious" };
+  writePrdRecord(h.stateDirectory, saved);
+  h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
+  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  const audit = (behavior = {}) => ({ actions: [{ auditReport: behavior }, { result: "Audit ended." }, { exit: 0 }] });
+  const sessions = [...Array.from({ length: 7 }, (_, index) => landingSession(`capability-${index + 9}.txt`, `Capability ${index + 9}.\n`)), landingSession("audit-repair.txt", "Audit completion work.\n"), landingSession("audit-repair-2.txt", "More completion work.\n"), pullRequestSession(41)];
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions: [audit({ gap: true }), audit({ gap: true }), audit(), audit()] }));
+  const { startFixtureController } = await import("../test-support/controller-server.js");
+  const hosted = await startFixtureController({ engine: h.engine, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
+  try {
+    const check = await h.engine.checkCompletedPlan();
+    expect((await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "continue-gated"))).ok).toBe(true);
+    await h.engine.settled();
+    const audits = h.engine.record.completionAudits!.activities;
+    expect(audits.map(row => row.kind)).toEqual(["delivery_audit", "delivery_audit"]);
+    // The first audit's phase is built as delivery loop 1 of 1; the second audit's waits.
+    expect(h.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery").map(loop => [loop.number, loop.limitAtStart, loop.sourceAuditId])).toEqual([[1, 1, audits[0]!.activityId]]);
+    const held = `audit-${audits[1]!.activityId}`;
+    expect(h.engine.record.phases[held]!.stop).toMatchObject({ kind: "loop_limit", loop: { kind: "delivery", reason: "phases_added", heldAuditKey: held } });
+    expect(h.engine.record.phases["17"]).toBeUndefined();
+    expect(h.engine.record.completedAt).toBeUndefined();
+  } finally { await hosted.server.close(); hosted.release(); }
+}, 180_000);
