@@ -58,6 +58,9 @@ describe("the Audit loops settings (AC-LOOP-01, AC-LOOP-05, AC-LOOP-06, AC-EFFOR
     expect(page).not.toMatch(/<input id="loops-deliveryLimit"[^>]*disabled/);
     expect(text(page)).toContain("Kiln builds what the audits find unfinished up to 4 times. If an audit finds more after that, Kiln stops at Needs you.");
     expect(text(page)).toContain("Up to 3 sessions of test fixes after the test audit. The 3rd is told it is the last.");
+    // The default's sentence sits beside the choice here too (AC-LOOP-06).
+    expect(page).toMatch(/<input type="radio" name="after-last-test" value="deliver_unless_serious"[^>]*checked/);
+    expect(text(page)).toContain("Deliver, unless something serious is left You say: “I accept the remaining Weak rows after the last test audit loop.”");
   });
 });
 

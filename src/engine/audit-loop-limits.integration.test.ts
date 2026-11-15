@@ -2,10 +2,12 @@
 // version-2 reports, the packaged CLI submitting them, and the control journal applying the stop
 // controls. No paid model calls.
 import { afterEach, describe, expect, it } from "vitest";
-import { writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { vi } from "vitest";
 import { join } from "node:path";
-import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
+import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
 import { startFixtureController } from "../test-support/controller-server.js";
 import { buildSnapshot } from "./snapshot.js";
@@ -42,6 +44,15 @@ async function control(current: Harness, action: string, inputs: Record<string, 
   await current.engine.commands.settled(); await current.engine.settled();
   return current.engine.commands.lookup(command_id).operation as Receipt;
 }
+/** The built CLI (`npm run build`), as a person or bot at the run's PRD folder would run it. */
+async function cli(current: Harness, args: string[]) {
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), ...args], { cwd: current.sandbox.root, env: current.env, stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = ""; let stderr = ""; child.stdout.on("data", data => stdout += String(data)); child.stderr.on("data", data => stderr += String(data));
+  const watchdog = setTimeout(() => child.kill("SIGKILL"), 30_000);
+  const code = await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); }).finally(() => clearTimeout(watchdog));
+  expect(stderr).toBe("");
+  return { code, stdout, json: () => JSON.parse(stdout) as Record<string, any> };
+}
 const auditPrompts = (current: Harness) => current.claudeCalls().filter(call => /^Run (Delivery|Test) audit/.test(call.prompt));
 
 describe("delivery audit loops (AC-LOOP-02, AC-DELIV-01, AC-STOP-01, AC-STOP-02, AC-SHOW-01)", () => {
@@ -59,14 +70,33 @@ describe("delivery audit loops (AC-LOOP-02, AC-DELIV-01, AC-STOP-01, AC-STOP-02,
     expect(snapshot.feature.state).toBe("needs_you");
     expect(snapshot.auditLoops).toMatchObject({ delivery: { used: 1, limit: 1 }, stop: { kind: "delivery", holds: true, heading: "Delivery audit loops used: 1 of 1", loops: [{ label: "Last loop", activity: "Phase 2", did: "Phase 2 built" }, { label: "Delivery audit", did: "added Phase 3" }], audit: { summary: "One criterion is not delivered; added a completion phase.", items: [] } } });
     expect(snapshot.activities!.find(row => row.id === "2")!.loops).toEqual([expect.objectContaining({ number: 1, limit: 1, last: true })]);
+    // Each line says how long it ran: the loop as long as its phase's row, and the audit since as long as that audit's sessions (AC-STOP-01).
+    const [built, since] = snapshot.auditLoops!.stop!.loops;
+    expect(built!.durationMs).toBeGreaterThan(0);
+    expect(built!.durationMs).toBe(snapshot.activities!.find(row => row.id === "2")!.loops![0]!.durationMs);
+    expect(since!.durationMs).toBeGreaterThan(0);
     // No Mark complete at a hold, and a held Check again stays held without rerunning completion checks.
     expect(snapshot.needsYou!.markComplete).toEqual({ offered: false, reason: "Kiln is holding because no delivery audit loop is left, not because a check failed. Allow more loops, or raise the limit and Check again." });
     expect(snapshot.needsYou!.recheckRunsAll).toBeUndefined();
     const check = await control(current, "check-again");
     expect(check).toMatchObject({ state: "completed", outcome: "completion_checks_failed" });
     expect(current.engine.record.phases[held]!.stop).toMatchObject({ kind: "loop_limit", checks: [], run: { origin: "recheck", finished: true } });
-    // Allow 2 more: the limit is 2, the count restarts, and the held phase is built as loop 1 of 2.
-    const allowed = await control(current, "allow-more-loops", { count: 2 });
+    // `kiln status` shows the same stop and lists its controls (AC-STOP-03).
+    const status = await cli(current, ["status", join(current.repository, directory), "--json"]);
+    expect(status.code, status.stdout).toBe(0);
+    const json = status.json();
+    expect(json.audit_loops).toMatchObject({ delivery: { used: 1, limit: 1 }, stop: { kind: "delivery", holds: true, heading: "Delivery audit loops used: 1 of 1" } });
+    expect(json.controls.find((c: { name: string }) => c.name === "allow-more-loops")).toMatchObject({ available: true });
+    expect(json.controls.find((c: { name: string }) => c.name === "accept-and-deliver")).toMatchObject({ available: false });
+    const words = await cli(current, ["status", join(current.repository, directory)]);
+    expect(words.stdout).toContain("Delivery audit loops used: 1 of 1");
+    expect(words.stdout).toContain(`kiln allow-more-loops ${json.prd_path} --loops N`);
+    expect(words.stdout).not.toContain("kiln accept-and-deliver");
+    // Allow 2 more, from the command line: the limit is 2, the count restarts, and the held phase is built as loop 1 of 2.
+    const allowedByCli = await cli(current, ["allow-more-loops", join(current.repository, directory), "--loops", "2", "--only-if-status-matches", json.status_token, "--command-id", "cli-allow", "--json"]);
+    expect(allowedByCli.code, allowedByCli.stdout).toBe(0);
+    await current.engine.commands.settled(); await current.engine.settled();
+    const allowed = current.engine.commands.lookup("cli-allow").operation;
     expect(allowed).toMatchObject({ state: "completed", outcome: "loops_allowed", effects: { session: "not_started", plan: "not_advanced" } });
     await current.engine.settled();
     expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
@@ -82,8 +112,12 @@ describe("delivery audit loops (AC-LOOP-02, AC-DELIV-01, AC-STOP-01, AC-STOP-02,
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
     const held = auditKey(current.engine.record.completionAudits!.activities[1]!);
     expect(current.engine.record.phases[held]!.stop!.kind).toBe("loop_limit");
-    // Raising the limit starts nothing by itself.
-    expect((await control(current, "settings", { delivery_audit_loops: 2 })).state).toBe("completed");
+    // Raising the limit on the run's page starts nothing by itself.
+    const origin = new URL(server!.address).origin;
+    const raised = await fetch(`${origin}/api/settings`, { method: "POST", headers: { "X-Kiln-Token": current.engine.record.token, Origin: origin, "Content-Type": "application/json", "X-Kiln-Status": current.engine.controlView().token }, body: JSON.stringify({ auditLoops: { deliveryLimit: 2 } }) });
+    expect(raised.status).toBe(200);
+    await current.engine.commands.settled();
+    expect(current.engine.record.settings.auditLoops).toMatchObject({ deliveryLimit: 2, testLimit: 3 });
     expect(current.engine.record.phases[held]!.stop!.kind).toBe("loop_limit");
     expect(current.engine.record.settings.auditLoops!.afterLastTestSource).toMatchObject({ kind: "person", where: "documents_found" });
     await control(current, "check-again");
@@ -153,11 +187,20 @@ describe("test audit loops (AC-LOOP-03, AC-TEST-01, AC-TEST-02, AC-TEST-03, AC-S
     expect(snapshot.auditLoops!.stop).toMatchObject({ heading: "Test audit loops used: 1 of 1", holds: true, afterLastTest: "deliver_unless_serious", acceptSentence: "I accept the remaining Weak rows." });
     const lastRow = snapshot.activities!.find(row => row.id === held)!;
     expect(lastRow.loops).toEqual([expect.objectContaining({ number: 1, limit: 1, last: true, did: "Saved test work · Test work remains for another session." })]);
+    // The stop lists the loop in the count with what it did and how long it ran; the first test audit was not a loop and came before it (AC-STOP-01).
+    expect(snapshot.auditLoops!.stop!.loops).toEqual([{ label: "Last loop", activity: "Test audit", did: "Saved test work · Test work remains for another session.", durationMs: lastRow.loops![0]!.durationMs }]);
+    expect(lastRow.loops![0]!.durationMs).toBeGreaterThan(0);
     expect(lastRow.carried).toEqual([{ sentence: "I accept the remaining Weak rows after the last test audit loop.", source: expect.stringMatching(/^chosen on Documents found at /) }]);
     // Accept: one more session that fixes nothing and is not a loop, quoting the sentence as the person's.
-    const accepted = await control(current, "accept-and-deliver", { via: "browser" });
-    expect(accepted).toMatchObject({ state: "completed", outcome: "acceptance_recorded" });
-    await current.engine.settled();
+    // A passing Check again at a test hold stays held, starting nothing (AC-STOP-02).
+    expect(await control(current, "check-again")).toMatchObject({ state: "completed", outcome: "completion_checks_failed" });
+    expect(current.engine.record.phases[held]!.stop).toMatchObject({ kind: "loop_limit", checks: [], loop: { kind: "test", reason: "test_work_saved" }, run: { origin: "recheck", finished: true } });
+    expect(current.engine.record.completionAudits!.activities).toHaveLength(3);
+    // Through the page's own route, which records the run's page as where the person gave it (AC-LOOP-06).
+    const page = new URL(server!.address).origin;
+    const pressed = await fetch(`${page}/api/accept-and-deliver`, { method: "POST", headers: { "X-Kiln-Token": current.engine.record.token, Origin: page, "Content-Type": "application/json", "X-Kiln-Status": current.engine.controlView().token, "X-Kiln-Command-Id": "page-accept" }, body: "{}" });
+    expect(await pressed.json()).toMatchObject({ ok: true, outcome: "acceptance_recorded" });
+    await current.engine.commands.settled(); await current.engine.settled();
     expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
     const after = auditPrompts(current);
     expect(after).toHaveLength(4);
@@ -167,9 +210,25 @@ describe("test audit loops (AC-LOOP-03, AC-TEST-01, AC-TEST-02, AC-TEST-03, AC-S
     expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "test")).toHaveLength(1);
     expect(current.engine.record.auditLoops!.acceptances[0]).toMatchObject({ via: "browser", heldAuditKey: held, activityKey: auditKey(current.engine.record.completionAudits!.activities[3]!) });
     const pr = current.claudeCalls().at(-1)!.prompt;
+    expect(pr).toContain("The person accepted what the last test audit loop left, in their own words. In each pull request's description, include these lines word for word, as for the settled items:");
     expect(pr).toContain('"I accept the remaining Weak rows after the last test audit loop." (the person\'s words, chosen on Documents found at');
     expect(pr).toContain('"I accept the remaining Weak rows." (the person\'s words, given on the run\'s page at');
     expect(pr).toContain("- The last session's summary: Fixture audit found nothing left.");
+  });
+
+  it("a test audit continuing saved test work is a loop even with a delivery audit run in between (AC-LOOP-03)", { timeout: 180_000 }, async () => {
+    // The first test audit fixes code and saves test work, so a delivery audit runs before the work continues.
+    const current = await fixture([auditSession(), auditSession({ continueTest: true, directFix: true }), auditSession(), auditSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "deliver_unless_serious" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
+    const audits = current.engine.record.completionAudits!.activities;
+    expect(audits.map(a => a.kind)).toEqual(["delivery_audit", "test_audit", "delivery_audit", "test_audit"]);
+    const loops = current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "test");
+    expect(loops.map(loop => [loop.number, loop.limitAtStart, loop.last, loop.activityKeys])).toEqual([[1, 1, true, [auditKey(audits[3]!)]]]);
+    const prompts = auditPrompts(current);
+    expect(prompts[1]!.prompt).not.toContain("No more test audit loops follow");
+    expect(prompts[3]!.prompt).toContain("No more test audit loops follow this session");
   });
 
   it("Allow at a stop holding saved test work starts the next test loop, which quotes the earlier Accept sentence", { timeout: 240_000 }, async () => {
@@ -184,18 +243,21 @@ describe("test audit loops (AC-LOOP-03, AC-TEST-01, AC-TEST-02, AC-TEST-03, AC-S
     const held = auditKey(audits[3]!);
     expect(current.engine.record.phases[held]!.stop).toMatchObject({ kind: "loop_limit", loop: { kind: "test", reason: "test_work_saved", heldAuditKey: held } });
     expect(buildSnapshot(current.engine).auditLoops!.stop).toMatchObject({ holds: true, heading: "Test audit loops used: 1 of 1" });
-    // Allow 1: the limit is 1 again, the count restarts, and the next test audit is a loop on the held report.
-    expect(await control(current, "allow-more-loops", { count: 1 })).toMatchObject({ state: "completed", outcome: "loops_allowed" });
+    // Allow 2: the limit becomes 2, the count restarts, and the next test audit is loop 1 of 2 on the held report.
+    expect(await control(current, "allow-more-loops", { count: 2 })).toMatchObject({ state: "completed", outcome: "loops_allowed" });
     await current.engine.settled();
     expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
-    expect(current.engine.record.auditLoops!.epochs.at(-1)).toMatchObject({ kind: "test", cause: "allowed", limit: 1, heldAuditKey: held });
+    expect(current.engine.record.settings.auditLoops).toMatchObject({ testLimit: 2 });
+    expect(current.engine.record.auditLoops!.epochs.at(-1)).toMatchObject({ kind: "test", cause: "allowed", limit: 2, heldAuditKey: held });
     const after = current.engine.record.completionAudits!.activities;
     expect(after).toHaveLength(5);
     const loops = current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "test");
-    expect(loops.map(loop => [loop.number, loop.limitAtStart, loop.activityKeys])).toEqual([[1, 1, [auditKey(audits[2]!)]], [1, 1, [auditKey(after[4]!)]]]);
+    expect(loops.map(loop => [loop.number, loop.limitAtStart, loop.last, loop.activityKeys])).toEqual([[1, 1, true, [auditKey(audits[2]!)]], [1, 2, false, [auditKey(after[4]!)]]]);
     const prompt = auditPrompts(current).at(-1)!.prompt;
     expect(prompt).toContain("Earlier in this run the person accepted what was left, in their own words:");
-    expect(prompt).toContain('"I accept the remaining Weak rows."');
+    expect(prompt).toMatch(/"I accept the remaining Weak rows\." \(given on the run's page at \d{4}-\d\d-\d\d \d\d:\d\d UTC\)/);
+    // The row of the session that quoted it says which sentence it carried (AC-TEST-03).
+    expect(buildSnapshot(current.engine).activities!.find(row => row.id === auditKey(after[4]!))!.carried).toEqual([{ sentence: "I accept the remaining Weak rows.", source: expect.stringMatching(/^given on the run's page at /) }]);
     expect(prompt).not.toContain("The person pressed Accept what is left and deliver.");
   });
 
@@ -216,6 +278,27 @@ describe("test audit loops (AC-LOOP-03, AC-TEST-01, AC-TEST-02, AC-TEST-03, AC-S
     expect(await again.start()).toEqual({ ok: true }); await again.settled();
     expect(again.record.completedAt, JSON.stringify(again.record.phases)).toBeTruthy();
     expect(again.record.auditLoops!.loops.filter(loop => loop.kind === "test").map(loop => [loop.number, loop.limitAtStart, loop.last])).toEqual([[1, 1, true], [2, 2, true]]);
+  });
+
+  it("After the last test audit loop changed on the run's page while a test audit runs applies at the next loop's prompt (AC-LOOP-05)", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "stop_and_ask" } });
+    // The run page's settings change, made while the first test audit runs (the route's own recording is proved by "the page's routes" below).
+    let changed: Promise<{ ok: boolean }> | undefined; let fired = false;
+    const off = current.engine.onChange(() => {
+      if (fired || current.engine.current?.session?.kind !== "test_audit" || current.engine.record.completionAudits!.activities.length !== 2) return;
+      fired = true; changed = current.engine.changeSettings({ auditLoops: { afterLastTest: "deliver_unless_serious" } } as never, { change: { afterLastTest: "deliver_unless_serious" }, where: "run_page" });
+    });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled(); off();
+    expect(changed).toBeDefined();
+    expect((await changed!).ok).toBe(true);
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
+    const prompts = auditPrompts(current);
+    expect(prompts).toHaveLength(3);
+    // The first test audit was told nothing; the last loop, decided after the change, carries the new choice and its source.
+    expect(prompts[1]!.prompt).not.toContain("No more test audit loops follow");
+    expect(prompts[2]!.prompt).toContain("The person's choice for after the last test audit loop: Deliver, unless something serious is left.");
+    expect(prompts[2]!.prompt).toMatch(/The person's own words, chosen on the run's page at \d{4}-\d\d-\d\d \d\d:\d\d UTC: "I accept the remaining Weak rows after the last test audit loop\."/);
   });
 
   it("a limit lowered while a test loop runs stops the run at the next decision, and the reopened run reads the same stop", { timeout: 180_000 }, async () => {
@@ -251,6 +334,9 @@ describe("loop stops that hold nothing (AC-TEST-02, AC-STOP-02)", () => {
     const snapshot = buildSnapshot(current.engine);
     expect(snapshot.auditLoops!.stop).toMatchObject({ heading: "Test audit loops used: 1 of 1", holds: false, audit: { items: [{ name: "Required evidence is unavailable", problem: "Required evidence is unavailable.", action: "Restore the named evidence." }] }, acceptSentence: "I accept the remaining Weak rows, and Required evidence is unavailable." });
     // Mark complete stays offered where a check fails; a raised limit removes the loop page at once.
+    expect((await control(current, "check-again")).state).toBe("completed");
+    expect(current.engine.loopStopOf(stopped)).toEqual({ kind: "test", reason: "items_listed", heldAuditKey: stopped });
+    expect(buildSnapshot(current.engine).needsYou!.markComplete).toMatchObject({ offered: true });
     expect(current.engine.controlView().controls.find(c => c.name === "allow-more-loops")!.available).toBe(true);
     await current.engine.changeSettings({ auditLoops: { testLimit: 2 } as never });
     expect(current.engine.loopStopOf(stopped)).toBeUndefined();
@@ -331,7 +417,12 @@ describe("items listed on a passing report (AC-TEST-02, AC-STOP-02)", () => {
     expect(current.engine.record.phases[held]!.stop!.kind).toBe("done_check");
     expect(current.engine.loopStopOf(held)).toEqual({ kind: "test", reason: "items_listed", heldAuditKey: held });
     expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "test")).toHaveLength(1);
-    expect(buildSnapshot(current.engine).auditLoops!.stop).toMatchObject({ kind: "test", holds: false, audit: { items: [{ problem: "Required evidence is unavailable." }, { problem: expect.stringContaining(decision) }] } });
+    const stop = buildSnapshot(current.engine).auditLoops!.stop!;
+    expect(stop).toMatchObject({ kind: "test", holds: false, audit: { items: [{ problem: "Required evidence is unavailable." }, { problem: expect.stringContaining(decision) }] } });
+    // Accept's sentence names every item in the audit's own words, in its order, joined "A and B" (AC-LOOP-06, AC-STOP-02).
+    const relisted = stop.audit.items[1]!.problem;
+    expect(relisted.startsWith(`${decision} `)).toBe(true);
+    expect(stop.acceptSentence).toBe(`I accept the remaining Weak rows, and Required evidence is unavailable and ${relisted.replace(/\.$/, "")}.`);
   });
 });
 
@@ -397,8 +488,18 @@ describe("the stop controls through every entry (AC-STOP-02, AC-STOP-03, AC-LOOP
     expect(last).toContain("The person's choice for after the last test audit loop: Always stop and ask me.");
     expect(last).not.toContain("I accept the remaining Weak rows");
     expect(buildSnapshot(current.engine).auditLoops!.stop).toMatchObject({ acceptSentence: "I accept the remaining Weak rows, and AC-PROOF-01.", audit: { items: [{ name: "AC-PROOF-01" }] } });
-    const accepted = await control(current, "accept-and-deliver", { via: "command_line" });
-    expect(accepted).toMatchObject({ state: "completed", outcome: "session_started", effects: { session: "started" } });
+    // A caller never says where an instruction came from: the control route refuses a supplied via.
+    const origin = new URL(server!.address).origin;
+    const supplied = await fetch(`${origin}/api/control/v1/commands`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": current.engine.record.token, "Content-Type": "application/json" }, body: JSON.stringify({ command_id: "via-supplied", execution_id: current.engine.record.executionId, status_token: current.engine.controlView().token, action: "accept-and-deliver", inputs: { via: "browser" } }) });
+    expect(await supplied.json()).toMatchObject({ ok: false, errors: [{ code: "invalid_input" }] });
+    expect(current.engine.record.auditLoops!.acceptances).toEqual([]);
+    // The real command line, which Kiln records as where the person gave it.
+    const prd = join(current.repository, directory);
+    const statusToken = (await cli(current, ["status", prd, "--json"])).json().status_token as string;
+    const sent = await cli(current, ["accept-and-deliver", prd, "--only-if-status-matches", statusToken, "--command-id", "cli-accept", "--json"]);
+    expect(sent.code, sent.stdout).toBe(0);
+    await current.engine.commands.settled(); await current.engine.settled();
+    expect(current.engine.commands.lookup("cli-accept").operation).toMatchObject({ state: "completed", outcome: "session_started", effects: { session: "started" } });
     await current.engine.settled();
     expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
     const activity = current.engine.record.completionAudits!.activities[2]!;
@@ -435,6 +536,69 @@ describe("the stop controls through every entry (AC-STOP-02, AC-STOP-03, AC-LOOP
     expect(prompts[5]!.prompt).toContain("- item-1: AC-PROOF-01 · ");
     expect(prompts[5]!.prompt).toContain("listed by Delivery audit round 1; criterion AC-PROOF-01");
     expect(current.claudeCalls().at(-1)!.prompt).toContain('"I accept the remaining Weak rows, and AC-PROOF-01."');
+  });
+
+  it("Take over and Reply at a stop that holds reach the held audit's conversation, and the run stays held, uncounted", { timeout: 180_000 }, async () => {
+    // The resumed audit answers and changes nothing.
+    const replied = { actions: [{ result: "Read the note; the phase stays." }, { exit: 0 }] };
+    const current = await fixture([auditSession({ gap: true }), auditSession({ gap: true }), replied, auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const activity = current.engine.record.completionAudits!.activities[1]!;
+    const held = auditKey(activity);
+    const session = activity.sessionIds.at(-1)!;
+    expect(current.engine.record.phases[held]!.stop).toMatchObject({ kind: "loop_limit", loop: { reason: "phases_added" } });
+    // Take over: the page offers the held audit's own conversation, as at any Needs you stop.
+    const page = buildSnapshot(current.engine).needsYou!;
+    expect(page.resumeOffered).toBe(true);
+    expect(page.resumeCommand).toContain(`--resume ${session}`);
+    // Reply resumes that conversation with the person's words; the run stays held and nothing is counted.
+    const calls = current.claudeCalls().length;
+    const reply = await control(current, "reply", { message: "Why does phase 3 matter?" });
+    expect(reply.state).toBe("completed");
+    await current.engine.settled();
+    const resumed = current.claudeCalls().slice(calls);
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0]!.args).toEqual(expect.arrayContaining(["--resume", session]));
+    expect(resumed[0]!.prompt).toContain("Why does phase 3 matter?");
+    expect(current.engine.record.phases[held]!.stop).toMatchObject({ kind: "loop_limit", loop: { kind: "delivery", reason: "phases_added", heldAuditKey: held } });
+    expect(current.engine.record.phases["3"]).toBeUndefined();
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery")).toHaveLength(1);
+    expect(buildSnapshot(current.engine).auditLoops).toMatchObject({ delivery: { used: 1, limit: 1 }, stop: { holds: true } });
+  });
+
+  // Terminal takeover is certified on macOS only, as in src/live/takeover.integration.test.ts.
+  it.skipIf(process.platform !== "darwin")("a taken-over audit that adds phases with no delivery loop left: a passing Check again accepts its report and holds, starting nothing", { timeout: 180_000 }, async () => {
+    const ready = join(process.env.TMPDIR ?? "/tmp", `loop-takeover-ready-${process.pid}-${Date.now()}`); const handBack = `${ready}-release`;
+    const taken = { actions: [{ touch: ready }, { waitForFile: handBack }, { auditReport: { gap: true } }, { result: "Audit stopped." }] };
+    const current = await fixture([auditSession({ gap: true }), taken, auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    current.env.KILN_STANDIN_VERSION = "2.1.311";
+    mkdirSync(join(current.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
+    void current.engine.start({ refinementConfirmed: true });
+    await waitFor(() => existsSync(ready), 60_000);
+    const target = current.engine.liveTarget()!;
+    const held = auditKey(current.engine.record.completionAudits!.activities[1]!);
+    expect(target.activityKey).toBe(held);
+    const origin = new URL(server!.address).origin;
+    const taking = await fetch(`${origin}/api/live/take-over`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": current.engine.record.token, "Content-Type": "application/json" }, body: JSON.stringify({ instructionId: "loop-takeover", target }) });
+    expect(taking.status).toBe(202);
+    writeFileSync(handBack, "done"); await current.engine.settled();
+    await waitFor(async () => { await current.engine.reconcileTakeover(); return current.engine.record.liveControl?.takeover.state === "released"; }, 10_000);
+    const recovery = current.engine.phaseRecoveryTarget()!;
+    const verified = await current.engine.checkAgain({ target: recovery, intent: "verify" });
+    expect(verified.ok).toBe(true);
+    await current.engine.settled();
+    // The report is accepted, but the run holds at the loop stop and phase 3 stays open and not started.
+    expect(current.engine.record.phases[held]).toMatchObject({ doneAt: expect.any(String), stop: { kind: "loop_limit", loop: { kind: "delivery", reason: "phases_added", heldAuditKey: held } } });
+    expect(current.engine.record.phases["3"]).toBeUndefined();
+    expect(current.claudeCalls().filter(call => call.prompt.includes("phase-3"))).toHaveLength(0);
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery")).toHaveLength(1);
+    // Allow then builds it, as at any delivery loop stop.
+    expect(await control(current, "allow-more-loops", { count: 2 })).toMatchObject({ state: "completed", outcome: "loops_allowed" });
+    await current.engine.settled();
+    expect(current.engine.record.phases["3"]!.doneAt).toBeDefined();
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery").map(loop => [loop.number, loop.limitAtStart, loop.activityKeys])).toEqual([[1, 1, ["2"]], [1, 2, ["3"]]]);
   });
 
   it("a reply at a stop on items listed clears it with no conversation resumed, and the run carries on uncounted", { timeout: 240_000 }, async () => {
