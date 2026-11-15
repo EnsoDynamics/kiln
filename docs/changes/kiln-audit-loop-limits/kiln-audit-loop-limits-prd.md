@@ -109,7 +109,8 @@ A **loop stop** is a stop under AC-DELIV-01 or AC-TEST-02, because no loop of th
   |---|---|---|
   | **Allow _N_ more loops**, N a whole number of 1 or more, filled in as 2 | Sets that kind's limit to N, restarts its count (AC-LOOP-04), and starts the next loop of that kind (AC-LOOP-02, AC-LOOP-03) | Yes |
   | **Accept what is left and deliver**, at a test audit stop only | Starts one test audit session that fixes nothing; its report is handled as AC-TEST-02 says | No |
-  | Take over the audit's session, or Reply | As at any Needs you stop | No |
+  | Take over the audit's session | As at any Needs you stop | No |
+  | Reply, with the person's own words | As at any Needs you stop. The page doesn't offer it at a stop for listed items, because that audit has finished and nothing would read the reply | No |
   | Check again, or Mark the audit complete | As at any Needs you stop, except that a held run stays held. Mark the audit complete is offered only where a check fails, as at any Needs you stop, so not at a stop that holds an accepted report | No |
   | Raise a limit in the settings (AC-LOOP-05) | Starts nothing by itself; the loop the held report asks for starts at the next Check again or `kiln run` | Yes, once it starts |
 

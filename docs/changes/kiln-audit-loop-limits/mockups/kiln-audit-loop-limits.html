@@ -162,7 +162,7 @@ h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </section>
 <section>
 <h2>2. Delivery audit loops used up</h2>
-<p class="note">Covers AC-DELIV-01, AC-STOP-01 and AC-STOP-02. Mark complete appears only where a check fails, as at any stop.</p>
+<p class="note">Covers AC-DELIV-01, AC-STOP-01 and AC-STOP-02. Each control’s effect sits beside it; Reply is a box for your own words. Mark complete appears only where a check fails, as at any stop.</p>
 <div class="screen">
 <div style="width: 1100px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
 <div style="display: flex; flex-direction: column; gap: 8px">
@@ -186,18 +186,32 @@ h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">Nothing listed for you. Phase 9 is in the plan, not started.</p>
 </section>
 </div>
-<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
-<div style="display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 8px 0 22px; border-radius: 999px; background: #e2694f; color: #12110e; font-size: 15px; font-weight: 600"><label for="more-1">Allow</label><input id="more-1" type="number" value="2" min="1" style="width: 56px; height: 34px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: none; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 15px; text-align: center"><button type="button" style="min-height: 44px; padding: 0 14px 0 0; border: none; background: transparent; color: #12110e; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">more loops</button></div>
-<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Take over the audit session</button>
-<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Reply</button>
-<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check again</button>
+<div style="display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px 20px; align-items: center">
+<div style="display: inline-flex; align-items: center; justify-self: start; gap: 10px; min-height: 44px; padding: 0 8px 0 22px; border-radius: 999px; background: #e2694f; color: #12110e; font-size: 15px; font-weight: 600"><label for="more-1">Allow</label><input id="more-1" type="number" value="2" min="1" style="width: 56px; height: 34px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: none; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 15px; text-align: center"><button type="button" style="min-height: 44px; padding: 0 14px 0 0; border: none; background: transparent; color: #12110e; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">more loops</button></div>
+<span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">Build Phase 9, then audit again. Each build and its audit is one loop.</span>
+<button type="button" style="justify-self: start; min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check again</button>
+<span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">If you have raised the limit in the settings, the next loop starts. If not, Kiln stays here.</span>
+</div>
+<div style="border: 1px solid rgba(237,232,221,0.12); border-radius: 14px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<label for="reply-1" style="font-size: 15px; font-weight: 600">Or reply to the delivery audit</label>
+<span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">Type your own answer. It goes to the audit’s conversation, which carries on from where it stopped. A reply is not a loop.</span>
+<textarea id="reply-1" placeholder="AC-REFUND-04 only needs the row in the confirmation email, not on the page. Change Phase 9 to match." style="width: 100%; min-height: 84px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.18); border-radius: 8px; padding: 12px; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.5; resize: vertical"></textarea>
+<button type="button" disabled style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #8c8577; border: 1px solid rgba(237,232,221,0.18); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600; cursor: not-allowed">Send reply to the audit</button>
+</div>
+<div style="border: 1px solid rgba(237,232,221,0.12); border-radius: 14px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #bdb6a8">OR PICK IT UP YOURSELF</span>
+<span style="font-size: 15px; font-weight: 600">Open the delivery audit’s session in a terminal</span>
+<pre style="margin: 0; padding: 12px 14px; background: #12110e; border: 1px solid rgba(237,232,221,0.18); border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.6; color: #ede8dd">cd ~/worktrees/customer-returns
+claude --resume 4b1e9c2a-73f0-4d5e-9a61-0c8d2f7e5b13</pre>
+<div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap"><button type="button" style="min-height: 40px; padding: 0 18px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 14px; font-weight: 600">Copy command</button><span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">Full history, right where it stopped. Kiln stays out of it. Come back and press Check again when you’re done.</span></div>
+</div>
 </div>
 </div>
 </div>
 </section>
 <section>
 <h2>3. Last test audit loop under the default setting</h2>
-<p class="note">The last session accepted the Weak rows and listed three high-risk ones. Covers AC-LOOP-03, AC-LOOP-06, AC-TEST-02, AC-TEST-03's row, AC-STOP-01, AC-STOP-02 and AC-SHOW-01.</p>
+<p class="note">The last session accepted the Weak rows and listed three high-risk ones. Covers AC-LOOP-03, AC-LOOP-06, AC-TEST-02, AC-TEST-03's row, AC-STOP-01, AC-STOP-02 and AC-SHOW-01. No Reply here: that audit has finished, so nothing would read it (AC-STOP-02); Its session can still be opened from the terminal command below.</p>
 <div class="screen">
 <div style="width: 1100px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
 <div style="display: flex; flex-direction: column; gap: 8px">
@@ -216,14 +230,18 @@ h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </div>
 <div style="display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 12px 20px; align-items: center; margin-top: 6px">
 <div style="display: inline-flex; align-items: center; justify-self: start; gap: 10px; min-height: 44px; padding: 0 8px 0 22px; border-radius: 999px; background: #e2694f; color: #12110e; font-size: 15px; font-weight: 600"><label for="more-2">Allow</label><input id="more-2" type="number" value="2" min="1" style="width: 56px; height: 34px; box-sizing: border-box; background: #12110e; color: #ede8dd; border: none; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 15px; text-align: center"><button type="button" style="min-height: 44px; padding: 0 14px 0 0; border: none; background: transparent; color: #12110e; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">more loops</button></div>
-<span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">Keep fixing these three. Each session of fixes is a loop. A session can't fix a row marked stuck, or a step only you can take, until you reply or take over.</span>
+<span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">Keep fixing these three. Each session of fixes is a loop. A session can’t fix a row marked stuck, or a step only you can take, until you pick it up yourself.</span>
 <button type="button" style="justify-self: start; min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Accept what is left and deliver</button>
 <span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">You say: “I accept the remaining Weak rows, and <span style="white-space: nowrap">AC-REFUND-04</span>, <span style="white-space: nowrap">AC-APPROVAL-01</span> and <span style="white-space: nowrap">AC-RETURNS-03</span>.” One more session records it and fixes nothing.</span>
+<button type="button" style="justify-self: start; min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check again</button>
+<span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">Leave these three undecided. Kiln runs the delivery audit, then one more test audit that doesn’t count as a loop.</span>
 </div>
-<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
-<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Take over the audit session</button>
-<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Reply</button>
-<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check again</button>
+<div style="border: 1px solid rgba(237,232,221,0.12); border-radius: 14px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #bdb6a8">OR PICK IT UP YOURSELF</span>
+<span style="font-size: 15px; font-weight: 600">Open the last test audit’s session in a terminal</span>
+<pre style="margin: 0; padding: 12px 14px; background: #12110e; border: 1px solid rgba(237,232,221,0.18); border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.6; color: #ede8dd">cd ~/worktrees/customer-returns
+claude --resume 9d27f5e0-1c84-4b6a-b3e2-6a0f8c41d7e9</pre>
+<div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap"><button type="button" style="min-height: 40px; padding: 0 18px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 14px; font-weight: 600">Copy command</button><span style="font-size: 14px; line-height: 1.5; color: #bdb6a8">Full history, right where it stopped. Kiln stays out of it. Come back and press Check again when you’re done.</span></div>
 </div>
 <div style="border-top: 1px solid rgba(237,232,221,0.12); padding-top: 14px; display: flex; flex-direction: column; gap: 8px">
 <span style="font-size: 14.5px; font-weight: 600">Test audit is done, and Kiln’s check is wrong?</span>
