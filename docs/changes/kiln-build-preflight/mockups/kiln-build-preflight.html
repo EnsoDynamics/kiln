@@ -290,17 +290,18 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 
 <section>
 <h2>6. Documents found, a phase merges early and early merges are off</h2>
-<p class="note">The existing early-merge choice with what this PRD adds outlined and tagged NEW. Kiln read Phase 3's Early merge line; with the box off, the run would stop there. Ticking the box removes the note, and nothing stops. Covers AC-ATTEND-05.</p>
+<p class="note">The existing early-merge choice with what this PRD adds outlined and tagged NEW. Kiln read Phase 3's Early merge line; with the box off, the run would stop there. Ticking the box removes the warning, and nothing stops. Covers AC-ATTEND-05.</p>
 <div class="screen">
 <div style="width: 1100px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 20px">
 <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 12px">
 <div style="display: flex; gap: 10px; align-items: center; font-size: 15px; font-weight: 600"><input id="early" type="checkbox" style="width: 16px; height: 16px"><label for="early">Allow early merges</label></div>
-<p style="margin: 0; font-size: 14px; line-height: 1.55; color: #bdb6a8">Kiln normally keeps work on its feature branch for a review PR. Allow early merges when a PRD criterion needs deployment or verification. Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
-<p style="margin: 0; font-size: 14px; color: #bdb6a8">Applies to this PRD only. Each new PRD starts with early merges off.</p>
-<div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #b89b5e; border-radius: 12px; padding: 12px 14px; margin-top: 4px">
-<span style="font-size: 14.5px; line-height: 1.5"><strong>Phase 3 merges into <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">develop</span> early.</strong> Left off, the run stops there until you allow it.</span>
+<div style="display: flex; align-items: flex-start; gap: 12px; background: rgba(230,180,80,0.14); border: 1px solid #e6b450; border-left: 4px solid #e6b450; border-radius: 10px; padding: 14px 16px">
+<span style="font-size: 20px; line-height: 1.2; color: #e6b450">⚠</span>
+<span style="flex: 1; font-size: 15.5px; line-height: 1.5; color: #ede8dd"><strong style="color: #f0c66b">The run will stop at Phase 3.</strong> It merges into <span style="font-family: 'JetBrains Mono', monospace; font-size: 13.5px">develop</span> early. Tick Allow early merges to keep it going.</span>
 <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span>
 </div>
+<p style="margin: 0; font-size: 14px; line-height: 1.55; color: #bdb6a8">Kiln normally keeps work on its feature branch for a review PR. Allow early merges when a PRD criterion needs deployment or verification. Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
+<p style="margin: 0; font-size: 14px; color: #bdb6a8">Applies to this PRD only. Each new PRD starts with early merges off.</p>
 </section>
 </div>
 </div>
