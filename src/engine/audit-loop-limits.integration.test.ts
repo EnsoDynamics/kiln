@@ -181,21 +181,46 @@ describe("phases a test audit adds (AC-DELIV-01, AC-TEST-02 first row, AC-LOOP-0
     expect(fromTest.map(loop => [loop.number, loop.limitAtStart, loop.activityKeys])).toEqual([[1, 1, ["3"]]]);
   });
 
-  it("an audit with no report whose session appended a phase: Mark complete forecasts the loop stop, and the phase is not started (AC-WAIVE-12 in part)", { timeout: 180_000 }, async () => {
-    const phase = `# Phase 3: Repair value\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`;
-    const noReport = { actions: [{ write: { path: `${directory}/phase-3-repair.md`, content: phase } }, { commit: "docs(audit): add a completion phase" }, { push: true }, { result: "Audit ended." }, { exit: 0 }] };
-    const current = await fixture([auditSession({ gap: true }), noReport, auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
-    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
-    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
-    const activity = current.engine.record.completionAudits!.activities[1]!;
-    const key = auditKey(activity);
+  const repairPhase = `# Phase 3: Repair value\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`;
+  const noReport = { actions: [{ write: { path: `${directory}/phase-3-repair.md`, content: repairPhase } }, { commit: "docs(audit): add a completion phase" }, { push: true }, { result: "Audit ended." }, { exit: 0 }] };
+  /** Runs to the no-report audit's stop, then marks it complete through the stop's own offer. */
+  async function markNoReportComplete(current: Harness) {
+    const key = auditKey(current.engine.record.completionAudits!.activities[1]!);
     expect(current.engine.record.phases[key]!.stop!.kind).toBe("done_check");
     await control(current, "check-again");
     const offer = current.engine.markCompleteOffer();
     if (!offer.offered) throw new Error(offer.reason);
+    const marked = await control(current, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" });
+    expect(marked.outcome, JSON.stringify(marked)).toBe("marked_complete");
+    await current.engine.settled();
+    return { key, offer };
+  }
+
+  it("an audit with no report whose session appended a phase, marked complete with no delivery loop left, stops instead of building it (AC-WAIVE-12 in part)", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession({ gap: true }), noReport, auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const { key, offer } = await markNoReportComplete(current);
     expect(offer.nextActivity).toEqual({ kind: "loop_stop", key, title: "Delivery audit loop stop" });
+    expect(current.engine.record.phases[key]).toMatchObject({ doneAt: expect.any(String), stop: { kind: "loop_limit", loop: { kind: "delivery", reason: "phases_added", heldAuditKey: key } } });
     expect(current.engine.record.phases["3"]).toBeUndefined();
     expect(current.claudeCalls().filter(call => call.prompt.includes("phase-3-repair"))).toHaveLength(0);
+    // It stays in the plan, open (AC-DELIV-01).
+    expect(current.engine.record.plan!.find(phase => phase.id === "3")).toMatchObject({ id: "3" });
+    expect(current.engine.record.plan!.find(phase => phase.id === "3")!.closed).toBeFalsy();
+    expect(current.engine.record.settings.auditLoops!.deliveryLimit).toBe(1);
+  });
+
+  it("an audit with no report whose session appended a phase, marked complete with a delivery loop left, builds that phase as the next loop (AC-WAIVE-12)", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession({ gap: true }), noReport, auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const { offer } = await markNoReportComplete(current);
+    expect(offer.nextActivity).toMatchObject({ kind: "phase", key: "3" });
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
+    expect(current.engine.record.phases["3"]!.doneAt).toBeDefined();
+    expect(current.claudeCalls().some(call => call.prompt.includes("phase-3-repair"))).toBe(true);
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery").map(loop => [loop.number, loop.activityKeys])).toEqual([[1, ["2"]], [2, ["3"]]]);
   });
 });
 
