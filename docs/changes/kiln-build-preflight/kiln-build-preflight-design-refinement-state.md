@@ -21,6 +21,7 @@ Last updated: 2026-11-15
 | 2 | 8 (+3 from conformance; 2 repeats) | 12 | 12 | 0 | 0 | 0 | 0 |
 | 3 | 4 (0 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
 | 4 | 6 (0 repeats) | 6 | 6 | 0 | 0 | 0 | 0 |
+| 5 | 3 (1 repeat) | 4 | 4 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -55,9 +56,17 @@ Last updated: 2026-11-15
 | Q28 | 4 | Extracted item text: drop the "1." marker; how continuation lines join | Technical | LOW | 85 → 90 | Resolved | TD §Reading the Result |
 | Q29 | 4 | kiln run terminal lines when a preflight finishes | Technical | LOW | 80 → 90 | Resolved | TD §Display Contract |
 | Q30 | 4 | Does the preflight session push its commits? | Technical | LOW | 85 → 90 | Resolved | TD §The Preflight Session, Verification |
-| Q31 | 4→5 | A preflight run ahead of a resumed phase commits after that phase's startCommit, so its commits are counted in the phase's commit list (engine.ts:5131): exclude them? | Technical | LOW | 70 → 70 | Pending | — |
+| Q31 | 4→5 | A preflight run ahead of a resumed phase commits after that phase's startCommit, so its commits are counted in the phase's commit list (engine.ts:5131): exclude them? | Technical | LOW | 70 → 90 | Resolved | TD §The Preflight Session |
+| Q32 | 5 | Does the preflight take the one-time prompt additions (catch-up sentences, adopted-worktree note) every launch carries? | Technical | MEDIUM | 80 → 95 | Resolved | TD §The Preflight Session |
+| Q33 | 5 | Does a preflight run still get the done check's safety parts (Codex cleanup/dispatch, stayed in workspace) before its report is read? | Technical | MEDIUM | 65 → 90 | Resolved | TD §Reading the Result, Verification |
+| Q34 | 5 | How is needsYou.preflight.nextActivity filled when the next activity is an unallocated audit? | Technical | LOW | 75 → 90 | Resolved | TD §Interfaces, Display Contract |
+| Q35 | 5→6 | Mark complete at a Codex-safety done_check stop on a preflight: settle without reading the report (skipping its items), or waive the check then read the report? | Technical | MEDIUM | 60 → 60 | Pending | — |
+| Q36 | 5→6 | A preflight settled by a waiver with no result (launch-check or done_check stop): where is waiverId recorded and what do outcome and the row show? | Technical | MEDIUM | 70 → 70 | Pending | — |
 
 ## Question notes
+
+### Q31-Q34 (pass 5)
+Q31: accept, display only (commit range feeds rows/counts/stopped-work/delivery history; time totals from sessions; PR commit count from GitHub). Q32: preflight prompts carry no catch-up/adopted-worktree additions; anyConversationBegan (engine.ts:6694) ignores preflight keys. Q33: "Stayed in the workspace" is retired (records.ts:626-631); Codex cleanup/dispatch safety check runs before reading a preflight result → done_check stop on the preflight key with launch-check-style controls; phaseRecoveryTarget can't offer hand-back. Q34: one record-only derivation for nextActivity/planned.before, replacing nextKeyFromRecordedPlan's stale fallback; key optional. Writer folding.
 
 ### Q25-Q30 (pass 4)
 Q25: preflight-specific sentence (mockup ~143); label stays AC-WAIVE-10 "1 check waived". Q26: preflight tail's report rule after reply policy (prompts.ts:224 appends policy last); every final message opens with the report line. Q27: "Nothing has been built." only when no closed leaf and no non-preflight activity; verb resumes when `before` recorded. Q28: strip N. marker, join continuation lines. Q29: terminal treats preflight as an audit titled Preflight, id PF; Ready / No report amber + reason note line. Q30 (reversed proposal): preflight pushes the feature branch after any skill commit — final delivery after an unpause/resume would otherwise omit it (PR prompt grants no push; runPullRequestCheck checks.ts:299 doesn't compare head with origin; development-delivery.ts:964). Writer folding.
@@ -111,4 +120,4 @@ Pass 1: 2026-11-15 · 0 open entries (register holds only validated RUN-001 to R
 |---|---|---|
 
 ## Next action
-Pass 4 committed. Pass 5 discovery next (Q31 carried).
+Pass 5 committed. Pass 6 discovery (Q35, Q36 carried first).
