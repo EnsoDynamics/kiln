@@ -106,6 +106,37 @@ describe("delivery audit loops (AC-LOOP-02, AC-DELIV-01, AC-STOP-01, AC-STOP-02,
     expect(rows.find(row => row.id === "3")!.loops).toEqual([expect.objectContaining({ number: 1, limit: 2, last: false })]);
   });
 
+  it("a stop lists every loop in the current count and the audit since, and after Allow only the new count's (AC-STOP-01)", { timeout: 240_000 }, async () => {
+    const current = await fixture([auditSession({ gap: true }), auditSession({ gap: true }), auditSession({ gap: true }), auditSession({ gap: true })], [landing(), landing(), landing(), pullRequestSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 2, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const audits = current.engine.record.completionAudits!.activities;
+    expect(audits).toHaveLength(3);
+    expect(current.engine.record.phases[auditKey(audits[2]!)]!.stop).toMatchObject({ kind: "loop_limit", loop: { kind: "delivery", reason: "phases_added" } });
+    const duration = (snapshot: ReturnType<typeof buildSnapshot>, id: string) => snapshot.activities!.find(row => row.id === id)!.loops!.at(-1)!.durationMs;
+    const first = buildSnapshot(current.engine);
+    const listed = first.auditLoops!.stop!;
+    expect(listed.heading).toBe("Delivery audit loops used: 2 of 2");
+    expect(listed.loops).toEqual([
+      { label: "Loop 1 of 2", activity: "Phase 2", did: "Phase 2 built", durationMs: duration(first, "2") },
+      { label: "Last loop", activity: "Phase 3", did: "Phase 3 built", durationMs: duration(first, "3") },
+      // Then each audit session since the first counted loop started, in order (technical design, the stop's loops).
+      { label: "Delivery audit", activity: "Delivery audit", did: "added Phase 3", durationMs: expect.any(Number) },
+      { label: "Delivery audit", activity: "Delivery audit", did: "added Phase 4", durationMs: expect.any(Number) },
+    ]);
+    expect(listed.loops.every(line => line.durationMs > 0)).toBe(true);
+    // Allow 1: Phase 4 is the new count's only loop, and the next stop lists only it and the audit since.
+    expect(await control(current, "allow-more-loops", { count: 1 })).toMatchObject({ state: "completed", outcome: "loops_allowed" });
+    await current.engine.settled();
+    expect(current.engine.record.completionAudits!.activities).toHaveLength(4);
+    const second = buildSnapshot(current.engine);
+    expect(second.auditLoops!.stop!.heading).toBe("Delivery audit loops used: 1 of 1");
+    expect(second.auditLoops!.stop!.loops).toEqual([
+      { label: "Last loop", activity: "Phase 4", did: "Phase 4 built", durationMs: duration(second, "4") },
+      { label: "Delivery audit", activity: "Delivery audit", did: "added Phase 5", durationMs: expect.any(Number) },
+    ]);
+  });
+
   it("starts the held loop at Check again once the limit is raised in the settings (AC-LOOP-05)", { timeout: 180_000 }, async () => {
     const current = await fixture([auditSession({ gap: true }), auditSession({ gap: true }), auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
     await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
@@ -457,6 +488,55 @@ describe("upgrade (AC-LOOP-07, RUN-002) and continuation (AC-LOOP-04, RUN-003)",
     expect(rows.at(-1)!.loops!.at(-1)).toMatchObject({ number: 4, limit: 3, last: false, observed: true });
     expect(rows.every(row => !row.loops?.some(loop => loop.last))).toBe(true);
     expect(rows[1]!.loops![0]!.did).toContain("counted from this run's history when Kiln was upgraded");
+    // Once the person chooses, the run uses their choice: the next last loop quotes it as theirs, from the run's page.
+    expect((await again.changeSettings({ auditLoops: { afterLastTest: "deliver_unless_serious" } } as never, { change: { afterLastTest: "deliver_unless_serious" }, where: "run_page" })).ok).toBe(true);
+    expect(again.record.settings.auditLoops!.afterLastTestSource).toMatchObject({ kind: "person", where: "run_page" });
+    expect(again.commands.submit({ command_id: "upgraded-allow", execution_id: again.record.executionId!, status_token: again.controlView().token, action: "allow-more-loops", inputs: { count: 1 } }).ok).toBe(true);
+    await again.commands.settled(); await again.settled();
+    expect(again.commands.lookup("upgraded-allow").operation).toMatchObject({ state: "completed", outcome: "loops_allowed" });
+    const chosen = auditPrompts(current).at(-1)!.prompt;
+    expect(chosen).toContain("No more test audit loops follow this session");
+    expect(chosen).toContain("The person's choice for after the last test audit loop: Deliver, unless something serious is left.");
+    expect(chosen).toMatch(/The person's own words, chosen on the run's page at \d{4}-\d\d-\d\d \d\d:\d\d UTC: "I accept the remaining Weak rows after the last test audit loop\."/);
+    expect(chosen).not.toContain("applied by Kiln");
+  });
+
+  it("an upgraded run counts the delivery loops its saved history shows", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession({ gap: true }), auditSession({ gap: true }), auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
+    // Pause while the second delivery audit runs, after Phase 2 was built from the first audit's gap.
+    let paused = false;
+    const off = current.engine.onChange(() => { if (!paused && current.engine.record.completionAudits!.activities.length === 2 && current.engine.current?.session?.kind === "delivery_audit") { paused = true; current.engine.pause(); } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled(); off();
+    expect(paused).toBe(true);
+    current.engine.close();
+    const saved = readPrdRecord(current.stateDirectory)!;
+    delete saved.auditLoops; delete saved.settings.auditLoops; saved.schemaVersion = 21;
+    writePrdRecord(current.stateDirectory, saved);
+    const again = current.reopenFromDisk(); await again.agents.refresh();
+    expect(again.record.auditLoops!.loops.map(loop => [loop.kind, loop.number, loop.observed, loop.activityKeys])).toEqual([["delivery", 1, true, ["2"]]]);
+    expect(buildSnapshot(again).auditLoops).toMatchObject({ delivery: { used: 1, limit: 3 }, test: { used: 0, limit: 3 } });
+  });
+});
+
+describe("starting again after a pause (AC-LOOP-04)", () => {
+  it("keeps both counts: the delivery loop made before the pause still counts, and no new count opens", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession({ gap: true }), auditSession({ gap: true }), auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 2, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
+    // Pause while the second delivery audit runs, after the first delivery loop built Phase 2.
+    let paused = false;
+    const off = current.engine.onChange(() => { if (!paused && current.engine.record.completionAudits!.activities.length === 2 && current.engine.current?.session?.kind === "delivery_audit") { paused = true; current.engine.pause(); } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled(); off();
+    expect(paused).toBe(true);
+    expect(current.engine.record.completedAt).toBeUndefined();
+    const epochs = structuredClone(current.engine.record.auditLoops!.epochs);
+    expect(epochs.map(e => [e.kind, e.cause])).toEqual([["delivery", "start"], ["test", "start"]]);
+    expect(buildSnapshot(current.engine).auditLoops).toMatchObject({ delivery: { used: 1, limit: 2 } });
+    expect(await current.engine.start()).toEqual({ ok: true }); await current.engine.settled();
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
+    expect(current.engine.record.auditLoops!.epochs).toEqual(epochs);
+    // The paused audit's phase is the second loop of the same count, and the last one.
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery").map(loop => [loop.number, loop.limitAtStart, loop.last, loop.activityKeys])).toEqual([[1, 2, false, ["2"]], [2, 2, true, ["3"]]]);
   });
 });
 
@@ -669,5 +749,29 @@ describe("the stop controls through every entry (AC-STOP-02, AC-STOP-03, AC-LOOP
     expect(marked.outcome).toBe("marked_complete");
     expect(current.engine.record.phases[key]).toMatchObject({ doneAt: expect.any(String), stop: { kind: "loop_limit", loop: { kind: "delivery", reason: "phases_added" } } });
     expect(current.engine.record.settings.auditLoops!.deliveryLimit).toBe(1);
+  });
+
+  it("Mark complete at a failing check on a last test loop that saved test work holds there without starting another test audit (RUN-001)", { timeout: 180_000 }, async () => {
+    const stray = { actions: [{ auditReport: { continueTest: true } }, { write: { path: "stray.txt", content: "stray\n" } }, { result: "Audit ended." }, { exit: 0 }] };
+    const current = await fixture([auditSession(), auditSession({ continueTest: true }), stray, auditSession(), auditSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "stop_and_ask" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const audits = current.engine.record.completionAudits!.activities;
+    expect(audits.map(a => a.kind)).toEqual(["delivery_audit", "test_audit", "test_audit"]);
+    const key = auditKey(audits[2]!);
+    expect(current.engine.record.phases[key]!.stop!.kind).toBe("done_check");
+    await control(current, "check-again");
+    const offer = current.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error(offer.reason);
+    expect(offer.nextActivity).toEqual({ kind: "loop_stop", key, title: "Test audit loop stop" });
+    const marked = await control(current, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" });
+    expect(marked.outcome).toBe("marked_complete");
+    await current.engine.settled();
+    expect(current.engine.record.phases[key]).toMatchObject({ doneAt: expect.any(String), stop: { kind: "loop_limit", loop: { kind: "test", reason: "test_work_saved", heldAuditKey: key } } });
+    expect(current.engine.record.completionAudits!.activities).toHaveLength(3);
+    expect(current.engine.record.completedAt).toBeUndefined();
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "test")).toHaveLength(1);
+    expect(current.engine.record.settings.auditLoops!.testLimit).toBe(1);
+    expect(buildSnapshot(current.engine).auditLoops!.stop).toMatchObject({ kind: "test", holds: true, heading: "Test audit loops used: 1 of 1" });
   });
 });

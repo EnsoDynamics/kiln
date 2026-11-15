@@ -93,8 +93,10 @@ it("the open page resets through its confirmation, returns to Documents found wi
   const h = await stoppedPrd();
   // Settings chosen away from their defaults, which the reset forgets (AC-RESET-04).
   const chosen = readPrdRecord(h.stateDirectory)!;
-  const away = { agentChoices: { claude_code: { model: "sonnet", effort: "medium" } }, keepAwake: false, resumeAfterUsageLimit: false };
-  writePrdRecord(h.stateDirectory, { ...chosen, settings: { ...chosen.settings, ...away } as PrdRecord["settings"] });
+  const away = { agentChoices: { claude_code: { model: "sonnet", effort: "medium" } }, keepAwake: false, resumeAfterUsageLimit: false, auditLoops: { deliveryLimit: 1, testLimit: 5, afterLastTest: "stop_and_ask" as const } };
+  // A loop already counted, which the reset forgets with the settings (Kiln Audit Loop Limits AC-LOOP-04).
+  const counted = { ...chosen.auditLoops!, loops: [{ kind: "delivery" as const, number: 1, limitAtStart: 1, last: true, startedAt: chosen.startedAt!, sourceAuditId: "seeded-audit", activityKeys: ["2"] }] };
+  writePrdRecord(h.stateDirectory, { ...chosen, auditLoops: counted, settings: { ...chosen.settings, ...away } as PrdRecord["settings"] });
   const before = readPrdRecord(h.stateDirectory)!;
   expect(before.settings).toMatchObject(away);
   const gitBefore = gitState(h, before);
@@ -156,6 +158,7 @@ it("the open page resets through its confirmation, returns to Documents found wi
   // Its settings for the PRD are forgotten: back at their defaults, to be chosen again on Documents found.
   expect(after.settings).toMatchObject({ agentChoices: { claude_code: { model: "opus", effort: "medium" } }, keepAwake: true, resumeAfterUsageLimit: true, auditLoops: { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" }, featureBranch: before.settings.featureBranch });
   // Both loop counts are back at zero (Kiln Audit Loop Limits AC-LOOP-04).
+  expect(before.auditLoops!.loops).toHaveLength(1);
   expect(after.auditLoops).toBeUndefined();
   // The new engine writes its own inspection projection; nothing else of the old execution is left.
   expect(readdirSync(h.stateDirectory).filter(name => !["prd.json", "instance.lock", "controls", "control-index"].includes(name)).sort()).toEqual(["inspection-aliases.json", "inspection-bindings.json", "inspection-view.json"]);
