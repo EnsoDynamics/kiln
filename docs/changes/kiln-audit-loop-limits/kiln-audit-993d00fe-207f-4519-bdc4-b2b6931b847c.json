@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "993d00fe-207f-4519-bdc4-b2b6931b847c",
+  "kind": "test_audit",
+  "outcome": "needs_you",
+  "summary": "Fixing chat 3 of the Kiln Audit Loop Limits test audit added and strengthened tests for the four rows left under To fix, each seen to fail with its behavior broken (the Start after a pause has no code to break). A fresh re-grade raised AC-STOP-02, AC-LOOP-04, AC-STOP-01 and AC-LOOP-07 to Adequate, so nothing is left to fix. Only tests changed. AC-DELIV-01 still waits on the earlier Mark complete refusal, which a person must settle. Unit suite green; the integration suite had one takeover-history timing failure unrelated to these tests, which passed twice when run alone.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "Marking complete a stopped audit that has no usable report but whose session appended a completion phase is refused at any loop limit with \"Repair obligations require the accepted audit's matching open completion phase\" (src/engine/development-owners.ts, assignAuditObligations, which requires a completion_phases outcome while a no-report waiver counts as passed). This predates Kiln Audit Loop Limits (completion waivers AC-WAIVE-12) and leaves the last part of AC-DELIV-01 untestable.",
+      "action": "Decide whether to fix the refusal as its own change (implement-from-discovery against the completion waivers PRD), or accept AC-DELIV-01's remaining part as untested."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": false
+}
