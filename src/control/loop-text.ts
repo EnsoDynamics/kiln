@@ -8,6 +8,8 @@
  */
 import { commandText, ControlFailure } from "./result.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
+import { sourceText } from "../engine/loop-ledger.js";
+import { SETTING_SENTENCE, type AfterLastTest, type AfterLastTestSource } from "../state/audit-loops.js";
 
 export type { AuditLoopsView };
 export interface StatusControl { name: string; available: boolean; reason: string | null; invocation: string[] | null }
@@ -37,7 +39,22 @@ export function loopSettingInputs(flags: Record<string, string | true | string[]
   return inputs;
 }
 
-const afterLastTestWords = (value: string) => value === "stop_and_ask" ? "always stop and ask me" : "deliver, unless something serious is left";
+/**
+ * The After the last test audit loop choice in words, with the sentence Deliver gives beside it and,
+ * once the person has chosen, where and when (AC-LOOP-06).
+ *
+ *   afterLastTestText("deliver_unless_serious", { kind: "person", where: "documents_found", at })
+ *   // "deliver, unless something serious is left; your words: “I accept the remaining Weak rows after the last test audit loop.”, chosen on Documents found at 2026-11-15 14:05 UTC"
+ */
+export function afterLastTestText(value: AfterLastTest, source?: AfterLastTestSource): string {
+  if (value === "stop_and_ask") return `always stop and ask me${source?.kind === "kiln_for_earlier_run" ? ` (${sourceText(source)})` : ""}`;
+  return `deliver, unless something serious is left; your words: “${SETTING_SENTENCE}”${source?.kind === "person" ? `, ${sourceText(source)}` : ""}`;
+}
+
+/** The sentence the choice gives and where and when it was chosen, for `kiln settings` data; null where there is none. */
+export function afterLastTestFacts(value: AfterLastTest, source?: AfterLastTestSource): { after_last_test_audit_loop_sentence: string | null; after_last_test_audit_loop_chosen: string | null } {
+  return { after_last_test_audit_loop_sentence: value === "deliver_unless_serious" ? SETTING_SENTENCE : null, after_last_test_audit_loop_chosen: source ? sourceText(source) : null };
+}
 
 /** "45s", "12m", "1h 5m". */
 export function durationText(ms: number): string {
@@ -51,14 +68,14 @@ export function durationText(ms: number): string {
  * The loop counts on one line and, at a loop stop, its heading, loops, the audit's own summary and
  * items, and the controls available there, with no judgment of Kiln's about which items matter.
  *
- *   Audit loops: delivery 1 of 3 · test 3 of 3 · after the last test audit loop: deliver, unless something serious is left
+ *   Audit loops: delivery 1 of 3 · test 3 of 3 · after the last test audit loop: deliver, unless something serious is left; your words: “I accept …”, chosen on Documents found at 2026-11-15 14:05 UTC
  *   Test audit loops used: 3 of 3
  *     Loop 1 of 3 · Test audit · Saved test work · 12m
  *   …
  */
 export function auditLoopsText(view: AuditLoopsView | null | undefined, controls: readonly StatusControl[] = []): string | undefined {
   if (!view) return undefined;
-  const lines = [`Audit loops: delivery ${view.delivery.used} of ${view.delivery.limit} · test ${view.test.used} of ${view.test.limit} · after the last test audit loop: ${afterLastTestWords(view.settings.afterLastTest)}`];
+  const lines = [`Audit loops: delivery ${view.delivery.used} of ${view.delivery.limit} · test ${view.test.used} of ${view.test.limit} · after the last test audit loop: ${afterLastTestText(view.settings.afterLastTest, view.settings.afterLastTestSource)}`];
   const stop = view.stop;
   if (!stop) return lines.join("\n");
   lines.push("", stop.heading);
@@ -66,7 +83,7 @@ export function auditLoopsText(view: AuditLoopsView | null | undefined, controls
   if (!stop.loops.length) lines.push("  No loops in the current count.");
   lines.push("What the audit found:", `  ${stop.audit.summary ?? "The audit left no summary."}`);
   for (const item of stop.audit.items) lines.push(`  - ${item.name}: ${item.problem}${item.action ? ` Next: ${item.action}` : ""}`);
-  if (stop.afterLastTest) lines.push(`After the last test audit loop: ${afterLastTestWords(stop.afterLastTest)}`);
+  if (stop.afterLastTest) lines.push(`After the last test audit loop: ${afterLastTestText(stop.afterLastTest, view.settings.afterLastTestSource)}`);
   if (stop.acceptSentence) lines.push(`Accept what is left and deliver would record: “${stop.acceptSentence}”`);
   const available = controls.filter(control => control.available);
   lines.push("Controls available at this stop (each also takes --only-if-status-matches <status_token> --command-id <new-id>):");

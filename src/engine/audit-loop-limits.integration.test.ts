@@ -51,6 +51,7 @@ async function cli(current: Harness, args: string[]) {
   const watchdog = setTimeout(() => child.kill("SIGKILL"), 30_000);
   const code = await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); }).finally(() => clearTimeout(watchdog));
   expect(stderr).toBe("");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a status read the test walks freely
   return { code, stdout, json: () => JSON.parse(stdout) as Record<string, any> };
 }
 const auditPrompts = (current: Harness) => current.claudeCalls().filter(call => /^Run (Delivery|Test) audit/.test(call.prompt));

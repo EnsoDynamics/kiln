@@ -38,8 +38,8 @@ describe("an activity row's loop (AC-SHOW-01, AC-TEST-03)", () => {
     expect(rowLoopLabel({})).toBeUndefined();
   });
   it("says which sentence a session carried", () => {
-    expect(carriedLabel({ sentence: SETTING_SENTENCE })).toBe("ran under your setting Deliver, unless something serious is left");
-    expect(carriedLabel({ sentence: "I accept the remaining Weak rows, and AC-1." })).toBe("carried your words “I accept the remaining Weak rows, and AC-1.”");
+    expect(carriedLabel({ sentence: SETTING_SENTENCE, source: "chosen on Documents found at 2026-11-13 09:12 UTC" })).toBe("ran under your setting Deliver, unless something serious is left");
+    expect(carriedLabel({ sentence: "I accept the remaining Weak rows, and AC-1.", source: "given on the run's page at 2026-11-15 14:05 UTC" })).toBe("carried your words “I accept the remaining Weak rows, and AC-1.” given on the run's page at 2026-11-15 14:05 UTC");
   });
   it("names a stop page's loop once", () => {
     expect(stopLoopLine({ label: "Loop 1 of 3", activity: "Phase 6", did: "Phase 6 built", durationMs: 0 })).toBe("Loop 1 of 3 · Phase 6 built");

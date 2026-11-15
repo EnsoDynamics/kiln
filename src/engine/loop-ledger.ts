@@ -33,8 +33,9 @@ export function reconstructLedger(context: GateContext): AuditLoopLedger {
       const built = leaves.filter(leaf => phases.some(phase => atOrUnder(leaf.id, phase)) && (record.phases[leaf.id]?.sessionIds.length || record.phases[leaf.id]?.doneAt)).map(leaf => leaf.id);
       if (built.length) observed({ kind: "delivery", startedAt: record.phases[auditKey(activity)]!.doneAt!, sourceAuditId: activity.activityId, activityKeys: built });
     }
-    // A test loop for each test audit activity whose latest settled test predecessor counts as continue_test.
-    if (activity.kind === "test_audit") {
+    // A test loop for each test audit activity whose latest settled test predecessor counts as continue_test, and
+    // whose session ran or is still to run: one completed at once under a waived readiness problem ran none (AC-LOOP-03).
+    if (activity.kind === "test_audit" && (activity.sessionIds.length || !settled.includes(activity))) {
       const predecessor = settled.findLast(a => a.kind === "test_audit" && a.sequence < activity.sequence);
       if (predecessor && effectiveAudit(stateDirectory, predecessor, store)?.countedOutcome === "continue_test") observed({ kind: "test", startedAt: activity.createdAt, sourceAuditId: predecessor.activityId, activityKeys: [auditKey(activity)], firstAttempt: 0, ...(activity.sessionIds[0] ? { sessionId: activity.sessionIds[0] } : {}) });
     }

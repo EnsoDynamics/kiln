@@ -483,7 +483,7 @@
         },
         "after-last-test-audit-loop": {
           "value": "deliver|ask",
-          "source": "After the last test audit loop: deliver (deliver, unless something serious is left) or ask (stop and ask). Recorded as chosen from the command line. Changing it requires command ID and current status token."
+          "source": "After the last test audit loop: deliver (Deliver, unless something serious is left, which gives the person's words \"I accept the remaining Weak rows after the last test audit loop.\" that Kiln quotes to the last test audit loop and any test audit after it) or ask (Always stop and ask me, which accepts nothing in advance). Recorded as chosen with kiln settings, at the time of the change. Changing it requires command ID and current status token."
         },
         "only-if-status-matches": {
           "value": "status_token",
@@ -508,7 +508,7 @@
         "prd_path": "Canonical absolute PRD directory.",
         "execution_id": "Internal binding identity, not a public selector.",
         "errors": "Stable code, message, retryable, next_command and next_argv.",
-        "data": "keep_awake, resume_after_usage_limit, delivery_audit_loops, test_audit_loops and after_last_test_audit_loop (deliver_unless_serious | stop_and_ask) with saved observation freshness.",
+        "data": "keep_awake, resume_after_usage_limit, delivery_audit_loops, test_audit_loops and after_last_test_audit_loop (deliver_unless_serious | stop_and_ask); after_last_test_audit_loop_sentence, the person's words deliver_unless_serious gives (null under stop_and_ask); after_last_test_audit_loop_chosen, where and when the choice was made, or that Kiln applied it to a run begun before the setting (null before Start); with saved observation freshness.",
         "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
         "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
         "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",

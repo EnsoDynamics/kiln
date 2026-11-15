@@ -1,5 +1,7 @@
 # Phase 3: Show the setting's sentence on the command line, and count only test sessions that ran
 
+**Closed:** 2026-11-15
+
 **Added by delivery audit:** 2026-11-15, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Audit Loop Limits](kiln-audit-loop-limits-prd.md)
 **Technical design:** [Kiln Audit Loop Limits technical design](kiln-audit-loop-limits-technical-design.md) — relevant sections: "Settings", "Control journal", "Display Contract", "Upgrade"

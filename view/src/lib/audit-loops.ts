@@ -87,9 +87,9 @@ export function loopEntryLabel(loop: NonNullable<PhaseView["loops"]>[number]): s
   return loop.last ? "Last loop" : `Loop ${loop.number} of ${loop.limit}`;
 }
 
-/** Which sentence a row's session carried, in a row's words (AC-TEST-03). */
-export function carriedLabel(carried: { sentence: string }): string {
-  return carried.sentence === SETTING_SENTENCE ? `ran under your setting ${AFTER_LAST_TEST_LABELS.deliver_unless_serious}` : `carried your words “${carried.sentence}”`;
+/** Which sentence a row's session carried, in a row's words (AC-TEST-03); a quoted sentence says where and when it was given (AC-LOOP-06). */
+export function carriedLabel(carried: { sentence: string; source: string }): string {
+  return carried.sentence === SETTING_SENTENCE ? `ran under your setting ${AFTER_LAST_TEST_LABELS.deliver_unless_serious}` : `carried your words “${carried.sentence}” ${carried.source}`;
 }
 
 /** "Loop 1 of 3 · Phase 6 built": a stop page's loop line, without saying a name twice. */

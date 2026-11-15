@@ -177,7 +177,7 @@ kiln allow-more-loops <prd> --loops N --only-if-status-matches <token> [--comman
 kiln accept-and-deliver <prd> --only-if-status-matches <token> [--command-id ID]
 ```
 
-`kiln settings` with no flags prints all of them. As today, there is no command-line form before Start. `--command-id` is required, as on every changing command; the brackets above mark it as the caller's own ID, not an optional flag.
+`kiln settings` with no flags prints all of them, leading with the **After the last test audit loop** choice in words, the sentence Deliver gives and where and when it was chosen; its JSON adds `after_last_test_audit_loop_sentence` (null under `stop_and_ask`) and `after_last_test_audit_loop_chosen` (AC-LOOP-06). `kiln status` gives the choice the same words. As today, there is no command-line form before Start. `--command-id` is required, as on every changing command; the brackets above mark it as the caller's own ID, not an optional flag.
 
 **HTTP.** `POST /api/settings` accepts `auditLoops` (partial) and routes a started run's change through the `settings` control, as `keepAwake` does, setting `via: "browser"` when the change carries `afterLastTest`; before Start it is a draft field. The two new actions get page routes of their own, as Mark complete has `POST /api/mark-complete`, which submit to the control journal with the page's status token and command ID, `accept-and-deliver`'s with `via: "browser"`; the CLI reaches both through the control route.
 
@@ -212,7 +212,7 @@ Schema 22, in two steps, because `migrateRecord` sees only the record while the 
 - **Record migration** (`migrateRecord`, run once when a schema-21 record is read). **Not started:** the defaults, as for a new record; the person sees the panel before Start. **Started:** limits 3 and 3, `afterLastTest: stop_and_ask` with `afterLastTestSource: kiln_for_earlier_run`, and no `auditLoops` ledger yet.
 - **Ledger reconstruction**, by the Engine constructor right after `activityHistory` rebuilds `record.activities` from the state directory, so a run sitting at a stop shows its counts before any decision: a started record with no ledger gets one rebuilt from its own execution's saved audit history, never an archived execution's (RUN-002), with one `upgrade` epoch per kind at the run's `startedAt`, each loop `observed`, stored by the constructor's closing save:
   - a delivery loop for each audit whose effective result appended phases of which at least one leaf has a session or is done;
-  - a test loop for each test audit activity whose latest settled test predecessor counts as `continue_test`.
+  - a test loop for each test audit activity whose latest settled test predecessor counts as `continue_test`, and whose session ran or which is still pending; one `completeAuditAtOnce` settled with no session is not a loop (AC-LOOP-03).
 
   Observed loops take `limitAtStart` 3, the migrated limit, numbered per kind in activity order. `last` is false on every observed loop: no limit allowed it and its prompt never said no loop follows (AC-TEST-01, AC-TEST-03). So rows read **loop N of 3**, past the limit too (**loop 4 of 3**), and the stop heading counts them all (**Test audit loops used: 5 of 3**), never clamped. An observed loop's detail and stop-page line: §Display Contract.
 

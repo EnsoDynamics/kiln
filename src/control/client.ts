@@ -14,7 +14,7 @@ import { commandHelp, parseCommand } from "./help.js";
 import { ControlFailure, errorFact, failed, exitFor, result, serialize, type Result } from "./result.js";
 import type { CommandContext } from "../kiln-command.js";
 import { loopSettings } from "../state/audit-loops.js";
-import { auditLoopsText, loopCount, loopSettingInputs, SETTING_FLAGS, type AuditLoopsView, type StatusControl } from "./loop-text.js";
+import { afterLastTestFacts, afterLastTestText, auditLoopsText, loopCount, loopSettingInputs, SETTING_FLAGS, type AuditLoopsView, type StatusControl } from "./loop-text.js";
 
 interface Capability { protocol_major: number; execution_id: string; prd_path: string; instance: { pid: number; process_start_time: string | null }; features: string[] }
 interface Controller { features?: string[]; state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
@@ -201,7 +201,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       const history = readHistory(work);
       try { return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: accountFacts(work, undefined, false, history) }, history.errors)); } finally { history.dispose(); }
     }
-    if (name === "settings") { const loops = loopSettings(work.record.settings); return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { keep_awake: work.record.settings.keepAwake, resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, after_last_test_audit_loop: loops.afterLastTest, observed_at: work.observedAt, state: owner.state === "reachable" ? "current" : "stale" } })); }
+    if (name === "settings") { const loops = loopSettings(work.record.settings); return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { keep_awake: work.record.settings.keepAwake, resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, after_last_test_audit_loop: loops.afterLastTest, ...afterLastTestFacts(loops.afterLastTest, loops.afterLastTestSource), observed_at: work.observedAt, state: owner.state === "reachable" ? "current" : "stale" } }), `After the last test audit loop: ${afterLastTestText(loops.afterLastTest, loops.afterLastTestSource)}`); }
     if (name === "handoff") return write(await handoffProjection(work, typeof flags["session-id"] === "string" ? flags["session-id"] : undefined, context.env));
     const history = readHistory(work); const selector = typeof flags["session-id"] === "string" ? flags["session-id"] : undefined;
     try {

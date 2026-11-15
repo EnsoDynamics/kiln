@@ -2,7 +2,7 @@
 // `settings` control's inputs, and `kiln status` prints the counts and a loop stop's page
 // (AC-STOP-01, AC-SHOW-01) with the controls available there.
 import { describe, expect, it } from "vitest";
-import { auditLoopsText, durationText, loopCount, loopSettingInputs, type AuditLoopsView } from "./loop-text.js";
+import { afterLastTestFacts, afterLastTestText, auditLoopsText, durationText, loopCount, loopSettingInputs, type AuditLoopsView } from "./loop-text.js";
 import { commandContracts, commandHelp, parseCommand } from "./help.js";
 
 const counts: AuditLoopsView = { settings: { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" }, delivery: { used: 1, limit: 3 }, test: { used: 0, limit: 3 } };
@@ -43,9 +43,20 @@ describe("kiln settings loop flags", () => {
 });
 
 describe("kiln status audit loop text", () => {
-  it("prints the counts and the setting on one line when no loop stop is showing", () => {
-    expect(auditLoopsText(counts)).toBe("Audit loops: delivery 1 of 3 · test 0 of 3 · after the last test audit loop: deliver, unless something serious is left");
+  it("prints the counts and the setting on one line when no loop stop is showing, with the sentence Deliver gives beside it (AC-LOOP-06)", () => {
+    expect(auditLoopsText(counts)).toBe("Audit loops: delivery 1 of 3 · test 0 of 3 · after the last test audit loop: deliver, unless something serious is left; your words: “I accept the remaining Weak rows after the last test audit loop.”");
+    const chosen: AuditLoopsView = { ...counts, settings: { ...counts.settings, afterLastTestSource: { kind: "person", where: "documents_found", at: "2026-11-15T14:05:09.000Z" } } };
+    expect(auditLoopsText(chosen)).toBe("Audit loops: delivery 1 of 3 · test 0 of 3 · after the last test audit loop: deliver, unless something serious is left; your words: “I accept the remaining Weak rows after the last test audit loop.”, chosen on Documents found at 2026-11-15 14:05 UTC");
     expect(auditLoopsText(undefined)).toBeUndefined();
+  });
+
+  it("gives the sentence and where and when only for the choice that gives it (AC-LOOP-06)", () => {
+    const at = "2026-11-15T14:05:09.000Z";
+    expect(afterLastTestText("deliver_unless_serious", { kind: "person", where: "command_line", at })).toBe("deliver, unless something serious is left; your words: “I accept the remaining Weak rows after the last test audit loop.”, chosen with kiln settings at 2026-11-15 14:05 UTC");
+    expect(afterLastTestText("stop_and_ask", { kind: "person", where: "run_page", at })).toBe("always stop and ask me");
+    expect(afterLastTestText("stop_and_ask", { kind: "kiln_for_earlier_run" })).toBe("always stop and ask me (applied by Kiln because this run began before the setting existed)");
+    expect(afterLastTestFacts("deliver_unless_serious", { kind: "person", where: "run_page", at })).toEqual({ after_last_test_audit_loop_sentence: "I accept the remaining Weak rows after the last test audit loop.", after_last_test_audit_loop_chosen: "chosen on the run's page at 2026-11-15 14:05 UTC" });
+    expect(afterLastTestFacts("stop_and_ask")).toEqual({ after_last_test_audit_loop_sentence: null, after_last_test_audit_loop_chosen: null });
   });
 
   it("prints a loop stop's heading, loops, the audit's own summary and items, the choice, the Accept sentence and the available controls", () => {
@@ -116,6 +127,8 @@ describe("the audit loop command contracts", () => {
     const settings = commandHelp(["settings"], false);
     for (const flag of ["--delivery-audit-loops <N>", "--test-audit-loops <N>", "--after-last-test-audit-loop <deliver|ask>", "--keep-awake <on|off>"]) expect(settings).toContain(flag);
     expect(parseCommand(["settings", "prd", "--after-last-test-audit-loop", "ask"]).flags["after-last-test-audit-loop"]).toBe("ask");
+    // The sentence Deliver gives is shown beside the choice (AC-LOOP-06).
+    expect(settings).toContain("I accept the remaining Weak rows after the last test audit loop.");
     expect(commandHelp(["allow-more-loops"], false)).toContain("kiln allow-more-loops <PRD-path> --loops <N> [options]");
     expect(commandHelp(["accept-and-deliver"], false)).toContain("kiln accept-and-deliver <PRD-path> [options]");
     expect(commandHelp([], false)).toMatch(/waive-and-advance, allow-more-loops, accept-and-deliver/);

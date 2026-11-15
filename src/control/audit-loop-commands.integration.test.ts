@@ -66,7 +66,11 @@ it("reads and changes the three loop settings during a run, recording the comman
   await stopped();
   const read = await cli(["settings", target(), "--json"]);
   expect(read.code, read.stdout).toBe(0);
-  expect(read.json().data).toMatchObject({ keep_awake: expect.any(Boolean), resume_after_usage_limit: expect.any(Boolean), delivery_audit_loops: 3, test_audit_loops: 3, after_last_test_audit_loop: "deliver_unless_serious" });
+  expect(read.json().data).toMatchObject({ keep_awake: expect.any(Boolean), resume_after_usage_limit: expect.any(Boolean), delivery_audit_loops: 3, test_audit_loops: 3, after_last_test_audit_loop: "deliver_unless_serious", after_last_test_audit_loop_sentence: "I accept the remaining Weak rows after the last test audit loop.", after_last_test_audit_loop_chosen: expect.stringMatching(/^chosen on Documents found at \d{4}-\d\d-\d\d \d\d:\d\d UTC$/) });
+  // The sentence the choice gives, beside it, with where and when it was chosen (AC-LOOP-06).
+  const readText = await cli(["settings", target()]);
+  expect(readText.stdout).toMatch(/^After the last test audit loop: deliver, unless something serious is left; your words: “I accept the remaining Weak rows after the last test audit loop\.”, chosen on Documents found at \d{4}-\d\d-\d\d \d\d:\d\d UTC\n/);
+  expect((await cli(["status", target()])).stdout).toContain("after the last test audit loop: deliver, unless something serious is left; your words: “I accept the remaining Weak rows after the last test audit loop.”, chosen on Documents found at ");
 
   // A loop flag makes settings a changing command, and a limit outside 1 or more is invalid_input with nothing sent.
   expect((await cli(["settings", target(), "--test-audit-loops", "2", "--json"])).code).toBe(2);
@@ -86,7 +90,7 @@ it("reads and changes the three loop settings during a run, recording the comman
   expect(h.engine.record.settings.auditLoops).toMatchObject({ deliveryLimit: 2, testLimit: 5, afterLastTest: "stop_and_ask", afterLastTestSource: { where: "command_line" } });
 
   const after = await cli(["settings", target(), "--json"]);
-  expect(after.json().data).toMatchObject({ delivery_audit_loops: 2, test_audit_loops: 5, after_last_test_audit_loop: "stop_and_ask" });
+  expect(after.json().data).toMatchObject({ delivery_audit_loops: 2, test_audit_loops: 5, after_last_test_audit_loop: "stop_and_ask", after_last_test_audit_loop_sentence: null, after_last_test_audit_loop_chosen: expect.stringMatching(/^chosen with kiln settings at /) });
 
   // kiln status: the counts in JSON and on one line of text, and the two stop controls with their reasons.
   const status = await cli(["status", target(), "--json"]);
