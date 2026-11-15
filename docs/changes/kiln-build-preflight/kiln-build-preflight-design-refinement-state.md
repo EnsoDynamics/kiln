@@ -22,6 +22,8 @@ Last updated: 2026-11-15
 | 3 | 4 (0 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
 | 4 | 6 (0 repeats) | 6 | 6 | 0 | 0 | 0 | 0 |
 | 5 | 3 (1 repeat) | 4 | 4 | 0 | 0 | 0 | 0 |
+| 6 | 2 (+2 conformance, +1 from Q36; 2 repeats) | 5 | 5 | 0 | 0 | 0 | 0 |
+| 7 (completion) | 2 from final conformance | 2 | 2 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -60,10 +62,24 @@ Last updated: 2026-11-15
 | Q32 | 5 | Does the preflight take the one-time prompt additions (catch-up sentences, adopted-worktree note) every launch carries? | Technical | MEDIUM | 80 → 95 | Resolved | TD §The Preflight Session |
 | Q33 | 5 | Does a preflight run still get the done check's safety parts (Codex cleanup/dispatch, stayed in workspace) before its report is read? | Technical | MEDIUM | 65 → 90 | Resolved | TD §Reading the Result, Verification |
 | Q34 | 5 | How is needsYou.preflight.nextActivity filled when the next activity is an unallocated audit? | Technical | LOW | 75 → 90 | Resolved | TD §Interfaces, Display Contract |
-| Q35 | 5→6 | Mark complete at a Codex-safety done_check stop on a preflight: settle without reading the report (skipping its items), or waive the check then read the report? | Technical | MEDIUM | 60 → 60 | Pending | — |
-| Q36 | 5→6 | A preflight settled by a waiver with no result (launch-check or done_check stop): where is waiverId recorded and what do outcome and the row show? | Technical | MEDIUM | 70 → 70 | Pending | — |
+| Q35 | 5→6 | Mark complete at a Codex-safety done_check stop on a preflight: settle without reading the report (skipping its items), or waive the check then read the report? | Technical | MEDIUM | 60 → 90 | Resolved | TD §Reading the Result |
+| Q36 | 5→6 | A preflight settled by a waiver with no result (launch-check or done_check stop): where is waiverId recorded and what do outcome and the row show? | Technical | MEDIUM | 70 → 90 | Resolved | TD Data Models, Interfaces, Display Contract |
+| Q37 | 6 | Can a continued Codex-safety waiver on a preflight key carry over to a later session's check (are Codex item keys run-specific)? (design Open Question) | Technical | LOW | 60 → 92 | Resolved | TD §Reading the Result (Open Question removed) |
+| Q38 | 6 | Reply at a preflight items stop: does it run the stop's recheck before resuming? | Technical | MEDIUM | 80 → 92 | Resolved | TD §The Preflight Stop |
+| Q39 | 6 | On a stop on a preflight key: freshSessionPrompt, resumeCommand, "Pick it up yourself" card? | Technical | MEDIUM | 70 → 90 | Resolved | TD §Display Contract |
+| Q40 | 7 | At a Codex-safety stop on a preflight key, what does Start again do with the unresolved problem? | Technical | LOW | 70 → 95 | Resolved | TD §Reading the Result |
+| Q41 | 7 | Does a Codex-safety waiver followed by no report count as "marked complete" (settled)? | Technical | LOW | 80 → 90 | Resolved | TD §When the Preflight Is Due; PRD AC-PREFLIGHT-03 Replaces |
 
 ## Question notes
+
+### Q40 + Q41 (final conformance)
+Q40: startAgainControl refuses while codexSafetyProblems(key) (engine.ts:2306, "Kiln found a Codex safety problem."); run-restart design keeps that guard for every Kiln-started session — same on a preflight key. Q41: no — the waiver was of Kiln's safety check, not the preflight; settled stays doneAt && result ≠ no_report (AC-PREFLIGHT-06: no report does not settle). Folded with Replaces AC-STOP-05/06/07.
+
+### Q37-Q39 (pass 6)
+Q37: waiver carry-over is correct — Codex check items name the problem (itemize waivers.ts:128, generic fact texts), coveringWaiver matches check+subject+against; codexSafetyProblems relists earlier sessions; keep existing rule; remove Open Question. Q38: Reply at a preflight stop skips recheckStop (engine.ts:792 → resume() always rechecks); resumeOffered stays true when reopenable; empty box disabled. Q39: no Pick-it-up card or fresh-prompt link on any preflight-key stop (NeedsYou.svelte:292, 324); freshSessionPrompt = preflight prompt (snapshot.ts:753 otherwise builds a phase prompt; projection.ts:42). Writer folding.
+
+### Q35 + Q36 (pass 6)
+Q35: option (b) — waive the Codex check, then read the report (items → preflight stop with a `continued` waiver; ready/no_report → completed); precedent: audits read their report under a waiver (waiveAudit/classifyAuditReport); AC-PREFLIGHT-03 requires items to stop. Q36: drop result.waiverId; per-key facts.waiverId is the single record; settled = doneAt && result ≠ no_report. Unverified risk → design Open Question: continued waiver carry-over (engine.ts:1873) on later preflight sessions if Codex item keys repeat. Writer folding.
 
 ### Q31-Q34 (pass 5)
 Q31: accept, display only (commit range feeds rows/counts/stopped-work/delivery history; time totals from sessions; PR commit count from GitHub). Q32: preflight prompts carry no catch-up/adopted-worktree additions; anyConversationBegan (engine.ts:6694) ignores preflight keys. Q33: "Stayed in the workspace" is retired (records.ts:626-631); Codex cleanup/dispatch safety check runs before reading a preflight result → done_check stop on the preflight key with launch-check-style controls; phaseRecoveryTarget can't offer hand-back. Q34: one record-only derivation for nextActivity/planned.before, replacing nextKeyFromRecordedPlan's stale fallback; key optional. Writer folding.
@@ -106,6 +122,7 @@ Proposed answer: Always — a Start that ends a pause (Paused page Start, Folder
 |---|---|---|
 
 ## Conflict check
+Completion: 2026-11-15 · AC-PREFLIGHT-01/03/06/08 re-checked · all Replaces labels resolve · 1 missing (AC-STOP-07 on AC-PREFLIGHT-03) · AC-STOP-05/06 (resume command + fresh prompt on every Needs you) conflict with Q39 — settled as intended by approved mockup state 2 (no such card) and Q39's reason → Replaces in part AC-STOP-05/06/07 on AC-PREFLIGHT-03 (to fold after final conformance)
 Changed after pass 1: AC-PREFLIGHT-03, AC-PREFLIGHT-06, AC-PREFLIGHT-08, AC-PREFLIGHT-01 (cites RUN-004) (no live controls), AC-PREFLIGHT-01 (pause Start, Folder missing; Replaces AC-VIEW-03, AC-SETUP-04/05)
 Pass 1: 2026-11-15 · 2 existing Replaces lines (4 criteria) · 12 Replaces lines added on AC-PREFLIGHT-01/03/06/08, AC-ATTEND-01/03 (AC-PAGE-02, AC-DISPLAY-01 dropped: not changed) · 3 raised as questions (C1 Start on pause/Folder missing, C2 takeover during preflight, C3 card vs Mark complete order) — Q ids assigned after discovery
 
@@ -120,4 +137,4 @@ Pass 1: 2026-11-15 · 0 open entries (register holds only validated RUN-001 to R
 |---|---|---|
 
 ## Next action
-Pass 5 committed. Pass 6 discovery (Q35, Q36 carried first).
+Pass 6 + completion fixes committed. Final verification (readiness check) next; if clean, completion report, delete state file, completion commit, then consolidation.
