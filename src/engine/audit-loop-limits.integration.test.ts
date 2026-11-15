@@ -156,6 +156,30 @@ describe("delivery audit loops (AC-LOOP-02, AC-DELIV-01, AC-STOP-01, AC-STOP-02,
     expect(current.engine.record.completedAt).toBeTruthy();
     expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery").map(loop => [loop.number, loop.limitAtStart, loop.last])).toEqual([[1, 1, true], [2, 2, true]]);
   });
+
+  it("counts a loop it has decided to start even when the limit is lowered just before it launches (AC-LOOP-05)", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession({ gap: true }), auditSession({ gap: true }), auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" } });
+    // The account refresh runs after Kiln decided to start Phase 3 and before it launches.
+    const refresh = current.engine.agents.refreshClaudeModels.bind(current.engine.agents);
+    let lowered = false;
+    vi.spyOn(current.engine.agents, "refreshClaudeModels").mockImplementation(async () => {
+      if (!lowered && current.engine.record.nextActivityKey === "3") {
+        lowered = true;
+        expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 3, afterLastTest: "deliver_unless_serious" } })).ok).toBe(true);
+      }
+      return refresh();
+    });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    expect(lowered).toBe(true);
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
+    expect(current.engine.record.settings.auditLoops).toMatchObject({ deliveryLimit: 1 });
+    // Phase 3 ran, and as a counted loop, labelled as the last one under the current limit.
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery").map(loop => [loop.number, loop.limitAtStart, loop.last, loop.activityKeys])).toEqual([[1, 3, false, ["2"]], [2, 1, true, ["3"]]]);
+    const rows = buildSnapshot(current.engine).activities!;
+    expect(rows.find(row => row.id === "3")!.loops).toEqual([expect.objectContaining({ number: 2, limit: 1, last: true })]);
+    expect(buildSnapshot(current.engine).auditLoops).toMatchObject({ delivery: { used: 2, limit: 1 } });
+  });
 });
 
 describe("phases a test audit adds (AC-DELIV-01, AC-TEST-02 first row, AC-LOOP-02)", () => {
@@ -475,6 +499,9 @@ describe("items listed on a passing report (AC-TEST-02, AC-STOP-02)", () => {
     expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "test")).toHaveLength(1);
     const stop = buildSnapshot(current.engine).auditLoops!.stop!;
     expect(stop).toMatchObject({ kind: "test", holds: false, audit: { items: [{ problem: "Required evidence is unavailable." }, { problem: expect.stringContaining(decision) }] } });
+    // The held audit is not a counted loop and has no accepted result, yet its line says what it did: its latest report (AC-STOP-01).
+    expect(stop.loops.at(-1)).toMatchObject({ label: "Test audit", activity: "Test audit", did: `Needs you · ${stop.audit.summary}` });
+    expect(stop.audit.summary).toBeTruthy();
     // Accept's sentence names every item in the audit's own words, in its order, joined "A and B" (AC-LOOP-06, AC-STOP-02).
     const relisted = stop.audit.items[1]!.problem;
     expect(relisted.startsWith(`${decision} `)).toBe(true);

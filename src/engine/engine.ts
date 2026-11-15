@@ -42,7 +42,7 @@ import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt, auditLoopsSlot } from "../session/prompts.js";
 import { appendLoop, countedLoops, latestEpoch, loopLeft, loopSettings, openEpoch, startedLedger, acceptSentence, SETTING_SENTENCE, validAfterLastTest, validLimit, type Acceptance, type AuditLoopLedger, type AuditLoopSettings, type LoopKind } from "../state/audit-loops.js";
-import { deliveryDecision, holds, listedItems, needsYouLoopStop, testDecision, testHold, unusedAcceptance, heldReport } from "./loop-gate.js";
+import { deliveryDecision, type DeliveryDecision, holds, listedItems, needsYouLoopStop, testDecision, testHold, unusedAcceptance, heldReport } from "./loop-gate.js";
 import { reconstructLedger, sourceText } from "./loop-ledger.js";
 import { assignAuditObligations } from "./development-owners.js";
 import type { AuditActivity, AuditKind } from "../audit/contracts.js";
@@ -4141,7 +4141,7 @@ export class Engine {
         if (verdict.kind === "done") continue;
         return;
       }
-      this.countDeliveryLoop(leaf.id);
+      this.countDeliveryLoop(leaf.id, next.kind === "phase" ? next.gate : { kind: "none" });
       const verdict = await this.runPhaseSession(leaf.id);
       if (verdict !== "done") return;
     }
@@ -4149,11 +4149,11 @@ export class Engine {
 
   /**
    * A leaf an audit appended starts or joins its delivery loop in the write that launches it, so a
-   * leaf skipped or stopped before it starts uses up no loop (AC-LOOP-02). The gate has already
-   * stopped the run when none was left.
+   * leaf skipped or stopped before it starts uses up no loop (AC-LOOP-02). It applies the decision
+   * `nextActivity` made rather than deciding again: a limit lowered during the awaits between them
+   * applies from the next decision, and the loop already decided on is still counted (AC-LOOP-05).
    */
-  private countDeliveryLoop(leafId: string): void {
-    const gate = deliveryDecision(this.gateContext, leafId);
+  private countDeliveryLoop(leafId: string, gate: Exclude<DeliveryDecision, { kind: "stop" }>): void {
     if (gate.kind === "count") appendLoop(this.record.auditLoops!, loopSettings(this.record.settings), { kind: "delivery", startedAt: this.now().toISOString(), sourceAuditId: gate.audit.activityId, activityKeys: [leafId] });
     else if (gate.kind === "join" && !gate.loop.activityKeys.includes(leafId)) gate.loop.activityKeys.push(leafId);
     else return;
@@ -4282,18 +4282,18 @@ export class Engine {
     return knownProblemWaiver([...(this.record.waivers ?? []), ...(extra ? [extra] : [])], read.problem) ? this.orderSource() : undefined;
   }
 
-  private async nextActivity(plan: PhasePlan): Promise<{ kind: "audit"; key: string; activity: AuditActivity } | { kind: "phase"; leaf: PlannedPhase } | { kind: "final"; leaf?: undefined } | { kind: "stopped"; key: string }> {
+  private async nextActivity(plan: PhasePlan): Promise<{ kind: "audit"; key: string; activity: AuditActivity } | { kind: "phase"; leaf: PlannedPhase; gate: Exclude<DeliveryDecision, { kind: "stop" }> } | { kind: "final"; leaf?: undefined } | { kind: "stopped"; key: string }> {
     await this.deliveryPending;
     const pending = this.record.completionAudits?.activities.findLast(a => !this.record.phases[auditKey(a)]?.doneAt);
     if (pending) { this.record.nextActivityKey = auditKey(pending); this.save(); return { kind: "audit", key: auditKey(pending), activity: pending }; }
     const leaf = this.nextExecutionLeaf(plan);
     if (leaf) {
       // The loop gate's first row: a leaf an audit appended starts a delivery loop, or stops the run when none is left (AC-DELIV-01).
-      let gate: ReturnType<typeof deliveryDecision>;
+      let gate: DeliveryDecision;
       try { this.ledgerForGate(); gate = deliveryDecision(this.gateContext, leaf.id); }
       catch (error) { this.recordStop(leaf.id, "selection", [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }]); return { kind: "stopped", key: leaf.id }; }
       if (gate.kind === "stop") return this.loopStop({ kind: "delivery", reason: "phases_added", heldAuditKey: auditKey(gate.audit) });
-      this.record.nextActivityKey = leaf.id; this.save(); return { kind: "phase", leaf };
+      this.record.nextActivityKey = leaf.id; this.save(); return { kind: "phase", leaf, gate };
     }
     let kind: Awaited<ReturnType<typeof auditNext>> | undefined;
     try {

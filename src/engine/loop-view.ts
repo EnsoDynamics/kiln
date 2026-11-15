@@ -6,7 +6,7 @@
  *   auditLoopsView(engine).stop?.heading   // "Delivery audit loops used: 3 of 3"
  */
 import { auditKey, auditLabel, effectiveAudit, hasEffectiveResult } from "../audit/workflow.js";
-import type { AuditActivity } from "../audit/contracts.js";
+import type { AuditActivity, AuditReport, AuditResult } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 import { countedLoops, limitOf, loopSettings, loopsUsed, acceptSentence, type AuditLoop, type AuditLoopSettings, type LoopKind } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type SessionRecord } from "../state/records.js";
@@ -84,11 +84,16 @@ function loopDid(engine: Engine, loop: AuditLoop): string | undefined {
   const attempts = activity.attempts.slice(loop.firstAttempt ?? 0);
   const next = (engine.record.auditLoops?.loops ?? []).filter(one => one.kind === "test" && one.activityKeys.includes(key) && one !== loop && (one.firstAttempt ?? 0) > (loop.firstAttempt ?? 0)).map(one => one.firstAttempt!).sort((a, b) => a - b)[0];
   const mine = next === undefined ? attempts : activity.attempts.slice(loop.firstAttempt ?? 0, next);
-  for (const ref of [...mine].reverse()) {
+  return latestReportDid(engine, mine);
+}
+
+/** The outcome in words, then the summary, of the latest of these attempts that holds a report. */
+function latestReportDid(engine: Engine, attempts: AuditActivity["attempts"]): string | undefined {
+  for (const ref of [...attempts].reverse()) {
     try {
-      const result = new AuditStore(engine.stateDirectory).read<import("../audit/contracts.js").AuditResult>(ref);
+      const result = new AuditStore(engine.stateDirectory).read<AuditResult>(ref);
       if (!result.reportBytes) continue;
-      const report = JSON.parse(result.reportBytes) as import("../audit/contracts.js").AuditReport;
+      const report = JSON.parse(result.reportBytes) as AuditReport;
       const words = outcomeWords(report.outcome);
       const summary = report.schemaVersion === 2 ? report.summary : undefined;
       return [words, summary].filter(Boolean).join(" · ");
@@ -154,8 +159,9 @@ export function auditLoopsView(engine: Engine): AuditLoopsView {
   return view;
 }
 
+/** What an audit session since the first loop did: its effective result, or, with none accepted or waived yet, its latest report (AC-STOP-01). */
 function optionalDid(engine: Engine, audit: AuditActivity): { did?: string } {
-  if (!hasEffectiveResult(audit)) return {};
+  if (!hasEffectiveResult(audit)) { const did = latestReportDid(engine, audit.attempts); return did ? { did } : {}; }
   try {
     const effective = effectiveAudit(engine.stateDirectory, audit);
     const phases = effective?.completionPhases() ?? [];

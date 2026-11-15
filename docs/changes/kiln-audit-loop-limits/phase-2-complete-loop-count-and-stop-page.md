@@ -1,5 +1,7 @@
 # Phase 2: Count every delivery loop it starts, and say what each audit session did
 
+**Closed:** 2026-11-15
+
 **Added by delivery audit:** 2026-11-15, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Audit Loop Limits](kiln-audit-loop-limits-prd.md)
 **Technical design:** [Kiln Audit Loop Limits technical design](kiln-audit-loop-limits-technical-design.md) — relevant sections: "The Loop Ledger", "The Loop Gate", "Loop Stops", "Display Contract"

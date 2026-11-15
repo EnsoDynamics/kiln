@@ -132,7 +132,8 @@ export function loopLeft(ledger: AuditLoopLedger | undefined, settings: AuditLoo
 export function appendLoop(ledger: AuditLoopLedger, settings: AuditLoopSettings, loop: Omit<AuditLoop, "number" | "limitAtStart" | "last">): AuditLoop {
   const limit = limitOf(settings, loop.kind);
   const number = loopsUsed(ledger, loop.kind) + 1;
-  const added: AuditLoop = { ...loop, number, limitAtStart: limit, last: number === limit };
+  // At or past the limit: a loop decided on before the limit was lowered is still the last one (AC-LOOP-05).
+  const added: AuditLoop = { ...loop, number, limitAtStart: limit, last: number >= limit };
   ledger.loops.push(added);
   return added;
 }

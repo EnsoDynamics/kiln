@@ -52,7 +52,7 @@ AuditLoop:
   kind: "delivery" | "test"
   number: integer          — 1-based within its epoch
   limitAtStart: integer    — the limit in force when it started
-  last: boolean            — number == limitAtStart; false on an `observed` loop (§Upgrade)
+  last: boolean            — number >= limitAtStart (past it only for a loop decided on before the limit was lowered); false on an `observed` loop (§Upgrade)
   startedAt: ISO-8601 UTC
   sourceAuditId: string    — the audit whose report this loop acts on
   activityKeys: string[]   — delivery: the leaves built in the loop; test: the audit activity
