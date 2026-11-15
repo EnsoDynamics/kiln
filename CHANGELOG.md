@@ -48,6 +48,11 @@ section to the new version.
 
 ### Fixed
 
+- **Mark complete keeps the phases an audit added while asking you something.** When an audit
+  added completion phases and also listed something for you to decide, marking it complete
+  failed with "Repair obligations require the accepted audit's matching open completion phase."
+  It now completes, and Kiln builds the phases it added.
+
 - **A phase split midway no longer stops Kiln once it is done.** When a phase's own session
   split it and built the first sub-phase, a later phase's edits to the shared PRD or design
   could stop Kiln on that sub-phase with "Phase N needs a current development-delivery

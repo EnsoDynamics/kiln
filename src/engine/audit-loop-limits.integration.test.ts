@@ -206,6 +206,59 @@ describe("phases a test audit adds (AC-DELIV-01, AC-TEST-02 first row, AC-LOOP-0
     expect(fromTest.map(loop => [loop.number, loop.limitAtStart, loop.activityKeys])).toEqual([[1, 1, ["3"]]]);
   });
 
+  /** Runs to a needs_you stop on the last test loop's report that also added phase 3, then marks it complete through its offer. */
+  async function needsYouWithPhases(current: Harness, deliveryLimit: number) {
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit, testLimit: 1, afterLastTest: "deliver_unless_serious" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const audits = current.engine.record.completionAudits!.activities;
+    expect(audits.map(a => a.kind)).toEqual(["delivery_audit", "delivery_audit", "test_audit", "test_audit"]);
+    const key = auditKey(audits[3]!);
+    // The first row fits, not the third: an ordinary Needs you stop, as a delivery audit's needs_you report with phases gets,
+    // with no test loop page and no Allow or Accept, in the page, the controls and `kiln status`.
+    expect(current.engine.record.phases[key]!.stop!.kind).toBe("done_check");
+    expect(current.engine.loopStopOf(key)).toBeUndefined();
+    expect(buildSnapshot(current.engine).auditLoops!.stop).toBeUndefined();
+    for (const name of ["allow-more-loops", "accept-and-deliver"]) expect(current.engine.controlView().controls.find(c => c.name === name)).toMatchObject({ available: false, reason: "Kiln isn't stopped because its audit loops are used up." });
+    const status = await cli(current, ["status", join(current.repository, directory), "--json"]);
+    expect(status.json().audit_loops.stop).toBeUndefined();
+    expect(current.engine.record.phases["3"]).toBeUndefined();
+    await control(current, "check-again");
+    const offer = current.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error(offer.reason);
+    const marked = await control(current, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" });
+    expect(marked.outcome, JSON.stringify(marked)).toBe("marked_complete");
+    await current.engine.settled();
+    return { key, offer, audits };
+  }
+  const phasesAndItems = { gap: true, blocked: true };
+
+  it("once no test loop is left, a needs_you test report that adds phases stops as a delivery audit's would, and Mark complete builds them as a delivery loop", { timeout: 240_000 }, async () => {
+    const current = await fixture([auditSession({ gap: true }), auditSession(), auditSession({ continueTest: true }), auditSession(phasesAndItems), auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    const { offer, audits } = await needsYouWithPhases(current, 3);
+    expect(offer.nextActivity).toMatchObject({ kind: "phase", key: "3" });
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
+    const fromTest = current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery" && loop.sourceAuditId === audits[3]!.activityId);
+    expect(fromTest.map(loop => [loop.number, loop.activityKeys])).toEqual([[2, ["3"]]]);
+    // The test round after the phases is not a test loop: no Allow or saved test work asked for one.
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "test")).toHaveLength(1);
+  });
+
+  it("with no delivery loop left either, Mark complete on that report forecasts the delivery loop stop and holds there with its phases", { timeout: 240_000 }, async () => {
+    const current = await fixture([auditSession({ gap: true }), auditSession(), auditSession({ continueTest: true }), auditSession(phasesAndItems), auditSession(), auditSession()], [landing(), landing(), pullRequestSession()]);
+    const { key, offer } = await needsYouWithPhases(current, 1);
+    expect(offer.nextActivity).toEqual({ kind: "loop_stop", key, title: "Delivery audit loop stop" });
+    expect(offer.sentence.join(" ")).toContain("then stops at Needs you because no delivery audit loop is left to build the phases it added");
+    expect(current.engine.record.phases[key]).toMatchObject({ doneAt: expect.any(String), stop: { kind: "loop_limit", loop: { kind: "delivery", reason: "phases_added", heldAuditKey: key } } });
+    expect(current.engine.record.phases["3"]).toBeUndefined();
+    expect(buildSnapshot(current.engine).auditLoops!.stop).toMatchObject({ kind: "delivery", holds: true, heading: "Delivery audit loops used: 1 of 1" });
+    expect(current.engine.controlView().controls.find(c => c.name === "accept-and-deliver")).toMatchObject({ available: false });
+    // Allow 1 more: phase 3 is built as a delivery loop sourced from the test audit.
+    expect(await control(current, "allow-more-loops", { count: 1 })).toMatchObject({ state: "completed", outcome: "loops_allowed" });
+    await current.engine.settled();
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
+    expect(current.engine.record.phases["3"]!.doneAt).toBeDefined();
+  });
+
   const repairPhase = `# Phase 3: Repair value\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`;
   const noReport = { actions: [{ write: { path: `${directory}/phase-3-repair.md`, content: repairPhase } }, { commit: "docs(audit): add a completion phase" }, { push: true }, { result: "Audit ended." }, { exit: 0 }] };
   /** Runs to the no-report audit's stop, then marks it complete through the stop's own offer. */

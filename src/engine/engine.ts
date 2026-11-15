@@ -42,7 +42,7 @@ import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt, auditLoopsSlot } from "../session/prompts.js";
 import { appendLoop, countedLoops, latestEpoch, loopLeft, loopSettings, openEpoch, startedLedger, acceptSentence, SETTING_SENTENCE, validAfterLastTest, validLimit, type Acceptance, type AuditLoopLedger, type AuditLoopSettings, type LoopKind } from "../state/audit-loops.js";
-import { deliveryDecision, type DeliveryDecision, holds, listedItems, needsYouLoopStop, testDecision, testHold, unusedAcceptance, heldReport } from "./loop-gate.js";
+import { attemptPhases, deliveryDecision, type DeliveryDecision, holds, latestAttempt, listedItems, needsYouLoopStop, testDecision, testHold, unusedAcceptance, heldReport } from "./loop-gate.js";
 import { reconstructLedger, sourceText } from "./loop-ledger.js";
 import { assignAuditObligations } from "./development-owners.js";
 import type { AuditActivity, AuditKind } from "../audit/contracts.js";
@@ -1932,7 +1932,8 @@ export class Engine {
     const settings = loopSettings(this.record.settings);
     // An audit counted as passed with no usable report still runs the phases it appended (AC-WAIVE-12).
     const audit = this.auditActivity(key);
-    let appended = countedOutcome === "completion_phases";
+    // A `needs_you` report counts as passed, yet the phases it appended are still built (AC-TEST-02's first row).
+    let appended = countedOutcome === "completion_phases" || !!audit && attemptPhases(latestAttempt(this.gateContext, audit)).length > 0;
     if (!appended && audit && previewAuditWaiver(this.stateDirectory, audit).report === "none") { try { appended = phasesBeyondInitial(this.stateDirectory, audit, this.record.plan ?? []).length > 0; } catch { appended = false; } }
     if (appended && !loopLeft(ledger, settings, "delivery")) return "delivery";
     if (countedOutcome === "continue_test" && !loopLeft(ledger, settings, "test") && !unusedAcceptance(ledger, key)) return "test";

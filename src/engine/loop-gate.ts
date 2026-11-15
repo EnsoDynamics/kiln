@@ -9,7 +9,7 @@
 import { auditKey } from "../audit/workflow.js";
 import { effectiveAudit, hasEffectiveResult } from "../audit/effective-result.js";
 import { AuditStore } from "../audit/storage.js";
-import type { AuditActivity, AuditReport, AuditResult } from "../audit/contracts.js";
+import { completionPhaseIds, type AuditActivity, type AuditReport, type AuditResult } from "../audit/contracts.js";
 import { personItems } from "../audit/person-items.js";
 import { readSessionRecord, type LoopStop, type PrdRecord } from "../state/records.js";
 import {
@@ -138,7 +138,16 @@ export function needsYouLoopStop(context: GateContext, key: string): LoopStop | 
   const session = sessionId ? readSessionRecord(context.stateDirectory, key, sessionId) : undefined;
   const lastRun = session?.runs.at(-1);
   if (attempt && lastRun && Date.parse(attempt.at) < Date.parse(lastRun.startedAt)) return undefined;
-  return attempt?.nextAction === "needs_you" ? { kind: "test", reason: "items_listed", heldAuditKey: key } : undefined;
+  if (attempt?.nextAction !== "needs_you") return undefined;
+  // A report that also adds phases fits AC-TEST-02's first row: it stops as a delivery audit's
+  // `needs_you` report with phases does, and its phases then go through the delivery loop gate.
+  return attemptPhases(attempt).length ? undefined : { kind: "test", reason: "items_listed", heldAuditKey: key };
+}
+
+/** The phases a recorded attempt's admitted report appended; none for a refused report, whose claims were not validated. */
+export function attemptPhases(attempt: AuditResult | undefined): string[] {
+  if (!attempt?.reportBytes || attempt.refusal) return [];
+  return completionPhaseIds(JSON.parse(attempt.reportBytes) as AuditReport);
 }
 
 /** A loop stop holds when the report added phases or saved test work (AC-STOP-02). */
