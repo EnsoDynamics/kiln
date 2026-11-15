@@ -17,7 +17,7 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <main>
 <section>
 <h2>1. Documents found, before Start</h2>
-<p class="note">The existing screen with what this PRD adds outlined and tagged NEW: the Preflight row first in the phase plan, the Needs you there marker with its text shown as it appears when pointed at, and the line above Start. No setting is added. Covers AC-PREFLIGHT-01, AC-ATTEND-01 and AC-ATTEND-02.</p>
+<p class="note">The existing screen with what this PRD adds outlined and tagged NEW: the Preflight row above Phase 1, as on a new branch, the Needs you there marker with its text shown as it appears when pointed at, and the line above Start. No setting is added. Covers AC-PREFLIGHT-01, AC-PREFLIGHT-08, AC-ATTEND-01 and AC-ATTEND-02.</p>
 <div class="screen">
 <div style="width: 1280px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 24px">
 <div style="display: flex; flex-direction: column; gap: 8px">
@@ -104,7 +104,7 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <span style="font-size: 14px"><span style="color: #7fae7a">✓</span> Open one pull request into <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">develop</span> once every phase closes</span>
 <span style="font-size: 14px; color: #bdb6a8">✕ Never merge, and never push to <span style="font-family: 'JetBrains Mono', monospace; font-size: 13px">develop</span></span>
 <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #b89b5e; border-radius: 12px; padding: 12px 14px; margin-top: 6px">
-<span style="font-size: 14.5px; line-height: 1.5"><strong>Phase 1 needs you there.</strong> Phases 2 to 5 run without you. <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span></span>
+<span style="font-size: 14.5px; line-height: 1.5"><strong>Phase 1 needs you there.</strong> The preflight's report names any other stop. <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #e6b450">NEW</span></span>
 </div>
 <button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 32px; border-radius: 999px; background: #e2694f; color: #12110e; border: none; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Start</button>
 </div>
@@ -115,7 +115,7 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 
 <section>
 <h2>2. The preflight found things to settle</h2>
-<p class="note">Kiln stops before any phase starts. The items are the preflight session's own words. Covers AC-PREFLIGHT-03.</p>
+<p class="note">Kiln stops before any phase starts. The items and the text beneath them are the preflight session's own words. Covers AC-PREFLIGHT-03 and AC-PREFLIGHT-07.</p>
 <div class="screen">
 <div style="width: 1100px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
 <div style="display: flex; flex-direction: column; gap: 8px">
@@ -133,20 +133,25 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <span style="font-family: 'JetBrains Mono', monospace; color: #e6b450">2.</span>
 <span>Phase 4 waits on a deploy the design does not list. Remove it: yes or no.</span>
 </div>
+<p style="margin: 4px 0 0; padding-top: 14px; border-top: 1px solid rgba(237,232,221,0.12); font-size: 15px; line-height: 1.6"><strong>The build will stop</strong> at Phase 1, which needs you at the carrier's console (marked Attended). Phases 2 to 5 run without you.</p>
+</section>
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 10px">
+<label for="pf-reply" style="font-size: 14.5px; color: #bdb6a8">Reply to the preflight session. It acts on your words and checks again.</label>
+<textarea id="pf-reply" rows="2" style="background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: Inter, sans-serif; font-size: 14px; resize: none">1 is done. 2: yes, remove it.</textarea>
+<button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Reply</button>
 </section>
 <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
 <button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; background: #e2694f; color: #12110e; border: none; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check Preflight again</button>
-<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Reply</button>
 <button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Mark complete</button>
 </div>
-<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">Check again runs a fresh preflight. Reply answers a yes-or-no item. Mark complete starts Phase 1 with the items as they are.</p>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">Check Preflight again runs a fresh preflight. Mark complete starts Phase 1 with the items as they are, and the Preflight row shows it was marked complete.</p>
 </div>
 </div>
 </section>
 
 <section>
 <h2>3. Running, after a clean preflight</h2>
-<p class="note">Kiln did not pause and showed no page for the preflight. Its row in the plan says what it found, as a finished phase's row shows its commit. Covers AC-PREFLIGHT-02 and AC-ATTEND-01.</p>
+<p class="note">Kiln did not pause and showed no page for the preflight. Its row in the plan says what it found, as a finished phase's row shows its commit, and does not repeat the plan's stops. Covers AC-PREFLIGHT-02, AC-PREFLIGHT-08 and AC-ATTEND-01.</p>
 <div class="screen">
 <div style="width: 1100px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 20px">
 <div style="display: flex; flex-direction: column; gap: 8px">
@@ -193,7 +198,7 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 
 <section>
 <h2>4. A marked phase stops for the person</h2>
-<p class="note">The existing Needs you page with one card added, above the session's hand-back. Covers AC-ATTEND-03.</p>
+<p class="note">The existing Needs you page with one card added at the top of the main column, above how the session ended. Covers AC-ATTEND-03 and AC-ATTEND-04.</p>
 <div class="screen">
 <div style="width: 1100px; box-sizing: border-box; padding: 40px 48px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
 <div style="display: flex; flex-direction: column; gap: 8px">
@@ -236,6 +241,42 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <span style="font-size: 13px; color: #bdb6a8">Check again first.</span>
 </aside>
 </div>
+</div>
+</div>
+</section>
+
+<section>
+<h2>5. The preflight left no report</h2>
+<p class="note">State 2's page when the preflight session ended without a report. Covers AC-PREFLIGHT-06.</p>
+<div class="screen">
+<div style="width: 1100px; box-sizing: border-box; padding: 48px 56px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; display: flex; flex-direction: column; gap: 22px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">CUSTOMER RETURNS · NEEDS YOU</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', serif; font-weight: 400; font-size: 44px; line-height: 1.1">The preflight left no report</h1>
+<p style="margin: 0; font-size: 16px; line-height: 1.6; color: #bdb6a8">Nothing has been built. The preflight session ended without saying whether the build is ready.</p>
+</div>
+<section style="background: #1b1a16; border: 1px solid rgba(230,180,80,0.55); border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 0.08em; color: #e6b450">HOW THE SESSION ENDED</span>
+<dl style="margin: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 6px 16px; font-size: 14.5px">
+<dt style="color: #a69f90">Stopped</dt><dd style="margin: 0">4 minutes ago, exit code 1</dd>
+<dt style="color: #a69f90">Last skill</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px">build-preflight</dd>
+</dl>
+<p style="margin: 0; font-size: 15px; line-height: 1.6; color: #bdb6a8">It ended without a final message. Its last lines of output:</p>
+<pre style="margin: 0; white-space: pre-wrap; background: #12110e; border: 1px solid rgba(237,232,221,0.14); border-radius: 10px; padding: 14px 16px; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6">Running the test suite to confirm this machine can build the project
+npm test
+Error: connect ECONNREFUSED 127.0.0.1:5432
+Session ended with exit code 1</pre>
+</section>
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 16px; padding: 20px 24px; display: flex; flex-direction: column; gap: 10px">
+<label for="pf5-reply" style="font-size: 14.5px; color: #bdb6a8">Reply to the preflight session. It acts on your words and checks again.</label>
+<textarea id="pf5-reply" rows="2" style="background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); border-radius: 10px; padding: 10px 12px; font-family: Inter, sans-serif; font-size: 14px; resize: none">The database wasn't running. It is now; carry on.</textarea>
+<button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Reply</button>
+</section>
+<div style="display: flex; align-items: center; flex-wrap: wrap; gap: 12px">
+<button type="button" style="min-height: 44px; padding: 0 22px; border-radius: 999px; background: #e2694f; color: #12110e; border: none; font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Check Preflight again</button>
+<button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font-family: Inter, sans-serif; font-size: 15px; font-weight: 600">Mark complete</button>
+</div>
+<p style="margin: 0; font-size: 14px; line-height: 1.5; color: #bdb6a8">There was no preflight report. Check Preflight again runs a fresh preflight. Mark complete starts Phase 1 without one, and the Preflight row shows it was marked complete, with a warning that Kiln couldn't tell what the preflight found.</p>
 </div>
 </div>
 </section>
