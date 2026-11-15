@@ -50,7 +50,7 @@ A phase marked as needing a person is not a surprise if it is shown before the r
 
 - [ ] **AC-ATTEND-01 — Marked phases are shown in the plan.** On Documents found and on the run's phase plan, a phase whose document carries an `**Attended:**` line shows a **Needs you there** marker beside its name. Pointing at the marker or pressing it shows the line's text.
 - [ ] **AC-ATTEND-02 — Documents found says where the run will need the person.** Above Start, one line names the marked phases and the unmarked run after them, such as "Phase 1 needs you there. Phases 2 to 9 run without you." With no phase marked, the line is left out.
-- [ ] **AC-ATTEND-03 — A stop in a marked phase says so.** When a marked phase stops at Needs you, the page shows "This phase was planned as needing you" with the `**Attended:**` line's text, above the reason Kiln stopped. Kiln starts and runs a marked phase as it does any other (RUN-001).
+- [ ] **AC-ATTEND-03 — A stop in a marked phase says so.** When a marked phase stops at Needs you, the page shows "This phase was planned as needing you" with the `**Attended:**` line's text, above the reason Kiln stopped. Kiln never holds a marked phase back: it starts and runs it as it does any other, doing all it can before it reaches the work that needs the person. The marker and this line are only a heads-up.
 
 ## Out of Scope
 
