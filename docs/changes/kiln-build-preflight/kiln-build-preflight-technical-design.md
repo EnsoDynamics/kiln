@@ -36,7 +36,7 @@ An extension of the local TypeScript engine, the browser view and the CLI. No ne
 | How the result is read | The first non-blank line of the session's final assistant message, compared with the two fixed lines | The method fixes those lines so a tool can read them (build-preflight, "The Report"). Kiln keeps no report file and asks the session to submit nothing, so the skill runs under Kiln exactly as it does by hand |
 | Check Preflight again | A fresh session under the same activity | AC-PREFLIGHT-03. One row keeps every attempt, as a phase row keeps every session of a phase |
 | Mark complete at a preflight stop | Saved from the stop's own items with no rerun | AC-PREFLIGHT-03. A rerun would be a second preflight of several minutes, and the items are the session's words, not a check Kiln can re-evaluate |
-| A preflight that cannot be started | A skill that cannot be resolved to one source, or a session that fails to spawn after the launch checks pass, is treated as one that left no report. A failed launch check stops on the preflight's key, as for any activity | AC-PREFLIGHT-06: a preflight never holds up the run unless it reported items. A billing approval stop at Start is common, and skipping the preflight there would defeat AC-PREFLIGHT-01 |
+| A preflight that cannot be started | When the Preflight Is Due, step 4 and the launch-check paragraph | AC-PREFLIGHT-06: a preflight never holds up the run unless it reported items. A billing approval stop at Start is common, and skipping the preflight there would defeat AC-PREFLIGHT-01 |
 | Live controls on a running preflight | None: no Message Claude, no Pause & take over and no pause after this activity, as final delivery's session has none | AC-TAKE-01's hold lasts until an explicit hand-back, and hand-back serves only phases and audits (AC-BACK-01, both in Kiln Live Session Control). A preflight steered mid-run would need a hand-back it cannot have; Reply at the preflight stop serves the same need. A pause would take effect as soon as the preflight goes on, and the Start that ends it runs another preflight (RUN-003), so it would cost a second preflight and hold nothing |
 | Attended and Early merge | Read by the plan reader, carried as display facts | AC-ATTEND-04, RUN-001: the mark is only a heads-up, so no scheduling code may see it |
 
@@ -206,7 +206,7 @@ PreflightActivity:
   activityId, sequence, createdAt, trigger
   before?: <activity key>                    — set at allocation when the mark is consumed ahead of an interrupted or waiting session
   skill?: { name, path, digest }             — replaced at each fresh session's launch; absent when it could not be resolved
-  result?: {                                 — only what a session's run produced; absent when Kiln marked the preflight complete before any report was read. An items result is deleted when Check Preflight again or Reply clears the stop; ready and no_report are final
+  result?: {                                 — only what a session's run produced; absent when Kiln marked the preflight complete before any report was read; clearing and finality: The Preflight Stop
     outcome: ready | items | no_report
     at: ISO-8601
     sessionId?, run?                         — the run whose final message was read
