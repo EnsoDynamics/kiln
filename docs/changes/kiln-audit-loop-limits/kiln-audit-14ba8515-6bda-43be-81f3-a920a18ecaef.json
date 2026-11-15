@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "14ba8515-6bda-43be-81f3-a920a18ecaef",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "This repair delivery audit re-read all sixteen criteria at commit 3265aef, because Phase 4 and the test audit's fix changed the loop gate, the engine and audit ownership, which nearly every criterion runs through. Phase 4's repair for a test audit report that adds phases and asks a person something is built. Three rounds of fresh assessors ran, confirming one new gap, one new gap and none. AC-TEST-02 is partly built: once no test loop is left, a refused or missing test audit report, or one stopped only by a failing repository check, becomes a test loop stop with Allow and Accept. It should stay an ordinary failing-check stop. AC-STOP-02 is partly built: at a test loop stop where the audit asked the person something, the run's page hides Reply, though that audit has not finished. Phase 5 was added to build both.",
+  "completionPhases": ["5"],
+  "needsYou": [],
+  "settled": []
+}
