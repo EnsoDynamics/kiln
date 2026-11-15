@@ -19,9 +19,27 @@
      when assumptions are validated and moved. NEVER close gaps. -->
 
 **Last Updated**: 2026-11-15
-**Status**: No open assumptions
+**Status**: 1 open assumption (RUN-004) - pending business validation
 
 **Document Purpose**: This document lists the assumptions we're making to proceed with Kiln Build Preflight. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong. Every numbered entry is a business assumption.
+
+---
+
+## Run Assumptions
+
+### RUN-004. Does every Start that ends a pause run the preflight first? — ⏳ PENDING (Added 2026-11-15 — new question; 85% confidence)
+
+**Assumption**: Yes: **every Start that ends a pause runs the preflight first**, whether pressed on the Paused page, given with `kiln continue`, or pressed on the Folder missing page, **even when the run's preflight has already reported ready or been marked complete**.
+
+Pauses exist so a person can switch accounts or model, and can last overnight (Kiln v1 AC-VIEW-03, AC-VIEW-08, AC-WATCH-08). The person is at the screen when they press Start and about to walk away, and a clean preflight costs **a few minutes** and asks nothing of them (AC-PREFLIGHT-02). This follows the same reasoning as RUN-003.
+
+**If they choose otherwise**: A Start after a pause skips the preflight when one has already reported ready or been marked complete for the run.
+
+**Confirm or Correct**:
+- [ ] Correct as stated
+- [ ] Wrong — correct answer: _______________
+
+**Confidence**: 85% | **Impact**: 🟢 LOW
 
 ---
 
