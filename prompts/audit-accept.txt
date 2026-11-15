@@ -1,0 +1,14 @@
+
+The person pressed Accept what is left and deliver. Their words, {{source}}:
+"{{sentence}}"
+
+The items the last audit listed, as it wrote them:
+{{items}}
+
+Fix nothing in this session. Record what those words accept, and list by name every row or item they do not:
+- Put each outstanding item the words accept in "settled", with its id and a "how" that quotes the sentence above with where and when.
+- Put every outstanding item the words do not accept, including any a later audit added, in "needsYou" with its id.
+- Leave out an accepted item with no id: the sentence names it.
+- Put every other row or item the words do not accept, one with no id included, in "needsYou" without an id, naming it (a row by its criterion's ID, also given as "criterion").
+The words accept only the Weak rows and the items they name. A row the test audit grades Missing, a failing test, or a weak high-risk criterion the audit did not list as an item is not accepted by them.
+Report "passed" only when "needsYou" is empty, and "needs_you" otherwise.

@@ -39,6 +39,8 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
  const outstanding=[...(/Items earlier audits left for a person \(outstanding\):\n([\s\S]*?)\n\n/.exec(prompt)?.[1]??'').matchAll(/^- (item-\d+) \(listed by [^)]*\): (.*)$/gm)].map(m=>({id:m[1],text:m[2]}));
  if(behavior.relist)report.needsYou.push(...outstanding.map(item=>({id:item.id,problem:item.text,action:'Still open.'})));
  if(behavior.settle)report.settled=outstanding.map(item=>({id:item.id,how:behavior.settle}));
+ // A new item that is a criterion's test row names it (Kiln Audit Loop Limits, "Report Contract").
+ if(behavior.criterion)for(const item of report.needsYou)if(!item.id)item.criterion=behavior.criterion;
  mkdirSync(dirname(s.requiredReportPath),{recursive:true});writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');
  command(`git add -- ${changed.join(' ')}`);command('git commit -m "docs(audit): record fixture audit"');command('git push origin HEAD');
  if(behavior.beforeSubmitFile){writeFileSync(behavior.beforeSubmitFile,'ready');while(!readFileSync(behavior.beforeSubmitFile,'utf8').includes('continue'))await new Promise(r=>setTimeout(r,20));}

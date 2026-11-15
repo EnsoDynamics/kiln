@@ -140,7 +140,7 @@ describe("the local server", () => {
     // Multi-repo AC-OUTSIDE-03: with the token and Kiln's own Origin, the confirmation reaches the engine, which refuses it while nothing has failed.
     const confirm = await raw(port, "/api/outside-confirmation", { Host: host, "X-Kiln-Token": token, Origin: `http://${host}` }, "POST");
     expect(confirm.status).toBe(404);
-    expect(h.engine.record.settings.agentChoices.claude_code!.effort).toBe("high");
+    expect(h.engine.record.settings.agentChoices.claude_code!.effort).toBe("medium");
     expect(h.engine.record.startedAt).toBeUndefined();
 
     const allowed = await raw(port, "/api/settings", { Host: host, "X-Kiln-Token": token, Origin: `http://${host}` }, "POST", change);

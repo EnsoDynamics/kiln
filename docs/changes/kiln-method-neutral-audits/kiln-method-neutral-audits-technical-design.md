@@ -8,6 +8,8 @@
 
 ## Report contract, version 2
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Report Contract (`needsYou` entries take an optional `criterion`, which the outstanding-items ledger keeps across relisting).
+
 The session writes `<prd-directory>/kiln-audit-<activityId>.json`, as today.
 
 | Field | Contract |
@@ -29,6 +31,8 @@ The audit prompt (`prompts/audit-session.txt`) states this contract and maps it 
 ## Admission
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage and §Audits Marked Complete (the no-open-phase routing rule counts phases closed or skipped by waiver as closed; a waived attempt counts as AC-WAIVE-12 says).
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Gate (`nextAction` and the advance on `completion_phases` and `continue_test` now pass through the loop gate).
 
 `kiln audit submit` keeps idempotent retries, revision and activity checks, attempt retention and Needs you on refusal. Every refusal is recorded as a failing **Audit result recorded** check whose fact is the reason; the refusal code stays in the attempt's `refusal` and the resume prompt. A missing report reads "No audit report at <path> yet." Kiln captures the checked snapshot itself at submission; the session never issues one. Checks, in order:
 

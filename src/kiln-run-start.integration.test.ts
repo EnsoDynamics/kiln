@@ -204,7 +204,7 @@ describe("kiln run on a feature not started", () => {
     // The record is written when Documents found is served, with the default settings (AC-START-07, UI-004).
     const record = readPrdRecord(stateDirectoryOf(f))!;
     expect(record.startedAt).toBeUndefined();
-    expect(record.settings).toMatchObject({ featureBranch: "feature/customer-returns", baseBranch: "develop", agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, keepAwake: true });
+    expect(record.settings).toMatchObject({ featureBranch: "feature/customer-returns", baseBranch: "develop", agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "medium" } }, keepAwake: true });
     expect(record.repository.github).toBe("acme/acme-shop");
 
     // AC-MULTI-02: the tab's title names the feature.
@@ -242,7 +242,7 @@ describe("kiln run on a feature not started", () => {
     expect(snapshot.settings).toMatchObject({
       agent: "Claude Code",
       model: { value: "opus", displayName: "Opus 5.5" },
-      effort: "high",
+      effort: "medium",
       effortLevels: ["low", "medium", "high", "xhigh", "max"],
       worktreePath: expect.stringMatching(/\.worktrees[/\\]customer-returns[/\\]acme-shop$/),
       featureBranch: "feature/customer-returns",

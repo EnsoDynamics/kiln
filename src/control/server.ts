@@ -35,7 +35,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset"] }));
+    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "audit_loops"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -100,6 +100,12 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
         if (command.action === "take_over") command.action = "take-over";
         if (command.action === "message-review") throw new ControlFailure("invalid_input", "Use resume, verify-and-advance or carry-on with reviewed receipt IDs.", 2);
         if (command.action === "waive-and-advance") waiveAndAdvance(current(), command);
+        // An Accept, and a change of After the last test audit loop, record where the person was; the control route is the command line (Kiln Audit Loop Limits, "Interfaces").
+        if ((command.action === "accept-and-deliver" || command.action === "settings") && command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
+          const inputs = command.inputs as Record<string, unknown>;
+          if (inputs.via !== undefined) throw new ControlFailure("invalid_input", "Kiln fills in where an instruction came from; the caller never supplies it.", 2);
+          if (command.action === "accept-and-deliver" || inputs.after_last_test_audit_loop !== undefined) inputs.via = "command_line";
+        }
         const old = current().commands.all().find(r => r.command_id === command.command_id);
         if (old && old.instruction.action !== command.action) throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
         // Deduplication precedes current eligibility. Never reconstruct an old target from a successor.

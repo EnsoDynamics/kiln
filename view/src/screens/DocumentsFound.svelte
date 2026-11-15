@@ -9,7 +9,8 @@
   // repository (multi-repo AC-REPO-03, AC-SPACE-01, AC-PRS-04); a field Start already set up is
   // shown fixed. Either says sessions can add a repository (AC-ADD-01, AC-SPACE-03). Under
   // keep-awake, "Resume after a usage limit", in the waiting screen's words (usage-limit recovery
-  // AC-AUTO-04).
+  // AC-AUTO-04). Then the Audit loops section, and Effort's help says Claude Code starts at Medium
+  // (Kiln Audit Loop Limits AC-LOOP-01, AC-EFFORT-01; its mockup's screens 0 and 1).
   // Start from (run restart AC-FROM-01 to 05, AC-CURRENT-01, mockup docs/changes/kiln-run-restart/
   // mockups/kiln-run-restart.html): a new feature branch or one that already exists; on an existing
   // branch What Kiln found reads the plan where the first session starts, Feature branch is a list,
@@ -42,6 +43,8 @@
     startState,
   } from "../lib/documents-found.js";
   import { addedLabel } from "../lib/progress.js";
+  import AuditLoopSettings from "../components/AuditLoopSettings.svelte";
+  import { shownLoopSettings } from "../lib/audit-loops.js";
 
   /** What sessions may do in a repository they add (multi-repo AC-ADD-01, AC-PRS-04), on both Documents found screens. */
   const SESSIONS_ADD = "Sessions can add a repository they find they need. There Kiln may commit and push to the feature branch, started from develop or its default branch, and open one pull request into that base.";
@@ -354,6 +357,7 @@
           {/each}
         </div>
         <span class="help">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</span>
+        <span class="help effort-default">Claude Code now starts at Medium. Codex still starts at High.</span>
         {#if settings.effortLevels?.length === 0}<span class="help">This model takes no effort setting.</span>{/if}
       </fieldset>
       {#if snapshot.account && settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={settings.agent} paused={false} notStarted={true} {now} />{/if}
@@ -371,6 +375,8 @@
         <input id="resume-after-limit" type="checkbox" checked={settings.resumeAfterUsageLimit} disabled={!connected} onchange={(event) => save({ resumeAfterUsageLimit: event.currentTarget.checked })} />
         <span class="awake-text"><span class="awake-label">Resume after a usage limit</span><span class="help">Switch off to finish the phase yourself; Needs you then shows how.</span></span>
       </label>
+
+      <AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} disabled={!connected || documents.starting === true} {now} />
 
       <dl class="fixed">
         <dt>Pushes</dt><dd>After every phase</dd>

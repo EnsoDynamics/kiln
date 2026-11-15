@@ -10,8 +10,22 @@ section to the new version.
 
 ## [Unreleased]
 
+### Added
+
+- Audit loop limits. Before Start, Documents found has an **Audit loops** section: how many
+  times the delivery audit and the test audit can send Kiln back for more work on its own (3 of
+  each by default), and what happens after the last test audit loop: deliver unless something
+  serious is left, or always stop and ask. When a limit is reached Kiln stops at Needs you with
+  what the loops did and what the audit found, and you can **Allow N more loops**, take the audit
+  over, or, after the test audit, **Accept what is left and deliver**. The limits can be changed
+  while Kiln runs, from the page or with `kiln settings`, and `kiln allow-more-loops` and
+  `kiln accept-and-deliver` do the same from the command line. A run already under way when
+  Kiln is updated counts the loops it has made and stops and asks after the last one.
+
 ### Changed
 
+- A new PRD on Claude Code now starts at **Medium** effort instead of High. Codex still starts
+  at High, and a PRD whose settings were already saved keeps its effort.
 - A development build now names the commit it was built from, and when, with the time zone:
   `kiln --version` prints `1.2.2 · dev c363f8f · built Nov 14, 12:55 PM EST`, and the browser's
   top bar shows the same beside the version, in the browser's time zone. A build made from a

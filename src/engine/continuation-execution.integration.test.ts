@@ -7,7 +7,7 @@ import { createCometContinuation } from "../test-support/comet-continuation-fixt
 import type { Harness } from "../test-support/engine-harness.js";
 import { landingSession, pullRequestSession, waitFor } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
-import { readPrdRecord } from "../state/records.js";
+import { readPrdRecord, writePrdRecord } from "../state/records.js";
 let h: Harness;
 afterEach(async () => { vi.restoreAllMocks(); await h?.engine.stop("sigint"); await h?.cleanup(); });
 async function fixture(integrate = true) {
@@ -406,4 +406,25 @@ it.each(["sidecar", "acceptance", "workspace-progress", "integration-baseline", 
   expect(answer.ok).toBe(boundary !== "sidecar");
   expect(h.claudeCalls()).toHaveLength(0);
   expect(h.engine.record.continuation?.acceptances.length ?? 0).toBe(boundary === "sidecar" ? 0 : 1);
+});
+
+it("starts both loop counts at zero on Continue with N phases, keeping the three loop settings and their source (Kiln Audit Loop Limits AC-LOOP-04, RUN-003)", async () => {
+  const f = await createCometContinuation(); h = f.h; f.integrate();
+  h.engine.close();
+  // The finished run had used both limits.
+  const saved = readPrdRecord(h.stateDirectory)!;
+  const source = { kind: "person" as const, at: "2026-10-01T10:00:00.000Z", where: "documents_found" as const };
+  saved.settings.auditLoops = { deliveryLimit: 1, testLimit: 1, afterLastTest: "stop_and_ask", afterLastTestSource: source };
+  saved.auditLoops = { epochs: [{ kind: "delivery", at: "2026-10-01T10:00:00.000Z", cause: "start", loopsBefore: 0 }, { kind: "test", at: "2026-10-01T10:00:00.000Z", cause: "start", loopsBefore: 0 }], loops: [{ kind: "delivery", number: 1, limitAtStart: 1, last: true, startedAt: "2026-10-01T11:00:00.000Z", sourceAuditId: "a", activityKeys: ["8"] }, { kind: "test", number: 1, limitAtStart: 1, last: true, startedAt: "2026-10-01T12:00:00.000Z", sourceAuditId: "b", activityKeys: ["audit-b"] }], acceptances: [], itemsListedStops: [] };
+  writePrdRecord(h.stateDirectory, saved);
+  h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
+  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  const check = await h.engine.checkCompletedPlan();
+  const answer = await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "continue-loops"));
+  expect(answer.ok, JSON.stringify(answer)).toBe(true);
+  await h.engine.settled();
+  expect(h.engine.record.settings.auditLoops).toEqual({ deliveryLimit: 1, testLimit: 1, afterLastTest: "stop_and_ask", afterLastTestSource: source });
+  expect(h.engine.record.auditLoops).toEqual({ epochs: [{ kind: "delivery", at: h.engine.record.startedAt, cause: "start", loopsBefore: 0 }, { kind: "test", at: h.engine.record.startedAt, cause: "start", loopsBefore: 0 }], loops: [], acceptances: [], itemsListedStops: [] });
+  // The earlier run's loops stay in its archived record and are not counted again.
+  expect(h.engine.historicalExecution(saved.executionId!)?.record.auditLoops?.loops).toHaveLength(2);
 });

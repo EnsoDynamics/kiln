@@ -32,8 +32,10 @@ import { statusCompatibility } from "../engine/compatibility-notices.js";
 import { checkFoldersSync, type FolderCheck } from "../engine/folder-check.js";
 import { findExecutable } from "../platform/helper-process.js";
 import { displayPath } from "../engine/worktree-setup.js";
+import { loopSettings, loopsUsed } from "../state/audit-loops.js";
+import type { AuditLoopsView } from "../engine/loop-view.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "allow-more-loops", "accept-and-deliver"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -320,16 +322,28 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     live_control: view?.liveControl ? { ...view.liveControl, messages: view.liveControl.messages?.map(m => ({ ...m, receipt: messageReceiptLabel(m.delivery) })), state: reachable ? "current" : "stale", ...(reachable ? {} : { available: false, reason: "Controller disconnected; reconnect before acting.", input: { ...view.liveControl.input, available: false, reason: "Controller disconnected; reconnect before sending." } }) } : null,
     compatibility: statusCompatibility(record),
     pause_status: pauseStatus,
+    // Kiln Audit Loop Limits AC-STOP-03: the snapshot's loop settings, counts and loop stop page; read from the record when no snapshot was saved.
+    audit_loops: view?.auditLoops ?? savedAuditLoops(record),
     pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
     progress,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
-    ...(full ? { plan: record.plan ?? [], activity_history: ((view?.activities ?? record.activities ?? []) as unknown as Record<string, unknown>[]).map(activityFacts), settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit }, account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
+    ...(full ? { plan: record.plan ?? [], activity_history: ((view?.activities ?? record.activities ?? []) as unknown as Record<string, unknown>[]).map(activityFacts), settings: settingsFacts(record), account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
   }, [...statusErrors, ...last.errors]);
   if (engine && JSON.stringify(engine.record) !== before) throw new ControlFailure("state_unavailable", "Execution changed while status was assembled; refresh status.");
   if (full) return ownResult(answer, history.dispose, deadline);
   history.dispose(); return answer;
   } catch (error) { history.dispose(); throw error; }
+}
+/** The audit loop settings and counts from the saved record, for a run with no saved snapshot; no loop stop page without one. */
+function savedAuditLoops(record: SavedWork["record"]): AuditLoopsView {
+  const settings = loopSettings(record.settings);
+  return { settings, delivery: { used: loopsUsed(record.auditLoops, "delivery"), limit: settings.deliveryLimit }, test: { used: loopsUsed(record.auditLoops, "test"), limit: settings.testLimit } };
+}
+/** `--detail full`'s settings: the runtime preferences and the three audit loop settings. */
+function settingsFacts(record: SavedWork["record"]): Record<string, unknown> {
+  const loops = loopSettings(record.settings);
+  return { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, after_last_test_audit_loop: loops.afterLastTest };
 }
 /** `kiln status` while a folder is missing (AC-GONE-02): the state, no current activity, no stop, no phase progress. */
 function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folders: FolderCheck, full: boolean): Result {
@@ -344,7 +358,7 @@ function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folder
     progress: [], started_at: record.startedAt ?? null, completion: { completed_at: null, pull_requests: [], merged_branches: [] },
     // Reset is the one control left while a folder is missing (run restart "Availability"), so a running Kiln returns its status token.
     status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }), unsent_replies: [],
-    ...(full ? { plan: record.plan ?? [], settings: { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit } } : {}),
+    ...(full ? { plan: record.plan ?? [], settings: settingsFacts(record) } : {}),
   });
 }
 /** The audit store's waiver results, read through the same private, bounded reads as inspection. */

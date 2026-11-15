@@ -177,7 +177,7 @@ kiln allow-more-loops <prd> --loops N --only-if-status-matches <token> [--comman
 kiln accept-and-deliver <prd> --only-if-status-matches <token> [--command-id ID]
 ```
 
-`kiln settings` with no flags prints all of them. As today, there is no command-line form before Start.
+`kiln settings` with no flags prints all of them. As today, there is no command-line form before Start. `--command-id` is required, as on every changing command; the brackets above mark it as the caller's own ID, not an optional flag.
 
 **HTTP.** `POST /api/settings` accepts `auditLoops` (partial) and routes a started run's change through the `settings` control, as `keepAwake` does, setting `via: "browser"` when the change carries `afterLastTest`; before Start it is a draft field. The two new actions get page routes of their own, as Mark complete has `POST /api/mark-complete`, which submit to the control journal with the page's status token and command ID, `accept-and-deliver`'s with `via: "browser"`; the CLI reaches both through the control route.
 

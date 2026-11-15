@@ -80,7 +80,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(21);
+    expect(SCHEMA_VERSION).toBe(22);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -129,7 +129,7 @@ describe("schema 21: stop rows that report why a phase stopped (run restart AC-C
     const twenty = migrateRecord(schemaOne({ phases: { "1": { sessionIds: ["s1"], finishedByPerson: false, repositories: {}, stop: { kind: "not_resumable", at: "2026-11-11T21:33:00Z", checkedAt: "2026-11-11T21:33:00Z", checks: [{ name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history."] }, { name: "Phase doc closed", passed: false, facts: ["phase-1.md has no Closed line"] }] } } } }));
     twenty.schemaVersion = 20;
     const migrated = migrateRecord(twenty);
-    expect(migrated.schemaVersion).toBe(21);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     expect(migrated.phases["1"]!.stop!.checks.map(check => [check.name, check.reason ?? false])).toEqual([["Claude recovery", true], ["Phase doc closed", false]]);
   });
 });
@@ -148,5 +148,25 @@ describe("schema 19: completion waivers (waivers technical design, Upgrade)", ()
   it("refuses a malformed waiver record rather than reading waivers it cannot trust", () => {
     const record = migrateRecord(schemaOne({}));
     expect(() => migrateRecord({ ...record, waivers: [{ waiverId: "w" }] as never })).toThrow(/waiver/);
+  });
+});
+
+describe("schema 22: audit loop limits (Kiln Audit Loop Limits AC-LOOP-07, Upgrade)", () => {
+  it("gives a record not started the defaults, and a started one limits 3 and 3 under Always stop and ask me, applied by Kiln", () => {
+    const notStarted = migrateRecord(schemaOne({}));
+    notStarted.schemaVersion = 21; delete notStarted.settings.auditLoops;
+    expect(migrateRecord(notStarted).settings.auditLoops).toEqual({ deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" });
+    const started = migrateRecord(schemaOne({ startedAt: "2026-11-01T10:00:00Z", setupCompletedAt: "2026-11-01T10:00:00Z" }));
+    started.schemaVersion = 21; delete started.settings.auditLoops;
+    const migrated = migrateRecord(started);
+    expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 3, testLimit: 3, afterLastTest: "stop_and_ask", afterLastTestSource: { kind: "kiln_for_earlier_run" } });
+    expect(migrated.auditLoops).toBeUndefined();
+    expect(migrated.schemaVersion).toBe(22);
+  });
+
+  it("refuses malformed loop settings rather than clamping them", () => {
+    const record = migrateRecord(schemaOne({}));
+    record.settings.auditLoops = { deliveryLimit: 0, testLimit: 3, afterLastTest: "deliver_unless_serious" };
+    expect(() => migrateRecord(record)).toThrow("Malformed audit loop settings.");
   });
 });

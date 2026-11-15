@@ -1,5 +1,7 @@
 # Phase 1: Audit loop limits
 
+**Closed:** 2026-11-15
+
 **Parent PRD:** [Kiln Audit Loop Limits](kiln-audit-loop-limits-prd.md)
 **Technical design:** [Kiln Audit Loop Limits technical design](kiln-audit-loop-limits-technical-design.md) — all sections; the whole PRD is one phase.
 
