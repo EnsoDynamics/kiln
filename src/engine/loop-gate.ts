@@ -13,7 +13,7 @@ import type { AuditActivity, AuditReport, AuditResult } from "../audit/contracts
 import { personItems } from "../audit/person-items.js";
 import { readSessionRecord, type LoopStop, type PrdRecord } from "../state/records.js";
 import {
-  atOrUnder, countedLoops, itemName, latestEpoch, loopLeft, loopSettings, loopsUsed,
+  atOrUnder, countedLoops, itemName, latestEpoch, loopLeft, loopSettings,
   type Acceptance, type AcceptedItem, type AuditLoop, type AuditLoopLedger,
 } from "../state/audit-loops.js";
 
@@ -175,4 +175,3 @@ export function listedItems(context: GateContext, key: string): AcceptedItem[] {
   });
 }
 
-export { loopsUsed, loopLeft };

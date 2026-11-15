@@ -4399,7 +4399,7 @@ export class Engine {
     const key = auditKey(activity);
     const record = control ? structuredClone(this.record) : this.record;
     const settings = loopSettings(record.settings);
-    const ledger = record.auditLoops ? (control ? record.auditLoops : record.auditLoops) : undefined;
+    const ledger = record.auditLoops;
     if (control && ledger) {
       if (control.kind === "allow") {
         settings[control.loopKind === "delivery" ? "deliveryLimit" : "testLimit"] = control.count;
