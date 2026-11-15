@@ -20,6 +20,7 @@ Last updated: 2026-11-15
 | 1 | 9 (8 discovery + C3; C1/C2 merged) | 9 | 7 | 1 | 1 | 0 | 0 |
 | 2 | 8 (+3 from conformance; 2 repeats) | 12 | 12 | 0 | 0 | 0 | 0 |
 | 3 | 4 (0 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
+| 4 | 6 (0 repeats) | 6 | 6 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -48,8 +49,18 @@ Last updated: 2026-11-15
 | Q22 | 3 | Does a pause request left from before a restart fire right after the preflight goes on? | Technical | LOW | 75 → 90 | Resolved | TD §When the Preflight Is Due, Verification |
 | Q23 | 3 | Does Check Preflight again re-resolve the skill or reuse the recorded one? | Technical | LOW | 80 → 90 | Resolved | TD §When the Preflight Is Due, Data Models |
 | Q24 | 3 | How are identical item texts keyed in the waiver; 0 items edge case | Technical | LOW | 85 → 90 | Resolved | TD §Reading the Result |
+| Q25 | 4 | Mark complete sentence and waived-row label at a preflight stop: checks or items? | Technical | MEDIUM | 75 → 90 | Resolved | TD §The Preflight Stop |
+| Q26 | 4 | After a Reply that asks a question, must the final message still open with the report line? | Technical | MEDIUM | 80 → 90 | Resolved | TD §The Preflight Session |
+| Q27 | 4 | Is the stop page's "Nothing has been built." line conditional? | Technical | LOW | 80 → 90 | Resolved | TD §Display Contract |
+| Q28 | 4 | Extracted item text: drop the "1." marker; how continuation lines join | Technical | LOW | 85 → 90 | Resolved | TD §Reading the Result |
+| Q29 | 4 | kiln run terminal lines when a preflight finishes | Technical | LOW | 80 → 90 | Resolved | TD §Display Contract |
+| Q30 | 4 | Does the preflight session push its commits? | Technical | LOW | 85 → 90 | Resolved | TD §The Preflight Session, Verification |
+| Q31 | 4→5 | A preflight run ahead of a resumed phase commits after that phase's startCommit, so its commits are counted in the phase's commit list (engine.ts:5131): exclude them? | Technical | LOW | 70 → 70 | Pending | — |
 
 ## Question notes
+
+### Q25-Q30 (pass 4)
+Q25: preflight-specific sentence (mockup ~143); label stays AC-WAIVE-10 "1 check waived". Q26: preflight tail's report rule after reply policy (prompts.ts:224 appends policy last); every final message opens with the report line. Q27: "Nothing has been built." only when no closed leaf and no non-preflight activity; verb resumes when `before` recorded. Q28: strip N. marker, join continuation lines. Q29: terminal treats preflight as an audit titled Preflight, id PF; Ready / No report amber + reason note line. Q30 (reversed proposal): preflight pushes the feature branch after any skill commit — final delivery after an unpause/resume would otherwise omit it (PR prompt grants no push; runPullRequestCheck checks.ts:299 doesn't compare head with origin; development-delivery.ts:964). Writer folding.
 
 ### Q21-Q24 (pass 3)
 Q21: Check again / Reply delete the items result in the write that clears the stop; ready/no_report final. Q22: premise doesn't occur — restart decision activates a due pause itself (engine.ts 3903/3917) or returns resume/waiting/needs_you first (3836-3880); pause fires after the resumed activity; add sentence + proof. Q23: re-resolve on every fresh session (recorded digest never read, workflow.ts:120; Codex plugin paths versioned; pinning is Out of Scope); Reply resolves nothing. Q24: keep text key (matchKey for other = check+subject, waivers.ts:109; preflight items never in coverage); N positive, 0 → no_report. Writer folding.
@@ -100,5 +111,4 @@ Pass 1: 2026-11-15 · 0 open entries (register holds only validated RUN-001 to R
 |---|---|---|
 
 ## Next action
-Pass 3 committed. Pass 4 discovery next.
-Conformance pass 3: first launch records step 1's resolution (only later fresh launches re-resolve); reason/Why line means "last attempt launched no session"; proof for failed re-resolve. Its question (identical item keys) is a repeat of Q24.
+Pass 4 committed. Pass 5 discovery next (Q31 carried).
