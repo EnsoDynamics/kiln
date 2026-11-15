@@ -49,7 +49,7 @@ Three entry points set `preflight.due` in the same record write that records the
 |---|---|
 | **Start**, from the browser or `kiln run` | Always |
 | **Continue with N phases**, in the write that activates the fresh execution | Always; a fresh execution has no settled preflight |
-| The restart review's **Resume**, and `kiln run <path> --resume` | Only while the execution's preflight is not settled. This includes a run an earlier Kiln started with no preflight |
+| The restart review's **Resume**, and `kiln run <path> --resume` where it skips that review | Only while the execution's preflight is not settled. This includes a run an earlier Kiln started with no preflight. A run held at Needs you or paused gets no restart review, so neither sets it there |
 
 Nothing else sets it: not a phase or audit finishing, not phases an audit or a person adds while the run is underway, not Resume or Reply at a Needs you stop, not the end of a usage-limit wait, and no setting.
 
@@ -57,10 +57,10 @@ The engine loop consumes the mark at the first point where it would otherwise la
 
 1. Resolves the `build-preflight` skill in the session folder, by the audit skill's discovery rules under the names `build-preflight` and `enso-method:build-preflight`.
 2. **No skill found:** clears `due` and goes on. No activity is allocated, so no row exists (AC-PREFLIGHT-05).
-3. **Exactly one source found:** allocates the preflight activity, clears `due` in the same write, and launches its session. From here the unfinished activity itself, not the mark, is what the loop finishes before choosing anything else, across a restart included.
+3. **Exactly one source found:** allocates the preflight activity, clears `due` in the same write, and launches its session. From here the unfinished activity itself, not the mark, is what the loop finishes before choosing anything else, across a restart included. When the execution's latest preflight activity is still unfinished (running, waiting or stopped), the mark is cleared without allocating another: that activity is the preflight the action asked for.
 4. **Found but not resolvable to one source, or the discovery read fails:** allocates the activity, finishes it at once with outcome `no_report` and the resolution message as its reason, and goes on.
 
-An interrupted preflight session is resumed by the existing interrupted-session recovery. A preflight stopped at Needs you stays stopped across a restart, as any stop does.
+A usage-limit wait already holding when the mark is set keeps holding, since a preflight would meet the same limit; when it ends, the mark is consumed before the waiting session is resumed. An interrupted preflight session is resumed by the existing interrupted-session recovery. A preflight stopped at Needs you stays stopped across a restart, as any stop does.
 
 Launch checks that guard every launch (billing approval, agent selection and readiness, Codex launch settings) guard this one too, and stop on the preflight's key as they would on any unstarted activity.
 
@@ -68,7 +68,7 @@ Launch checks that guard every launch (billing approval, agent selection and rea
 
 The session uses the run's agent, model and effort, and the same session folder and added directories as an audit session. Its session record has kind `preflight`.
 
-The prompt is a new externalized template, `prompts/preflight-session.txt`. It says to run the installed `build-preflight` skill on the governing PRD (Claude Code invokes the skill; Codex reads the pinned source in full, as the audit prompt has it), to follow the skill exactly, and to end with the skill's report as the final message, its fixed first line first with nothing before it. It lists the assigned worktrees and feature branch and authorizes only what the skill itself does there. It gives no pinned CLI and no report path. When the person replies, the session is resumed with their words under the existing reply policy, and the resumed session's final message is read the same way.
+The prompt is a new externalized template, `prompts/preflight-session.txt`. It says to run the installed `build-preflight` skill on the governing PRD (Claude Code invokes the skill; Codex reads the pinned source in full, as the audit prompt has it), to follow the skill exactly, and to end with the skill's report as the final message, its fixed first line first with nothing before it. It lists the assigned worktrees and feature branch and authorizes only what the skill itself does there. It gives no pinned CLI and no report path. Every resume of a preflight session (a reply, a sleep interruption, the end of a usage-limit wait) carries a new kind-specific tail, `prompts/resume-carry-on-preflight.txt`, in the place the phase, audit and pull-request tails take today: carry on with the preflight only, run again the checks that failed, and end with the skill's report as the final message, its fixed first line first. Without it a resumed session gets the phase tail and may end on a message Kiln reads as no report. The resumed run's final message is read the same way.
 
 ## Reading the Result (AC-PREFLIGHT-02, AC-PREFLIGHT-03, AC-PREFLIGHT-06)
 
@@ -95,7 +95,7 @@ The three controls reuse existing journal actions; only their effect at this sto
 | Control | Journal action | Effect at a preflight stop |
 |---|---|---|
 | **Check Preflight again** | `check-again` | Launches a fresh preflight session under the same activity through the fresh-session-at-a-stop path. Its result is read as the first was |
-| **Reply** | `reply` | Resumes the stopped preflight session with the person's words, as a reply resumes any stopped session. The evaluation Resume makes first re-reads the saved result and launches nothing |
+| **Reply** | `reply` | Resumes the stopped preflight session with the person's words, as a reply resumes any stopped session. Where the conversation cannot be reopened, Reply is not offered and Check Preflight again stands in; no carry-on session is offered at a preflight stop |
 | **Mark complete** | `waive-and-advance` with `--confirm` | Below |
 
 **Mark complete.** The offer predicate gains one branch: at a `preflight` stop it is offered as soon as the stop exists, with no recheck required, under the label **Mark complete** and no heading. The request still carries the stop's check-run id and the status token, so a page that has not seen a newer result is refused as stale. The act skips the rerun step: under the `checking` boundary it saves a waiver whose items and checks are the stop's own, with `activityKind: preflight` and `effect: completed`, finishes the activity with that `waiverId`, settles the preflight and clears the stop, in one record write. The offer's sentence is built from the same preview data as today and names the forecast next activity.
@@ -186,7 +186,7 @@ SessionRecord.kind:     … | preflight
 Waiver.activityKind:    … | preflight
 ```
 
-Per-activity facts (session ids, `doneAt`, `stop`, `wait`, `waiverId`) live under the preflight's key in the record's activity facts, as an audit's do. Every reader that treats `audit-*` and `pr` keys as activities that are not phases treats `preflight-*` the same: plan-leaf scans, phase counts, continuation accounting and completed-plan discovery never see a preflight as a phase. Session time counts toward time totals as an audit session's does. Reset clears preflight state with the rest of the execution.
+Per-activity facts (session ids, `doneAt`, `stop`, `wait`, `waiverId`) live under the preflight's key in the record's activity facts, as an audit's do. Today about twenty readers across the engine, control layer and view tell a key's kind apart with their own `startsWith("audit-")` and `pr` tests, falling through to "phase"; a `preflight-*` key would fall through as a phase in each one missed. They move to one shared key classifier (phase, audit, preflight, final delivery), used by the engine and the view alike, so plan-leaf scans, phase counts, continuation accounting, waiver facts and completed-plan discovery never see a preflight as a phase, and a later activity kind is added in one place. Session time counts toward time totals as an audit session's does. Reset clears preflight state with the rest of the execution.
 
 Timestamps are UTC ISO 8601.
 
@@ -226,9 +226,9 @@ Real temporary Git repositories, the packaged CLI against the local server, and 
 
 | Criteria | Design | Named proof |
 |---|---|---|
-| AC-PREFLIGHT-01 | When the Preflight Is Due | A preflight session is the first session after Start, after Continue, after Start with every phase closed (before the delivery audit), and after Resume with an interrupted phase session waiting; none after Resume once ready or marked complete; one after Resume following no report; none when an audit appends phases; no setting exists |
+| AC-PREFLIGHT-01 | When the Preflight Is Due | A preflight session is the first session after Start, after Continue, after Start with every phase closed (before the delivery audit), and after Resume with an interrupted phase session waiting; none after Resume once ready or marked complete; one after Resume following no report; none when an audit appends phases; no second preflight when a restart finds one stopped at Needs you and it is then checked again; no setting exists |
 | AC-PREFLIGHT-02 | Reading the Result; Display Contract | A ready result launches the next activity with no stop; the row shows Ready, duration and Nothing to settle, and no stop lines |
-| AC-PREFLIGHT-03 | The Preflight Stop | Items stop before anything else; headline and items verbatim and in order; each control from the browser and the CLI; Mark complete usable at once, launching nothing, saving the items as the waiver; a stale page refused; a reply delivered to a real session |
+| AC-PREFLIGHT-03 | The Preflight Stop | Items stop before anything else; headline and items verbatim and in order; each control from the browser and the CLI; Mark complete usable at once, launching nothing, saving the items as the waiver; a stale page refused; a reply delivered to a real session, whose resumed final message is read as a fresh result; no phase is classified as a preflight or a preflight as a phase by any shared key reader |
 | AC-PREFLIGHT-05 | When the Preflight Is Due; Interfaces | With the skill absent, for each agent: no row before or after Start, and the first session is the phase's |
 | AC-PREFLIGHT-06 | Reading the Result | A session ending with neither line, with no final message, and with a failed launch each go on with a No report row; a usage-limit wait and a sleep interruption are resumed and read afterwards |
 | AC-PREFLIGHT-08 | Display Contract; Interfaces | Row position on a new branch, a branch with closed phases, after Continue and with every phase closed; header while current; session detail shows the full report |
