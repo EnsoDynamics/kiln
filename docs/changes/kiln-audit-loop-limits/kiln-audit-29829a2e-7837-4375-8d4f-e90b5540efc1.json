@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "29829a2e-7837-4375-8d4f-e90b5540efc1",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The repair delivery audit re-read all sixteen criteria at commit 5c2a40b, because Phase 3 changed the loop ledger, the command line's loop text and the activity rows, which nearly every criterion runs through. Phase 3's repairs to AC-LOOP-06 and AC-LOOP-03 are built. Two rounds of fresh assessors ran: the first confirmed one new gap, the second none. AC-TEST-02 is partly built: once no test loop is left, a test audit report that asks a person to decide something and also adds phases becomes a test loop stop with the Allow more loops and Accept controls, instead of being handled as a delivery audit's report that added phases. Phase 4 was added to build it.",
+  "completionPhases": ["4"],
+  "needsYou": [],
+  "settled": []
+}
