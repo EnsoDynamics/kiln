@@ -12,7 +12,7 @@
 
 ## Summary
 
-Before Kiln starts building, it runs the Enso Method's **preflight**: a check, often several minutes long because it runs the project's tests, that the access the whole plan needs is working and will last, that this machine can build and test the project, and that nothing in the plan will stop the run without warning. When the preflight is clean, Kiln goes straight on, with no pause and no setting to turn it off. When it is not, Kiln stops at Needs you with a short numbered list of items the person can each settle in one step, such as a command to run or a yes-or-no. Kiln also shows, before Start and in the plan, which phases are marked as needing a person there; when the preflight stops for items, its page also shows what the report says about where the build will stop.
+Before Kiln starts building, it runs the Enso Method's **preflight**: a check, often several minutes long because it runs the project's tests, that the access the whole plan needs is working and will last, that this machine can build and test the project, and that nothing in the plan will stop the run without warning. When the preflight is clean, Kiln goes straight on, with no pause and no setting to turn it off. When it is not, Kiln stops at Needs you with a short numbered list of items the person can each settle in one step, such as a command to run or a yes-or-no. Kiln also marks, in the plan before Start, each phase planned as needing a person there.
 
 ## Business Context
 
@@ -32,8 +32,8 @@ The preflight runs once, at the start, while the person is still there. A clean 
 
 - [ ] **AC-PREFLIGHT-01 — The preflight comes before anything else the run does.** Kiln runs the method's `build-preflight` skill, in a session of its own and before any other activity of the run, each time a person presses **Start** or **Continue with N phases**, even with every phase already closed, and each time a run is resumed, with **Resume** or `kiln run <path> --resume`, before its preflight has reported ready or been marked complete. Beyond those and its own stop's controls (AC-PREFLIGHT-03), it never runs, so phases added while the run is underway get none, and no setting turns it off.
 - [ ] **AC-PREFLIGHT-08 — The preflight shows as a row in the plan.** Documents found and the run's phase plan show a **Preflight** row just above the activity it comes before: Phase 1 on a new branch, the first open phase on a branch with closed phases, the first added phase after Continue. When every phase is closed, the row follows the closed phases on Documents found and sits above the delivery audit in the run's plan. Its row, the page header while it is the current activity, and its session detail work as an audit's do (AC-RUN-01 in Kiln Completion Audits), so opening the row shows its full report.
-- [ ] **AC-PREFLIGHT-02 — A clean preflight goes straight on, and its row says what it found.** When the session's report opens `Preflight: ready`, Kiln goes on to the activity the preflight came before, with no pause and no page of its own. The Preflight row then shows **Ready**, how long it took, and "Nothing to settle" beneath it, as a finished phase's row shows its commit. The row does not repeat the stops the report lists; opening it shows them in the full report (RUN-002).
-- [ ] **AC-PREFLIGHT-03 — Items stop the run at Needs you.** When the report opens `Preflight: N items need you`, Kiln stops at Needs you before anything else in the run starts. The page's headline is that line; beneath it are the numbered items as the session wrote them, in the session's order, and the report's stops as AC-PREFLIGHT-07 says. Its controls, each also a command, do this here:
+- [ ] **AC-PREFLIGHT-02 — A clean preflight goes straight on, and its row says what it found.** When the session's report opens `Preflight: ready`, Kiln goes on to the activity the preflight came before, with no pause and no page of its own. The Preflight row then shows **Ready**, how long it took, and "Nothing to settle" beneath it, as a finished phase's row shows its commit. The row does not repeat the stops the report lists; opening it shows them in the full report.
+- [ ] **AC-PREFLIGHT-03 — Items stop the run at Needs you.** When the report opens `Preflight: N items need you`, Kiln stops at Needs you before anything else in the run starts. The page's headline is that line; beneath it are the numbered items as the session wrote them, in the session's order. The page does not repeat the stops the report lists. Its controls, each also a command, do this here:
 
   | Control | Command | What it does here |
   |---|---|---|
@@ -47,17 +47,16 @@ The preflight runs once, at the start, while the person is still there. A clean 
 - AC-PREFLIGHT-04 — retired before the build. It was a setting to turn the preflight off; there is none (AC-PREFLIGHT-01).
 - [ ] **AC-PREFLIGHT-05 — An older method is not an error.** When the run's agent finds no `build-preflight` skill in the installed method, the plan shows no Preflight row and the run starts as it does today.
 - [ ] **AC-PREFLIGHT-06 — A preflight with no report stops and shows how it ended.** When the session ends without either opening line, Kiln stops at Needs you on AC-PREFLIGHT-03's page, with its controls, and nothing else in the run starts. The headline says the preflight left no report, and how the session ended (AC-STOP-02 in Kiln v1) takes the items' place. Mark complete saves a waiver of no items; the sentence beneath the controls first says there was no report, and the Preflight's waived label carries AC-WAIVE-12's no-report warning, naming the preflight in place of the audit.
-- [ ] **AC-PREFLIGHT-07 — The items page also shows where the build will stop.** On the Needs you page AC-PREFLIGHT-03 describes, beneath the numbered items, Kiln shows the report's "The build will stop" text as the session wrote it, all of it. A clean preflight's row shows none of it (AC-PREFLIGHT-02, RUN-002).
-  - Added in refinement.
+- AC-PREFLIGHT-07 — retired before the build. It showed the report's stops on the items page; the phase markers are the only heads-up (AC-ATTEND-01, RUN-002).
 
 ### Show Which Phases Need a Person
 
 A phase marked as needing a person is not a surprise if it is shown before the run starts.
 
 - [ ] **AC-ATTEND-01 — Marked phases are shown in the plan.** On Documents found and on the run's phase plan, a phase whose document carries an `**Attended:**` line shows a **Needs you there** marker beside its name, closed or not. Pointing at the marker or pressing it shows the line's text.
-- [ ] **AC-ATTEND-02 — Documents found says where the run will need the person.** Above Start, one line names the marked phases this run will build. When the plan shows a Preflight row, the line also says that the preflight's report names any other stop (RUN-002). When this run will build no marked phase, the line is left out.
+- AC-ATTEND-02 — retired before the build. It was a line above Start naming where the run would need the person; the markers do that job (AC-ATTEND-01, RUN-002).
 - [ ] **AC-ATTEND-03 — A stop in a marked phase says so.** When a marked phase stops at Needs you, a card at the top of the page's main column, above how the session ended, says the phase was planned as needing the person and gives the `**Attended:**` line's text.
-- [ ] **AC-ATTEND-04 — A marked phase runs like any other.** Kiln starts and runs a marked phase with the same session and instructions as any other phase, and never holds it back or pauses before it. The marker and AC-ATTEND-03's line are only a heads-up (RUN-001).
+- [ ] **AC-ATTEND-04 — A marked phase runs like any other.** Kiln starts and runs a marked phase with the same session and instructions as any other phase, and never holds it back or pauses before it. The marker and AC-ATTEND-03's card are only a heads-up (RUN-001).
 
 ## Out of Scope
 
