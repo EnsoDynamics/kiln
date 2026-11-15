@@ -3,7 +3,7 @@
 Started: 2026-11-15   Current pass: 1   Status: In progress
 Branch: feature/kiln-build-preflight
 Existing code posture: Preserve (source: user)
-PRD words: at start 1658 · growth baseline 1658
+PRD words: at start 1658 · growth baseline 2165 (reset after pass 2: +507 words, of which ~450 are Replaces-in-part pointer lines from the conflict check, not scope; continued under the operator's run-without-waiting instruction)
 Last updated: 2026-11-15
 
 ## Documents
@@ -19,6 +19,7 @@ Last updated: 2026-11-15
 |---|---|---|---|---|---|---|---|
 | 1 | 9 (8 discovery + C3; C1/C2 merged) | 9 | 7 | 1 | 1 | 0 | 0 |
 | 2 | 8 (+3 from conformance; 2 repeats) | 12 | 12 | 0 | 0 | 0 | 0 |
+| 3 | 4 (0 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -43,8 +44,15 @@ Last updated: 2026-11-15
 | Q18 | 2 | Should the preflight prompt protect an interrupted phase's uncommitted work? | Technical | MEDIUM | 60 → 90 | Resolved | TD §The Preflight Session |
 | Q19 | 2 | "No skill found" vs "found but not resolvable": exact rule; resolver returns absent distinctly | Technical | LOW | 85 → 90 | Resolved | TD §When the Preflight Is Due |
 | Q20 | 2 | due.trigger / activity trigger values for the newer entry points | Technical | LOW | 80 → 90 | Resolved | TD Data Models |
+| Q21 | 3 | When Check Preflight again / Reply starts a new run, when is the stored items result cleared and what does the row show? | Technical | MEDIUM | 80 → 90 | Resolved | TD §The Preflight Stop, Data Models |
+| Q22 | 3 | Does a pause request left from before a restart fire right after the preflight goes on? | Technical | LOW | 75 → 90 | Resolved | TD §When the Preflight Is Due, Verification |
+| Q23 | 3 | Does Check Preflight again re-resolve the skill or reuse the recorded one? | Technical | LOW | 80 → 90 | Resolved | TD §When the Preflight Is Due, Data Models |
+| Q24 | 3 | How are identical item texts keyed in the waiver; 0 items edge case | Technical | LOW | 85 → 90 | Resolved | TD §Reading the Result |
 
 ## Question notes
+
+### Q21-Q24 (pass 3)
+Q21: Check again / Reply delete the items result in the write that clears the stop; ready/no_report final. Q22: premise doesn't occur — restart decision activates a due pause itself (engine.ts 3903/3917) or returns resume/waiting/needs_you first (3836-3880); pause fires after the resumed activity; add sentence + proof. Q23: re-resolve on every fresh session (recorded digest never read, workflow.ts:120; Codex plugin paths versioned; pinning is Out of Scope); Reply resolves nothing. Q24: keep text key (matchKey for other = check+subject, waivers.ts:109; preflight items never in coverage); N positive, 0 → no_report. Writer folding.
 
 ### Q10 + Q11 + Q12 + Q18 + Q19 + Q20 (pass 2)
 Q10: RUN-003 (from AC-PREFLIGHT-01's unconditional "presses Start"; Kiln v1 AC-VIEW-02 calls the pause button Start) already settles it; no requirement points to skip-if-settled → widen RUN-003's text to name a Start that ends a pause; move RUN-004 to the validated table as Written up (covered by RUN-003; keep the ID), Status 0 open; citations RUN-004 → RUN-003 (PRD AC-PREFLIGHT-01, design header and pause row). Q11: add proofs for kiln continue at the review, kiln run --resume, none after Folder missing branch Start at Needs you, none after Needs-you Resume/Reply. Q12 (supersedes Q13's line): Replaces in part AC-LIVE-02 and AC-BOT-01 in kiln-live-session-control PRD (not AC-LIVE-01: activity = phase/audit); disabled actions show their reason as for final delivery. Q18: unconditional line in preflight-session.txt: leave uncommitted changes exactly as they are (never stash/reset/clean/commit them); stage and commit only files the skill changes, by path. Q19: resolver takes a skill name; found = enabled build-preflight or enso-method:build-preflight; zero → distinct absent (no row); two names / 0 or >1 real existing paths / any discovery read failure → unresolvable no_report; existsSync before realpath; audits map absent to today's error; planned row uses the same test. Q20: trigger values start | unpause | continue | resume per entry-point table.
@@ -92,5 +100,5 @@ Pass 1: 2026-11-15 · 0 open entries (register holds only validated RUN-001 to R
 |---|---|---|
 
 ## Next action
-Pass 2 committed. Start pass 3 discovery.
-Conformance pass 2: trigger column in due table, AC-PREFLIGHT-01 proof for pause Start after settled, bot-control §Command grammar Replaces. Its question (restart on a paused run) answered from code during checkpoint: decide() returns paused → no restart review (engine.ts ~3894, 3708-3714); one sentence added to the due table's Resume row.
+Pass 3 committed. Pass 4 discovery next.
+Conformance pass 3: first launch records step 1's resolution (only later fresh launches re-resolve); reason/Why line means "last attempt launched no session"; proof for failed re-resolve. Its question (identical item keys) is a repeat of Q24.
