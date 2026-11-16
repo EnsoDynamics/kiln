@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "02e9c31c-53e8-4214-a667-1f0a54efe62e",
+  "activityId": "7f227edd-9751-42a9-b58f-33c1bcbc6fd1",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "Fresh delivery audit of the whole Kiln Build Preflight PRD at 8ecdf56, after the test audit's engine fix (a Start on the Folder missing page that ends a pause now clears the whole pause). That fix is in src/engine/engine.ts, which carries every criterion, so all 10 criteria in force were reassessed: AC-PREFLIGHT-01, -02, -03, -05, -06, -08 and AC-ATTEND-01, -03, -04, -05 are implemented and reachable from their entry points, the changed pause path included. AC-PREFLIGHT-04, AC-PREFLIGHT-07 and AC-ATTEND-02 were retired before the build. One round of fresh assessors found no gap, so no completion phase was added and the test audit's affected-row reassessment comes next.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": []
+}
