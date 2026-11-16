@@ -41,6 +41,8 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
  if(behavior.settle)report.settled=outstanding.map(item=>({id:item.id,how:behavior.settle}));
  // A new item that is a criterion's test row names it (Kiln Audit Loop Limits, "Report Contract").
  if(behavior.criterion)for(const item of report.needsYou)if(!item.id)item.criterion=behavior.criterion;
+ // The report's own summary, so a page can tell two reports apart.
+ if(behavior.summary)report.summary=behavior.summary;
  // A report naming another execution, which admission refuses.
  if(behavior.wrongExecution)report.executionId='another-execution';
  mkdirSync(dirname(s.requiredReportPath),{recursive:true});writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');

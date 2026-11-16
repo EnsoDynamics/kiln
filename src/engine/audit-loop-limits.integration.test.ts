@@ -13,6 +13,8 @@ import { startFixtureController } from "../test-support/controller-server.js";
 import { buildSnapshot } from "./snapshot.js";
 import { auditKey } from "../audit/workflow.js";
 import { latestAttempt } from "./loop-gate.js";
+import { runTiming } from "../session/timing.js";
+import { OwnershipError } from "../live/ownership.js";
 import { readPrdRecord, writePrdRecord } from "../state/records.js";
 import type { Receipt } from "../control/commands.js";
 import type { LocalServer } from "../server/local-server.js";
@@ -199,6 +201,8 @@ describe("phases a test audit adds (AC-DELIV-01, AC-TEST-02 first row, AC-LOOP-0
     expect(current.engine.record.phases["3"]).toBeUndefined();
     expect(current.claudeCalls().filter(call => call.prompt.includes("phase-3"))).toHaveLength(0);
     expect(buildSnapshot(current.engine).auditLoops).toMatchObject({ delivery: { used: 1, limit: 1 }, test: { used: 1, limit: 1 }, stop: { kind: "delivery", holds: true, heading: "Delivery audit loops used: 1 of 1", audit: { items: [{ problem: decision }] } } });
+    // Every audit since the delivery loop is listed, the test loop's audit included (AC-STOP-01).
+    expect(buildSnapshot(current.engine).auditLoops!.stop!.loops.map(line => [line.label, line.did])).toEqual([["Last loop", "Phase 2 built"], ["Delivery audit", "passed"], ["Test audit", "saved test work"], ["Test audit", "added Phase 3"]]);
     // Allow 1 more: phase 3 is built as a delivery loop whose source is the test audit.
     expect(await control(current, "allow-more-loops", { count: 1 })).toMatchObject({ state: "completed", outcome: "loops_allowed" });
     await current.engine.settled();
@@ -468,6 +472,8 @@ describe("loop stops that hold nothing (AC-TEST-02, AC-STOP-02)", () => {
     expect(current.engine.loopStopOf(stopped)).toEqual({ kind: "test", reason: "items_listed", heldAuditKey: stopped });
     const snapshot = buildSnapshot(current.engine);
     expect(snapshot.auditLoops!.stop).toMatchObject({ heading: "Test audit loops used: 1 of 1", holds: false, audit: { items: [{ name: "Required evidence is unavailable", problem: "Required evidence is unavailable.", action: "Restore the named evidence." }] }, acceptSentence: "I accept the remaining Weak rows, and Required evidence is unavailable." });
+    // Before a recheck the page shows Mark complete unusable, as at any Needs you stop (AC-WAIVE-02).
+    expect(snapshot.needsYou!.markComplete).toMatchObject({ offered: false, awaitingRecheck: { label: expect.stringMatching(/^Mark .* complete$/) } });
     // Mark complete stays offered where a check fails; a raised limit removes the loop page at once.
     expect((await control(current, "check-again")).state).toBe("completed");
     expect(current.engine.loopStopOf(stopped)).toEqual({ kind: "test", reason: "items_listed", heldAuditKey: stopped });
@@ -611,7 +617,7 @@ describe("items listed on a passing report (AC-TEST-02, AC-STOP-02)", () => {
 
   it("an uncounted test round whose report needs a person once no test loop is left is a loop stop listing every item", { timeout: 240_000 }, async () => {
     const decision = "AC-PROOF-01 names a file the design kept.";
-    const current = await fixture([auditSession({ gap: true, decision }), auditSession({ relist: true }), auditSession({ continueTest: true, relist: true }), auditSession({ relist: true, directFix: true }), auditSession({ relist: true }), auditSession({ blocked: true, relist: true }), auditSession()], [landing(), pullRequestSession()]);
+    const current = await fixture([auditSession({ gap: true, decision }), auditSession({ relist: true }), auditSession({ continueTest: true, relist: true }), auditSession({ relist: true, directFix: true }), auditSession({ relist: true }), auditSession({ blocked: true, relist: true, summary: "The round's own report." }), auditSession({ blocked: true, relist: true, summary: "The Accept session's report." })], [landing(), pullRequestSession()]);
     await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "deliver_unless_serious" } });
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
     await control(current, "check-again");
@@ -632,6 +638,16 @@ describe("items listed on a passing report (AC-TEST-02, AC-STOP-02)", () => {
     const relisted = stop.audit.items[1]!.problem;
     expect(relisted.startsWith(`${decision} `)).toBe(true);
     expect(stop.acceptSentence).toBe(`I accept the remaining Weak rows, and Required evidence is unavailable and ${relisted.replace(/\.$/, "")}.`);
+    // Accept starts a session on that audit; when it needs the person again, the next stop gives it a line of its own.
+    expect((await control(current, "accept-and-deliver", { via: "browser" })).outcome).toBe("session_started");
+    await current.engine.settled();
+    expect(current.engine.record.completionAudits!.activities[5]!.sessionIds).toHaveLength(2);
+    expect(current.engine.loopStopOf(held)).toEqual({ kind: "test", reason: "items_listed", heldAuditKey: held });
+    const again = buildSnapshot(current.engine).auditLoops!.stop!;
+    const sessions = current.engine.record.completionAudits!.activities[5]!.sessionIds;
+    const ran = (id: string) => { const runs = current.engine.sessionRecord(held, id)!.runs; return runTiming(runs, runs.map(r => r.startedAt).sort()[0]!, runs.map(r => r.endedAt!).sort().at(-1)!).runningMs; };
+    expect(again.loops.slice(-2)).toEqual([{ label: "Test audit", activity: "Test audit", did: "Needs you · The round's own report.", durationMs: ran(sessions[0]!) }, { label: "Accept session", activity: "Test audit", did: "Needs you · The Accept session's report.", durationMs: ran(sessions[1]!) }]);
+    expect(again.loops).toHaveLength(stop.loops.length + 1);
   });
 });
 
@@ -772,6 +788,30 @@ describe("the stop controls through every entry (AC-STOP-02, AC-STOP-03, AC-LOOP
     expect(buildSnapshot(current.engine).activities!.find(row => row.id === stopped)!.carried).toEqual([{ sentence: "I accept the remaining Weak rows, and AC-PROOF-01.", source: expect.stringMatching(/^given with the command line at /) }]);
   });
 
+  it("an Accept session on a counted loop's audit that needs the person again is a line of its own on the next stop's page and in kiln status (AC-STOP-01)", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession({ blocked: true, summary: "The loop's own report." }), auditSession({ blocked: true, summary: "The Accept session's report." })]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "stop_and_ask" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const stopped = auditKey(current.engine.record.completionAudits!.activities[2]!);
+    expect((await control(current, "accept-and-deliver", { via: "browser" })).outcome).toBe("session_started");
+    await current.engine.settled();
+    // The Accept session's needs_you report stops the run again at the same audit.
+    const activity = current.engine.record.completionAudits!.activities[2]!;
+    expect(activity.sessionIds).toHaveLength(2);
+    expect(current.engine.loopStopOf(stopped)).toEqual({ kind: "test", reason: "items_listed", heldAuditKey: stopped });
+    const ran = (id: string) => { const runs = current.engine.sessionRecord(stopped, id)!.runs; return runTiming(runs, runs.map(r => r.startedAt).sort()[0]!, runs.map(r => r.endedAt!).sort().at(-1)!).runningMs; };
+    const stop = buildSnapshot(current.engine).auditLoops!.stop!;
+    expect(stop.loops).toEqual([
+      { label: "Last loop", activity: "Test audit", did: "Needs you · The loop's own report.", durationMs: ran(activity.sessionIds[0]!) },
+      { label: "Accept session", activity: "Test audit", did: "Needs you · The Accept session's report.", durationMs: ran(activity.sessionIds[1]!) },
+    ]);
+    // The activity row's loop is the loop's own session only.
+    expect(buildSnapshot(current.engine).activities!.find(row => row.id === stopped)!.loops).toEqual([expect.objectContaining({ sessionId: activity.sessionIds[0], did: "Needs you · The loop's own report.", durationMs: ran(activity.sessionIds[0]!) })]);
+    const status = await cli(current, ["status", join(current.repository, directory), "--json"]);
+    expect(status.code, status.stdout).toBe(0);
+    expect(status.json().audit_loops.stop.loops.map((line: { label: string; did: string }) => [line.label, line.did])).toEqual([["Last loop", "Needs you · The loop's own report."], ["Accept session", "Needs you · The Accept session's report."]]);
+  });
+
   it("Accept after a passing report that changed implementation runs the delivery audit first, then an uncounted round quoting the criterion kept through relisting", { timeout: 240_000 }, async () => {
     const decision = "AC-PROOF-01 names a file the design kept.";
     const current = await fixture([auditSession({ gap: true, decision, criterion: "AC-PROOF-01" }), auditSession({ relist: true }), auditSession({ continueTest: true, relist: true }), auditSession({ relist: true, directFix: true }), auditSession({ relist: true }), auditSession({ settle: "Accepted by the person." })], [landing(), pullRequestSession()]);
@@ -857,6 +897,85 @@ describe("the stop controls through every entry (AC-STOP-02, AC-STOP-03, AC-LOOP
     await current.engine.settled();
     expect(current.engine.record.phases["3"]!.doneAt).toBeDefined();
     expect(current.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery").map(loop => [loop.number, loop.limitAtStart, loop.activityKeys])).toEqual([[1, 1, ["2"]], [1, 2, ["3"]]]);
+  });
+
+  // Terminal takeover is certified on macOS only, as in src/live/takeover.integration.test.ts.
+  async function takenOverNeedsYou(label: string) {
+    const ready = join(process.env.TMPDIR ?? "/tmp", `loop-${label}-ready-${process.pid}-${Date.now()}`); const handBack = `${ready}-release`;
+    const taken = { actions: [{ touch: ready }, { waitForFile: handBack }, { auditReport: { blocked: true } }, { result: "Audit stopped." }] };
+    const current = await fixture([auditSession(), auditSession({ continueTest: true }), taken, auditSession()]);
+    current.env.KILN_STANDIN_VERSION = "2.1.311";
+    mkdirSync(join(current.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "stop_and_ask" } });
+    void current.engine.start({ refinementConfirmed: true });
+    await waitFor(() => existsSync(ready), 60_000);
+    const target = current.engine.liveTarget()!;
+    const held = auditKey(current.engine.record.completionAudits!.activities[2]!);
+    expect(target.activityKey).toBe(held);
+    const origin = new URL(server!.address).origin;
+    const taking = await fetch(`${origin}/api/live/take-over`, { method: "POST", headers: { Origin: origin, "X-Kiln-Token": current.engine.record.token, "Content-Type": "application/json" }, body: JSON.stringify({ instructionId: `${label}-takeover`, target }) });
+    expect(taking.status).toBe(202);
+    writeFileSync(handBack, "done"); await current.engine.settled();
+    await waitFor(async () => { await current.engine.reconcileTakeover(); return current.engine.record.liveControl?.takeover.state === "released"; }, 10_000);
+    // The report needs the person and no test loop is left: a loop stop, still under the takeover.
+    expect(current.engine.loopStopOf(held)).toEqual({ kind: "test", reason: "items_listed", heldAuditKey: held });
+    expect(buildSnapshot(current.engine).needsYou!.phaseRecovery).toBeDefined();
+    return { current, held, taken: current.engine.record.completionAudits!.activities[2]!.sessionIds.at(-1)! };
+  }
+  /** The session Allow or Accept started is Kiln's own: launched fresh, not resumed, with no takeover left, and the run delivers. */
+  async function ranAsKilnsOwn(current: Harness, held: string, taken: string, calls: number) {
+    const started = current.claudeCalls().slice(calls);
+    expect(started).toHaveLength(2);
+    expect(started[0]!.args).not.toContain("--resume");
+    expect(started[0]!.args).not.toContain(taken);
+    expect(current.engine.record.liveControl).toBeUndefined();
+    const sessions = current.engine.record.completionAudits!.activities[2]!.sessionIds;
+    expect(sessions).toHaveLength(2);
+    expect(current.engine.sessionRecord(held, sessions[1]!)!.runs).toEqual([expect.objectContaining({ cause: "launch" })]);
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases[held])).toBeTruthy();
+  }
+
+  it.skipIf(process.platform !== "darwin")("a taken-over test audit whose report needs the person, with no test loop left, shows the loop page once Verify hands it back, and Accept runs as Kiln's own session", { timeout: 180_000 }, async () => {
+    const { current, held, taken } = await takenOverNeedsYou("verify");
+    const verified = await current.engine.checkAgain({ target: current.engine.phaseRecoveryTarget()!, intent: "verify" });
+    expect(verified).toMatchObject({ ok: true, outcome: "still_stopped" });
+    // Handed back: the browser renders the loop page and its controls, not the hand-back page.
+    expect(current.engine.record.liveControl).toBeUndefined();
+    expect(current.engine.phaseRecoveryTarget()).toBeUndefined();
+    const page = buildSnapshot(current.engine);
+    expect(page.needsYou!.phaseRecovery).toBeUndefined();
+    expect(page.needsYou).toMatchObject({ kind: "done_check", resumeOffered: true });
+    expect(page.auditLoops!.stop).toMatchObject({ kind: "test", heading: "Test audit loops used: 1 of 1", afterLastTest: "stop_and_ask", audit: { items: [{ problem: "Required evidence is unavailable." }] } });
+    const controls = current.engine.controlView().controls;
+    for (const name of ["allow-more-loops", "accept-and-deliver", "check-again"]) expect(controls.find(c => c.name === name)!.available).toBe(true);
+    const calls = current.claudeCalls().length;
+    expect(await control(current, "accept-and-deliver", { via: "browser" })).toMatchObject({ state: "completed", outcome: "session_started" });
+    await current.engine.settled();
+    await ranAsKilnsOwn(current, held, taken, calls);
+  });
+
+  it.skipIf(process.platform !== "darwin")("Allow at a taken-over test audit's loop stop, before Verify, hands the conversation back and runs as Kiln's own counted session", { timeout: 180_000 }, async () => {
+    const { current, held, taken } = await takenOverNeedsYou("allow");
+    expect(current.engine.controlView().controls.find(c => c.name === "allow-more-loops")!.available).toBe(true);
+    const calls = current.claudeCalls().length;
+    expect(await control(current, "allow-more-loops", { count: 1 })).toMatchObject({ state: "completed", outcome: "session_started", effects: { session: "started" } });
+    await current.engine.settled();
+    await ranAsKilnsOwn(current, held, taken, calls);
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.activityKeys.includes(held)).map(loop => loop.sessionId)).toEqual(current.engine.record.completionAudits!.activities[2]!.sessionIds);
+  });
+
+  it.skipIf(process.platform !== "darwin")("Allow at a taken-over test audit's loop stop whose conversation can't be handed back yet fails and starts nothing", { timeout: 180_000 }, async () => {
+    const { current, held } = await takenOverNeedsYou("refused");
+    // The person's terminal still holds the conversation: simulated, since a real terminal can't be kept open here.
+    const engine = current.engine as unknown as { requireTakeoverReturn: () => Promise<void> };
+    vi.spyOn(engine, "requireTakeoverReturn").mockRejectedValue(new OwnershipError("terminal_in_use", "The conversation is still open in a terminal."));
+    const calls = current.claudeCalls().length;
+    expect(await control(current, "allow-more-loops", { count: 1 })).toMatchObject({ state: "failed", outcome: "terminal_in_use" });
+    expect(current.claudeCalls()).toHaveLength(calls);
+    expect(current.engine.record.liveControl).toBeDefined();
+    expect(current.engine.record.completionAudits!.activities[2]!.sessionIds).toHaveLength(1);
+    expect(current.engine.record.auditLoops!.loops.filter(loop => loop.activityKeys.includes(held))).toHaveLength(1);
+    expect(current.engine.record.auditLoops!.epochs.filter(epoch => epoch.cause === "allowed")).toEqual([]);
   });
 
   it("a reply at a stop on items listed clears it with no conversation resumed, and the run carries on uncounted", { timeout: 240_000 }, async () => {

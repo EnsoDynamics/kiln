@@ -187,7 +187,7 @@
           {#if loopCopy.checkAgainText}<span class="checked">{loopCopy.checkAgainText}</span>{:else if runsAll}<span class="checked">{runsAll}</span>{/if}
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
-        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if loopStop.holds && stop.markComplete && !stop.markComplete.offered}<p class="footnote">{stop.markComplete.reason}</p>{/if}
+        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if loopStop.holds && stop.markComplete && !stop.markComplete.offered}<p class="footnote">{stop.markComplete.reason}</p>{:else if waiting}<MarkComplete {waiting} />{/if}
       </aside>
       <!-- The limits can be raised here, as the page says (AC-LOOP-05, AC-STOP-02); a raised limit starts the loop at Check again. -->
       <aside class="card side"><AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} disabled={!connected} short /></aside>

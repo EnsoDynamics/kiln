@@ -1760,7 +1760,12 @@ export class Engine {
       }
       // Mark complete's act runs inside the same checking boundary, on this rerun (waivers "Mark Complete").
       if (waive) return await this.waiveStopped(key, waive, outcome, evaluatedMaterial);
-      if (action === "verify") return { ok: true, outcome: "still_stopped", target: target! };
+      if (action === "verify") {
+        // A taken-over test audit whose report asks the person something, with no test loop left, is handed
+        // back here: the stop becomes Kiln's own loop stop, as a holding one does once Verify accepts its report (AC-STOP-01, AC-STOP-02).
+        if (this.record.liveControl && this.loopStopOf(key)) { this.resolveMessageHold(); delete this.record.liveControl; this.save(); }
+        return { ok: true, outcome: "still_stopped", target: target! };
+      }
       if (action === "resume" && !this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation is unavailable after checking. Use the terminal recovery instructions.");
       // Catch the branch up when it applies, once nothing else can refuse, before any session starts (run restart AC-CURRENT-01).
       await this.catchUpAtStop(key);
@@ -3562,7 +3567,7 @@ export class Engine {
     if (kind === "branch" && this.record.liveControl) {
       // Start is the explicit hand-back that ends a takeover hold, with that Resume's checks (AC-SAFE-03).
       try { await this.requireTakeoverReturn(); }
-      catch (error) { return { ok: false, code: error instanceof OwnershipError ? error.code : "takeover_pending", reason: (error as Error).message, status: 409 }; }
+      catch (error) { if (!(error instanceof OwnershipError)) throw error; return { ok: false, code: error.code, reason: error.message, status: 409 }; }
     }
 
     // The start intent, written before any Git write: a failed one with the same kind and names is resumed.
@@ -4232,6 +4237,12 @@ export class Engine {
       return { ok: true, outcome: this.record.controlApplied!.outcome };
     }
     // A needs_you report: its activity takes a new report, so the control starts a new audit session on it.
+    // After a takeover the new session is Kiln's own: the taken-over conversation is handed back first, as Verify would.
+    if (this.record.liveControl) {
+      try { await (this.record.liveControl.takeover.history ? this.requireCarryOnOwnership() : this.requireTakeoverReturn()); }
+      catch (error) { if (!(error instanceof OwnershipError)) throw error; return { ok: false, code: error.code, reason: error.message, status: 409 }; }
+      this.resolveMessageHold(); delete this.record.liveControl; this.save();
+    }
     this.controlDispatch = receipt;
     this.checking = true; this.changed();
     this.requestedLaunch = { phaseKey: key, kind: "audit", control };

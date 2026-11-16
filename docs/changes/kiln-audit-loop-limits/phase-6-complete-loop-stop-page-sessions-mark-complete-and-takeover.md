@@ -1,5 +1,7 @@
 # Phase 6: Show an Accept session on its own line, keep Mark complete's waiting button, and show the loop page after a takeover
 
+**Closed:** 2026-11-15
+
 **Added by delivery audit:** 2026-11-15, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Audit Loop Limits](kiln-audit-loop-limits-prd.md)
 **Technical design:** [Kiln Audit Loop Limits technical design](kiln-audit-loop-limits-technical-design.md) — relevant sections: "The Loop Ledger" ("Which loop a session belongs to"), "`needs_you` loop stops", "Reply and Take over", "Snapshot"

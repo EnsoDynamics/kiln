@@ -8,7 +8,7 @@
 import { auditKey, auditLabel, effectiveAudit, hasEffectiveResult } from "../audit/workflow.js";
 import type { AuditActivity, AuditReport, AuditResult } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
-import { countedLoops, limitOf, loopSettings, loopsUsed, acceptSentence, type AuditLoop, type AuditLoopSettings, type LoopKind } from "../state/audit-loops.js";
+import { countedLoops, limitOf, loopSettings, loopsUsed, acceptSentence, type Acceptance, type AuditLoop, type AuditLoopSettings, type LoopKind } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type SessionRecord } from "../state/records.js";
 import { runTiming } from "../session/timing.js";
 import { heldReport, listedItems } from "./loop-gate.js";
@@ -65,26 +65,50 @@ function outcomeWords(outcome: string | undefined): string | undefined {
   return outcome === "passed" ? "Passed" : outcome === "completion_phases" ? "Added phases" : outcome === "continue_test" ? "Saved test work" : outcome === "needs_you" ? "Needs you" : undefined;
 }
 
-/** The sessions a test loop owns on its activity: from its own marker up to the next loop's on the same activity. */
-function loopSessions(engine: Engine, loop: AuditLoop, key: string): Set<string> {
+/**
+ * Where each session-starting marker on an audit activity begins: each test loop's, and each
+ * `Acceptance`'s that started a session ("Which loop a session belongs to"). Sorted by session.
+ */
+interface Marker { owner: AuditLoop | Acceptance; session: number; attempt: number }
+function markersOf(engine: Engine, key: string): Marker[] {
   const ids = engine.record.phases[key]?.sessionIds ?? [];
-  const markers = (engine.record.auditLoops?.loops ?? []).filter(one => one.kind === "test" && one.activityKeys.includes(key) && one.sessionId).map(one => ids.indexOf(one.sessionId!)).filter(i => i >= 0).sort((a, b) => a - b);
-  const start = loop.sessionId ? ids.indexOf(loop.sessionId) : 0;
-  const end = markers.find(i => i > start) ?? ids.length;
-  return new Set(ids.slice(Math.max(0, start), end));
+  const ledger = engine.record.auditLoops;
+  const owners: (AuditLoop | Acceptance)[] = [
+    ...(ledger?.loops ?? []).filter(one => one.kind === "test" && one.activityKeys.includes(key) && one.sessionId),
+    ...(ledger?.acceptances ?? []).filter(one => one.activityKey === key && one.sessionId),
+  ];
+  return owners.map(owner => ({ owner, session: ids.indexOf(owner.sessionId!), attempt: owner.firstAttempt ?? 0 })).filter(m => m.session >= 0).sort((a, b) => a.session - b.session);
 }
+
+const isAcceptance = (owner: AuditLoop | Acceptance): owner is Acceptance => "sentence" in owner;
+
+/**
+ * The sessions and attempts a loop or an `Acceptance` owns on its activity, from its own marker up
+ * to the next one, and what they did: the
+ * latest of those attempts holding a report, or, for the activity's last owner, its effective result.
+ */
+function ownedBy(engine: Engine, owner: AuditLoop | Acceptance, key: string): { sessions: Set<string>; attempts: AuditActivity["attempts"]; did?: string } {
+  const ids = engine.record.phases[key]?.sessionIds ?? [];
+  const markers = markersOf(engine, key);
+  const start = owner.sessionId ? Math.max(0, ids.indexOf(owner.sessionId)) : 0;
+  const first = owner.firstAttempt ?? 0;
+  const nextSession = markers.find(m => m.session > start)?.session;
+  const nextAttempt = markers.map(m => m.attempt).filter(a => a > first).sort((a, b) => a - b)[0];
+  const audit = engine.auditActivity(key);
+  const attempts = (audit?.attempts ?? []).slice(first, nextAttempt);
+  const last = nextSession === undefined;
+  const did = audit && last && isAcceptance(owner) ? optionalDid(engine, audit, attempts) : latestReportDid(engine, attempts);
+  return { sessions: new Set(ids.slice(start, nextSession)), attempts, ...(did ? { did } : {}) };
+}
+
+/** The sessions a test loop owns on its activity. */
+const loopSessions = (engine: Engine, loop: AuditLoop, key: string): Set<string> => ownedBy(engine, loop, key).sessions;
 
 /** What a loop did: a delivery loop's phases, a test loop's latest report in words. */
 function loopDid(engine: Engine, loop: AuditLoop): string | undefined {
   if (loop.kind === "delivery") return `${loop.activityKeys.map(key => `Phase ${engine.judgedId(key)}`).join(", ")} built`;
   const key = loop.activityKeys[0]!;
-  const activity = engine.auditActivity(key);
-  if (!activity) return undefined;
-  // The loop's latest attempt holding a report: an attempt after its first.
-  const attempts = activity.attempts.slice(loop.firstAttempt ?? 0);
-  const next = (engine.record.auditLoops?.loops ?? []).filter(one => one.kind === "test" && one.activityKeys.includes(key) && one !== loop && (one.firstAttempt ?? 0) > (loop.firstAttempt ?? 0)).map(one => one.firstAttempt!).sort((a, b) => a - b)[0];
-  const mine = next === undefined ? attempts : activity.attempts.slice(loop.firstAttempt ?? 0, next);
-  return latestReportDid(engine, mine);
+  return engine.auditActivity(key) ? ownedBy(engine, loop, key).did : undefined;
 }
 
 /** The outcome in words, then the summary, of the latest of these attempts that holds a report. */
@@ -144,8 +168,21 @@ export function auditLoopsView(engine: Engine): AuditLoopsView {
   const countedAudits = new Set(counted.flatMap(one => one.kind === "test" ? one.activityKeys : []));
   for (const audit of record.completionAudits?.activities ?? []) {
     const akey = auditKey(audit);
-    if (audit.createdAt < since || countedAudits.has(akey) || !audit.sessionIds.length) continue;
-    lines.push({ label: auditLabel(audit.kind), activity: auditLabel(audit.kind), ...optionalDid(engine, audit), durationMs: durationOf(engine, [akey]) });
+    if (!audit.sessionIds.length) continue;
+    const markers = markersOf(engine, akey);
+    // The audit's own sessions, before the first Accept session on it.
+    const accepted = markers.find(m => isAcceptance(m.owner));
+    if (audit.createdAt >= since && !countedAudits.has(akey) && accepted?.session !== 0) {
+      const own = new Set(audit.sessionIds.slice(0, accepted?.session));
+      const did = accepted ? latestReportDid(engine, audit.attempts.slice(0, accepted.attempt)) : optionalDid(engine, audit);
+      lines.push({ label: auditLabel(audit.kind), activity: auditLabel(audit.kind), ...(did ? { did } : {}), durationMs: durationOf(engine, [akey], session => own.has(session.sessionId)) });
+    }
+    // A session an Accept started is a line of its own, never part of the loop or session before it.
+    for (const { owner } of markers) {
+      if (!isAcceptance(owner) || owner.at < since) continue;
+      const accepted = ownedBy(engine, owner, akey);
+      lines.push({ label: "Accept session", activity: auditLabel(audit.kind), ...(accepted.did ? { did: accepted.did } : {}), durationMs: durationOf(engine, [akey], session => accepted.sessions.has(session.sessionId)) });
+    }
   }
   const report = heldReport(engine.gateContext, key);
   const items = listedItems(engine.gateContext, key);
@@ -159,13 +196,13 @@ export function auditLoopsView(engine: Engine): AuditLoopsView {
   return view;
 }
 
-/** What an audit session since the first loop did: its effective result, or, with none accepted or waived yet, its latest report (AC-STOP-01). */
-function optionalDid(engine: Engine, audit: AuditActivity): { did?: string } {
-  if (!hasEffectiveResult(audit)) { const did = latestReportDid(engine, audit.attempts); return did ? { did } : {}; }
+/** What an audit session since the first loop did (`attempts`, its own): its effective result, or, with none accepted or waived yet, its latest report (AC-STOP-01). */
+function optionalDid(engine: Engine, audit: AuditActivity, attempts = audit.attempts): string | undefined {
+  if (!hasEffectiveResult(audit)) return latestReportDid(engine, attempts);
   try {
     const effective = effectiveAudit(engine.stateDirectory, audit);
     const phases = effective?.completionPhases() ?? [];
     const words = phases.length ? `added ${phases.map(id => `Phase ${id}`).join(", ")}` : outcomeWords(effective?.outcome)?.toLowerCase();
-    return words ? { did: words } : {};
-  } catch { return {}; }
+    return words;
+  } catch { return undefined; }
 }

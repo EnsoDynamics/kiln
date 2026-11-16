@@ -132,6 +132,14 @@ describe("a test audit loop stop on a needs_you report (AC-STOP-02)", () => {
     expect(button(page, "Send reply to the audit")).toBeDefined();
     expect(page).toContain("<textarea");
   });
+
+  it("shows Mark complete unusable with Check again first before a recheck, as at any Needs you stop (AC-WAIVE-02)", () => {
+    const waiting = needsYou({ ...snapshot, needsYou: { ...snapshot.needsYou!, kind: "done_check", markComplete: { offered: false, reason: "No check has run since Test audit stopped.", awaitingRecheck: { label: "Mark test audit complete", heading: "The test audit is done, and Kiln’s check is wrong?" } } } });
+    expect(button(waiting, "Mark test audit complete")).toMatch(/<button[^>]*disabled/);
+    expect(text(waiting)).toContain("Check again first. If a check still fails, this button becomes available.");
+    // The holding stop's refusal reason is not shown here: the stop holds nothing.
+    expect(text(waiting)).not.toContain("Kiln is holding because");
+  });
 });
 
 describe("activity rows say which loop they are (AC-SHOW-01, AC-TEST-03)", () => {
