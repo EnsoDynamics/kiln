@@ -10,6 +10,85 @@ section to the new version.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-16
+
+### Added
+
+- Audit loop limits. Before Start, Documents found has an **Audit loops** section: how many
+  times the delivery audit and the test audit can send Kiln back for more work on its own (3 of
+  each by default), and what happens after the last test audit loop: deliver unless something
+  serious is left, or always stop and ask. When a limit is reached Kiln stops at Needs you with
+  what the loops did and what the audit found, and you can **Allow N more loops**, take the audit
+  over, or, after the test audit, **Accept what is left and deliver**. The limits can be changed
+  while Kiln runs, from the page or with `kiln settings`, and `kiln allow-more-loops` and
+  `kiln accept-and-deliver` do the same from the command line. A run already under way when
+  Kiln is updated counts the loops it has made and stops and asks after the last one.
+- Build preflight. Before a run starts work, Kiln runs the Enso Method's `build-preflight`
+  skill in a session of its own, after each Start, Continue or Resume, to check that the access
+  the plan needs is working, that this machine can build and test the project, and that nothing
+  planned will stop the run without warning. It shows as a **Preflight** row in the plan. A clean
+  preflight goes straight on, and its row says **Ready**. When it finds things to settle, Kiln
+  stops at Needs you with the numbered items and the command that reopens the session in a
+  terminal; **Check Preflight again** (`kiln check-again`) runs a fresh one, and **Mark complete**
+  (`kiln waive-and-advance --confirm`) goes on with the items as they are. A method without the
+  skill runs as before, and a preflight that ends without a report shows **No report** and the
+  run goes on. The preflight changes nothing in the repository.
+- Phases planned as needing a person. A phase whose document has an `**Attended:**` line shows a
+  **Needs you there** marker beside its name on Documents found and in the phase plan, and a stop
+  in that phase opens with a card saying so. Such a phase runs like any other.
+- Documents found warns, beneath **Allow early merges**, when a phase this run will build has an
+  `**Early merge:**` line and early merges are off, naming each phase where the run would stop.
+
+### Changed
+
+- A new PRD on Claude Code now starts at **Medium** effort instead of High. Codex still starts
+  at High, and a PRD whose settings were already saved keeps its effort.
+- A development build now names the commit it was built from, and when, with the time zone:
+  `kiln --version` prints `1.2.2 · dev c363f8f · built Nov 14, 12:55 PM EST`, and the browser's
+  top bar shows the same beside the version, in the browser's time zone. A build made from a
+  checkout with uncommitted changes adds `(modified)`. Release builds still show the version alone.
+- At Needs you, the rows saved when Kiln stopped are now labelled **Why Kiln stopped**, with any
+  passing ones under **Also checked when Kiln stopped**, and the page says when **Check again**
+  will run all of the activity's completion checks. Once those checks have run, the rows are
+  labelled **Completion checks**.
+- An item an audit lists for a person while Kiln carries on now reads **for your review**
+  instead of **waiting for you**, since Kiln keeps working and nothing waits on it yet.
+- A long fresh-session prompt at Needs you and on the hand-back page now scrolls inside a box
+  of fixed height, so the copy button below it stays in view.
+- **Early merges allowed** now shows one line per merge target, counting merges that landed,
+  need attention, are waiting or were waived, with a link to the latest. Each merge that needs
+  attention shows its reason under that line; the rest of each merge's evidence sits under
+  **Merge details**. A merge replaced by a later one is no longer counted.
+- When a field above holds **Start** on Documents found, the line under **Start** now says which
+  field and why, or how many fields need fixing, and says **Not connected to Kiln.** when the
+  page has lost Kiln. Before, Start was greyed out with nothing beside it.
+
+### Fixed
+
+- **Starting again from the Folder missing page now ends a pause for good.** When the run's
+  folder went missing while Kiln was paused, pressing Start with the run's existing branch
+  paused the run again straight away, before anything ran. Now the run goes on, beginning with
+  a fresh preflight.
+- A finished feature whose pull request hasn't merged no longer shows **Plan needs
+  reconciliation**; it stays **Complete** and says Kiln checks for new phases once it merges.
+- **Audits with early merges on no longer stop on "needs a current development-delivery
+  assessment".** The audit session was never told to record that assessment, so its report
+  was refused until a person marked the audit complete.
+- **Mark complete keeps the phases an audit added while asking you something.** When an audit
+  added completion phases and also listed something for you to decide, marking it complete
+  failed with "Repair obligations require the accepted audit's matching open completion phase."
+  It now completes, and Kiln builds the phases it added.
+- **A phase split midway no longer stops Kiln once it is done.** When a phase's own session
+  split it and built the first sub-phase, a later phase's edits to the shared PRD or design
+  could stop Kiln on that sub-phase with "Phase N needs a current development-delivery
+  assessment", though it had passed its checks when it finished. When Kiln has no record of the
+  documents such a phase was finished against, it now reads them from the commit its session
+  finished on, so later edits to the shared documents no longer reopen it.
+- **A stop that is only Kiln's record says so.** When a finished phase stops Kiln only because
+  its delivery assessment no longer matches the documents, Needs you says the phase is done,
+  names the session that built it, and leads with **Mark complete**, instead of saying no Kiln
+  session ran it and offering a prompt to pick it up yourself.
+
 ## [1.2.2] - 2026-11-14
 
 The header shows the whole PRD's time, the top bar says when a newer Kiln is on npm, and a

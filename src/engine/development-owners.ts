@@ -62,7 +62,10 @@ export function assignAuditObligations(context: DeliveryContext, sourceActivityI
   let criterionKeys: string[];
   if (target.kind === "phase") {
     const planned = context.record.plan?.find(one => one.id === target.phaseId);
-    if (effective.outcome !== "completion_phases" || !effective.completionPhases().includes(target.phaseId) || !planned || planned.closed) throw new Error("Repair obligations require the accepted audit's matching open completion phase.");
+    // An audit marked complete counts as passed, yet still owns the phases its report, or with no usable
+    // report its session, appended (AC-WAIVE-12; a `needs_you` report that added phases, AC-TEST-02).
+    const ownsPhases = effective.outcome === "completion_phases" || effective.source === "waiver";
+    if (!ownsPhases || !effective.completionPhases().includes(target.phaseId) || !planned || planned.closed) throw new Error("Repair obligations require the accepted audit's matching open completion phase.");
     criterionKeys = report?.outcome === "completion_phases" && report.schemaVersion !== 2 ? report.completionPhases.find(one => one.id === target.phaseId)?.criterionKeys ?? allKeys : allKeys;
   } else {
     const next = context.record.completionAudits?.activities.find(one => one.activityId === target.activityId);

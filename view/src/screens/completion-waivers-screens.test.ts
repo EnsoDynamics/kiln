@@ -10,6 +10,7 @@ import type { Snapshot } from "../../../src/engine/snapshot.js";
 import type { ItemChange } from "../../../src/engine/waivers.js";
 import type { DeliveryCheckpoint } from "../../../src/state/development-delivery.js";
 import {
+  bookkeepingNeedsYouSnapshot,
   completeWaivedSnapshot,
   finalDeliveryNeedsYouSnapshot,
   handBackSnapshot,
@@ -41,11 +42,15 @@ const order = (words: string, ...parts: string[]) => {
 };
 
 describe("the hand-back page keeps resuming and checking apart (AC-NEXT-01/02)", () => {
-  it("puts Have Kiln resume in the terminal card and the checks, as Kiln stopped, below the two cards", () => {
+  it("puts Have Kiln resume in the terminal card and the rows saved at the stop, labelled Why Kiln stopped, below the two cards (AC-STOPCHECK-01, 02)", () => {
     const html = handBack(handBackSnapshot());
     const words = text(html);
     order(words, "Talk it through in your terminal", "For a back-and-forth with Claude Code. The full conversation comes with you.", "Changed the plan?", "Got it back on track? Exit Claude Code, then: Have Kiln resume Phase 2b", "Kiln picks up the same conversation, including your terminal discussion, and finishes Phase 2b.", "Is Phase 2b already done?");
-    expect(words).toContain("Checked when Kiln stopped, 11:52:00 AM · 3 of 4 passed");
+    // The failing row saved at the stop under Why Kiln stopped, with when it was checked and no passed count; the passing rows beneath.
+    expect(words).toContain("Why Kiln stopped Checked when Kiln stopped, 11:52:00 AM Required development delivery verified Not yet");
+    expect(words).not.toContain("3 of 4 passed");
+    expect(words).not.toContain("Completion checks");
+    order(words, "Required development delivery verified Not yet", "Also checked when Kiln stopped", "Phase doc closed Passed", "Pushed Passed", "Check Phase 2b again Check again runs all of Phase 2b’s completion checks.");
     expect(words).toContain("If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out Phase 2b and moves to the next step. Nothing is committed or pushed for you.");
     order(words, "Is Phase 2b already done?", "Required development delivery verified Not yet", "api-checkpoint / verify: /deployed_sha does not match", "Check Phase 2b again");
     expect(words).not.toContain("Back from your terminal?");
@@ -72,20 +77,28 @@ describe("the hand-back page keeps resuming and checking apart (AC-NEXT-01/02)",
 
   it("after a failed recheck, says how many checks fail, points to resuming, and offers Mark complete below the checks (AC-WAIVE-02/03)", () => {
     const words = text(handBack(handBackSnapshot({ rechecked: true })));
-    expect(words).toContain("Checked again 11:56:05 AM · 3 of 4 passed");
+    // Once the completion checks have run, every row shows under Completion checks, and Check again's line is gone (AC-STOPCHECK-03).
+    expect(words).toContain("Completion checks Checked again 11:56:05 AM · 3 of 4 passed");
+    expect(words).not.toContain("Why Kiln stopped");
+    expect(words).not.toContain("Also checked when Kiln stopped");
+    expect(words).not.toContain("Check again runs all of");
     order(words, "Check Phase 2b again", "Phase 2b still has 1 failing check. If the work isn’t finished, have Kiln resume it above.", "Phase 2b is done, and Kiln’s check is wrong?",
       "Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to the next step. Phase 2b will show as “Complete · 1 check waived”.", "Mark Phase 2b complete");
   });
 
-  it("never says Checked again after a recheck that could not finish, keeping the earlier rows' time", () => {
-    const snapshot = handBackSnapshot({ rechecked: true });
+  it("never says Checked again after a recheck that could not finish, keeping the earlier rows' time and label", () => {
+    const snapshot = handBackSnapshot();
     snapshot.needsYou!.checkedAt = "2026-10-17T15:52:00Z";
     snapshot.needsYou!.checkRun = { id: "run-2b-unfinished", at: "2026-10-17T15:56:05Z", origin: "recheck", finished: false };
     snapshot.needsYou!.markComplete = { offered: false, reason: "The last check could not finish." };
     const words = text(handBack(snapshot));
     expect(words).not.toContain("Checked again");
-    expect(words).toContain("Checked 11:52:00 AM · 3 of 4 passed");
+    expect(words).toContain("Why Kiln stopped Checked 11:52:00 AM Required development delivery verified");
+    expect(words).not.toContain("3 of 4 passed");
     expect(words).not.toContain("still has");
+    // After a finished check of the completion checks, an unfinished one keeps the Completion checks label (AC-STOPCHECK-03).
+    snapshot.needsYou!.rowsAreCompletionChecks = true;
+    expect(text(handBack(snapshot))).toContain("Completion checks Checked 11:52:00 AM · 3 of 4 passed");
   });
 
   it("writes an audit's name in lower case mid-sentence, as the mockup does: Check delivery audit again", () => {
@@ -155,13 +168,23 @@ describe("Mark complete on the standard Needs you page (AC-WAIVE-02)", () => {
     expect(button(html, "Mark final delivery complete")).not.toContain("disabled");
   });
 
-  it("reads Checked again with the recheck's time, as the mockup does, and plain Checked before any recheck", () => {
-    expect(text(needsYou(finalDeliveryNeedsYouSnapshot()))).toContain("Check again Checked again 12:41 PM.");
+  it("reads Checked again with the recheck's time under Completion checks, and Checked when Kiln stopped under Why Kiln stopped before any (AC-STOPCHECK-01 to 03)", () => {
+    const after = text(needsYou(finalDeliveryNeedsYouSnapshot()));
+    expect(after).toContain("Check again Checked again 12:41 PM.");
+    expect(after).toMatch(/^.*Completion checks Development delivery and remaining review/);
+    expect(after).not.toContain("Check again runs all of");
     const first = finalDeliveryNeedsYouSnapshot();
     first.needsYou!.checkRun = { id: "run-pr-stop", at: "2026-10-17T16:41:00Z", origin: "stop", finished: true };
+    delete first.needsYou!.rowsAreCompletionChecks;
+    first.needsYou!.recheckRunsAll = true;
     const words = text(needsYou(first));
-    expect(words).toContain("Check again Checked 12:41 PM.");
+    expect(words).toContain("Why Kiln stopped Development delivery and remaining review");
+    expect(words).toContain("Check again Checked when Kiln stopped, 12:41 PM. Check again runs all of final delivery’s completion checks.");
     expect(words).not.toContain("Checked again");
+    expect(words).not.toContain("Completion checks");
+    // Where Check again reruns only the check that stopped Kiln, the line is left out (AC-STOPCHECK-02).
+    delete first.needsYou!.recheckRunsAll;
+    expect(text(needsYou(first))).not.toContain("Check again runs all of");
   });
 
   it("shows Mark complete unusable before a recheck, saying to check again first", () => {
@@ -184,6 +207,28 @@ describe("Mark complete on the standard Needs you page (AC-WAIVE-02)", () => {
     snapshot.needsYou!.markComplete = { ...markCompleteOfferSample(), heading: "Delivery audit is done, and Kiln’s check is wrong?", label: "Mark delivery audit complete", noReport: true,
       sentence: ["No audit report. Kiln couldn’t read a report from this audit, so it can’t tell what the audit found.", "Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, counts the audit as passed and moves on to the test audit. Delivery audit will show as “Complete · 1 check waived” with a warning: no audit report."] };
     order(text(needsYou(snapshot)), "Delivery audit is done, and Kiln’s check is wrong?", "! No audit report Kiln couldn’t read a report from this audit, so it can’t tell what the audit found.", "counts the audit as passed and moves on to the test audit", "Mark delivery audit complete");
+  });
+});
+
+describe("a stop that is only Kiln's record leads with Mark complete (AC-WAIVE-02)", () => {
+  it("says the phase is done, credits the session that split it off and built it, and puts Mark complete first", () => {
+    const html = needsYou(bookkeepingNeedsYouSnapshot());
+    const words = text(html);
+    order(words, "Phase 2a is done. Only Kiln’s record of it is out of date.", "Phase 2’s session built and closed it, and Kiln accepted it then.", "Kiln found nothing else missing: mark it complete to carry on.",
+      "Phase 2a is done, and Kiln’s check is wrong?", "Mark Phase 2a complete", "Completion checks", "Phase 2a needs a current development-delivery assessment.", "Check again");
+    expect(button(html, "Mark Phase 2a complete")).not.toContain("disabled");
+    expect(words.split("Mark Phase 2a complete")).toHaveLength(2);
+    // The checks sit beside or below Mark complete here, so its sentence doesn't point above.
+    expect(words).toContain("Kiln skips the 1 failing check, records it as waived");
+    for (const absent of ["No Kiln session ran this phase", "Pick it up yourself", "Copy prompt", "Session can’t be opened?"]) expect(words).not.toContain(absent);
+  });
+
+  it("keeps Mark complete first, unusable, before a recheck", () => {
+    const snapshot = bookkeepingNeedsYouSnapshot();
+    snapshot.needsYou!.markComplete = { offered: false, reason: "No check has run since Phase 2a stopped.", awaitingRecheck: { label: "Mark Phase 2a complete", heading: "Phase 2a is done, and Kiln’s check is wrong?" } };
+    const html = needsYou(snapshot);
+    order(text(html), "Phase 2a is done. Only Kiln’s record of it is out of date.", "Mark Phase 2a complete", "Check again first.", "Check again");
+    expect(button(html, "Mark Phase 2a complete")).toContain("disabled");
   });
 });
 

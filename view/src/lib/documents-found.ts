@@ -93,6 +93,8 @@ export interface PlanRow {
   closed: boolean;
   /** The repositories its document names (multi-repo AC-REPO-03). */
   repositories: string[];
+  /** Its `**Attended:**` line's text, when it has one: the Needs you there marker (build preflight AC-ATTEND-01). */
+  attended?: string;
   /** "split into 2a and 2b" for a split phase; its children follow nested under it. */
   splitNote?: string;
   children: PlanRow[];
@@ -110,6 +112,7 @@ export function planRows(phases: NonNullable<Documents["plan"]>["phases"]): Plan
       title: phase.title,
       closed: phase.closed,
       repositories: phase.repositories,
+      ...(phase.attended === undefined ? {} : { attended: phase.attended }),
       ...(phase.splitInto ? { splitNote: `split into ${joinAnd(phase.splitInto)}` } : {}),
       children,
     };
@@ -161,8 +164,26 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (snapshot.billing && !snapshot.billing.canLaunch) return { enabled: false, note: snapshot.billing.next?.readinessError ?? "Review billing before starting." };
   if (settings.metadataPending) return { enabled: false, note: "Reading agent information…" };
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };
-  const held = Object.values(settings.fieldErrors).some((message) => message !== undefined) || repositories.some((row) => row.fieldErrors.baseBranch !== undefined);
-  return { enabled: connected && !held };
+  if (!connected) return { enabled: false, note: "Not connected to Kiln." };
+  const held = heldBy(snapshot);
+  if (held.length === 1) return { enabled: false, note: `${held[0]!.field}: ${held[0]!.message}` };
+  if (held.length > 1) return { enabled: false, note: `Fix the ${held.length} fields marked above to start.` };
+  return { enabled: true };
+}
+
+const FIELD_LABELS: Record<string, string> = { workspaceFolder: "Workspace folder", worktreePath: "Worktree", featureBranch: "Feature branch", baseBranch: "Base branch", model: "Model" };
+
+/**
+ * The field messages holding Start, so the note under it says why (UI-010 item 4). The PRD's
+ * repository row repeats the base field's message, so only the other rows are counted.
+ */
+function heldBy(snapshot: Snapshot): { field: string; message: string }[] {
+  const multi = snapshot.feature.multiRepository;
+  const prdName = snapshot.repositories.find((row) => row.kind === "prd")?.name;
+  const label = (key: string) => (key === "baseBranch" && multi && prdName ? `${prdName}’s base branch` : FIELD_LABELS[key] ?? key);
+  const fields = Object.entries(snapshot.settings.fieldErrors).flatMap(([key, message]) => (message === undefined ? [] : [{ field: label(key), message }]));
+  const rows = snapshot.repositories.flatMap((row) => (row.kind !== "prd" && row.fieldErrors.baseBranch !== undefined ? [{ field: `${row.name}’s base branch`, message: row.fieldErrors.baseBranch }] : []));
+  return [...fields, ...rows];
 }
 
 /** Documents found's account lines under Agent: the email and plan, then the usage line. */
@@ -176,4 +197,21 @@ export function accountLines(account: Snapshot["account"]): { line?: string; usa
   if (fiveHourNotReported(account)) parts.push(FIVE_HOUR_NOT_REPORTED);
   const usage = parts.length === 0 ? undefined : `Used: ${parts.join(" · ")}`;
   return { ...(line ? { line } : {}), ...(usage ? { usage } : {}), ...(account.limitsError ? { usageError: account.limitsError } : {}) };
+}
+
+/**
+ * The leaves this run will build that carry an `**Early merge:**` line (build preflight
+ * AC-ATTEND-05): not closed, and at or after the start point. Each names the branch the line
+ * gives, its text up to the first comma, as written.
+ *
+ *   earlyMergeStops([{ id: "3", earlyMerge: "develop, for AC-RET-04", closed: false, ... }], undefined)
+ *   // [{ id: "3", branch: "develop" }]
+ */
+export function earlyMergeStops(phases: NonNullable<Documents["plan"]>["phases"], startAt: { id: string } | undefined): { id: string; branch: string }[] {
+  const leaves = phases.filter((phase) => phase.splitInto === undefined);
+  const from = startAt === undefined ? 0 : Math.max(0, leaves.findIndex((leaf) => leaf.id === startAt.id));
+  return leaves
+    .slice(from)
+    .filter((leaf) => !leaf.closed && leaf.earlyMerge !== undefined)
+    .map((leaf) => ({ id: leaf.id, branch: leaf.earlyMerge!.split(",")[0]!.trim() }));
 }

@@ -120,6 +120,8 @@ A new-branch start keeps today's reads and checks, including the checkout-equals
 
 ### Start
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (a preflight precedes the first activity, a start with every phase closed included).
+
 Start submits `previewId`. Kiln recomputes the preview and refuses `start_changed` (409) with the refreshed page when it differs. Then one save records `startedAt` and every repository's entry, before any git write. An existing-branch entry, for a repository that has the chosen branch, holds `baseCommit` (the merge base) and `runStartCommit` (the branch's tip). It also holds `adoptedWorktree` when adopted. When the offer is ticked and the repository qualifies, it holds `catchUp` from that tip to the base tip the preview read. A new-branch entry holds `baseCommit` as today.
 
 Then, per repository in list order, an existing-branch entry is set up in three steps. Each step is skipped when its effect is already there.
@@ -137,6 +139,8 @@ The entry is then marked set up. A new-branch entry is set up exactly as today, 
 The record's plan at Start is the plan the preview showed.
 
 ### After Start
+
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (a preflight precedes the first activity, a start with every phase closed included).
 
 - **Closed before the run.** On a start from an existing branch, only the first plan read (`readPlan` with no earlier baseline) accepts each leaf Closed at the PRD repository's start commit (its `runStartCommit`, or its `baseCommit` when its branch is cut new) as an outside completion at that commit, with its scope repositories and each set-up repository's `runStartCommit`, or `baseCommit` where the branch was cut new, as its revisions. This comes before the published-base proof and the evidence check, which still apply to any other closed leaf. That includes a leaf that becomes Closed after Start, such as one a catch-up at a stopped phase brings in from the base: when no session of the run ran it, the next plan read needs its completion evidence (the Closed line, and every set-up repository clean and pushed, or, with several repositories, still at its `baseCommit`), and today's development-delivery check when delivery is on. A failure is a plan stop that names the leaf. The catch-up meets that evidence in each repository it moves, because a branch qualifies only when it is clean and the catch-up leaves it at origin; a fast-forward settled before its push meets it only with several repositories, at the entry's `baseCommit`. A repository it did not move must meet it in its own right. A stopped phase that itself arrives Closed is judged by its completion check when its next session ends. Development delivery's "closed before the run" set (`leavesClosedAtRunBase`, read at `baseCommit` today) is read at `runStartCommit` when the entry has one, as is the start of the delivery history's base range.
 - **Sessions are told.** While an adopted worktree has uncommitted files and no run of the PRD's sessions has reported Claude `init` or a Codex `turnId`, every prompt Kiln sends at a launch or resume gets one added paragraph: how many files in each such worktree, counted when the prompt is built, and to look before building. A count of zero adds nothing.

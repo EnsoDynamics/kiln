@@ -102,7 +102,7 @@ describe("a plan row", () => {
   it("says items an audit left for the person are waiting until a later audit accounts for them (AC-NEUTRAL-03)", () => {
     const audit = { id: "audit-1", title: "Delivery audit", file: "Round 1", kind: "delivery_audit" as const, state: "done" as const, finishedByPerson: false, sessionStartedAt: "2026-10-17T15:00:00Z", doneAt: "2026-10-17T15:09:00Z" };
     const shape = (personItems?: { count: number; waiting: boolean }) => ({ ...audit, audit: { outcome: "completion_phases", checks: [], criteria: [], repositories: [], blockers: [], pendingActions: [], ...(personItems ? { personItems } : {}) } });
-    expect(rowFacts(shape({ count: 1, waiting: true }), "done", RUNNING_NOW)).toBe("9m · 1 item waiting for you");
+    expect(rowFacts(shape({ count: 1, waiting: true }), "done", RUNNING_NOW)).toBe("9m · 1 item for your review");
     expect(rowFacts(shape({ count: 2, waiting: false }), "done", RUNNING_NOW)).toBe("9m · listed 2 items for you");
     expect(rowFacts(shape(), "done", RUNNING_NOW)).toBe("9m");
   });
@@ -160,7 +160,7 @@ describe("the Needs you screen's copy", () => {
   const copyOf = (change: Partial<NeedsYou>) => needsYouCopy({ ...base, ...change }, settings, now);
 
   it("reads as drawn for a session that ended with a message, or crashed with none (AC-STOP-02)", () => {
-    expect(needsYouCopy(base, settings, now)).toMatchObject({ headline: "Phase 2b ended before it was done.", line: "Kiln doesn’t try to interpret why. This is how the session ended.", firstStep: "resume", freshLink: true, sideHeading: "Kiln continues when" });
+    expect(needsYouCopy(base, settings, now)).toMatchObject({ headline: "Phase 2b ended before it was done.", line: "Kiln doesn’t try to interpret why. This is how the session ended.", firstStep: "resume", freshLink: true, sideHeading: "Why Kiln stopped" });
     expect(needsYouCopy({ ...base, phaseId: "pr" }, settings, now, true).finishText).toBe("Each changed repository needs a ready pull request from feature/customer-returns into its intended base, or proof that its current feature commit is already merged into that base.");
     expect(needsYouCopy(needsYouCrashedSnapshot().needsYou!, settings, now).line).toBe("The session exited with an error and no final message. These are the last lines it wrote.");
     expect(endingFact(base)).toBe("exit 0");
@@ -180,15 +180,35 @@ describe("the Needs you screen's copy", () => {
     for (const phaseId of ["pr", "audit-a1"]) expect(needsYouCopy({ ...noSession, phaseId, kind: "done_check" }, settings, now).line).not.toContain("No Kiln session ran this phase");
   });
 
+  it("says a phase stopped only on Kiln's record is done, naming the session that finished it", () => {
+    const noSession = without(without(without(base, "finalMessage"), "exitCode"), "sessionId");
+    expect(needsYouCopy({ ...noSession, phaseId: "2a", kind: "done_check", bookkeeping: { finishedBy: "2" } }, settings, now)).toMatchObject({ headline: "Phase 2a is done. Only Kiln’s record of it is out of date.", line: expect.stringMatching(/^Phase 2’s session built and closed it, and Kiln accepted it then\./), showFacts: false, firstStep: "none", freshLink: false });
+    // A phase whose own session finished it, with that session's ending on record.
+    expect(needsYouCopy({ ...base, kind: "done_check", bookkeeping: { finishedBy: "2b" } }, settings, now).line).toMatch(/^Its own session built and closed it/);
+  });
+
   it("uses UI-007 item 1's lines for the pull request", () => {
-    expect(copyOf({ phaseId: "pr", kind: "pull_request_check" })).toMatchObject({
+    expect(copyOf({ phaseId: "pr", kind: "pull_request_check", rowsAreCompletionChecks: true })).toMatchObject({
       headline: "The pull-request session ended before it was done.",
       finishTitle: "Open the pull request with Claude, the way you normally would",
       finishText: "Kiln accepts a ready pull request from feature/customer-returns into develop, or proof that its current feature commit is already merged into that base.",
       checkAgainText: "Kiln checks GitHub and the worktrees. When every changed repository has a ready pull request or verified prior integration, the feature is complete.",
-      sideHeading: "Kiln finishes when",
+      sideHeading: "Completion checks",
       footnote: "This is the check Kiln runs after the pull-request session.",
     });
+  });
+
+  it("labels the rows saved at a stop Why Kiln stopped, and keeps wording that calls them the completion checks until they are (AC-STOPCHECK-01, 03)", () => {
+    const atStop = copyOf({});
+    expect(atStop).toMatchObject({ sideHeading: "Why Kiln stopped", footnote: "" });
+    expect(atStop.finishText).toBe("Finish it however you like. It doesn’t matter how the phase gets closed, committed and pushed.");
+    const checked = copyOf({ rowsAreCompletionChecks: true });
+    expect(checked).toMatchObject({ sideHeading: "Completion checks", footnote: "This is the same check Kiln runs after every phase. Later phases wait until it passes." });
+    expect(checked.finishText).toContain("Kiln only looks at the three checks on the right");
+    expect(copyOf({ phaseId: "pr", kind: "pull_request_check" }).footnote).toBe("");
+    // Footnotes about Check again itself, not the rows, stay at the stop.
+    expect(copyOf({ phaseId: "audit-proof", resumeOffered: true }).footnote).toBe("Check again checks completion. To continue unfinished audit work, press Resume; your reply is optional.");
+    expect(copyOf({ kind: "selection" }).footnote).toBe("Check again refreshes the selected agent before starting a new session.");
   });
 
   it("distinguishes checking audit completion from resuming unfinished work without a reply", () => {

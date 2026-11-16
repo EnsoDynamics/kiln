@@ -52,7 +52,7 @@ it("explains current-PRD scope without remember or reuse controls", () => {
 
 // AC-DISPLAY-01/02/03: exercise the actual screen boundary, not just snapshot helpers.
 import type { Snapshot } from "../../../src/engine/snapshot.js";
-import type { DeliveryCheckpoint } from "../../../src/state/development-delivery.js";
+import { checkpointAgainst, type DeliveryCheckpoint } from "../../../src/state/development-delivery.js";
 import { completeRepositoriesSnapshot, completeSnapshot, needsYouMessageSnapshot, runningRepositoriesSnapshot, runningSnapshot, waitingSnapshot, RUNNING_NOW } from "../../../src/test-support/sample-snapshots.js";
 import Complete from "./Complete.svelte";
 import NeedsYou from "./NeedsYou.svelte";
@@ -130,8 +130,8 @@ it.each(["phase detail", "needs you", "waiting"])("retains distinct pending, mer
       ? render(NeedsYou, { props: { snapshot, now: RUNNING_NOW } }).body
       : render(Waiting, { props: { snapshot, now: RUNNING_NOW } }).body;
   const text = words(html);
-  expect(text).toContain("github.com/acme/returns-api · returns-api-dev");
-  expect(text).toContain("Merge confirmed");
+  expect(text).toContain("github.com/acme/returns-api · develop · returns-api-dev : 1 needs attention · latest #41 #41: Artifact verification failed: expected the deployed revision. Merge details (1)");
+  expect(html).toMatch(/<details class="merge-details[^"]*"><summary[^>]*>[\s\S]*?Merge details \(1\)<\/summary>[\s\S]*Merge confirmed/);
   expect(html).toContain(`href="${mergeUrl}"`);
   expect(text).toContain("Source 123456789abc · Result abcdef123456");
   expect(text).toContain("deploy: planned / awaiting evidence");
@@ -140,6 +140,36 @@ it.each(["phase detail", "needs you", "waiting"])("retains distinct pending, mer
   expect(text).toContain("verification: unresolved · returns-api-dev · abcdef123456");
   expect(text).toContain("Artifact verification failed: expected the deployed revision.");
   expect(text).toContain(screen === "waiting" ? "Waiting for usage" : screen === "needs you" ? "Needs you" : "Session ID");
+});
+
+describe("the early-merges summary line", () => {
+  const summary = (snapshot: Snapshot) => words(render(NeedsYou, { props: { snapshot, now: RUNNING_NOW } }).body).match(/returns-api-dev : [^]*?(?=Merge details)/)?.[0];
+  /** A copy of the fixture checkpoint with its own id, source and merge number; merged and passing unless changed. */
+  const another = (snapshot: Snapshot, id: string, number: number | undefined): DeliveryCheckpoint => {
+    const base = structuredClone(snapshot.developmentDelivery!.checkpoints[0]!);
+    const copy: DeliveryCheckpoint = { ...base, id, headSha: id.padEnd(40, "0"), evidence: base.evidence.map(fact => ({ ...fact, status: "success" as const })), operations: [] };
+    delete copy.unresolvedReason;
+    if (number === undefined) delete copy.merge; else copy.merge = { ...base.merge!, number, url: `https://github.com/acme/returns-api/pull/${number}`, resultSha: String(number).padEnd(40, "f") };
+    return copy;
+  };
+
+  it("counts merges by outcome, leaves out a replaced merge, and links the latest", () => {
+    const snapshot = enabled(needsYouMessageSnapshot());
+    const delivery = snapshot.developmentDelivery!;
+    const replaced = { ...another(snapshot, "replaced", undefined), unresolvedReason: "Pull request closed without merging.", supersededBy: "second" };
+    const waiting = another(snapshot, "waiting", undefined);
+    delivery.checkpoints = [another(snapshot, "first", 50), replaced, another(snapshot, "second", 51), waiting];
+    expect(summary(snapshot)).toBe("returns-api-dev : 2 merged · 1 waiting to merge · latest #51 ");
+  });
+
+  it("counts an unmerged checkpoint whose merge and checks were all waived as waived, not as needing attention", () => {
+    const snapshot = enabled(needsYouMessageSnapshot());
+    const skipped = { ...another(snapshot, "skipped", undefined), evidence: [], unresolvedReason: "Workflow 42 finished unsuccessfully." };
+    snapshot.developmentDelivery!.checkpoints = [skipped];
+    const at = "2026-10-17T15:50:00Z";
+    snapshot.waivers = ["requiredMerge", "deploy", "verify"].map(requirementId => ({ at, items: [{ kind: "development_requirement", subject: `skipped/${requirementId}`, against: checkpointAgainst(skipped) }] })) as unknown as Snapshot["waivers"];
+    expect(summary(snapshot)).toBe("returns-api-dev : 1 waived ");
+  });
 });
 
 function delivered(snapshot: Snapshot): Snapshot {

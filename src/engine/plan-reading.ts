@@ -60,7 +60,25 @@ export function recordedPlan(plan: PhasePlan): RecordedPlanPhase[] {
     ...(phase.splitInto === undefined ? {} : { splitInto: phase.splitInto }),
     closed: phase.closed,
     repositories: phase.repositories,
+    ...(phase.attended === undefined ? {} : { attended: phase.attended }),
+    ...(phase.earlyMerge === undefined ? {} : { earlyMerge: phase.earlyMerge }),
   }));
+}
+
+/**
+ * A recorded plan's phase identities, closure and structure, without the display-only Attended and
+ * Early merge text (build preflight AC-ATTEND-04): what a comparison of two plans may judge, so a
+ * record saved before Kiln read those lines still matches its plan.
+ *
+ *   planStructure(recordedPlan(plan))  // [{ id: "1", title, file, closed, repositories }, ...]
+ */
+export function planStructure(plan: RecordedPlanPhase[]): Omit<RecordedPlanPhase, "attended" | "earlyMerge">[] {
+  return plan.map((phase) => {
+    const structure = { ...phase };
+    delete structure.attended;
+    delete structure.earlyMerge;
+    return structure;
+  });
 }
 
 /** The leaves of a recorded plan, in plan order. */

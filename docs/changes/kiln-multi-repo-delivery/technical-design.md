@@ -494,6 +494,8 @@ Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audi
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (enabled permission, recovery and completion presentation). Restricted execution behavior remains in force.
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Display Contract (Documents found and the run's settings gain the **Audit loops** section, and a loop stop gets its own page; the rest of each layout remains).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot ("Needs you on screen", Disconnected rules, Settings and each phase's model)
 
 The four drawn screens are built from their mockups' HTML, which is their specification, field messages included. The rest follow AC-SHOW-01's table:

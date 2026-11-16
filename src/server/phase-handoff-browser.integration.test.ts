@@ -74,6 +74,8 @@ it.each(["Claude Code", "Codex"] as const)("preserves %s drafts, separates paylo
     expect(await page.evaluate("[...document.querySelectorAll('main button')].filter(e => /^(Send reply|Have Kiln resume Phase|Check Phase|Checking)/.test(e.textContent.trim())).every(e => e.disabled)")).toBe(true);
     stop.checkedAt = new Date("2026-10-26T20:01:02Z").toISOString();
     stop.checks.push({ name: "Required delivery", passed: true, facts: ["Delivery receipt confirmed"] });
+    // The recheck ran the completion checks, so its rows read as them, with the passed count (checks at a stop AC-STOPCHECK-03).
+    stop.rowsAreCompletionChecks = true;
     server.send("snapshot", snapshot); release(); gate = undefined;
     await words(page, "failing check"); await words(page, `of ${stop.checks.length} passed`);
     expect(await page.evaluate("document.querySelector('.return .between [role=status]').textContent")).not.toBe(previousTime);

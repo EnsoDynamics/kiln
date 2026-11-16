@@ -18,7 +18,7 @@ Pinned CLI: {{cli}}
 When the skill reaches its end, write Kiln's report as JSON at {{reportPath}} (relative to the
 PRD repository), commit and push it with everything else, then submit it with the pinned CLI:
 `audit submit <file>`, where <file> holds {"executionId","activityId","revision","reportPath"}.
-Read the current revision with `audit status`. Inspect the response: recorded means you
+Read the current revision with `audit status`.{{deliveryStep}} Inspect the submit response: recorded means you
 are done; unresolved names exactly what to correct before submitting again.
 
 The report has these fields and nothing else is required:
@@ -41,9 +41,10 @@ The report has these fields and nothing else is required:
   it reports needs_you.
 - "summary": a few plain sentences on what the audit concluded.
 - "completionPhases": the IDs of the phases this audit appended, [] when none.
-- "needsYou": [{"problem","action"}] for each thing a person must resolve; when passed, only
-  outstanding items listed again, and [] for a test audit that changed only tests.
-  Add "id" to an entry that lists again an item from the outstanding list below.
+- "needsYou": [{"problem","action","criterion"?}] for each thing a person must resolve; when passed,
+  only outstanding items listed again, and [] for a test audit that changed only tests.
+  Add "id" to an entry that lists again an item from the outstanding list below. Add "criterion",
+  the acceptance criterion's ID, when the item is that criterion's test row.
 - "settled": [{"id","how"}] for each item from the outstanding list below that is now settled,
   saying how; omit or [] when none. Account for every outstanding item exactly once, in needsYou
   with its id when it is still open or in settled; Kiln refuses a report that leaves one out.
@@ -54,7 +55,7 @@ The report has these fields and nothing else is required:
   such as a later production release; these alone do not make the outcome needs_you.
 Report the outcome the skill actually reached. Never write "passed" to finish; if you are stuck,
 write "needs_you" and say what is needed.
-
+{{loops}}
 Items earlier audits left for a person (outstanding):
 {{outstanding}}
 

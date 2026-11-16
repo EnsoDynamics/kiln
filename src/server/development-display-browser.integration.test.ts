@@ -50,7 +50,9 @@ it("renders saved authority and observed activity, then distinct merged and revi
   server.send("snapshot", complete);
   await page.waitFor(`document.body.innerText.includes('Development delivered; review remaining')`);
   const result = await page.evaluate<string>("document.body.innerText");
-  expect(result).toContain("Merge confirmed");
+  expect(result).toContain("github.com/acme/returns-api · develop · returns-api-dev: 1 merged · latest #41");
+  expect(result).toContain("Merge details (1)");
+  expect(result).not.toContain("Merge confirmed");
   expect(result).toContain("returns-api: delivered");
   expect(result).toContain("storefront: review");
   expect(result).toContain("Review #218");

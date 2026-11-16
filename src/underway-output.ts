@@ -1,8 +1,11 @@
+import { activityKeyKind } from "./state/activity-keys.js";
 import { developmentDeliverySummary } from "./state/development-delivery.js";
 // What `kiln run` prints for a feature already underway (PRD AC-START-09; assumptions UI-010
 // item 5): the summary line, saying where Kiln left the feature, and the ● line, saying what
 // it does next. Every part comes from Kiln's own record and checks, never a guessed cause.
 
+import { awaitingMergeText } from "./engine/awaiting-merge.js";
+import type { CompletedPlanCheck } from "./engine/completed-plan-discovery.js";
 import type { Engine, UnderwayDecision } from "./engine/engine.js";
 import type { FolderMissingView } from "./engine/folder-facts.js";
 import { recordedLeaves } from "./engine/plan-reading.js";
@@ -10,7 +13,7 @@ import { effectiveRecordedClosed } from "./engine/waivers.js";
 import { PR_PHASE_KEY } from "./state/records.js";
 import { resetClock, type TerminalColors } from "./terminal-output.js";
 
-const phaseName = (key: string, engine?: Engine) => (key === PR_PHASE_KEY ? "the pull request" : engine?.auditActivity(key) ? engine.titleOf(key).toLowerCase() : `phase ${key}`);
+const phaseName = (key: string, engine?: Engine) => (key === PR_PHASE_KEY ? "the pull request" : engine?.auditActivity(key) ? engine.titleOf(key).toLowerCase() : activityKeyKind(key) === "preflight" ? "the preflight" : `phase ${key}`);
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
@@ -116,7 +119,7 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
 }
 
 /** One retained observation supplies startup and later browser-triggered terminal notices. */
-export function formatCompletedPlanCheck(check: import("./engine/completed-plan-discovery.js").CompletedPlanCheck): string {
+export function formatCompletedPlanCheck(check: CompletedPlanCheck): string {
   let text: string;
   if (check.status === "failed") text = `Could not check for new phases: ${check.errors.join(" ")}`;
   else if (check.status === "checking") text = "Checking for new phases. The current phase count is unknown.";
@@ -126,6 +129,7 @@ export function formatCompletedPlanCheck(check: import("./engine/completed-plan-
     text = coherent ? `${result.added.length} new unfinished ${result.added.length === 1 ? "phase" : "phases"} found. Completion or readiness evidence is unresolved. ${result.problems.join(" ")}` : `Plan needs reconciliation. The current phase count is unresolved. ${result?.problems.join(" ") ?? ""}`;
   }
   else if (check.status === "unchanged") text = "No new phases found. Earlier delivery remains complete.";
+  else if (check.status === "awaiting_merge") text = awaitingMergeText(check.awaitingMerge!);
   else {
     const count = check.result!.added.length;
     text = `${count} new unfinished ${count === 1 ? "phase" : "phases"} found. Review the current plan on the feature page.`;

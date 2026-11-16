@@ -123,7 +123,9 @@ describe("automatic completion activities", () => {
     expect(current.engine.record.planReconciliation!.baselineId).toBe(baseline);
     // The same stop stays in place, now with the failing plan row in a finished recheck, so Mark complete can waive it.
     const after = current.engine.record.phases[key]!;
-    expect({ ...after, stop: { ...after.stop!, checkedAt: stop!.stop!.checkedAt, checks: stop!.stop!.checks, run: stop!.stop!.run } }).toEqual(stop);
+    // The finished recheck ran the audit's completion checks, so its rows read as them (checks at a stop AC-STOPCHECK-03).
+    expect(after.stop!.rowsAreCompletionChecks).toBe(true);
+    expect({ ...after, stop: { ...after.stop!, rowsAreCompletionChecks: stop!.stop!.rowsAreCompletionChecks, checkedAt: stop!.stop!.checkedAt, checks: stop!.stop!.checks, run: stop!.stop!.run } }).toEqual(stop);
     expect(after.stop!.checks).toContainEqual(expect.objectContaining({ name: "Phase plan reads", passed: false, facts: [expect.stringContaining("Missing technical design")] }));
     expect(after.stop!.run).toMatchObject({ origin: "recheck", finished: true });
     expect(current.engine.record.completedAt).toBeUndefined();

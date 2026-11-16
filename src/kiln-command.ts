@@ -1,3 +1,5 @@
+import { preflightKey } from "./state/activity-keys.js";
+import { PREFLIGHT_TITLE } from "./engine/preflight.js";
 import { runPreparation } from "./preparation-command.js";
 import { writeDurableMetadata } from "./control/durable-file.js";
 import { readWork, retainedAliases } from "./control/private-state.js";
@@ -137,7 +139,7 @@ class StopControl {
  */
 export async function runKilnCommand(args: string[], context: CommandContext): Promise<number> {
   // AC-HELP-03: answered before anything else, so it needs no controller, Git or sign-in. A build
-  // other than the release's says it is a dev build and when it was built (build-info.ts).
+  // other than the release's names its commit and when it was built (build-info.ts).
   if (args.length === 1 && (args[0] === "--version" || args[0] === "-v")) {
     context.stdout.write(`${versionLine(KILN_VERSION, readBuildInfo(new URL("./build-info.json", import.meta.url)))}\n`);
     return 0;
@@ -454,7 +456,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
     return stop.done;
   }
   write(formatSummaryLine(engine, colors));
-  const decision = await engine.decide({ review: !run.resumeImmediately });
+  const decision = await engine.decide({ review: !run.resumeImmediately, resume: run.resumeImmediately });
   if (stop.stopping) return await stop.done;
   const { address, opening } = await serveAndOpen(run, engine);
   const openedAddress = opening.kind === "opened" ? address : undefined;
@@ -478,7 +480,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
  */
 export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, colors: TerminalColors, readAudit?: AuditWaiverReader, viewAddress?: string): string {
   const line = formatEventLine(event, record, colors, viewAddress);
-  const key = event.kind === "phase" && event.event === "done" ? event.phaseId : event.kind === "audit" && event.event === "done" ? `audit-${event.activityId}` : event.kind === "pull_request" && (event.event === "completed" || event.event === "opened") ? "pr" : undefined;
+  const key = event.kind === "phase" && event.event === "done" ? event.phaseId : event.kind === "audit" && event.event === "done" ? (event.preflight ? preflightKey(event.activityId) : `audit-${event.activityId}`) : event.kind === "pull_request" && (event.event === "completed" || event.event === "opened") ? "pr" : undefined;
   if (key === undefined || !record.phases?.[key]?.doneAt) return line;
   const { suffix, warnings } = terminalWaivers(record, key, readAudit);
   const notes = warnings.map(warning => `\n${" ".repeat(10)}${colors.amber(warning)}`).join("");
@@ -486,11 +488,28 @@ export function formatTerminalEvent(event: TerminalEvent, record: PrdRecord, col
   const complete = (at: Date, id: string, title: string) => `${formatPhaseLine(at, id, title, { kind: "completed", summary: "" }, planColumns(record.plan ?? []), colors)} ${colors.amber(suffix)}${notes}`;
   // A phase completed on its own waiver, or one that pushed nothing, reads complete, never done · pushed.
   if (event.kind === "phase" && (record.phases[key]?.waiverId || (!event.pushedSha && !event.pushes?.length))) return complete(event.at, event.phaseId, event.title);
+  // A preflight marked complete reads as a waived audit's line; one whose Codex check was waived and read no report says No report too.
+  if (event.kind === "audit" && event.preflight) return event.preflight.outcome === "no_report" ? `${line} ${colors.amber(suffix)}${notes}` : complete(event.at, "PF", PREFLIGHT_TITLE);
   // An audit completed with waived checks reads complete · 1 check waived, never Audit result recorded.
   if (event.kind === "audit") return complete(event.at, "", auditTitle(event));
   // A final delivery completed on a waiver with no pull request opened is Final delivery complete, never opened #0.
   if (event.kind === "pull_request" && event.event === "opened" && !event.number && !event.opened?.length) return complete(event.at, "PR", "Final delivery");
   return `${line} ${colors.amber(suffix)}${notes}`;
+}
+
+/**
+ * The build preflight's line, printed as an audit titled Preflight with id PF (build preflight
+ * "Display Contract"): Ready prints "complete · Ready"; No report prints "complete · No report" in
+ * amber, with its reason on an amber note line beneath when it launched no session.
+ */
+function preflightLine(event: Extract<TerminalEvent, { kind: "audit" }>, columns: ReturnType<typeof planColumns>, colors: TerminalColors, where: { viewAddress?: string }): string {
+  if (event.event !== "done") return formatPhaseLine(event.at, "PF", PREFLIGHT_TITLE, event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event, ...where }, columns, colors);
+  if (event.preflight?.outcome === "ready") return formatPhaseLine(event.at, "PF", PREFLIGHT_TITLE, { kind: "completed", summary: "Ready" }, columns, colors);
+  if (event.preflight?.outcome === "no_report") {
+    const line = formatPhaseLine(event.at, "PF", PREFLIGHT_TITLE, { kind: "completed", summary: "No report", warn: true }, columns, colors);
+    return event.preflight.reason ? `${line}\n${" ".repeat(10)}${colors.amber(event.preflight.reason)}` : line;
+  }
+  return formatPhaseLine(event.at, "PF", PREFLIGHT_TITLE, { kind: "completed", summary: "" }, columns, colors);
 }
 
 /** An audit's title on its terminal line: "Delivery audit · Round 1", with its continuation after the first. */
@@ -505,7 +524,9 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
     case "completed_plan_checked": return formatCompletedPlanCheck(event.check);
     case "folder_missing": return formatFolderMissing(event.view, event.address, colors);
     case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
-    case "audit": return formatPhaseLine(event.at, "", auditTitle(event), event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event, ...where }, columns, colors);
+    case "audit":
+      if (event.preflight) return preflightLine(event, columns, colors, where);
+      return formatPhaseLine(event.at, "", auditTitle(event), event.event === "done" ? { kind: "completed", summary: "Audit result recorded" } : event.event === "waiting" ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt ? { resetsAt: event.limit.resetsAt } : {}) } : { kind: event.event, ...where }, columns, colors);
     case "delivery": return `${event.at.toLocaleTimeString()}  ${event.repository} · ${event.environment} · ${event.stage}: ${event.outcome}`;
     case "prd_started":
       return formatStartedLine(event.at, event.branch, event.baseBranch, colors, event.repositoryCount);

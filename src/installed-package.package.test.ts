@@ -143,9 +143,9 @@ describe("the installed package", () => {
     const version = collect(runInstalled(["--version"], sandbox.root));
     expect(await version.exit).toBe(0);
     const expected = (JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as { version: string }).version;
-    // AC-HELP-03: the release candidate's archive prints the version alone; a package packed anywhere else says it is a dev build and when it was built.
+    // AC-HELP-03: the release candidate's archive prints the version alone; a package packed anywhere else names its commit and when it was built.
     if (process.env.KILN_RELEASE_BUILD === "true") expect(version.text()).toBe(`${expected}\n`);
-    else expect(version.text()).toMatch(new RegExp(`^${expected.replace(/\./g, "\\.")} \\(dev build, [^)]*\\d[^)]*\\)\\n$`));
+    else expect(version.text()).toMatch(new RegExp(`^${expected.replace(/\./g, "\\.")} · dev( [0-9a-f]+( \\(modified\\))?)? · built [A-Z][a-z]{2} \\d{1,2},( \\d{4},)? \\d{1,2}:\\d{2} [AP]M \\S+\\n$`));
   });
 
   // AC-PKG-02: no source maps, and no JavaScript pointing at one.
@@ -228,7 +228,7 @@ describe("the installed package", () => {
       expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
     };
     const inventory = JSON.parse(help([], true)).commands as { path: string[]; purpose: string; group: string; side_effect: string }[];
-    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "waive-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence", "preparation", "preparation status", "preparation submit", "carry-on", "start-again", "reset"];
+    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "waive-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence", "preparation", "preparation status", "preparation submit", "carry-on", "start-again", "reset", "allow-more-loops", "accept-and-deliver"];
     expect(inventory.map(c => c.path.join(" ")).sort()).toEqual([...expected].sort());
     // AC-HELP-01/02: root text names each people-facing command and counts the sessions' helpers;
     // the JSON and per-command help keep every command with its purpose.

@@ -39,6 +39,13 @@ Neither reopens the earlier conversation. Each receipt's `operation.effects.sess
 
 `kiln reply`, `kiln resume`, `kiln carry-on` and `kiln start-again` on a stopped phase first move a branch with no commits of its own and nothing uncommitted, that is behind its base, forward to the base's latest commit and push it, as the browser's ticked **Bring the branch up to date** box does. `--leave-branch-as-is` leaves the branch as it stands. A branch that doesn't qualify is left alone and the command goes on. Each receipt's `branch_catch_up` lists what moved, empty when nothing did; a catch-up that fails starts nothing and the command fails `branch_catch_up_failed`. A phase paused for takeover is never caught up.
 
+## Audit loop limits
+
+`kiln settings <PRD-path>` with no flags prints every setting, including the audit loop limits and what Kiln does after the last test audit loop. During a run, `--delivery-audit-loops N`, `--test-audit-loops N` (a whole number of 1 or more) and `--after-last-test-audit-loop deliver|ask` change them, with the command ID and status-token flags above; a change applies from Kiln's next decision whether to start a loop, and raising a limit starts nothing by itself. `kiln status` prints the loop counts on one line, and at a stop where the loops are used up, the stop's heading, the loops that ran, what the audit found and the controls available there; `--json` carries the same as `audit_loops`. Two stop commands answer such a stop, each with the command ID and status-token flags:
+
+- `kiln allow-more-loops <PRD-path> --loops N` sets that kind's limit to N, restarts its count and goes on with the next loop.
+- `kiln accept-and-deliver <PRD-path>`, at a test audit loop stop only, accepts what the audit left, in the sentence `audit_loops.stop.acceptSentence` shows, and goes on to deliver.
+
 ## Starting over
 
 `kiln reset <PRD-path>` does what the browser's **Reset Kiln for this PRD** button does: Kiln forgets its progress on the PRD and returns to Documents found, as if it had never run it. It can't be undone. Kiln forgets which phase it was on and each phase's result, its sessions and their output, stops, completion waivers and audit results, its settings for the PRD and its record of earlier deliveries. Nothing in Git changes: the branch and its commits, the worktree and its uncommitted files, any pull request and the phases closed in the plan stay as they are.

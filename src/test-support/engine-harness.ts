@@ -4,7 +4,7 @@ import * as auditWorkflow from "../audit/workflow.js";
 // local bare repository, the fixture PRD pushed to `develop`, the stand-in `claude` and `gh`,
 // and a fresh record, as Documents found would leave it just before Start.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Engine, type EngineOptions, type TerminalEvent } from "../engine/engine.js";
 import { originBranches } from "../engine/git-reads.js";
@@ -58,6 +58,8 @@ export interface HarnessOptions {
   /** Existing boundary tests isolate audits as an already-current gate. Audit workflow
    * tests opt into real routing; installed-provider proofs cover the actual boundary. */
   auditCycles?: boolean;
+  /** Installs a `build-preflight` skill, so every Start runs the build preflight first (build preflight AC-PREFLIGHT-01). */
+  preflight?: boolean;
   sessions: ScenarioSession[];
   folder?: string;
   files?: Record<string, string>;
@@ -111,6 +113,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   }
   git(sandbox, repository, "push", "-q", "origin", branch);
 
+  if (options.preflight) installPreflightSkill(sandbox.root);
   const standIns = installStandIns(join(sandbox.root, "bin"));
   const scenarioPath = join(sandbox.root, "scenario.json");
   const ghStatePath = join(sandbox.root, "gh-state.json");
@@ -227,4 +230,11 @@ export async function waitFor(condition: () => boolean | Promise<boolean>, ms = 
 export function readWorktreeFile(harness: Harness, path: string): string | undefined {
   const full = join(harness.engine.worktreePath, path);
   return existsSync(full) ? readFileSync(full, "utf8") : undefined;
+}
+
+/** The `build-preflight` skill in the sandbox's Claude configuration; without it, a run starts with no preflight (AC-PREFLIGHT-05). */
+export function installPreflightSkill(sandboxRoot: string): void {
+  const directory = join(sandboxRoot, "claude-config", "skills", "build-preflight");
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, "SKILL.md"), "---\nname: build-preflight\ndescription: Kiln test fixture\n---\n# build-preflight\n");
 }

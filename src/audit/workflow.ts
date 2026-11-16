@@ -12,10 +12,11 @@ import { compareSnapshots } from "./snapshots.js";
 import { AuditRefusal, type AuditActivity, type AuditKind, type WorkSnapshot } from "./contracts.js";
 import { effectiveAudit, effectiveSnapshot, hasEffectiveResult } from "./effective-result.js";
 import { AuditStore, hashBytes } from "./storage.js";
+import { preflightKey } from "../state/activity-keys.js";
 export { acceptedAudit, classifyAuditReport, countedOutcome, effectiveAudit, effectiveSnapshot, hasEffectiveResult, phasesBeyondInitial, waiveAudit, waiveUnstartedAudit, type AuditReportClass, type AuditWaiverRecorded, type EffectiveAudit } from "./effective-result.js";
 
 export interface ExecutionActivity {
-  activityId: string; sequence: number; kind: "implementation" | AuditKind | "final_delivery";
+  activityId: string; sequence: number; kind: "implementation" | AuditKind | "final_delivery" | "preflight";
   key: string; phaseId?: string; createdAt: string;
 }
 export const auditKey = (activity: Pick<AuditActivity, "activityId">) => `audit-${activity.activityId}`;
@@ -28,7 +29,9 @@ export function activityHistory(record: PrdRecord, stateDirectory: string): Exec
     const sessions = facts.sessionIds.map(id => readSessionRecord(stateDirectory, key, id)).filter((s): s is SessionRecord => !!s);
     const first = sessions.sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
     const audit = record.completionAudits?.activities.find(a => auditKey(a) === key);
+    const preflight = record.preflight?.activities.find(a => preflightKey(a.activityId) === key);
     if (audit) observed.push({ activityId: audit.activityId, kind: audit.kind, key, createdAt: audit.createdAt });
+    else if (preflight) observed.push({ activityId: preflight.activityId, kind: "preflight", key, createdAt: preflight.createdAt });
     else if (first) observed.push({ activityId: first.activityId ?? first.sessionId, kind: key === "pr" ? "final_delivery" : "implementation", key, ...(key === "pr" ? {} : { phaseId: key }), createdAt: first.createdAt });
   }
   for (const audit of record.completionAudits?.activities ?? []) if (!observed.some(a => a.activityId === audit.activityId)) observed.push({ activityId: audit.activityId, key: auditKey(audit), kind: audit.kind, createdAt: audit.createdAt });
@@ -86,36 +89,81 @@ export function continuablePredecessor(context: Pick<AdmissionContext, "record" 
   if (!predecessor || !context.record.phases[auditKey(predecessor)]?.doneAt) return undefined;
   return effectiveAudit(context.stateDirectory, predecessor)?.outcome === "continue_test" ? predecessor : undefined;
 }
+export interface SkillOptions { agent: string; claude: string; codex?: string; cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }
+export type SkillResolution = { kind: "found"; skill: NonNullable<AuditActivity["skill"]> } | { kind: "absent"; message: string } | { kind: "unresolvable"; message: string };
+
 /** Discover enabled skills at the launch directory; ambiguity is a visible refusal. */
-export async function resolveAuditSkill(options: { kind: AuditKind; agent: string; claude: string; codex?: string; cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }): Promise<NonNullable<AuditActivity["skill"]>> {
+export async function resolveAuditSkill(options: SkillOptions & { kind: AuditKind }): Promise<NonNullable<AuditActivity["skill"]>> {
   const name = options.kind === "delivery_audit" ? "delivery-audit" : "test-audit";
-  let paths: string[] = [];
-  if (options.agent === "codex") {
-    const metadata = await readCodexMetadata({ executable: options.codex, cwd: options.cwd, cwds: [options.cwd], env: options.env, signal: options.signal });
-    if (metadata.blockers.length) throw new Error(metadata.blockers.join("\n"));
-    paths = (metadata.skills[0]?.entries ?? []).filter(s => s.enabled && [name, `enso-method:${name}`].includes(s.name)).map(s => s.path);
-  } else {
-    const enabled = await readSkillList({ claude: options.claude, cwd: options.cwd, env: options.env, signal: options.signal });
-    if (!enabled.ok) throw new Error(enabled.error);
-    const names = enabled.skills.filter(s => [name, `enso-method:${name}`].includes(s));
-    if (names.length !== 1) throw new Error(`Enable exactly one ${name} skill in ${options.cwd}.`);
-    const config = claudeConfigFolder(options.env);
-    if (names[0] === name) {
-      for (let root = options.cwd;; root = dirname(root)) {
-        const candidate = join(root, ".claude", "skills", name, "SKILL.md");
-        if (existsSync(candidate)) { paths.push(candidate); break; }
-        if (dirname(root) === root) break;
-      }
-      if (!paths.length && existsSync(join(config, "skills", name, "SKILL.md"))) paths.push(join(config, "skills", name, "SKILL.md"));
+  const resolved = await resolveSkill({ ...options, name });
+  if (resolved.kind !== "found") throw new Error(resolved.message);
+  return resolved.skill;
+}
+
+/**
+ * One enabled installed skill by name, `<name>` or `enso-method:<name>` (build preflight "When the
+ * Preflight Is Due", step 1). Absent: neither name is listed, which is distinct from unresolvable.
+ * Unresolvable: both names listed on Claude Code, zero or several distinct real files, or any
+ * discovery read failure, which is never read as absent.
+ */
+export async function resolveSkill(options: SkillOptions & { name: string }): Promise<SkillResolution> {
+  const { name } = options;
+  const unresolvable = (message: string): SkillResolution => ({ kind: "unresolvable", message });
+  const absent: SkillResolution = { kind: "absent", message: `Enable exactly one ${name} skill in ${options.cwd}.` };
+  let candidates: string[] = [];
+  try {
+    if (options.agent === "codex") {
+      const metadata = await readCodexMetadata({ executable: options.codex, cwd: options.cwd, cwds: [options.cwd], env: options.env, signal: options.signal });
+      if (metadata.blockers.length) return unresolvable(metadata.blockers.join("\n"));
+      const entries = (metadata.skills[0]?.entries ?? []).filter(s => s.enabled && [name, `enso-method:${name}`].includes(s.name));
+      if (!entries.length) return { kind: "absent", message: `Cannot resolve one enabled installed ${name} source in ${options.cwd}; found 0.` };
+      candidates = entries.map(s => s.path);
     } else {
-      const registry = JSON.parse(readFileSync(join(config, "plugins", "installed_plugins.json"), "utf8")) as { plugins: Record<string, { installPath: string; projectPath?: string }[]> };
-      for (const [key, entries] of Object.entries(registry.plugins)) if (key.startsWith("enso-method@")) for (const entry of entries) {
-        if (entry.projectPath) { const from = relative(entry.projectPath, options.cwd); if (isAbsolute(from) || from === ".." || from.startsWith(`..${sep}`)) continue; }
-        paths.push(join(entry.installPath, "skills", name, "SKILL.md"));
+      const enabled = await readSkillList({ claude: options.claude, cwd: options.cwd, env: options.env, signal: options.signal });
+      if (!enabled.ok) return unresolvable(enabled.error);
+      const names = enabled.skills.filter(s => [name, `enso-method:${name}`].includes(s));
+      if (!names.length) return absent;
+      if (names.length !== 1) return unresolvable(`Enable exactly one ${name} skill in ${options.cwd}.`);
+      const config = claudeConfigFolder(options.env);
+      if (names[0] === name) {
+        for (let root = options.cwd;; root = dirname(root)) {
+          const candidate = join(root, ".claude", "skills", name, "SKILL.md");
+          if (existsSync(candidate)) { candidates.push(candidate); break; }
+          if (dirname(root) === root) break;
+        }
+        if (!candidates.length && existsSync(join(config, "skills", name, "SKILL.md"))) candidates.push(join(config, "skills", name, "SKILL.md"));
+      } else {
+        const registry = JSON.parse(readFileSync(join(config, "plugins", "installed_plugins.json"), "utf8")) as { plugins: Record<string, { installPath: string; projectPath?: string }[]> };
+        for (const [key, entries] of Object.entries(registry.plugins)) if (key.startsWith("enso-method@")) for (const entry of entries) {
+          if (entry.projectPath) { const from = relative(entry.projectPath, options.cwd); if (isAbsolute(from) || from === ".." || from.startsWith(`..${sep}`)) continue; }
+          // A directory marketplace is loaded from its directory, not from the install cache the registry names.
+          candidates.push(join(directoryPluginRoot(config, key.slice("enso-method@".length)) ?? entry.installPath, "skills", name, "SKILL.md"));
+        }
       }
     }
+    const paths = [...new Set(candidates.filter(p => existsSync(p)).map(p => realpathSync(p)))];
+    if (paths.length !== 1) return unresolvable(`Cannot resolve one enabled installed ${name} source in ${options.cwd}; found ${paths.length}.`);
+    return { kind: "found", skill: { name, path: paths[0]!, digest: hashBytes(readFileSync(paths[0]!)) } };
+  } catch (error) {
+    return unresolvable((error as Error).message);
   }
-  paths = [...new Set(paths.map(p => realpathSync(p)))];
-  if (paths.length !== 1) throw new Error(`Cannot resolve one enabled installed ${name} source in ${options.cwd}; found ${paths.length}.`);
-  return { name, path: paths[0]!, digest: hashBytes(readFileSync(paths[0]!)) };
+}
+
+/**
+ * The enso-method plugin's folder when its marketplace is a local directory: Claude Code loads its
+ * skills from there, while `installed_plugins.json` keeps naming the copy cached at install.
+ * Undefined for any other marketplace, or when the marketplace files do not say.
+ */
+function directoryPluginRoot(config: string, marketplace: string): string | undefined {
+  const file = join(config, "plugins", "known_marketplaces.json");
+  if (!existsSync(file)) return undefined;
+  const known = JSON.parse(readFileSync(file, "utf8")) as Record<string, { source?: { source?: string; path?: string }; installLocation?: string }>;
+  const entry = known[marketplace];
+  const path = entry?.source?.source === "directory" ? entry.source.path ?? entry.installLocation : undefined;
+  if (!path) return undefined;
+  const manifestFile = join(path, ".claude-plugin", "marketplace.json");
+  if (!existsSync(manifestFile)) return undefined;
+  const manifest = JSON.parse(readFileSync(manifestFile, "utf8")) as { plugins?: { name: string; source?: unknown }[] };
+  const plugin = manifest.plugins?.find(one => one.name === "enso-method");
+  return typeof plugin?.source === "string" ? join(path, plugin.source) : undefined;
 }

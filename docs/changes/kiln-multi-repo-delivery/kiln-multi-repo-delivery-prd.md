@@ -192,6 +192,7 @@ Four screens are drawn for this change. The others it touches follow the nearest
   - Superseded in part by: AC-VIEW-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (agent-specific information on existing screens).
   - Superseded in part by: AC-AUTO-04, AC-LIMIT-01 and AC-LIMIT-05 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Documents found and the settings while Kiln works gain the "Resume after a usage limit" row; Needs you after work outside the workspace, when its session hit a usage limit, gains the limit facts, choices and account; the terminal gains the wait and resume lines)
   - Superseded in part by: AC-WAIVE-02/10 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (Mark complete on the standard Needs you page and the waived markers follow this change's mockup; unaffected layout remains).
+  - Superseded in part by: AC-LOOP-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Documents found, the run's settings and the loop stop page gain the audit loop sections; the rest of each layout remains).
 
   | Screen | Follows |
   |---|---|

@@ -4,6 +4,24 @@ These instructions apply only to this repository.
 
 Engineering standards: commercesong-engineering-standards
 
+## The Enso Method stands alone
+
+Kiln is an optional add-on that drives the implementation half of the Enso Method.
+Everything Kiln does, a person can do by hand with the same skills in any coding agent.
+Check both rules before proposing or building a change to how Kiln orders, stops, audits
+or hands off work, and before proposing a change to an Enso Method skill because of
+something seen in a Kiln run:
+
+- The method has no step that depends on Kiln, and Kiln writes nothing into the
+  repository that the skills don't already write.
+- A skill change is proposed on its own, and only when it also improves running the
+  method by hand. A need that only Kiln has is met in Kiln.
+
+These are principles 1 and 2 of the
+[Kiln architecture proposal](docs/design/kiln-architecture-proposal.md); its Principles
+section holds the rest. Read only that section: the remainder is the v1 proposal from
+autumn 2026, kept as history, and later PRDs under `docs/changes/` replaced parts of it.
+
 ## The changelog
 
 `CHANGELOG.md` is the one record of what changed in each release, and each GitHub Release

@@ -11,6 +11,7 @@
   import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
   import NothingToCheck from "../components/NothingToCheck.svelte";
+  import AttendedCard from "../components/AttendedCard.svelte";
   import type { ItemChange } from "../../../src/engine/waivers.js";
   import { checksWord, countsOf, passedOf, secondsTime, verdict } from "../lib/waivers.js";
   import CheckFacts from "../components/CheckFacts.svelte";
@@ -58,7 +59,10 @@
   const counts = $derived(stop.counts ?? countsOf(stop.checks));
   const rechecked = $derived(stop.checkRun ? stop.checkRun.origin === "recheck" && stop.checkRun.finished : !!page.rechecked);
   // A recheck that could not finish keeps the earlier rows and their time, so it never reads Checked again.
-  const checkedLine = $derived(`${stop.checkedAt ? rechecked ? `Checked again ${secondsTime(stop.checkedAt)}` : stop.checkRun?.origin === "recheck" ? `Checked ${secondsTime(stop.checkedAt)}` : `Checked when Kiln stopped, ${secondsTime(stop.checkedAt)}` : "Not yet checked"} · ${passedOf(counts)}`);
+  // Rows saved at the stop read Why Kiln stopped, with no passed count, until a check of the completion checks has run (AC-STOPCHECK-01, 03).
+  const checkedLine = $derived(`${stop.checkedAt ? rechecked ? `Checked again ${secondsTime(stop.checkedAt)}` : stop.checkRun?.origin === "recheck" ? `Checked ${secondsTime(stop.checkedAt)}` : `Checked when Kiln stopped, ${secondsTime(stop.checkedAt)}` : "Not yet checked"}${stop.rowsAreCompletionChecks ? ` · ${passedOf(counts)}` : ""}`);
+  const reasonRows = $derived(stop.checks.filter(check => verdict(check) === "failed"));
+  const alsoRows = $derived(stop.checks.filter(check => verdict(check) !== "failed"));
   const stillFailing = $derived(rechecked && counts.failed > 0 && !page.markChanges?.length && !stop.checking && !page.pending);
   const offer = $derived(stop.markComplete?.offered ? stop.markComplete : page.pending === "mark" ? page.markOffer : undefined);
   // Before a recheck the button shows, unusable, saying to check again first.
@@ -144,6 +148,7 @@
 
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
+  {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
   <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : restart?.headline ?? `${activity} needs your input.`}</h1>
   <p>{restart?.line ?? "Answer here, or talk it through in your terminal."}</p>
   {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
@@ -203,7 +208,7 @@
       <CarryOnCard {agent} activity={inSentence} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={!connected || !!page.pending} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
       <FreshTerminalCard {agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held blocked={snapshot.liveControl?.takeover?.carryOnObstacle} />
     </div>
-  {:else if pendingTakeover && !page.choice}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre>{stop.freshSessionPrompt}</pre>{/if}</section>
+  {:else if pendingTakeover && !page.choice}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre class="prompt">{stop.freshSessionPrompt}</pre><CopyButton text={stop.freshSessionPrompt} label="Copy fresh-session prompt" />{/if}</section>
   {:else if page.choice}
     <section class="card choice" aria-live="polite">
       <h2 tabindex="-1" bind:this={choiceHeading}>{activity} is already complete.</h2>
@@ -278,20 +283,28 @@
       <NothingToCheck {snapshot} activity={inSentence} pending={page.pending === "verify"} disabled={busy} warning={recovery.checkError ? `Could not refresh: ${recovery.checkError.reason}` : undefined} onpress={() => act("verify")} />
     {:else}
     <section class="card return" aria-label={`Is ${inSentence} already done?`}>
-      <div class="between"><h2>Is {inSentence} already done?</h2><span class="hint" role="status">{checkedLine}</span></div>
+      <h2>Is {inSentence} already done?</h2>
       <p>If you finished it yourself, or think Kiln got it wrong, check again. If every check passes, Kiln closes out {inSentence} and moves to the next step. Nothing is committed or pushed for you.</p>
-      <ul class="checks" aria-label={`${activity} completion requirements`} aria-busy={!!stop.checking}>
-        {#each stop.checks as check, index (index)}
-          {@const state = verdict(check)}
-          <li><div><strong>{check.name}</strong><span class={state}>{VERDICT[state]}</span></div><CheckFacts {snapshot} {check} changes={page.markChanges} /></li>
-        {/each}
-      </ul>
-      <div class="actions"><button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Check ${inSentence} again`}</button></div>
+      <div class="between"><span class="eyebrow">{stop.rowsAreCompletionChecks ? "Completion checks" : "Why Kiln stopped"}</span><span class="hint" role="status">{checkedLine}</span></div>
+      {@render rows(stop.rowsAreCompletionChecks ? stop.checks : reasonRows, stop.rowsAreCompletionChecks ? `${activity} completion checks` : "Why Kiln stopped")}
+      {#if !stop.rowsAreCompletionChecks && alsoRows.length}
+        <span class="eyebrow">Also checked when Kiln stopped</span>
+        {@render rows(alsoRows, "Also checked when Kiln stopped")}
+      {/if}
+      <div class="actions"><button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Check ${inSentence} again`}</button>{#if !stop.rowsAreCompletionChecks && stop.recheckRunsAll}<span class="hint">Check again runs all of {inSentence}’s completion checks.</span>{/if}</div>
       {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; check {inSentence} again to retry.</p>{/if}
       {#if stillFailing}<p class="feedback" role="status"><strong>{activity} still has {checksWord(counts.failed).replace("check", "failing check")}.</strong>{#if stop.resumeOffered} If the work isn’t finished, have Kiln resume it above.{/if}</p>{/if}
       {#if offer}<MarkComplete {offer} pending={page.pending === "mark"} disabled={busy} changes={page.markChanges} error={page.markError} onmark={mark} />{:else if waiting}<MarkComplete {waiting} />{/if}
     </section>
     {/if}
+  {/snippet}
+  {#snippet rows(list: NonNullable<Snapshot["needsYou"]>["checks"], label: string)}
+    <ul class="checks" aria-label={label} aria-busy={!!stop.checking}>
+      {#each list as check, index (index)}
+        {@const state = verdict(check)}
+        <li><div><strong>{check.name}</strong><span class={state}>{VERDICT[state]}</span></div><CheckFacts {snapshot} {check} changes={page.markChanges} /></li>
+      {/each}
+    </ul>
   {/snippet}
   {#if page.feedback && !stop.carryOn && !stop.startAgain}<p class="warning" role="status">{page.feedback}</p>{/if}
   <BillingPanel {snapshot} {connected} />
@@ -309,6 +322,7 @@
   p { margin: 0; color: var(--muted); line-height: 1.6; }
   .message { border-left: 3px solid var(--amber); }
   .facts, .hint { font-size: 12.5px; color: var(--dim); }
+  .actions .hint { align-self: center; }
   .peer-choices { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
   .card, .peer-choices > section { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
   .between { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px; }
@@ -327,6 +341,6 @@
   .actions { display: flex; flex-wrap: wrap; gap: 12px; }
   .button { white-space: normal; align-self: flex-start; } .button:disabled { opacity: .45; }
   .lines { display: grid; grid-template-columns: max-content max-content minmax(0, 1fr); gap: 4px 10px; overflow-wrap: anywhere; font-size: 12px; }
-  summary { cursor: pointer; } details pre { margin: 12px 0; }
+  summary { cursor: pointer; } details pre { margin: 12px 0; } details pre, pre.prompt { max-height: 22em; overflow-y: auto; }
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
 </style>

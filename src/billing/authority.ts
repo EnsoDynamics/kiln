@@ -3,7 +3,9 @@ import { BILLING_CONTRACT } from "./contract.js";
 import type { BillingSummary, Inspection } from "./inspection.js";
 export interface BillingHold { phaseKey: string; action: "launch" | "resume"; sessionId?: string; reason: string; observed: BillingSummary; at: string;
   /** The hold's own check run and rows (waivers "Check Runs"); never a separate stop. */
-  run?: import("../state/records.js").CheckRun; checks?: import("../state/records.js").CheckResult[]; }
+  run?: import("../state/records.js").CheckRun; checks?: import("../state/records.js").CheckResult[];
+  /** The rows came from a finished recheck that ran the activity's completion checks (checks at a stop AC-STOPCHECK-03). */
+  rowsAreCompletionChecks?: true; }
 export interface BillingState {
   version: 1;
   executionId: string;

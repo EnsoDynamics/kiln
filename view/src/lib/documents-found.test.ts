@@ -75,8 +75,19 @@ describe("Start (AC-START-05)", () => {
     expect(startState(documentsFoundSnapshot({ settings: { baseCheck: "checking" }, documents: { starting: true } }), true, true)).toEqual({ enabled: false, note: "Setting up the worktree…" });
   });
 
-  it("is unavailable while the view isn't connected to Kiln", () => {
-    expect(startState(ready, true, false).enabled).toBe(false);
+  it("is unavailable while the view isn't connected to Kiln, and says so", () => {
+    expect(startState(ready, true, false)).toEqual({ enabled: false, note: "Not connected to Kiln." });
+  });
+
+  it("says under Start which field holds it (UI-010 item 4)", () => {
+    const one = documentsFoundSnapshot({ settings: { fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one." } } });
+    expect(startState(one, true, true)).toEqual({ enabled: false, note: "Worktree: That folder already exists and isn’t empty. Choose a new one." });
+    const base = documentsFoundSnapshot({ settings: { fieldErrors: { baseBranch: "develop isn’t on origin." } } });
+    expect(startState(base, true, true)).toEqual({ enabled: false, note: "Base branch: develop isn’t on origin." });
+    const two = documentsFoundSnapshot({ settings: { fieldErrors: { featureBranch: "That isn’t a valid branch name.", worktreePath: "Enter a worktree path." } } });
+    expect(startState(two, true, true)).toEqual({ enabled: false, note: "Fix the 2 fields marked above to start." });
+    expect(startState(one, false, true).note).toBe("Confirm refinement to start.");
+    expect(startState(one, true, false).note).toBe("Not connected to Kiln.");
   });
 });
 
@@ -96,7 +107,12 @@ describe("Documents found across repositories (multi-repo AC-REPO-03)", () => {
     expect(startState(ready, true, true)).toEqual({ enabled: true });
     const held = documentsFoundRepositoriesSnapshot();
     held.repositories[1] = { ...held.repositories[1]!, fieldErrors: { baseBranch: "develop isn’t on origin." } };
-    expect(startState(held, true, true).enabled).toBe(false);
+    expect(startState(held, true, true)).toEqual({ enabled: false, note: `${held.repositories[1]!.name}’s base branch: develop isn’t on origin.` });
+    const prdBase = documentsFoundRepositoriesSnapshot();
+    const prdRow = prdBase.repositories.findIndex((row) => row.kind === "prd");
+    prdBase.settings.fieldErrors = { baseBranch: "develop isn’t on origin." };
+    prdBase.repositories[prdRow] = { ...prdBase.repositories[prdRow]!, fieldErrors: { baseBranch: "develop isn’t on origin." } };
+    expect(startState(prdBase, true, true)).toEqual({ enabled: false, note: `${prdBase.repositories[prdRow]!.name}’s base branch: develop isn’t on origin.` });
     const checking = documentsFoundRepositoriesSnapshot();
     checking.repositories[2] = { ...checking.repositories[2]!, baseCheck: "checking" };
     expect(startState(checking, true, true)).toEqual({ enabled: false, note: "Checking the base branches on origin…" });

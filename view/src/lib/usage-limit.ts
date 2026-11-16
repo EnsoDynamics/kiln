@@ -4,6 +4,7 @@
 // usage limit". Every time is rounded to the nearest minute, and the countdown is worked out
 // from the reset time against the view's clock, so it keeps counting while the screen is open.
 
+import { activityKeyKind } from "../../../src/state/activity-keys.js";
 import type { LimitView } from "../../../src/engine/snapshot.js";
 import { limitSentence } from "../../../src/session/usage-limit.js";
 import { capitalized, phaseName, PR_ID } from "./progress.js";
@@ -48,7 +49,7 @@ export function atLimitLine(limit: LimitView, now: Date): string | undefined {
 
 /** "Phase 2b", or "The pull-request session". */
 function sessionName(phaseId: string): string {
-  return phaseId.startsWith("audit-") ? "This audit" : phaseId === PR_ID ? "The pull-request session" : capitalized(phaseName(phaseId));
+  return activityKeyKind(phaseId) === "audit" ? "This audit" : activityKeyKind(phaseId) === "preflight" ? "The preflight" : phaseId === PR_ID ? "The pull-request session" : capitalized(phaseName(phaseId));
 }
 
 export interface WaitingCopy {

@@ -101,9 +101,11 @@ describe("a schema 1 record read by this Kiln", () => {
       activities: before.activities!.map((activity, index) => activity.timing ? { ...activity, timing: advanceWaiting(activity.timing, after.activities![index]!.timing!) } : activity),
       phases: before.phases.map((phase, index) => phase.timing ? { ...phase, timing: advanceWaiting(phase.timing, after.phases[index]!.timing!) } : phase),
       account: after.account,
-      // The next kiln run's check of the stop is a recheck, so Mark complete is now offered on it (waivers "Check Runs").
-      needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt, checkRun: after.needsYou!.checkRun, markComplete: after.needsYou!.markComplete },
+      // The next kiln run's check of the stop is a recheck, so Mark complete is now offered on it (waivers "Check Runs"),
+      // and its rows are the completion checks (checks at a stop AC-STOPCHECK-03).
+      needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt, checkRun: after.needsYou!.checkRun, markComplete: after.needsYou!.markComplete, rowsAreCompletionChecks: true },
     });
+    expect(before.needsYou!.rowsAreCompletionChecks).toBeUndefined();
     expect(after.needsYou!.markComplete).toMatchObject({ offered: true });
     expect(before.needsYou!.markComplete).toMatchObject({ offered: false });
     expect(after.developmentDelivery?.authorization).toEqual({ revision: 0, enabled: false, grants: [] });

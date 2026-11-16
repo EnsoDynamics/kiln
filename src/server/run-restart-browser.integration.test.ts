@@ -55,7 +55,7 @@ async function open(snapshot: Snapshot, width = 1200, carryOutcome = "session_st
 describe.each([1200, 390])("at %ipx wide", width => {
   it("draws Kiln couldn't start Phase N with What Kiln found, Start Phase N again and Nothing to check yet, on either page", async () => {
     for (const noTarget of [false, true]) {
-      const { server, page } = await open(stopped({ case: "could_not_start", launchFailure, startAgain: { available: true }, nothingToCheck: true, resumeOffered: false, checks: [{ name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-2b-store-credit.md"] }, { name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history."], reason: true }] }, noTarget, ["finalMessage", "resumeCommand"]), width);
+      const { server, page } = await open(stopped({ case: "could_not_start", launchFailure, startAgain: { available: true }, nothingToCheck: true, recheckRunsAll: true, resumeOffered: false, checks: [{ name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-2b-store-credit.md"] }, { name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history."], reason: true }] }, noTarget, ["finalMessage", "resumeCommand"]), width);
       try {
         await words(page, "Kiln couldn't start Phase 2b.");
         const body = await text(page);
@@ -72,6 +72,9 @@ describe.each([1200, 390])("at %ipx wide", width => {
         // A row giving the stop's own reason still shows; the completion checks don't (AC-CASE-03).
         expect(body).toContain("The saved conversation has no usable history.");
         expect(body).not.toContain("No Closed line in phase-2b-store-credit.md");
+        // That row carries the Why Kiln stopped label, and the page's own button and line stand in for Check again's line (AC-STOPCHECK-04).
+        expect(body).toMatch(/Why Kiln stopped\s+Claude recovery/i);
+        expect(body).not.toContain("Check again runs all of");
         // One way to start the phase: no reply box, no terminal instructions, no completion checks.
         expect(await page.evaluate("document.querySelectorAll('main textarea').length")).toBe(0);
         expect(body).not.toContain("Talk it through in your terminal");

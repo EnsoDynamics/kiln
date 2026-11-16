@@ -63,6 +63,8 @@ A plan that reads with structural problems, or that the retained baseline cannot
 
 ## Check Runs and When Mark Complete Is Offered (AC-WAIVE-02)
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (Mark complete is offered at a preflight stop without a recheck).
+
 A stop records the identity of its latest check run:
 
 ```
@@ -119,6 +121,8 @@ An activity can complete normally on a carried waiver, with no waiver of its own
 
 ## Mark Complete (AC-WAIVE-03, AC-WAIVE-04)
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (no rerun at a preflight stop; the waiver is saved from the stop's items).
+
 Under the exclusive checking boundary, held from admission until the record write or refusal:
 
 1. Refuse unless the offered predicate holds and the request's `checkRunId` is the stop's latest run (`mark_complete_not_offered`, `stale_check_run`).
@@ -149,6 +153,8 @@ The sentence above the button comes from the offered predicate's preview, the sa
 The next activity is a forecast computed inside the offered predicate from the saved record and the latest run, never by the live next-activity choice, the audit scheduler or audit allocation, so offering Mark complete writes nothing. For a phase, it is the first leaf of the recorded plan not closed, closed or skipped by waiver, or done, counting the stopped phase as closed; with none left, the completion audits. For an audit, any open completion phase it appended, otherwise the step its counted outcome gives (AC-WAIVE-12). For final delivery, Complete. For a **Continue in normal order** stop or a stop on an already-complete activity, there is none. The browser sentence names Complete and audit kinds and otherwise says "moves to the next step", as the mockup does; the CLI names the phase. Kiln's actual choice after the write is still made by the next-activity choice.
 
 ## Audits Marked Complete (AC-WAIVE-12)
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Loop Stops (appended phases of a waived audit run first only while a delivery loop is left; a counted `continue_test` continues only while a test loop is left).
 
 An audit waiver stores an audit-waiver result in the audit store, referenced by the waiver and by `activity.waivedResult`:
 
@@ -210,6 +216,8 @@ The snapshot and the status JSON carry, from the same marked results:
 ## Display Contract
 
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts, Nothing to check yet (no checks shown for a phase that built nothing until asked; the sentence above Mark complete).
+
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop and §Display Contract (Mark complete's label, placement and sentence at a preflight stop).
 
 Build arrangement and wording from the approved mockup.
 

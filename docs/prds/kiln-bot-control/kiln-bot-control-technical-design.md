@@ -102,6 +102,9 @@ Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-ru
 
 Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (`kiln reply`, `kiln resume`, `kiln carry-on` and `kiln start-again` catch an untouched branch up first unless given `--leave-branch-as-is`).
 
+Superseded in part by: [Kiln Build Preflight technical design](../../changes/kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (at a preflight stop only `check-again` and `waive-and-advance` are accepted).
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (two more changing commands, `allow-more-loops` and `accept-and-deliver`, whose receipts settle `started`; `kiln settings` takes the three loop settings).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |
@@ -198,6 +201,8 @@ Under engine serialization: resolve ownership and instruction identity; look up 
 The deduplication key is OS-user context + saved PRD identity + command ID, retained across execution replacement. Canonical input includes protocol/action, bound execution and target revision, supplied setting/confirmation values and exact normalized message contents; file path versus stdin is not part of message identity. A repeated ID with different effective inputs is refused before acting. Old receipts clearly identify their original execution. A saved path reused for a new execution cannot apply the old mutation; it can only return an earlier receipt or reject a conflicting reuse.
 
 ### Operations, dispatch and crash reconciliation
+
+Superseded in part by: [Kiln Build Preflight technical design](../../changes/kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (`check-again` at a preflight stop launches a session and settles as `session_started`).
 
 A receipt records `id`, `command_id`, `execution_id`, action/target, accepted/updated times, `state: accepted | in_progress | completed | refused | failed | indeterminate`, stable outcome/reason and separate effects:
 

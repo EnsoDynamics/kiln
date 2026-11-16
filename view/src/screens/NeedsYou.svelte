@@ -18,6 +18,9 @@
   // stay and step 1's fresh session waits for the reset or another account (technical design, "Screens").
   // A selection stop precedes a new conversation: offer settings and sign-in repair instead
   // of session recovery (Codex support technical design, "Local API and snapshot changes").
+  // A loop stop (Kiln Audit Loop Limits AC-STOP-01, AC-STOP-02) has a page of its own: the loops,
+  // what the audit found and the ways on, with Check again beside them; a hold adds the Audit loop
+  // left row and Mark complete's refusal reason, never a disabled Mark complete button.
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
@@ -37,7 +40,7 @@
   import CheckFacts from "../components/CheckFacts.svelte";
   import MarkComplete from "../components/MarkComplete.svelte";
   import { finalMessageHtml } from "../lib/markdown.js";
-  import { endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
+  import { activityInSentence, endingFact, needsYouCopy, PR_ID } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { outputTail } from "../lib/session-view.js";
   import { clockTime, earlier } from "../lib/time.js";
@@ -51,6 +54,12 @@
   import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
   import NothingToCheck from "../components/NothingToCheck.svelte";
+  import PreflightStop from "../components/PreflightStop.svelte";
+  import AttendedCard from "../components/AttendedCard.svelte";
+  import { activityKeyKind } from "../../../src/state/activity-keys.js";
+  import LoopStop from "../components/LoopStop.svelte";
+  import { loopStopCopy, shownLoopSettings } from "../lib/audit-loops.js";
+  import AuditLoopSettings from "../components/AuditLoopSettings.svelte";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
   const { config, router, connection } = viewContext();
@@ -67,6 +76,8 @@
   const file = $derived(snapshot.phases.find((phase) => phase.id === stop.phaseId)?.file);
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
   const steps = $derived([...(copy.firstStep === "none" ? [] : ["first"]), "finish", "again"]);
+  // Any stop on a preflight key: no Pick it up yourself card and no fresh-prompt link, since a preflight run outside Kiln leaves its report unread (build preflight "Display Contract").
+  const onPreflight = $derived(activityKeyKind(stop.phaseId) === "preflight");
   let showPrompt = $state(false);
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
@@ -87,10 +98,19 @@
   // result is shown, none can be pressed (AC-RESUME-02, AC-WAIVE-06); a disconnected page submits nothing.
   const busy = $derived(pressing || resuming || marking || stop.checking === true || !connected);
   const VERDICT = { passed: "Yes", waived: "Waived", failed: "Not yet" } as const;
+  // Until a check of the completion checks has run, the failing rows saved at the stop read Why Kiln stopped and any passing ones sit beneath (AC-STOPCHECK-01 to 03).
+  const reasonRows = $derived(stop.rowsAreCompletionChecks ? stop.checks : stop.checks.filter(check => verdict(check) === "failed"));
+  // The snapshot's Audit loop left row is drawn above with the loop counts, so it is not listed twice.
+  const loopReasonRows = $derived(reasonRows.filter(check => check.name !== "Audit loop left"));
+  const alsoRows = $derived(stop.rowsAreCompletionChecks ? [] : stop.checks.filter(check => verdict(check) !== "failed"));
+  const checkedText = $derived(stop.checking ? "Checking…" : stop.checkedAt ? `${stop.checkRun?.origin === "recheck" ? stop.checkRun.finished ? "Checked again" : "Checked" : "Checked when Kiln stopped,"} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked");
+  const runsAll = $derived(!stop.rowsAreCompletionChecks && stop.recheckRunsAll ? `Check again runs all of ${activityInSentence(stop.phaseId, snapshot)}’s completion checks.` : undefined);
   // A stopped phase's case (run restart AC-CASE-01): its own headline, first card and way forward.
   const activity = $derived(`Phase ${stop.phaseId}`);
   const agentName = $derived(stop.agent ?? snapshot.settings.agent);
   const restart = $derived(stop.case ? caseHeadline(stop, activity, agentName) : undefined);
+  const loopStop = $derived(snapshot.auditLoops?.stop);
+  const loopCopy = $derived(loopStop ? loopStopCopy(loopStop, snapshot.auditLoops!, stop.kind === "loop_limit") : undefined);
   let restartPending = $state<"carry" | "start" | "reopen" | undefined>(undefined);
   let restartReason = $state<string | undefined>(undefined);
   let carryDraft = $state("");
@@ -150,8 +170,39 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} connected {now} />
-  {#if stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn)}
+  {#if stop.preflight}
+  <PreflightStop {snapshot} />
+  {:else if loopStop && loopCopy}
+  <div class="columns-main">
+    <div class="column-wide"><LoopStop {snapshot} loop={loopStop} {config} {busy} /></div>
+    <div class="column-side">
+      <aside class="card side">
+        <span class="eyebrow">Why Kiln stopped</span>
+        {#if loopCopy.loopLeftFact}
+          <ul class="checks">
+            <li>
+              <span class="mark"></span>
+              <span class="check"><span class="check-head">Audit loop left<span class="verdict">No</span></span><span class="fact">{loopCopy.loopLeftFact}</span></span>
+            </li>
+          </ul>
+        {/if}
+        {#if loopReasonRows.length}{@render checkRows(loopReasonRows)}{/if}
+        {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
+        <div class="again">
+          <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
+          <span class="checked">{checkedText}</span>
+          {#if loopCopy.checkAgainText}<span class="checked">{loopCopy.checkAgainText}</span>{:else if runsAll}<span class="checked">{runsAll}</span>{/if}
+          {#if reason}<span class="reason">{reason}</span>{/if}
+        </div>
+        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if loopStop.holds && stop.markComplete && !stop.markComplete.offered}<p class="footnote">{stop.markComplete.reason}</p>{:else if waiting}<MarkComplete {waiting} />{/if}
+      </aside>
+      <!-- The limits can be raised here, as the page says (AC-LOOP-05, AC-STOP-02); a raised limit starts the loop at Check again. -->
+      <aside class="card side"><AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} disabled={!connected} short /></aside>
+    </div>
+  </div>
+  {:else if stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn)}
   <div class="restart">
+    {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
     <div class="headline">
       <h2>{restart?.headline ?? copy.headline}</h2>
       <p class="line">{restart?.line ?? copy.line}</p>
@@ -171,18 +222,12 @@
     {:else}
       <aside class="card side">
         <span class="eyebrow">{copy.sideHeading}</span>
-        <ul class="checks">
-          {#each stop.checks as check, index (index)}
-            {@const state = verdict(check)}
-            <li>
-              <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
-              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={state === "passed"} class:waived={state === "waived"}>{VERDICT[state]}</span></span><CheckFacts {snapshot} {check} changes={markChanges} /></span>
-            </li>
-          {/each}
-        </ul>
+        {@render checkRows(reasonRows)}
+        {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
         <div class="again">
           <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check {activity} again</button>
-          <span class="checked">{stop.checking ? "Checking…" : stop.checkedAt ? `Checked${stop.checkRun?.origin === "recheck" && stop.checkRun.finished ? " again" : ""} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked"}</span>
+          <span class="checked">{checkedText}</span>
+          {#if runsAll}<span class="checked">{runsAll}</span>{/if}
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
         {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
@@ -192,6 +237,7 @@
   {:else}
   <div class="columns-main">
     <div class="column-wide">
+      {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
       <section class="card ended">
         <div class="headline">
           {#if limitCopy}
@@ -207,7 +253,9 @@
         {#if copy.showFacts && ending}
           <div class="facts mono"><span>{ending}</span><span>{clockTime(stop.stoppedAt, nowDate)}</span>{#if stop.lastSkill}<span>last skill seen: {stop.lastSkill.name}, {earlier(stop.lastSkill.at, stop.stoppedAt)}</span>{/if}</div>
         {/if}
-        {#if stop.finalMessage !== undefined && stop.kind !== "not_resumable"}
+        {#if stop.bookkeeping}
+          <!-- Only the record is out of date: no session ending to show. -->
+        {:else if stop.finalMessage !== undefined && stop.kind !== "not_resumable"}
           <div class="message-block">
             <span class="eyebrow">Last message from {stop.agent ?? snapshot.settings.agent}</span>
             <div class="final">{@html finalMessageHtml(stop.finalMessage)}</div>
@@ -230,6 +278,11 @@
           <button type="button" class="button small" disabled={busy || snapshot.settings.metadataPending} onclick={refreshSelection}>Refresh agent information</button>
         </section>
         {#if snapshot.account}<AccountPanel account={snapshot.account} paused={false} notStarted {now} />{/if}
+      {:else if stop.bookkeeping}
+        <section class="card lead-mark">
+          <!-- Here the checks sit beside or below the card, not above it. -->
+          {#if offer}<MarkComplete offer={{ ...offer, sentence: offer.sentence.map(line => line.replace(/ (failing checks?) above\b/, " $1")) }} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
+        </section>
       {:else}
       {#if stop.resumeOffered && stop.catchUp && !snapshot.liveControl && !(stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn))}<CatchUpOffer offer={stop.catchUp} where="stop" {activity} bind:ticked={catchUpTicked} disabled={busy} />{/if}
       {#if stop.resumeOffered && stop.limit && limitCopy}
@@ -282,6 +335,24 @@
         </section>
       {/if}
 
+      {#if onPreflight}
+        {#if stop.startAgain}
+          <section class="card pick">
+            <span class="step-title">Start the preflight again</span>
+            <p class="hint">Kiln starts a fresh preflight session, which changes nothing in the repository.</p>
+            <div class="actions"><button type="button" class="button solid" disabled={busy || !!restartPending || !stop.startAgain.available} onclick={() => restartAction("start")}>{restartPending === "start" ? "Starting…" : "Start the preflight again"}</button></div>
+            {#if !stop.startAgain.available && stop.startAgain.reason}<span class="reason">{stop.startAgain.reason}</span>{/if}
+            {#if restartReason}<span class="reason">{restartReason}</span>{/if}
+          </section>
+        {/if}
+        {#if stop.resumeCommand}
+          <section class="card pick">
+            <span class="step-title">Open the preflight session in a terminal to work through an item with it:</span>
+            <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /></div></div>
+            <p class="hint">When you're done there, press Check Preflight again.</p>
+          </section>
+        {/if}
+      {:else}
       <section class="card pick">
         <span class="eyebrow">{stop.kind === "billing" ? "Continue this execution" : stop.resumeOffered ? "Or pick it up yourself" : "Pick it up yourself"}</span>
         <ol>
@@ -321,27 +392,22 @@
         {/if}
       </section>
       {/if}
+      {/if}
     </div>
 
     <div class="column-side">
       <aside class="card side">
         <span class="eyebrow">{copy.sideHeading}</span>
-        <ul class="checks">
-          {#each stop.checks as check, index (index)}
-            {@const state = verdict(check)}
-            <li>
-              <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
-              <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={state === "passed"} class:waived={state === "waived"}>{VERDICT[state]}</span></span><CheckFacts {snapshot} {check} changes={markChanges} /></span>
-            </li>
-          {/each}
-        </ul>
+        {@render checkRows(reasonRows)}
+        {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
         <div class="again">
           <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
-          <span class="checked">{stop.checking ? "Checking…" : stop.checkedAt ? `Checked${stop.checkRun?.origin === "recheck" && stop.checkRun.finished ? " again" : ""} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked"}</span>
+          <span class="checked">{checkedText}</span>
+          {#if runsAll}<span class="checked">{runsAll}</span>{/if}
           {#if reason}<span class="reason">{reason}</span>{/if}
         </div>
         {#if copy.footnote}<p class="footnote">{copy.footnote}</p>{/if}
-        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
+        {#if stop.bookkeeping}<!-- Mark complete leads the page instead. -->{:else if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
       </aside>
     </div>
   </div>
@@ -350,8 +416,22 @@
   <BillingPanel {snapshot} />
 </main>
 
+{#snippet checkRows(list: typeof stop.checks)}
+  <ul class="checks">
+    {#each list as check, index (index)}
+      {@const state = verdict(check)}
+      <li>
+        <span class="mark" class:passed={state === "passed"} class:waived={state === "waived"}>{#if state === "passed"}<Icon name="check" size={11} strokeWidth={2.4} />{/if}</span>
+        <span class="check"><span class="check-head">{check.name}<span class="verdict" class:passed={state === "passed"} class:waived={state === "waived"}>{VERDICT[state]}</span></span><CheckFacts {snapshot} {check} changes={markChanges} /></span>
+      </li>
+    {/each}
+  </ul>
+{/snippet}
+
 <style>
   .restart { display: flex; flex-direction: column; gap: 20px; max-width: 1120px; }
+  /* Mark complete leads a bookkeeping stop in its own card, so it needs no rule above it. */
+  .lead-mark :global(.mark-complete) { border-top: 0; padding-top: 0; }
   .peer-choices { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
   .ended { border-color: rgba(230, 180, 80, 0.5); gap: 18px; }
@@ -390,7 +470,7 @@
   .step p { margin: 0; font-size: 14.5px; color: var(--muted); line-height: 1.6; text-wrap: pretty; }
   .block { display: flex; flex-direction: column; gap: 10px; }
   pre { margin: 0; white-space: pre-wrap; font-family: var(--mono); font-size: 13px; line-height: 1.7; color: var(--text); background: var(--deep); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; overflow-wrap: anywhere; }
-  pre.prompt { font-size: 12.5px; color: var(--muted); }
+  pre.prompt { font-size: 12.5px; color: var(--muted); max-height: 22em; overflow-y: auto; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
   .hint { font-size: 13px; color: var(--dim); }
   .resume > p.hint { margin: 0; line-height: 1.6; }
@@ -411,5 +491,6 @@
   .again { display: flex; flex-direction: column; gap: 10px; }
   .checked { font-size: 12.5px; color: var(--dim); }
   .reason { font-size: 12.5px; color: var(--amber); }
+  .fact { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
   .footnote { margin: 0; font-size: 12.5px; color: var(--dim); line-height: 1.6; text-wrap: pretty; }
 </style>

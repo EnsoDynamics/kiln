@@ -9,6 +9,7 @@ import { readHistory, chooseOutputSession } from "./history.js";
 import { outputPage } from "./logs.js";
 import { ControlFailure, failed, exitFor, result, errorFact, type Result } from "./result.js";
 import { NO_CHECK_RUN } from "./commands.js";
+import { markCompletePreview } from "./waiver-facts.js";
 import { ResponseSpool } from "./spool.js";
 import { progressHeading, progressText, type ProgressRow } from "./waiver-facts.js";
 import type { Engine } from "../engine/engine.js";
@@ -35,7 +36,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset"] }));
+    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "audit_loops"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -99,7 +100,17 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
         // Public spelling; the browser and journal retain their existing action identity.
         if (command.action === "take_over") command.action = "take-over";
         if (command.action === "message-review") throw new ControlFailure("invalid_input", "Use resume, verify-and-advance or carry-on with reviewed receipt IDs.", 2);
-        if (command.action === "waive-and-advance") waiveAndAdvance(current(), command);
+        if (command.action === "waive-and-advance" && waiveAndAdvance(current(), command) === "offer_only") {
+          // At a preflight stop Mark complete is offered at once, so without --confirm it returns the offer and runs nothing (The Preflight Stop).
+          const engine = current(); const canonical = resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory);
+          return c.json(result({ prd_path: canonical, execution_id: engine.record.executionId!, command_id: command.command_id, mark_complete: markCompletePreview(engine.markCompleteOffer(), canonical, engine.controlView().token), run_state: engine.controlRunState() }), 200);
+        }
+        // An Accept, and a change of After the last test audit loop, record where the person was; the control route is the command line (Kiln Audit Loop Limits, "Interfaces").
+        if ((command.action === "accept-and-deliver" || command.action === "settings") && command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
+          const inputs = command.inputs as Record<string, unknown>;
+          if (inputs.via !== undefined) throw new ControlFailure("invalid_input", "Kiln fills in where an instruction came from; the caller never supplies it.", 2);
+          if (command.action === "accept-and-deliver" || inputs.after_last_test_audit_loop !== undefined) inputs.via = "command_line";
+        }
         const old = current().commands.all().find(r => r.command_id === command.command_id);
         if (old && old.instruction.action !== command.action) throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
         // Deduplication precedes current eligibility. Never reconstruct an old target from a successor.
@@ -131,7 +142,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
  * the offered check run filled in from the guarded status (or the original receipt, so an identical
  * retry replays it) and `via: command_line`; the caller never supplies either.
  */
-function waiveAndAdvance(engine: Engine, command: Record<string, unknown>): void {
+function waiveAndAdvance(engine: Engine, command: Record<string, unknown>): "offer_only" | undefined {
   const inputs = command.inputs;
   if (!inputs || typeof inputs !== "object" || Array.isArray(inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
   const fields = inputs as Record<string, unknown>;
@@ -142,14 +153,16 @@ function waiveAndAdvance(engine: Engine, command: Record<string, unknown>): void
   if (!confirm) {
     if (fields.by !== undefined) throw new ControlFailure("invalid_input", "--by records who marked an activity complete; it needs --confirm.", 2);
     if (old && old.instruction.action !== "check-again" && old.instruction.action !== "verify-and-advance") throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
+    if (!old && engine.preflightStopKey() !== undefined) return "offer_only";
     command.action = old?.instruction.action ?? (engine.phaseRecoveryTarget() ? "verify-and-advance" : "check-again");
     if (command.action === "check-again" && Object.keys(fields).length) throw new ControlFailure("invalid_input", "This stop's recheck is check-again, which takes no --without-sending-reply or --message-reviewed; those apply at a hand-back stop.", 2);
-    return;
+    return undefined;
   }
   if (old && old.instruction.action !== "waive-and-advance") throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
   const offer = engine.markCompleteOffer();
   fields.check_run_id = old ? old.instruction.inputs.check_run_id : offer.offered ? offer.checkRunId : NO_CHECK_RUN;
   fields.via = "command_line";
+  return undefined;
 }
 
 /** Text status begins with the activity progress block, then the result's fields (AC-WAIVE-10). */

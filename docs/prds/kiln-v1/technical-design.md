@@ -101,6 +101,8 @@ Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-wai
 
 Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Starting From a Branch and §Reset (Documents found is computed for a starting point; a reset returns a running Kiln to it; an interrupted reset is finished first).
 
+Superseded in part by: [Kiln Build Preflight technical design](../../changes/kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (a due preflight comes before whatever Start or Resume would otherwise start or resume).
+
 Every `kiln run` resolves the PRD, takes the PRD's instance lock, and reconciles. Reconciliation is passive by default: an in-memory restart review holds all new dispatch and usage-wait watchers. Eligible continuation is shown through the Paused overview with a Resume button, completed/total/planned phases and the next activity. The snapshot adds optional `restartReview: { activityKey, action: start | resume | wait }`. Needs you, Complete and an intentional pause keep their existing screens. Resume uses the existing Start API and bot `continue` command, rechecks current state, then releases the review and drives normal continuation. The review has no saved schema field; every controller restart reviews again. `--resume` skips only this review for an already-started record, never an intentional pause or another restriction. No record or an unstarted record with that flag fails before setup. The following reconciliation choices describe what becomes eligible after this review, or immediately with `--resume`. Pseudocode:
 
 ```
@@ -174,6 +176,8 @@ A pause pressed during a phase stays pending through a Needs you and becomes act
 Superseded in part by: [Kiln Continue Added Phases — active handback](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (coherent active/known-source document reads before advancement; unrelated startup checks remain skipped).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Named in the phase documents (a `**Repositories:**` line is read)
+
+Superseded in part by: [Kiln Build Preflight technical design](../../changes/kiln-build-preflight/kiln-build-preflight-technical-design.md), §Phase Document Lines (two more preamble lines, `**Attended:**` and `**Early merge:**`, read as display facts).
 
 Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal, "Never").
 
@@ -343,6 +347,7 @@ Each started step's line on Phase detail is worded as UI-010 item 11 gives and b
 | Couldn't be started, and no run of the session ever started | UI-007's never-started line, followed by the spawn error's output line |
 | No final message, exit 0 | "The session exited with no final message. These are the last lines it wrote." |
 | No session ran (a check stopped an implementation phase, not the pull request or an audit, that no Kiln session worked on; the failing check is listed on the right) | "No Kiln session ran this phase. Kiln checked it and found what's shown on the right." under the headline "`<Phase>` hasn't passed its checks." No facts row; step 1 is a fresh session |
+| Only Kiln's record (a Kiln session finished the phase, its own or the session of a phase it was split from, and the one failing item asks for a current development-delivery assessment; AC-WAIVE-02 in Kiln Completion Waivers) | "`<Session's phase>`'s session built and closed it, and Kiln accepted it then. The documents its delivery assessment was made against have changed since, and no session is left to assess it again. Kiln found nothing else missing: mark it complete to carry on." ("Its own session built and closed it, …" when the session is the phase's own) under the headline "`<Phase>` is done. Only Kiln's record of it is out of date." No facts row, no session output and no ways to pick it up; Mark complete comes first |
 | No final message, ended by a signal | "The session was ended by `<signal>` with no final message. These are the last lines it wrote." |
 
 A signal Kiln sends itself is an interruption and the session is resumed ([Stopping a session](#stopping-a-session-ctrlc-a-closed-terminal-and-signals)), so the last row covers only a signal from something else. The other Needs you variants nobody drew (pull request, not resumable, a broken plan with no session, a session that never started or couldn't be restarted) follow UI-007.
@@ -535,6 +540,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API (`resumeAfterUsageLimit`; Resume now during a wait)
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (`POST /api/settings` takes `auditLoops`, changeable after Start; two new stop routes; `POST /api/check-again` at a loop stop starts nothing the gate refuses).
+
 All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local time by the view, with a day when not today (UI-010). A control not allowed in the current state returns 409 with the reason.
 
 | Method and path | Purpose |
@@ -566,6 +573,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 - **Dimmed.** Only the current-phase panel, relabelled "Last seen · phase <n> of <total>".
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (the snapshot gains `auditLoops`).
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (the view no longer derives interruption from transport loss).
 
@@ -665,6 +674,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Models and Settings; §Readings and identity (agent-specific models, confirmed pairs, dynamic allowances, metadata refresh and optional Claude five-hour readings).
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait, §Design Decisions (Kiln waits for a reset; rows keep their kind; readings keep `orgId` and their start)
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Settings (Claude Code defaults to `medium` effort).
 
 - **Account:** `claude auth status --json`; the screens use `email` and `subscriptionType` (the plan, shown with its first letter capitalized and followed by "plan": `max` → "Max plan"). Not signed in means the output's `loggedIn` is false, whatever the exit code. `subscriptionType` can be absent (an API-key login, for example); the plan is then left out and the email shows alone. When the call fails with no JSON Kiln can parse (an error, a timeout, other output), `account.error` carries that error, shown like the not-signed-in line: amber, in place of the email and plan, and Start isn't held.
 - **When Claude Code isn't signed in**, `account.error` carries the amber line UI-010 gives in place of the email, plan and limits. Start isn't held by it, and nothing waits for a sign-in: a session that then fails comes to Needs you like any other stop (UI-005).

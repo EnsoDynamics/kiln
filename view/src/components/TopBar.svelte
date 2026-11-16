@@ -10,8 +10,12 @@
   // A run keeps the view of the Kiln it started with (AC-UPG-01), so the version this view was
   // built from is the running Kiln's.
   import { version } from "../../../package.json";
+  import { buildDetails, type BuildInfo } from "../../../src/build-label.js";
+  import { build as embedded } from "../lib/build.js";
 
-  let { connected, lastEventAt, now, home, router, latest, open = false }: { connected: boolean; lastEventAt: number | undefined; now: number; home?: string; router?: Router; latest?: string; open?: boolean } = $props();
+  let { connected, lastEventAt, now, home, router, latest, open = false, build = embedded }: { connected: boolean; lastEventAt: number | undefined; now: number; home?: string; router?: Router; latest?: string; open?: boolean; build?: BuildInfo | undefined } = $props();
+  // A development build says which commit and when, in the browser's time zone (AC-LOOK-05, AC-HELP-03).
+  const details = $derived(buildDetails(build, new Date(now)));
   const ago = $derived(lastEventAt === undefined ? undefined : Math.max(0, Math.round((now - lastEventAt) / 1000)));
 
   // Escape, or a press anywhere outside the pill and its panel, closes the panel.
@@ -29,7 +33,7 @@
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 20.5V11a7 7 0 0 1 14 0v9.5" stroke="#ede8dd" stroke-width="1.6"></path><path d="M2.5 20.5h19" stroke="#ede8dd" stroke-width="1.6" stroke-linecap="round"></path><path d="M12 18c-1.8 0-2.8-1.2-2.8-2.6 0-1.7 1.5-2.5 1.9-4.1 1 .7 3.6 2.1 3.6 4.2 0 1.4-1 2.5-2.7 2.5z" fill="#e2694f"></path></svg>
       <span class="word">kiln</span>
     </a>
-    <span class="version" data-testid="kiln-version">v{version}</span>
+    <span class="version" data-testid="kiln-version">v{version}{details}</span>
     {#if latest}
       <div class="newer" bind:this={newer}>
         <button type="button" class="pill" bind:this={pill} aria-expanded={open} aria-controls={open ? "newer-kiln" : undefined} onclick={() => (open = !open)}>v{latest} available</button>
@@ -60,7 +64,8 @@
   .kiln { display: inline-flex; align-items: center; gap: 9px; color: var(--text); text-decoration: none; }
   .kiln:hover { color: var(--text); }
   .word { font-family: var(--serif); font-size: 28px; line-height: 1; }
-  .version { font: 12px/1 var(--mono); color: var(--dim); }
+  /* A development build's longer label wraps on a phone rather than widening the page. */
+  .version { font: 12px/1.3 var(--mono); color: var(--dim); min-width: 0; overflow-wrap: anywhere; }
   .newer { position: relative; }
   .pill { font: 12px/1 var(--sans); color: var(--amber); padding: 5px 9px; border: 1px solid var(--amber-border); border-radius: 999px; background: rgba(230, 180, 80, 0.08); cursor: pointer; }
   .panel { position: absolute; top: calc(100% + 12px); left: 0; z-index: 10; width: min(430px, calc(100vw - 32px)); box-sizing: border-box; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; background: var(--panel); border: 1px solid var(--line-stronger); border-radius: 8px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); }

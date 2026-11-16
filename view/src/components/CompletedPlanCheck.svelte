@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { CompletedPlanCheck } from "../../../src/engine/completed-plan-discovery.js";
+  import { awaitingMergeText } from "../../../src/engine/awaiting-merge.js";
   import { authorizeContinuation, continueFeature, type PageConfig } from "../lib/api.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   let { check, config, connected, acceptance }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"] } = $props();
@@ -20,7 +21,7 @@
     try {
       const response = await fetch("/api/continuation/check", { method: "POST", headers: { "Content-Type": "application/json", "X-Kiln-Token": config.token }, body: "{}" });
       const answer = await response.json();
-      if (!answer.check || !["unchanged", "available", "blocked", "failed"].includes(answer.check.status)) throw new Error(answer.reason ?? "Could not check the current plan. Try again.");
+      if (!answer.check || !["unchanged", "available", "blocked", "failed", "awaiting_merge"].includes(answer.check.status)) throw new Error(answer.reason ?? "Could not check the current plan. Try again.");
       // Apply the HTTP observation before releasing pending; SSE may arrive later.
       check = answer.check;
       refreshFailure = undefined;
@@ -48,9 +49,10 @@
 </script>
 
 <section class="plan-check" aria-label="Current plan check" aria-live="polite">
-  <h2>{check?.status === "checking" || pending ? "Checking for new phases" : refreshFailure || check?.status === "failed" ? "Could not check for new phases" : check?.status === "unchanged" ? "No new phases found" : result?.added.length ? "New phases found" : check?.status === "blocked" ? "Plan needs reconciliation" : "Check the current plan"}</h2>
+  <h2>{check?.status === "checking" || pending ? "Checking for new phases" : refreshFailure || check?.status === "failed" ? "Could not check for new phases" : check?.status === "unchanged" ? "No new phases found" : check?.status === "awaiting_merge" ? "Waiting for the delivery to merge" : result?.added.length ? "New phases found" : check?.status === "blocked" ? "Plan needs reconciliation" : "Check the current plan"}</h2>
   {#if refreshFailure}<p role="alert">{refreshFailure}</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
+  {#if check?.status === "awaiting_merge" && check.awaitingMerge && !earlier}<p>{awaitingMergeText(check.awaitingMerge)}</p>{#if check.awaitingMerge.pullRequest}<p><a href={check.awaitingMerge.pullRequest.url}>Open pull request #{check.awaitingMerge.pullRequest.number}</a></p>{/if}{/if}
   {#if earlier}<p>Showing earlier results. The current phase count is unknown.</p>{/if}
   {#each check?.errors ?? [] as problem}<p class="problem">{problem}</p>{/each}
   {#if acceptance && ["preparing", "blocked"].includes(acceptance.state)}

@@ -3,13 +3,14 @@ import { closedWaiver } from "./waivers.js";
 import { createHash } from "node:crypto";
 import { leavesOf } from "../plan/phase-plan.js";
 import type { PrdRecord } from "../state/records.js";
-import { judgedPhase, recordedPlan } from "./plan-reading.js";
-import type { GitContext } from "./git-reads.js";
+import { judgedPhase, planStructure, recordedPlan } from "./plan-reading.js";
+import { gitError, runGit, type GitContext } from "./git-reads.js";
 import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
 import { PLAN_NORMALIZER_VERSION, PlanCapacityError, PlanBaselineWriteFailure, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal } from "./continuation-readiness.js";
 import { accountCompletedLeaves, retainCompletionAccounting, type AccountedLeaf } from "./completed-plan-accounting.js";
 import type { ContinuationInputObservation } from "./continuation-authority.js";
+import type { AwaitingMerge } from "./awaiting-merge.js";
 
 export interface DiscoverySource { kind: "shared" | "delivery_base"; path: string; revision?: string; digest?: string; error?: string }
 export interface DiscoveredPhase { id: string; title: string; file: string }
@@ -28,7 +29,7 @@ export interface CompletedPlanResult {
   leaves?: AccountedLeaf[];
 }
 export interface CompletedPlanCheck {
-  status: "checking" | "unchanged" | "available" | "blocked" | "failed";
+  status: "checking" | "unchanged" | "available" | "blocked" | "failed" | "awaiting_merge";
   attemptedAt: string;
   lastSuccessfulAt?: string;
   sources: DiscoverySource[];
@@ -36,6 +37,8 @@ export interface CompletedPlanCheck {
   failure?: { code: "plan_too_large"; limit: number; resource: string };
   result?: CompletedPlanResult;
   earlierResult?: CompletedPlanResult;
+  /** The delivered work is not in the delivery base yet, so its plan cannot be compared there. */
+  awaitingMerge?: AwaitingMerge;
 }
 export interface DiscoveryContext { codex?: string | undefined; record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; observeInput?: (observation: ContinuationInputObservation) => void }
 export class DiscoveryWriteFailure extends Error {}
@@ -61,7 +64,7 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
   let source: PlanSource;
   try { source = await observeGitPlan(git, shared, record.prdDirectory, revision); }
   catch (error) { if (error instanceof PlanCapacityError) throw error; throw new Error(`baseline_unavailable: Restore the recorded completion revision ${revision} and required documents, then check again. ${(error as Error).message}`, { cause: error }); }
-  if (JSON.stringify(recordedPlan(source.plan)) !== JSON.stringify(record.plan)) throw new Error(`baseline_unavailable: Plan at recorded completion revision ${revision} does not match saved phase identities, closure and structure. Restore the matching completion record/revision and check again.`);
+  if (JSON.stringify(planStructure(recordedPlan(source.plan))) !== JSON.stringify(planStructure(record.plan))) throw new Error(`baseline_unavailable: Plan at recorded completion revision ${revision} does not match saved phase identities, closure and structure. Restore the matching completion record/revision and check again.`);
   const completions: PlanBaseline["completions"] = {};
   for (const phase of leavesOf(source.plan)) {
     const waiverId = record.phases[phase.id]?.skippedByWaiver ?? closedWaiver(record.waivers, phase.id)?.waiverId;
@@ -77,6 +80,17 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
     completion.scopeRepositories = phaseRepositories(historical, id);
   }
   return retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: source, sources: [], completions });
+}
+
+async function containsRevision(git: GitContext, path: string, revision: string, base: string): Promise<boolean> {
+  const result = await runGit(git, path, ["merge-base", "--is-ancestor", revision, base]);
+  if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not tell whether ${revision} is in the delivery base: ${gitError(result)}`);
+  return result.exitCode === 0;
+}
+
+/** The folder's tree object at a revision, or "" when the folder is absent there. */
+async function folderTree(git: GitContext, path: string, revision: string, folder: string): Promise<string> {
+  return (await gitRead(git, path, ["ls-tree", revision, "--", folder])).trim();
 }
 
 export async function discoverCompletedPlan(context: DiscoveryContext): Promise<CompletedPlanCheck> {
@@ -105,11 +119,37 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
   catch (error) { failed(error); }
   // A changed local candidate is known even if another required source failed.
   if (local) context.observeInput?.({ kind: "shared_documents", digest: local.digest });
+  // Completed work still on its unmerged feature branch is not a changed plan: the base simply has not caught up.
+  let awaiting: AwaitingMerge | undefined;
+  try {
+    // A recorded squash or rebase integration is checked by the base revision it landed in; waived heads were never delivered.
+    const delivered = baseline ? [...new Set(Object.values(baseline.completions).flatMap(row => { const work = row.repositories?.[record.repository.name]; return !work || work.waived ? [] : [work.integration?.baseRevision ?? work.revision]; }))] : [];
+    const pending = [];
+    if (revision) for (const work of delivered) if (!await containsRevision(git, shared, work, revision)) pending.push(work);
+    // Only when the base's own copy of the PRD folder is untouched since the branch forked: a change made there is real scope to reconcile.
+    let untouched = pending.length > 0;
+    for (const work of pending) if (untouched) {
+      const fork = (await gitRead(git, shared, ["merge-base", work, revision!])).trim();
+      untouched = await folderTree(git, shared, fork, record.prdDirectory) === await folderTree(git, shared, revision!, record.prdDirectory);
+    }
+    if (untouched) {
+      const pull = record.pullRequests?.find(row => row.repository === record.repository.name);
+      awaiting = { revision: pending.at(-1)!, baseBranch: branch, ...(pull ? { branch: pull.head, pullRequest: { number: pull.number, url: pull.url } } : {}) };
+    }
+  } catch (error) { failed(error); return check; }
+  const awaitingMerge = () => {
+    check.status = "awaiting_merge"; check.awaitingMerge = awaiting!; check.errors = []; check.lastSuccessfulAt = attemptedAt;
+    delete check.failure; delete check.earlierResult;
+    return check;
+  };
+  // An unreadable plan in the base is expected while the PRD's documents exist only on the unmerged branch.
+  if (awaiting && baseline && remoteFact.error) return awaitingMerge();
   if (check.errors.length || !local || !remote || !baseline || !revision) return check;
   try {
     const old = baseline.active;
     const localChanged = semantic(local) !== semantic(old); const remoteChanged = semantic(remote) !== semantic(old);
     const conflicts = [...new Set([...completedScopeProblems(old, local, baseline.completions), ...completedScopeProblems(old, remote, baseline.completions)])];
+    if (awaiting && conflicts.length && semantic(local) === semantic(remote)) return awaitingMerge();
     const problems = [...conflicts];
     if (localChanged && remoteChanged && semantic(local) !== semantic(remote)) problems.push("source_conflict: Shared checkout and delivery base contain different revised scope. Reconcile the governing documents, commit/integrate the agreed plan, then check again.");
     const selected = !localChanged || semantic(local) === semantic(remote) ? remote : local;

@@ -1,0 +1,5 @@
+
+The person accepted what the last test audit loop left, in their own words. In each pull request's description, include these lines word for word, as for the settled items:
+
+{{sentences}}
+{{summary}}

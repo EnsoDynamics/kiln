@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "208b0457-ed3f-47f5-afa4-89e02ec01475",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The repair delivery audit re-read all sixteen criteria at commit ddd25ef, because Phase 2 changed engine.ts, loop-view.ts and audit-loops.ts, which most of them run through. Three rounds of fresh assessors ran: the first confirmed one new gap, the second one more, the third none. Phase 2's two repairs (AC-LOOP-05 and AC-STOP-01) are built. AC-LOOP-06 is partly built: kiln settings never shows the sentence Kiln quotes as the person's when they choose Deliver, and an activity row quotes an Accept sentence without saying where or when it was given. AC-LOOP-03 is partly built: when an older run is upgraded, the rebuilt count includes a test audit continuation that ran no session. Phase 3 was added to build these.",
+  "completionPhases": ["3"],
+  "needsYou": [],
+  "settled": []
+}

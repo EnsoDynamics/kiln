@@ -48,10 +48,18 @@ async function landedThenStopped(): Promise<Harness> {
   return h;
 }
 
+/** A delivery loop already counted under an Allow, which a Start on Folder missing either restarts or keeps (Kiln Audit Loop Limits AC-LOOP-04). */
+function seedLoops(h: Harness) {
+  const at = h.engine.record.startedAt!;
+  h.engine.record.auditLoops = { epochs: [{ kind: "delivery", at, cause: "start", loopsBefore: 0 }, { kind: "test", at, cause: "start", loopsBefore: 0 }, { kind: "delivery", at, cause: "allowed", limit: 2, heldAuditKey: "seeded", loopsBefore: 0 }], loops: [{ kind: "delivery", number: 1, limitAtStart: 2, last: false, startedAt: at, sourceAuditId: "seeded-audit", activityKeys: ["2b"] }], acceptances: [], itemsListedStops: [] };
+  return structuredClone(h.engine.record.auditLoops);
+}
+
 describe("Start from the base branch (AC-SETUP-02, AC-SETUP-03, AC-SETUP-04)", () => {
   it("sets up a new suffixed branch and folder from the base commit the page showed, archives the unfinished execution, and runs the rest of the base plan", async () => {
     const h = await landedThenStopped();
     const oldExecution = h.engine.record.executionId!;
+    seedLoops(h);
     const saved = h.engine.worktreePath;
     // The branch is merged into develop, as on 2026-11-06, then the folder is deleted.
     git(h.sandbox, h.repository, "fetch", "-q", "origin");
@@ -88,6 +96,8 @@ describe("Start from the base branch (AC-SETUP-02, AC-SETUP-03, AC-SETUP-04)", (
     expect(record.settings.featureBranch).toBe("feature/customer-returns-2");
     expect(record.settings.keepAwake).toBe(false);
     expect(record.branchStem).toBe("feature/customer-returns");
+    // A new run: both loop counts start at zero, at the setup's start (AC-LOOP-04).
+    expect(record.auditLoops).toEqual({ epochs: [{ kind: "delivery", at: record.startedAt, cause: "start", loopsBefore: 0 }, { kind: "test", at: record.startedAt, cause: "start", loopsBefore: 0 }], loops: [], acceptances: [], itemsListedStops: [] });
     expect(record.repositories[0]).toMatchObject({ baseCommit, worktreePath: panel.fields.worktreePath });
     // The new branch starts at the base commit the page showed; the run's earlier branch is kept, locally and on origin (AC-SAFE-03).
     expect(git(h.sandbox, h.repository, "merge-base", baseCommit, "feature/customer-returns-2").trim()).toBe(baseCommit);
@@ -120,6 +130,7 @@ describe("Start from the run's existing feature branch (AC-SETUP-02, AC-SETUP-05
   it("clears git's stale record of the missing folder, re-creates it on the branch, and resumes the same execution", async () => {
     const h = await landedThenStopped();
     const execution = h.engine.record.executionId!;
+    const loops = seedLoops(h);
     const before2b = h.engine.record.phases["2b"]!.stop!.checkedAt;
     const saved = h.engine.worktreePath;
     rmSync(saved, { recursive: true, force: true });
@@ -143,6 +154,8 @@ describe("Start from the run's existing feature branch (AC-SETUP-02, AC-SETUP-05
     expect(await start(h)).toEqual({ ok: true, status: 200 });
     await h.engine.settled();
     expect(h.engine.record.executionId).toBe(execution);
+    // The same run keeps both counts (AC-LOOP-04).
+    expect(readPrdRecord(h.stateDirectory)!.auditLoops).toEqual(loops);
     expect(existsSync(join(saved, ".git"))).toBe(true);
     const list = git(h.sandbox, h.repository, "worktree", "list", "--porcelain");
     expect(list).not.toContain("prunable");

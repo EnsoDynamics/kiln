@@ -58,6 +58,7 @@ code{font:12px/1.6 ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}
    <option value="final-audits">8 · Final delivery while an audit is also required</option>
    <option value="complete">9 · After final delivery is marked complete</option>
    <option value="no-report">10 · Delivery audit left no report: Mark complete, then the test audit runs</option>
+   <option value="bookkeeping">11 · Only Kiln’s record is out of date: Mark complete leads the standard Needs you page</option>
   </select></label>
  <span style="opacity:.75">Sample ids and revisions are illustrative.</span>
 </div>
@@ -229,6 +230,33 @@ Phase 4   Reporting views      running</div>
  </section>
 </div>
 
+<!-- ===== A stop that is only Kiln's record, on the standard Needs you page (state 11) ===== -->
+<div id="bookkeeping" hidden>
+ <p class="kp-muted kp-small">example-app · docs/prds/example-feature</p>
+ <div class="kp-between"><span class="kp-eyebrow">Needs you · Kiln is waiting</span></div>
+ <div class="kp-cols" style="margin-top:14px">
+  <div>
+   <section class="kp-card" style="margin-top:0">
+    <h1 style="font-size:30px;margin-top:0">Phase 3a is done. Only Kiln’s record of it is out of date.</h1>
+    <p>Phase 3’s session built and closed it, and Kiln accepted it then. The documents its delivery assessment was made against have changed since, and no session is left to assess it again. Kiln found nothing else missing: mark it complete to carry on.</p>
+   </section>
+   <section class="kp-card">
+    <h3>Phase 3a is done, and Kiln’s check is wrong?</h3>
+    <p class="kp-muted">Mark it complete. Kiln skips the 1 failing check, records it as waived, never as passed, and moves on to Phase 3b. Phase 3a will show as “Complete · 1 check waived”.</p>
+    <div class="kp-actions"><button>Mark Phase 3a complete</button></div>
+   </section>
+  </div>
+  <aside class="kp-card" style="margin-top:0">
+   <span class="kp-eyebrow">Completion checks</span>
+   <ul class="kp-checks">
+    <li><span><strong>Required development delivery verified</strong><br><span class="kp-muted">Phase 3a needs a current development-delivery assessment.</span></span><span class="kp-state">Not yet</span></li>
+   </ul>
+   <div class="kp-actions"><button class="kp-primary" style="width:100%">Check again</button></div>
+   <p class="kp-note">Checked again 7:41 PM.</p>
+  </aside>
+ </div>
+</div>
+
 <!-- ===== Final delivery on the standard Needs you page (state 7) ===== -->
 <div id="final" hidden>
  <p class="kp-muted kp-small">example-app · docs/prds/example-feature</p>
@@ -390,9 +418,9 @@ Test audit       Round 1           running</div>
  const busy=on=>{for(const b of document.querySelectorAll('.js-busy'))b.disabled=on;};
  function render(){
   const s=state.value;
-  const fin=s==='final'||s==='final-audits', nr=s==='no-report';
-  $('needs-you').hidden=s==='after'||s==='cli'||fin||s==='complete'||nr; $('no-report').hidden=!nr; $('after').hidden=s!=='after'; $('cli').hidden=s!=='cli'; $('final').hidden=!fin; $('complete').hidden=s!=='complete';
-  $('crumb').textContent=nr?'Example feature / Delivery audit':fin?'Example feature / Final delivery':s==='complete'?'Example feature':'Example feature / Phase 3';
+  const fin=s==='final'||s==='final-audits', nr=s==='no-report', bk=s==='bookkeeping';
+  $('needs-you').hidden=s==='after'||s==='cli'||fin||s==='complete'||nr||bk; $('no-report').hidden=!nr; $('bookkeeping').hidden=!bk; $('after').hidden=s!=='after'; $('cli').hidden=s!=='cli'; $('final').hidden=!fin; $('complete').hidden=s!=='complete';
+  $('crumb').textContent=bk?'Example feature / Phase 3a':nr?'Example feature / Delivery audit':fin?'Example feature / Final delivery':s==='complete'?'Example feature':'Example feature / Phase 3';
   $('audits-check').hidden=s!=='final-audits';
   const fn=s==='final-audits'?2:1, fp=fn>1?'s':'';
   $('final-hint').textContent='Mark it complete. Kiln skips the '+fn+' failing check'+fp+' above, records '+(fn>1?'them':'it')+' as waived, never as passed, and moves to Complete. Final delivery will show as “Complete · '+fn+' check'+fp+' waived”.';

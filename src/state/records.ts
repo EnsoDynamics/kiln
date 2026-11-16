@@ -19,8 +19,11 @@ import { writeDurableMetadata } from "../control/durable-file.js";
 import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
+import { assertPreflightState } from "../engine/preflight.js";
+import { preflightKey } from "./activity-keys.js";
+import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 23;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -46,6 +49,8 @@ export interface Settings {
   keepAwake: boolean;
   /** Wait out a usage limit and resume by itself (usage-limit recovery AC-AUTO-04). */
   resumeAfterUsageLimit: boolean;
+  /** How many audit loops Kiln makes on its own, and what follows the last test audit loop (Kiln Audit Loop Limits AC-LOOP-01). */
+  auditLoops?: AuditLoopSettings;
 }
 
 /** Only the per-agent map owns next-session settings on disk. */
@@ -67,7 +72,8 @@ export function assertAgent(agent: unknown): asserts agent is AgentId {
   if (agent !== "claude_code" && agent !== "codex") throw new NewerSchemaError(`Unknown Kiln agent: ${String(agent)}. Update Kiln.`);
 }
 
-export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection";
+/** `preflight`: a preflight that reported items stops on its key (build preflight "The Preflight Stop"). */
+export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight";
 
 export interface CheckResult {
   name: string;
@@ -117,6 +123,17 @@ export interface PhaseStop {
   limit?: StopLimit;
   /** The latest check run of this stop (schema 19). */
   run?: CheckRun;
+  /** The rows came from a finished check since the stop that ran the activity's completion checks (checks at a stop AC-STOPCHECK-03). */
+  rowsAreCompletionChecks?: true;
+  /** Stored only on a `loop_limit` stop: which loops ran out and why the run holds (Kiln Audit Loop Limits, "Loop Stops"). */
+  loop?: LoopStop;
+}
+
+/** A loop stop's facts; a `needs_you` loop stop derives them (`loopStopOf`). */
+export interface LoopStop {
+  kind: "delivery" | "test";
+  reason: "phases_added" | "test_work_saved" | "items_listed";
+  heldAuditKey: string;
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
@@ -245,6 +262,10 @@ export interface RecordedPlanPhase {
   closed: boolean;
   /** The names on the document's `**Repositories:**` line; empty when it has none. */
   repositories: string[];
+  /** The `**Attended:**` line's text (build preflight, schema 23). Display only: nothing that orders, starts or stops work reads it. */
+  attended?: string;
+  /** The `**Early merge:**` line's text (build preflight, schema 23). Display only. */
+  earlyMerge?: string;
 }
 
 export type RepositoryKind = "prd" | "named" | "added";
@@ -311,7 +332,12 @@ export interface CompatibilityNotice {
   observedAt: string;
 }
 
+/** The `settings` receipt's echo; the loop fields are absent on a receipt saved before them. */
+export interface ControlSettingsEcho { keep_awake: boolean; resume_after_usage_limit: boolean; delivery_audit_loops?: number; test_audit_loops?: number; after_last_test_audit_loop?: string }
+
 export interface PrdRecord {
+  /** The audit loop ledger, append-only (Kiln Audit Loop Limits, "The Loop Ledger"); absent before Start and on a run carried over from schema 21 until rebuilt. */
+  auditLoops?: AuditLoopLedger;
   /** At most one per feature (technical design, Compatibility notices row). */
   compatibility?: CompatibilityNotice[];
   pendingContinuationAuthority?: string;
@@ -323,7 +349,7 @@ export interface PrdRecord {
   controlEpoch?: string;
   controlRevision?: number;
   controlFingerprint?: string;
-  controlApplied?: { operationId: string; outcome: string; settings?: { keep_awake: boolean; resume_after_usage_limit: boolean } };
+  controlApplied?: { operationId: string; outcome: string; settings?: ControlSettingsEcho };
   billing?: BillingState;
   nextActivityKey?: string;
   activities?: import("../audit/workflow.js").ExecutionActivity[];
@@ -366,6 +392,8 @@ export interface PrdRecord {
   start?: { from: "new" | "existing"; bringUpToDate: boolean };
   /** Each catch-up Kiln made (run restart AC-CURRENT-01). */
   branchCatchUps?: BranchCatchUp[];
+  /** The build preflight's mark and activities (schema 23; build preflight "Data Models"). */
+  preflight?: import("../engine/preflight.js").PreflightState;
 }
 
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";
@@ -500,7 +528,7 @@ export interface SessionRecord {
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
-  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit";
+  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight";
   createdAt: string;
   /** The chosen alias, as passed to --model. */
   model: string;
@@ -517,6 +545,8 @@ export interface SessionRecord {
   sleeps: { at: string; seconds: number; detectedAt: string; run: number }[];
   lastSkill?: { name: string; at: string };
   steps: StepStart[];
+  /** Every sentence the session's prompt quoted as the person's, with where and when (AC-TEST-03). */
+  carried?: { sentence: string; source: string }[];
   /** `carry_on`: the launch was a carry-on session for a stopped phase (run restart AC-CARRY-05); absent for an ordinary launch. */
   startedAs?: "carry_on";
 }
@@ -588,7 +618,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -644,6 +674,17 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     for (const facts of Object.values(record.phases)) if (facts.stop) markReasonRows(facts.stop.checks);
     if (record.billing?.hold?.checks) markReasonRows(record.billing.hold.checks);
   }
+  // Schema 22: audit loop limits (AC-LOOP-07). A run not started gets the defaults, as a new one; a run
+  // already started runs under Always stop and ask me with limits 3 and 3, and its ledger is rebuilt
+  // from its saved audit history by the engine (RUN-002).
+  if (record.schemaVersion < 22) {
+    if (record.startedAt === undefined) record.settings.auditLoops ??= defaultLoopSettings();
+    else record.settings.auditLoops ??= { ...defaultLoopSettings(), afterLastTest: "stop_and_ask", afterLastTestSource: { kind: "kiln_for_earlier_run" } };
+  }
+  assertAuditLoopSettings(record.settings.auditLoops);
+  assertLedger(record.auditLoops);
+  // Schema 23 adds `preflight`; a record from earlier has none, so its preflight is not settled (build preflight "Upgrade").
+  assertPreflightState(record.preflight);
   // Schema 20 adds `planReadAt`, written with the next plan read; the migration leaves it unset.
   if (record.planReadAt !== undefined && !Number.isFinite(Date.parse(record.planReadAt))) throw new Error("Malformed plan read time.");
   if (record.schemaVersion >= 2) {
@@ -709,6 +750,7 @@ function assertWaivers(waivers: unknown): void {
 
 export function writePrdRecord(stateDirectory: string, record: PrdRecord): void {
   assertContinuationState(record.continuation);
+  assertPreflightState(record.preflight);
   assertPreparationState(record.preparation);
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this record.");
   assertBillingState(record.billing, record.executionId);
@@ -741,6 +783,10 @@ export function sessionStorageKey(record: Pick<SessionRecord, "kind" | "phaseId"
   if (record.kind === "delivery_audit" || record.kind === "test_audit") {
     if (!record.activityId || !/^[a-zA-Z0-9-]+$/.test(record.activityId)) throw new Error("Audit session needs a safe activity identity.");
     return `audit-${record.activityId}`;
+  }
+  if (record.kind === "preflight") {
+    if (!record.activityId || !/^[a-zA-Z0-9-]+$/.test(record.activityId)) throw new Error("Preflight session needs a safe activity identity.");
+    return preflightKey(record.activityId);
   }
   return record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId;
 }

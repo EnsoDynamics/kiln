@@ -35,6 +35,8 @@ Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Audits Marked Complete (a waived audit routes by its counted outcome).
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Gate (completion phases an audit appended and a saved test continuation start only through the loop gate while a loop of that kind is left; otherwise the run holds at a loop stop).
+
 Every startup, loop continuation, session settlement, Check again and Resume uses one next-activity decision. Evaluate outstanding workspace, plan and required development evidence first. Then select the first applicable row:
 
 | Current facts | Next work |
@@ -51,6 +53,8 @@ An accepted report advances only after its session settles and repository/worksp
 A delivery audit with gaps routes to its completion leaves. After their completion, allocate a new delivery round. A test audit with completion phases does the same. A direct implementation fix made by a test audit invalidates delivery success even if all its grades pass: run a new delivery audit, then reassess affected test rows before finalization. Test-only remediation may continue in fresh sessions within the same test round. No hard-coded round limit silently approves or abandons a PRD. A normally ended session lacking either a valid result or an actionable saved continuation becomes Needs you; it is never automatically retried merely for failing.
 
 ### Activity identity and order
+
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §Data Models (activity kind `preflight` and its `preflight-<activityId>` key).
 
 Add `activities[]` to the execution record. Each entry has an opaque `activityId`, monotonic `sequence`, `kind: implementation | delivery_audit | test_audit | final_delivery`, optional `phaseId`, audit `round` and `continuationIndex` numbers where applicable, `sessionIds[]`, `createdAt`, lifecycle facts, and accepted-result reference. Allocate identity and launch intent before spawning. Round numbers increase per audit kind; a test continuation increments `continuationIndex` in its original round. A resumed provider run keeps its activity and session identity. A fresh test continuation or repeated audit gets a new activity and fresh provider conversation.
 
@@ -204,6 +208,8 @@ Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-ne
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — manual takeover audit evaluation/acceptance and durable hold semantics; ordinary automatic recovery remains.
 
 Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Display Contract (completion-phase and test audit rows that are part of a loop also show **loop N of M** or **last loop**, and the loop in their detail).
 
 Expose a unified `activities` projection in the snapshot, retaining `phases` for plan details/counts. Rows include activity identity, kind, display label, round/continuation, state, timing, session details, result summary and checks. Started rows follow monotonic execution sequence; pending plan leaves follow them in plan order. Added completion phases appear after the audit that added them. Split parents keep their existing relationships and details, without counting audits as phases.
 

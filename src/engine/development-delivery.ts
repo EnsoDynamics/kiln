@@ -3,13 +3,13 @@ import { simpleCommands } from "../session/bash-command.js";
 /** The delivery ledger is evidence, never a remote command runner. All remote reads are bounded. */
 import { createHash, randomUUID } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join, posix } from "node:path";
 import { runHelper } from "../platform/helper-process.js";
 import { writeJsonAtomically } from "../state/state-files.js";
-import type { PrdRecord, RepositoryEntry, CheckResult } from "../state/records.js";
+import type { PrdRecord, RepositoryEntry, CheckResult, PhaseFacts } from "../state/records.js";
 import { checkpointAgainst, emptyDevelopmentLedger, normalizeTarget, normalizeMergeTarget, authorizationTargetKey, permitsTarget, targetKey, type CommandEvidence, type DevelopmentLedger, type DeliveryCheckpoint, type DeliveryAssessment, type DeliverySplit, type EvidenceReference, type EvidenceRequirement, type EvidenceFact, type DeliveryOwner, deliveryOwner, sameOwner, ownerKey, ownerFields } from "../state/development-delivery.js";
 import { runGit, type GitContext } from "./git-reads.js";
-import { readPlanAt } from "./plan-reading.js";
+import { judgedPhase, readPlanAt } from "./plan-reading.js";
 import { observeGitPlan } from "./completed-plan-sources.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import type { PhasePlan } from "../plan/phase-plan.js";
@@ -685,6 +685,45 @@ export async function leavesClosedAtRunBase(context: DeliveryContext): Promise<R
     closedAtBaseCache.set(key, closed);
   }
   return closed;
+}
+/**
+ * The phase record of the Kiln session that finished a leaf: the leaf's own, or that of a split ancestor whose session
+ * split it midway and built this leaf, the first below it in plan order. Undefined while no Kiln session has finished it.
+ *
+ *   finishedBy(record, "2a")  // ["2", facts] when Phase 2's session split it into 2a, 2b and 2c and closed 2a
+ */
+export function finishedBy(record: PrdRecord, leafId: string): [string, PhaseFacts] | undefined {
+  const plan = record.plan ?? [];
+  const finished = (key: string) => { const facts = record.phases[key]; return facts && facts.sessionIds.length > 0 && facts.doneAt !== undefined ? facts : undefined; };
+  // The leaf's own finished session, once it has one, comes before the ancestor's that split it off.
+  const own = finished(leafId); if (own) return [leafId, own];
+  return Object.entries(record.phases).find(([key]) => finished(key) && isAncestorOf(key, leafId) && judgedPhase(plan, key)?.id === leafId);
+}
+/**
+ * Binds a finished leaf that has no binding to the documents at the commit its session finished on, when its assessment
+ * matched them there and its own phase document is unchanged since (technical design, "Assessments and evidence"). The
+ * leaf loop records a binding only when a leaf's check next passes there, so a leaf whose check was not reached before a
+ * later phase edited the shared documents, such as one a split ancestor's session built, would otherwise go unbound.
+ * True when the record changed.
+ */
+export async function bindAtFinish(context: DeliveryContext, leafId: string): Promise<boolean> {
+  const state = ledger(context.record);
+  if (state.accepted?.some(one => one.phaseId === leafId)) return false;
+  const revision = finishedBy(context.record, leafId)?.[1].repositories[context.record.repository.name]?.pushedSha;
+  const assessment = state.assessments.find(one => sameOwner(one, { owner: { kind: "phase", phaseId: leafId } }));
+  if (!revision || !assessment || assessment.requirementManifestDigest) return false;
+  let documents: Record<string, string>;
+  // A finish commit whose plan no longer reads cannot show what the check passed against; the leaf then answers to the current documents.
+  try { documents = (await observeGitPlan(context.git, context.prdWorktree, context.prdDirectory, revision)).documents; } catch { return false; }
+  const phase = readPlanAt(context.prdWorktree, context.prdDirectory); if (!phase.ok) return false;
+  const fileName = phase.plan.phases.find(one => one.id === leafId)?.fileName; const own = fileName === undefined ? undefined : documents[posix.join(context.prdDirectory, fileName)];
+  if (fileName === undefined || own === undefined) return false;
+  const files = Object.keys(documents).filter(file => posix.dirname(file) === context.prdDirectory && (file.endsWith("-prd.md") || /(?:^|-)technical-design\.md$/.test(posix.basename(file)) || posix.basename(file) === fileName)).sort();
+  const atFinish = hash(files.map(file => [posix.basename(file), mechanical(documents[file]!)]));
+  const ownAtFinish = phaseFileDigest(fileName, own);
+  if (atFinish !== assessment.documentsDigest || ownAtFinish !== phaseDocumentDigest(context, leafId)) return false;
+  state.accepted = [...(state.accepted ?? []), { phaseId: leafId, documentsDigest: atFinish, phaseDocumentDigest: ownAtFinish }];
+  return true;
 }
 /**
  * Records the documents a finished phase's delivery check just passed against; true when the record changed.
