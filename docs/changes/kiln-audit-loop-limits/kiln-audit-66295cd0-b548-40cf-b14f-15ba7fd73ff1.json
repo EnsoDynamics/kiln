@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "66295cd0-b548-40cf-b14f-15ba7fd73ff1",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "This repair delivery audit checked Phase 6 at commit eab75d6. It re-read the two criteria Phase 6 completes (AC-STOP-01 and AC-STOP-02) and the six others whose behavior runs through files changed since the last audit: AC-STOP-03, AC-TEST-02, AC-TEST-03, AC-LOOP-03, AC-LOOP-04 and AC-SHOW-01. One round of fresh assessors found every one Implemented, and the main agent confirmed the Phase 6 repairs in the code. A session that Accept what is left and deliver started now gets its own line on the loop stop page and in kiln status. A needs_you test loop stop shows the waiting Mark complete button before a recheck. After a takeover, Verify at a needs_you test loop stop hands the session back, so the browser shows the loop page, and Allow or Accept given first requires the hand-back before it starts Kiln's own session. Every other criterion keeps the Implemented status the earlier audits gave it. Nothing is left to build, so the test audit follows.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": []
+}

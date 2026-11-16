@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "90efe8c8-d988-4636-a913-d491a019b7f4",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "The delivery audit checked all 16 acceptance criteria of Kiln Audit Loop Limits at commit 3aaf3d0. Each one is built and reachable from its entry point: the Documents found settings, the loop gate in the engine, the loop stop page and its controls, the command line, and the prompts and rows. One round of fresh assessors found no gap, so no completion phases were added and the test audit can follow.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": []
+}

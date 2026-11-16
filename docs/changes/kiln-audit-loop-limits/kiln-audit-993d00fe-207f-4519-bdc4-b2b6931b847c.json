@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "993d00fe-207f-4519-bdc4-b2b6931b847c",
+  "kind": "test_audit",
+  "outcome": "passed",
+  "summary": "Fixing chat 3 of the Kiln Audit Loop Limits test audit added and strengthened tests for the four rows left under To fix, each seen to fail with its behavior broken (the Start after a pause has no code to break), and a fresh re-grade raised them to Adequate. At the person's direction it then fixed the earlier refusal of Mark complete on an audit with no usable report whose session appended phases (src/engine/development-owners.ts, AC-WAIVE-12), and added tests that such an audit stops at the loop stop with no delivery loop left and builds the phase with one left; both fail with the fix reverted. Every criterion is now Adequate. Implementation changed, so a fresh delivery audit is due. Unit and integration suites pass; two unit tests timed out under full-suite load and passed when run alone.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [
+    {
+      "id": "item-1",
+      "how": "Fixed in 4f68aa6 at the person's direction: assignAuditObligations now accepts a waiver over no report, so Mark complete succeeds and the loop gate stops at the loop limit (no loop left) or builds the appended phase (a loop left). Two integration tests in src/engine/audit-loop-limits.integration.test.ts prove both, and AC-DELIV-01 is Adequate, 7 of 7."
+    }
+  ],
+  "changedImplementation": true
+}

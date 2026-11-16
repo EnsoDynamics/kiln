@@ -704,6 +704,10 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
         if (["complete", "complete-repositories"].includes(screen.name)) {
           await page.evaluate("document.querySelector('[aria-label=\"Current plan check\"]')?.remove()");
         }
+        // Kiln Audit Loop Limits AC-LOOP-01 and AC-EFFORT-01 supersede these layouts in part by adding
+        // the Audit loops section and the effort note; the rest of each layout is compared as drawn.
+        // The added sections are covered in view/src/screens/audit-loops-screens.test.ts.
+        await page.evaluate("document.querySelectorAll('fieldset.loops, .effort-default').forEach(element => element.remove())");
         const decided = mockup.map((box) => ({ ...box, text: screen.decided?.[box.text] ?? box.text }));
         expect(layoutDifferences(decided, await page.evaluate<TextBox[]>(TEXT_LAYOUT))).toEqual([]);
       } finally {
@@ -725,6 +729,8 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
       // The mockup draws phase 2a's Details open.
       await openDetails(page, "2a");
       await page.evaluate(FONTS_LOADED);
+      // The settings panel's Audit loops section is Kiln Audit Loop Limits' addition (AC-LOOP-01); the rest is compared as drawn.
+      await page.evaluate("document.querySelectorAll('fieldset.loops').forEach(element => element.remove())");
       expect(layoutDifferences(mockup, await page.evaluate<TextBox[]>(TEXT_LAYOUT))).toEqual([]);
     } finally {
       await page.close();

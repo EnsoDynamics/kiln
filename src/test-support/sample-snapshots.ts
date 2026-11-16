@@ -892,3 +892,74 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
     previewId: "e".repeat(64), draftRevision: 0,
   };
 }
+
+/** The audit loop mockup's sessions (Kiln Audit Loop Limits mockup screens 2 and 3). */
+const AUDIT_SESSION = "4b1e9c2a-73f0-4d5e-9a61-0c8d2f7e5b13";
+const TEST_SESSION = "9d27f5e0-1c84-4b6a-b3e2-6a0f8c41d7e9";
+const MINUTE = 60_000;
+const HOLD_REASON = "Kiln is holding because no delivery audit loop is left, not because a check failed. Allow more loops, or raise the limit and Check again.";
+
+/** Needs you on an audit's loop stop: the stop as the snapshot words it, with no checks (a `loop_limit` stop). */
+function loopStopSnapshot(phaseId: string, sessionId: string, markComplete: NonNullable<Snapshot["needsYou"]>["markComplete"], auditLoops: NonNullable<Snapshot["auditLoops"]>, activities: PhaseView[]): Snapshot {
+  const snapshot = needsYouMessageSnapshot();
+  const stop = { ...snapshot.needsYou! };
+  for (const key of ["finalMessage", "exitCode", "lastSkill", "steps"] as const) delete stop[key];
+  snapshot.feature = { ...snapshot.feature, currentPhaseId: phaseId, phasesDone: 5 };
+  snapshot.needsYou = { ...stop, phaseId, kind: "loop_limit", checks: [], counts: { passed: 0, waived: 0, failed: 0 }, resumeOffered: true, resumeCommand: `cd ${WORKTREE}\nclaude --resume ${sessionId}`, sessionId, ...(markComplete ? { markComplete } : {}) };
+  snapshot.auditLoops = auditLoops;
+  snapshot.activities = activities;
+  return snapshot;
+}
+
+/** Delivery audit loops used up (mockup screen 2): the fourth delivery audit added Phase 9, and Kiln holds. */
+export function deliveryLoopStopSnapshot(): Snapshot {
+  const settings = { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" as const };
+  const audit: PhaseView = { id: "audit-da4", activityId: "da4", kind: "delivery_audit", title: "Delivery audit", file: "Round 4", round: 4, continuationIndex: 1, state: "needs_you", finishedByPerson: false };
+  return loopStopSnapshot("audit-da4", AUDIT_SESSION, { offered: false, reason: HOLD_REASON }, {
+    settings, delivery: { used: 3, limit: 3 }, test: { used: 0, limit: 3 },
+    stop: {
+      kind: "delivery", reason: "phases_added", heldAuditKey: "audit-da4", holds: true, heading: "Delivery audit loops used: 3 of 3",
+      loops: [
+        { label: "Loop 1 of 3", activity: "Phase 6", did: "Phase 6 built", durationMs: 112 * MINUTE },
+        { label: "Loop 2 of 3", activity: "Phase 7", did: "Phase 7 built", durationMs: 74 * MINUTE },
+        { label: "Last loop", activity: "Phase 8", did: "Phase 8 built", durationMs: 48 * MINUTE },
+        { label: "Delivery audit", activity: "Delivery audit", did: "added Phase 9", durationMs: 41 * MINUTE },
+      ],
+      audit: { summary: "AC-REFUND-04 is still incomplete: a damaged item is refunded nothing, but the confirmation never tells the customer which row applied. Added Phase 9 to show the row on the return confirmation.", items: [] },
+    },
+  }, [audit]);
+}
+
+/** The last test audit loop under the default setting listed three high-risk rows (mockup screen 3): an items-listed stop, which holds nothing. */
+export function testLoopStopSnapshot(): Snapshot {
+  const settings = { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" as const, afterLastTestSource: { kind: "person" as const, at: "2026-10-17T13:12:00Z", where: "documents_found" as const } };
+  const carried = [{ sentence: "I accept the remaining Weak rows after the last test audit loop.", source: "chosen on Documents found at 2026-10-17 13:12 UTC" }];
+  const row = (id: string, title: string, loops: PhaseView["loops"], extra: Partial<PhaseView> = {}): PhaseView => ({ id, activityId: id.slice(6), kind: "test_audit", title, file: "Round 1", round: 1, continuationIndex: 1, state: "done", finishedByPerson: false, ...(loops ? { loops } : {}), ...extra });
+  const loop = (number: number, last: boolean, startedAt: string, durationMs: number, did: string) => ({ number, limit: 3, last, sessionId: `${TEST_SESSION.slice(0, -1)}${number}`, startedAt, durationMs, did });
+  return loopStopSnapshot("audit-ta4", TEST_SESSION, { offered: false, reason: "No check has run since the test audit stopped." }, {
+    settings, delivery: { used: 0, limit: 3 }, test: { used: 3, limit: 3 },
+    stop: {
+      kind: "test", reason: "items_listed", heldAuditKey: "audit-ta4", holds: false, heading: "Test audit loops used: 3 of 3",
+      loops: [
+        { label: "Loop 1 of 3", activity: "Test audit", did: "Saved test work · fixed 7 Weak rows, saved the rest", durationMs: 249 * MINUTE },
+        { label: "Loop 2 of 3", activity: "Test audit", did: "Saved test work · fixed 5 Weak rows, saved the rest", durationMs: 146 * MINUTE },
+        { label: "Last loop", activity: "Test audit", did: "Needs you · fixed 6 Weak rows", durationMs: 182 * MINUTE },
+      ],
+      audit: {
+        summary: "Fixed 6 Weak rows. Accepted the remaining 8 Weak rows on your words, quoted from Documents found, 2026-10-17 13:12 UTC. Three high-risk rows are still Weak and can be accepted only by name.",
+        items: [
+          { name: "AC-REFUND-04", problem: "High risk, still Weak: no test checks that a damaged item is refunded nothing.", action: "Decide whether to accept it." },
+          { name: "AC-APPROVAL-01", problem: "High risk, still Weak: the approver shown is never checked against the request.", action: "Decide whether to accept it." },
+          { name: "AC-RETURNS-03", problem: "High risk, still Weak: day 30 and day 31 are never tested.", action: "Decide whether to accept it." },
+        ],
+      },
+      afterLastTest: "deliver_unless_serious",
+      acceptSentence: "I accept the remaining Weak rows, and AC-REFUND-04, AC-APPROVAL-01 and AC-RETURNS-03.",
+    },
+  }, [
+    row("audit-ta1", "Test audit", undefined),
+    row("audit-ta2", "Test audit", [loop(1, false, "2026-10-17T13:30:00Z", 249 * MINUTE, "Saved test work · fixed 7 Weak rows, saved the rest")]),
+    row("audit-ta3", "Test audit", [loop(2, false, "2026-10-17T17:40:00Z", 146 * MINUTE, "Saved test work · fixed 5 Weak rows, saved the rest")]),
+    row("audit-ta4", "Test audit", [loop(3, true, "2026-10-17T20:10:00Z", 182 * MINUTE, "Needs you · fixed 6 Weak rows")], { state: "needs_you", carried }),
+  ]);
+}

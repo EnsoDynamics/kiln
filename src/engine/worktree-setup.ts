@@ -7,6 +7,7 @@ import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { defaultWorkspaceFolder, type CreatedBranch, type RepositoryEntry, type RepositoryKind, type AgentSettings, type Settings } from "../state/records.js";
+import { defaultLoopSettings } from "../state/audit-loops.js";
 import { gitError, listWorktrees, localBranchCommit, originBranches, runGit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
 
 /** Thirty minutes: the base check's fetch and `git worktree add`, which can download a lot (technical design, "Dependencies"). */
@@ -26,7 +27,8 @@ export interface RepositoryPaths {
  * The settings a PRD starts with (AC-START-07, UI-004): branch `feature/<folder>`, worktree
  * `.worktrees/<folder>/<repository>` in the folder that holds the repository, as the Enso Method
  * places its worktrees, base `develop` when origin has it,
- * otherwise origin's default branch, and the latest Opus at high effort.
+ * otherwise origin's default branch, the latest Opus at medium effort (Kiln Audit Loop Limits
+ * AC-EFFORT-01) and the default audit loop settings (AC-LOOP-01).
  */
 export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches | undefined): Settings {
   const base = origin === undefined ? "" : defaultBaseBranch(origin);
@@ -37,9 +39,10 @@ export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches |
     baseBranch: base,
     bases: {},
     model: "opus",
-    effort: "high",
+    effort: "medium",
     keepAwake: true,
     resumeAfterUsageLimit: true,
+    auditLoops: defaultLoopSettings(),
   };
 }
 
@@ -62,7 +65,7 @@ export function expandHome(path: string): string {
   return path;
 }
 
-export type FieldErrors = Partial<Record<"workspaceFolder" | "worktreePath" | "featureBranch" | "baseBranch" | "model", string>>;
+export type FieldErrors = Partial<Record<"workspaceFolder" | "worktreePath" | "featureBranch" | "baseBranch" | "model" | "deliveryLimit" | "testLimit" | "afterLastTest", string>>;
 
 /** One of the PRD's repositories as the field checks and setup see it, the PRD's repository first. */
 export interface PlannedRepository {

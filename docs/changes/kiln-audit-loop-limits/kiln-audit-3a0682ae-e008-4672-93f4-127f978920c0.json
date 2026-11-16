@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "3a0682ae-e008-4672-93f4-127f978920c0",
+  "kind": "test_audit",
+  "outcome": "passed",
+  "summary": "This test audit re-graded all sixteen Kiln Audit Loop Limits criteria after Phases 2 to 6 changed the loop code. Fresh assessors and ten red checks found four rows Weak: AC-LOOP-02, AC-TEST-01, AC-STOP-01 and AC-STOP-02 (high risk). Tests now prove that one audit's several phases make one loop, that the prompt gives the limit rather than the loop count, and that the stop heading gives the current limit. They also cover Allow at a stop on listed items, Mark complete's refusal at a test hold, and Mark complete used at a needs_you loop stop. Each new test failed with its behavior broken, and fresh re-graders graded all four Adequate, so every criterion is Adequate. Only tests and the test-only audit stand-in changed (08259cd). Unit (1031) and integration (1881) suites pass.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}

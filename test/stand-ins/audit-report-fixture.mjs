@@ -19,10 +19,15 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
  const report={schemaVersion:2,executionId:s.executionId,activityId:s.activityId,kind:s.kind,outcome:'passed',summary:'Fixture audit found nothing left.',completionPhases:[],needsYou:[],...(testing?{changedImplementation:false}:{})};
  if(behavior.directFix){writeFileSync(codePath,'export function value() { return 42; }\n');toolResult(toolCall('Write',{file_path:join(process.cwd(),codePath)}),'Small implementation fix');changed.push(codePath);if(testing)report.changedImplementation=true;}
  if(behavior.gap){
-  const id=String(Math.max(...readdirSync(directory).flatMap(name=>/^phase-(\d+)/.exec(name)?.[1]??[]).map(Number))+1);const path=`${directory}/phase-${id}-repair.md`;
+  // `gapPhases` appends that many phases in one report (one audit's phases are one delivery loop, AC-LOOP-02).
   const label=readdirSync(directory).filter(name=>name.endsWith('-prd.md')).map(name=>/AC-[A-Z0-9]+-\d+/.exec(readFileSync(join(directory,name),'utf8'))?.[0]).find(Boolean);
-  writeFileSync(path,`# Phase ${id}: Repair value\n\n## Acceptance criteria covered\n${label}\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`);toolResult(toolCall('Write',{file_path:join(process.cwd(),path)}),'Completion phase added');
-  changed.push(path);report.outcome='completion_phases';report.completionPhases=[id];report.summary='One criterion is not delivered; added a completion phase.';
+  const ids=[];
+  for(let n=0;n<(behavior.gapPhases??1);n++){
+   const id=String(Math.max(...readdirSync(directory).flatMap(name=>/^phase-(\d+)/.exec(name)?.[1]??[]).map(Number))+1);const path=`${directory}/phase-${id}-repair.md`;
+   writeFileSync(path,`# Phase ${id}: Repair value\n\n## Acceptance criteria covered\n${label}\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n`);toolResult(toolCall('Write',{file_path:join(process.cwd(),path)}),'Completion phase added');
+   changed.push(path);ids.push(id);
+  }
+  report.outcome='completion_phases';report.completionPhases=ids;report.summary='One criterion is not delivered; added a completion phase.';
   if(behavior.decision)report.needsYou=[{problem:behavior.decision,action:'Decide it before the next audit.'}];
  }
  if(testing&&!behavior.noRecord){writeFileSync(`${directory}/test-audit.md`,`# Test audit\n\n${behavior.findingText??'Every criterion has adequate tests.'}\n`);changed.push(`${directory}/test-audit.md`);}
@@ -39,8 +44,14 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
  const outstanding=[...(/Items earlier audits left for a person \(outstanding\):\n([\s\S]*?)\n\n/.exec(prompt)?.[1]??'').matchAll(/^- (item-\d+) \(listed by [^)]*\): (.*)$/gm)].map(m=>({id:m[1],text:m[2]}));
  if(behavior.relist)report.needsYou.push(...outstanding.map(item=>({id:item.id,problem:item.text,action:'Still open.'})));
  if(behavior.settle)report.settled=outstanding.map(item=>({id:item.id,how:behavior.settle}));
+ // A new item that is a criterion's test row names it (Kiln Audit Loop Limits, "Report Contract").
+ if(behavior.criterion)for(const item of report.needsYou)if(!item.id)item.criterion=behavior.criterion;
+ // The report's own summary, so a page can tell two reports apart.
+ if(behavior.summary)report.summary=behavior.summary;
+ // A report naming another execution, which admission refuses.
+ if(behavior.wrongExecution)report.executionId='another-execution';
  mkdirSync(dirname(s.requiredReportPath),{recursive:true});writeFileSync(s.requiredReportPath,JSON.stringify(report,null,2)+'\n');
- command(`git add -- ${changed.join(' ')}`);command('git commit -m "docs(audit): record fixture audit"');command('git push origin HEAD');
+ command(`git add -- ${changed.join(' ')}`);command('git commit -m "docs(audit): record fixture audit"');if(!behavior.noPush)command('git push origin HEAD');
  if(behavior.beforeSubmitFile){writeFileSync(behavior.beforeSubmitFile,'ready');while(!readFileSync(behavior.beforeSubmitFile,'utf8').includes('continue'))await new Promise(r=>setTimeout(r,20));}
  if(!behavior.skipSubmit){
   mkdirSync('.proof',{recursive:true});const current=invoke(['status']);

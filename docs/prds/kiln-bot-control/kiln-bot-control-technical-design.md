@@ -102,6 +102,8 @@ Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-ru
 
 Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (`kiln reply`, `kiln resume`, `kiln carry-on` and `kiln start-again` catch an untouched branch up first unless given `--leave-branch-as-is`).
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (two more changing commands, `allow-more-loops` and `accept-and-deliver`, whose receipts settle `started`; `kiln settings` takes the three loop settings).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |

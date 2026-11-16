@@ -12,7 +12,7 @@ import type { PersonItem } from "./person-items.js";
 const OUTCOMES = ["passed", "completion_phases", "continue_test", "needs_you"];
 const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(nonempty);
-export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, problem, action}[]; with passed, only outstanding items listed again by id, and none when final delivery follows), settled ({id, how}[], optional), changedImplementation (test audits) and optional afterDeliveryActions";
+export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, problem, action, criterion?}[]; with passed, only outstanding items listed again by id, and none when final delivery follows), settled ({id, how}[], optional), changedImplementation (test audits) and optional afterDeliveryActions";
 export interface ValidationContext { record: PrdRecord; activity: AuditActivity; initial: WorkSnapshot; current: WorkSnapshot; outstanding: PersonItem[] }
 
 export function validateReport(raw: unknown, context: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
@@ -27,7 +27,7 @@ function validate(report: AuditReportV2, { record, activity, initial, current, o
   requireAudit(OUTCOMES.includes(report.outcome), `Unknown audit outcome ${JSON.stringify(report.outcome)}; use passed, completion_phases, continue_test or needs_you.`);
   requireAudit(nonempty(report.summary), "The report needs a non-empty summary.");
   requireAudit(strings(report.completionPhases) && new Set(report.completionPhases).size === report.completionPhases.length, "completionPhases must list distinct appended phase IDs ([] when none).");
-  requireAudit(Array.isArray(report.needsYou) && report.needsYou.every(item => item && nonempty(item.problem) && nonempty(item.action) && (item.id === undefined || nonempty(item.id))), "needsYou must be a list of {problem, action}, with id when listing an outstanding item again ([] when none).");
+  requireAudit(Array.isArray(report.needsYou) && report.needsYou.every(item => item && nonempty(item.problem) && nonempty(item.action) && (item.id === undefined || nonempty(item.id)) && (item.criterion === undefined || nonempty(item.criterion))), "needsYou must be a list of {problem, action}, with id when listing an outstanding item again and criterion, when given, a criterion's ID ([] when none).");
   requireAudit(report.settled === undefined || (Array.isArray(report.settled) && report.settled.every(item => item && nonempty(item.id) && nonempty(item.how))), "settled must be a list of {id, how}.");
   requireAudit(report.afterDeliveryActions === undefined || strings(report.afterDeliveryActions), "afterDeliveryActions must be a list of strings.");
   if (activity.kind === "test_audit") requireAudit(typeof report.changedImplementation === "boolean", "A test audit report needs changedImplementation: true or false.");
