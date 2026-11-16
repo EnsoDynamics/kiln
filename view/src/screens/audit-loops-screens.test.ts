@@ -121,6 +121,19 @@ describe("a test audit loop stop for listed items (mockup screen 3; AC-STOP-01, 
   });
 });
 
+describe("a test audit loop stop on a needs_you report (AC-STOP-02)", () => {
+  // The same stop derived from a `done_check` stop whose audit asked the person something: that audit has not finished.
+  const snapshot = testLoopStopSnapshot();
+  const page = needsYou({ ...snapshot, needsYou: { ...snapshot.needsYou!, kind: "done_check" } });
+
+  it("offers Reply beside Allow and Accept, as at any Needs you stop", () => {
+    expect(button(page, "Allow 2 more loops")).toBeDefined();
+    expect(button(page, "Accept what is left and deliver")).toBeDefined();
+    expect(button(page, "Send reply to the audit")).toBeDefined();
+    expect(page).toContain("<textarea");
+  });
+});
+
 describe("activity rows say which loop they are (AC-SHOW-01, AC-TEST-03)", () => {
   it("labels loop 2 of 3 and last loop, and says which sentence a row carried", () => {
     const snapshot = testLoopStopSnapshot();

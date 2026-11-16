@@ -121,8 +121,10 @@ export function latestAttempt(context: GateContext, activity: AuditActivity): Au
 }
 
 /**
- * A `done_check` stop on a test audit whose latest attempt needs a person is also a loop stop
- * while no test loop is left (technical design, "`needs_you` loop stops").
+ * A `done_check` stop on a test audit whose latest attempt is an admitted report with the outcome
+ * `needs_you` is also a loop stop while no test loop is left (technical design, "`needs_you` loop
+ * stops"). A refused or missing report, or one stopped only by a failing repository or development
+ * check, stays the ordinary failing-check stop.
  */
 export function needsYouLoopStop(context: GateContext, key: string): LoopStop | undefined {
   const stop = context.record.phases[key]?.stop;
@@ -138,10 +140,16 @@ export function needsYouLoopStop(context: GateContext, key: string): LoopStop | 
   const session = sessionId ? readSessionRecord(context.stateDirectory, key, sessionId) : undefined;
   const lastRun = session?.runs.at(-1);
   if (attempt && lastRun && Date.parse(attempt.at) < Date.parse(lastRun.startedAt)) return undefined;
-  if (attempt?.nextAction !== "needs_you") return undefined;
+  if (!ownNeedsYou(attempt)) return undefined;
   // A report that also adds phases fits AC-TEST-02's first row: it stops as a delivery audit's
   // `needs_you` report with phases does, and its phases then go through the delivery loop gate.
   return attemptPhases(attempt).length ? undefined : { kind: "test", reason: "items_listed", heldAuditKey: key };
+}
+
+/** Whether a recorded attempt is an admitted, unrefused report whose own outcome is `needs_you`. */
+function ownNeedsYou(attempt: AuditResult | undefined): boolean {
+  if (!attempt?.reportBytes || attempt.refusal) return false;
+  return (JSON.parse(attempt.reportBytes) as AuditReport).outcome === "needs_you";
 }
 
 /** The phases a recorded attempt's admitted report appended; none for a refused report, whose claims were not validated. */

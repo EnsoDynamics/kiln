@@ -1,5 +1,7 @@
 # Phase 5: Make only a test audit's own `needs_you` report a test loop stop, and keep Reply there
 
+**Closed:** 2026-11-15
+
 **Added by delivery audit:** 2026-11-15, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Audit Loop Limits](kiln-audit-loop-limits-prd.md)
 **Technical design:** [Kiln Audit Loop Limits technical design](kiln-audit-loop-limits-technical-design.md) — relevant sections: "`needs_you` loop stops", "Reply and Take over", "Which session a stop control starts"

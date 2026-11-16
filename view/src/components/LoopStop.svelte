@@ -5,7 +5,7 @@
   // latest audit's own summary and the items it listed, as it wrote them; at a test stop the
   // person's After the last test audit loop choice; then the controls. Allow N more loops is filled
   // in as 2; Accept what is left and deliver is offered at a test stop only, with its sentence;
-  // Reply is not offered at a stop for listed items, where nothing would read it; the audit's
+  // Reply is not offered at a stored stop for listed items, where nothing would read it; the audit's
   // session can always be opened in a terminal. Kiln ranks nothing and judges nothing here.
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { acceptAndDeliver, allowMoreLoops, resume, type PageConfig } from "../lib/api.js";
@@ -17,7 +17,8 @@
   const stop = $derived(snapshot.needsYou!);
   const copy = $derived(loopStopCopy(loop, snapshot.auditLoops!, stop.kind === "loop_limit"));
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
-  const reply = $derived(loop.reason !== "items_listed" && stop.resumeOffered);
+  // Only an audit that finished has nothing to read a reply: a `needs_you` report's audit has not.
+  const reply = $derived(!(stop.kind === "loop_limit" && loop.reason === "items_listed") && stop.resumeOffered);
 
   let count = $state("2");
   let countError = $state<string | undefined>(undefined);

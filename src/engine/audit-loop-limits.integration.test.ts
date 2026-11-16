@@ -12,6 +12,7 @@ import { git } from "../test-support/git-repositories.js";
 import { startFixtureController } from "../test-support/controller-server.js";
 import { buildSnapshot } from "./snapshot.js";
 import { auditKey } from "../audit/workflow.js";
+import { latestAttempt } from "./loop-gate.js";
 import { readPrdRecord, writePrdRecord } from "../state/records.js";
 import type { Receipt } from "../control/commands.js";
 import type { LocalServer } from "../server/local-server.js";
@@ -490,6 +491,77 @@ describe("loop stops that hold nothing (AC-TEST-02, AC-STOP-02)", () => {
     expect(prompt).toContain("No more test audit loops follow this session");
     const row = buildSnapshot(current.engine).activities!.find(r => r.id === stopped)!;
     expect(row.loops!.map(loop => loop.sessionId)).toEqual(activity.sessionIds);
+  });
+});
+
+describe("only a test audit's own needs_you report is a test loop stop (AC-TEST-02, AC-STOP-02)", () => {
+  /** Asserts the ordinary failing-check stop, with no test loop page or loop controls in the page, the controls or `kiln status`. */
+  async function ordinaryStop(current: Harness, key: string) {
+    expect(current.engine.record.phases[key]!.stop!.kind).toBe("done_check");
+    expect(current.engine.loopStopOf(key)).toBeUndefined();
+    expect(buildSnapshot(current.engine).auditLoops!.stop).toBeUndefined();
+    for (const name of ["allow-more-loops", "accept-and-deliver"]) expect(current.engine.controlView().controls.find(c => c.name === name)).toMatchObject({ available: false, reason: "Kiln isn't stopped because its audit loops are used up." });
+    const status = await cli(current, ["status", join(current.repository, directory), "--json"]);
+    expect(status.code, status.stdout).toBe(0);
+    expect(status.json().audit_loops.stop).toBeUndefined();
+  }
+
+  it("a passing report stopped only by unpushed work, with no test loop left, is the ordinary failing-check stop, and the run carries on once it is pushed", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession({ noPush: true })]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "stop_and_ask" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const audits = current.engine.record.completionAudits!.activities;
+    expect(audits.map(a => a.kind)).toEqual(["delivery_audit", "test_audit", "test_audit"]);
+    const key = auditKey(audits[2]!);
+    expect(current.engine.record.phases[key]!.stop!.checks.find(check => check.name === "Pushed")).toMatchObject({ passed: false });
+    await ordinaryStop(current, key);
+    git(current.sandbox, current.engine.worktreePath, "push", "origin", "HEAD");
+    expect((await control(current, "check-again")).state).toBe("completed");
+    await current.engine.settled();
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases[key]!.stop)).toBeTruthy();
+  });
+
+  it("a test audit with no report that appended a phase, with no test loop left, is the ordinary failing-check stop", { timeout: 180_000 }, async () => {
+    const repair = "# Phase 3: Repair value\n\n## Acceptance criteria covered\nAC-PROOF-01\n\n## Summary\nReturn the required value.\n\n## Phase dependencies\nNone.\n";
+    const noReport = { actions: [{ write: { path: `${directory}/phase-3-repair.md`, content: repair } }, { commit: "docs(audit): add a completion phase" }, { push: true }, { result: "Audit ended." }, { exit: 0 }] };
+    const current = await fixture([auditSession(), auditSession({ continueTest: true }), noReport]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "stop_and_ask" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const audits = current.engine.record.completionAudits!.activities;
+    expect(audits.map(a => a.kind)).toEqual(["delivery_audit", "test_audit", "test_audit"]);
+    const key = auditKey(audits[2]!);
+    await ordinaryStop(current, key);
+  });
+
+  it("a refused needs_you test report that appended a phase, with no test loop left, is the ordinary failing-check stop", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession({ gap: true, blocked: true, wrongExecution: true })]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "stop_and_ask" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const audits = current.engine.record.completionAudits!.activities;
+    expect(audits.map(a => a.kind)).toEqual(["delivery_audit", "test_audit", "test_audit"]);
+    const attempt = latestAttempt(current.engine.gateContext, audits[2]!)!;
+    expect(attempt.refusal).toBeDefined();
+    expect(JSON.parse(attempt.reportBytes)).toMatchObject({ outcome: "needs_you" });
+    await ordinaryStop(current, auditKey(audits[2]!));
+  });
+
+  it("a needs_you test loop stop offers Reply, which resumes the audit's own conversation", { timeout: 180_000 }, async () => {
+    const current = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession({ blocked: true }), { actions: [{ result: "Read your reply." }, { exit: 0 }] }]);
+    await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 1, afterLastTest: "stop_and_ask" } });
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const key = auditKey(current.engine.record.completionAudits!.activities[2]!);
+    expect(current.engine.loopStopOf(key)).toEqual({ kind: "test", reason: "items_listed", heldAuditKey: key });
+    const page = buildSnapshot(current.engine);
+    expect(page.auditLoops!.stop).toMatchObject({ kind: "test", reason: "items_listed", heldAuditKey: key });
+    expect(page.needsYou).toMatchObject({ kind: "done_check", resumeOffered: true });
+    const session = current.engine.record.completionAudits!.activities[2]!.sessionIds.at(-1)!;
+    const calls = current.claudeCalls().length;
+    expect((await control(current, "reply", { message: "The evidence is restored." })).state).toBe("completed");
+    await current.engine.settled();
+    const resumed = current.claudeCalls().slice(calls);
+    expect(resumed).toHaveLength(1);
+    expect(resumed[0]!.args).toEqual(expect.arrayContaining(["--resume", session]));
+    expect(resumed[0]!.prompt).toContain("The evidence is restored.");
   });
 });
 
