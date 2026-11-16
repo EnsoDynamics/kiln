@@ -12,6 +12,8 @@ import { markCompletePreview } from "./waiver-facts.js";
 export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again", "reset"] as const;
 /** The actions that start a new session of a stopped phase (run restart AC-CARRY-04): their receipts settle `started`, never `resumed`. */
 export const STARTING_ACTIONS: readonly string[] = ["carry-on", "start-again"];
+/** A receipt is starting when its action is in the starting-action set or it carries `starts_session` (build preflight, Check Preflight again). */
+export const isStartingReceipt = (receipt: Pick<Receipt, "instruction" | "starts_session">): boolean => STARTING_ACTIONS.includes(receipt.instruction.action) || receipt.starts_session === true;
 export type Action = typeof ACTIONS[number];
 const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant", "folder-setup-start"] as const;
 export type JournalAction = Action | typeof INTERNAL_ACTIONS[number];
@@ -35,6 +37,8 @@ export interface Receipt {
   changes?: ItemChange[];
   /** The four session-starting actions: what a catch-up moved before the session, empty when nothing did (run restart AC-CURRENT-01). */
   branch_catch_up?: { repository: string; branch: string; from: string; to: string; commits: number }[];
+  /** `check-again` at a preflight stop: it starts a session, recorded before any dispatch (build preflight "The Preflight Stop"). */
+  starts_session?: true;
   /** `reset` only: what the reset discards and the execution it starts, checkpointed before the record changes (run restart "Doing it", step 2). */
   reset?: { forgets: ResetForgets; new_execution_id: string };
 }
@@ -127,6 +131,7 @@ function validReceipt(r: Receipt | undefined): r is Receipt {
     && !!r.instruction && (r.instruction.action === "reply" ? r.reply_text === r.instruction.inputs?.message : r.instruction.action === "carry-on" ? r.reply_text === null || r.outcome === "phase_already_complete" && r.reply_text === r.instruction.inputs?.message : r.reply_text === null)
     && (r.message === undefined || r.instruction.action === "message" && validLiveTarget(r.live_target) && r.message.text === r.instruction.inputs.text && typeof r.message.uuid === "string" && !!r.message.uuid && ["submitting", "submitted", "received", "not_sent", "uncertain"].includes(r.message.delivery) && [r.message.writeStartedAt, r.message.writeCompletedAt, r.message.writeSettledAt, r.message.receivedAt, r.message.resultAt, r.message.reviewedAt].every(v => v === undefined || Number.isFinite(Date.parse(v))))
     && [r.session_id, r.phase_key, r.attempt_id, r.waiver_id].every(v => v === undefined || typeof v === "string")
+    && (r.starts_session === undefined || r.starts_session === true)
     && (r.changes === undefined || Array.isArray(r.changes) && r.changes.every(c => !!c && typeof c.check === "string" && typeof c.subject === "string" && ["newly_failing", "newly_passing", "text_changed"].includes(c.change)));
 }
 function validateInternalInstruction(raw: unknown): Instruction {

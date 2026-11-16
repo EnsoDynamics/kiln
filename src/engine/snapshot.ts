@@ -39,6 +39,8 @@ import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-s
 import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
+import { isPreflightKey } from "../state/activity-keys.js";
+import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
 export const PR_TITLE = "Final pull request";
 
@@ -154,7 +156,16 @@ export interface StartView {
 
 export interface PhaseView {
   activityId?: string;
-  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery";
+  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight";
+  /** A Preflight row (build preflight "Interfaces"). */
+  preflight?: {
+    /** Absent when no report has been read: running, or marked complete before a session reported. */
+    outcome?: PreflightOutcome;
+    /** "Nothing to settle" | "Ended without a report". */
+    found?: string;
+    /** Why a no_report preflight launched no session for its last attempt. */
+    reason?: string;
+  };
   round?: number;
   continuationIndex?: number;
   audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[];
@@ -258,6 +269,8 @@ export interface Snapshot {
   unsentReplies?: { id: string; text: string }[];
   billing?: BillingView;
   activities?: PhaseView[];
+  /** A preflight the next Start, Continue or Resume would run, or one due and not yet allocated (build preflight "Interfaces"). */
+  preflight?: { planned?: { before: string } };
   auditHistoryUnavailable?: boolean;
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
   feature: {
@@ -418,6 +431,8 @@ export interface Snapshot {
      * the phase's own or, `finishedBy`, a split ancestor's that built it, and its one failing item is the assessment.
      */
     bookkeeping?: { finishedBy: string };
+    /** A preflight stop's headline, its items in the session's order and the activity it came before (build preflight "Display Contract"). */
+    preflight?: { headline: string; items: string[]; nextActivity: { kind: "phase" | "audit" | "final_delivery"; key?: string; title: string }; line: string };
   };
   /**
    * Waiting for usage (usage-limit recovery AC-LIMIT-04): the limit, how the session ended
@@ -517,6 +532,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...(record.planReconciliation?.check?.status === "failed" ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
     activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
+    ...preflightPlanned(engine, state, documents),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {
       name: engine.paths.featureName,
@@ -727,6 +743,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
     // A bookkeeping stop has no session to restart or carry on: the work is done.
     ...(bookkeeping ? { bookkeeping } : restartFacts(engine, phaseKey, checkRun)),
+    ...preflightStopFacts(engine, phaseKey),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
   // Resume, reply and the terminal command read the latest conversation, or the latest launch when none began (run restart "A session record with no run").
@@ -734,7 +751,9 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   // The folder the session started in; with no session, the one the phase's next session would start in (AC-SPACE-04).
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   const auditTask = engine.auditRecoveryTask(phaseKey, folder);
+  const preflight = engine.preflightActivity(phaseKey);
   const originalPrompts = (ran: boolean) =>
+      preflight ? engine.preflightPrompt(preflight, folder) :
       auditTask ? auditRecoveryPrompt(auditTask, engine.deliveryAuthority()) :
       isPr
         ? pullRequestSessionPrompt({
@@ -859,6 +878,30 @@ function bookkeepingStop(record: PrdRecord, phaseId: string, checks: CheckResult
   const failing = checks.filter(check => !check.passed);
   const assessmentOnly = failing.length > 0 && failing.every(check => check.name === DELIVERY_CHECK && check.facts.length > 0 && check.facts.every(fact => fact === `Phase ${phaseId} needs a current development-delivery assessment.`));
   return assessmentOnly ? { finishedBy: finished[0] } : undefined;
+}
+
+/**
+ * A stop on a preflight key (build preflight "Display Contract"): at the preflight stop its
+ * headline, items and the line under the headline; at a launch-check or done-check stop, Start again.
+ */
+function preflightStopFacts(engine: Engine, phaseKey: string): Partial<NonNullable<Snapshot["needsYou"]>> {
+  const activity = engine.preflightActivity(phaseKey);
+  if (!activity) return {};
+  if (engine.preflightStopKey() !== phaseKey) {
+    const start = engine.startAgainControl();
+    return start.offered ? { startAgain: { available: start.available, ...optional("reason", start.reason) } } : {};
+  }
+  const { record } = engine;
+  const next = engine.preflightNextActivity(activity);
+  const built = recordedLeaves(record.plan ?? []).some(leaf => effectiveRecordedClosed(record, leaf)) || activityHistory(record, engine.stateDirectory).some(one => one.kind !== "preflight" && (record.phases[one.key]?.sessionIds.length ?? 0) > 0);
+  const stop = record.phases[phaseKey]!.stop!;
+  const items = activity.result?.items ?? stop.checks.find(check => check.name === "Preflight")?.facts ?? [];
+  return { preflight: {
+    headline: activity.result?.headline ?? `Preflight: ${items.length} ${items.length === 1 ? "item needs" : "items need"} you`,
+    items,
+    nextActivity: { kind: next.kind, ...optional("key", next.key), title: next.title },
+    line: `${built ? "" : "Nothing has been built. "}Settle these and check again, and Kiln ${engine.preflightVerb(phaseKey)} ${next.name}.`,
+  } };
 }
 
 function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | undefined): Partial<NonNullable<Snapshot["needsYou"]>> {
@@ -1052,7 +1095,7 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
   // Kiln's facts are keyed by the leaf it launched; rows follow the plan as last read.
   const factsByRow = new Map<string, string>();
   for (const key of Object.keys(record.phases)) {
-    if (key !== PR_PHASE_KEY) factsByRow.set(judgedKeyFor(plan, key), key);
+    if (key !== PR_PHASE_KEY && !isPreflightKey(key)) factsByRow.set(judgedKeyFor(plan, key), key);
   }
   const nextLeaf = recordedLeaves(plan).find((leaf) => !effectiveRecordedClosed(record, leaf));
   const multi = engine.multiRepository;
@@ -1320,6 +1363,11 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       if (row && !started.has(row.id)) { rows.push({ ...row, activityId: activity.activityId, kind: activity.kind }); started.add(row.id); }
       continue;
     }
+    if (activity.kind === "preflight") {
+      const row = preflightRow(engine, activity.key, state, includeTiming);
+      if (row) { rows.push(row); started.add(row.id); }
+      continue;
+    }
     const audit = engine.auditActivity(activity.key)!;
     const facts = record.phases[activity.key]; const session = engine.latestSession(activity.key);
     const row: PhaseView = { id: activity.key, activityId: activity.activityId, kind: audit.kind, title: auditLabel(audit.kind), file: `Round ${audit.round}${audit.continuationIndex > 1 ? ` · Continuation ${audit.continuationIndex}` : ""}`, round: audit.round, continuationIndex: audit.continuationIndex, state: facts?.stop ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing", finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt) };
@@ -1366,12 +1414,77 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
   // Closed-at-start phases have no activity history; show their preserved history before audits.
   const historical = phases.filter(r => !started.has(r.id) && (r.state === "done" || r.state === "split"));
   const pending = phases.filter(r => !started.has(r.id) && r.state !== "done" && r.state !== "split");
-  return [...historical, ...rows, ...pending];
+  const ordered = [...historical, ...rows, ...pending];
+  // A preflight run ahead of an interrupted or waiting activity sits directly above that activity's row.
+  for (const preflight of record.preflight?.activities ?? []) {
+    if (!preflight.before) continue;
+    const at = ordered.findIndex(row => row.id === preflightKeyOf(preflight));
+    const target = isPreflightKey(preflight.before) ? undefined : preflight.before.startsWith("audit-") || preflight.before === PR_PHASE_KEY ? preflight.before : engine.judgedId(preflight.before);
+    if (at === -1 || target === undefined) continue;
+    const [row] = ordered.splice(at, 1);
+    const above = ordered.findIndex(one => one.id === target);
+    ordered.splice(above === -1 ? at : above, 0, row!);
+  }
+  return ordered;
+}
+
+/**
+ * A Preflight row (build preflight "Display Contract"): circle PF, no file line, its session
+ * detail as an audit's; Ready, No report or a waiver's pill once finished, with the Found line.
+ */
+function preflightRow(engine: Engine, key: string, state: FeatureState, includeTiming: boolean): PhaseView | undefined {
+  const { record } = engine;
+  const activity = engine.preflightActivity(key);
+  if (!activity) return undefined;
+  const facts = record.phases[key]; const session = engine.latestSession(key);
+  const outcome = activity.result?.outcome;
+  const found = facts?.doneAt ? preflightFound(outcome) : undefined;
+  const row: PhaseView = {
+    id: key, activityId: activity.activityId, kind: "preflight", title: PREFLIGHT_TITLE, file: "",
+    state: facts?.stop || record.billing?.hold?.phaseKey === key ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing",
+    finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt),
+    preflight: { ...optional("outcome", outcome), ...optional("found", found), ...(facts?.doneAt && outcome === "no_report" && activity.result?.reason ? { reason: activity.result.reason } : {}) },
+  };
+  if (session) {
+    const first = facts?.sessionIds[0] ? engine.sessionRecord(key, facts.sessionIds[0]) : undefined;
+    const from = first?.runs[0]?.startedAt;
+    row.outputLineCount = engine.outputLines(session).length;
+    if (from) {
+      row.sessionStartedAt = from; if (includeTiming) row.timing = timingFor(engine, [key], from, facts?.doneAt)!;
+      row.details = { ...sessionIdentity(session), from, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.worktreePath), branch: record.settings.featureBranch, sessionId: session.sessionId };
+    }
+  }
+  Object.assign(row, waivedFacts(engine, key, row.state === "done"));
+  return row;
+}
+
+/**
+ * `Snapshot.preflight.planned` (build preflight "Interfaces"): present while the next Start,
+ * Continue or Resume would allocate a preflight, or one is due and not yet allocated, and the
+ * skill was found. `before` is the row it would sit above, or `end`.
+ */
+function preflightPlanned(engine: Engine, state: FeatureState, documents?: DocumentsFound): Pick<Snapshot, "preflight"> {
+  const { record } = engine;
+  if (!engine.agents.state.optionalSkills?.buildPreflight) return {};
+  const unallocated = !record.preflight?.activities.some(activity => !record.phases[preflightKeyOf(activity)]?.doneAt);
+  const due = !!record.preflight?.due && unallocated;
+  const nextStart = state === "not_started"
+    || state === "paused" && unallocated && (record.pause.activeSince !== undefined || engine.restartReview !== undefined && !preflightSettled(record))
+    || state === "complete" && !!record.completedPlanCheck?.result?.proposal;
+  if (!due && !nextStart) return {};
+  if (state === "not_started") {
+    const leaf = documents?.start?.startAt?.id ?? documents?.plan?.phases.find(phase => !phase.splitInto && !phase.closed)?.id;
+    return { preflight: { planned: { before: leaf ?? "end" } } };
+  }
+  if (state === "complete") return { preflight: { planned: { before: "end" } } };
+  const next = engine.preflightNextActivity(undefined);
+  return { preflight: { planned: { before: next.key ?? "end" } } };
 }
 
 /** "Phase 3", "Final delivery" or "Delivery audit": an activity's name in a sentence. */
 function activityName(engine: Engine, key: string): string {
   if (key === PR_PHASE_KEY) return "Final delivery";
+  if (isPreflightKey(key)) return PREFLIGHT_TITLE;
   const audit = key.startsWith("audit-") ? engine.auditActivity(key) : undefined;
   if (audit) return auditLabel(audit.kind);
   return `Phase ${judgedKeyFor(engine.record.plan ?? [], key)}`;

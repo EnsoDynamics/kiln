@@ -3,6 +3,7 @@
 // Waived tag with the activity, time and source of its waiver, and counts report waived checks
 // separately (AC-WAIVE-10). The counts and their wording are the engine's own.
 
+import { activityKeyKind } from "../../../src/state/activity-keys.js";
 import type { CheckCounts, Snapshot, WaiverView } from "../../../src/engine/snapshot.js";
 import { checkCounts, checksWord, countsText, type CheckItem, type ItemChange, type WaiverRef, type WaiverSource } from "../../../src/engine/waivers.js";
 import type { CheckResult } from "../../../src/state/records.js";
@@ -51,7 +52,8 @@ export function waiverActivity(snapshot: Snapshot, ref: Pick<WaiverRef, "waiverI
   const found = snapshot.waivers?.find(one => one.id === ref.waiverId)?.activity;
   if (found) return found;
   if (ref.activityKey === "pr") return "Final delivery";
-  return ref.activityKey.startsWith("audit-") ? (snapshot.activities?.find(row => row.id === ref.activityKey)?.title ?? "an audit") : `Phase ${ref.activityKey}`;
+  const kind = activityKeyKind(ref.activityKey);
+  return kind === "audit" ? (snapshot.activities?.find(row => row.id === ref.activityKey)?.title ?? "an audit") : kind === "preflight" ? "the preflight" : `Phase ${ref.activityKey}`;
 }
 
 /** "waived at Phase 3, 11/1/2026, 7:16 PM · browser · alex". */

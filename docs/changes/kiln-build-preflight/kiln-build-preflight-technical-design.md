@@ -90,7 +90,7 @@ When a preflight session's run ends, Kiln reads that run's final assistant messa
 | First line | Outcome | What Kiln does |
 |---|---|---|
 | `Preflight: ready` | `ready` | Finishes the activity, settles the preflight, goes on |
-| `Preflight: N items need you`, where N is a positive whole number; the singular `1 item needs you` is read the same way. A count of 0 is not this form: the skill never writes it, and only reported items hold up the run (AC-PREFLIGHT-06) | `items` | Stops at Needs you on the preflight's key |
+| `Preflight: N items need you`, where N is a positive whole number; the singular `1 item needs you` is read the same way, and so is a count with the other verb form (`1 item need you`, `3 items needs you`), which a real session was seen to write. A count of 0 is not this form: the skill never writes it, and only reported items hold up the run (AC-PREFLIGHT-06) | `items` | Stops at Needs you on the preflight's key |
 | Anything else, or no final message | `no_report` | Finishes the activity without settling the preflight, goes on |
 
 A run has **ended** only when it exited and Kiln will not resume it. A run cut off by sleep, or refused by a usage limit while **Resume after a usage limit** is on, is handled by the existing recovery and wait, and is read when the resumed run ends. With that setting off, a refused run has ended, so it is `no_report` and the run goes on to meet the limit where it would have today.

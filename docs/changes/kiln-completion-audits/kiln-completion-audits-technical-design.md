@@ -52,6 +52,8 @@ A delivery audit with gaps routes to its completion leaves. After their completi
 
 ### Activity identity and order
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §Data Models (activity kind `preflight` and its `preflight-<activityId>` key).
+
 Add `activities[]` to the execution record. Each entry has an opaque `activityId`, monotonic `sequence`, `kind: implementation | delivery_audit | test_audit | final_delivery`, optional `phaseId`, audit `round` and `continuationIndex` numbers where applicable, `sessionIds[]`, `createdAt`, lifecycle facts, and accepted-result reference. Allocate identity and launch intent before spawning. Round numbers increase per audit kind; a test continuation increments `continuationIndex` in its original round. A resumed provider run keeps its activity and session identity. A fresh test continuation or repeated audit gets a new activity and fresh provider conversation.
 
 Keep the phase plan authoritative for implementation scope and ordering. Activities record observed execution order, not a second phase plan. Preserve existing phase-keyed facts and session storage paths; additive `activityId` and audit session kinds distinguish audit storage under `audit-<activityId>`. Never put audit IDs in the phase parser or fabricate Closed lines. Finalization retains its existing facts and delivery history.

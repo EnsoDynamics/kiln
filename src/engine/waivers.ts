@@ -54,7 +54,7 @@ export interface WaivedItem {
   against: string;
 }
 
-export type ActivityKind = "implementation" | "delivery_audit" | "test_audit" | "final_delivery";
+export type ActivityKind = "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight";
 
 /** The saved, append-only waiver (AC-WAIVE-08). */
 export interface Waiver {

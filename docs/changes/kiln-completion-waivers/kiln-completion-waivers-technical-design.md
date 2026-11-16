@@ -63,6 +63,8 @@ A plan that reads with structural problems, or that the retained baseline cannot
 
 ## Check Runs and When Mark Complete Is Offered (AC-WAIVE-02)
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (Mark complete is offered at a preflight stop without a recheck).
+
 A stop records the identity of its latest check run:
 
 ```
@@ -118,6 +120,8 @@ A waiver ending never reopens a completed activity: coverage is read only when a
 An activity can complete normally on a carried waiver, with no waiver of its own. When a completing check run has any check marked `waived`, the full marked run is saved as `completionChecks` on that activity's phase facts (for final delivery, on the `pr` entry), in the same record write that sets `doneAt`: the phase and audit completion write, and final delivery's completion, which now receives the run's checks. An activity with a waiver of its own already holds the run in that waiver's `checks`, so `completionChecks` is not written. **Current completion audits**, which adds no row on a pass, adds a met row marked `waived` when it is met only because an audit's effective result is a waiver result, its item tagged with that audit's waiver.
 
 ## Mark Complete (AC-WAIVE-03, AC-WAIVE-04)
+
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (no rerun at a preflight stop; the waiver is saved from the stop's items).
 
 Under the exclusive checking boundary, held from admission until the record write or refusal:
 
@@ -210,6 +214,8 @@ The snapshot and the status JSON carry, from the same marked results:
 ## Display Contract
 
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts, Nothing to check yet (no checks shown for a phase that built nothing until asked; the sentence above Mark complete).
+
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop and §Display Contract (Mark complete's label, placement and sentence at a preflight stop).
 
 Build arrangement and wording from the approved mockup.
 

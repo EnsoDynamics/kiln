@@ -51,6 +51,8 @@
   import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
   import NothingToCheck from "../components/NothingToCheck.svelte";
+  import PreflightStop from "../components/PreflightStop.svelte";
+  import { activityKeyKind } from "../../../src/state/activity-keys.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
   const { config, router, connection } = viewContext();
@@ -67,6 +69,8 @@
   const file = $derived(snapshot.phases.find((phase) => phase.id === stop.phaseId)?.file);
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
   const steps = $derived([...(copy.firstStep === "none" ? [] : ["first"]), "finish", "again"]);
+  // Any stop on a preflight key: no Pick it up yourself card and no fresh-prompt link, since a preflight run outside Kiln leaves its report unread (build preflight "Display Contract").
+  const onPreflight = $derived(activityKeyKind(stop.phaseId) === "preflight");
   let showPrompt = $state(false);
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
@@ -155,7 +159,9 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} connected {now} />
-  {#if stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn)}
+  {#if stop.preflight}
+  <PreflightStop {snapshot} />
+  {:else if stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn)}
   <div class="restart">
     <div class="headline">
       <h2>{restart?.headline ?? copy.headline}</h2>
@@ -288,6 +294,24 @@
         </section>
       {/if}
 
+      {#if onPreflight}
+        {#if stop.startAgain}
+          <section class="card pick">
+            <span class="step-title">Start the preflight again</span>
+            <p class="hint">Kiln starts a fresh preflight session, which changes nothing in the repository.</p>
+            <div class="actions"><button type="button" class="button solid" disabled={busy || !!restartPending || !stop.startAgain.available} onclick={() => restartAction("start")}>{restartPending === "start" ? "Starting…" : "Start the preflight again"}</button></div>
+            {#if !stop.startAgain.available && stop.startAgain.reason}<span class="reason">{stop.startAgain.reason}</span>{/if}
+            {#if restartReason}<span class="reason">{restartReason}</span>{/if}
+          </section>
+        {/if}
+        {#if stop.resumeCommand}
+          <section class="card pick">
+            <span class="step-title">Open the preflight session in a terminal to work through an item with it:</span>
+            <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /></div></div>
+            <p class="hint">When you're done there, press Check Preflight again.</p>
+          </section>
+        {/if}
+      {:else}
       <section class="card pick">
         <span class="eyebrow">{stop.kind === "billing" ? "Continue this execution" : stop.resumeOffered ? "Or pick it up yourself" : "Pick it up yourself"}</span>
         <ol>
@@ -326,6 +350,7 @@
           {#if showPrompt}<div class="block"><pre class="prompt">{stop.freshSessionPrompt}</pre><div class="actions"><CopyButton text={stop.freshSessionPrompt} label="Copy prompt" /></div></div>{/if}
         {/if}
       </section>
+      {/if}
       {/if}
     </div>
 

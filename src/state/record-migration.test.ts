@@ -2,6 +2,7 @@
 // technical design, "Data Models"): the PRD's repository becomes the one entry, each phase's
 // commits sit under it, the pull request becomes a one-entry list and each fact a list.
 
+import { preflightSettled } from "../engine/preflight.js";
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
 import { migrateRecord, SCHEMA_VERSION, type PrdRecord } from "./records.js";
@@ -80,7 +81,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(21);
+    expect(SCHEMA_VERSION).toBe(22);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -129,7 +130,7 @@ describe("schema 21: stop rows that report why a phase stopped (run restart AC-C
     const twenty = migrateRecord(schemaOne({ phases: { "1": { sessionIds: ["s1"], finishedByPerson: false, repositories: {}, stop: { kind: "not_resumable", at: "2026-11-11T21:33:00Z", checkedAt: "2026-11-11T21:33:00Z", checks: [{ name: "Claude recovery", passed: false, facts: ["The saved conversation has no usable history."] }, { name: "Phase doc closed", passed: false, facts: ["phase-1.md has no Closed line"] }] } } } }));
     twenty.schemaVersion = 20;
     const migrated = migrateRecord(twenty);
-    expect(migrated.schemaVersion).toBe(21);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     expect(migrated.phases["1"]!.stop!.checks.map(check => [check.name, check.reason ?? false])).toEqual([["Claude recovery", true], ["Phase doc closed", false]]);
   });
 });
@@ -148,5 +149,24 @@ describe("schema 19: completion waivers (waivers technical design, Upgrade)", ()
   it("refuses a malformed waiver record rather than reading waivers it cannot trust", () => {
     const record = migrateRecord(schemaOne({}));
     expect(() => migrateRecord({ ...record, waivers: [{ waiverId: "w" }] as never })).toThrow(/waiver/);
+  });
+});
+
+describe("schema 22: the build preflight's state (build preflight \"Upgrade\")", () => {
+  it("migrates a schema 21 record with no preflight state, so its preflight is not settled, and refuses malformed preflight state", () => {
+    const old = migrateRecord(schemaOne({}));
+    old.schemaVersion = 21;
+    const migrated = migrateRecord(old);
+    expect(migrated.schemaVersion).toBe(22);
+    expect(migrated.preflight).toBeUndefined();
+    expect(preflightSettled(migrated)).toBe(false);
+    expect(() => migrateRecord({ ...migrated, preflight: { activities: [{ activityId: "a", sequence: 1, createdAt: "2026-11-15T10:00:00Z", trigger: "sometime" }] } } as unknown as PrdRecord)).toThrow(/preflight/);
+    expect(() => migrateRecord({ ...migrated, preflight: { due: { trigger: "start", at: "now" }, activities: [] } } as unknown as PrdRecord)).toThrow(/preflight/);
+  });
+
+  it("refuses a record from a newer schema under the existing rule", () => {
+    const newer = migrateRecord(schemaOne({}));
+    newer.schemaVersion = 23;
+    expect(() => migrateRecord(newer)).toThrow(/newer|Update Kiln/);
   });
 });

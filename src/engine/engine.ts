@@ -32,15 +32,17 @@ import { bindPreparation } from "./continuation-readiness.js";
 import { parseGithubOrigin } from "../github-origin.js";
 import { deliveredInHistory } from "../control/delivery-evidence.js";
 import { resolve } from "node:path";
-import { CommandJournal, ACTIONS, STARTING_ACTIONS, lookupReceipt, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
+import { CommandJournal, ACTIONS, isStartingReceipt, lookupReceipt, readReceipts, type Receipt, type Action, type JournalAction, type ControlView } from "../control/commands.js";
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
-import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, resolveAuditSkill, effectiveAudit, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
+import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, resolveAuditSkill, resolveSkill, type SkillResolution, effectiveAudit, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
-import { auditSessionPrompt } from "../session/prompts.js";
+import { auditSessionPrompt, preflightSessionPrompt } from "../session/prompts.js";
+import { isPreflightKey, activityKeyKind } from "../state/activity-keys.js";
+import { keyOf as preflightKeyOf, latestPreflight, preflightActivity, preflightSettled, readPreflightReport, setPreflightDue, unfinishedPreflight, PREFLIGHT_CHECK, PREFLIGHT_LIVE_REASON, PREFLIGHT_PAUSE_REASON, PREFLIGHT_SKILL, PREFLIGHT_STOP_REASON, PREFLIGHT_TITLE, type PreflightActivity, type PreflightReport, type PreflightTrigger } from "./preflight.js";
 import { assignAuditObligations } from "./development-owners.js";
 import type { AuditActivity, AuditKind } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
@@ -192,7 +194,9 @@ export type TerminalEvent =
   | { kind: "folder_missing"; view: FolderMissingView; folders: FolderCheck; address?: string }
   | { kind: "completed_plan_checked"; check: CompletedPlanCheck }
   | { kind: "plan_updated"; at: Date; addedPhaseIds: string[]; remainingCount: number; source: string }
-  | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string } }
+  | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string };
+      /** Set on the build preflight's lines, printed as an audit titled Preflight with id PF (build preflight "Display Contract"). */
+      preflight?: { outcome?: "ready" | "no_report"; reason?: string } }
   | { kind: "prd_started"; at: Date; branch: string; baseBranch: string; repositoryCount: number }
   | {
       kind: "phase";
@@ -617,9 +621,14 @@ export class Engine {
       "start-again": this.startAgainControl().available && !busy,
       reset: this.resetControl().available,
     };
+    // At a preflight stop only Check Preflight again and Mark complete are offered (The Preflight Stop).
+    const preflightStop = this.preflightStopKey() !== undefined;
+    if (preflightStop) for (const name of ["reply", "resume", "carry-on", "start-again", "verify-and-advance"] as const) available[name] = false;
+    const preflightRunning = isPreflightKey(this.current?.phaseKey) || !!this.record.preflight?.due;
+    if (preflightRunning) available["request-pause"] = false;
     const unavailable: Partial<Record<Action, string>> = {
-      "take-over": this.liveView()?.reason ?? "Live takeover requires an active supported Claude phase or audit.",
-      message: this.liveView()?.input?.reason ?? "No active supported Claude input is available.",
+      "take-over": this.liveView()?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "Live takeover requires an active supported Claude phase or audit."),
+      message: this.liveView()?.input?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "No active supported Claude input is available."),
       "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : "A pause is already requested or this activity cannot pause.",
       "cancel-pause": "No pause is requested.", resume: "Resume isn't offered here.", reply: "Resume isn't offered here.",
       "outside-confirmation": "Workspace confirmations have been retired; recheck the remaining completion requirements.",
@@ -628,10 +637,13 @@ export class Engine {
       "carry-on": this.carryOnControl(true).reason ?? "Carry on isn't offered here.",
       "start-again": this.startAgainControl().reason ?? "Start again isn't offered here.",
       reset: this.resetControl().reason ?? "Reset isn't available.",
+      ...(preflightStop ? { reply: PREFLIGHT_STOP_REASON, resume: PREFLIGHT_STOP_REASON, "carry-on": PREFLIGHT_STOP_REASON, "start-again": PREFLIGHT_STOP_REASON, "verify-and-advance": PREFLIGHT_STOP_REASON } : {}),
+      ...(preflightRunning ? { "request-pause": PREFLIGHT_PAUSE_REASON } : {}),
     };
     // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
     const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
-    const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : name === "reset" ? unavailable.reset! : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
+    const fixedReason = (name: Action) => name === "reset" || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
+    const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : fixedReason(name) ? unavailable[name]! : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
     const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, run: key ? (this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold.run?.id : this.record.phases[key]?.stop?.run?.id) : undefined, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
       unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
@@ -713,14 +725,16 @@ export class Engine {
     // Check again never directly dispatches a session. A verification interrupted
     // before settlement can fail honestly without retaining control forever.
     // Proven completion above wins; unknown plan effects are retained, not undone.
-    if (receipt.instruction.action === "check-again" && receipt.stage === "applying" && receipt.effects.session === "not_started" && receipt.effects.reply === "not_applicable") {
+    // A starting receipt found still applying with no run started nothing (The Preflight Stop).
+    if (receipt.starts_session && receipt.stage === "applying" && !receipt.session_id) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started" } };
+    if (receipt.instruction.action === "check-again" && !receipt.starts_session && receipt.stage === "applying" && receipt.effects.session === "not_started" && receipt.effects.reply === "not_applicable") {
       return { ...receipt, state: "failed", stage: "settled", outcome: "check_interrupted", reason: "The completion check was interrupted before its result was settled. Request a fresh check against the current work." };
     }
     if (receipt.phase_key && receipt.session_id) {
       const session = this.sessionRecord(receipt.phase_key, receipt.session_id);
       const run = session?.runs.find(r => r.control?.operationId === receipt.id);
       if (run && (run.spawnError && !run.pid || session?.agentId === "codex" && codexNotDispatched(run))) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started", reply: receipt.reply_text === null ? "not_applicable" : "not_sent" } };
-      const starting = STARTING_ACTIONS.includes(receipt.instruction.action);
+      const starting = isStartingReceipt(receipt);
       if (session && run && (run.control?.delivered || run.control?.submitted && receipt.reply_text === null && (session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run))))) return { ...receipt, state: "completed", stage: "settled", outcome: starting ? "session_started" : "session_resumed", effects: { ...receipt.effects, session: starting ? "started" : "resumed", reply: receipt.reply_text === null ? "not_applicable" : "delivered" } };
       // A carry-on or start-again whose run ended without beginning a conversation started nothing.
       if (starting && session && run?.endedAt && !(session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)))) return { ...receipt, state: "failed", stage: "settled", outcome: "dispatch_not_started", effects: { ...receipt.effects, session: "not_started" } };
@@ -770,25 +784,20 @@ export class Engine {
       case "outside-confirmation": answer = refuse("Workspace confirmations have been retired; recheck the remaining completion requirements."); break;
       case "continue": answer = await this.start(); break;
       case "check-again":
+        if (this.preflightStopKey() !== undefined) {
+          // Check Preflight again starts a session: a starting receipt, recorded before any dispatch (The Preflight Stop).
+          receipt.starts_session = true;
+          this.commands.checkpoint(receipt);
+          return this.dispatchStarting(receipt, () => this.checkAgain());
+        }
         // A check that could not read its evidence reports why (check_unavailable), never a lost interruption.
         try { answer = await this.checkAgain(); }
         catch (error) { if (!(error instanceof CompletionCheckUnavailable)) throw error; return { ok: false, code: "check_unavailable", reason: error.message, status: 503 }; }
         break;
       case "verify-and-advance": answer = await this.checkAgain({ target, intent: "advance" }); break;
       case "waive-and-advance": return this.markComplete(inputs, receipt);
-      case "carry-on": case "start-again": {
-        this.controlDispatch = receipt;
-        answer = action === "carry-on" ? await this.carryOn({ ...(target ? { target } : {}), ...(typeof inputs.message === "string" ? { note: inputs.message } : {}) }) : await this.startAgain();
-        if (answer.ok && answer.outcome === "already_complete") { this.controlDispatch = undefined; return { ok: true, outcome: "phase_already_complete" }; }
-        if (!answer.ok) { this.controlDispatch = undefined; return answer; }
-        this.controlKickPending = false; this.kick();
-        while (this.controlDispatch === receipt && (this.driving || this.checking)) await new Promise(resolve => setTimeout(resolve, 20));
-        if (this.controlDispatch === receipt) { this.controlDispatch = undefined; return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The existing launch checks did not start a session. Inspect status for recovery." }; }
-        if (receipt.effects.session === "unknown") throw new Error("Dispatch outcome is uncertain.");
-        if (receipt.effects.session !== "started") return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The new session did not start. Inspect the current recovery state." };
-        this.record.controlApplied = { operationId: receipt.id, outcome: "session_started" }; this.save();
-        return { ok: true, outcome: "session_started" };
-      }
+      case "carry-on": case "start-again":
+        return this.dispatchStarting(receipt, () => action === "carry-on" ? this.carryOn({ ...(target ? { target } : {}), ...(typeof inputs.message === "string" ? { note: inputs.message } : {}) }) : this.startAgain());
       case "reply": case "resume":
         this.controlDispatch = receipt;
         answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume") === "folder_missing" ? { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 } : { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
@@ -811,6 +820,24 @@ export class Engine {
     if (action === "settings") receipt.settings = this.runtimeControlSettings();
     this.record.controlApplied = { operationId: receipt.id, outcome, ...(receipt.settings ? { settings: receipt.settings } : {}) }; this.save();
     return { ok: true, outcome };
+  }
+
+  /**
+   * A command that starts a new session (carry-on, start-again, Check Preflight again): settles
+   * `session_started` once the new session's prompt is submitted and it reports its start.
+   */
+  private async dispatchStarting(receipt: Receipt, request: () => Promise<CommandResult>) {
+    this.controlDispatch = receipt;
+    const answer = await request();
+    if (answer.ok && answer.outcome === "already_complete") { this.controlDispatch = undefined; return { ok: true, outcome: "phase_already_complete" }; }
+    if (!answer.ok) { this.controlDispatch = undefined; return answer; }
+    this.controlKickPending = false; this.kick();
+    while (this.controlDispatch === receipt && (this.driving || this.checking)) await new Promise(resolve => setTimeout(resolve, 20));
+    if (this.controlDispatch === receipt) { this.controlDispatch = undefined; return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The existing launch checks did not start a session. Inspect status for recovery." }; }
+    if (receipt.effects.session === "unknown") throw new Error("Dispatch outcome is uncertain.");
+    if (receipt.effects.session !== "started") return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The new session did not start. Inspect the current recovery state." };
+    this.record.controlApplied = { operationId: receipt.id, outcome: "session_started" }; this.save();
+    return { ok: true, outcome: "session_started" };
   }
 
   private legacyAttempt(session: SessionRecord, index: number): string {
@@ -1013,7 +1040,8 @@ export class Engine {
     if (this.record.liveControl) return this.record.liveControl.takeover.target;
     const current = this.current;
     const session = current?.session;
-    if (!current?.processRunning || !session || session.agentId !== "claude_code" || session.kind === "pull_request") return undefined;
+    // Final delivery and the preflight have no live controls (build preflight "The Preflight Stop").
+    if (!current?.processRunning || !session || session.agentId !== "claude_code" || session.kind === "pull_request" || session.kind === "preflight") return undefined;
     const activity = activityHistory(this.record, this.stateDirectory).findLast(a => a.key === current.phaseKey);
     if (!activity || session.executionId !== this.record.executionId) return undefined;
     const run = session.runs.at(-1); if (!run || run.endedAt) return undefined;
@@ -1498,6 +1526,8 @@ export class Engine {
       // The work may have changed in a terminal while the overview was open.
       this.pendingResume = undefined;
       await this.decide({ review: true });
+      // Resume runs a preflight first while none has settled (build preflight AC-PREFLIGHT-01, `resume`).
+      this.markResumePreflight();
       this.restartReview = undefined;
       this.reviewingRestart = false;
       this.changed();
@@ -1506,6 +1536,8 @@ export class Engine {
     }
     if (record.pause.activeSince !== undefined) {
       record.pause = {};
+      // Every Start that ends a pause runs a preflight first, in the write that clears it (RUN-003).
+      setPreflightDue(record, "unpause", this.now().toISOString());
       this.save();
       this.kick();
       return { ok: true };
@@ -1594,6 +1626,8 @@ export class Engine {
       record.developmentDelivery ??= emptyDevelopmentLedger();
       record.startedAt = at;
       record.refinementConfirmedAt = at;
+      // The browser's Start runs a preflight before anything else, a Start with every phase closed included (AC-PREFLIGHT-01).
+      setPreflightDue(record, "start", at);
       // The plan as Documents found showed it, until the worktree's own copy is read.
       const shownPlan = existing ? preview!.plan : this.options.startPlan;
       if (shownPlan) { record.plan = recordedPlan(shownPlan); record.planReadAt = at; }
@@ -1640,6 +1674,7 @@ export class Engine {
     if (record.pause.activeSince !== undefined) return refuse("Kiln is already paused.");
     if (record.pause.requestedAt !== undefined) return refuse("A pause is already requested.");
     if (this.current?.phaseKey === PR_PHASE_KEY && this.current.session !== undefined) return refuse("Pause after this phase isn't offered during the pull-request session.");
+    if (isPreflightKey(this.current?.phaseKey) || this.record.preflight?.due) return refuse(PREFLIGHT_PAUSE_REASON);
     record.pause.requestedAt = this.now().toISOString();
     this.save();
     return { ok: true };
@@ -1658,7 +1693,7 @@ export class Engine {
 
   phaseRecoveryTarget(): PhaseRecoveryTarget | undefined {
     const phaseKey = this.stoppedPhaseKey();
-    if (!phaseKey || phaseKey === PR_PHASE_KEY || this.auditActivity(phaseKey) && !this.record.liveControl) return undefined;
+    if (!phaseKey || phaseKey === PR_PHASE_KEY || isPreflightKey(phaseKey) || this.auditActivity(phaseKey) && !this.record.liveControl) return undefined;
     const facts = this.record.phases[phaseKey];
     const hold = this.record.billing?.hold?.phaseKey === phaseKey ? this.record.billing.hold : undefined;
     if (!hold && facts?.stop?.kind !== "done_check" && facts?.stop?.kind !== "not_resumable") return undefined;
@@ -1769,6 +1804,7 @@ export class Engine {
     const key = this.stoppedPhaseKey();
     if (key === undefined) return refuse("No phase is waiting for Check again.");
     if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
+    if (this.preflightStopKey() === key) return this.checkPreflightAgain(key);
     this.checking = true;
     this.changed();
     let verdict: Awaited<ReturnType<Engine["recheckStop"]>>;
@@ -1799,7 +1835,7 @@ export class Engine {
   /** "Phase 3", "Delivery audit", "Final delivery". */
   private activityName(key: string): string {
     const audit = this.auditActivity(key);
-    return key === PR_PHASE_KEY ? "Final delivery" : audit ? auditLabel(audit.kind) : `Phase ${this.judgedId(key)}`;
+    return key === PR_PHASE_KEY ? "Final delivery" : audit ? auditLabel(audit.kind) : isPreflightKey(key) ? PREFLIGHT_TITLE : `Phase ${this.judgedId(key)}`;
   }
 
   /** A Done activity, or a leaf closed outside Kiln, which no session of Kiln's ran: a development check can still stop it. */
@@ -1809,6 +1845,105 @@ export class Engine {
     if (this.auditActivity(key) || this.activityRan(key)) return false;
     const leaf = judgedPhase(this.record.plan ?? [], key);
     return !!leaf && !leaf.splitInto && (leaf.closed || this.waiverClosed(leaf.id));
+  }
+
+  /** The key of a stop of kind `preflight`, the stop a preflight's reported items make (The Preflight Stop). */
+  preflightStopKey(): string | undefined {
+    const key = this.stoppedPhaseKey();
+    return key !== undefined && isPreflightKey(key) && this.record.billing?.hold?.phaseKey !== key && this.record.phases[key]?.stop?.kind === "preflight" ? key : undefined;
+  }
+
+  /**
+   * The activity a preflight comes before, read from the record alone (Interfaces): its recorded
+   * `before`; else the pending audit; else the first open leaf; else final delivery on a completed
+   * legacy run; else the step after the last settled audit. A display prediction only.
+   *
+   *   engine.preflightNextActivity()  // { kind: "phase", key: "1", title: "Phase 1 · Carrier account", name: "Phase 1" }
+   */
+  preflightNextActivity(activity: PreflightActivity | undefined = latestPreflight(this.record)): { kind: "phase" | "audit" | "final_delivery"; key?: string; title: string; name: string } {
+    // The recorded plan, or before the first read saves one, the plan the start checks read.
+    const leaves = this.record.plan ? recordedLeaves(this.record.plan) : this.plan ? leavesOf(this.plan) : [];
+    const phase = (id: string) => { const judged = this.judgedId(id); const title = leaves.find(p => p.id === judged)?.title; return { kind: "phase" as const, key: judged, title: `Phase ${judged}${title ? ` · ${title}` : ""}`, name: `Phase ${judged}` }; };
+    const audit = (label: string, key?: string) => ({ kind: "audit" as const, ...(key ? { key } : {}), title: label, name: `the ${label.toLowerCase()}` });
+    const final = { kind: "final_delivery" as const, key: PR_PHASE_KEY, title: "Final delivery", name: "final delivery" };
+    const before = activity && !this.record.phases[preflightKeyOf(activity)]?.doneAt ? activity.before : undefined;
+    if (before) {
+      const kind = activityKeyKind(before);
+      if (kind === "phase") return phase(before);
+      if (kind === "final_delivery") return final;
+      const recorded = this.auditActivity(before);
+      if (recorded) return audit(auditLabel(recorded.kind), before);
+    }
+    const pending = this.record.completionAudits?.activities.findLast(a => !this.record.phases[auditKey(a)]?.doneAt);
+    if (pending) return audit(auditLabel(pending.kind), auditKey(pending));
+    const leaf = leaves.find(candidate => !candidate.closed && !this.waiverClosed(candidate.id) && !this.record.phases[candidate.id]?.doneAt);
+    if (leaf) return phase(leaf.id);
+    if (this.record.completionAudits?.policy === "legacy_complete" && this.record.completedAt) return final;
+    const step = this.auditStepAfterSettled();
+    return step === "final_delivery" ? final : audit(step === "delivery_audit" ? "Delivery audit" : "Test audit");
+  }
+
+  /** Whether a preflight stop's next activity resumes work it came before, or starts it. */
+  preflightVerb(key: string): "resumes" | "starts" {
+    return this.preflightActivity(key)?.before ? "resumes" : "starts";
+  }
+
+  /** Mark complete at a preflight stop: offered as soon as the stop exists, with no recheck (The Preflight Stop). */
+  private preflightOffer(key: string): MarkCompleteOffer {
+    const { run, checks } = this.stopRun(key);
+    const next = this.preflightNextActivity(this.preflightActivity(key));
+    return {
+      offered: true, label: "Mark complete", heading: "", continueInOrder: false, checkRunId: run!.id, items: unmetItems(checks), failingChecks: 1,
+      nextActivity: { kind: next.kind, key: next.key ?? "", title: next.title }, resultingLabel: completeLabel(1), noReport: false,
+      sentence: [`Check Preflight again runs a fresh preflight. Mark complete ${this.preflightVerb(key)} ${next.name} with the items as they are, and the Preflight row shows it was marked complete.`],
+    };
+  }
+
+  /** Saves the stop's own items as the waiver and finishes the preflight, which settles it, in one record write. */
+  private markPreflightComplete(key: string, request: WaiveRequest): { ok: true; outcome: "marked_complete"; waiver_id: string } {
+    const activity = this.preflightActivity(key)!;
+    const { checks } = this.stopRun(key);
+    const at = this.now().toISOString();
+    const waiver: Waiver = { waiverId: randomUUID(), at, activityKey: key, activityKind: "preflight", effect: "completed", source: request.source, operationId: request.operationId, checkRun: request.offeredRun, items: unmetItems(checks), checks: [] };
+    const ref = { waiverId: waiver.waiverId, activityKey: key, at, ...request.source };
+    // Marked with the waiver they rest on, never passed through the coverage rule: no later check reads them.
+    waiver.checks = structuredClone(checks).map(check => check.passed ? check : { ...check, passed: true, waived: true as const, items: (check.items ?? []).map(item => ({ ...item, waiver: ref })) });
+    const before = structuredClone(this.record);
+    try { this.finishPreflight(activity, undefined, waiver); }
+    catch (error) { this.restoreRecord(before); throw error; }
+    return { ok: true, outcome: "marked_complete", waiver_id: waiver.waiverId };
+  }
+
+  /**
+   * Mark complete at a launch-check or done-check stop on a preflight key: a launch check's waiver
+   * finishes the preflight, which settles it; a Codex safety check's waiver is followed by the
+   * report line's read in the same write (Reading the Result).
+   */
+  private waivePreflightCheck(key: string, waiver: Waiver): WaiveAnswer {
+    const activity = this.preflightActivity(key)!;
+    const stop = this.record.phases[key]?.stop;
+    if (stop?.kind === "done_check" && this.activityRan(key)) {
+      const read = this.latestPreflightReport(key);
+      waiver.effect = read.report.outcome === "items" ? "continued" : "completed";
+      this.applyPreflightReport(activity, read.report, read.sessionId, read.run, waiver);
+      return { ok: true, outcome: waiver.effect === "continued" ? "continued" : "marked_complete", waiver_id: waiver.waiverId };
+    }
+    waiver.effect = "completed";
+    this.finishPreflight(activity, undefined, waiver);
+    return { ok: true, outcome: "marked_complete", waiver_id: waiver.waiverId };
+  }
+
+  /** Check Preflight again: a fresh preflight session under the same activity (The Preflight Stop). */
+  private checkPreflightAgain(key: string): CommandResult {
+    const busy = this.commands?.active?.instruction.action === "check-again" ? this.current?.processRunning || this.checking || this.driving || this.stopping : this.launchBusy();
+    if (busy) return refuse("Kiln is checking or starting work. Try again when it has finished.");
+    const blocked = this.launchRestriction();
+    if (blocked) return refuse(blocked);
+    this.checking = true;
+    this.requestedLaunch = { phaseKey: key, kind: "start_again" };
+    this.changed();
+    this.kick();
+    return { ok: true, outcome: "resume_requested" };
   }
 
   /**
@@ -1824,6 +1959,7 @@ export class Engine {
     if (key === undefined || this.current?.processRunning) return { offered: false, reason: this.current?.processRunning ? `${this.activityName(this.current.phaseKey)} is running, not at Needs you. There is nothing to mark complete.` : "Nothing is waiting at Needs you. There is nothing to mark complete." };
     const name = this.activityName(key);
     if (this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.billing.busy || !admitting && this.commands?.busy) return { offered: false, reason: "Kiln is checking, dispatching or writing. Try again when it has finished." };
+    if (this.preflightStopKey() === key) return this.preflightOffer(key);
     const { run, checks } = this.stopRun(key);
     const failing = checks.filter(check => !check.passed);
     const { label, heading, continueInOrder } = this.offerWording(key, failing);
@@ -1910,6 +2046,16 @@ export class Engine {
     const offered = structuredClone(this.stopRun(key).checks);
     const source: WaiverSource = { via: inputs.via === "command_line" ? "command_line" : "browser", account: userInfo().username, ...(typeof inputs.by === "string" ? { by: inputs.by } : {}) };
     const request = { offered, offeredRun: { id: offer.checkRunId, at: this.stopRun(key).run!.at }, source, operationId: receipt.id, continueInOrder: offer.continueInOrder };
+    if (this.preflightStopKey() === key) {
+      // At a preflight stop Mark complete reruns nothing: the waiver is the stop's own items (The Preflight Stop).
+      this.checking = true; this.changed();
+      let answer: Awaited<ReturnType<Engine["markComplete"]>>;
+      try { answer = this.markPreflightComplete(key, request); }
+      finally { this.checking = false; this.changed(); }
+      receipt.effects.plan = "advanced";
+      this.kick();
+      return answer;
+    }
     const handBack = this.phaseRecoveryTarget();
     let answer: WaiveAnswer;
     if (handBack) answer = await this.recoverPhase("verify", { target: handBack, intent: "advance" }, request);
@@ -1958,6 +2104,11 @@ export class Engine {
     const checks = applyWaivers([...(this.record.waivers ?? []), waiver], structuredClone(rerun.checks), { isLeaf: id => this.isLeaf(id) });
     waiver.checks = checks;
     const before = structuredClone(this.record);
+    if (isPreflightKey(key)) {
+      waiver.activityKind = "preflight";
+      try { return this.waivePreflightCheck(key, waiver); }
+      catch (error) { this.restoreRecord(before); throw error; }
+    }
     try {
       if (effect === "continued") {
         (this.record.waivers ??= []).push(waiver);
@@ -2065,6 +2216,7 @@ export class Engine {
       return { ok: true };
     }
     const key = this.stoppedPhaseKey();
+    if (key !== undefined && this.preflightStopKey() === key) return refuse(PREFLIGHT_STOP_REASON);
     if (key === undefined || !this.resumeOffered(key)) return refuse("Resume isn't offered here.");
     if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
     if (body.note !== undefined && typeof body.note !== "string") return { ok: false, status: 400, reason: "The note must be text." };
@@ -2120,6 +2272,8 @@ export class Engine {
    */
   resumeOffered(phaseKey: string): boolean {
     if (this.record.liveControl && this.record.liveControl.takeover.state !== "released") return false;
+    // Kiln never resumes a preflight session with a person's words (The Preflight Stop).
+    if (isPreflightKey(phaseKey)) return false;
     const kind = this.record.phases[phaseKey]?.stop?.kind;
     if (kind !== "done_check" && kind !== "pull_request_check" && kind !== "not_resumable" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
     const session = this.recoverySession(phaseKey);
@@ -2158,7 +2312,7 @@ export class Engine {
   carryOnControl(acknowledging = false): { offered: boolean; available: boolean; reason?: string } {
     const held = this.heldHistoryKey();
     const key = held ?? this.stoppedPhase();
-    if (key === undefined) return { offered: false, available: false };
+    if (key === undefined || isPreflightKey(key)) return { offered: false, available: false };
     if (!held && (!this.conversationBegan(key) || this.reopenCheck(key).state !== "unavailable")) return { offered: false, available: false };
     const hold = this.record.liveControl?.takeover;
     const reason = (held && (hold?.carryOnObstacle ?? (!acknowledging && this.liveView()?.reviewRequired?.length ? "Acknowledge each message Kiln isn't sure was delivered first." : undefined))) || this.launchBusy() || this.launchRestriction();
@@ -2167,8 +2321,13 @@ export class Engine {
 
   /** Start Phase N again (AC-CASE-02, AC-CARRY-03): offered when no session of a stopped phase began a conversation. */
   startAgainControl(): { offered: boolean; available: boolean; reason?: string } {
-    const key = this.stoppedPhase();
-    if (key === undefined || this.conversationBegan(key)) return { offered: false, available: false };
+    const stopped = this.stoppedPhaseKey();
+    const key = isPreflightKey(stopped) ? stopped : this.stoppedPhase();
+    // On a preflight key: offered at a launch-check or done-check stop, never at the preflight stop itself.
+    if (key !== undefined && isPreflightKey(key)) {
+      const kind = this.record.phases[key]?.stop?.kind;
+      if (kind !== "selection" && kind !== "done_check" || this.record.billing?.hold?.phaseKey === key) return { offered: false, available: false };
+    } else if (key === undefined || this.conversationBegan(key)) return { offered: false, available: false };
     const safety = this.codexSafetyProblems(key, false);
     const reason = this.launchBusy() || this.launchRestriction() || (safety.length ? `Kiln found a Codex safety problem: ${safety.join(" ")}` : undefined);
     return { offered: true, available: !reason, ...(reason ? { reason } : {}) };
@@ -2191,7 +2350,7 @@ export class Engine {
     const kilnWork = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.completedPlanReading || this.deliveryReading || this.billing.busy || this.stopping || this.commands?.busy || this.folderStartProgress && !this.folderStartProgress.error);
     if (!session && !kilnWork) return { available: true };
     const paused = !!this.record.pause.activeSince || !!this.restartReview;
-    const pauseAfter = this.isUnderway && !this.currentlyComplete && !this.stoppedPhaseKey() && !this.waitingPhaseKey() && !paused && !this.record.pause.requestedAt && this.current !== undefined && this.current.phaseKey !== PR_PHASE_KEY && !this.commands?.busy && !this.folderMissing;
+    const pauseAfter = this.isUnderway && !this.currentlyComplete && !this.stoppedPhaseKey() && !this.waitingPhaseKey() && !paused && !this.record.pause.requestedAt && this.current !== undefined && this.current.phaseKey !== PR_PHASE_KEY && !isPreflightKey(this.current.phaseKey) && !this.commands?.busy && !this.folderMissing;
     if (session) {
       const takeOver = !!this.liveView()?.available && !this.commands?.busy;
       if (takeOver && pauseAfter) return { available: false, reason: "Reset isn't available while a session is working. Stop it now with Pause & take over above, or pause after the current phase or audit and reset once it ends." };
@@ -2300,14 +2459,16 @@ export class Engine {
   }
 
   async startAgain(): Promise<CommandResult> {
-    const key = this.stoppedPhase();
-    if (key === undefined || this.conversationBegan(key)) return refuse("Start again isn't offered here.");
+    const stopped = this.stoppedPhaseKey();
+    const key = isPreflightKey(stopped) ? stopped : this.stoppedPhase();
+    if (key === undefined || !this.startAgainControl().offered) return refuse(key !== undefined && this.preflightStopKey() === key ? PREFLIGHT_STOP_REASON : "Start again isn't offered here.");
     if (this.commands.active?.instruction.action === "start-again" ? this.current?.processRunning || this.checking || this.driving || this.stopping : this.launchBusy()) return refuse("Kiln is checking or starting work. Try again when it has finished.");
     const blocked = this.launchRestriction() ?? (this.codexSafetyProblems(key, false).length ? "Kiln found a Codex safety problem." : undefined);
     if (blocked) return refuse(blocked);
     this.checking = true;
     this.changed();
-    try { await this.catchUpAtStop(key); }
+    // The preflight changes nothing in the repositories, so its Start again catches no branch up.
+    try { if (!isPreflightKey(key)) await this.catchUpAtStop(key); }
     catch (error) {
       this.checking = false;
       this.changed();
@@ -2737,7 +2898,7 @@ export class Engine {
   /** The line a stop prints, for what Kiln is doing as it begins (UI-010 item 3). */
   private describeStop(): StopReport {
     const { record } = this;
-    const name = (key: string) => (key === PR_PHASE_KEY ? "the pull request" : this.auditActivity(key) ? auditLabel(this.auditActivity(key)!.kind).toLowerCase() : `phase ${this.judgedId(key)}`);
+    const name = (key: string) => (key === PR_PHASE_KEY ? "the pull request" : this.auditActivity(key) ? auditLabel(this.auditActivity(key)!.kind).toLowerCase() : isPreflightKey(key) ? "the preflight" : `phase ${this.judgedId(key)}`);
     const run = this.current?.session?.runs.at(-1);
     // A live run, or an interrupted session about to be resumed: either way its phase is interrupted.
     const interrupted = this.current?.session && run && run.endedAt === undefined ? this.current.phaseKey : this.interruptedKey;
@@ -2761,7 +2922,7 @@ export class Engine {
     }
     const stopped = this.stoppedPhaseKey();
     if (stopped !== undefined) {
-      const subject = stopped === PR_PHASE_KEY ? "The pull request" : `Phase ${this.judgedId(stopped)}`;
+      const subject = stopped === PR_PHASE_KEY ? "The pull request" : isPreflightKey(stopped) ? "The preflight" : `Phase ${this.judgedId(stopped)}`;
       return { text: "Kiln stopped.", grey: `${subject} still needs you; kiln run checks it again.` };
     }
     if (record.pause.activeSince !== undefined) return { text: `Kiln stopped while paused before ${name(this.nextKeyFromRecordedPlan())}.` };
@@ -2875,6 +3036,7 @@ export class Engine {
     const extra = limit === undefined ? {} : { limit };
     if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event, ...extra });
     else if (this.auditActivity(phaseKey)) this.emitAudit(this.auditActivity(phaseKey)!, event, limit);
+    else if (this.preflightActivity(phaseKey)) this.emitPreflight(this.preflightActivity(phaseKey)!, event, limit);
     else {
       const judged = this.judgedId(phaseKey);
       this.emit({ kind: "phase", at: this.now(), phaseId: judged, title: this.titleOf(judged), event, ...extra });
@@ -3079,6 +3241,8 @@ export class Engine {
     const { continuation, archiveRow } = input;
     if (!continuation.executions.some(row => row.executionId === archiveRow.executionId)) continuation.executions.push(archiveRow);
     const active: PrdRecord = { schemaVersion: SCHEMA_VERSION, executionId: input.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, continuation, phases: {}, plan: recordedPlan(input.plan), planReadAt: input.at, planReconciliation: { baselineId: input.baselineId }, billing: newBillingState(input.newExecutionId), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, ...input.fields };
+    // Every activation of a fresh execution sets the preflight's mark in its one write (build preflight "When the Preflight Is Due").
+    setPreflightDue(active, input.fields.folderSetupStart ? "start" : "continue", input.at);
     this.billing.invalidate(false);
     for (const key of Object.keys(old)) Reflect.deleteProperty(old, key);
     Object.assign(old, active);
@@ -3317,7 +3481,7 @@ export class Engine {
    * (a live session, or one whose folder went missing while it worked), never the pull request or an audit.
    */
   private folderRunPhaseKey(): string | undefined {
-    const leaf = (key: string | undefined) => key !== undefined && key !== PR_PHASE_KEY && !this.auditActivity(key);
+    const leaf = (key: string | undefined) => key !== undefined && activityKeyKind(key) === "phase";
     const stopped = this.stoppedPhaseKey();
     if (stopped !== undefined) return leaf(stopped) ? stopped : undefined;
     const key = this.waitingPhaseKey() ?? this.current?.phaseKey ?? this.latestSessionOverall()?.phaseKey;
@@ -3328,7 +3492,7 @@ export class Engine {
     // Leaves this run completed, with the commit each repository's Done recorded there: pushed, or the waived head (AC-SAFE-02).
     const completedByRun = new Map<string, { doneAt: string; commits: Record<string, string>; waived?: string[] }>();
     for (const [key, facts] of Object.entries(this.record.phases).filter(([, facts]) => facts.doneAt).sort(([, a], [, b]) => a.doneAt!.localeCompare(b.doneAt!))) {
-      if (key === PR_PHASE_KEY || this.auditActivity(key)) continue;
+      if (activityKeyKind(key) !== "phase") continue;
       const commits: Record<string, string> = {}; const waived: string[] = [];
       for (const [name, repository] of Object.entries(facts.repositories)) { const sha = repository.pushedSha ?? repository.waivedHead; if (sha) commits[name] = sha; if (!repository.pushedSha && repository.waivedHead) waived.push(name); }
       completedByRun.set(this.judgedId(key), { doneAt: facts.doneAt!, commits, ...(waived.length ? { waived } : {}) });
@@ -3598,7 +3762,7 @@ export class Engine {
       const scopeRepositories = phaseRepositories(source, leaf.id);
       const carried = earlier?.completions[leaf.id];
       if (carried) { completions[leaf.id] = { ...carried, scopeRepositories: carried.scopeRepositories ?? scopeRepositories }; continue; }
-      const owner = Object.entries(old.phases).find(([key, facts]) => facts.doneAt && key !== PR_PHASE_KEY && !this.auditActivity(key) && this.judgedId(key) === leaf.id)?.[1];
+      const owner = Object.entries(old.phases).find(([key, facts]) => facts.doneAt && activityKeyKind(key) === "phase" && this.judgedId(key) === leaf.id)?.[1];
       if (owner) {
         const revision = owner.repositories[prd.name]?.pushedSha ?? owner.repositories[prd.name]?.waivedHead;
         completions[leaf.id] = { kind: "kiln", scopeRepositories, doneAt: owner.doneAt!, ...(owner.waiverId ? { waiverId: owner.waiverId } : {}), ...(revision ? { revision } : {}), repositories: Object.fromEntries(Object.entries(owner.repositories).flatMap(([name, facts]) => { const identity = old.repositories.find(entry => entry.name === name)?.github ?? ""; return facts.pushedSha ? [[name, { identity, revision: facts.pushedSha }]] : facts.waivedHead ? [[name, { identity, revision: facts.waivedHead, waived: true as const }]] : []; })) };
@@ -3622,6 +3786,7 @@ export class Engine {
 
   /** From the existing feature branch (AC-SETUP-05): the failing repositories' worktrees, then the explicit Resume. */
   private async runBranchStart(intent: FolderSetupStart, build: StartBuild, save: () => void): Promise<void> {
+    let unpaused = false;
     for (const repository of intent.repositories.filter(row => row.createLocalFromOrigin)) await step(intent, `branch:${repository.name}`, save, () => createLocalBranch(this.git, repository));
     for (const repository of intent.repositories.filter(row => row.clearStaleRecord)) await step(intent, `clear:${repository.name}`, save, () => clearStaleRecord(this.git, repository));
     for (const repository of intent.repositories) await step(intent, `worktree:${repository.name}`, save, () => addWorktreeOnBranch(this.git, repository));
@@ -3640,6 +3805,8 @@ export class Engine {
       Object.assign(this.record.settings, { model: undefined }, { worktreePath: settings.worktreePath, workspaceFolder: settings.workspaceFolder, keepAwake: settings.keepAwake, resumeAfterUsageLimit: settings.resumeAfterUsageLimit, agentChoices: settings.agentChoices });
       delete (this.record.settings as unknown as Record<string, unknown>).model;
       // Start is the person's explicit go: it ends an active pause and a released takeover hold (AC-SAFE-03).
+      // A Start that ends a pause runs a preflight first, in the same write (RUN-003).
+      if (this.record.pause.activeSince !== undefined) { unpaused = true; setPreflightDue(this.record, "unpause", at); }
       delete this.record.pause.activeSince;
       if (this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; }
       this.save();
@@ -3654,6 +3821,7 @@ export class Engine {
     if (this.folderMissing) return;
     this.pendingResume = undefined;
     await this.decide({ review: true });
+    if (!unpaused) this.markResumePreflight();
     this.restartReview = undefined; this.reviewingRestart = false;
     this.changed();
     this.kick();
@@ -3699,7 +3867,7 @@ export class Engine {
    * says what Kiln does next (the ● line). An interrupted session is left untouched for a Kiln
    * that can resume it.
    */
-  async decide(options: { review?: boolean } = {}): Promise<UnderwayDecision> {
+  async decide(options: { review?: boolean; resume?: boolean } = {}): Promise<UnderwayDecision> {
     if (options.review) this.reviewingRestart = true;
     // The ● line says what these checks found, so their own terminal lines would repeat it.
     this.quiet = true;
@@ -3712,9 +3880,14 @@ export class Engine {
           : decision.kind === "start_pull_request" ? { activityKey: PR_PHASE_KEY, action: "start" }
           : decision.kind === "resume" ? { activityKey: decision.phaseKey, action: "resume" }
           : decision.kind === "waiting" ? { activityKey: decision.phaseKey, action: "wait" } : undefined;
+        // An allocated, unfinished preflight is what Resume runs first (Display Contract, "Preflight as the next activity").
+        const preflight = unfinishedPreflight(this.record);
+        if (this.restartReview && preflight && !this.record.phases[preflightKeyOf(preflight)]?.stop) this.restartReview = { activityKey: preflightKeyOf(preflight), action: this.latestSession(preflightKeyOf(preflight))?.runs.length ? "resume" : "start" };
         this.reviewingRestart = !!this.restartReview;
         this.changed();
       }
+      // `kiln run <path> --resume` skips the review and resumes as its Resume would (AC-PREFLIGHT-01, `resume`).
+      if (options.resume && ["start_phase", "start_audit", "start_pull_request", "resume", "waiting"].includes(decision.kind)) this.markResumePreflight(true);
       return decision;
     } finally {
       this.quiet = false;
@@ -3947,6 +4120,10 @@ export class Engine {
       if (this.reviewingRestart || this.recoveredLive || this.record.liveControl && !this.requestedResume && !this.requestedLaunch) return;
       if (this.commands.blocked || this.stopping || !this.isUnderway || this.currentlyComplete || this.record.billing?.hold && !this.requestedResume && !this.requestedLaunch) return;
       if (this.folderMissing) return;
+      if (this.requestedResume !== undefined && this.requestedResume.cause === "limit_resume" && this.record.preflight?.due) {
+        // A wait that held when the mark was set: the preflight comes before the waiting session is resumed.
+        if (await this.drivePreflight() !== "go_on") { this.requestedResume = undefined; this.checking = false; this.changed(); return; }
+      }
       if (this.requestedResume !== undefined) {
         // The one dispatch path: every launch and resume checks the folders first (AC-GONE-01).
         if (!await this.folderGuard({ mayLeave: false })) return;
@@ -3964,7 +4141,12 @@ export class Engine {
         if (!await this.folderGuard({ mayLeave: false })) { this.checking = false; this.changed(); return; }
         const runCount = this.phaseRunCount(request.phaseKey);
         await this.launchAtStop(request);
-        if (this.phaseRunCount(request.phaseKey) === runCount) { this.current = undefined; this.checking = false; this.changed(); return; }
+        if (this.phaseRunCount(request.phaseKey) === runCount) {
+          this.current = undefined; this.checking = false; this.changed();
+          // A fresh preflight whose skill no longer resolves finished as no report, and the run goes on.
+          if (isPreflightKey(request.phaseKey) && this.record.phases[request.phaseKey]?.doneAt) continue;
+          return;
+        }
         if ((await this.settleSession(request.phaseKey)).kind !== "done") return;
         continue;
       }
@@ -3976,6 +4158,12 @@ export class Engine {
       }
       // Checked after a wait's watch starts, so the watch begins before this loop first waits on Git.
       if (!await this.folderGuard({ mayLeave: false })) return;
+      // The preflight comes before anything else the run starts or resumes (AC-PREFLIGHT-01).
+      if (await this.drivePreflight() !== "go_on") return;
+      if (this.stoppedPhaseKey() !== undefined) return;
+      const after = await this.resumeAfterPreflight();
+      if (after === "stopped") return;
+      if (after === "done") continue;
       if (this.pendingResume !== undefined) {
         const key = this.pendingResume;
         this.pendingResume = undefined;
@@ -4039,26 +4227,7 @@ export class Engine {
         this.activatePause();
         return;
       }
-      // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
-      if (this.record.settings.agentId === "codex") await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
-      else { void this.claude?.refreshAccount(); await this.agents.refreshClaudeModels(); }
-      if (this.stopping) return;
-      const selectionError = this.record.settings.agentId === "claude_code" ? this.selectionIssue(true) : this.selectionError;
-      if (selectionError) {
-        this.current = undefined;
-        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [selectionError] }]);
-        return;
-      }
-      if (this.record.settings.agentId === "codex") {
-        mkdirSync(this.workspaceFolder, { recursive: true });
-        try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: selectedChoice(this.record.settings) }); }
-        catch (error) {
-          if (this.stopping) return;
-          this.current = undefined;
-          this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }]);
-          return;
-        }
-      }
+      if (!await this.launchReadiness(nextKey)) return;
       if (audit) {
         if ((await this.runAuditSession(audit)) !== "done") return;
         continue;
@@ -4073,7 +4242,274 @@ export class Engine {
     }
   }
 
+  /**
+   * The launch checks every launch shares, just before a session starts (AC-WATCH-09): the account
+   * read, agent selection and readiness, and Codex launch settings. False when one stopped the
+   * activity on its key, or Kiln is stopping.
+   */
+  private async launchReadiness(nextKey: string): Promise<boolean> {
+    // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
+    if (this.record.settings.agentId === "codex") await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
+    else { void this.claude?.refreshAccount(); await this.agents.refreshClaudeModels(); }
+    if (this.stopping) return false;
+    const selectionError = this.record.settings.agentId === "claude_code" ? this.selectionIssue(true) : this.selectionError;
+    if (selectionError) {
+      this.current = undefined;
+      this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [selectionError] }]);
+      return false;
+    }
+    if (this.record.settings.agentId === "codex") {
+      mkdirSync(this.workspaceFolder, { recursive: true });
+      try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: selectedChoice(this.record.settings) }); }
+      catch (error) {
+        if (this.stopping) return false;
+        this.current = undefined;
+        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }]);
+        return false;
+      }
+    }
+    return true;
+  }
+
   auditActivity(key: string): AuditActivity | undefined { return this.record.completionAudits?.activities.find(a => auditKey(a) === key); }
+
+  // ---- Build preflight (build preflight technical design) ---------------------------------
+
+  preflightActivity(key: string): PreflightActivity | undefined { return preflightActivity(this.record, key); }
+
+  private resolvePreflightSkill(): Promise<SkillResolution> {
+    return resolveSkill({ name: PREFLIGHT_SKILL, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+  }
+
+  /**
+   * Resume, `kiln continue` at the restart review, `kiln run --resume` and a Folder missing Start
+   * from the existing feature branch set the mark only while no preflight has settled and the run
+   * would otherwise start or resume work (AC-PREFLIGHT-01, `resume`). `decided`: the decision
+   * itself said it starts or resumes work, with no review showing.
+   */
+  private markResumePreflight(decided = false): void {
+    if (!decided && !this.restartReview) return;
+    if (this.stoppedPhaseKey() !== undefined || this.record.pause.activeSince !== undefined || this.currentlyComplete) return;
+    if (preflightSettled(this.record) || this.record.preflight?.due) return;
+    setPreflightDue(this.record, "resume", this.now().toISOString());
+    this.save();
+  }
+
+  /**
+   * The mark, consumed before anything else the loop would launch or resume ("When the Preflight
+   * Is Due", steps 1 to 4), then the unfinished preflight itself. `go_on`: the loop carries on
+   * with its ordinary next-activity choice.
+   */
+  private async drivePreflight(): Promise<"go_on" | "stopped"> {
+    const state = this.record.preflight;
+    let activity = unfinishedPreflight(this.record);
+    if (state?.due) {
+      if (activity) { delete state.due; this.save(); }
+      else {
+        const trigger = state.due.trigger;
+        const resolved = await this.resolvePreflightSkill();
+        if (this.stopping) return "stopped";
+        if (resolved.kind === "absent") { delete state.due; this.save(); return "go_on"; }
+        activity = this.allocatePreflight(trigger, resolved.kind === "found" ? resolved.skill : undefined);
+        if (resolved.kind === "unresolvable") {
+          // A sign-in or readiness problem can make discovery fail: it stops on the preflight's key as a launch check, never as no report.
+          if (!await this.launchReadiness(preflightKeyOf(activity))) return "stopped";
+          this.current = undefined;
+          this.finishPreflight(activity, { outcome: "no_report", reason: resolved.message });
+          return "go_on";
+        }
+      }
+    }
+    if (!activity) return "go_on";
+    const key = preflightKeyOf(activity);
+    if (this.record.pause.activeSince !== undefined || this.pendingResume === key) return "go_on";
+    const run = this.latestSession(key)?.runs.at(-1);
+    if (run && (run.endedAt === undefined || run.interruptedBy !== undefined)) { this.pendingResume ??= key; return "go_on"; }
+    const verdict = run ? (await this.settleSession(key)).kind : await this.runPreflightSession(activity);
+    return verdict === "done" ? "go_on" : "stopped";
+  }
+
+  /**
+   * The interrupted session a finished preflight ran ahead of (its saved `before`), when nothing in
+   * memory already holds it, as after a restart at the preflight stop: checked first, as any
+   * interrupted session is, then resumed. `done`: its check passed and it was recorded done.
+   */
+  private async resumeAfterPreflight(): Promise<"none" | "resume" | "done" | "stopped"> {
+    const preflight = latestPreflight(this.record);
+    const before = preflight?.before;
+    if (!before || !this.record.phases[preflightKeyOf(preflight)]?.doneAt || this.pendingResume !== undefined || this.requestedResume !== undefined || this.isPhaseDone(before) || this.record.phases[before]?.stop || this.record.phases[before]?.wait) return "none";
+    const run = this.latestSession(before)?.runs.at(-1);
+    if (!run || run.endedAt !== undefined && run.interruptedBy === undefined) return "none";
+    const verdict = await this.checkInterrupted(before);
+    if (verdict.kind === "resume") { this.pendingResume = before; return "resume"; }
+    return verdict.kind === "done" ? "done" : "stopped";
+  }
+
+  /** Allocates the preflight and clears the mark in one write; `before` names an interrupted or waiting session it runs ahead of. */
+  private allocatePreflight(trigger: PreflightTrigger, skill: PreflightActivity["skill"]): PreflightActivity {
+    const state = this.record.preflight ??= { activities: [] };
+    const id = randomUUID(); const at = this.now().toISOString(); const key = preflightKeyOf({ activityId: id });
+    const before = this.pendingResume ?? this.requestedResume?.phaseKey ?? this.waitingPhaseKey();
+    const observed = observeActivity(this.record, this.stateDirectory, key, "preflight", at, id);
+    const activity: PreflightActivity = { activityId: id, sequence: observed.sequence, createdAt: at, trigger, ...(before ? { before } : {}), ...(skill ? { skill } : {}) };
+    state.activities.push(activity);
+    delete state.due;
+    this.record.phases[key] = { sessionIds: [], finishedByPerson: false, repositories: {} };
+    this.save();
+    return activity;
+  }
+
+  /** Finishes the preflight: a read result, or a waiver that marked it complete, in one record write. */
+  private finishPreflight(activity: PreflightActivity, result?: { outcome: "ready" | "no_report"; reason?: string; sessionId?: string; run?: number }, waiver?: Waiver): void {
+    const key = preflightKeyOf(activity);
+    const facts = this.phaseFacts(key);
+    const at = this.now().toISOString();
+    if (result) activity.result = { outcome: result.outcome, at, ...(result.sessionId ? { sessionId: result.sessionId, run: result.run! } : {}), ...(result.reason ? { reason: result.reason } : {}) };
+    facts.doneAt = at; facts.finishedByPerson = !!waiver;
+    delete facts.stop; delete facts.wait;
+    if (this.record.billing?.hold?.phaseKey === key) delete this.record.billing.hold;
+    if (waiver) { (this.record.waivers ??= []).push(waiver); facts.waiverId = waiver.waiverId; this.record.controlApplied = { operationId: waiver.operationId, outcome: "marked_complete" }; }
+    if (this.commands?.active) facts.completedByOperation = this.commands.active.id;
+    this.save();
+    this.emitPreflight(activity, "done");
+  }
+
+  preflightPrompt(activity: PreflightActivity, folder = this.sessionFolder): string {
+    return preflightSessionPrompt({ skillName: activity.skill?.name ?? PREFLIGHT_SKILL, skillPath: activity.skill?.path ?? PREFLIGHT_SKILL, prdFile: this.pathFrom(folder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch });
+  }
+
+  private emitPreflight(activity: PreflightActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
+    const result = activity.result;
+    this.emit({ kind: "audit", at: this.now(), activityId: activity.activityId, label: PREFLIGHT_TITLE, round: 0, event, preflight: { ...(event === "done" && result && result.outcome !== "items" ? { outcome: result.outcome } : {}), ...(event === "done" && result?.reason ? { reason: result.reason } : {}) }, ...(limit ? { limit } : {}) });
+  }
+
+  /** The preflight's first launch, under the launch checks every launch shares. */
+  private async runPreflightSession(activity: PreflightActivity): Promise<"done" | "stopped"> {
+    const key = preflightKeyOf(activity);
+    this.current = { phaseKey: key, commits: [], processRunning: false };
+    this.changed();
+    if (!await this.launchReadiness(key)) return "stopped";
+    if (!activity.skill) {
+      // Allocated while the skill could not be resolved, then held by a launch check: resolved again now.
+      const resolved = await this.resolvePreflightSkill();
+      if (this.stopping) return "stopped";
+      if (resolved.kind !== "found") { this.current = undefined; this.finishPreflight(activity, { outcome: "no_report", reason: resolved.message }); return "done"; }
+      activity.skill = resolved.skill; this.save();
+    }
+    this.emitPreflight(activity, "started");
+    await this.launchSession(key, "preflight", this.preflightPrompt(activity));
+    if (!this.latestSession(key)?.runs.length) { this.current = undefined; this.changed(); return "stopped"; }
+    return (await this.settleSession(key)).kind === "done" ? "done" : "stopped";
+  }
+
+  /**
+   * Check Preflight again, and Start again at a launch-check or done-check stop on a preflight key:
+   * a fresh session under the same activity, its skill resolved again. The stop, and an items
+   * result, clear in the write that starts it (The Preflight Stop).
+   */
+  private async launchPreflightAtStop(key: string): Promise<void> {
+    const activity = this.preflightActivity(key)!;
+    const facts = this.phaseFacts(key);
+    const resolved = await this.resolvePreflightSkill();
+    if (this.stopping) { this.checking = false; return; }
+    if (resolved.kind !== "found") {
+      this.checking = false;
+      // No session started: a Check Preflight again receipt settles as such, and never claims the next activity's launch.
+      const receipt = this.controlDispatch;
+      if (receipt) { receipt.outcome = "dispatch_not_started"; receipt.reason = `The preflight could not start: ${resolved.message} It ended as No report and the run went on.`; this.controlDispatch = undefined; }
+      this.finishPreflight(activity, { outcome: "no_report", reason: resolved.message });
+      return;
+    }
+    activity.skill = resolved.skill;
+    this.save();
+    const started = () => {
+      delete facts.stop;
+      if (activity.result?.outcome === "items") delete activity.result;
+      this.checking = false;
+      return true;
+    };
+    this.emitPreflight(activity, "started");
+    await this.launchSession(key, "preflight", this.preflightPrompt(activity), { started });
+  }
+
+  /**
+   * A preflight run that ended (Reading the Result): the Codex safety check, then a usage-limit wait
+   * when Kiln will resume it, then the report's first line. Only `items` stops the run.
+   */
+  private async judgePreflight(key: string): Promise<Verdict> {
+    const activity = this.preflightActivity(key)!;
+    // Only the report's first line, no report or Mark complete finishes a preflight, once.
+    if (this.record.phases[key]?.doneAt) return { kind: "done", judgedId: key };
+    const session = this.latestSession(key);
+    const runIndex = (session?.runs.length ?? 0) - 1;
+    const run = session?.runs[runIndex];
+    if (!session || !run) { this.finishPreflight(activity, { outcome: "no_report", reason: "No preflight session ran." }); return { kind: "done", judgedId: key }; }
+    if (run.spawnError && run.pid === undefined) { this.finishPreflight(activity, { outcome: "no_report", reason: run.spawnError.message }); return { kind: "done", judgedId: key }; }
+    const safety = await this.preflightSafety(key);
+    if (safety) { this.recordStop(key, "done_check", [safety]); return { kind: "stopped" }; }
+    if (run.limitRefusal !== undefined && this.record.settings.resumeAfterUsageLimit && !this.transcriptMissing(session) && !(run.cause === "limit_resume" && this.refusedAgain(session, runIndex))) {
+      this.recordWait(key, session, runIndex, []);
+      return { kind: "waiting" };
+    }
+    return this.applyPreflightReport(activity, readPreflightReport(run.result?.text), session.sessionId, runIndex);
+  }
+
+  /** The Codex safety check's failing row on a preflight key, unless a waiver covers it; undefined when it passes. */
+  private async preflightSafety(key: string): Promise<CheckResult | undefined> {
+    await this.refreshCodexConversations(key);
+    const problems = this.codexSafetyProblems(key);
+    if (!problems.length) return undefined;
+    const checks: CheckResult[] = [{ name: "Codex process cleanup and dispatch", passed: false, facts: problems }];
+    return await this.markChecks(key, checks) ? undefined : checks[0];
+  }
+
+  /** `ready` and `no_report` finish the preflight and go on; `items` stops on its key with the numbered items. */
+  private applyPreflightReport(activity: PreflightActivity, report: PreflightReport, sessionId?: string, run?: number, waiver?: Waiver): Verdict {
+    const key = preflightKeyOf(activity);
+    if (report.outcome !== "items") {
+      this.finishPreflight(activity, { outcome: report.outcome, ...(sessionId ? { sessionId, run: run! } : {}) }, waiver);
+      return { kind: "done", judgedId: key };
+    }
+    activity.result = { outcome: "items", at: this.now().toISOString(), ...(sessionId ? { sessionId, run: run! } : {}), headline: report.headline, items: report.items };
+    if (waiver) { (this.record.waivers ??= []).push(waiver); this.record.controlApplied = { operationId: waiver.operationId, outcome: "continued" }; }
+    this.recordStop(key, "preflight", [{ name: PREFLIGHT_CHECK, passed: false, facts: report.items, reason: true }]);
+    return { kind: "stopped" };
+  }
+
+  /** The latest preflight run's report, as `judgePreflight` reads it. */
+  private latestPreflightReport(key: string): { report: PreflightReport; sessionId?: string; run?: number } {
+    const session = this.latestSession(key);
+    const runIndex = (session?.runs.length ?? 0) - 1;
+    const run = session?.runs[runIndex];
+    return { report: readPreflightReport(run?.result?.text), ...(session && run ? { sessionId: session.sessionId, run: runIndex } : {}) };
+  }
+
+  /**
+   * Check again at a stop on a preflight key (Reading the Result): a billing hold rechecks billing
+   * only and never finishes the preflight; a done-check stop reruns only the Codex safety check and,
+   * once it passes, reads the report line. Undefined for a launch-check or plan stop, which recheck as on any key.
+   */
+  private async recheckPreflight(key: string): Promise<"cleared" | "still_stopped" | undefined> {
+    const hold = this.record.billing?.hold;
+    if (hold?.phaseKey === key) {
+      await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true);
+      if (this.billing.view.canLaunch) { delete this.record.billing!.hold; this.save(); return "cleared"; }
+      hold.checks = markReasonRows([{ name: "Billing approval", passed: false, facts: [hold.reason] }]); delete hold.rowsAreCompletionChecks; hold.run = this.newRun("recheck"); this.save();
+      return "still_stopped";
+    }
+    const stop = this.record.phases[key]?.stop;
+    if (!stop || stop.kind === "preflight") return stop ? "still_stopped" : undefined;
+    if (stop.kind !== "done_check" && stop.kind !== "not_resumable") return undefined;
+    const latest = this.latestSession(key);
+    if (latest?.agentId === "codex") await this.stopLiveProcess(latest);
+    const safety = await this.preflightSafety(key);
+    if (this.stopping) return "still_stopped";
+    if (safety) { this.updateStop(key, [safety], false); return "still_stopped"; }
+    const read = this.latestPreflightReport(key);
+    const verdict = this.applyPreflightReport(this.preflightActivity(key)!, read.report, read.sessionId, read.run);
+    return verdict.kind === "done" ? "cleared" : "still_stopped";
+  }
+
 
   private admissionContext(extra?: Waiver): AdmissionContext {
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
@@ -4310,6 +4746,7 @@ export class Engine {
    */
   private async launchAtStop(request: NonNullable<Engine["requestedLaunch"]>): Promise<void> {
     const key = request.phaseKey;
+    if (isPreflightKey(key)) return this.launchPreflightAtStop(key);
     const facts = this.record.phases[key]!;
     await this.additionChain;
     await this.recordStartCommits(key);
@@ -4568,8 +5005,9 @@ export class Engine {
    */
   private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on" } = {}): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
-    const audit = this.auditActivity(phaseKey);
-    observeActivity(this.record, this.stateDirectory, phaseKey, audit?.kind ?? (kind === "pull_request" ? "final_delivery" : "implementation"), this.now().toISOString(), audit?.activityId);
+    const audit = this.auditActivity(phaseKey) ?? this.preflightActivity(phaseKey);
+    const auditRecord = this.auditActivity(phaseKey);
+    observeActivity(this.record, this.stateDirectory, phaseKey, auditRecord?.kind ?? (kind === "preflight" ? "preflight" : kind === "pull_request" ? "final_delivery" : "implementation"), this.now().toISOString(), audit?.activityId);
     // A session launch waits for an addition under way, so it gets the workspace as it ends.
     await this.additionChain;
     // Only the next launch reads the phase's last record, reusing it when it has no run (run restart "A session record with no run").
@@ -4599,7 +5037,7 @@ export class Engine {
       };
       writeSessionRecord(this.options.stateDirectory, session);
       facts.sessionIds.push(session.sessionId);
-      if (audit) audit.sessionIds.push(session.sessionId);
+      if (auditRecord) auditRecord.sessionIds.push(session.sessionId);
       this.save();
     }
     // Every launch says how its run started, including a reused record a carry-on left (run restart "A session record with no run").
@@ -4640,6 +5078,11 @@ export class Engine {
       if (!this.record.phases[phaseKey]?.stop && !this.record.phases[phaseKey]?.wait) this.recordStop(phaseKey, phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", [planCheck(reconciled)]);
       this.current = undefined; this.changed(); return;
     }
+    // A preflight whose conversation cannot be reopened has ended: it is read as any ended run, never stopped as not resumable (Reading the Result).
+    if (this.preflightActivity(phaseKey) && !request) {
+      if (session.agentId === "codex") await this.readCodexAvailability(session);
+      if (this.transcriptMissing(session)) { this.checking = false; return; }
+    }
     if (session.agentId === "codex") {
       await this.readCodexAvailability(session);
       if (this.codexSafetyProblems(phaseKey, false).length || this.transcriptMissing(session)) {
@@ -4672,7 +5115,7 @@ export class Engine {
       ...(refusal !== undefined && endedOnItsOwn ? { usageLimit: label === UNKNOWN_LIMIT_LABEL || label === undefined ? "" : limitSentence(label) } : {}),
       ...(endedOnItsOwn ? { endedOnItsOwn: true } : recorded ? { cause: run.interruptedBy! } : {}),
       time: time.replace(/\.\d+Z$/, "Z"),
-      ...(auditTask ? { auditTask } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
+      ...(auditTask ? { auditTask } : this.preflightActivity(phaseKey) ? { preflightTask: { prdFile: this.pathFrom(cwd, this.prdFile()), skillPath: this.preflightActivity(phaseKey)!.skill?.path ?? PREFLIGHT_SKILL } } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
       multiRepository: phaseKey === PR_PHASE_KEY ? this.pullRequestRepositories().length > 1 : multi,
       ...(request?.note === undefined ? {} : { note: request.note }),
     });
@@ -4972,7 +5415,7 @@ export class Engine {
     const run = session.runs.find(r => r.control?.operationId === receipt.id);
     if (!run?.control?.submitted || !(session.agentId === "codex" ? run.codex?.turnId : runReportedInit(this.stateDirectory, session, session.runs.indexOf(run)))) return;
     if (this.returningTakeover && this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; this.returningTakeover = false; this.save(); }
-    receipt.effects.session = STARTING_ACTIONS.includes(receipt.instruction.action) ? "started" : "resumed";
+    receipt.effects.session = isStartingReceipt(receipt) ? "started" : "resumed";
     if (receipt.reply_text !== null) receipt.effects.reply = run.control.delivered ? "delivered" : "submitted";
     this.commands.checkpoint(receipt);
     this.commands.finishAutomatic(receipt);
@@ -5162,6 +5605,7 @@ export class Engine {
         this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [run.codex.verificationFailure] }]);
         return { kind: "stopped" };
       }
+      if (isPreflightKey(phaseKey)) return await this.judgePreflight(phaseKey);
       if (this.record.preparation?.phaseId === phaseKey && (this.record.preparation.stage !== "implementation" || !session?.runs[this.record.preparation.implementationRun!])) {
         if (!session || !run || run.interruptedAt || run.spawnError || !run.endedAt || run.exitCode !== 0) {
           this.recordStop(phaseKey, "done_check", [{ name: "Prerequisite preparation", passed: false, facts: ["The preparation turn did not settle successfully. Resume this preparation conversation; dependent implementation remains held."] }]);
@@ -5206,6 +5650,14 @@ export class Engine {
    * cannot safely resume under the runtime and conversation recovery requirements.
    */
   private async checkInterrupted(phaseKey: string): Promise<Verdict | { kind: "resume" }> {
+    if (isPreflightKey(phaseKey)) {
+      // An interrupted preflight has not ended: it is resumed, unless its conversation cannot be reopened, when it has ended and is read.
+      const session = this.latestSession(phaseKey);
+      const safety = await this.preflightSafety(phaseKey);
+      if (safety) return this.stopInterrupted(phaseKey, "done_check", [safety]);
+      if (session && !this.transcriptMissing(session) && this.canResumeCodex(phaseKey)) return { kind: "resume" };
+      return this.judgePreflight(phaseKey);
+    }
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return { kind: "stopping" };
@@ -5260,6 +5712,7 @@ export class Engine {
    */
   private async recheckStop(phaseKey: string, options: { routeAudits?: boolean } = {}): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
     const routeAudits = options.routeAudits !== false;
+    if (isPreflightKey(phaseKey)) { const preflight = await this.recheckPreflight(phaseKey); if (preflight) return preflight; }
     const facts = this.record.phases[phaseKey]!;
     const hold = this.record.billing?.hold;
     if (hold?.phaseKey === phaseKey) {
@@ -5418,13 +5871,15 @@ export class Engine {
   private clearStop(phaseKey: string): "cleared" {
     const facts = this.record.phases[phaseKey]!;
     delete facts.stop;
-    if (facts.sessionIds.length === 0 && !facts.doneAt && !this.auditActivity(phaseKey)) delete this.record.phases[phaseKey];
+    if (facts.sessionIds.length === 0 && !facts.doneAt && !this.auditActivity(phaseKey) && !isPreflightKey(phaseKey)) delete this.record.phases[phaseKey];
     this.save();
     return "cleared";
   }
 
   /** An activity's own completion check, for a launch-check stop on an activity that has not run. */
   private async completionRows(phaseKey: string): Promise<CheckResult[]> {
+    // A preflight has no completion rows (Reading the Result).
+    if (isPreflightKey(phaseKey)) return [];
     if (phaseKey === PR_PHASE_KEY) return (await this.pullRequestCheck(PR_PHASE_KEY)).checks;
     const outcome = await this.doneCheck(phaseKey);
     if (outcome === "stopping") throw new CompletionCheckUnavailable("The completion check was interrupted.");
@@ -5592,7 +6047,7 @@ export class Engine {
           repository: entry.name,
           git: this.git,
           worktreePath: expandHome(entry.worktreePath),
-          completedCommits: Object.entries(this.record.phases).filter(([key, facts]) => key !== PR_PHASE_KEY && facts.doneAt).flatMap(([, facts]) => facts.repositories[entry.name]?.pushedSha ? [facts.repositories[entry.name]!.pushedSha!] : []),
+          completedCommits: Object.entries(this.record.phases).filter(([key, facts]) => activityKeyKind(key) !== "final_delivery" && activityKeyKind(key) !== "preflight" && facts.doneAt).flatMap(([, facts]) => facts.repositories[entry.name]?.pushedSha ? [facts.repositories[entry.name]!.pushedSha!] : []),
           signal: this.abort.signal,
         })),
       );
@@ -5723,7 +6178,7 @@ export class Engine {
         const history = await readDeliveryHistory({
           repository: entry.name, github: entry.github, cwd: entry.mainCheckoutPath,
           git: { ...this.git, signal }, gh: this.options.tools.gh,
-          ranges: Object.entries(this.record.phases).filter(([key, facts]) => key !== PR_PHASE_KEY && facts.doneAt).flatMap(([key, facts]) => {
+          ranges: Object.entries(this.record.phases).filter(([key, facts]) => activityKeyKind(key) !== "final_delivery" && activityKeyKind(key) !== "preflight" && facts.doneAt).flatMap(([key, facts]) => {
             const receipt = facts.repositories[entry.name];
             if (receipt && (!receipt.startCommit || !receipt.pushedSha)) missingRanges.push(`Phase ${key} has an incomplete recorded commit range.`);
             return receipt?.startCommit && receipt.pushedSha ? [{ start: receipt.startCommit, end: receipt.pushedSha }] : [];
@@ -5909,7 +6364,7 @@ export class Engine {
    * unknown, naming the read.
    */
   async refreshStoppedWork(phaseKey = this.stoppedPhase() ?? this.heldHistoryKey()): Promise<WorkRead | undefined> {
-    if (phaseKey === undefined || phaseKey === PR_PHASE_KEY || this.auditActivity(phaseKey) || this.stopping) return undefined;
+    if (phaseKey === undefined || activityKeyKind(phaseKey) !== "phase" || this.stopping) return undefined;
     const facts = this.record.phases[phaseKey];
     let read: WorkRead;
     try {
@@ -5935,7 +6390,7 @@ export class Engine {
    */
   stoppedPhase(): string | undefined {
     const key = this.stoppedPhaseKey();
-    if (key === undefined || key === PR_PHASE_KEY || this.auditActivity(key) || this.record.liveControl) return undefined;
+    if (key === undefined || key === PR_PHASE_KEY || this.auditActivity(key) || isPreflightKey(key) || this.record.liveControl) return undefined;
     const hold = this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold : undefined;
     if (hold && hold.action !== "resume") return undefined;
     const kind = this.record.phases[key]?.stop?.kind;
@@ -6060,6 +6515,15 @@ export class Engine {
    */
   private waitToStop(phaseKey: string, checks: CheckResult[], checkedAt?: string): void {
     const facts = this.record.phases[phaseKey]!;
+    if (isPreflightKey(phaseKey) && !this.codexSafetyProblems(phaseKey).length) {
+      // A preflight's refused run that Kiln will not resume has ended, so it is read (Reading the Result).
+      delete facts.wait;
+      this.unwatchWait();
+      const read = this.latestPreflightReport(phaseKey);
+      this.applyPreflightReport(this.preflightActivity(phaseKey)!, read.report, read.sessionId, read.run);
+      this.updateKeepAwake();
+      return;
+    }
     const refusal = this.refusedRun(phaseKey)?.refusal;
     delete facts.wait;
     this.unwatchWait();
@@ -6079,7 +6543,10 @@ export class Engine {
     if (mode === "limit_resume" && !await this.folderGuard({ mayLeave: false })) return "folder_missing";
     const facts = this.record.phases[phaseKey]!;
     let checks: CheckResult[];
-    if (phaseKey === PR_PHASE_KEY) {
+    if (isPreflightKey(phaseKey)) {
+      // A waiting preflight has not ended: its result is read once the resumed run ends (Reading the Result).
+      checks = [];
+    } else if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return "stopping";
       if (check.passed) {
@@ -7174,6 +7641,7 @@ export class Engine {
 
   titleOf(phaseId: string): string {
     const audit = this.auditActivity(phaseId);
+    if (isPreflightKey(phaseId)) return PREFLIGHT_TITLE;
     return audit ? auditLabel(audit.kind) : this.record.plan?.find((phase) => phase.id === phaseId)?.title ?? phaseId;
   }
 
@@ -7205,7 +7673,7 @@ export class Engine {
       // Once set up, the assigned worktree owns this execution's documents.
       // Other checkouts are considered only by completed-run discovery.
       if (!previous) for (const [key, facts] of Object.entries(this.record.phases)) {
-        if (!facts.doneAt || !facts.sessionIds.length || key === PR_PHASE_KEY || this.auditActivity(key)) continue;
+        if (!facts.doneAt || !facts.sessionIds.length || activityKeyKind(key) !== "phase") continue;
         const recorded = judgedPhase(this.record.plan ?? [], key);
         const current = recorded && active.plan.phases.find(p => p.id === recorded.id);
         if (!recorded || !current || !current.closed && !this.waiverClosed(current.id) || current.splitInto) throw new Error(`baseline_unavailable: Phase ${recorded?.id ?? key} was previously completed but is now removed, reopened or split. Reconcile that historical completion before returning control.`);

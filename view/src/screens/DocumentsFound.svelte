@@ -51,6 +51,9 @@
   const documents = $derived(snapshot.documents!);
   const settings = $derived(snapshot.settings);
   const rows = $derived(documents.plan ? planRows(documents.plan.phases) : []);
+  // The planned Preflight row, above the activity it comes before, or after the phases (build preflight AC-PREFLIGHT-08).
+  const preflightBefore = $derived(snapshot.preflight?.planned?.before);
+  const planHas = (list: typeof rows, id: string): boolean => list.some(row => row.id === id || planHas(row.children, id));
   const account = $derived(accountLines(snapshot.account));
   const models = $derived(modelOptions(snapshot));
   const baseChoices = $derived(settings.baseBranches && settings.baseBranches.length > 0 ? settings.baseBranches : settings.baseBranch ? [settings.baseBranch] : []);
@@ -183,11 +186,13 @@
             {/if}
             <ol class="phases">
               {#each rows as row (row.id)}
+                {#if preflightBefore === row.id}{@render preflight()}{/if}
                 {#if row.children.length > 0 || row.splitNote}
                   <li class="split">
                     <span class="phase"><span class="circle dashed mono">{row.id}</span><span class="title split-title">{row.title}</span><span class="note">{row.splitNote}</span>{@render repositories(row.repositories)}</span>
                     <ol class="phases">
                       {#each row.children as child (child.id)}
+                        {#if preflightBefore === child.id}{@render preflight()}{/if}
                         {@render phase(child)}
                       {/each}
                     </ol>
@@ -196,6 +201,7 @@
                   {@render phase(row)}
                 {/if}
               {/each}
+              {#if preflightBefore && !planHas(rows, preflightBefore)}{@render preflight()}{/if}
             </ol>
           </div>
         </li>{/if}
@@ -420,6 +426,10 @@
 
 {#snippet check(size: number, inline = false)}
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class={inline ? "mark" : size === 16 ? "found-mark" : undefined}><path d="M3 8.5l3 3 7-7"></path></svg>
+{/snippet}
+
+{#snippet preflight()}
+  <li class="phase preflight-row"><span class="circle mono">PF</span><span class="title">Preflight</span><span class="note">checks access and stops, then goes straight on</span></li>
 {/snippet}
 
 {#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[] })}

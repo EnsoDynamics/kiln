@@ -34,6 +34,7 @@ The first screen, Documents found, gains one choice: where Kiln starts from. A n
   - Replaces in part: AC-START-06 and AC-START-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the first Start can use an existing branch, chosen from a list).
   - Replaces in part: validated assumption UI-003 in `docs/prds/kiln-v1/assumptions.md` (a feature branch name already taken can be chosen as the branch to start from).
 - [ ] **AC-FROM-02 — The screen shows what will run from there.** **What Kiln found** reads the phase plan from where the first session will start, as the table says, says which, and keeps today's closed marks. Phases closed there count as closed before the run (AC-DEV-03). When some phases are closed there, the count line says how many and that Kiln starts at the first open phase, which is marked, and Start reads **Start at Phase N** with a line saying the closed phases won't run. When every phase is closed there, the count line and Start are today's: Start goes on to the audits and final delivery.
+  - Superseded in part by: AC-PREFLIGHT-01 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (Start runs a preflight first, a Start with every phase closed included).
 
   | Start from | The plan is read from |
   |---|---|

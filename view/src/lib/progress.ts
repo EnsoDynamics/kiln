@@ -7,13 +7,42 @@ import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../.
 import type { Effort } from "../../../src/state/records.js";
 import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
 import { clockTime, limitTime, shortDuration, timeSpan, timingAt, timingText } from "./time.js";
+import { activityKeyKind } from "../../../src/state/activity-keys.js";
 
 export const PR_ID = "pr";
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
 
-/** "phase 2b", or "the pull request" (AC-PR-05). */
+/** An audit's or the preflight's key: a row named by its title, never "phase <id>" (one shared key classifier). */
+export function namedActivity(id: string): boolean {
+  const kind = activityKeyKind(id);
+  return kind === "audit" || kind === "preflight";
+}
+
+/** "phase 2b", "the pull request" (AC-PR-05), an audit's title or "preflight". */
 export function phaseName(id: string, snapshot?: Snapshot): string {
-  return id.startsWith("audit-") ? ((snapshot?.activities?.find(r => r.id === id)?.title ?? "This audit").toLowerCase()) : id === PR_ID ? "the pull request" : `phase ${id}`;
+  return namedActivity(id) ? ((snapshot?.activities?.find(r => r.id === id)?.title ?? (activityKeyKind(id) === "preflight" ? "Preflight" : "This audit")).toLowerCase()) : id === PR_ID ? "the pull request" : `phase ${id}`;
+}
+
+/**
+ * The plan's rows with the planned Preflight row in place (build preflight "Display Contract"):
+ * above `snapshot.preflight.planned.before`, or last when that is `end` or has no row.
+ */
+export function withPlannedPreflight(rows: PhaseView[], snapshot: Snapshot): PhaseView[] {
+  const planned = snapshot.preflight?.planned;
+  if (!planned) return rows;
+  const row: PhaseView = { id: "preflight-planned", kind: "preflight", title: "Preflight", file: "", state: "planned", finishedByPerson: false };
+  const at = planned.before === "end" ? -1 : rows.findIndex(one => one.id === planned.before);
+  return at === -1 ? [...rows, row] : [...rows.slice(0, at), row, ...rows.slice(at)];
+}
+
+/** A Preflight row's pill once finished: Ready, or No report as a warning (AC-PREFLIGHT-02, AC-PREFLIGHT-06). */
+export function preflightPill(row: PhaseView): { text: string; warning: boolean } | undefined {
+  if (row.kind !== "preflight" || row.state !== "done") return undefined;
+  // A waived Codex-safety check followed by no report still reads No report, with the waived count beside it.
+  if (row.preflight?.outcome === "no_report") return { text: "No report", warning: true };
+  if (row.waivedChecks) return undefined;
+  if (row.preflight?.outcome === "ready") return { text: "Ready", warning: false };
+  return undefined;
 }
 
 /** "Phase 2b", or "The pull request". */
@@ -23,7 +52,7 @@ export function capitalized(text: string): string {
 
 /** "phase 2b of 5", or "the pull request", which isn't counted (AC-PR-05). */
 export function phaseOfTotal(snapshot: Snapshot, id: string): string {
-  return id.startsWith("audit-") ? phaseName(id, snapshot) : id === PR_ID ? "the pull request" : `phase ${id} of ${snapshot.feature.phasesTotal}`;
+  return namedActivity(id) ? phaseName(id, snapshot) : id === PR_ID ? "the pull request" : `phase ${id} of ${snapshot.feature.phasesTotal}`;
 }
 
 /** "Opus 5.5 · high effort", or the model alone when it takes no effort (UI-011 item 2). */
@@ -90,14 +119,14 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
     case "needs_you": {
       const stopped = snapshot.needsYou!;
       const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === stopped.phaseId);
-      const which = stopped.phaseId.startsWith("audit-") ? row?.title ?? "Audit" : stopped.phaseId === PR_ID ? "PR" : `Phase ${stopped.phaseId}`;
+      const which = namedActivity(stopped.phaseId) ? row?.title ?? "Audit" : stopped.phaseId === PR_ID ? "PR" : `Phase ${stopped.phaseId}`;
       return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`] };
     }
     case "waiting": {
       if (!connected) return { kind: "interrupted", label: `Last known: ${phaseName(current ?? "", snapshot)}`, facts: [done] };
       const waiting = snapshot.waiting!;
       const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === waiting.phaseId);
-      const which = waiting.phaseId.startsWith("audit-") ? row?.title ?? "Audit" : waiting.phaseId === PR_ID ? "PR" : `Phase ${waiting.phaseId}`;
+      const which = namedActivity(waiting.phaseId) ? row?.title ?? "Audit" : waiting.phaseId === PR_ID ? "PR" : `Phase ${waiting.phaseId}`;
       return { kind: "waiting", label: "Waiting for usage", facts: [`${which} · ${row?.title ?? ""}`, `Waiting since ${limitTime(waiting.since, now)}`] };
     }
     case "paused":
@@ -112,7 +141,7 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
     }
     default:
       if (!connected) return { kind: "interrupted", label: `Last known: ${phaseName(current ?? "", snapshot)}`, facts: [done] };
-      return { kind: "implementing", label: current?.startsWith("audit-") ? `Running ${phaseName(current, snapshot)}` : `Implementing ${phaseName(current ?? "")}`, facts: [done] };
+      return { kind: "implementing", label: current && namedActivity(current) ? `Running ${phaseName(current, snapshot)}` : `Implementing ${phaseName(current ?? "")}`, facts: [done] };
   }
 }
 
@@ -144,14 +173,15 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
   switch (state) {
     case "done":
       // A completion with a waived check reads Complete, its count beside it (waivers AC-WAIVE-10).
+      if (preflightPill(row)) return preflightPill(row)!.text;
       if (row.waivedChecks) return "Complete";
       return row.id === PR_ID && opened !== undefined ? opened : "Done";
     case "split":
       return `Split into ${(row.splitInto ?? []).join(", ")}`;
     case "implementing":
-      return row.kind?.endsWith("audit") ? "Auditing" : "Implementing";
+      return row.kind === "preflight" ? "Checking" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing";
     case "interrupted":
-      return `Last known: ${row.state === "waiting" ? "Waiting for usage" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing"}`;
+      return `Last known: ${row.state === "waiting" ? "Waiting for usage" : row.kind === "preflight" ? "Checking" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing"}`;
     case "needs_you":
       return "Needs you";
     case "waiting":
@@ -340,12 +370,12 @@ export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now
 
 /** "Phase 3", "delivery audit", "final delivery": the stopped activity mid-sentence, as the hand-back page names it. */
 export function activityInSentence(id: string, snapshot: Snapshot): string {
-  return id.startsWith("audit-") ? phaseName(id, snapshot) : id === PR_ID ? "final delivery" : `Phase ${id}`;
+  return namedActivity(id) ? phaseName(id, snapshot) : id === PR_ID ? "final delivery" : `Phase ${id}`;
 }
 
 function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository: boolean, developmentDelivery: boolean): NeedsYouCopy {
   const isPr = stop.phaseId === PR_ID;
-  const name = stop.phaseId.startsWith("audit-") ? "This audit" : capitalized(phaseName(stop.phaseId));
+  const name = activityKeyKind(stop.phaseId) === "audit" ? "This audit" : activityKeyKind(stop.phaseId) === "preflight" ? "The preflight" : capitalized(phaseName(stop.phaseId));
   const copy: NeedsYouCopy = {
     headline: isPr ? developmentDelivery ? "The delivery finalization session ended before it was done." : "The pull-request session ended before it was done." : `${name} ended before it was done.`,
     line: "",
@@ -372,7 +402,7 @@ function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, mul
     notePlaceholder: "Give instructions, answer its question, or ask what you need to know before it continues.",
   };
 
-  if (stop.phaseId.startsWith("audit-")) {
+  if (activityKeyKind(stop.phaseId) === "audit") {
     Object.assign(copy, { headline: "The audit ended before its work was resolved.", finishTitle: "Finish the assigned audit", finishText: "Kiln checks the audit's report, the plan and Git again. Resume continues the audit in its original conversation so it can finish or correct its report.", checkAgainText: "Kiln validates the report, current work and retained delivery obligations before continuing automatically.", footnote: stop.resumeOffered ? "Check again checks completion. To continue unfinished audit work, press Resume; your reply is optional." : "A successful process exit does not establish an audit result.", resumeText: "Kiln checks the audit first. If it is unfinished, Resume sends your reply and the saved audit task to the same conversation." });
   }
   // Only Kiln's record stops a finished phase: say so, and Needs you leads with Mark complete (AC-WAIVE-02 in Kiln Completion Waivers).
@@ -442,7 +472,7 @@ function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, mul
     return { ...copy, line: "Kiln couldn’t restart this session. These are the last lines it wrote, ending with the error it got." };
   }
   // A check stopped an implementation phase no Kiln session worked on: there is no session ending to describe.
-  if (!isPr && !stop.phaseId.startsWith("audit-") && stop.sessionId === undefined && stop.finalMessage === undefined && stop.exitCode === undefined && stop.signal === undefined) return { ...copy, headline: `${name} hasn’t passed its checks.`, line: "No Kiln session ran this phase. Kiln checked it and found what’s shown on the right.", showFacts: false, firstStep: "fresh", freshLink: false };
+  if (!isPr && !namedActivity(stop.phaseId) && stop.sessionId === undefined && stop.finalMessage === undefined && stop.exitCode === undefined && stop.signal === undefined) return { ...copy, headline: `${name} hasn’t passed its checks.`, line: "No Kiln session ran this phase. Kiln checked it and found what’s shown on the right.", showFacts: false, firstStep: "fresh", freshLink: false };
   if (stop.finalMessage !== undefined) return { ...copy, line: "Kiln doesn’t try to interpret why. This is how the session ended." };
   if (stop.signal !== undefined) return { ...copy, line: `The session was ended by ${stop.signal} with no final message. These are the last lines it wrote.` };
   if (stop.exitCode !== undefined && stop.exitCode !== 0) return { ...copy, line: "The session exited with an error and no final message. These are the last lines it wrote." };

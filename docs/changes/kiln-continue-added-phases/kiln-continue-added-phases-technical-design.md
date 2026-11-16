@@ -201,6 +201,8 @@ Use deterministic names derived from the new execution UUID, such as `feature/<p
 
 ### Start, interruption and completion
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (an accepted continuation's fresh execution starts with a preflight).
+
 Once all workspace setup has passed, reread the pinned plan in the new workspace and atomically activate the new execution. Preserve the previous complete execution as immutable history before replacing active execution fields. If required source/base/authority facts have changed during interrupted preparation, hold setup and present the changed proposal for a fresh choice. Keep the original acceptance and any owned artifacts for explanation; do not silently retarget it. A replacement choice can supersede a blocked acceptance only before any provider activity started and after verifying its owned workspace has no user work. Never delete or overwrite an occupied workspace to recover.
 
 A crash before durable acceptance means no setup was authorized; retry performs a fresh check. A crash after acceptance resumes its same setup intent. A crash after activation resumes the active execution under existing launch-intent and provider dispatch recovery. Missing or ambiguous dispatch evidence remains stopped; replay never starts a second conversation. The start of new work uses a fresh conversation, never an archived session.

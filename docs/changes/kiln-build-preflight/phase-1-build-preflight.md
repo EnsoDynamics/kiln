@@ -1,5 +1,7 @@
 # Phase 1: Build preflight
 
+**Closed:** 2026-11-15
+
 **Parent PRD:** [Kiln Build Preflight](kiln-build-preflight-prd.md)
 **Technical design:** [Kiln Build Preflight technical design](kiln-build-preflight-technical-design.md) — relevant sections: "When the Preflight Is Due", "The Preflight Session", "Reading the Result", "The Preflight Stop", "Interfaces", "Display Contract" (all but the marker, card and early-merge bullets), "Data Models", "Upgrade", "Changes to Earlier Designs"
 
