@@ -10,6 +10,8 @@ section to the new version.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-16
+
 ### Added
 
 - Audit loop limits. Before Start, Documents found has an **Audit loops** section: how many
