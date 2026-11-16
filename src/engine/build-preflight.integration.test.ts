@@ -13,7 +13,7 @@ import { formatTerminalEvent } from "../kiln-command.js";
 import { readPrdRecord } from "../state/records.js";
 import { isPreflightKey } from "../state/activity-keys.js";
 import { PREFLIGHT_PAUSE_REASON, PREFLIGHT_STOP_REASON, preflightSettled } from "./preflight.js";
-import { buildSnapshot } from "./snapshot.js";
+import { buildSnapshot, documentsFound } from "./snapshot.js";
 import { Engine } from "./engine.js";
 import { createCometContinuation } from "../test-support/comet-continuation-fixture.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
@@ -100,6 +100,9 @@ describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01
     expect(h.engine.pause()).toMatchObject({ ok: false, reason: PREFLIGHT_PAUSE_REASON });
     expect(h.engine.controlView().controls.find(one => one.name === "request-pause")).toMatchObject({ available: false, reason: PREFLIGHT_PAUSE_REASON });
     expect(h.engine.liveView()).toBeUndefined();
+    // By command too, Message Claude and Pause & take over are refused, saying why, once no instruction is in flight (AC-PREFLIGHT-08).
+    await waitFor(() => !h.engine.commands.busy);
+    for (const name of ["message", "take-over"]) expect(h.engine.controlView().controls.find(one => one.name === name)).toMatchObject({ available: false, reason: expect.stringMatching(/^Live messages, terminal takeover and a pause are unavailable during the preflight\./) });
     expect(h.engine.resetControl().reason).not.toMatch(/Pause after the current/);
     expect(buildSnapshot(h.engine).feature.currentPhaseId).toMatch(/^preflight-/);
     writeFileSync(releasePath, "");
@@ -518,5 +521,106 @@ describe("hardening: Continue runs a preflight before the first added phase (AC-
     const at = rows.findIndex(one => one.id === `preflight-${h.engine.record.preflight!.activities[0]!.activityId}`);
     expect(rows.slice(0, at).every(one => one.state === "done")).toBe(true);
     expect(rows[at + 1]!.state).not.toBe("done");
+  });
+});
+
+describe("test audit: where the row sits and what opening it shows (AC-PREFLIGHT-08, AC-PREFLIGHT-02, AC-PREFLIGHT-06)", () => {
+  const DIRECTORY = "docs/prds/customer-returns";
+  const STOP_LINE = "**The build will stop** at phase 3, which needs you at the console.";
+  // As Claude Code streams it: the final message as an assistant text block, then the result.
+  const READY_WITH_STOP = `Preflight: ready\n\n4 phases.\n\n${STOP_LINE}`;
+  const readyWithStop: ScenarioSession = { actions: [{ skill: "enso-method:build-preflight" }, { text: READY_WITH_STOP }, { result: READY_WITH_STOP }, { exit: 0 }] };
+  const ENDED = "I ran out of time before writing the report.";
+  const noReportStreamed: ScenarioSession = { actions: [{ text: ENDED }, { result: ENDED }, { exit: 0 }] };
+  /** The fixture documents with the named phase documents marked closed. */
+  function closing(...names: string[]): Record<string, string> {
+    const files = prdDirectoryFiles();
+    for (const file of names) {
+      const lines = files[file]!.split("\n");
+      files[file] = [lines[0], "**Closed:** 2026-11-01", ...lines.slice(1)].join("\n");
+    }
+    return files;
+  }
+  const ALL_OPEN = ["phase-1-return-intake.md", "phase-2b-store-credit.md", "phase-3-returns-dashboard.md"];
+  /** Documents found as `kiln run` builds it from the committed documents, which the snapshot reads `before` from. */
+  function found(h: Harness) {
+    const read = readPlanAt(h.repository, DIRECTORY);
+    if (!read.ok) throw new Error(read.problem);
+    return documentsFound(join(h.repository, DIRECTORY), "customer-returns", read.plan, { designFile: "technical-design.md", assumptionsFile: "assumptions.md", phaseDocCount: 5, repositories: [] }, "acme-shop");
+  }
+  /** One session's output as opening its row loads it, through the controller's session-output route. */
+  async function opened(h: Harness, sessionId: string): Promise<string[]> {
+    const hosted = await startFixtureController({ engine: h.engine, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+    try {
+      const response = await fetch(`${new URL(hosted.server.address).origin}/api/sessions/${sessionId}/output?limit=1000`, { headers: { "X-Kiln-Token": h.engine.record.token } });
+      expect(response.status).toBe(200);
+      return ((await response.json()) as { lines: { text: string }[] }).lines.map(line => line.text);
+    } finally { await hosted.server.close(); hosted.release(); }
+  }
+
+  it.each([
+    ["Phase 1 on a new branch", [] as string[], "1"],
+    ["the first open phase on a branch with closed phases", ["phase-1-return-intake.md"], "2b"],
+    ["the end, after the closed phases, when every phase is closed", ALL_OPEN, "end"],
+  ])("Documents found plans the row above %s", async (_name, closed, before) => {
+    harness = await createHarness({ sessions: [], preflight: true, files: closing(...closed) });
+    const h = await fixture([]);
+    await h.engine.agents.refresh();
+    expect(buildSnapshot(h.engine, found(h)).preflight).toEqual({ planned: { before } });
+  });
+
+  it("the run's plan draws the row directly above the first open phase, below the closed one, on a branch with closed phases", async () => {
+    harness = await createHarness({ sessions: [], preflight: true, files: closing("phase-1-return-intake.md") });
+    const h = await fixture([ready], allPhases.slice(1));
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const ids = buildSnapshot(h.engine).activities!.map(row => row.id);
+    const at = ids.indexOf(preflightRows(h.engine)[0]!.id);
+    expect(ids[at + 1]).toBe("2b");
+    expect(ids.indexOf("1")).toBeLessThan(at);
+    expect(h.engine.record.completedAt).toBeDefined();
+  });
+
+  it("with every phase closed and completion audits on, the row sits directly above the delivery audit", async () => {
+    harness = await createHarness({ sessions: [], preflight: true, auditCycles: true, files: closing(...ALL_OPEN) });
+    const h = await fixture([ready], [{ actions: [{ result: "The audit ended early." }, { exit: 0 }] }]);
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const ids = buildSnapshot(h.engine).activities!.map(row => row.id);
+    const at = ids.indexOf(preflightRows(h.engine)[0]!.id);
+    expect(at).toBeGreaterThan(-1);
+    expect(ids[at + 1]).toMatch(/^audit-/);
+    expect(h.engine.auditActivity(ids[at + 1]!)!.kind).toBe("delivery_audit");
+    expect(isPreflightPrompt(prompts(h)[0]!)).toBe(true);
+    expect(isPreflightPrompt(prompts(h)[1]!)).toBe(false);
+  });
+
+  it("a clean row shows how long it took and leaves out the report's stops, which opening it shows in the full report", async () => {
+    const h = await fixture([readyWithStop]);
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const [row] = preflightRows(h.engine);
+    const facts = h.engine.record.phases[row!.id]!;
+    const session = h.engine.sessionRecord(row!.id, facts.sessionIds[0]!)!;
+    // How long it took: from its session's start to when it finished.
+    expect(row).toMatchObject({ state: "done", sessionStartedAt: session.runs[0]!.startedAt, doneAt: facts.doneAt, preflight: { outcome: "ready", found: "Nothing to settle" } });
+    expect(Date.parse(row!.doneAt!)).toBeGreaterThanOrEqual(Date.parse(row!.sessionStartedAt!));
+    expect(row!.details).toMatchObject({ from: session.runs[0]!.startedAt, to: facts.doneAt, sessionId: session.sessionId });
+    expect(h.engine.record.preflight!.activities[0]!.result).toEqual(expect.objectContaining({ outcome: "ready" }));
+    expect(JSON.stringify(row)).not.toContain("The build will stop");
+    expect(JSON.stringify(h.engine.record.preflight)).not.toContain("The build will stop");
+    expect((await opened(h, session.sessionId)).join("\n")).toContain(STOP_LINE);
+    expect(h.engine.record.completedAt).toBeDefined();
+  });
+
+  it("opening a No report row shows how its session ended", async () => {
+    const h = await fixture([noReportStreamed]);
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const [row] = preflightRows(h.engine);
+    expect(row).toMatchObject({ preflight: { outcome: "no_report", found: "Ended without a report" } });
+    const lines = await opened(h, row!.details!.sessionId);
+    expect(lines).toContain(ENDED);
+    expect(lines.at(-1)).toBe("Process exited with code 0");
   });
 });

@@ -9,6 +9,10 @@ describe("reading a preflight's report (AC-PREFLIGHT-02, AC-PREFLIGHT-03, AC-PRE
     expect(readPreflightReport("\n  Preflight: ready  \n\n5 phases. The build runs to the end without stopping.")).toEqual({ outcome: "ready" });
   });
 
+  it("reads a ready report that lists stops as ready alone, carrying none of its stops (AC-PREFLIGHT-02)", () => {
+    expect(readPreflightReport("Preflight: ready\n\n4 phases.\n\n**The build will stop** at phase 3, which needs you at the console.")).toEqual({ outcome: "ready" });
+  });
+
   it("reads items with their headline verbatim, each item without its marker, continuation lines joined, inline markdown kept", () => {
     const report = [
       "Preflight: 2 items need you",

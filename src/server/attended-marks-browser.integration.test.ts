@@ -69,6 +69,25 @@ it("ticking Allow early merges removes the warning, and unticking it brings it b
   const warning = "The run will stop at Phase 3. It merges into develop early. Tick Allow early merges to keep it going.";
   await page.waitFor(`document.body.innerText.includes(${JSON.stringify(warning)})`);
   const box = `[aria-label="Early merges"] input[type="checkbox"]`;
+  // Directly beneath the checkbox, and set apart from the text around it: its own border and
+  // background, neither of which the paragraph after it or its container has (AC-ATTEND-05).
+  const look = await page.evaluate<{ follows: boolean; border: string; borderWidth: string; background: string; container: string; paragraph: string; paragraphBorder: string }>(`(() => {
+    const note = document.querySelector('.early-stop');
+    const style = getComputedStyle(note);
+    const paragraph = note.nextElementSibling;
+    return {
+      follows: note.previousElementSibling === document.querySelector('${box}').closest('label'),
+      border: style.borderTopStyle, borderWidth: style.borderTopWidth, background: style.backgroundColor,
+      container: getComputedStyle(note.parentElement).backgroundColor,
+      paragraph: getComputedStyle(paragraph).backgroundColor, paragraphBorder: getComputedStyle(paragraph).borderTopStyle,
+    };
+  })()`);
+  expect(look.follows).toBe(true);
+  expect(look.border).toBe("solid");
+  expect(look.borderWidth).not.toBe("0px");
+  expect(look.paragraphBorder).toBe("none");
+  expect(look.background).not.toBe(look.container);
+  expect(look.background).not.toBe(look.paragraph);
   await page.evaluate(`document.querySelector('${box}').click()`);
   await page.waitFor(`!document.body.innerText.includes("The run will stop at Phase 3.")`);
   expect(await page.evaluate<boolean>(`document.querySelector('${box}').checked`)).toBe(true);
