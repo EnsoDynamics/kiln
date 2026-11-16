@@ -325,3 +325,39 @@ it("keeps a failed newly named repository origin read unknown through HTTP with 
     expect(body.check.result).toBeUndefined(); expect(h.claudeCalls()).toEqual([]);
   } finally { spy.mockRestore(); }
 });
+async function deliveredOnOpenBranch() {
+  await fixture(false); const file = join(h.repository, directory, "phase-1-catalog.md");
+  // The delivery base holds the plan from before phase 1 closed; the closure exists only on the open pull request's branch.
+  writeFileSync(file, phase.replace("**Closed:** 2026-10-01\n\n", "")); publish();
+  git(h.sandbox, h.repository, "checkout", "-qb", "feature/comet-library");
+  writeFileSync(file, phase); git(h.sandbox, h.repository, "commit", "-qam", "docs(comet): close phase 1");
+  git(h.sandbox, h.repository, "push", "-q", "origin", "feature/comet-library");
+  const delivered = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+  h.engine.record.phases["1"]!.repositories["acme-shop"] = { startCommit: delivered, pushedSha: delivered };
+  h.engine.record.phases.pr!.repositories["acme-shop"] = { startCommit: delivered, pushedSha: delivered };
+  writePrdRecord(h.stateDirectory, h.engine.record);
+  git(h.sandbox, h.repository, "checkout", "-q", "develop");
+  return { file, delivered };
+}
+it("reports completed work still on its unmerged branch as waiting for the merge, not as a plan to reconcile", async () => {
+  const { delivered } = await deliveredOnOpenBranch();
+  const check = await h.engine.checkCompletedPlan();
+  expect(check).toMatchObject({ status: "awaiting_merge", errors: [], awaitingMerge: { revision: delivered, baseBranch: "develop", branch: "feature/comet-library", pullRequest: { number: 12 } } });
+  expect(check.result).toBeUndefined();
+  const output = formatDecisionLine({ kind: "complete" }, h.engine, terminalColors({}, {}));
+  expect(output).toContain("Its work is on feature/comet-library (pull request #12), which is not in origin/develop yet");
+  expect(output).not.toContain("Plan needs reconciliation");
+  expect(h.claudeCalls()).toEqual([]);
+  // Once the delivery merges, the ordinary check runs against it.
+  git(h.sandbox, h.repository, "merge", "-q", "--ff-only", "feature/comet-library"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "unchanged" });
+});
+it("still asks to reconcile a reopened completed phase when the completed work is already in the delivery base", async () => {
+  await fixture(); writeFileSync(join(h.repository, directory, "phase-1-catalog.md"), phase.replace("**Closed:** 2026-10-01", "")); publish();
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "blocked", result: { earlierWorkChanges: [expect.stringContaining("Phase 1")] } });
+});
+it("still asks to reconcile when the delivery base changed the PRD folder after the open branch forked", async () => {
+  const { file } = await deliveredOnOpenBranch();
+  writeFileSync(file, phase.replace("**Closed:** 2026-10-01\n\n", "").replace("Catalog", "Different work")); publish();
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "blocked", result: { earlierWorkChanges: [expect.stringContaining("Phase 1")] } });
+});

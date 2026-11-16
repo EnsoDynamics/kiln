@@ -34,6 +34,8 @@ section to the new version.
 
 ### Fixed
 
+- A finished feature whose pull request hasn't merged no longer shows **Plan needs
+  reconciliation**; it stays **Complete** and says Kiln checks for new phases once it merges.
 - **Audits with early merges on no longer stop on "needs a current development-delivery
   assessment".** The audit session was never told to record that assessment, so its report
   was refused until a person marked the audit complete.
