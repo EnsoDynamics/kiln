@@ -3806,8 +3806,8 @@ export class Engine {
       delete (this.record.settings as unknown as Record<string, unknown>).model;
       // Start is the person's explicit go: it ends an active pause and a released takeover hold (AC-SAFE-03).
       // A Start that ends a pause runs a preflight first, in the same write (RUN-003).
-      if (this.record.pause.activeSince !== undefined) { unpaused = true; setPreflightDue(this.record, "unpause", at); }
-      delete this.record.pause.activeSince;
+      // The pause's request was consumed when it became active, so it goes with it, as Start's own clear does.
+      if (this.record.pause.activeSince !== undefined) { unpaused = true; setPreflightDue(this.record, "unpause", at); this.record.pause = {}; }
       if (this.record.liveControl) { this.resolveMessageHold(); delete this.record.liveControl; }
       this.save();
       intent.state = "resumed";

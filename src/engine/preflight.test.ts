@@ -61,6 +61,10 @@ describe("the preflight's saved state (When the Preflight Is Due)", () => {
     expect(preflightSettled(record({ activities: [activity("a")] }, { [preflightKey("a")]: facts("2026-11-15T10:05:00Z") }))).toBe(true);
     expect(preflightSettled(record({ activities: [activity("a", "no_report")] }, { [preflightKey("a")]: facts("2026-11-15T10:05:00Z") }))).toBe(false);
     expect(preflightSettled(record({ activities: [activity("a", "items")] }, { [preflightKey("a")]: facts() }))).toBe(false);
+    // Mark complete at an items stop finishes the activity with its items as they were: settled, so Resume runs none.
+    expect(preflightSettled(record({ activities: [activity("a", "items")] }, { [preflightKey("a")]: facts("2026-11-15T10:06:00Z") }))).toBe(true);
+    // One no-report activity beside a later one marked complete is still settled.
+    expect(preflightSettled(record({ activities: [activity("a", "no_report"), activity("b", "items")] }, { [preflightKey("a")]: facts("2026-11-15T10:05:00Z"), [preflightKey("b")]: facts("2026-11-15T10:09:00Z") }))).toBe(true);
   });
 
   it("sets the due mark with its trigger", () => {

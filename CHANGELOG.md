@@ -34,6 +34,10 @@ section to the new version.
 
 ### Fixed
 
+- **Starting again from the Folder missing page now ends a pause for good.** When the run's
+  folder went missing while Kiln was paused, pressing Start with the run's existing branch
+  paused the run again straight away, before anything ran. Now the run goes on, beginning with
+  a fresh preflight.
 - **A phase split midway no longer stops Kiln once it is done.** When a phase's own session
   split it and built the first sub-phase, a later phase's edits to the shared PRD or design
   could stop Kiln on that sub-phase with "Phase N needs a current development-delivery
