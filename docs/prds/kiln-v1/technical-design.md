@@ -101,6 +101,8 @@ Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-wai
 
 Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-run-restart/kiln-run-restart-technical-design.md), §Starting From a Branch and §Reset (Documents found is computed for a starting point; a reset returns a running Kiln to it; an interrupted reset is finished first).
 
+Superseded in part by: [Kiln Build Preflight technical design](../../changes/kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (a due preflight comes before whatever Start or Resume would otherwise start or resume).
+
 Every `kiln run` resolves the PRD, takes the PRD's instance lock, and reconciles. Reconciliation is passive by default: an in-memory restart review holds all new dispatch and usage-wait watchers. Eligible continuation is shown through the Paused overview with a Resume button, completed/total/planned phases and the next activity. The snapshot adds optional `restartReview: { activityKey, action: start | resume | wait }`. Needs you, Complete and an intentional pause keep their existing screens. Resume uses the existing Start API and bot `continue` command, rechecks current state, then releases the review and drives normal continuation. The review has no saved schema field; every controller restart reviews again. `--resume` skips only this review for an already-started record, never an intentional pause or another restriction. No record or an unstarted record with that flag fails before setup. The following reconciliation choices describe what becomes eligible after this review, or immediately with `--resume`. Pseudocode:
 
 ```
@@ -174,6 +176,8 @@ A pause pressed during a phase stays pending through a Needs you and becomes act
 Superseded in part by: [Kiln Continue Added Phases — active handback](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (coherent active/known-source document reads before advancement; unrelated startup checks remain skipped).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Named in the phase documents (a `**Repositories:**` line is read)
+
+Superseded in part by: [Kiln Build Preflight technical design](../../changes/kiln-build-preflight/kiln-build-preflight-technical-design.md), §Phase Document Lines (two more preamble lines, `**Attended:**` and `**Early merge:**`, read as display facts).
 
 Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal, "Never").
 

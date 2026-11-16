@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "02e9c31c-53e8-4214-a667-1f0a54efe62e",
+  "activityId": "e9e7a93f-ead3-4453-af66-47b53e8dd954",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "Delivery audit of the whole Kiln Build Preflight PRD at 7cdd55e: all 10 criteria in force (AC-PREFLIGHT-01, -02, -03, -05, -06, -08 and AC-ATTEND-01, -03, -04, -05) are implemented and reachable from their entry points; AC-PREFLIGHT-04, AC-PREFLIGHT-07 and AC-ATTEND-02 were retired before the build. One round of fresh assessors found no gap, so no completion phase was added and the test audit comes next.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": []
+}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { activityKeyKind } from "../../../src/state/activity-keys.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { keepGoing, pause, takeOver } from "../lib/api.js";
   import { capitalized, phaseName } from "../lib/progress.js";
@@ -8,7 +9,7 @@
   const { config } = viewContext();
   const id = $derived(snapshot.liveControl?.target.activityKey ?? snapshot.current?.phaseId ?? snapshot.needsYou?.phaseId ?? "");
   const activity = $derived(snapshot.liveControl?.label ?? capitalized(phaseName(id, snapshot)));
-  const audit = $derived(id.startsWith("audit-"));
+  const audit = $derived(activityKeyKind(id) === "audit");
   const submitting = $derived(snapshot.liveControl && (liveDraft(snapshot.liveControl.target).submitting || !!liveDraft(snapshot.liveControl.target).instructionId || snapshot.liveControl.messages?.some(m => m.delivery === "submitting")));
   const held = $derived(snapshot.liveControl?.takeover);
   let pressing = $state(false);

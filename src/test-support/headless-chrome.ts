@@ -28,6 +28,8 @@ export interface BrowserPage {
   evaluate<T>(expression: string): Promise<T>;
   /** Waits until the expression is truthy, or fails after `timeoutMs`. */
   waitFor(expression: string, timeoutMs?: number): Promise<void>;
+  /** Moves the real pointer over the first element matching `selector`, or to the page's top-left corner when `selector` is undefined. */
+  pointAt(selector: string | undefined): Promise<void>;
   /** A full-page PNG. */
   screenshot(): Promise<Buffer>;
   /** Messages Chrome logged: console errors and Content Security Policy violations included. */
@@ -159,6 +161,10 @@ export async function launchChrome(): Promise<HeadlessChrome> {
             if (Date.now() > until) throw new Error(`Timed out waiting for ${expression}; the page reads: ${await evaluate<string>("document.body.innerText").catch(() => "?")}`);
             await new Promise((resolve) => setTimeout(resolve, 100));
           }
+        },
+        async pointAt(selector) {
+          const at = selector === undefined ? { x: 0, y: 0 } : await evaluate<{ x: number; y: number }>(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); element.scrollIntoView({ block: "center" }); const box = element.getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+          await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y }, sessionId);
         },
         async screenshot() {
           const fullHeight = await evaluate<number>("Math.ceil(document.documentElement.scrollHeight)");

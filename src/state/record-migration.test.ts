@@ -2,6 +2,7 @@
 // technical design, "Data Models"): the PRD's repository becomes the one entry, each phase's
 // commits sit under it, the pull request becomes a one-entry list and each fact a list.
 
+import { preflightSettled } from "../engine/preflight.js";
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
 import { migrateRecord, SCHEMA_VERSION, type PrdRecord } from "./records.js";
@@ -80,7 +81,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(22);
+    expect(SCHEMA_VERSION).toBe(23);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -161,12 +162,31 @@ describe("schema 22: audit loop limits (Kiln Audit Loop Limits AC-LOOP-07, Upgra
     const migrated = migrateRecord(started);
     expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 3, testLimit: 3, afterLastTest: "stop_and_ask", afterLastTestSource: { kind: "kiln_for_earlier_run" } });
     expect(migrated.auditLoops).toBeUndefined();
-    expect(migrated.schemaVersion).toBe(22);
+    expect(migrated.schemaVersion).toBe(23);
   });
 
   it("refuses malformed loop settings rather than clamping them", () => {
     const record = migrateRecord(schemaOne({}));
     record.settings.auditLoops = { deliveryLimit: 0, testLimit: 3, afterLastTest: "deliver_unless_serious" };
     expect(() => migrateRecord(record)).toThrow("Malformed audit loop settings.");
+  });
+});
+
+describe("schema 23: the build preflight's state (build preflight \"Upgrade\")", () => {
+  it("migrates a schema 22 record with no preflight state, so its preflight is not settled, and refuses malformed preflight state", () => {
+    const old = migrateRecord(schemaOne({}));
+    old.schemaVersion = 22;
+    const migrated = migrateRecord(old);
+    expect(migrated.schemaVersion).toBe(23);
+    expect(migrated.preflight).toBeUndefined();
+    expect(preflightSettled(migrated)).toBe(false);
+    expect(() => migrateRecord({ ...migrated, preflight: { activities: [{ activityId: "a", sequence: 1, createdAt: "2026-11-15T10:00:00Z", trigger: "sometime" }] } } as unknown as PrdRecord)).toThrow(/preflight/);
+    expect(() => migrateRecord({ ...migrated, preflight: { due: { trigger: "start", at: "now" }, activities: [] } } as unknown as PrdRecord)).toThrow(/preflight/);
+  });
+
+  it("refuses a record from a newer schema under the existing rule", () => {
+    const newer = migrateRecord(schemaOne({}));
+    newer.schemaVersion = 24;
+    expect(() => migrateRecord(newer)).toThrow(/newer|Update Kiln/);
   });
 });

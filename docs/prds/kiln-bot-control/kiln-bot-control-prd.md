@@ -68,6 +68,7 @@ The command interface supports the common controls used after work starts. Each 
 - [ ] **AC-ACT-02 — Reply, resume and verify preserve the person's intention.** The CLI exposes the distinct actions from the prerequisite handoff change, with the same eligibility, completion evidence and remaining-plan behavior. A manual phase reply or resume must never silently become an advance.
   - Superseded in part by: AC-BOT-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (explicit phase/audit takeover hand-back and per-message uncertain-delivery review)
   - Replaces in part: AC-CLI-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (only its prohibition on a separate resume command; `kiln run` keeps its existing behavior).
+  - Superseded in part by: AC-PREFLIGHT-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (at a preflight stop `kiln reply` and `kiln resume` are refused; the session is reopened in a terminal instead).
 
   | Person's intention | Required behavior |
   |---|---|

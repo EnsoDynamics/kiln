@@ -1,5 +1,7 @@
 # Phase 2: Attended and early-merge marks
 
+**Closed:** 2026-11-15
+
 **Parent PRD:** [Kiln Build Preflight](kiln-build-preflight-prd.md)
 **Technical design:** [Kiln Build Preflight technical design](kiln-build-preflight-technical-design.md) — relevant sections: "Phase Document Lines", "Interfaces" (`attended`, `earlyMerge`), "Display Contract" (Needs you there marker, planned-as-needing-you card, early-merge warning), "Upgrade"
 
@@ -13,4 +15,4 @@ AC-ATTEND-01, AC-ATTEND-03, AC-ATTEND-04, AC-ATTEND-05
 Everything about the preflight itself (Phase 1).
 
 ## Phase dependencies
-1 (the schema 22 migration these recorded-plan fields join).
+1 (the schema 23 migration these recorded-plan fields join).

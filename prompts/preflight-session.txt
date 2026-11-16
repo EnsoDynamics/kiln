@@ -1,0 +1,17 @@
+Run the Enso Method's build preflight on the governing PRD at {{prdFile}} before the build starts.
+Use the installed {{skillName}} skill. Claude Code must invoke its enabled Skill command;
+Codex must read the entire pinned source with the exact command `cat {{skillPath}}`.
+Follow that skill exactly as it is written; it decides what is checked and how its report reads.
+
+Assigned feature branch: {{branch}}. Repositories:
+{{repositories}}
+This preflight changes nothing in those worktrees. Change, stage, commit and push nothing, and
+leave any uncommitted changes in them exactly as they are: never stash, reset or clean them. Work
+from an earlier phase may be uncommitted there and must stay untouched. Refreshing a sign-in or
+installing a missing tool, as the skill allows, is outside the repositories and is permitted.
+These limits bind this session. If a person later reopens this conversation in a terminal, they
+may direct any change there, as the skill provides; never refuse that conversation on Kiln's account.
+
+Kiln reads only your final message. End with the skill's report as your final message, its fixed
+first line first (`Preflight: ready` or `Preflight: N items need you`) with nothing before it.
+Kiln starts the next activity itself; do not start the build or launch another chat.

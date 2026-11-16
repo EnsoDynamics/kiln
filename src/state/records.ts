@@ -19,9 +19,11 @@ import { writeDurableMetadata } from "../control/durable-file.js";
 import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
+import { assertPreflightState } from "../engine/preflight.js";
+import { preflightKey } from "./activity-keys.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -70,7 +72,8 @@ export function assertAgent(agent: unknown): asserts agent is AgentId {
   if (agent !== "claude_code" && agent !== "codex") throw new NewerSchemaError(`Unknown Kiln agent: ${String(agent)}. Update Kiln.`);
 }
 
-export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit";
+/** `preflight`: a preflight that reported items stops on its key (build preflight "The Preflight Stop"). */
+export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight";
 
 export interface CheckResult {
   name: string;
@@ -259,6 +262,10 @@ export interface RecordedPlanPhase {
   closed: boolean;
   /** The names on the document's `**Repositories:**` line; empty when it has none. */
   repositories: string[];
+  /** The `**Attended:**` line's text (build preflight, schema 23). Display only: nothing that orders, starts or stops work reads it. */
+  attended?: string;
+  /** The `**Early merge:**` line's text (build preflight, schema 23). Display only. */
+  earlyMerge?: string;
 }
 
 export type RepositoryKind = "prd" | "named" | "added";
@@ -385,6 +392,8 @@ export interface PrdRecord {
   start?: { from: "new" | "existing"; bringUpToDate: boolean };
   /** Each catch-up Kiln made (run restart AC-CURRENT-01). */
   branchCatchUps?: BranchCatchUp[];
+  /** The build preflight's mark and activities (schema 23; build preflight "Data Models"). */
+  preflight?: import("../engine/preflight.js").PreflightState;
 }
 
 export type InterruptCause = "sigint" | "sighup" | "sigterm" | "sleep";
@@ -519,7 +528,7 @@ export interface SessionRecord {
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
-  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit";
+  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight";
   createdAt: string;
   /** The chosen alias, as passed to --model. */
   model: string;
@@ -609,7 +618,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -674,6 +683,8 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   }
   assertAuditLoopSettings(record.settings.auditLoops);
   assertLedger(record.auditLoops);
+  // Schema 23 adds `preflight`; a record from earlier has none, so its preflight is not settled (build preflight "Upgrade").
+  assertPreflightState(record.preflight);
   // Schema 20 adds `planReadAt`, written with the next plan read; the migration leaves it unset.
   if (record.planReadAt !== undefined && !Number.isFinite(Date.parse(record.planReadAt))) throw new Error("Malformed plan read time.");
   if (record.schemaVersion >= 2) {
@@ -739,6 +750,7 @@ function assertWaivers(waivers: unknown): void {
 
 export function writePrdRecord(stateDirectory: string, record: PrdRecord): void {
   assertContinuationState(record.continuation);
+  assertPreflightState(record.preflight);
   assertPreparationState(record.preparation);
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this record.");
   assertBillingState(record.billing, record.executionId);
@@ -771,6 +783,10 @@ export function sessionStorageKey(record: Pick<SessionRecord, "kind" | "phaseId"
   if (record.kind === "delivery_audit" || record.kind === "test_audit") {
     if (!record.activityId || !/^[a-zA-Z0-9-]+$/.test(record.activityId)) throw new Error("Audit session needs a safe activity identity.");
     return `audit-${record.activityId}`;
+  }
+  if (record.kind === "preflight") {
+    if (!record.activityId || !/^[a-zA-Z0-9-]+$/.test(record.activityId)) throw new Error("Preflight session needs a safe activity identity.");
+    return preflightKey(record.activityId);
   }
   return record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId;
 }

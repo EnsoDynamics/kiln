@@ -1,3 +1,4 @@
+import { activityKeyKind } from "./state/activity-keys.js";
 import { developmentDeliverySummary } from "./state/development-delivery.js";
 // What `kiln run` prints for a feature already underway (PRD AC-START-09; assumptions UI-010
 // item 5): the summary line, saying where Kiln left the feature, and the ● line, saying what
@@ -12,7 +13,7 @@ import { effectiveRecordedClosed } from "./engine/waivers.js";
 import { PR_PHASE_KEY } from "./state/records.js";
 import { resetClock, type TerminalColors } from "./terminal-output.js";
 
-const phaseName = (key: string, engine?: Engine) => (key === PR_PHASE_KEY ? "the pull request" : engine?.auditActivity(key) ? engine.titleOf(key).toLowerCase() : `phase ${key}`);
+const phaseName = (key: string, engine?: Engine) => (key === PR_PHASE_KEY ? "the pull request" : engine?.auditActivity(key) ? engine.titleOf(key).toLowerCase() : activityKeyKind(key) === "preflight" ? "the preflight" : `phase ${key}`);
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**

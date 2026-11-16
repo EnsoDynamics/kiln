@@ -93,6 +93,8 @@ export interface PlanRow {
   closed: boolean;
   /** The repositories its document names (multi-repo AC-REPO-03). */
   repositories: string[];
+  /** Its `**Attended:**` line's text, when it has one: the Needs you there marker (build preflight AC-ATTEND-01). */
+  attended?: string;
   /** "split into 2a and 2b" for a split phase; its children follow nested under it. */
   splitNote?: string;
   children: PlanRow[];
@@ -110,6 +112,7 @@ export function planRows(phases: NonNullable<Documents["plan"]>["phases"]): Plan
       title: phase.title,
       closed: phase.closed,
       repositories: phase.repositories,
+      ...(phase.attended === undefined ? {} : { attended: phase.attended }),
       ...(phase.splitInto ? { splitNote: `split into ${joinAnd(phase.splitInto)}` } : {}),
       children,
     };
@@ -194,4 +197,21 @@ export function accountLines(account: Snapshot["account"]): { line?: string; usa
   if (fiveHourNotReported(account)) parts.push(FIVE_HOUR_NOT_REPORTED);
   const usage = parts.length === 0 ? undefined : `Used: ${parts.join(" · ")}`;
   return { ...(line ? { line } : {}), ...(usage ? { usage } : {}), ...(account.limitsError ? { usageError: account.limitsError } : {}) };
+}
+
+/**
+ * The leaves this run will build that carry an `**Early merge:**` line (build preflight
+ * AC-ATTEND-05): not closed, and at or after the start point. Each names the branch the line
+ * gives, its text up to the first comma, as written.
+ *
+ *   earlyMergeStops([{ id: "3", earlyMerge: "develop, for AC-RET-04", closed: false, ... }], undefined)
+ *   // [{ id: "3", branch: "develop" }]
+ */
+export function earlyMergeStops(phases: NonNullable<Documents["plan"]>["phases"], startAt: { id: string } | undefined): { id: string; branch: string }[] {
+  const leaves = phases.filter((phase) => phase.splitInto === undefined);
+  const from = startAt === undefined ? 0 : Math.max(0, leaves.findIndex((leaf) => leaf.id === startAt.id));
+  return leaves
+    .slice(from)
+    .filter((leaf) => !leaf.closed && leaf.earlyMerge !== undefined)
+    .map((leaf) => ({ id: leaf.id, branch: leaf.earlyMerge!.split(",")[0]!.trim() }));
 }

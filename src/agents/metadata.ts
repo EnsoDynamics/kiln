@@ -44,6 +44,16 @@ export interface MetadataState {
   modelListError?: string | undefined;
   account?: AgentAccount | undefined;
   blockers: string[];
+  /**
+   * Optional skills, never readiness blockers: whether `build-preflight` is enabled in every read
+   * launch directory (build preflight "Interfaces"). Absent until a read finished.
+   */
+  optionalSkills?: { buildPreflight: boolean };
+}
+
+/** Whether one enabled skill of that name is listed, as `<name>` or `enso-method:<name>`. */
+export function listsOneSkill(names: readonly string[], name: string): boolean {
+  return names.filter(one => one === name || one === `enso-method:${name}`).length === 1;
 }
 function sameAccountContext(previous: AgentAccount, current: AgentAccount): boolean {
   if (previous.agentId === "claude_code" && current.agentId === "claude_code") {
@@ -110,6 +120,7 @@ export class AgentInfo {
         state.models = result.models; state.modelListError = result.modelListError;
         state.blockers = result.blockers;
         state.account = result.account;
+        state.optionalSkills = { buildPreflight: result.skills.length > 0 && result.skills.every(one => one.entries.some(entry => entry.enabled && (entry.name === "build-preflight" || entry.name === "enso-method:build-preflight"))) };
       } else {
         const [, , versionBlocker] = await Promise.all([this.claude.refreshAccount(), this.claude.refreshModels?.(), claudeVersionBlocker(this.options.executable.claude, this.options.cwd, this.options.env, this.abort.signal)]);
         if (this.state !== state || this.abort.signal.aborted) return;
@@ -117,6 +128,7 @@ export class AgentInfo {
         this.updateClaude();
         const skills = await Promise.all(cwds.map(async cwd => ({ cwd, result: await readSkillList({ claude: this.options.executable.claude, cwd, env: this.options.env, signal: this.abort.signal }) })));
         if (this.state !== state || this.abort.signal.aborted) return;
+        state.optionalSkills = { buildPreflight: skills.length > 0 && skills.every(({ result }) => result.ok && listsOneSkill(result.skills, "build-preflight")) };
         for (const { cwd, result } of skills) {
           if (!result.ok) {
             state.blockers.push(`Could not inspect enabled Claude Code skills in ${cwd}: recheck agent information.`);

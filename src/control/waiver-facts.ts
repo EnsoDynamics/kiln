@@ -2,6 +2,7 @@
 // `kiln status`", AC-WAIVE-05, AC-WAIVE-10). Everything here reads the saved record and the
 // marked check results; nothing decides coverage, which belongs to `applyWaivers` alone.
 
+import { activityKeyKind } from "../state/activity-keys.js";
 import type { AuditActivity } from "../audit/contracts.js";
 import type { CheckResult, PrdRecord } from "../state/records.js";
 import { AUDIT_WARNING, checkCounts, checksWord, completeLabel, countsText, NO_REPORT_WARNING, PLAN_WARNING, READINESS_CHECK, type AuditWaiverResult, type CheckItem, type MarkCompleteOffer, type Waiver, type WaiverRef } from "../engine/waivers.js";
@@ -106,17 +107,24 @@ export function activityWaivers(record: PrdRecord, key: string, readAudit?: Audi
   return { waived_checks: waivedNames.size, waiver_id: own?.waiverId ?? null, counts: projected?.counts ?? null, checks: projected?.checks ?? null, waivers: related.map(projectWaiver), warnings };
 }
 
+/** A key's kind as a progress row names it, from the shared key classifier. */
+function activityRowKind(key: string): string {
+  const kind = activityKeyKind(key);
+  return kind === "phase" ? "implementation" : kind;
+}
+
 function rowLabel(record: PrdRecord, key: string, kind: string): { label: string; title: string } {
   const audit = key.startsWith("audit-") ? record.completionAudits?.activities.find(a => `audit-${a.activityId}` === key) : undefined;
   if (audit) return { label: audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit", title: `Round ${audit.round}${audit.continuationIndex > 1 ? ` · Continuation ${audit.continuationIndex}` : ""}` };
   if (key === "pr" || kind === "final_delivery") return { label: "Final delivery", title: "" };
+  if (activityKeyKind(key) === "preflight") return { label: "Preflight", title: "" };
   return { label: `Phase ${key}`, title: record.plan?.find(p => p.id === key)?.title ?? "" };
 }
 
 /** Every activity Kiln has reached or skipped, in order, with its waiver facts (AC-WAIVE-10). */
 export function progressRows(record: PrdRecord, runningKey: string | undefined, readAudit?: AuditWaiverReader): ProgressRow[] {
   const activities = (record.activities ?? []).map(a => ({ key: a.key, kind: a.kind as string }));
-  for (const [key, facts] of Object.entries(record.phases)) if (!activities.some(a => a.key === key) && (facts.skippedByWaiver || facts.doneAt || facts.stop)) activities.push({ key, kind: key === "pr" ? "final_delivery" : key.startsWith("audit-") ? "audit" : "implementation" });
+  for (const [key, facts] of Object.entries(record.phases)) if (!activities.some(a => a.key === key) && (facts.skippedByWaiver || facts.doneAt || facts.stop)) activities.push({ key, kind: activityRowKind(key) });
   return activities.map(({ key, kind }) => {
     const facts = record.phases[key];
     const waived = activityWaivers(record, key, readAudit);
@@ -269,8 +277,8 @@ export function previewLines(preview: Record<string, unknown>, checkedAt: string
 }
 
 function activityName(record: PrdRecord | undefined, key: string): string {
-  if (!record) return key === "pr" ? "Final delivery" : key.startsWith("audit-") ? "The audit" : `Phase ${key}`;
-  const { label } = rowLabel(record, key, key === "pr" ? "final_delivery" : "implementation");
+  if (!record) return key === "pr" ? "Final delivery" : activityKeyKind(key) === "audit" ? "The audit" : activityKeyKind(key) === "preflight" ? "Preflight" : `Phase ${key}`;
+  const { label } = rowLabel(record, key, activityRowKind(key));
   return label;
 }
 

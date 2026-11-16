@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "02e9c31c-53e8-4214-a667-1f0a54efe62e",
+  "activityId": "c4290e61-048a-4375-b475-559fdbe40706",
+  "kind": "test_audit",
+  "outcome": "passed",
+  "summary": "Re-audit of the Kiln Build Preflight tests (whole PRD) after the clean delivery audit at cfe30e4. The rows whose tests or code changed since their last grade (AC-PREFLIGHT-02, -05, -06, -08 and AC-ATTEND-01) were re-graded by fresh assessors and all hold at Adequate with every stated part covered; AC-PREFLIGHT-01, -03 and AC-ATTEND-03, -04, -05 are unchanged since their grades. Three red checks (a no-report preflight recorded as ready, an absent build-preflight skill getting a preflight, the Needs you there marker dropped from closed phases) each made a mapped test fail twice, and the code was restored. Every criterion in force is Adequate or better and test-audit.md reads Done; only tests' audit records changed.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}

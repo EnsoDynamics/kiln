@@ -189,6 +189,8 @@ Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, �
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (audit activity identity and owner-aware progress), implemented in Phase 2b. Existing authority and evidence protections remain.
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §Display Contract (the early-merge warning beneath Allow early merges).
+
 The snapshot adds effective authorization, candidate settings for this PRD before Start, per-repository results, checkpoints with separate merge/deploy/verification outcomes, missing-target grant requests and last-check/error facts. The view renders these facts; it never computes completion from PR state.
 
 Documents found and Needs you share repository/branch cards; Settings uses the same early-merge wording and branch identities, using the application’s typography, subdued borders, spacing and button styles. The early-merge checkbox uses the same red accent, 18-pixel dimensions, label alignment and native interaction states as Keep awake and Resume after a usage limit. Controls disable while disconnected, saving or checking. Long repository names wrap and cards fit narrow screens. There are no environment inputs or non-production checkboxes. Needs you names the exact missing target, required approval or unresolved evidence; its grant controls are separate from reply/Resume. Recovery text contains the saved authority and identifies already confirmed operations so a person does not repeat them.

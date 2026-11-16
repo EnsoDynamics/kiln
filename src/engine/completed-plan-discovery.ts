@@ -3,7 +3,7 @@ import { closedWaiver } from "./waivers.js";
 import { createHash } from "node:crypto";
 import { leavesOf } from "../plan/phase-plan.js";
 import type { PrdRecord } from "../state/records.js";
-import { judgedPhase, recordedPlan } from "./plan-reading.js";
+import { judgedPhase, planStructure, recordedPlan } from "./plan-reading.js";
 import { gitError, runGit, type GitContext } from "./git-reads.js";
 import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
 import { PLAN_NORMALIZER_VERSION, PlanCapacityError, PlanBaselineWriteFailure, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, completedScopeProblems, observePlan, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
@@ -64,7 +64,7 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
   let source: PlanSource;
   try { source = await observeGitPlan(git, shared, record.prdDirectory, revision); }
   catch (error) { if (error instanceof PlanCapacityError) throw error; throw new Error(`baseline_unavailable: Restore the recorded completion revision ${revision} and required documents, then check again. ${(error as Error).message}`, { cause: error }); }
-  if (JSON.stringify(recordedPlan(source.plan)) !== JSON.stringify(record.plan)) throw new Error(`baseline_unavailable: Plan at recorded completion revision ${revision} does not match saved phase identities, closure and structure. Restore the matching completion record/revision and check again.`);
+  if (JSON.stringify(planStructure(recordedPlan(source.plan))) !== JSON.stringify(planStructure(record.plan))) throw new Error(`baseline_unavailable: Plan at recorded completion revision ${revision} does not match saved phase identities, closure and structure. Restore the matching completion record/revision and check again.`);
   const completions: PlanBaseline["completions"] = {};
   for (const phase of leavesOf(source.plan)) {
     const waiverId = record.phases[phase.id]?.skippedByWaiver ?? closedWaiver(record.waivers, phase.id)?.waiverId;

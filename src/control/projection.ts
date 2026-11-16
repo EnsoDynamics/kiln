@@ -1,3 +1,4 @@
+import { activityKeyKind } from "../state/activity-keys.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
 import { messageReceiptLabel } from "../live/target.js";
 import { expandHome } from "../engine/worktree-setup.js";
@@ -268,12 +269,13 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const last = latestActivity({ ...work, record }, history, view, cache?.last_activity, deadline);
   const savedMessage = savedStop && savedStop[1].stop?.kind !== "not_resumable" && !savedStop[1].stop?.interrupted ? modelSession?.runs.at(-1)?.result?.text : undefined;
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
-  const savedActivity = { phase_id: audit ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === "pr" ? "final_delivery" : phase ? "implementation" : null), title: audit ? audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
+  const preflight = phase !== null && activityKeyKind(phase) === "preflight";
+  const savedActivity = { phase_id: audit || preflight ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === null ? null : activityKeyKind(phase) === "phase" ? "implementation" : activityKeyKind(phase)), title: audit ? audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit" : preflight ? "Preflight" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
   const completedKey = record.activities?.findLast(a => record.phases[a.key]?.doneAt)?.key;
   // A pending request carried through a Folder missing base-branch start names its phase (missing worktree recovery, "The Folder Check").
   const pauseKey = record.pause.activeSince ? completedKey : record.pause.requestedFor ?? view?.liveControl?.target.activityKey ?? phase;
   const pauseAudit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === pauseKey);
-  const pauseLabel = pauseAudit ? `${pauseAudit.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${pauseAudit.round}` : pauseKey ? `Phase ${pauseKey}` : "Activity";
+  const pauseLabel = pauseAudit ? `${pauseAudit.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${pauseAudit.round}` : pauseKey && activityKeyKind(pauseKey) === "preflight" ? "Preflight" : pauseKey ? `Phase ${pauseKey}` : "Activity";
   const takeover = view?.liveControl?.takeover;
   const takeoverStatus = takeover ? takeover.kind === "delivery_recovery" ? "Delivery uncertain. Review the conversation before explicit hand-back." : takeover.state === "released" ? "Paused for terminal takeover." : "Pausing for takeover — finishing the current operation. Wait before opening Claude." : record.pause.activeSince ? `${pauseLabel} finished. Paused before the next activity.` : record.pause.requestedAt ? `Will pause after ${pauseLabel} finishes. Current work continues.` : null;
   const pauseStatus = takeover && record.pause.requestedAt && !record.pause.activeSince ? `${takeoverStatus} Will pause after ${pauseLabel} finishes. Current work continues.` : takeoverStatus;

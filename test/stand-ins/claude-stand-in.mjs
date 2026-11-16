@@ -4,7 +4,8 @@
 // splits, pull requests) as its scenario says, so the engine's checks run against real Git.
 //
 // KILN_STANDIN_SCENARIO names a JSON file: { "sessions": [ { "actions": [ … ] }, … ] }; each
-// launch takes the next session. Every launch is logged, with its arguments and prompt, to
+// launch takes the next session. Audit launches take `auditSessions` and build preflight launches
+// `preflightSessions` in the same way, each with its own count. Every launch is logged, with its arguments and prompt, to
 // <scenario>.calls.jsonl, with its PATH. Actions:
 //   { "skill": "enso-method:implement-from-requirements" }   a top-level Skill call
 //   { "text": "Building phase 1." }                           an assistant text block
@@ -256,12 +257,14 @@ if (!inputLine) process.exit(0); // Empty-stdin pre-dispatch refusal has no mode
 const message = JSON.parse(inputLine);
 const prompt = message?.message?.content ?? "";
 const isAudit = /^Run (Delivery audit|Test audit) on the whole governing PRD/.test(prompt) || /Carry on with the assigned (Delivery audit|Test audit),/.test(prompt);
-const counterPath = `${scenarioPath}.${isAudit ? "audit-" : ""}count`;
+// A build preflight's launch or Kiln's resume of one takes the next of `preflightSessions`; with none, it reports ready.
+const isPreflight = /^Run the Enso Method's build preflight/.test(prompt) || /Carry on with the build preflight/.test(prompt);
+const counterPath = `${scenarioPath}.${isAudit ? "audit-" : isPreflight ? "preflight-" : ""}count`;
 const index = existsSync(counterPath) ? Number(readFileSync(counterPath, "utf8")) : 0;
 writeFileSync(counterPath, String(index + 1));
 appendFileSync(`${scenarioPath}.calls.jsonl`, `${JSON.stringify({ args, cwd: process.cwd(), prompt, path: process.env.PATH ?? process.env.Path })}\n`);
 const scenario = JSON.parse(readFileSync(scenarioPath, "utf8"));
-session = (isAudit ? scenario.auditSessions?.[index] ?? { actions: [{ auditReport: {} }, { result: "Audit recorded." }, { exit: 0 }] } : scenario.sessions[index]) ?? { actions: [{ result: "No scenario for this launch." }, { exit: 1 }] };
+session = (isAudit ? scenario.auditSessions?.[index] ?? { actions: [{ auditReport: {} }, { result: "Audit recorded." }, { exit: 0 }] } : isPreflight ? scenario.preflightSessions?.[index] ?? { actions: [{ skill: "enso-method:build-preflight" }, { result: "Preflight: ready\n\nThe build runs to the end without stopping." }, { exit: 0 }] } : scenario.sessions[index]) ?? { actions: [{ result: "No scenario for this launch." }, { exit: 1 }] };
 
 if (session.noInit) {
   const error = `No conversation found with session ID: ${sessionId}`;

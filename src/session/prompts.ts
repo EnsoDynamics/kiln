@@ -166,8 +166,15 @@ export function auditRecoveryPrompt(task: AuditRecoveryTask, deliveryAuthority?:
   return [fill(template("resume-carry-on-audit.txt"), values), ...(task.lastRefusal ? [fill(template("resume-audit-refusal.txt"), { at: task.lastRefusal.at, refusal: task.lastRefusal.text })] : []), ...(task.instructions ? [task.instructions] : []), ...(deliveryAuthority && !task.instructions ? [authorityBlock(deliveryAuthority)] : [])].join("\n\n");
 }
 
+/** A preflight session resumed by Kiln: the preflight's own tail (build preflight "The Preflight Session"). */
+export interface PreflightRecoveryTask { prdFile: string; skillPath: string }
+export function preflightRecoveryPrompt(task: PreflightRecoveryTask): string {
+  return fill(template("resume-carry-on-preflight.txt"), { prdFile: task.prdFile, skillPath: task.skillPath });
+}
+
 export interface ResumePromptValues {
   auditTask?: AuditRecoveryTask;
+  preflightTask?: PreflightRecoveryTask;
   deliveryAuthority?: string | undefined;
   /** The saved session's agent; absent for legacy Claude callers. */
   agentId?: AgentId;
@@ -219,7 +226,7 @@ export function resumePrompt(values: ResumePromptValues): string {
       ? fill(template("resume-opening-unrecorded.txt"), { time: values.time })
       : fill(template("resume-opening-interrupted.txt"), { time: values.time, cause: INTERRUPT_CAUSES[values.cause] });
   const carryOn =
-    values.auditTask ? auditRecoveryPrompt(values.auditTask) : values.phaseDoc === undefined
+    values.preflightTask ? preflightRecoveryPrompt(values.preflightTask) : values.auditTask ? auditRecoveryPrompt(values.auditTask) : values.phaseDoc === undefined
       ? values.deliveryAuthority
         ? template("resume-carry-on-development-finalization.txt")
         : fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
@@ -323,6 +330,11 @@ const AUDIT_DELIVERY_STEP = " Before submitting, record this audit's development
 
 export function auditSessionPrompt(values: { label: string; skillName: string; skillPath: string; executionId: string; activityId: string; round: number; continuationIndex: number; reportPath: string; prdFile: string; repositories: PromptRepository[]; branch: string; cli: string; deliveryAuthority?: string | undefined; previous?: string; outstanding?: string; loops?: string }): string {
   return fill(template("audit-session.txt"), { ...values, loops: values.loops ?? "", outstanding: values.outstanding || "None.", round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ? authorityBlock(values.deliveryAuthority) : "No development merge or deployment is authorized.", deliveryStep: values.deliveryAuthority ? AUDIT_DELIVERY_STEP : "", previous: values.previous ?? "No prior audit result." });
+}
+
+/** The build preflight session's prompt (build preflight "The Preflight Session"): no pinned CLI, no report path. */
+export function preflightSessionPrompt(values: { skillName: string; skillPath: string; prdFile: string; repositories: PromptRepository[]; branch: string }): string {
+  return fill(template("preflight-session.txt"), { ...values, repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n") });
 }
 
 export function preparationPrompt(values: { phaseId: string; featureName: string; branch: string; bindings: string; cli: string; executionId: string; recovery: string }): string { return fill(template("preparation-session.txt"), values); }

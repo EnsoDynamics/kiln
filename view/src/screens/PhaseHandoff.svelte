@@ -11,6 +11,7 @@
   import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
   import NothingToCheck from "../components/NothingToCheck.svelte";
+  import AttendedCard from "../components/AttendedCard.svelte";
   import type { ItemChange } from "../../../src/engine/waivers.js";
   import { checksWord, countsOf, passedOf, secondsTime, verdict } from "../lib/waivers.js";
   import CheckFacts from "../components/CheckFacts.svelte";
@@ -147,6 +148,7 @@
 
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
+  {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
   <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : restart?.headline ?? `${activity} needs your input.`}</h1>
   <p>{restart?.line ?? "Answer here, or talk it through in your terminal."}</p>
   {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}

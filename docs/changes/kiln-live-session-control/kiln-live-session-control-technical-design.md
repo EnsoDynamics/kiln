@@ -170,6 +170,8 @@ Replaces in part: [Needs you handoff design](../kiln-needs-you-handoff/kiln-need
 
 ## Local Interfaces
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (a running preflight offers no message, takeover or pause, and `request-pause` is refused with its reason).
+
 Retain loopback binding, Host/Origin/token checks, no CORS and no-store responses. All payloads use strict action-specific validation and a 64 KiB transport cap. Text is data, never HTML or a shell expression. Read deadlines are 5 seconds; mutations return a durable receipt promptly rather than holding HTTP open for a checkpoint. Client timeout after submission queries the same instruction ID, never creates a replacement send.
 
 | Route | Request and response |
@@ -204,6 +206,8 @@ Store unsent live drafts in page memory keyed by exact attempt above route/scree
 ## Bot Extension
 
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Held Phase That Can't Be Reopened (a hold whose conversation can't be reopened ends by a carry-on session or its advance, on the carry-on ownership check).
+
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (a running preflight offers no message, takeover or pause, and `request-pause` is refused with its reason).
 
 When both capabilities are installed, add `message` and `take-over` to the bot command contract/help and capability features. Both accept `<PRD-path>`, required `--only-if-status-matches` and `--command-id`. Message accepts exactly one of `--message-file` or `--message-from-stdin`; transport bounds, authentication, target resolution and retry lookup follow the bot design. Preserve exact live text rather than applying `reply` normalization.
 

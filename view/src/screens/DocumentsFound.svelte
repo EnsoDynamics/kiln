@@ -16,6 +16,7 @@
   // branch What Kiln found reads the plan where the first session starts, Feature branch is a list,
   // the base reads PR into, and an untouched branch behind its base gets the catch-up offer.
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
+  import NeedsYouThere from "../components/NeedsYouThere.svelte";
   import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import type { RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
   import type { Effort, Settings } from "../../../src/state/records.js";
@@ -54,6 +55,9 @@
   const documents = $derived(snapshot.documents!);
   const settings = $derived(snapshot.settings);
   const rows = $derived(documents.plan ? planRows(documents.plan.phases) : []);
+  // The planned Preflight row, above the activity it comes before, or after the phases (build preflight AC-PREFLIGHT-08).
+  const preflightBefore = $derived(snapshot.preflight?.planned?.before);
+  const planHas = (list: typeof rows, id: string): boolean => list.some(row => row.id === id || planHas(row.children, id));
   const account = $derived(accountLines(snapshot.account));
   const models = $derived(modelOptions(snapshot));
   const baseChoices = $derived(settings.baseBranches && settings.baseBranches.length > 0 ? settings.baseBranches : settings.baseBranch ? [settings.baseBranch] : []);
@@ -186,11 +190,13 @@
             {/if}
             <ol class="phases">
               {#each rows as row (row.id)}
+                {#if preflightBefore === row.id}{@render preflight()}{/if}
                 {#if row.children.length > 0 || row.splitNote}
                   <li class="split">
-                    <span class="phase"><span class="circle dashed mono">{row.id}</span><span class="title split-title">{row.title}</span><span class="note">{row.splitNote}</span>{@render repositories(row.repositories)}</span>
+                    <span class="phase"><span class="circle dashed mono">{row.id}</span><span class="title split-title">{row.title}</span>{@render attended(row.attended)}<span class="note">{row.splitNote}</span>{@render repositories(row.repositories)}</span>
                     <ol class="phases">
                       {#each row.children as child (child.id)}
+                        {#if preflightBefore === child.id}{@render preflight()}{/if}
                         {@render phase(child)}
                       {/each}
                     </ol>
@@ -199,6 +205,7 @@
                   {@render phase(row)}
                 {/if}
               {/each}
+              {#if preflightBefore && !planHas(rows, preflightBefore)}{@render preflight()}{/if}
             </ol>
           </div>
         </li>{/if}
@@ -428,9 +435,13 @@
   <svg width={size} height={size} viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class={inline ? "mark" : size === 16 ? "found-mark" : undefined}><path d="M3 8.5l3 3 7-7"></path></svg>
 {/snippet}
 
-{#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[] })}
+{#snippet preflight()}
+  <li class="phase preflight-row"><span class="circle mono">PF</span><span class="title">Preflight</span><span class="note">checks access and stops, then goes straight on</span></li>
+{/snippet}
+
+{#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[]; attended?: string | undefined })}
   {@const here = startFrom?.startAt?.id === row.id}
-  <li class="phase"><span class="circle mono" class:here>{row.id}</span>{#if here}<strong class="title">{row.title}</strong><span class="starts">Kiln starts here</span>{:else}<span class="title">{row.title}</span>{/if}{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}</li>
+  <li class="phase"><span class="circle mono" class:here>{row.id}</span>{#if here}<strong class="title">{row.title}</strong>{@render attended(row.attended)}<span class="starts">Kiln starts here</span>{:else}<span class="title">{row.title}</span>{@render attended(row.attended)}{/if}{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}</li>
 {/snippet}
 
 {#snippet branchField()}
@@ -443,6 +454,10 @@
   {:else}
     <input id="branch" type="text" class="mono" value={drafts.featureBranch ?? settings.featureBranch} disabled={branchFixed} oninput={(event) => typed("featureBranch", event.currentTarget.value)} onblur={() => committed("featureBranch")} />
   {/if}
+{/snippet}
+
+{#snippet attended(text: string | undefined)}
+  {#if text !== undefined}<NeedsYouThere {text} />{/if}
 {/snippet}
 
 {#snippet repositories(names: string[])}

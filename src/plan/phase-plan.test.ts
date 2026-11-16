@@ -194,3 +194,27 @@ describe("the Repositories line (multi-repo AC-REPO-01)", () => {
     expect(problems("**Repositories:** ..")).toEqual(["phase-1-x.md names .. on its Repositories line, which isn't a folder name."]);
   });
 });
+
+describe("the Attended and Early merge lines (build preflight AC-ATTEND-01, AC-ATTEND-05)", () => {
+  const doc = (id: string, preamble: string, after = "") => ({ fileName: `phase-${id}-x.md`, markdown: `# Phase ${id}: X\n\n${preamble}\n\n## Acceptance criteria covered\nAC-RET-01\n${after}` });
+  it("reads each line's trimmed text from before the first heading, closed or not, and an empty line still marks the phase", () => {
+    const plan = readPhasePlan([
+      doc("1", "**Closed:** 2026-11-01\n**Attended:**   Create the label template in the carrier's console.  "),
+      doc("2", "**Early merge:** develop, for AC-RET-04"),
+      doc("3", "**Attended:**"),
+      doc("4", "```\n**Attended:** inside a code fence\n```", "\n**Attended:** after the first heading\n**Early merge:** main\n"),
+    ]);
+    expect(plan.problems).toEqual([]);
+    expect(plan.phases.map((phase) => [phase.id, phase.closed, phase.attended, phase.earlyMerge])).toEqual([
+      ["1", true, "Create the label template in the carrier's console.", undefined],
+      ["2", false, undefined, "develop, for AC-RET-04"],
+      ["3", false, "", undefined],
+      ["4", false, undefined, undefined],
+    ]);
+  });
+
+  it("never makes a plan fail to read", () => {
+    expect(readPhasePlan([doc("1", "**Attended:**\n**Early merge:**")]).problems).toEqual([]);
+    expect(planStartProblems(readPhasePlan([doc("1", "**Attended:**\n**Early merge:**")]), "docs/prds/x")).toEqual(planStartProblems(readPhasePlan([doc("1", "")]), "docs/prds/x"));
+  });
+});

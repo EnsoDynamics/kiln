@@ -34,6 +34,7 @@ The first screen, Documents found, gains one choice: where Kiln starts from. A n
   - Replaces in part: AC-START-06 and AC-START-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the first Start can use an existing branch, chosen from a list).
   - Replaces in part: validated assumption UI-003 in `docs/prds/kiln-v1/assumptions.md` (a feature branch name already taken can be chosen as the branch to start from).
 - [ ] **AC-FROM-02 — The screen shows what will run from there.** **What Kiln found** reads the phase plan from where the first session will start, as the table says, says which, and keeps today's closed marks. Phases closed there count as closed before the run (AC-DEV-03). When some phases are closed there, the count line says how many and that Kiln starts at the first open phase, which is marked, and Start reads **Start at Phase N** with a line saying the closed phases won't run. When every phase is closed there, the count line and Start are today's: Start goes on to the audits and final delivery.
+  - Superseded in part by: AC-PREFLIGHT-01 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (Start runs a preflight first, a Start with every phase closed included).
 
   | Start from | The plan is read from |
   |---|---|
@@ -90,6 +91,7 @@ A phase can stop in three different ways, and today's page treats them alike. Th
   - Replaces in part: AC-PAGE-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (the headline).
 - [ ] **AC-CASE-04 — The first card shows the latest launch.** On a stopped phase's page, the first card shows the phase's latest launch: when it began a conversation, today's **Last message from** the agent; when the agent's process didn't start or exited before beginning one, **What Kiln found**, saying what Kiln ran and the error it got, then any earlier conversation's **Last message from** card.
   - Replaces in part: AC-RESUME-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (after the person's Resume, or Kiln's own at the end of a usage-limit wait, of a session that ended on its own, the first card gives its last message, not its last lines).
+  - Superseded in part by: AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (in a marked phase, the planned-as-needing-you card comes first, above the latest launch's card).
 - [ ] **AC-CASE-02 — A phase Kiln couldn't launch can be started again.** In AC-CASE-01's first case the page offers one way to start the phase, **Start Phase N again**, which launches the phase's first session again (AC-RUN-02 in Kiln v1), with a line giving the phase's work so far. The page has no reply box and no terminal instructions.
   - Replaces in part: the Scope table and AC-TERMINAL-01 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (this page replaces the reply, terminal and recovery flows).
   - Replaces in part: AC-STOP-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (another way for a session to start after a stop).
@@ -179,6 +181,7 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
 
 - [ ] **AC-LOOK-01 — The screens match their drawings.** Documents found with **Start from**, the three stopped-phase pages, the held page AC-CARRY-06 changes, the reset line and its confirmation match this change's mockup for layout, order and wording, in Kiln's existing visual style. Each is today's screen with the drawn change, not a new screen. Sample names, paths, commits and counts are illustrative.
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md`, AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md`, AC-PAGE-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` and AC-LOOK-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (the screens this change draws, and the reset line on every screen; the rest of each layout remains).
+  - Superseded in part by: AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (in a marked phase, the planned-as-needing-you card comes first on the stopped-phase pages).
 
 ## Out of Scope
 

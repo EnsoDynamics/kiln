@@ -7,6 +7,7 @@
   import EarlyMergeTarget from "./EarlyMergeTarget.svelte";
   import Icon from "./Icon.svelte";
   import { shortDateTime, waivedRequirements } from "../lib/waivers.js";
+  import { earlyMergeStops, joinAnd } from "../lib/documents-found.js";
   let error = $state("");
   let granting = $state(false);
   let inspected = $state<Record<string, string>>({});
@@ -17,6 +18,9 @@
   const saved = $derived(optimistic ?? snapshot.settings.developmentDeployments ?? { enabled: false, targets: [] });
   const delivery = $derived(snapshot.developmentDelivery);
   const legacyChoices = $derived(saved.targets.length > 0);
+  // Phases this run will build that merge early, warned of while early merges are off (build preflight AC-ATTEND-05).
+  // Derived from the plan and the saved setting, so ticking the box removes the warning with no other round trip.
+  const earlyStops = $derived(editable && !saved.enabled && snapshot.documents?.plan ? earlyMergeStops(snapshot.documents.plan.phases, snapshot.documents.start?.startAt) : []);
   type Checkpoint = NonNullable<Snapshot["developmentDelivery"]>["checkpoints"][number];
   /** A checkpoint's failure reason while some failing part of it is not waived; undefined when nothing needs looking at. */
   function problem(checkpoint: Checkpoint, all: readonly Checkpoint[]): string | undefined {
@@ -73,6 +77,12 @@
 <section class="delivery" aria-label="Early merges">
   {#if editable}
     <label><input type="checkbox" checked={saved.enabled} disabled={!connected || saving || snapshot.documents?.starting} onchange={event => save({ enabled: event.currentTarget.checked, targets: [] })} /> <span>Allow early merges</span></label>
+    {#if earlyStops.length}
+      <div class="early-stop" role="note">
+        <span class="early-mark" aria-hidden="true">⚠</span>
+        <span><strong>The run will stop at {joinAnd(earlyStops.map(one => `Phase ${one.id}`))}.</strong>{" "}{#each earlyStops as one, index (one.id)}{earlyStops.length > 1 ? `Phase ${one.id}` : "It"} merges{#if one.branch}{" into "}<span class="mono">{one.branch}</span>{/if} early.{index < earlyStops.length - 1 ? " " : ""}{/each}{" "}Tick Allow early merges to keep it going.</span>
+      </div>
+    {/if}
     <p>Kiln normally keeps work on its feature branch for a review PR. Allow early merges when a PRD criterion needs deployment or verification. Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes.</p>
     <p>Applies to this PRD only. Each new PRD starts with early merges off.</p>
     {#if saved.enabled}
@@ -152,6 +162,10 @@
   .waived { color: var(--amber); font-weight: 600; }
   .merge-summary { margin: 8px 0; }
   .merge-problem { margin: 4px 0 8px; color: var(--amber); }
+  .early-stop { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 12px; padding: 12px 14px; border: 1px solid var(--amber-border); border-radius: 10px; background: rgba(230, 180, 80, 0.08); font-size: 14.5px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+  .early-stop strong { color: var(--amber); }
+  .early-mark { color: var(--amber); flex: none; }
+  .early-stop .mono { font-family: var(--mono); font-size: 13px; }
   .merge-details > summary { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: var(--muted); margin: 8px 0; }
   .merge-details[open] .chev { transform: rotate(90deg); }
   .chev { display: inline-flex; transition: transform .15s; }

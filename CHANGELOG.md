@@ -21,6 +21,21 @@ section to the new version.
   while Kiln runs, from the page or with `kiln settings`, and `kiln allow-more-loops` and
   `kiln accept-and-deliver` do the same from the command line. A run already under way when
   Kiln is updated counts the loops it has made and stops and asks after the last one.
+- Build preflight. Before a run starts work, Kiln runs the Enso Method's `build-preflight`
+  skill in a session of its own, after each Start, Continue or Resume, to check that the access
+  the plan needs is working, that this machine can build and test the project, and that nothing
+  planned will stop the run without warning. It shows as a **Preflight** row in the plan. A clean
+  preflight goes straight on, and its row says **Ready**. When it finds things to settle, Kiln
+  stops at Needs you with the numbered items and the command that reopens the session in a
+  terminal; **Check Preflight again** (`kiln check-again`) runs a fresh one, and **Mark complete**
+  (`kiln waive-and-advance --confirm`) goes on with the items as they are. A method without the
+  skill runs as before, and a preflight that ends without a report shows **No report** and the
+  run goes on. The preflight changes nothing in the repository.
+- Phases planned as needing a person. A phase whose document has an `**Attended:**` line shows a
+  **Needs you there** marker beside its name on Documents found and in the phase plan, and a stop
+  in that phase opens with a card saying so. Such a phase runs like any other.
+- Documents found warns, beneath **Allow early merges**, when a phase this run will build has an
+  `**Early merge:**` line and early merges are off, naming each phase where the run would stop.
 
 ### Changed
 
@@ -48,6 +63,10 @@ section to the new version.
 
 ### Fixed
 
+- **Starting again from the Folder missing page now ends a pause for good.** When the run's
+  folder went missing while Kiln was paused, pressing Start with the run's existing branch
+  paused the run again straight away, before anything ran. Now the run goes on, beginning with
+  a fresh preflight.
 - A finished feature whose pull request hasn't merged no longer shows **Plan needs
   reconciliation**; it stays **Complete** and says Kiln checks for new phases once it merges.
 - **Audits with early merges on no longer stop on "needs a current development-delivery

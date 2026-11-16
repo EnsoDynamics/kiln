@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { PREFLIGHT_LIVE_REASON } from "../../../src/engine/preflight.js";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Running (docs/design/mockups/kiln-screen-running.html): the current phase at the top, the
   // phase plan, the Claude account, the settings, Pause Kiln and the Kiln panel (PRD
@@ -16,9 +17,12 @@
   import SettingsPanel from "../components/SettingsPanel.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import { phaseName, PR_ID } from "../lib/progress.js";
+  import { activityKeyKind } from "../../../src/state/activity-keys.js";
 
   let { snapshot, connected, now, lastSeenAt }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
   const isPr = $derived(snapshot.current?.phaseId === PR_ID);
+  // The preflight has no live controls and no pause (build preflight "The Preflight Stop").
+  const isPreflight = $derived(activityKeyKind(snapshot.current?.phaseId ?? "") === "preflight");
   const phaseInView = $derived(snapshot.needsYou?.phaseId ?? snapshot.waiting?.phaseId ?? snapshot.current?.phaseId);
   const kilnText = $derived(`Kiln is running in your terminal. Keep it open: Ctrl+C there interrupts ${isPr ? "the pull-request session" : "the current phase"}, and kiln run picks up where it left off.`);
   // While disconnected, times stop at the moment Kiln was last seen.
@@ -33,13 +37,15 @@
   {#if snapshot.current}<CurrentPhase {snapshot} {connected} now={shownNow} />{/if}
   {#if snapshot.current && isPr}
     <section class="card"><p>Live messages and terminal takeover are unavailable during final delivery. Live controls support Claude phases and audits.</p></section>
+  {:else if snapshot.current && isPreflight}
+    <section class="card"><p>{PREFLIGHT_LIVE_REASON}</p></section>
   {/if}
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} now={shownNow} /></div>
     <div class="column-side">
       {#if connected && snapshot.account}<AccountPanel account={snapshot.account} paused={false} pullRequest={isPr} {now} />{/if}
       <SettingsPanel {snapshot} {connected} />
-      {#if connected && snapshot.current && !isPr}<PausePanel {snapshot} />{/if}
+      {#if connected && snapshot.current && !isPr && !isPreflight}<PausePanel {snapshot} />{/if}
       <KilnPanel {connected} text={kilnText} />
       <BillingPanel {snapshot} {connected} />
     </div>

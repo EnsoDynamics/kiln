@@ -1,6 +1,7 @@
 // The Folder missing page's words (missing worktree recovery mockup, "kiln-missing-worktree-recovery.html"),
 // built from the snapshot's `folderMissing` block so the screen only lays them out.
 
+import { activityKeyKind } from "../../../src/state/activity-keys.js";
 import type { FolderMissingSnapshot } from "../../../src/engine/snapshot.js";
 
 type Repository = FolderMissingSnapshot["repositories"][number];
@@ -130,7 +131,7 @@ export function factRows(view: FolderMissingSnapshot): FactRow[] {
     const last = repository.lastPushed;
     if (last && localBase) pushedRow = { label: label(`Is this run’s pushed work in origin’s ${baseBranch}?`), value: [{ text: "Couldn’t check", tone: "unknown" }] };
     else if (last) {
-      const pushed: Part[] = [{ text: `${short(last.sha)} (${last.phaseId === "pr" ? "final delivery" : last.phaseId.startsWith("audit-") ? "audit" : `Phase ${last.phaseId}`}) · ` }];
+      const pushed: Part[] = [{ text: `${short(last.sha)} (${last.phaseId === "pr" ? "final delivery" : activityKeyKind(last.phaseId) === "audit" ? "audit" : activityKeyKind(last.phaseId) === "preflight" ? "preflight" : `Phase ${last.phaseId}`}) · ` }];
       if (last.inBase === true) pushed.push({ text: `in ${baseBranch}`, tone: "pass" });
       else if (last.onOrigin === true) { pushed.push({ text: "on origin", tone: "pass" }); if (multi && last.inBase === false) pushed.push({ text: ` · not in ${baseBranch}` }); }
       else if (last.inBase === false) pushed.push({ text: `not in ${baseBranch}`, tone: "fail" });

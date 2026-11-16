@@ -809,7 +809,7 @@ describe("Documents found and Start (AC-LOOP-01, AC-LOOP-04, AC-EFFORT-01)", () 
     expect(h.engine.record.settings.auditLoops).toMatchObject({ deliveryLimit: 3, testLimit: 5, afterLastTest: "stop_and_ask", afterLastTestSource: { kind: "person", where: "documents_found", at: h.engine.record.startedAt } });
     expect(h.engine.record.auditLoops!.epochs.map(e => [e.kind, e.cause])).toEqual([["delivery", "start"], ["test", "start"]]);
     const saved = readPrdRecord(h.stateDirectory)!;
-    expect(saved.schemaVersion).toBe(22);
+    expect(saved.schemaVersion).toBe(23);
   });
 });
 

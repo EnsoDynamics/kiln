@@ -23,6 +23,13 @@ export interface PhaseDocument {
   repositories: string[];
   /** What is wrong with the `**Repositories:**` line: no names, or a name that isn't a folder name. */
   repositoriesProblem: string | undefined;
+  /**
+   * The text after an `**Attended:**` line before the first `##` heading, trimmed; empty when the
+   * line has no text, undefined when there is no such line (build preflight AC-ATTEND-01).
+   */
+  attended: string | undefined;
+  /** The text after an `**Early merge:**` line before the first `##` heading, trimmed, as `attended` (AC-ATTEND-05). */
+  earlyMerge: string | undefined;
   /** The `## Split into` rows, or undefined for a leaf. */
   splitInto: SplitRow[] | undefined;
   /** `AC-<AREA>-<NN>` labels under `## Acceptance criteria covered`, in order, without repeats. */
@@ -42,6 +49,9 @@ export function readPhaseDocument(fileName: string, markdown: string): PhaseDocu
   const closed = preamble.some((line) => !line.inCodeFence && line.text.startsWith("**Closed:**"));
   const repositoriesLine = preamble.find((line) => !line.inCodeFence && line.text.startsWith("**Repositories:**"));
   const { repositories, problem: repositoriesProblem } = readRepositoriesLine(fileName, repositoriesLine?.text);
+  // Display facts only: neither line can make a plan fail to read (build preflight "Phase Document Lines").
+  const attended = preambleLineText(preamble, "**Attended:**");
+  const earlyMerge = preambleLineText(preamble, "**Early merge:**");
 
   const h1 = lines.map((line) => headingText(line, 1)).find((text) => text !== undefined);
   const title = readTitle(h1, idText, fileName);
@@ -55,7 +65,7 @@ export function readPhaseDocument(fileName: string, markdown: string): PhaseDocu
   const dependencyLines = sectionLines(markdown, "Phase dependencies");
   const dependenciesText = dependencyLines?.map((line) => line.text).join("\n");
 
-  return { fileName, idText, title, closed, repositories, repositoriesProblem, splitInto, citedCriteria, dependenciesText };
+  return { fileName, idText, title, closed, repositories, repositoriesProblem, attended, earlyMerge, splitInto, citedCriteria, dependenciesText };
 }
 
 /**
@@ -75,6 +85,16 @@ export function readRepositoriesLine(fileName: string, line: string | undefined)
     return { repositories: [], problem: bad === "" ? `${fileName} has an empty name on its Repositories line.` : `${fileName} names ${bad} on its Repositories line, which isn't a folder name.` };
   }
   return { repositories: [...new Set(names)], problem: undefined };
+}
+
+/**
+ * The trimmed text after a preamble line's bold label, or undefined when no line starts with it.
+ *
+ *   preambleLineText(preamble, "**Attended:**")  // "Create the label template in the carrier's console."
+ */
+function preambleLineText(preamble: ReturnType<typeof markdownLines>, label: string): string | undefined {
+  const line = preamble.find((one) => !one.inCodeFence && one.text.startsWith(label));
+  return line === undefined ? undefined : line.text.slice(label.length).trim();
 }
 
 function readTitle(h1: string | undefined, idText: string, fileName: string): string {

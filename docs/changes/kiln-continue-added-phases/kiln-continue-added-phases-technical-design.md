@@ -201,6 +201,7 @@ Use deterministic names derived from the new execution UUID, such as `feature/<p
 
 ### Start, interruption and completion
 
+Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (an accepted continuation's fresh execution starts with a preflight).
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Gate (completion phases audits add after a continuation pass through the loop gate).
 
 Once all workspace setup has passed, reread the pinned plan in the new workspace and atomically activate the new execution. Preserve the previous complete execution as immutable history before replacing active execution fields. If required source/base/authority facts have changed during interrupted preparation, hold setup and present the changed proposal for a fresh choice. Keep the original acceptance and any owned artifacts for explanation; do not silently retarget it. A replacement choice can supersede a blocked acceptance only before any provider activity started and after verifying its owned workspace has no user work. Never delete or overwrite an occupied workspace to recover.
