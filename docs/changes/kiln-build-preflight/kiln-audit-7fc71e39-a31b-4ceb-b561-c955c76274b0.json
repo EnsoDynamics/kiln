@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "02e9c31c-53e8-4214-a667-1f0a54efe62e",
+  "activityId": "7fc71e39-a31b-4ceb-b561-c955c76274b0",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "First fixing chat of the Kiln Build Preflight test audit (whole PRD). New tests raise AC-PREFLIGHT-08, AC-PREFLIGHT-02, AC-PREFLIGHT-06, AC-PREFLIGHT-05 and AC-ATTEND-05 from Weak to Adequate, and fresh re-graders confirmed each grade. The tests cover the Preflight row's placement on Documents found and in the run's plan, opening a finished or no-report row, the live controls' refusal reason, Codex with and without the skill, and the early-merge warning's look in real Chrome. Each new test was seen to fail with its behavior broken, and the full suite passes. AC-PREFLIGHT-01 and AC-PREFLIGHT-03 stay Weak and are recorded in test-audit.md for the next fixing chat. Only tests changed.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}
