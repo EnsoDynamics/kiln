@@ -18,7 +18,7 @@ Pinned CLI: {{cli}}
 When the skill reaches its end, write Kiln's report as JSON at {{reportPath}} (relative to the
 PRD repository), commit and push it with everything else, then submit it with the pinned CLI:
 `audit submit <file>`, where <file> holds {"executionId","activityId","revision","reportPath"}.
-Read the current revision with `audit status`. Inspect the response: recorded means you
+Read the current revision with `audit status`.{{deliveryStep}} Inspect the response: recorded means you
 are done; unresolved names exactly what to correct before submitting again.
 
 The report has these fields and nothing else is required:

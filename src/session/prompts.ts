@@ -313,8 +313,11 @@ function authorizedPhase(prompt: string, authority?: string): string {
     .replace(/(You're finished when[^\n]+)(\n|$)/, "$1 Required development-delivery assessment, merge, deployment, verification and source synchronization must also pass Kiln’s current evidence checks.$2") + "\n\n" + authorityBlock(authority);
 }
 
+/** With development delivery on, an audit owns an assessment of its own that the report cannot carry; without one its submission is refused. */
+const AUDIT_DELIVERY_STEP = " Before submitting, record this audit's development-delivery assessment with `kiln delivery assess`, as the development authority below describes; Kiln refuses the report until a current one exists.";
+
 export function auditSessionPrompt(values: { label: string; skillName: string; skillPath: string; executionId: string; activityId: string; round: number; continuationIndex: number; reportPath: string; prdFile: string; repositories: PromptRepository[]; branch: string; cli: string; deliveryAuthority?: string | undefined; previous?: string; outstanding?: string }): string {
-  return fill(template("audit-session.txt"), { ...values, outstanding: values.outstanding || "None.", round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ?? "No development merge or deployment is authorized.", previous: values.previous ?? "No prior audit result." });
+  return fill(template("audit-session.txt"), { ...values, outstanding: values.outstanding || "None.", round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ? authorityBlock(values.deliveryAuthority) : "No development merge or deployment is authorized.", deliveryStep: values.deliveryAuthority ? AUDIT_DELIVERY_STEP : "", previous: values.previous ?? "No prior audit result." });
 }
 
 export function preparationPrompt(values: { phaseId: string; featureName: string; branch: string; bindings: string; cli: string; executionId: string; recovery: string }): string { return fill(template("preparation-session.txt"), values); }

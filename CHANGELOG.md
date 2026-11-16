@@ -34,6 +34,9 @@ section to the new version.
 
 ### Fixed
 
+- **Audits with early merges on no longer stop on "needs a current development-delivery
+  assessment".** The audit session was never told to record that assessment, so its report
+  was refused until a person marked the audit complete.
 - **A phase split midway no longer stops Kiln once it is done.** When a phase's own session
   split it and built the first sub-phase, a later phase's edits to the shared PRD or design
   could stop Kiln on that sub-phase with "Phase N needs a current development-delivery

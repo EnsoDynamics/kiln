@@ -134,6 +134,18 @@ describe("the prompts", () => {
     expect(carried).toContain("Items earlier audits left for a person (outstanding):\n- item-1 (listed by Delivery audit round 1): Decide the names. Amend the PRD.\n\nPrior accepted work:");
     expect(prompt).toContain("Never write \"passed\" to finish");
     for (const method of ["red check", "test-audit.md", "Added by", "kiln-assessment", "audit snapshot", "independent assessment"]) expect(prompt).not.toContain(method);
+    expect(prompt).toContain("No development merge or deployment is authorized.");
+    expect(prompt).not.toContain("kiln delivery assess");
+  });
+
+  it("tells an audit with development delivery on to record its own assessment before submitting", () => {
+    const authority = JSON.stringify({ executionId: "e", owner: { kind: "audit", activityId: "a" } });
+    const prompt = auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/s", executionId: "e", activityId: "a", round: 1, continuationIndex: 1, reportPath: "r.json", prdFile: "p.md", repositories: [], branch: "b", cli: "kiln", deliveryAuthority: authority }).replace(/\s+/g, " ");
+    expect(prompt).toContain("Before submitting, record this audit's development-delivery assessment with `kiln delivery assess`");
+    // The full delivery instructions, including the audit owner's rules, not the bare authority JSON alone.
+    expect(prompt).toContain("For an assigned audit, status identifies `owner: {kind: audit, activityId}`");
+    expect(prompt).toContain('"activityId":"a"');
+    expect(prompt).not.toContain("{{deliveryStep}}");
   });
 });
 
