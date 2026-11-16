@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "5d92788b-57fe-49c0-97d1-d8b8e497385c",
+  "activityId": "6731f34c-4478-4aa9-9418-647a21e8277b",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "This repair delivery audit checked Phase 5 and re-read the five criteria that run through the files it changed (AC-TEST-02, AC-STOP-01, AC-STOP-02, AC-STOP-03, AC-DELIV-01) at commit 7b122c1. Phase 5's repairs are built: only a test audit's own admitted needs_you report becomes a test loop stop, and Reply shows there. Four rounds of fresh assessors ran and still turned up new missing parts in the fourth. AC-STOP-01 and AC-STOP-02 are partly built. At a test loop stop, a session started by Accept what is left and deliver is folded into the loop line before it instead of getting its own line. Before a recheck at a needs_you test loop stop, the page leaves out the unusable Mark complete button. After a takeover of a test audit whose needs_you report arrives with no test loop left, the browser shows the takeover hand-back page instead of the loop page and its Allow and Accept controls. Phase 6 was added to build all three.",
+  "completionPhases": ["6"],
+  "needsYou": [],
+  "settled": []
+}
