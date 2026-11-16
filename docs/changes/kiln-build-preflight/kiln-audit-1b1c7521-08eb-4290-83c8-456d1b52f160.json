@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "02e9c31c-53e8-4214-a667-1f0a54efe62e",
+  "activityId": "1b1c7521-08eb-4290-83c8-456d1b52f160",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Test audit of the whole Kiln Build Preflight PRD at a9d64fe graded the 10 criteria in force. AC-ATTEND-01, -03 and -04 are Adequate, and a red check on each turned its test red. Seven criteria are Weak: AC-PREFLIGHT-08, -01, -03, -02, -06, -05 and AC-ATTEND-05. The main gaps are the Folder missing Start paths, Documents found placement of the Preflight row, a finished preflight's session detail, the worktree-unchanged proof, the Codex no-skill case and the early-merge warning's visual separation. None is high risk and none is a delivery gap. The gaps and fixes are recorded in test-audit.md for the fixing sessions.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}
