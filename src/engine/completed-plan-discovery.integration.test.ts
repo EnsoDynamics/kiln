@@ -20,8 +20,8 @@ afterEach(async () => { await server?.close(); server = undefined; await h?.clea
 const folder = "comet-library"; const directory = `docs/prds/${folder}`;
 const phase = "# Phase 1: Catalog\n\n**Closed:** 2026-10-01\n\n## Acceptance criteria covered\nAC-COMET-01\n";
 const newPhase = "# Phase 9: Lending\n\n## Acceptance criteria covered\nAC-COMET-01\n\n## Phase dependencies\n1.\n";
-async function fixture(retained = true) {
-  h = await createHarness({ folder, auditCycles: true, sessions: [], logGit: true, files: { "comet-prd.md": "# PRD: Comet\n\n## Acceptance Criteria\n\n- [ ] **AC-COMET-01** Find books.\n", "comet-technical-design.md": "# Design\nCatalog.\n", "phase-1-catalog.md": phase } });
+async function fixture(retained = true, phaseDocument = phase) {
+  h = await createHarness({ folder, auditCycles: true, sessions: [], logGit: true, files: { "comet-prd.md": "# PRD: Comet\n\n## Acceptance Criteria\n\n- [ ] **AC-COMET-01** Find books.\n", "comet-technical-design.md": "# Design\nCatalog.\n", "phase-1-catalog.md": phaseDocument } });
   git(h.sandbox, h.repository, "config", `url.${h.origin}.insteadOf`, "https://github.com/acme/acme-shop.git");
   git(h.sandbox, h.repository, "remote", "set-url", "origin", "https://github.com/acme/acme-shop.git");
   const source = observePlan(h.repository, directory); const revision = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
@@ -141,6 +141,16 @@ it("recovers legacy scope only from recorded immutable completion and survives d
   add(); publish();
   expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { added: [{ id: "9" }] } });
   expect(h.engine.record.planReconciliation?.baselineId).toMatch(/^[a-f0-9]{64}$/);
+  expect(h.claudeCalls()).toEqual([]);
+});
+it("recovers legacy scope for a record saved before Kiln read the Attended and Early merge lines (build preflight AC-ATTEND-04)", async () => {
+  await fixture(false, "# Phase 1: Catalog\n\n**Closed:** 2026-10-01\n**Early merge:** develop, for AC-COMET-01\n**Attended:** Approve the catalog feed in the vendor console.\n\n## Acceptance criteria covered\nAC-COMET-01\n");
+  // A schema-21 Kiln saved the plan without the display-only fields.
+  expect(h.engine.record.plan![0]).toMatchObject({ earlyMerge: "develop, for AC-COMET-01", attended: "Approve the catalog feed in the vendor console." });
+  h.engine.record.plan = h.engine.record.plan!.map(({ id, title, file, closed, repositories }) => ({ id, title, file, closed, repositories }));
+  writePrdRecord(h.stateDirectory, h.engine.record);
+  add(); publish();
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { added: [{ id: "9" }] } });
   expect(h.claudeCalls()).toEqual([]);
 });
 it("recovers nested split completion using the original parent's receipt", async () => {

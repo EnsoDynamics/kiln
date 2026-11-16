@@ -13,6 +13,10 @@ export interface PlannedPhase {
   closed: boolean;
   /** The repositories its `**Repositories:**` line names (multi-repo AC-REPO-01). */
   repositories: string[];
+  /** The `**Attended:**` line's text, when the document has one (build preflight AC-ATTEND-01). Display only. */
+  attended?: string;
+  /** The `**Early merge:**` line's text, when the document has one (AC-ATTEND-05). Display only. */
+  earlyMerge?: string;
   /** Child ids in `## Split into` order, for a split record; undefined for a leaf. */
   splitInto: string[] | undefined;
   citedCriteria: string[];
@@ -100,6 +104,8 @@ function toPlannedPhase(document: PhaseDocument): PlannedPhase {
     title: document.title,
     closed: document.closed,
     repositories: document.repositories,
+    ...(document.attended === undefined ? {} : { attended: document.attended }),
+    ...(document.earlyMerge === undefined ? {} : { earlyMerge: document.earlyMerge }),
     splitInto: document.splitInto?.map((row) => row.id),
     citedCriteria: document.citedCriteria,
     dependenciesText: document.dependenciesText,

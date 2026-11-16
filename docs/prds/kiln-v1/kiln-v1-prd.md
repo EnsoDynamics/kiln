@@ -224,6 +224,7 @@ The person can see how far Kiln has got, what the current session is doing, and 
   - Superseded in part by: AC-WAIVE-10 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (a phase completed on a waiver, without passing the done check, is listed as complete with "N check(s) waived" beside it).
   - Superseded in part by: AC-GONE-02 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (while a folder is missing, the page shows Folder missing, and earlier phase results appear only as history).
   - Superseded in part by: AC-PREFLIGHT-08 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Preflight row in the plan, the header naming the preflight while it runs, and both drawn on screens the mockups predate).
+  - Superseded in part by: AC-ATTEND-01 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Needs you there marker beside a marked phase's name).
 
   | State | When | The row also shows |
   |---|---|---|
@@ -378,6 +379,7 @@ The v1 mockups are the design of record.
   - Superseded in part by: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (Documents found with Start from, the three stopped-phase pages and the held page AC-CARRY-06 changes, and the reset line on every screen; the rest of each layout remains).
   - Superseded in part by: AC-NEWER-03 in `docs/changes/kiln-newer-version-notice/kiln-newer-version-notice-prd.md` (the top bar's newer version pill and panel follow that PRD's mockup).
   - Superseded in part by: AC-PREFLIGHT-08 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Preflight row in the plan, the header naming the preflight while it runs, and both drawn on screens the mockups predate).
+  - Superseded in part by: AC-ATTEND-01 and AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Needs you there marker beside a marked phase's name on Documents found and the phase plan, and the planned-as-needing-you card on both Needs you screens).
 - [ ] **AC-LOOK-02 — The feature name identifies every browser screen.** The feature name is the largest text except on Phase detail, where it is compact context and the phase title is largest. Phase detail has a clearly outlined back link with a comfortable click target.
   - Superseded in part by: AC-PAGE-02 in [Kiln Needs you handoff](../../changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md) (the phase-focused Needs you headline; feature identity stays visible).
 - [ ] **AC-LOOK-03 — Phase numbers and titles stay put.** Phase titles come from the phase documents word for word. A phase's number stays in its circle in every state.

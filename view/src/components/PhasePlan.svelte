@@ -9,6 +9,7 @@
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
   import DetailsList from "./DetailsList.svelte";
+  import NeedsYouThere from "./NeedsYouThere.svelte";
   import WaivedStatus from "./WaivedStatus.svelte";
   import type { IconName } from "./Icon.svelte";
   import PhaseCircle, { type CircleTone } from "./PhaseCircle.svelte";
@@ -44,9 +45,10 @@
       {@const accessible = Boolean(row.details) || snapshot.current?.phaseId === row.id || ((snapshot.needsYou?.sessionId || snapshot.waiting?.sessionId) && (snapshot.needsYou?.phaseId === row.id || snapshot.waiting?.phaseId === row.id))}
       {@const link = phasePath(config.base, row.id)}
       <li data-phase={row.id}>
+        {#snippet title()}{#if accessible}<a class="title phase-link" href={link} onclick={(event) => routedClick(event, router, link)}>{row.title}<span aria-hidden="true"></span></a>{:else}<span class="title" class:quiet={state === "planned"}>{row.title}</span>{/if}{/snippet}
         <div class="row">
           <PhaseCircle id={circleId(row)} tone={look.circle} />
-          <span class="names">{#if accessible}<a class="title phase-link" href={link} onclick={(event) => routedClick(event, router, link)}>{row.title}<span aria-hidden="true"></span></a>{:else}<span class="title" class:quiet={state === "planned"}>{row.title}</span>{/if}{#if row.file}<span class="file mono">{row.file}</span>{/if}</span>
+          <span class="names">{#if row.attended !== undefined}<span class="title-line">{@render title()}<NeedsYouThere text={row.attended} /></span>{:else}{@render title()}{/if}{#if row.file}<span class="file mono">{row.file}</span>{/if}</span>
           <span class="state">
             {#if facts}<span class="facts">{facts}</span>{/if}
             <Pill tone={look.pill} icon={look.icon} spin={state === "implementing"}>{rowPill(row, state, opened)}</Pill>
@@ -75,6 +77,7 @@
   .phase-link { text-decoration: none; }
   .phase-link:hover { color: var(--red); text-decoration: underline; }
   .phase-link > span::after { content: " ›"; color: var(--red); }
+  .title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
   .file { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
   .state { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
   .restart-review .state { max-width: 100%; }

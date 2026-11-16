@@ -177,6 +177,8 @@ Superseded in part by: [Kiln Continue Added Phases — active handback](../../ch
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Named in the phase documents (a `**Repositories:**` line is read)
 
+Superseded in part by: [Kiln Build Preflight technical design](../../changes/kiln-build-preflight/kiln-build-preflight-technical-design.md), §Phase Document Lines (two more preamble lines, `**Attended:**` and `**Early merge:**`, read as display facts).
+
 Kiln reads the plan the way `phase-split` writes it, and nothing older (proposal, "Never").
 
 - **Documents.** In the PRD directory: `<folder name>-prd.md`, `technical-design.md` or `<folder name>-technical-design.md`, optional `assumptions.md` or `<folder name>-assumptions.md`, and every `phase-*.md`. A document under both names is a start-check problem, since Kiln can't tell which one is meant. Before the worktree exists Kiln reads them in the checkout the path is in; after, in the worktree only (AC-RUN-01).

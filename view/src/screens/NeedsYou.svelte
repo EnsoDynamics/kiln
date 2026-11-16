@@ -52,6 +52,7 @@
   import FreshTerminalCard from "../components/FreshTerminalCard.svelte";
   import NothingToCheck from "../components/NothingToCheck.svelte";
   import PreflightStop from "../components/PreflightStop.svelte";
+  import AttendedCard from "../components/AttendedCard.svelte";
   import { activityKeyKind } from "../../../src/state/activity-keys.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
@@ -163,6 +164,7 @@
   <PreflightStop {snapshot} />
   {:else if stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn)}
   <div class="restart">
+    {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
     <div class="headline">
       <h2>{restart?.headline ?? copy.headline}</h2>
       <p class="line">{restart?.line ?? copy.line}</p>
@@ -197,6 +199,7 @@
   {:else}
   <div class="columns-main">
     <div class="column-wide">
+      {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
       <section class="card ended">
         <div class="headline">
           {#if limitCopy}

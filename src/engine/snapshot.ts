@@ -23,7 +23,7 @@ import { readFileSync } from "node:fs";
 import { effortLevelsFor } from "../account/model-list.js";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
-import { leavesOf, type PhasePlan } from "../plan/phase-plan.js";
+import { leavesOf, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { auditRecoveryPrompt, codexSessionPrompt, freshSessionPrompt, pullRequestSessionPrompt, resumePrompt } from "../session/prompts.js";
 import { readOutputLines } from "../session/claude-session.js";
 import { runTiming, type Timing } from "../session/timing.js";
@@ -39,7 +39,7 @@ import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-s
 import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
-import { isPreflightKey } from "../state/activity-keys.js";
+import { isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
 import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
 export const PR_TITLE = "Final pull request";
@@ -124,8 +124,11 @@ export interface DocumentsFound {
     phaseDocCount: number;
     leafCount: number;
     closedCount: number;
-    /** `repositories`: the names on each document's `**Repositories:**` line (multi-repo AC-REPO-03). */
-    phases: { id: string; title: string; splitInto?: string[]; closed: boolean; repositories: string[] }[];
+    /**
+     * `repositories`: the names on each document's `**Repositories:**` line (multi-repo AC-REPO-03);
+     * `attended` and `earlyMerge`: its `**Attended:**` and `**Early merge:**` lines' text (build preflight AC-ATTEND-01, AC-ATTEND-05).
+     */
+    phases: { id: string; title: string; splitInto?: string[]; closed: boolean; repositories: string[]; attended?: string; earlyMerge?: string }[];
   };
   /** Links in the requirements Kiln won't follow, when there are any: neither a passed nor a failed check (Kiln Linked Documents AC-LINK-04). */
   unfollowedLinks?: { target: string; from: string; reason: string }[];
@@ -179,6 +182,8 @@ export interface PhaseView {
   file: string;
   state: "planned" | "next" | "implementing" | "needs_you" | "waiting" | "done" | "split";
   splitInto?: string[];
+  /** The phase document's `**Attended:**` text, closed or not (build preflight AC-ATTEND-01): the Needs you there marker. */
+  attended?: string;
   sessionStartedAt?: string;
   timing?: Timing;
   doneAt?: string;
@@ -431,6 +436,8 @@ export interface Snapshot {
      * the phase's own or, `finishedBy`, a split ancestor's that built it, and its one failing item is the assessment.
      */
     bookkeeping?: { finishedBy: string };
+    /** The stopped phase's `**Attended:**` text (build preflight AC-ATTEND-03): the planned-as-needing-you card. */
+    attended?: string;
     /** A preflight stop's headline, its items in the session's order and the activity it came before (build preflight "Display Contract"). */
     preflight?: { headline: string; items: string[]; nextActivity: { kind: "phase" | "audit" | "final_delivery"; key?: string; title: string }; line: string };
   };
@@ -650,6 +657,11 @@ function livePanel(stored: import("./folder-setup.js").SetupPanel, engine: Engin
   return { ...panel, fieldErrors: { ...fieldErrors, ...(model.error ? { model: model.error } : {}) }, effortLevels: model.effortLevels, ...(model.efforts ? { efforts: model.efforts } : {}), ...(busy ? { busy } : {}) };
 }
 
+/** A plan phase as Documents found lists it. */
+function documentsPhase(phase: PlannedPhase): NonNullable<DocumentsFound["plan"]>["phases"][number] {
+  return { id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories, ...optional("attended", phase.attended), ...optional("earlyMerge", phase.earlyMerge) };
+}
+
 function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
   return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
 }
@@ -744,6 +756,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     // A bookkeeping stop has no session to restart or carry on: the work is done.
     ...(bookkeeping ? { bookkeeping } : restartFacts(engine, phaseKey, checkRun)),
     ...preflightStopFacts(engine, phaseKey),
+    // Only a phase carries the line; an audit, preflight or final delivery stop never shows the card.
+    ...optional("attended", isPhaseKey(phaseKey) ? plan.find(phase => phase.id === judged)?.attended : undefined),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
   // Resume, reply and the terminal command read the latest conversation, or the latest launch when none began (run restart "A session record with no run").
@@ -1102,7 +1116,7 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
   const currentRow = engine.current ? judgedKeyFor(plan, engine.current.phaseKey) : undefined;
 
   const rows: PhaseView[] = plan.map((phase) => {
-    const base = { id: phase.id, title: phase.title, file: phase.file, finishedByPerson: false };
+    const base = { id: phase.id, title: phase.title, file: phase.file, finishedByPerson: false, ...optional("attended", phase.attended) };
     if (phase.splitInto !== undefined) return { ...base, state: "split" as const, splitInto: phase.splitInto };
     const key = factsByRow.get(phase.id);
     const facts = key === undefined ? undefined : record.phases[key];
@@ -1191,7 +1205,7 @@ export function documentsFound(
       phaseDocCount: found.phaseDocCount,
       leafCount: leaves.length,
       closedCount: leaves.filter((leaf) => leaf.closed).length,
-      phases: plan.phases.map((phase) => ({ id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories })),
+      phases: plan.phases.map(documentsPhase),
     },
     // One row per document and target: two links from one document to one file (a section link) are one row.
     ...(found.unfollowedLinks?.length ? { unfollowedLinks: found.unfollowedLinks.filter((link, index, all) => all.findIndex(other => other.from === link.from && other.target === link.target) === index).map(link => ({ target: link.target, from: link.from, reason: link.reason })) } : {}),
@@ -1233,7 +1247,7 @@ export function startCheckDocuments(prdDirectory: string, folderName: string, re
     prd: { file: prdFile, criteriaCount: criteria.count, ...optional("firstLabel", criteria.firstLabel), ...optional("lastLabel", criteria.lastLabel) },
     ...(design !== undefined ? { design: { file: report.found.designFile!, criteriaCited: countDesignCitations(design, criteria.labels) } } : {}),
     assumptions: assumptions !== undefined ? { file: report.found.assumptionsFile!, ...countAssumptions(assumptions) } : null,
-    ...(plan ? { plan: { phaseDocCount: report.found.phaseDocCount, leafCount: leaves.length, closedCount: leaves.filter(leaf => leaf.closed).length, phases: plan.phases.map(phase => ({ id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories })) } } : {}),
+    ...(plan ? { plan: { phaseDocCount: report.found.phaseDocCount, leafCount: leaves.length, closedCount: leaves.filter(leaf => leaf.closed).length, phases: plan.phases.map(documentsPhase) } } : {}),
     ...(report.found.unfollowedLinks?.length ? { unfollowedLinks: report.found.unfollowedLinks.filter((link, index, all) => all.findIndex(other => other.from === link.from && other.target === link.target) === index).map(link => ({ target: link.target, from: link.from, reason: link.reason })) } : {}),
     checks: [
       ...(plan ? [{ name: "Every phase cites its criteria", passed: true }, { name: "Dependencies point backward", passed: true }] : []),

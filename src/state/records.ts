@@ -250,6 +250,10 @@ export interface RecordedPlanPhase {
   closed: boolean;
   /** The names on the document's `**Repositories:**` line; empty when it has none. */
   repositories: string[];
+  /** The `**Attended:**` line's text (build preflight, schema 22). Display only: nothing that orders, starts or stops work reads it. */
+  attended?: string;
+  /** The `**Early merge:**` line's text (build preflight, schema 22). Display only. */
+  earlyMerge?: string;
 }
 
 export type RepositoryKind = "prd" | "named" | "added";

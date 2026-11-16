@@ -6314,7 +6314,7 @@ export class Engine {
       if (readable.length) return readable;
     } catch { /* Unreadable: the recorded plan is the order source. */ }
     const directory = join(this.worktreePath, ...this.paths.prdDirectoryFromRoot.split("/"));
-    return (this.record.plan ?? []).filter(phase => existsSync(join(directory, phase.file))).map(phase => ({ id: phase.id, fileName: phase.file, title: phase.title, closed: phase.closed, repositories: phase.repositories, splitInto: phase.splitInto, citedCriteria: [], dependenciesText: undefined }));
+    return (this.record.plan ?? []).filter(phase => existsSync(join(directory, phase.file))).map(phase => ({ id: phase.id, fileName: phase.file, title: phase.title, closed: phase.closed, repositories: phase.repositories, ...(phase.attended === undefined ? {} : { attended: phase.attended }), ...(phase.earlyMerge === undefined ? {} : { earlyMerge: phase.earlyMerge }), splitInto: phase.splitInto, citedCriteria: [], dependenciesText: undefined }));
   }
 
   /** The leaves a Closed-line item is judged against: the plan as read, else the order source. */
