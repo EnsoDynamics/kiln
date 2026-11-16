@@ -267,7 +267,7 @@ describe("kiln run on a feature underway", () => {
     const modelCalls = h.claudeCalls().length;
     const completedAt = h.engine.record.completedAt;
     const pullRequests = structuredClone(h.engine.record.pullRequests);
-    const result = await kilnRunUntil(h, (stdout) => stdout.includes("Plan needs reconciliation."), async () => {
+    const result = await kilnRunUntil(h, (stdout) => stdout.includes("Merge it, then check again."), async () => {
       await waitFor(() => readPrdRecord(h.stateDirectory)?.deliveryHistory !== undefined, 10_000);
       const record = readPrdRecord(h.stateDirectory)!;
       expect(record.completedAt).toBe(completedAt);
@@ -275,11 +275,11 @@ describe("kiln run on a feature underway", () => {
       expect(record.deliveryHistory?.repositories[0]?.workCommitCount).toBe(3);
     });
     const lines = result.stdout.trimEnd().split("\n");
-    // The shared/base documents still have the earlier unfinished scope. FIND-01/04
-    // replace the unconditional PR-ready conclusion with a current-source limitation.
+    // The pull request is still open and develop's copy of the PRD folder is unchanged since the
+    // branch forked, so the check reports the feature as waiting for its merge, not a plan to reconcile.
     expect(lines[0]).toBe("Customer returns  ·  4 of 4 phases done  ·  earlier delivery complete; current plan checked");
-    expect(lines[1]).toContain("Plan needs reconciliation. The current phase count is unresolved.");
-    expect(lines[1]).toContain("Phase 1: previously completed scope");
+    expect(lines[1]).toContain("The feature is complete. Its work is on feature/customer-returns (pull request #218), which is not in origin/develop yet");
+    expect(lines[1]).not.toContain("Plan needs reconciliation");
     expect(lines[1]).not.toContain("No new phases found");
     expect(lines[1]).toMatch(new RegExp(`${opened}$`));
     expect(lines[2]).toBe("Kiln stopped. Customer returns is complete.");
