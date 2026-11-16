@@ -157,9 +157,10 @@ export function carryOnPrompt(values: CarryOnPromptValues): string {
 const INTERRUPT_CAUSES = { sigint: "Ctrl+C", sighup: "the terminal closed", sigterm: "Kiln was stopped", sleep: "the computer slept" } as const;
 
 export interface AuditRecoveryTask { instructions?: string; label: string; prdFile: string; activityId: string; round: number; reportPath: string; skillPath: string; lastRefusal?: { at: string; text: string } }
+/** The audit's own prompt, in `instructions`, already carries the development authority block; it is added here only without one. */
 export function auditRecoveryPrompt(task: AuditRecoveryTask, deliveryAuthority?: string): string {
   const values = { label: task.label, prdFile: task.prdFile, activityId: task.activityId, round: String(task.round), reportPath: task.reportPath, skillPath: task.skillPath };
-  return [fill(template("resume-carry-on-audit.txt"), values), ...(task.lastRefusal ? [fill(template("resume-audit-refusal.txt"), { at: task.lastRefusal.at, refusal: task.lastRefusal.text })] : []), ...(task.instructions ? [task.instructions] : []), ...(deliveryAuthority ? [authorityBlock(deliveryAuthority)] : [])].join("\n\n");
+  return [fill(template("resume-carry-on-audit.txt"), values), ...(task.lastRefusal ? [fill(template("resume-audit-refusal.txt"), { at: task.lastRefusal.at, refusal: task.lastRefusal.text })] : []), ...(task.instructions ? [task.instructions] : []), ...(deliveryAuthority && !task.instructions ? [authorityBlock(deliveryAuthority)] : [])].join("\n\n");
 }
 
 export interface ResumePromptValues {
@@ -221,7 +222,8 @@ export function resumePrompt(values: ResumePromptValues): string {
         : fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
       : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc, place: values.multiRepository ? "workspace" : "worktree" });
   const before = [...(values.note === undefined ? [] : [fill(template("resume-note.txt"), { note: values.note })]), ...(values.outside === undefined ? [] : [values.outside])];
-  return [...before, ...(values.deliveryAuthority ? [authorityBlock(values.deliveryAuthority)] : []), `${opening} ${carryOn}`, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
+  // An audit task's instructions already carry the authority block.
+  return [...before, ...(values.deliveryAuthority && !values.auditTask?.instructions ? [authorityBlock(values.deliveryAuthority)] : []), `${opening} ${carryOn}`, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
 }
 
 /** A checkout outside the workspace that a session changed, as the prompt names it. */

@@ -146,6 +146,13 @@ describe("the prompts", () => {
     expect(prompt).toContain("For an assigned audit, status identifies `owner: {kind: audit, activityId}`");
     expect(prompt).toContain('"activityId":"a"');
     expect(prompt).not.toContain("{{deliveryStep}}");
+    // Recovery and resume embed the audit's own prompt as instructions: the step stays, and the block appears once.
+    const task = { label: "Delivery audit", prdFile: "p.md", activityId: "a", round: 1, reportPath: "r.json", skillPath: "/s", instructions: auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/s", executionId: "e", activityId: "a", round: 1, continuationIndex: 1, reportPath: "r.json", prdFile: "p.md", repositories: [], branch: "b", cli: "kiln", deliveryAuthority: authority }) };
+    const marker = "For an assigned audit, status identifies";
+    for (const resumed of [auditRecoveryPrompt(task, authority), resumePrompt({ time: "2026-11-15T20:00:00Z", endedOnItsOwn: true, deliveryAuthority: authority, auditTask: task })]) {
+      expect(resumed).toContain("kiln delivery assess");
+      expect(resumed.split(marker)).toHaveLength(2);
+    }
   });
 });
 
