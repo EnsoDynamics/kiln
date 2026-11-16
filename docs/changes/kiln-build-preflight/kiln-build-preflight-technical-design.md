@@ -226,7 +226,7 @@ Timestamps are UTC ISO 8601.
 
 ## Upgrade
 
-Schema 22 is additive: `preflight`, the new kind values, and `attended` and `earlyMerge` on the recorded plan. A schema-21 record migrates with no preflight state, so its preflight is not settled and the next Resume runs one (AC-PREFLIGHT-01). Schema-21 readers refuse schema 22 under the existing newer-schema rule.
+Schema 23 is additive: `preflight`, the new kind values, and `attended` and `earlyMerge` on the recorded plan. (Audit loop limits took schema 22 first; this PRD's state follows it.) A schema-22 record, or any earlier one, migrates with no preflight state, so its preflight is not settled and the next Resume runs one (AC-PREFLIGHT-01). Schema-22 readers refuse schema 23 under the existing newer-schema rule.
 
 ## Integration Points
 

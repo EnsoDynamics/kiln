@@ -76,7 +76,7 @@ describe("the engine from Start to the pull request", () => {
       expect(call.cwd).toBe(worktree);
       expect(call.args).toEqual([
         "-p", "--input-format", "stream-json", "--session-id", call.args[4],
-        "--model", "opus", "--effort", "high",
+        "--model", "opus", "--effort", "medium",
         "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--forward-subagent-text",
         "--permission-mode", "auto", "--permission-prompts", "none",
         // Multi-repo design, "Sessions": no PowerShell tool, so every shell command is one Stayed in the workspace reads.
@@ -128,7 +128,7 @@ describe("the engine from Start to the pull request", () => {
     expect(record.phases["3"]!.repositories["acme-shop"]!.pushedSha).toBe(originTip(h, "feature/customer-returns"));
     expect(record.phases["1"]!.repositories["acme-shop"]!.commitCount).toBe(1);
     const session = h.engine.latestSession("1")!;
-    expect(session).toMatchObject({ model: "opus", initModel: "claude-opus-5-5", modelDisplayName: "Opus 5.5", effort: "high", permissionMode: "auto" });
+    expect(session).toMatchObject({ model: "opus", initModel: "claude-opus-5-5", modelDisplayName: "Opus 5.5", effort: "medium", permissionMode: "auto" });
     expect(session.runs).toHaveLength(1);
     expect(session.runs[0]).toMatchObject({ cause: "launch", exitCode: 0, result: { subtype: "success", isError: false, text: "Phase landed." } });
     expect(session.steps.map((step) => step.name)).toEqual(["Build", "Deliverable review", "Commit", "Refactor pass", "Push"]);
@@ -155,7 +155,7 @@ describe("the engine from Start to the pull request", () => {
       ["pr", "done"],
     ]);
     expect(snapshot.phases.find((phase) => phase.id === "2a")?.details).toBeUndefined();
-    expect(snapshot.phases[0]!.details).toMatchObject({ model: "Opus 5.5", effort: "high", branch: "feature/customer-returns", commitCount: 1 });
+    expect(snapshot.phases[0]!.details).toMatchObject({ model: "Opus 5.5", effort: "medium", branch: "feature/customer-returns", commitCount: 1 });
     // AC-PR-04, AC-PR-05: the Complete screen's pull request, from the record, and the pull-request session's own row.
     expect(snapshot.pullRequests).toEqual(record.pullRequests);
     expect(snapshot.pullRequests?.[0]).toMatchObject({ repository: "acme-shop", number: 218, url: expect.stringMatching(/\/pull\/218$/), head: "feature/customer-returns", base: "develop" });
@@ -243,7 +243,7 @@ describe("the snapshot while a phase works", () => {
       phaseId: "1",
       sessionId: session.sessionId,
       model: "Opus 5.5",
-      effort: "high",
+      effort: "medium",
       startedAt,
       seenInSession: { text: "first git commit seen" },
       latestLine: { text: "Carrying on with the intake form." },
@@ -263,12 +263,12 @@ describe("the snapshot while a phase works", () => {
     expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet", effort: "max" })).toEqual({ ok: true });
     const changed = buildSnapshot(h.engine);
     expect(changed.settings).toMatchObject({ model: { value: "sonnet" }, effort: "max" });
-    expect(changed.current).toMatchObject({ model: "Opus 5.5", effort: "high" });
+    expect(changed.current).toMatchObject({ model: "Opus 5.5", effort: "medium" });
 
     writeFileSync(release, "");
     await h.engine.settled();
     const done = buildSnapshot(h.engine).phases[0]!;
-    expect(done).toMatchObject({ state: "done", details: { model: "Opus 5.5", effort: "high", sessionId: session.sessionId } });
+    expect(done).toMatchObject({ state: "done", details: { model: "Opus 5.5", effort: "medium", sessionId: session.sessionId } });
     expect(h.engine.latestSession("2b")).toMatchObject({ model: "sonnet", effort: "max" });
   });
 });
@@ -325,7 +325,7 @@ describe("a phase that doesn't land", () => {
     expect(snapshot.needsYou!.freshSessionPrompt).toContain("A previous session stopped partway through this phase; check the worktree's state before you start.");
     expect(snapshot.phases.find((phase) => phase.id === "1")?.state).toBe("needs_you");
     // Full session output identifies the stopped session, with the phase's commits read from Git (AC-WATCH-06, AC-WATCH-10).
-    expect(snapshot.needsYou).toMatchObject({ sessionId: session.sessionId, model: session.modelDisplayName, effort: "high", sessionStartedAt: session.runs[0]!.startedAt });
+    expect(snapshot.needsYou).toMatchObject({ sessionId: session.sessionId, model: session.modelDisplayName, effort: "medium", sessionStartedAt: session.runs[0]!.startedAt });
     const head = git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim();
     expect(snapshot.needsYou!.repositories).toEqual([{ name: "acme-shop", commits: [{ sha: head, subject: "feat: intake" }] }]);
     // The stopped row's Details, drawn on the Disconnected layout, has the same commits (AC-WATCH-01).

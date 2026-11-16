@@ -35,6 +35,8 @@ Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Audits Marked Complete (a waived audit routes by its counted outcome).
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Gate (completion phases an audit appended and a saved test continuation start only through the loop gate while a loop of that kind is left; otherwise the run holds at a loop stop).
+
 Every startup, loop continuation, session settlement, Check again and Resume uses one next-activity decision. Evaluate outstanding workspace, plan and required development evidence first. Then select the first applicable row:
 
 | Current facts | Next work |
@@ -206,6 +208,8 @@ Superseded in part by: [Kiln method-neutral completion audits](../kiln-method-ne
 Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-control/kiln-live-session-control-technical-design.md) — manual takeover audit evaluation/acceptance and durable hold semantics; ordinary automatic recovery remains.
 
 Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Display Contract (completion-phase and test audit rows that are part of a loop also show **loop N of M** or **last loop**, and the loop in their detail).
 
 Expose a unified `activities` projection in the snapshot, retaining `phases` for plan details/counts. Rows include activity identity, kind, display label, round/continuation, state, timing, session details, result summary and checks. Started rows follow monotonic execution sequence; pending plan leaves follow them in plan order. Added completion phases appear after the audit that added them. Split parents keep their existing relationships and details, without counting audits as phases.
 

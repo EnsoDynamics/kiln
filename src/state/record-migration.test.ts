@@ -81,7 +81,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(22);
+    expect(SCHEMA_VERSION).toBe(23);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -152,12 +152,32 @@ describe("schema 19: completion waivers (waivers technical design, Upgrade)", ()
   });
 });
 
-describe("schema 22: the build preflight's state (build preflight \"Upgrade\")", () => {
-  it("migrates a schema 21 record with no preflight state, so its preflight is not settled, and refuses malformed preflight state", () => {
+describe("schema 22: audit loop limits (Kiln Audit Loop Limits AC-LOOP-07, Upgrade)", () => {
+  it("gives a record not started the defaults, and a started one limits 3 and 3 under Always stop and ask me, applied by Kiln", () => {
+    const notStarted = migrateRecord(schemaOne({}));
+    notStarted.schemaVersion = 21; delete notStarted.settings.auditLoops;
+    expect(migrateRecord(notStarted).settings.auditLoops).toEqual({ deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" });
+    const started = migrateRecord(schemaOne({ startedAt: "2026-11-01T10:00:00Z", setupCompletedAt: "2026-11-01T10:00:00Z" }));
+    started.schemaVersion = 21; delete started.settings.auditLoops;
+    const migrated = migrateRecord(started);
+    expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 3, testLimit: 3, afterLastTest: "stop_and_ask", afterLastTestSource: { kind: "kiln_for_earlier_run" } });
+    expect(migrated.auditLoops).toBeUndefined();
+    expect(migrated.schemaVersion).toBe(23);
+  });
+
+  it("refuses malformed loop settings rather than clamping them", () => {
+    const record = migrateRecord(schemaOne({}));
+    record.settings.auditLoops = { deliveryLimit: 0, testLimit: 3, afterLastTest: "deliver_unless_serious" };
+    expect(() => migrateRecord(record)).toThrow("Malformed audit loop settings.");
+  });
+});
+
+describe("schema 23: the build preflight's state (build preflight \"Upgrade\")", () => {
+  it("migrates a schema 22 record with no preflight state, so its preflight is not settled, and refuses malformed preflight state", () => {
     const old = migrateRecord(schemaOne({}));
-    old.schemaVersion = 21;
+    old.schemaVersion = 22;
     const migrated = migrateRecord(old);
-    expect(migrated.schemaVersion).toBe(22);
+    expect(migrated.schemaVersion).toBe(23);
     expect(migrated.preflight).toBeUndefined();
     expect(preflightSettled(migrated)).toBe(false);
     expect(() => migrateRecord({ ...migrated, preflight: { activities: [{ activityId: "a", sequence: 1, createdAt: "2026-11-15T10:00:00Z", trigger: "sometime" }] } } as unknown as PrdRecord)).toThrow(/preflight/);
@@ -166,7 +186,7 @@ describe("schema 22: the build preflight's state (build preflight \"Upgrade\")",
 
   it("refuses a record from a newer schema under the existing rule", () => {
     const newer = migrateRecord(schemaOne({}));
-    newer.schemaVersion = 23;
+    newer.schemaVersion = 24;
     expect(() => migrateRecord(newer)).toThrow(/newer|Update Kiln/);
   });
 });

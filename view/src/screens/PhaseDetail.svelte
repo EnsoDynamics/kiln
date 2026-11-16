@@ -26,6 +26,7 @@
   import WaivedStatus from "../components/WaivedStatus.svelte";
   import { addedLabel, capitalized, commitsByRepository, modelAndEffort, phaseName, phaseOfTotal, preflightPill, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
+  import { carriedQuote, loopEntryLabel, loopEntryLine, rowLoopLabel } from "../lib/audit-loops.js";
   import { clockTime, elapsed, timingText } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
 
@@ -91,6 +92,14 @@
       {#each row.audit.blockers as blocker}<p>{blocker}</p>{/each}
       {#each row.audit.pendingActions as action}<p>Human action: {action}</p>{/each}
       {#each row.audit.settledItems ?? [] as item}<p>Settled: {item}</p>{/each}
+    </section>
+  {/if}
+  {#if row?.loops?.length || row?.carried?.length}
+    <!-- Each loop this activity holds, and each sentence its session carried (Kiln Audit Loop Limits AC-SHOW-01, AC-TEST-03). -->
+    <section class="card loops">
+      <h3>{rowLoopLabel(row) ? capitalized(rowLoopLabel(row)!) : "Your words"}</h3>
+      {#each row.loops ?? [] as loop, index (index)}<p><strong>{loopEntryLabel(loop)}</strong> · {loopEntryLine(loop, new Date(now))}</p>{/each}
+      {#each row.carried ?? [] as carried, index (index)}<p>Carried, as your words: {carriedQuote(carried)}</p>{/each}
     </section>
   {/if}
   {#if row?.waivedCompletion && row.state === "done"}<WaivedCompletion {snapshot} {row} />{/if}

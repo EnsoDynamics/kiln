@@ -33,7 +33,7 @@ describe("agent selection before work", () => {
     await h.engine.claude!.refreshAccount();
     await waitFor(() => !h.engine.agents.state.pending && h.engine.agents.state.account?.email === "new-account@example.com");
     expect(h.engine.agents.state.models?.map(m => m.value)).toEqual(["sonnet"]);
-    expect(h.engine.record.settings.agentChoices.claude_code).toEqual({ model: "opus", effort: "high" });
+    expect(h.engine.record.settings.agentChoices.claude_code).toEqual({ model: "opus", effort: "medium" });
     expect(h.engine.selectionError).toContain("opus");
     expect(h.claudeCalls()).toEqual([]);
   });
@@ -93,7 +93,7 @@ describe("agent selection before work", () => {
     expect(h.engine.record.startedAt).toBeUndefined(); expect(h.claudeCalls()).toEqual([]);
     expect(await h.engine.changeSettings({ agentId: "claude_code" })).toEqual({ ok: true }); await h.engine.agents.refresh();
     expect(await h.engine.changeSettings({ ...old, model: "gpt-6-sol" })).toMatchObject({ ok: false, status: 409 });
-    expect(h.engine.record.settings.agentChoices.claude_code).toEqual({ model: "opus", effort: "high" });
+    expect(h.engine.record.settings.agentChoices.claude_code).toEqual({ model: "opus", effort: "medium" });
     await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
     expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6-luna", effort: "low" });
     expect(readPrdRecord(h.stateDirectory)!.settings).not.toHaveProperty("model");

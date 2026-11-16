@@ -202,6 +202,7 @@ Use deterministic names derived from the new execution UUID, such as `feature/<p
 ### Start, interruption and completion
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (an accepted continuation's fresh execution starts with a preflight).
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Gate (completion phases audits add after a continuation pass through the loop gate).
 
 Once all workspace setup has passed, reread the pinned plan in the new workspace and atomically activate the new execution. Preserve the previous complete execution as immutable history before replacing active execution fields. If required source/base/authority facts have changed during interrupted preparation, hold setup and present the changed proposal for a fresh choice. Keep the original acceptance and any owned artifacts for explanation; do not silently retarget it. A replacement choice can supersede a blocked acceptance only before any provider activity started and after verifying its owned workspace has no user work. Never delete or overwrite an occupied workspace to recover.
 
@@ -292,6 +293,8 @@ Add `continuation` to the existing snapshot, keeping the current feature-state e
 Render the seven mock-up states with the same titles, order and control emphasis. The permission-required state shows the exact target and existing CI/CD disclosure, then Authorized for this run after granting; Continue remains separate and disabled until readiness passes. The new-work panel precedes historical delivery. Failed checks show the exact source problem, retry and last successful time; current counts are unknown. During accepted setup show preparation progress before the Running screen. The existing session/activity detail includes execution identity so old finalization and new finalization cannot collide. Historical sessions remain inspectable but cannot be resumed from the current execution's controls. Display UTC stored timestamps in the viewer's local zone. Terminal and browser derive notices and counts from the same observations.
 
 ## Data Models and Migration
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Ledger (the fresh execution also starts its loop ledger with a `start` epoch per kind; the loop settings carry with the other settings).
 
 Retain the same PRD private directory, token, instance lock and session storage paths. Phase 1 advances the persisted schema from 12 to 13 after integrating the live-session-control track for the retained active-plan baseline and handback/check references. Later phases use the next available version for their additional durable contracts; recheck other Kiln work at implementation time. The schema reader must reject a newer version before any write.
 

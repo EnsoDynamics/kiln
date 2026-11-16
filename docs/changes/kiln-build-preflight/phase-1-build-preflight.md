@@ -18,4 +18,4 @@ Reading and showing the `**Attended:**` and `**Early merge:**` phase-document li
 None.
 
 ## Phase-specific notes
-This phase moves the persisted schema to 22 with the preflight state and new kind values only; Phase 2 adds `attended` and `earlyMerge` to the same schema 22 before release. The design's Delivery spend (real preflight sessions against a small fixture repository) belongs to this phase.
+This phase moves the persisted schema to 23 with the preflight state and new kind values only; Phase 2 adds `attended` and `earlyMerge` to the same schema 23 before release. The design's Delivery spend (real preflight sessions against a small fixture repository) belongs to this phase.

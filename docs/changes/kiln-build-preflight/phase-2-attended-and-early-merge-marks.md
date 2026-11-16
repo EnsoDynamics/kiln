@@ -15,4 +15,4 @@ AC-ATTEND-01, AC-ATTEND-03, AC-ATTEND-04, AC-ATTEND-05
 Everything about the preflight itself (Phase 1).
 
 ## Phase dependencies
-1 (the schema 22 migration these recorded-plan fields join).
+1 (the schema 23 migration these recorded-plan fields join).

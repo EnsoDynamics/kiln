@@ -31,6 +31,7 @@ import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
+import { activityLoops, auditLoopsView } from "./loop-view.js";
 import { PR_PHASE_KEY, type CheckRun, type CheckResult, type PrdRecord, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import type { ExecutionSummary } from "./continuation-state.js";
@@ -199,6 +200,10 @@ export interface PhaseView {
   waivers?: WaiverView[];
   /** Warning markers beside its status (AC-WAIVE-04, AC-WAIVE-12). */
   warnings?: { kind: WaiverWarningKind; text: string }[];
+  /** The loops this activity holds, oldest first; the row reads by the latest (Kiln Audit Loop Limits AC-SHOW-01). */
+  loops?: import("./loop-view.js").ActivityLoopView[];
+  /** The sentences its latest session's prompt quoted as the person's (AC-TEST-03). */
+  carried?: { sentence: string; source: string }[];
   /** Skipped under a waived plan problem (AC-WAIVE-04): not built, counted as closed. */
   skippedByWaiver?: true;
   details?: SessionIdentityView & {
@@ -276,6 +281,8 @@ export interface Snapshot {
   activities?: PhaseView[];
   /** A preflight the next Start, Continue or Resume would run, or one due and not yet allocated (build preflight "Interfaces"). */
   preflight?: { planned?: { before: string } };
+  /** The audit loop settings, counts and, at a loop stop, its page (Kiln Audit Loop Limits). */
+  auditLoops?: import("./loop-view.js").AuditLoopsView;
   auditHistoryUnavailable?: boolean;
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
   feature: {
@@ -540,6 +547,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     } } : {}),
     activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...preflightPlanned(engine, state, documents),
+    auditLoops: auditLoopsView(engine),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {
       name: engine.paths.featureName,
@@ -737,7 +745,9 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
-  const checks = (phaseRecovery ? retainedStop?.checks ?? [] : stop.checks).map(check => auditCheckTitle(phaseKey, check));
+  // A hold for loops gets its one reason row here, never a stored check, so it is never waivable (Kiln Audit Loop Limits, "Loop Stops").
+  const loopHold = !hold && stop.kind === "loop_limit" && stop.loop && stop.loop.reason !== "items_listed" ? stop.loop : undefined;
+  const checks = [...(loopHold ? [{ name: "Audit loop left", passed: false, reason: true as const, facts: [`No ${loopHold.kind} audit loop is left.`] }] : []), ...(phaseRecovery ? retainedStop?.checks ?? [] : stop.checks)].map(check => auditCheckTitle(phaseKey, check));
   const checkRun = phaseRecovery ? retainedStop?.run : stop.run;
   const bookkeeping = !hold && !phaseRecovery && stop.kind === "done_check" ? bookkeepingStop(record, judged, checks) : undefined;
   const base = {
@@ -1374,7 +1384,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       const parent = phases.find(r => r.id === activity.key && r.state === "split");
       if (parent && !started.has(parent.id)) { rows.push(parent); started.add(parent.id); }
       const row = phases.find(r => r.id === engine.judgedId(activity.key));
-      if (row && !started.has(row.id)) { rows.push({ ...row, activityId: activity.activityId, kind: activity.kind }); started.add(row.id); }
+      if (row && !started.has(row.id)) { rows.push({ ...row, activityId: activity.activityId, kind: activity.kind, ...loopFacts(engine, activity.key) }); started.add(row.id); }
       continue;
     }
     if (activity.kind === "preflight") {
@@ -1421,6 +1431,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       }
     } catch (error) { if (inspectionStore) throw error; row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
     Object.assign(row, waivedFacts(engine, activity.key, row.state === "done", waivedResult));
+    Object.assign(row, loopFacts(engine, activity.key));
     // A waived audit's checks are its waived completion's, never the refused attempt's (AC-WAIVE-10).
     if (row.audit && row.waivedCompletion) row.audit.checks = row.waivedCompletion.checks;
     rows.push(row); started.add(row.id);
@@ -1493,6 +1504,14 @@ function preflightPlanned(engine: Engine, state: FeatureState, documents?: Docum
   if (state === "complete") return { preflight: { planned: { before: "end" } } };
   const next = engine.preflightNextActivity(undefined);
   return { preflight: { planned: { before: next.key ?? "end" } } };
+}
+
+/** An activity row's loops and the sentences its latest session carried (Kiln Audit Loop Limits AC-SHOW-01, AC-TEST-03). */
+function loopFacts(engine: Engine, key: string): Pick<PhaseView, "loops" | "carried"> {
+  const loops = activityLoops(engine, key);
+  // Every session the activity holds that carried a sentence, oldest first, each sentence once (AC-TEST-03).
+  const carried = (engine.record.phases[key]?.sessionIds ?? []).flatMap(id => engine.sessionRecord(key, id)?.carried ?? []).filter((one, index, all) => all.findIndex(other => other.sentence === one.sentence && other.source === one.source) === index);
+  return { ...(loops ? { loops } : {}), ...(carried?.length ? { carried } : {}) };
 }
 
 /** "Phase 3", "Final delivery" or "Delivery audit": an activity's name in a sentence. */

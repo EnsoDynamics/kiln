@@ -134,6 +134,25 @@ describe("the prompts", () => {
     expect(carried).toContain("Items earlier audits left for a person (outstanding):\n- item-1 (listed by Delivery audit round 1): Decide the names. Amend the PRD.\n\nPrior accepted work:");
     expect(prompt).toContain("Never write \"passed\" to finish");
     for (const method of ["red check", "test-audit.md", "Added by", "kiln-assessment", "audit snapshot", "independent assessment"]) expect(prompt).not.toContain(method);
+    expect(prompt).toContain("No development merge or deployment is authorized.");
+    expect(prompt).not.toContain("kiln delivery assess");
+  });
+
+  it("tells an audit with development delivery on to record its own assessment before submitting", () => {
+    const authority = JSON.stringify({ executionId: "e", owner: { kind: "audit", activityId: "a" } });
+    const prompt = auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/s", executionId: "e", activityId: "a", round: 1, continuationIndex: 1, reportPath: "r.json", prdFile: "p.md", repositories: [], branch: "b", cli: "kiln", deliveryAuthority: authority }).replace(/\s+/g, " ");
+    expect(prompt).toContain("Before submitting, record this audit's development-delivery assessment with `kiln delivery assess`");
+    // The full delivery instructions, including the audit owner's rules, not the bare authority JSON alone.
+    expect(prompt).toContain("For an assigned audit, status identifies `owner: {kind: audit, activityId}`");
+    expect(prompt).toContain('"activityId":"a"');
+    expect(prompt).not.toContain("{{deliveryStep}}");
+    // Recovery and resume embed the audit's own prompt as instructions: the step stays, and the block appears once.
+    const task = { label: "Delivery audit", prdFile: "p.md", activityId: "a", round: 1, reportPath: "r.json", skillPath: "/s", instructions: auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/s", executionId: "e", activityId: "a", round: 1, continuationIndex: 1, reportPath: "r.json", prdFile: "p.md", repositories: [], branch: "b", cli: "kiln", deliveryAuthority: authority }) };
+    const marker = "For an assigned audit, status identifies";
+    for (const resumed of [auditRecoveryPrompt(task, authority), resumePrompt({ time: "2026-11-15T20:00:00Z", endedOnItsOwn: true, deliveryAuthority: authority, auditTask: task })]) {
+      expect(resumed).toContain("kiln delivery assess");
+      expect(resumed.split(marker)).toHaveLength(2);
+    }
   });
 });
 
@@ -303,7 +322,7 @@ describe("plan order after Start", () => {
 
 describe("the default settings", () => {
   const paths = { mainCheckoutPath: join("/work", "acme-shop"), repositoryName: "acme-shop", folderName: "customer-returns", prdDirectoryFromRoot: "docs/prds/customer-returns" };
-  it("branch feature/<folder>, workspace .worktrees/<folder> beside it with the worktree in it, base develop or else origin's default, latest Opus at high", () => {
+  it("branch feature/<folder>, workspace .worktrees/<folder> beside it with the worktree in it, base develop or else origin's default, latest Opus at medium (AC-EFFORT-01), the default audit loops (AC-LOOP-01)", () => {
     const withDevelop = defaultSettings(paths, { branches: new Map([["main", "a"], ["develop", "b"]]), defaultBranch: "main" });
     expect(withDevelop).toEqual({
       workspaceFolder: join("/work", ".worktrees", "customer-returns"),
@@ -312,9 +331,10 @@ describe("the default settings", () => {
       baseBranch: "develop",
       bases: {},
       model: "opus",
-      effort: "high",
+      effort: "medium",
       keepAwake: true,
       resumeAfterUsageLimit: true,
+      auditLoops: { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" },
     });
     expect(defaultSettings(paths, { branches: new Map([["trunk", "a"]]), defaultBranch: "trunk" }).baseBranch).toBe("trunk");
     expect(defaultSettings(paths, { branches: new Map([["x", "a"]]), defaultBranch: undefined }).baseBranch).toBe("");

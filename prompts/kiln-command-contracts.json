@@ -54,7 +54,8 @@
         "last_activity": "Latest dated saved output, session/skill or run transition, retained after pause/completion; observed_at and description with current/stale/unavailable state. Fragment metadata marks bounded output text.",
         "unsent_replies": "Current stop-bound unsent command IDs and literal text, marked not_sent; inspect receipts before explicitly advancing.",
         "compatibility": "Agent compatibility notices from the saved record, present with the controller stopped: [{feature (live_messages, takeover or codex_history), agent, agent_version, detail, attempt_id, observed_at}], at most one per feature; empty when none. A listed feature is unavailable on that agent version; the rest of the run keeps working.",
-        "live_control": "Exact live target, activity label/audit round, observedAt, input availability/reason, message receipts and reviewRequired IDs, takeover checkpoint/release progress. state current/stale; disconnected actions disabled. pause_status distinguishes takeover from an independent deferred pause."
+        "live_control": "Exact live target, activity label/audit round, observedAt, input availability/reason, message receipts and reviewRequired IDs, takeover checkpoint/release progress. state current/stale; disconnected actions disabled. pause_status distinguishes takeover from an independent deferred pause.",
+        "audit_loops": "Audit loop settings ({deliveryLimit, testLimit, afterLastTest deliver_unless_serious | stop_and_ask, afterLastTestSource}), counts delivery/test {used, limit}, and at an audit loop stop a stop object: kind delivery | test, reason, holds, heading, loops [{label, activity, did, durationMs, observed}], audit {summary, items [{name, problem, action}]}, and at a test stop afterLastTest and acceptSentence. Its allow-more-loops and accept-and-deliver controls are in controls."
       },
       "errors": [
         "invalid_input",
@@ -443,7 +444,7 @@
         "settings"
       ],
       "group": "inspect",
-      "purpose": "Read runtime settings, or explicitly change keep-awake and automatic usage-limit recovery.",
+      "purpose": "Read runtime settings, or explicitly change keep-awake, automatic usage-limit recovery and the audit loop settings.",
       "side_effect": "read",
       "implemented": true,
       "availability": "executable",
@@ -472,6 +473,18 @@
           "value": "on|off",
           "source": "Explicit desired value; changing it requires command ID and current status token."
         },
+        "delivery-audit-loops": {
+          "value": "N",
+          "source": "Delivery audit loops limit, a whole number of 1 or more; applies from Kiln's next decision whether to start a loop. Changing it requires command ID and current status token."
+        },
+        "test-audit-loops": {
+          "value": "N",
+          "source": "Test audit loops limit, a whole number of 1 or more; applies from Kiln's next decision whether to start a loop. Changing it requires command ID and current status token."
+        },
+        "after-last-test-audit-loop": {
+          "value": "deliver|ask",
+          "source": "After the last test audit loop: deliver (Deliver, unless something serious is left, which gives the person's words \"I accept the remaining Weak rows after the last test audit loop.\" that Kiln quotes to the last test audit loop and any test audit after it) or ask (Always stop and ask me, which accepts nothing in advance). Recorded as chosen with kiln settings, at the time of the change. Changing it requires command ID and current status token."
+        },
         "only-if-status-matches": {
           "value": "status_token",
           "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
@@ -486,7 +499,7 @@
         "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
         "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
-        "Without setting flags this is a read and requires no command ID/token. With either on/off setting, both safety flags are required; requested values apply atomically."
+        "Without setting flags this is a read of every setting, the three audit loop settings included, and requires no command ID/token. With any setting flag, both safety flags are required; requested values apply atomically. An audit loop limit that is not a whole number of 1 or more is invalid_input; nothing is clamped. Raising a limit starts nothing by itself: a held loop starts at the next check-again or kiln run."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
@@ -495,7 +508,7 @@
         "prd_path": "Canonical absolute PRD directory.",
         "execution_id": "Internal binding identity, not a public selector.",
         "errors": "Stable code, message, retryable, next_command and next_argv.",
-        "data": "keep_awake and resume_after_usage_limit with saved observation freshness.",
+        "data": "keep_awake, resume_after_usage_limit, delivery_audit_loops, test_audit_loops and after_last_test_audit_loop (deliver_unless_serious | stop_and_ask); after_last_test_audit_loop_sentence, the person's words deliver_unless_serious gives (null under stop_and_ask); after_last_test_audit_loop_chosen, where and when the choice was made, or that Kiln applied it to a run begun before the setting (null before Start); with saved observation freshness.",
         "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
         "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
         "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
@@ -510,7 +523,7 @@
         "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
         "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
         "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
-        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans, and the audit loop settings, for settings operations; optional on other receipts.",
         "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
         "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID."
       },
@@ -542,6 +555,23 @@
             "/work/shop/docs/prds/orders",
             "--json"
           ]
+        },
+        {
+          "request": "Let Kiln run up to five test audit loops and stop to ask after the last one.",
+          "argv": [
+            "kiln",
+            "settings",
+            "/work/shop/docs/prds/orders",
+            "--test-audit-loops",
+            "5",
+            "--after-last-test-audit-loop",
+            "ask",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
         }
       ],
       "error_meanings": {
@@ -553,7 +583,7 @@
         "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
         "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
         "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
-        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match, or the controller predates audit loop limits (no audit_loops feature). Restart with compatible Kiln; never try legacy mutation routes.",
         "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
         "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
       }
@@ -2322,6 +2352,256 @@
         "check_unavailable": "Exit 4: when reported as a command error, the rerun could not finish; nothing was waived or advanced. Receipt queries still exit 0.",
         "mark_complete_not_offered": "Exit 3: Mark complete is not offered here: no check has run since the stop (run without --confirm first), a check is running, every check passed, or nothing is at Needs you. Read status.stop.mark_complete.reason.",
         "stale_check_run": "Exit 3: Mark complete was offered on an earlier check run. Refresh status and decide again with a new command ID."
+      }
+    },
+    {
+      "path": [
+        "allow-more-loops"
+      ],
+      "group": "answer",
+      "purpose": "At a stop where Kiln has used up its delivery or test audit loops, set that kind's limit to N, restart its count and go on with the next loop.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
+      "usage": "kiln allow-more-loops <PRD-path> --loops <N> [options]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "loops": {
+          "value": "N",
+          "source": "Whole number of 1 or more: the new limit for the kind of loop the stop is about (the page fills in 2). Its count restarts from zero."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "required": [
+            "loops"
+          ]
+        }
+      ],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Accepted only at an audit loop stop: status.audit_loops.stop is present and status.controls lists allow-more-loops as available. Elsewhere it is refused. Admission refuses it as not_at_loop_stop with the control’s reason (control_unavailable while Kiln is busy); if the stop moved on between admission and applying, the operation fails with outcome not_at_loop_stop and nothing changes.",
+        "At a stop on an accepted or marked-complete report it records the new limit and completes with loops_allowed; the loop then starts under Kiln's own receipt. At a stop whose test audit report needs you it starts a new test audit session that counts as a loop and settles session_started.",
+        "Never catches the branch up and takes no reply."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "not_started | starting | started | unknown. At a stop on an accepted report the control starts nothing itself and session stays not_started; Kiln then starts the next work under its own automatic receipt. At a stop whose audit report needs you, started requires the new audit session's prompt submitted and its provider start.",
+        "operation.effects.plan": "Always not_advanced: neither control advances the plan by itself.",
+        "operation.outcome": "loops_allowed (limit recorded, nothing started by this operation), session_started (a new audit session started at a stop whose report needs you), or a failure such as dispatch_not_started, not_at_loop_stop, or, after a takeover of the stopped audit's session that is not yet handed back, takeover_pending or terminal_in_use (nothing started).",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.reply_text": "Always null.",
+        "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "not_at_loop_stop",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Kiln used up its test audit loops; allow two more.",
+          "argv": [
+            "kiln",
+            "allow-more-loops",
+            "/work/shop/docs/prds/orders",
+            "--loops",
+            "2",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, invalid command ID or malformed message. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "not_at_loop_stop": "Exit 3: Kiln is not stopped because its audit loops are used up (or, for accept-and-deliver, the stop is a delivery audit loop stop). Nothing changed. Read status.audit_loops and status controls before choosing again.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match, or the controller predates audit loop limits (no audit_loops feature). Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
+      }
+    },
+    {
+      "path": [
+        "accept-and-deliver"
+      ],
+      "group": "answer",
+      "purpose": "At a stop where Kiln has used up its test audit loops, accept what the audit left, naming each listed item, and go on to deliver.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
+      "usage": "kiln accept-and-deliver <PRD-path> [options]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Accepted only at a test audit loop stop: status.audit_loops.stop.kind is test and status.controls lists accept-and-deliver as available. Refused at a delivery audit loop stop and anywhere else. Admission refuses it as not_at_loop_stop with the control’s reason (control_unavailable while Kiln is busy); if the stop moved on between admission and applying, the operation fails with outcome not_at_loop_stop and nothing changes.",
+        "Records the sentence in status.audit_loops.stop.acceptSentence as the person's, from the command line, then leads to one test audit session that fixes nothing and is not counted as a loop. At a stop on an accepted report it completes with acceptance_recorded and that session starts under Kiln's own receipt; at a stop whose report needs you it starts the session and settles session_started.",
+        "Never catches the branch up and takes no reply."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "not_started | starting | started | unknown. At a stop on an accepted report the control starts nothing itself and session stays not_started; Kiln then starts the next work under its own automatic receipt. At a stop whose audit report needs you, started requires the new audit session's prompt submitted and its provider start.",
+        "operation.effects.plan": "Always not_advanced: neither control advances the plan by itself.",
+        "operation.outcome": "acceptance_recorded (acceptance saved, nothing started by this operation), session_started (the accepting test audit session started at a stop whose report needs you), or a failure such as dispatch_not_started, not_at_loop_stop, or, after a takeover of the stopped audit's session that is not yet handed back, takeover_pending or terminal_in_use (nothing started).",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.reply_text": "Always null.",
+        "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "not_at_loop_stop",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Accept what the test audit left and deliver.",
+          "argv": [
+            "kiln",
+            "accept-and-deliver",
+            "/work/shop/docs/prds/orders",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, invalid command ID or malformed message. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "not_at_loop_stop": "Exit 3: Kiln is not stopped because its audit loops are used up (or, for accept-and-deliver, the stop is a delivery audit loop stop). Nothing changed. Read status.audit_loops and status controls before choosing again.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match, or the controller predates audit loop limits (no audit_loops feature). Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
       }
     },
     {

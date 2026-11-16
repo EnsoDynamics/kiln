@@ -154,6 +154,8 @@ The next activity is a forecast computed inside the offered predicate from the s
 
 ## Audits Marked Complete (AC-WAIVE-12)
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Loop Stops (appended phases of a waived audit run first only while a delivery loop is left; a counted `continue_test` continues only while a test loop is left).
+
 An audit waiver stores an audit-waiver result in the audit store, referenced by the waiver and by `activity.waivedResult`:
 
 ```

@@ -182,7 +182,7 @@ describe("items stop the run at Needs you (AC-PREFLIGHT-03)", () => {
     expect(prompts(h).filter(isPreflightPrompt)).toHaveLength(1);
     expect(prompts(h)[1]).toContain("phase-1-return-intake.md");
     expect(preflightRows(h.engine)[0]).toMatchObject({ state: "done", waivedChecks: 1, preflight: { outcome: "items" } });
-    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(22);
+    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(23);
   });
 
   it("Check Preflight again starts a fresh session under the same activity and reads its report as it read the first", async () => {

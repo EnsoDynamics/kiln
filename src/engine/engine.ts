@@ -36,13 +36,16 @@ import { CommandJournal, ACTIONS, isStartingReceipt, lookupReceipt, readReceipts
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
-import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, resolveAuditSkill, resolveSkill, type SkillResolution, effectiveAudit, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
+import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, resolveAuditSkill, resolveSkill, type SkillResolution, effectiveAudit, phasesBeyondInitial, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
-import { auditSessionPrompt, preflightSessionPrompt } from "../session/prompts.js";
+import { auditSessionPrompt, auditLoopsSlot, preflightSessionPrompt } from "../session/prompts.js";
 import { isPreflightKey, activityKeyKind } from "../state/activity-keys.js";
 import { keyOf as preflightKeyOf, latestPreflight, preflightActivity, preflightSettled, readPreflightReport, setPreflightDue, unfinishedPreflight, PREFLIGHT_CHECK, PREFLIGHT_LIVE_REASON, PREFLIGHT_PAUSE_REASON, PREFLIGHT_SKILL, PREFLIGHT_STOP_REASON, PREFLIGHT_TITLE, type PreflightActivity, type PreflightReport, type PreflightTrigger } from "./preflight.js";
+import { appendLoop, countedLoops, latestEpoch, loopLeft, loopSettings, openEpoch, startedLedger, acceptSentence, SETTING_SENTENCE, validAfterLastTest, validLimit, type Acceptance, type AuditLoopLedger, type AuditLoopSettings, type LoopKind } from "../state/audit-loops.js";
+import { attemptPhases, deliveryDecision, type DeliveryDecision, holds, latestAttempt, listedItems, needsYouLoopStop, testDecision, testHold, unusedAcceptance, heldReport } from "./loop-gate.js";
+import { reconstructLedger, sourceText } from "./loop-ledger.js";
 import { assignAuditObligations } from "./development-owners.js";
 import type { AuditActivity, AuditKind } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
@@ -233,6 +236,8 @@ export type CommandResult =
 /** What `kiln add-repository` gets back (multi-repo AC-ADD-01). */
 /** What Mark complete's rerun and act answer (waivers "Interfaces"). */
 export type WaiveAnswer = { ok: boolean; outcome?: MarkCompleteOutcome | string; reason?: string; code?: string; status?: number; waiver_id?: string; changes?: ItemChange[] };
+/** Allow N more loops or Accept what is left and deliver, as saved in the write that applies it (Kiln Audit Loop Limits, "Loop Stops"). */
+type LoopControl = { kind: "allow"; loopKind: LoopKind; count: number; heldAuditKey: string } | { kind: "accept"; acceptance: Acceptance };
 interface WaiveRequest { offered: CheckResult[]; offeredRun: { id: string; at: string }; source: WaiverSource; operationId: string; continueInOrder: boolean }
 
 export type AddRepositoryResult =
@@ -449,7 +454,7 @@ export class Engine {
   /** A Resume, Resume now or end of a wait whose check failed: the loop resumes that session next, with any note. */
   private requestedResume: ResumeRequest | undefined;
   /** Carry on or Start again at a stopped phase: the loop launches a new session of the phase next (run restart "Starting a Session at a Stop"). */
-  private requestedLaunch: { phaseKey: string; kind: "carry_on" | "start_again"; note?: string } | undefined;
+  private requestedLaunch: { phaseKey: string; kind: "carry_on" | "start_again"; note?: string } | { phaseKey: string; kind: "audit"; control: LoopControl } | undefined;
   /** The hold whose carry-on found the phase already complete: its advance is offered on the carry-on ownership check (AC-CARRY-06). */
   private heldAdvance: string | undefined;
   /** The wait being watched in this run of Kiln: how many readings it has judged, and its reset timer. */
@@ -512,6 +517,9 @@ export class Engine {
     const migratingActivities = !this.record.activities;
     activityHistory(this.record, options.stateDirectory);
     if (migratingActivities && this.record.startedAt) writePrdRecord(options.stateDirectory, this.record);
+    // A run carried over from schema 21 counts the loops it already made (AC-LOOP-07, RUN-002); the closing save stores them.
+    // A rebuild that throws leaves the ledger absent, and the first gate decision retries it.
+    if (this.record.startedAt && !this.record.auditLoops) { try { this.record.auditLoops = reconstructLedger({ record: this.record, stateDirectory: options.stateDirectory }); } catch { /* retried at the first gate decision */ } }
     this.agents = new AgentInfo({ agentId: this.record.settings.agentId, generation: this.record.settings.selectionGeneration ?? 0, ...(options.claude ? { claude: options.claude } : {}), executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env });
     this.offClaude = this.agents.onChange(() => this.modelsChanged());
     this.record.executionId ??= randomUUID();
@@ -603,6 +611,7 @@ export class Engine {
     // A hold whose conversation can't be reopened advances from the carry-on's already-complete choice on the carry-on ownership check, in place of release (AC-CARRY-06).
     const heldHistory = this.record.liveControl?.takeover.history !== undefined && !this.record.liveControl.takeover.carryOnObstacle && this.heldAdvance === this.record.liveControl.takeover.operationId;
     const releasePending = !!this.current || this.record.liveControl?.takeover.state === "pending" && !heldHistory;
+    const loopStop = this.loopStopOf(key);
     const available: Record<Action, boolean> = {
       message: !!this.liveView()?.input?.available && !this.commands?.busy,
       "message-review": !!this.record.liveControl && !this.commands?.busy,
@@ -620,6 +629,8 @@ export class Engine {
       "carry-on": this.carryOnControl(true).available && !busy,
       "start-again": this.startAgainControl().available && !busy,
       reset: this.resetControl().available,
+      "allow-more-loops": !!loopStop && !busy && !this.current,
+      "accept-and-deliver": loopStop?.kind === "test" && !busy && !this.current,
     };
     // At a preflight stop only Check Preflight again and Mark complete are offered (The Preflight Stop).
     const preflightStop = this.preflightStopKey() !== undefined;
@@ -639,6 +650,8 @@ export class Engine {
       reset: this.resetControl().reason ?? "Reset isn't available.",
       ...(preflightStop ? { reply: PREFLIGHT_STOP_REASON, resume: PREFLIGHT_STOP_REASON, "carry-on": PREFLIGHT_STOP_REASON, "start-again": PREFLIGHT_STOP_REASON, "verify-and-advance": PREFLIGHT_STOP_REASON } : {}),
       ...(preflightRunning ? { "request-pause": PREFLIGHT_PAUSE_REASON } : {}),
+      "allow-more-loops": "Kiln isn't stopped because its audit loops are used up.",
+      "accept-and-deliver": loopStop ? "Accept what is left and deliver is offered only at a test audit loop stop." : "Kiln isn't stopped because its audit loops are used up.",
     };
     // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
     const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
@@ -722,6 +735,10 @@ export class Engine {
     if (receipt.instruction.action === "waive-and-advance" && receipt.stage === "applying" && !persisted.waivers?.some(w => w.operationId === receipt.id)) {
       return { ...receipt, state: "failed", stage: "settled", outcome: "not_applied", reason: "Mark complete was interrupted before anything was saved. Check again, then choose again.", effects: { ...receipt.effects, plan: "not_advanced" } };
     }
+    // Allow or Accept saves itself, the stop's clearing and its outcome in one write; with none saved, an interrupted one applied nothing (Kiln Audit Loop Limits, "Interfaces").
+    if (["allow-more-loops", "accept-and-deliver"].includes(receipt.instruction.action) && receipt.stage === "applying") {
+      return { ...receipt, state: "failed", stage: "settled", outcome: "not_applied", reason: "The control was interrupted before anything was saved. Check the stop, then choose again.", effects: { ...receipt.effects, session: "not_started", plan: "not_advanced" } };
+    }
     // Check again never directly dispatches a session. A verification interrupted
     // before settlement can fail honestly without retaining control forever.
     // Proven completion above wins; unknown plan effects are retained, not undone.
@@ -780,7 +797,12 @@ export class Engine {
       case "take-over": return this.acceptTakeover(inputs.target, receipt);
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
-      case "settings": answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}) }); break;
+      case "settings": {
+        const loops = { ...(typeof inputs.delivery_audit_loops === "number" ? { deliveryLimit: inputs.delivery_audit_loops } : {}), ...(typeof inputs.test_audit_loops === "number" ? { testLimit: inputs.test_audit_loops } : {}), ...(typeof inputs.after_last_test_audit_loop === "string" ? { afterLastTest: inputs.after_last_test_audit_loop } : {}) } as Partial<AuditLoopSettings>;
+        answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}) }, Object.keys(loops).length ? { change: loops, where: inputs.via === "command_line" ? "command_line" : "run_page" } : undefined);
+        break;
+      }
+      case "allow-more-loops": case "accept-and-deliver": return this.loopControl(action, inputs, receipt);
       case "outside-confirmation": answer = refuse("Workspace confirmations have been retired; recheck the remaining completion requirements."); break;
       case "continue": answer = await this.start(); break;
       case "check-again":
@@ -803,6 +825,7 @@ export class Engine {
         answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume") === "folder_missing" ? { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 } : { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
         if (answer.ok && priorKey && !priorDone && this.record.phases[priorKey]?.doneAt) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced" }; }
         if (answer.ok && answer.noteSkipped) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced_reply_not_sent" }; }
+        if (answer.ok && answer.outcome === "advanced") { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced" }; }
         if (answer.ok && answer.outcome !== "already_complete") {
           // Let the one accepted dispatch run; its ownership persists through asynchronous preflight.
           this.controlKickPending = false; this.kick();
@@ -1624,6 +1647,11 @@ export class Engine {
       record.executionId ??= randomUUID();
       if (!record.startedAt) record.developmentAuthorization = { revision: 1, enabled: record.settings.developmentDeployments?.enabled === true, grants: record.settings.developmentDeployments?.enabled ? record.settings.developmentDeployments.targets.map(candidate => ({ target: candidate.target, confirmedAt: at, source: "start" as const })) : [] };
       record.developmentDelivery ??= emptyDevelopmentLedger();
+      // The loop counts start at zero, and the After the last test audit loop showing is the person's choice (AC-LOOP-04, AC-LOOP-06).
+      if (!record.startedAt) {
+        record.auditLoops = startedLedger(at);
+        record.settings.auditLoops = { ...loopSettings(record.settings), afterLastTestSource: { kind: "person", at, where: "documents_found" } };
+      }
       record.startedAt = at;
       record.refinementConfirmedAt = at;
       // The browser's Start runs a preflight before anything else, a Start with every phase closed included (AC-PREFLIGHT-01).
@@ -1767,7 +1795,12 @@ export class Engine {
       }
       // Mark complete's act runs inside the same checking boundary, on this rerun (waivers "Mark Complete").
       if (waive) return await this.waiveStopped(key, waive, outcome, evaluatedMaterial);
-      if (action === "verify") return { ok: true, outcome: "still_stopped", target: target! };
+      if (action === "verify") {
+        // A taken-over test audit whose report asks the person something, with no test loop left, is handed
+        // back here: the stop becomes Kiln's own loop stop, as a holding one does once Verify accepts its report (AC-STOP-01, AC-STOP-02).
+        if (this.record.liveControl && this.loopStopOf(key)) { this.resolveMessageHold(); delete this.record.liveControl; this.save(); }
+        return { ok: true, outcome: "still_stopped", target: target! };
+      }
       if (action === "resume" && !this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation is unavailable after checking. Use the terminal recovery instructions.");
       // Catch the branch up when it applies, once nothing else can refuse, before any session starts (run restart AC-CURRENT-01).
       await this.catchUpAtStop(key);
@@ -1958,6 +1991,9 @@ export class Engine {
     const key = this.stoppedPhaseKey();
     if (key === undefined || this.current?.processRunning) return { offered: false, reason: this.current?.processRunning ? `${this.activityName(this.current.phaseKey)} is running, not at Needs you. There is nothing to mark complete.` : "Nothing is waiting at Needs you. There is nothing to mark complete." };
     const name = this.activityName(key);
+    // A hold for loops is not a failing check, so there is nothing to mark complete (AC-STOP-02).
+    const loopHold = this.record.phases[key]?.stop?.kind === "loop_limit" ? this.record.phases[key]!.stop!.loop : undefined;
+    if (holds(loopHold)) return { offered: false, reason: loopHold!.kind === "delivery" ? "Kiln is holding because no delivery audit loop is left, not because a check failed. Allow more loops, or raise the limit and Check again." : "Kiln is holding because no test audit loop is left, not because a check failed. Allow more loops, raise the limit and Check again, or accept what is left and deliver." };
     if (this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || this.billing.busy || !admitting && this.commands?.busy) return { offered: false, reason: "Kiln is checking, dispatching or writing. Try again when it has finished." };
     if (this.preflightStopKey() === key) return this.preflightOffer(key);
     const { run, checks } = this.stopRun(key);
@@ -1972,9 +2008,14 @@ export class Engine {
     const complete = this.alreadyComplete(key);
     const audit = this.auditActivity(key);
     const preview = audit && !complete ? this.auditWaiverPreview(audit) : undefined;
-    const nextActivity = continueInOrder || complete ? null : this.forecastNext(key, preview?.countedOutcome);
+    // After Mark complete the gate holds when the counted result asks for a loop of a kind none is left of (RUN-001).
+    const forecastHold = audit && preview && !complete ? this.forecastLoopHold(key, preview.countedOutcome) : undefined;
+    const nextActivity = continueInOrder || complete ? null : forecastHold ? { kind: "loop_stop" as const, key, title: forecastHold === "delivery" ? "Delivery audit loop stop" : "Test audit loop stop" } : this.forecastNext(key, preview?.countedOutcome);
+    const counted = preview ? `counts the audit as ${preview.report === "none" ? "passed" : "its report says"} and ` : "";
     const next = key === PR_PHASE_KEY ? "moves to Complete"
-      : preview ? `counts the audit as ${preview.report === "none" ? "passed" : "its report says"} and ${nextActivity?.kind === "audit" ? `moves on to the ${nextActivity.title.toLowerCase()}` : nextActivity?.kind === "final_delivery" ? "moves on to final delivery" : nextActivity?.kind === "phase" ? "runs the completion phases it added first" : "moves to the next step"}`
+      : forecastHold ? `${counted}then stops at Needs you because ${forecastHold === "delivery" ? "no delivery audit loop is left to build the phases it added" : "no test audit loop is left to continue its test work"}`
+      : preview && !this.record.auditLoops ? `${counted}moves to the next step`
+      : preview ? `${counted}${nextActivity?.kind === "audit" ? `moves on to the ${nextActivity.title.toLowerCase()}` : nextActivity?.kind === "final_delivery" ? "moves on to final delivery" : nextActivity?.kind === "phase" ? "runs the completion phases it added first" : "moves to the next step"}`
       : "moves to the next step";
     const resultingLabel = completeLabel(failing.length + checkCounts(checks).waived + (complete ? this.waivedCount(key) : 0));
     const repositoryWork = [...new Set(items.filter(item => item.kind === "repository_work").map(item => item.subject))];
@@ -2023,6 +2064,21 @@ export class Engine {
     if (!audit) return { kind: "audit", key: "", title: "Delivery audit" };
     if (countedOutcome === "continue_test") return { kind: "audit", key: "", title: "Test audit" };
     return audit.kind === "delivery_audit" ? { kind: "audit", key: "", title: "Test audit" } : { kind: "final_delivery", key: PR_PHASE_KEY, title: "Final delivery" };
+  }
+
+  /** The loop kind the gate would hold for after Mark complete counts this audit, if none of that kind is left. */
+  private forecastLoopHold(key: string, countedOutcome: string): LoopKind | undefined {
+    const ledger = this.record.auditLoops;
+    if (!ledger) return undefined;
+    const settings = loopSettings(this.record.settings);
+    // An audit counted as passed with no usable report still runs the phases it appended (AC-WAIVE-12).
+    const audit = this.auditActivity(key);
+    // A `needs_you` report counts as passed, yet the phases it appended are still built (AC-TEST-02's first row).
+    let appended = countedOutcome === "completion_phases" || !!audit && attemptPhases(latestAttempt(this.gateContext, audit)).length > 0;
+    if (!appended && audit && previewAuditWaiver(this.stateDirectory, audit).report === "none") { try { appended = phasesBeyondInitial(this.stateDirectory, audit, this.record.plan ?? []).length > 0; } catch { appended = false; } }
+    if (appended && !loopLeft(ledger, settings, "delivery")) return "delivery";
+    if (countedOutcome === "continue_test" && !loopLeft(ledger, settings, "test") && !unusedAcceptance(ledger, key)) return "test";
+    return undefined;
   }
 
   /** How a waived audit would count (AC-WAIVE-12). */
@@ -2236,6 +2292,8 @@ export class Engine {
     }
     if (verdict === "still_stopped" && !this.stopping) this.requestedResume = { phaseKey: key, cause: "person_resume", ...(note === "" ? {} : { note }) };
     this.kick();
+    // A stop whose recheck cleared it, such as a loop stop on items listed, resumes no conversation: the run carries on and the note is not delivered (Kiln Audit Loop Limits, "Loop Stops").
+    if (verdict === "cleared") return { ok: true, ...(note !== "" ? { noteSkipped: true as const } : { outcome: "advanced" as const }) };
     return { ok: true, ...(note !== "" && (verdict === "done" || verdict === "complete") ? { noteSkipped: true as const } : {}) };
   }
 
@@ -2275,7 +2333,8 @@ export class Engine {
     // Kiln never resumes a preflight session with a person's words (The Preflight Stop).
     if (isPreflightKey(phaseKey)) return false;
     const kind = this.record.phases[phaseKey]?.stop?.kind;
-    if (kind !== "done_check" && kind !== "pull_request_check" && kind !== "not_resumable" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
+    // A loop stop is on a finished audit, as a development-owner stop is (Kiln Audit Loop Limits, "Loop Stops").
+    if (kind !== "done_check" && kind !== "pull_request_check" && kind !== "not_resumable" && kind !== "loop_limit" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
     const session = this.recoverySession(phaseKey);
     if (!session || !session.runs.some((run) => run.pid !== undefined)) return false;
     // Resume goes by the reopen check, never by the stop's kind (run restart "Whether the conversation can be reopened").
@@ -2485,8 +2544,25 @@ export class Engine {
    * Changes settings: model, effort and keep-awake at any time, applying to sessions started
    * after it (AC-VIEW-08); the worktree and branches only before Start (AC-START-06).
    */
-  async changeSettings(change: Partial<Settings>): Promise<CommandResult> {
+  async changeSettings(change: Partial<Settings>, loops?: { change: Partial<AuditLoopSettings>; where: "run_page" | "command_line" }): Promise<CommandResult> {
+    let pendingLoops: AuditLoopSettings | undefined;
     if (this.settingUp) return refuse("Kiln is preparing the accepted workspace. Wait before changing settings.");
+    if (change.auditLoops !== undefined) { loops = { change: change.auditLoops, where: loops?.where ?? "run_page" }; change = { ...change }; delete change.auditLoops; }
+    if (loops) {
+      // The three loop settings, before Start as a draft and during a run from the page or `kiln settings` (AC-LOOP-01, AC-LOOP-05).
+      const fieldErrors: FieldErrors = {};
+      if (loops.change.deliveryLimit !== undefined && !validLimit(loops.change.deliveryLimit)) fieldErrors.deliveryLimit = "Enter a whole number of 1 or more.";
+      if (loops.change.testLimit !== undefined && !validLimit(loops.change.testLimit)) fieldErrors.testLimit = "Enter a whole number of 1 or more.";
+      if (loops.change.afterLastTest !== undefined && !validAfterLastTest(loops.change.afterLastTest)) fieldErrors.afterLastTest = "Choose Deliver, unless something serious is left, or Always stop and ask me.";
+      if (Object.keys(fieldErrors).length) return { ok: false, status: 422, reason: "The audit loop settings don't pass their checks.", fieldErrors };
+      const current = loopSettings(this.record.settings);
+      const next: AuditLoopSettings = { ...current, ...(loops.change.deliveryLimit !== undefined ? { deliveryLimit: loops.change.deliveryLimit } : {}), ...(loops.change.testLimit !== undefined ? { testLimit: loops.change.testLimit } : {}), ...(loops.change.afterLastTest !== undefined ? { afterLastTest: loops.change.afterLastTest } : {}) };
+      // A change of the choice during a run is the person's, where and when they made it; a limit alone leaves its source.
+      if (loops.change.afterLastTest !== undefined && this.record.startedAt !== undefined) next.afterLastTestSource = { kind: "person", at: this.now().toISOString(), where: loops.where };
+      if (!Object.keys(change).length) { this.record.settings.auditLoops = next; this.save(); this.changed(); return { ok: true }; }
+      // With other settings in the same change, the loop settings are saved with them, once nothing refuses.
+      pendingLoops = next;
+    }
     if (this.checking && this.phaseRecoveryTarget()) return refuse("Kiln is checking or resuming this phase. Wait before changing settings.");
     if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (change.developmentDeployments !== undefined && (this.record.startedAt || this.settingUp)) return refuse("Development targets are fixed for this execution after Start.");
@@ -2562,6 +2638,7 @@ export class Engine {
 
     // A feature branch chosen or typed keeps the starting point it was chosen under (run restart "The starting point").
     if (change.featureBranch !== undefined && this.record.startedAt === undefined) this.record.start ??= { ...this.startChoice };
+    if (pendingLoops) this.record.settings.auditLoops = pendingLoops;
     this.save();
     if (change.keepAwake !== undefined) this.updateKeepAwake();
     // Switched off during a wait, the phase goes to Needs you; once the end of the wait's resume
@@ -3243,6 +3320,8 @@ export class Engine {
     const active: PrdRecord = { schemaVersion: SCHEMA_VERSION, executionId: input.newExecutionId, token: old.token, repository: old.repository, prdDirectory: old.prdDirectory, featureName: old.featureName, continuation, phases: {}, plan: recordedPlan(input.plan), planReadAt: input.at, planReconciliation: { baselineId: input.baselineId }, billing: newBillingState(input.newExecutionId), developmentDelivery: emptyDevelopmentLedger(), completionAudits: { revision: 0, policy: "required" as const, activities: [], evidence: [] }, ...input.fields };
     // Every activation of a fresh execution sets the preflight's mark in its one write (build preflight "When the Preflight Is Due").
     setPreflightDue(active, input.fields.folderSetupStart ? "start" : "continue", input.at);
+    // A continued run, or a base-branch start from Folder missing, counts its loops from zero (AC-LOOP-04, RUN-003).
+    active.auditLoops = startedLedger(active.startedAt ?? input.at);
     this.billing.invalidate(false);
     for (const key of Object.keys(old)) Reflect.deleteProperty(old, key);
     Object.assign(old, active);
@@ -3652,7 +3731,7 @@ export class Engine {
     if (kind === "branch" && this.record.liveControl) {
       // Start is the explicit hand-back that ends a takeover hold, with that Resume's checks (AC-SAFE-03).
       try { await this.requireTakeoverReturn(); }
-      catch (error) { return { ok: false, code: error instanceof OwnershipError ? error.code : "takeover_pending", reason: (error as Error).message, status: 409 }; }
+      catch (error) { if (!(error instanceof OwnershipError)) throw error; return { ok: false, code: error.code, reason: error.message, status: 409 }; }
     }
 
     // The start intent, written before any Git write: a failed one with the same kind and names is resumed.
@@ -4237,6 +4316,7 @@ export class Engine {
         if (verdict.kind === "done") continue;
         return;
       }
+      this.countDeliveryLoop(leaf.id, next.kind === "phase" ? next.gate : { kind: "none" });
       const verdict = await this.runPhaseSession(leaf.id);
       if (verdict !== "done") return;
     }
@@ -4269,6 +4349,19 @@ export class Engine {
       }
     }
     return true;
+  }
+
+  /**
+   * A leaf an audit appended starts or joins its delivery loop in the write that launches it, so a
+   * leaf skipped or stopped before it starts uses up no loop (AC-LOOP-02). It applies the decision
+   * `nextActivity` made rather than deciding again: a limit lowered during the awaits between them
+   * applies from the next decision, and the loop already decided on is still counted (AC-LOOP-05).
+   */
+  private countDeliveryLoop(leafId: string, gate: Exclude<DeliveryDecision, { kind: "stop" }>): void {
+    if (gate.kind === "count") appendLoop(this.record.auditLoops!, loopSettings(this.record.settings), { kind: "delivery", startedAt: this.now().toISOString(), sourceAuditId: gate.audit.activityId, activityKeys: [leafId] });
+    else if (gate.kind === "join" && !gate.loop.activityKeys.includes(leafId)) gate.loop.activityKeys.push(leafId);
+    else return;
+    this.save();
   }
 
   auditActivity(key: string): AuditActivity | undefined { return this.record.completionAudits?.activities.find(a => auditKey(a) === key); }
@@ -4511,6 +4604,119 @@ export class Engine {
   }
 
 
+  // ---- Audit loop limits (Kiln Audit Loop Limits) -----------------------------------------
+
+  get gateContext() { return { record: this.record, stateDirectory: this.stateDirectory }; }
+
+  /**
+   * The ledger every gate decision reads. A started run carried over from schema 21 has none
+   * until the constructor rebuilds it from the run's saved audit history; a rebuild that failed
+   * there is retried here, and one that fails again stops the run on the error (RUN-002).
+   */
+  private ledgerForGate(): AuditLoopLedger {
+    if (!this.record.auditLoops) { this.record.auditLoops = reconstructLedger(this.gateContext); this.save(); }
+    return this.record.auditLoops;
+  }
+
+  /** Records a loop stop on the held audit: the gate's stop when no loop of that kind is left. */
+  private loopStop(loop: NonNullable<PhaseStop["loop"]>): { kind: "stopped"; key: string } {
+    if (loop.reason === "items_listed" && !this.record.auditLoops!.itemsListedStops.includes(loop.heldAuditKey)) this.record.auditLoops!.itemsListedStops.push(loop.heldAuditKey);
+    this.recordStop(loop.heldAuditKey, "loop_limit", [], undefined, undefined, undefined, loop);
+    return { kind: "stopped", key: loop.heldAuditKey };
+  }
+
+  /** Saves Allow's limit and epoch, or Accept's acceptance, into the record (not saved here). */
+  private applyLoopControl(control: LoopControl, session?: { activityKey: string; sessionId: string; firstAttempt: number }): void {
+    const ledger = this.ledgerForGate();
+    const at = this.now().toISOString();
+    if (control.kind === "allow") {
+      const settings = loopSettings(this.record.settings);
+      this.record.settings.auditLoops = { ...settings, ...(control.loopKind === "delivery" ? { deliveryLimit: control.count } : { testLimit: control.count }) };
+      openEpoch(ledger, { kind: control.loopKind, at, cause: "allowed", limit: control.count, heldAuditKey: control.heldAuditKey });
+      // At a needs_you stop the new session on the stopped activity is the loop Allow starts.
+      if (session) appendLoop(ledger, this.record.settings.auditLoops, { kind: "test", startedAt: at, sourceAuditId: this.auditActivity(control.heldAuditKey)?.activityId ?? "", activityKeys: [session.activityKey], sessionId: session.sessionId, firstAttempt: session.firstAttempt });
+    } else {
+      ledger.acceptances.push({ ...control.acceptance, ...(session ?? {}) });
+    }
+  }
+
+  /**
+   * Allow N more loops and Accept what is left and deliver (AC-STOP-02), applied by the control
+   * journal. At a stop on a finished audit each saves itself and clears the stop in one record
+   * write, and the gate then starts what the record asks for; at a `needs_you` stop each starts a
+   * new audit session on the stopped activity under its own receipt.
+   */
+  private async loopControl(action: "allow-more-loops" | "accept-and-deliver", inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; outcome?: string; reason?: string; code?: string; status?: number }> {
+    const key = this.stoppedPhaseKey();
+    const loop = this.loopStopOf(key);
+    if (key === undefined || !loop) return { ok: false, code: "not_at_loop_stop", reason: "Kiln isn't stopped because its audit loops are used up.", status: 409 };
+    if (action === "accept-and-deliver" && loop.kind !== "test") return { ok: false, code: "not_at_loop_stop", reason: "Accept what is left and deliver is offered only at a test audit loop stop.", status: 409 };
+    if (this.checking || this.driving || this.deliveryBusy || this.billing.busy || this.current) return { ok: false, code: "busy", reason: "Kiln is already checking or starting work.", status: 409 };
+    const at = this.now().toISOString();
+    let control: LoopControl;
+    if (action === "allow-more-loops") control = { kind: "allow", loopKind: loop.kind, count: inputs.count as number, heldAuditKey: key };
+    else {
+      const items = listedItems(this.gateContext, key);
+      control = { kind: "accept", acceptance: { at, via: inputs.via === "command_line" ? "command_line" : "browser", heldAuditKey: key, sentence: acceptSentence(items), items } };
+    }
+    const facts = this.record.phases[key]!;
+    if (facts.stop?.kind === "loop_limit") {
+      const before = structuredClone(this.record);
+      try {
+        this.applyLoopControl(control);
+        delete facts.stop;
+        this.record.controlApplied = { operationId: receipt.id, outcome: action === "allow-more-loops" ? "loops_allowed" : "acceptance_recorded" };
+        this.save();
+      } catch (error) { this.restoreRecord(before); throw error; }
+      // The gate starts the work under Kiln's own receipt once this one settles.
+      this.kick();
+      return { ok: true, outcome: this.record.controlApplied!.outcome };
+    }
+    // A needs_you report: its activity takes a new report, so the control starts a new audit session on it.
+    // After a takeover the new session is Kiln's own: the taken-over conversation is handed back first, as Verify would.
+    if (this.record.liveControl) {
+      try { await (this.record.liveControl.takeover.history ? this.requireCarryOnOwnership() : this.requireTakeoverReturn()); }
+      catch (error) { if (!(error instanceof OwnershipError)) throw error; return { ok: false, code: error.code, reason: error.message, status: 409 }; }
+      this.resolveMessageHold(); delete this.record.liveControl; this.save();
+    }
+    this.controlDispatch = receipt;
+    this.checking = true; this.changed();
+    this.requestedLaunch = { phaseKey: key, kind: "audit", control };
+    this.controlKickPending = false; this.kick();
+    while (this.controlDispatch === receipt && (this.driving || this.checking)) await new Promise(resolve => setTimeout(resolve, 20));
+    if (this.controlDispatch === receipt) { this.controlDispatch = undefined; this.checking = false; return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The existing launch checks did not start a session. Inspect status for recovery." }; }
+    if (receipt.effects.session === "unknown") throw new Error("Dispatch outcome is uncertain.");
+    if (receipt.effects.session !== "started") return { ok: false, code: receipt.outcome ?? "dispatch_not_started", reason: receipt.reason ?? "The new session did not start. Inspect the current recovery state." };
+    this.record.controlApplied = { operationId: receipt.id, outcome: "session_started" }; this.save();
+    return { ok: true, outcome: "session_started" };
+  }
+
+  /** The new audit session Allow or Accept starts on a stopped `needs_you` activity, the way an audit starts, saving the control as its run starts. */
+  private async launchAuditAtStop(key: string, control: LoopControl): Promise<void> {
+    const activity = this.auditActivity(key)!;
+    const facts = this.record.phases[key]!;
+    await this.recordStartCommits(key);
+    if (this.stopping) { this.checking = false; return; }
+    const firstAttempt = activity.attempts.length;
+    const built = this.auditPromptParts(activity, control);
+    this.emitAudit(activity, "started");
+    const started = () => {
+      const session = this.lastRecord(key)!;
+      this.applyLoopControl(control, { activityKey: key, sessionId: session.sessionId, firstAttempt });
+      delete facts.stop;
+      this.checking = false;
+      this.save();
+      return true;
+    };
+    await this.launchSession(key, activity.kind, built.prompt, { started, carried: built.carried });
+  }
+
+  /** The loop stop at a key: a `loop_limit` stop's own, or one a `needs_you` test report derives while no test loop is left. */
+  loopStopOf(key: string | undefined): PhaseStop["loop"] | undefined {
+    if (key === undefined) return undefined;
+    return needsYouLoopStop(this.gateContext, key);
+  }
+
   private admissionContext(extra?: Waiver): AdmissionContext {
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
     const planPhases = this.waivedOrderPhases(extra);
@@ -4524,12 +4730,19 @@ export class Engine {
     return knownProblemWaiver([...(this.record.waivers ?? []), ...(extra ? [extra] : [])], read.problem) ? this.orderSource() : undefined;
   }
 
-  private async nextActivity(plan: PhasePlan): Promise<{ kind: "audit"; key: string; activity: AuditActivity } | { kind: "phase"; leaf: PlannedPhase } | { kind: "final"; leaf?: undefined } | { kind: "stopped"; key: string }> {
+  private async nextActivity(plan: PhasePlan): Promise<{ kind: "audit"; key: string; activity: AuditActivity } | { kind: "phase"; leaf: PlannedPhase; gate: Exclude<DeliveryDecision, { kind: "stop" }> } | { kind: "final"; leaf?: undefined } | { kind: "stopped"; key: string }> {
     await this.deliveryPending;
     const pending = this.record.completionAudits?.activities.findLast(a => !this.record.phases[auditKey(a)]?.doneAt);
     if (pending) { this.record.nextActivityKey = auditKey(pending); this.save(); return { kind: "audit", key: auditKey(pending), activity: pending }; }
     const leaf = this.nextExecutionLeaf(plan);
-    if (leaf) { this.record.nextActivityKey = leaf.id; this.save(); return { kind: "phase", leaf }; }
+    if (leaf) {
+      // The loop gate's first row: a leaf an audit appended starts a delivery loop, or stops the run when none is left (AC-DELIV-01).
+      let gate: DeliveryDecision;
+      try { this.ledgerForGate(); gate = deliveryDecision(this.gateContext, leaf.id); }
+      catch (error) { this.recordStop(leaf.id, "selection", [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }]); return { kind: "stopped", key: leaf.id }; }
+      if (gate.kind === "stop") return this.loopStop({ kind: "delivery", reason: "phases_added", heldAuditKey: auditKey(gate.audit) });
+      this.record.nextActivityKey = leaf.id; this.save(); return { kind: "phase", leaf, gate };
+    }
     let kind: Awaited<ReturnType<typeof auditNext>> | undefined;
     try {
       // Finished audit origins retain their development obligations after a first grant.
@@ -4539,9 +4752,21 @@ export class Engine {
         // Bound when it finished; this covers an audit finished by an earlier Kiln and later marked complete.
         if (acceptAuditDocuments(this.deliveryContext(auditKey(activity)), activity.activityId)) this.save();
       }
+      // The test rows before auditNext: no test loop left, and the latest test audit saved test work or still lists items (AC-TEST-02).
+      this.ledgerForGate();
+      const hold = testHold(this.gateContext);
+      if (hold) return this.loopStop(hold);
       kind = await auditNext(this.admissionContext());
       if (kind === "final_delivery") { this.record.nextActivityKey = PR_PHASE_KEY; this.save(); return { kind: "final" }; }
-      const activity = await this.allocateAudit(kind === "continue_test" ? "test_audit" : kind, kind === "continue_test");
+      let counted: ((activity: AuditActivity) => void) | undefined;
+      if (kind !== "delivery_audit") {
+        // A test audit that would be a test loop is counted in the write that allocates it, or stops the run (AC-LOOP-03, AC-LOOP-05).
+        const gate = testDecision(this.gateContext);
+        if (gate.kind === "stop") return this.loopStop(gate.stop);
+        if (gate.kind === "loop") counted = activity => { appendLoop(this.record.auditLoops!, loopSettings(this.record.settings), { kind: "test", startedAt: activity.createdAt, sourceAuditId: gate.predecessor?.activityId ?? "", activityKeys: [auditKey(activity)], firstAttempt: 0 }); };
+        if (gate.kind === "accept") counted = activity => { gate.acceptance.activityKey = auditKey(activity); gate.acceptance.firstAttempt = 0; };
+      }
+      const activity = await this.allocateAudit(kind === "continue_test" ? "test_audit" : kind, kind === "continue_test", false, counted);
       return { kind: "audit", key: auditKey(activity), activity };
     } catch (error) {
       const key = this.record.completionAudits?.activities.at(-1) ? auditKey(this.record.completionAudits.activities.at(-1)!) : PR_PHASE_KEY;
@@ -4577,7 +4802,7 @@ export class Engine {
     return effectiveAudit(this.stateDirectory, settled)?.countedOutcome === "continue_test" ? "continue_test" : "final_delivery";
   }
 
-  private async allocateAudit(kind: AuditKind, continuation = false, withoutSkill = false): Promise<AuditActivity> {
+  private async allocateAudit(kind: AuditKind, continuation = false, withoutSkill = false, counted?: (activity: AuditActivity) => void): Promise<AuditActivity> {
     const skill = withoutSkill ? undefined : await resolveAuditSkill({ kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
     this.activeCheck = "audit-allocation";
     const before = structuredClone(this.record);
@@ -4595,6 +4820,8 @@ export class Engine {
       activity.snapshots.push(new AuditStore(this.stateDirectory).put(initial));
       if (predecessor) assignAuditObligations(this.deliveryContext(auditKey(activity)), predecessor.activityId, { kind: "audit", activityId: activity.activityId });
       state.revision++;
+      // A loop is counted, or an Accept marked used, in the same write that allocates the audit it starts.
+      counted?.(activity);
       this.save(); return activity;
     } catch (error) { this.restoreRecord(before); throw error; }
     finally { this.activeCheck = undefined; }
@@ -4603,18 +4830,77 @@ export class Engine {
   private async runAuditSession(activity: AuditActivity): Promise<"done" | "stopped"> {
     const key = auditKey(activity);
     await this.recordStartCommits(key);
-    const prompt = this.auditPrompt(activity);
+    const built = this.auditPromptParts(activity);
     this.emitAudit(activity, "started");
-    await this.launchSession(key, activity.kind, prompt);
+    await this.launchSession(key, activity.kind, built.prompt, { carried: built.carried });
     return (await this.settleSession(key)).kind === "done" ? "done" : "stopped";
   }
 
-  auditPrompt(activity: AuditActivity): string {
+  auditPrompt(activity: AuditActivity): string { return this.auditPromptParts(activity).prompt; }
+
+  /**
+   * The audit prompt and the sentences it quotes as the person's (Kiln Audit Loop Limits,
+   * "Prompts"). `control` is an Allow or Accept about to start this session, read as `started()`
+   * will save it, so a relaunch after a restart rebuilds the same prompt from the ledger.
+   */
+  auditPromptParts(activity: AuditActivity, control?: LoopControl): { prompt: string; carried: { sentence: string; source: string }[] } {
+    const key = auditKey(activity);
+    const record = control ? structuredClone(this.record) : this.record;
+    const settings = loopSettings(record.settings);
+    const ledger = record.auditLoops;
+    if (control && ledger) {
+      if (control.kind === "allow") {
+        settings[control.loopKind === "delivery" ? "deliveryLimit" : "testLimit"] = control.count;
+        openEpoch(ledger, { kind: control.loopKind, at: this.now().toISOString(), cause: "allowed", limit: control.count, heldAuditKey: control.heldAuditKey });
+        appendLoop(ledger, settings, { kind: "test", startedAt: this.now().toISOString(), sourceAuditId: activity.activityId, activityKeys: [key] });
+      } else ledger.acceptances.push({ ...control.acceptance, activityKey: key });
+    }
+    const carried: { sentence: string; source: string }[] = [];
+    let loops = "";
+    if (activity.kind === "test_audit" && ledger) {
+      const lastSession = this.lastRecord(key);
+      const launching = lastSession && lastSession.runs.length === 0 ? lastSession.sessionId : undefined;
+      const own = control?.kind === "accept" ? ledger.acceptances.at(-1) : ledger.acceptances.find(a => a.activityKey === key && (a.sessionId === undefined || a.sessionId === launching));
+      const earlier = ledger.acceptances.filter(a => a.activityKey !== undefined && a !== own);
+      const noneLeft = !loopLeft(ledger, settings, "test");
+      const ownLoop = ledger.loops.findLast(loop => loop.kind === "test" && loop.activityKeys.includes(key));
+      let lastLoop: Parameters<typeof auditLoopsSlot>[0]["lastLoop"];
+      if (noneLeft || ownLoop?.last) {
+        const appliedByKiln = settings.afterLastTestSource?.kind === "kiln_for_earlier_run";
+        const choice = settings.afterLastTest === "deliver_unless_serious" ? "Deliver, unless something serious is left" : "Always stop and ask me";
+        const source = sourceText(settings.afterLastTestSource);
+        const quote = settings.afterLastTest === "deliver_unless_serious" ? `The person's own words, ${source}: "${SETTING_SENTENCE}"` : undefined;
+        if (quote) carried.push({ sentence: SETTING_SENTENCE, source });
+        lastLoop = { limit: settings.testLimit, choice, appliedByKiln, ...(quote ? { quote } : {}) };
+      }
+      for (const one of earlier) carried.push({ sentence: one.sentence, source: sourceText({ via: one.via, at: one.at, accept: true }) });
+      let accept: Parameters<typeof auditLoopsSlot>[0]["accept"];
+      if (own) {
+        const source = sourceText({ via: own.via, at: own.at, accept: true });
+        carried.push({ sentence: own.sentence, source });
+        accept = { sentence: own.sentence, source, items: own.items.map(item => `- ${item.id ? `${item.id}: ` : ""}${item.criterion ? `${item.criterion} · ` : ""}${item.problem} ${item.action}`).join("\n") || "None." };
+      }
+      // The Allow note: the first loop after an Allow at a stop whose report saved no test work.
+      const epoch = latestEpoch(ledger, "test");
+      let allowedItems: string | undefined;
+      if (epoch?.cause === "allowed" && epoch.heldAuditKey && ownLoop && countedLoops(ledger, "test")[0] === ownLoop) {
+        const held = this.auditActivity(epoch.heldAuditKey);
+        if (held && effectiveAudit(this.stateDirectory, held)?.countedOutcome !== "continue_test") {
+          const report = heldReport({ record, stateDirectory: this.stateDirectory }, epoch.heldAuditKey);
+          allowedItems = report?.schemaVersion === 2 ? report.needsYou.map(item => `- ${item.criterion ? `${item.criterion} · ` : ""}${item.problem} ${item.action}`).join("\n") : "";
+        }
+      }
+      loops = auditLoopsSlot({ ...(lastLoop ? { lastLoop } : {}), ...(earlier.length ? { earlier: earlier.map(one => `"${one.sentence}" (${sourceText({ via: one.via, at: one.at, accept: true })})`) } : {}), ...(accept ? { accept } : {}), ...(allowedItems !== undefined ? { allowedItems } : {}) });
+    }
+    return { prompt: this.auditPromptText(activity, loops), carried };
+  }
+
+  private auditPromptText(activity: AuditActivity, loops: string): string {
     // Include the latest test record even when a delivery reassessment intervened.
     // Grades remain history: this activity independently reassesses all current rows.
     const history = this.record.completionAudits!.activities.filter(a => a.sequence < activity.sequence && hasEffectiveResult(a) && effectiveAudit(this.stateDirectory, a)?.reportBytes);
     const previous = [history.findLast(a => a.kind === "delivery_audit"), history.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a).sort((a, b) => a.sequence - b.sequence);
-    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}), outstanding: outstandingLines(personItems(this.stateDirectory, this.record.completionAudits!.activities, activity.sequence).outstanding) });
+    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}), outstanding: outstandingLines(personItems(this.stateDirectory, this.record.completionAudits!.activities, activity.sequence).outstanding), loops });
   }
 
   private emitAudit(activity: AuditActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
@@ -4745,6 +5031,7 @@ export class Engine {
    * The phase's stop clears just before dispatch, after the billing check, as a resumed run's does.
    */
   private async launchAtStop(request: NonNullable<Engine["requestedLaunch"]>): Promise<void> {
+    if (request.kind === "audit") return this.launchAuditAtStop(request.phaseKey, request.control);
     const key = request.phaseKey;
     if (isPreflightKey(key)) return this.launchPreflightAtStop(key);
     const facts = this.record.phases[key]!;
@@ -5003,7 +5290,7 @@ export class Engine {
    * Launches one session for a phase. The session record is written before spawning; a session
    * recorded but never started (Kiln stopped in between) is launched as planned, same ID.
    */
-  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on" } = {}): Promise<void> {
+  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on"; carried?: { sentence: string; source: string }[] } = {}): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
     const audit = this.auditActivity(phaseKey) ?? this.preflightActivity(phaseKey);
     const auditRecord = this.auditActivity(phaseKey);
@@ -5045,6 +5332,13 @@ export class Engine {
       if (options.startedAs) session.startedAs = options.startedAs; else delete session.startedAs;
       writeSessionRecord(this.options.stateDirectory, session);
     }
+    // What the prompt quoted as the person's, saved with the launch (AC-TEST-03).
+    if (options.carried?.length) { session.carried = options.carried; writeSessionRecord(this.options.stateDirectory, session); }
+    // A test loop records the session that is the loop before its process starts.
+    const unmarked = audit && this.record.auditLoops?.loops.findLast(loop => loop.kind === "test" && loop.activityKeys.includes(phaseKey));
+    if (unmarked && unmarked.sessionId === undefined) { unmarked.sessionId = session.sessionId; this.save(); }
+    const ownAcceptance = audit && this.record.auditLoops?.acceptances.find(a => a.activityKey === phaseKey && a.sessionId === undefined);
+    if (ownAcceptance) { ownAcceptance.sessionId = session.sessionId; this.save(); }
     const cwd = this.workingDirectoryOf(session);
     await this.runProcess(phaseKey, session, launchArguments(session.sessionId, session.model, session.effort, this.addDirs(cwd)), prompt, "launch", cwd, undefined, options.started);
   }
@@ -5698,7 +5992,7 @@ export class Engine {
     const hold = this.record.billing?.hold;
     if (hold?.phaseKey === phaseKey) return !!(hold.sessionId ? this.sessionRecord(phaseKey, hold.sessionId) : this.latestSession(phaseKey))?.runs.length;
     const stop = this.record.phases[phaseKey]?.stop;
-    if (!stop || stop.kind === "selection" || stop.kind === "plan") return false;
+    if (!stop || stop.kind === "selection" || stop.kind === "plan" || stop.kind === "loop_limit") return false;
     const activation = this.record.developmentAuthorization?.activationRecovery;
     if (activation && recoveryStopKey(activation) === phaseKey && this.record.phases[phaseKey]!.sessionIds.length === 0) return false;
     return phaseKey === PR_PHASE_KEY || !(stop.kind === "done_check" && this.alreadyComplete(phaseKey) && stop.checks.every(check => check.passed || check.name === DELIVERY_CHECK));
@@ -5746,6 +6040,14 @@ export class Engine {
       return "still_stopped";
     }
     const stop = facts.stop!;
+    if (stop.kind === "loop_limit") {
+      // Check again at a loop stop reruns the gate, not the audit's completion checks (Kiln Audit Loop Limits, "Loop Stops").
+      // A stop on items listed holds nothing and clears; a hold clears only once a loop of that kind is left.
+      const loop = stop.loop!;
+      if (loop.reason === "items_listed" || loopLeft(this.record.auditLoops, loopSettings(this.record.settings), loop.kind)) return this.clearStop(phaseKey);
+      this.updateStop(phaseKey, [], false);
+      return "still_stopped";
+    }
     const latest = this.latestSession(phaseKey);
     if (latest?.agentId === "codex") await this.stopLiveProcess(latest);
     if (stop.kind === "selection" && stop.checks.some(check => check.name === READINESS_CHECK)) {
@@ -6236,14 +6538,14 @@ export class Engine {
     this.save();
   }
 
-  private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string): void {
+  private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string, loop?: PhaseStop["loop"]): void {
     // A real stop replaces the overview with its own recovery controls.
     if (this.restartReview) { this.restartReview = undefined; this.reviewingRestart = false; }
     if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = this.phaseFacts(phaseKey);
     const alreadyStopped = facts.stop !== undefined || this.record.billing?.hold?.phaseKey === phaseKey;
-    facts.stop = { kind, at, checks: markReasonRows(itemize(checks, phaseKey)), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
+    facts.stop = { kind, at, checks: markReasonRows(itemize(checks, phaseKey)), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }), ...(loop === undefined ? {} : { loop }) };
     this.save();
     this.readStoppedCommits(phaseKey);
     // The one place a stop prints its line (AC-START-09). Replacing a retained stop or a hold is the same Needs you, already said.
@@ -7452,7 +7754,28 @@ export class Engine {
       branch: this.record.settings.featureBranch,
       repositories: this.promptRepositories(await this.pullRequestRepositoriesNow()),
       personItems: this.personItemsForDelivery(),
+      ...(() => { const loopAcceptance = this.loopAcceptanceForDelivery(); return loopAcceptance ? { loopAcceptance } : {}; })(),
     };
+  }
+
+  /**
+   * The latest session in this execution whose prompt quoted a sentence as the person's, each
+   * sentence with where and when, and its activity's accepted report's summary (AC-TEST-03).
+   */
+  private loopAcceptanceForDelivery(): { sentences: string[]; summary?: string } | undefined {
+    let latest: { session: SessionRecord; key: string } | undefined;
+    for (const audit of this.record.completionAudits?.activities ?? []) {
+      const key = auditKey(audit);
+      for (const id of this.record.phases[key]?.sessionIds ?? []) {
+        const session = this.sessionRecord(key, id);
+        if (session?.carried?.length && (!latest || session.createdAt > latest.session.createdAt)) latest = { session, key };
+      }
+    }
+    if (!latest) return undefined;
+    const audit = this.auditActivity(latest.key)!;
+    const effective = audit.acceptedResult ? effectiveAudit(this.stateDirectory, audit) : undefined;
+    const summary = effective?.source === "accepted" && effective.parsed?.schemaVersion === 2 ? effective.parsed.summary : undefined;
+    return { sentences: latest.session.carried!.map(one => `"${one.sentence}" (the person's words, ${one.source})`), ...(summary ? { summary } : {}) };
   }
 
   /** Settled items once each, then any still open because an audit was marked complete (AC-NEUTRAL-03). */
@@ -7798,7 +8121,10 @@ export class Engine {
     return latest;
   }
 
-  private runtimeControlSettings() { return { keep_awake: this.record.settings.keepAwake, resume_after_usage_limit: this.record.settings.resumeAfterUsageLimit }; }
+  private runtimeControlSettings() {
+    const loops = loopSettings(this.record.settings);
+    return { keep_awake: this.record.settings.keepAwake, resume_after_usage_limit: this.record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, after_last_test_audit_loop: loops.afterLastTest };
+  }
 
   private save(): void {
     // Once a stop begins, nothing is judged: the next `kiln run` judges from the record.

@@ -9,12 +9,14 @@ import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import type { ItemChange, MarkCompleteOffer } from "../engine/waivers.js";
 import { markCompletePreview } from "./waiver-facts.js";
 
-export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again", "reset"] as const;
-/** The actions that start a new session of a stopped phase (run restart AC-CARRY-04): their receipts settle `started`, never `resumed`. */
-export const STARTING_ACTIONS: readonly string[] = ["carry-on", "start-again"];
+export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again", "reset", "allow-more-loops", "accept-and-deliver"] as const;
+/** The actions that start a new session of a stopped phase (run restart AC-CARRY-04; Kiln Audit Loop Limits): their receipts settle `started`, never `resumed`. */
+export const STARTING_ACTIONS: readonly string[] = ["carry-on", "start-again", "allow-more-loops", "accept-and-deliver"];
 /** A receipt is starting when its action is in the starting-action set or it carries `starts_session` (build preflight, Check Preflight again). */
 export const isStartingReceipt = (receipt: Pick<Receipt, "instruction" | "starts_session">): boolean => STARTING_ACTIONS.includes(receipt.instruction.action) || receipt.starts_session === true;
 export type Action = typeof ACTIONS[number];
+/** Allow N more loops and Accept what is left and deliver refuse with `not_at_loop_stop` anywhere but a loop stop (Kiln Audit Loop Limits, "Interfaces"). */
+const LOOP_ACTIONS: readonly string[] = ["allow-more-loops", "accept-and-deliver"];
 const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant", "folder-setup-start"] as const;
 export type JournalAction = Action | typeof INTERNAL_ACTIONS[number];
 export interface Instruction { command_id: string; execution_id: string; status_token: string; action: JournalAction; inputs: Record<string, unknown> }
@@ -22,7 +24,7 @@ export interface Effects { message?: "not_sent" | "submitted" | "received" | "un
 export interface Receipt {
   message?: import("../live/target.js").LiveMessage;
   live_target?: import("../live/target.js").LiveTarget;
-  settings?: { keep_awake: boolean; resume_after_usage_limit: boolean };
+  settings?: import("../state/records.js").ControlSettingsEcho;
   source: "caller" | "automatic";
   version: 1; sequence: number; id: string; command_id: string; execution_id: string; digest: string; instruction: Instruction;
   target: string; accepted_at: string; updated_at: string;
@@ -91,7 +93,7 @@ export function validateInstruction(raw: unknown): Instruction {
   const r = raw as Record<string, unknown>;
   if (Object.keys(r).sort().join() !== ["action", "command_id", "execution_id", "inputs", "status_token"].join() || typeof r.command_id !== "string" || !/^[\w.-]{1,128}$/.test(r.command_id) || typeof r.execution_id !== "string" || !r.execution_id || typeof r.status_token !== "string" || !r.status_token || r.status_token.length > 512 || !ACTIONS.includes(r.action as Action) || !r.inputs || typeof r.inputs !== "object" || Array.isArray(r.inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
   const inputs = r.inputs as Record<string, unknown>; const keys = Object.keys(inputs).sort();
-  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], resume: ["live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "start-again": ["leave_branch", "bring_up_to_date"], reset: [] };
+  const allowed: Record<Action, string[]> = { "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], resume: ["live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit", "delivery_audit_loops", "test_audit_loops", "after_last_test_audit_loop", "via"], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "start-again": ["leave_branch", "bring_up_to_date"], reset: [], "allow-more-loops": ["count"], "accept-and-deliver": ["via"] };
   if (keys.some(k => !allowed[r.action as Action].includes(k))) throw new ControlFailure("invalid_input", "Unexpected action input.", 2);
   if (inputs.reviewed_receipt_ids !== undefined && (!Array.isArray(inputs.reviewed_receipt_ids) || inputs.reviewed_receipt_ids.length > 50 || !inputs.reviewed_receipt_ids.every(id => typeof id === "string" && /^[\w.-]{1,128}$/.test(id)))) throw new ControlFailure("invalid_input", "Specify exact reviewed receipt IDs.", 2);
   if (inputs.live_target !== undefined && !validLiveTarget(inputs.live_target)) throw new ControlFailure("invalid_input", "Invalid live hand-back target.", 2);
@@ -107,6 +109,18 @@ export function validateInstruction(raw: unknown): Instruction {
     if (inputs.by !== undefined && !validBy(inputs.by)) throw new ControlFailure("invalid_input", "--by takes a name of 1 to 64 printable characters.", 2);
     if (!["browser", "command_line"].includes(inputs.via as string)) throw new ControlFailure("invalid_input", "Mark complete needs the entry point that admitted it.", 2);
     if (inputs.without_sending_reply !== undefined && typeof inputs.without_sending_reply !== "boolean") throw new ControlFailure("invalid_input", "Specify boolean control values.", 2);
+  } else if (r.action === "settings" && ["delivery_audit_loops", "test_audit_loops", "after_last_test_audit_loop", "via"].some(k => keys.includes(k))) {
+    // The loop settings (Kiln Audit Loop Limits AC-LOOP-05, AC-STOP-03): limits are whole numbers of 1 or more; nothing is clamped.
+    if (!keys.length || keys.every(k => k === "via")) throw new ControlFailure("invalid_input", "Specify at least one setting.", 2);
+    for (const k of ["keep_awake", "resume_after_usage_limit"]) if (inputs[k] !== undefined && typeof inputs[k] !== "boolean") throw new ControlFailure("invalid_input", "Specify boolean control values.", 2);
+    for (const k of ["delivery_audit_loops", "test_audit_loops"]) if (inputs[k] !== undefined && !(Number.isSafeInteger(inputs[k]) && (inputs[k] as number) >= 1)) throw new ControlFailure("invalid_input", "An audit loop limit is a whole number of 1 or more.", 2);
+    if (inputs.after_last_test_audit_loop !== undefined && !["deliver_unless_serious", "stop_and_ask"].includes(inputs.after_last_test_audit_loop as string)) throw new ControlFailure("invalid_input", "After the last test audit loop is deliver_unless_serious or stop_and_ask.", 2);
+    if (inputs.via !== undefined && !["browser", "command_line"].includes(inputs.via as string)) throw new ControlFailure("invalid_input", "Invalid entry point.", 2);
+    if ((inputs.after_last_test_audit_loop === undefined) !== (inputs.via === undefined)) throw new ControlFailure("invalid_input", "After the last test audit loop needs the entry point that admitted it.", 2);
+  } else if (r.action === "allow-more-loops") {
+    if (!(Number.isSafeInteger(inputs.count) && (inputs.count as number) >= 1)) throw new ControlFailure("invalid_input", "Allow more loops takes a whole number of 1 or more.", 2);
+  } else if (r.action === "accept-and-deliver") {
+    if (!["browser", "command_line"].includes(inputs.via as string)) throw new ControlFailure("invalid_input", "Accept what is left needs the entry point that admitted it.", 2);
   } else if (r.action === "carry-on") {
     // The reply is optional (AC-CARRY-05); when given it is a literal reply, as `kiln reply` takes.
     if (inputs.message !== undefined && (typeof inputs.message !== "string" || inputs.message.includes("\0") || inputs.message.trim().length > 4000)) throw new ControlFailure("invalid_input", "A literal reply of at most 4,000 characters is required.", 2);
@@ -127,7 +141,7 @@ function validReceipt(r: Receipt | undefined): r is Receipt {
     && Number.isFinite(Date.parse(r.accepted_at)) && Number.isFinite(Date.parse(r.updated_at))
     && (r.outcome === null || typeof r.outcome === "string") && (r.reason === null || typeof r.reason === "string")
     && (r.acknowledged_by === null || typeof r.acknowledged_by === "string")
-    && (r.settings === undefined || typeof r.settings.keep_awake === "boolean" && typeof r.settings.resume_after_usage_limit === "boolean")
+    && (r.settings === undefined || typeof r.settings.keep_awake === "boolean" && typeof r.settings.resume_after_usage_limit === "boolean" && [r.settings.delivery_audit_loops, r.settings.test_audit_loops].every(v => v === undefined || Number.isSafeInteger(v)) && (r.settings.after_last_test_audit_loop === undefined || typeof r.settings.after_last_test_audit_loop === "string"))
     && !!r.instruction && (r.instruction.action === "reply" ? r.reply_text === r.instruction.inputs?.message : r.instruction.action === "carry-on" ? r.reply_text === null || r.outcome === "phase_already_complete" && r.reply_text === r.instruction.inputs?.message : r.reply_text === null)
     && (r.message === undefined || r.instruction.action === "message" && validLiveTarget(r.live_target) && r.message.text === r.instruction.inputs.text && typeof r.message.uuid === "string" && !!r.message.uuid && ["submitting", "submitted", "received", "not_sent", "uncertain"].includes(r.message.delivery) && [r.message.writeStartedAt, r.message.writeCompletedAt, r.message.writeSettledAt, r.message.receivedAt, r.message.resultAt, r.message.reviewedAt].every(v => v === undefined || Number.isFinite(Date.parse(v))))
     && [r.session_id, r.phase_key, r.attempt_id, r.waiver_id].every(v => v === undefined || typeof v === "string")
@@ -351,7 +365,7 @@ export class CommandJournal {
     const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || matchStatusToken && instruction.status_token !== view.token || (["take-over", "message", "message-review"].includes(instruction.action) || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."]
       : waive && offer && !offer.offered ? ["mark_complete_not_offered", offer.reason]
       : waive && offer?.offered && offer.checkRunId !== instruction.inputs.check_run_id ? ["stale_check_run", "Mark complete was offered on an earlier check run. Refresh status."]
-      : !control.available ? [waive && !offer ? "mark_complete_not_offered" : "control_unavailable", control.reason!]
+      : !control.available ? [waive && !offer ? "mark_complete_not_offered" : LOOP_ACTIONS.includes(instruction.action) && !control.reason!.startsWith("Kiln is checking") ? "not_at_loop_stop" : "control_unavailable", control.reason!]
       : (instruction.action === "verify-and-advance" || waive) && unsent.length && instruction.inputs.without_sending_reply !== true ? ["unsent_reply_acknowledgement_required", "A preserved reply was not sent. Explicitly acknowledge it before advancing."] : null;
     if (refusal?.[0] === "stale_status_token") refusal[1] = this.host.staleReason?.(instruction) ?? refusal[1]!;
     const at = new Date().toISOString();

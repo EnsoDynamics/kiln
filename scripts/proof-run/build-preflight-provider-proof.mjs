@@ -54,7 +54,7 @@ const resolved = await resolveSkill({ name: 'build-preflight', agent: 'claude_co
 assert.equal(resolved.kind, 'found', `build-preflight must be installed for Claude Code: ${resolved.message ?? ''}`);
 const prompt = preflightSessionPrompt({ skillName: resolved.skill.name, skillPath: resolved.skill.path, prdFile: `${directory}/greeting-prd.md`, repositories: [{ name: 'shop', worktreePath: repository, baseBranch: 'develop' }], branch: 'feature/greeting' });
 const activityId = randomUUID();
-const session = { schemaVersion: 22, agentId: 'claude_code', sessionId: randomUUID(), phaseId: '', activityId, kind: 'preflight', createdAt: new Date().toISOString(), model: 'opus', modelDisplayName: 'opus', effort: 'medium', workingDirectory: repository, runs: [], sleeps: [], steps: [] };
+const session = { schemaVersion: 23, agentId: 'claude_code', sessionId: randomUUID(), phaseId: '', activityId, kind: 'preflight', createdAt: new Date().toISOString(), model: 'opus', modelDisplayName: 'opus', effort: 'medium', workingDirectory: repository, runs: [], sleeps: [], steps: [] };
 writeSessionRecord(stateDirectory, session);
 console.log(JSON.stringify({ root, scenario, sessionId: session.sessionId }));
 const run = await runSessionProcess({ claude: 'claude', args: launchArguments(session.sessionId, 'opus', 'medium'), cwd: repository, env: process.env, prompt, cause: 'launch', stateDirectory, record: session });

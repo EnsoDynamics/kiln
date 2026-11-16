@@ -540,6 +540,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API (`resumeAfterUsageLimit`; Resume now during a wait)
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (`POST /api/settings` takes `auditLoops`, changeable after Start; two new stop routes; `POST /api/check-again` at a loop stop starts nothing the gate refuses).
+
 All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local time by the view, with a day when not today (UI-010). A control not allowed in the current state returns 409 with the reason.
 
 | Method and path | Purpose |
@@ -571,6 +573,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 - **Dimmed.** Only the current-phase panel, relabelled "Last seen · phase <n> of <total>".
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (the snapshot gains `auditLoops`).
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (the view no longer derives interruption from transport loss).
 
@@ -670,6 +674,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Models and Settings; §Readings and identity (agent-specific models, confirmed pairs, dynamic allowances, metadata refresh and optional Claude five-hour readings).
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait, §Design Decisions (Kiln waits for a reset; rows keep their kind; readings keep `orgId` and their start)
+
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Settings (Claude Code defaults to `medium` effort).
 
 - **Account:** `claude auth status --json`; the screens use `email` and `subscriptionType` (the plan, shown with its first letter capitalized and followed by "plan": `max` → "Max plan"). Not signed in means the output's `loggedIn` is false, whatever the exit code. `subscriptionType` can be absent (an API-key login, for example); the plan is then left out and the email shows alone. When the call fails with no JSON Kiln can parse (an error, a timeout, other output), `account.error` carries that error, shown like the not-signed-in line: amber, in place of the email and plan, and Start isn't held.
 - **When Claude Code isn't signed in**, `account.error` carries the amber line UI-010 gives in place of the email, plan and limits. Start isn't held by it, and nothing waits for a sign-in: a session that then fails comes to Needs you like any other stop (UI-005).

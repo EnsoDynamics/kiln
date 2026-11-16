@@ -12,7 +12,7 @@ import type { AuditActivity } from "./contracts.js";
 import { acceptedAudit } from "./effective-result.js";
 import type { AuditStore } from "./storage.js";
 
-export interface PersonItem { id: string; problem: string; action: string; listedBy: string; listedByActivityId: string }
+export interface PersonItem { id: string; problem: string; action: string; listedBy: string; listedByActivityId: string; criterion?: string }
 export interface SettledPersonItem extends PersonItem { settledBy: string; settledByActivityId: string; how: string }
 export interface PersonItemLedger { outstanding: PersonItem[]; settled: SettledPersonItem[] }
 
@@ -32,14 +32,16 @@ export function personItems(stateDirectory: string, activities: AuditActivity[],
     }
     for (const entry of accepted.report.needsYou) {
       const item = entry.id ? outstanding.get(entry.id) : undefined;
-      if (item) outstanding.set(item.id, { ...item, problem: entry.problem, action: entry.action });
-      else { const id = `item-${next++}`; outstanding.set(id, { id, problem: entry.problem, action: entry.action, listedBy: name, listedByActivityId: activity.activityId }); }
+      // A relisting by id keeps the criterion the item was first listed with unless it gives one (Kiln Audit Loop Limits, "Report Contract").
+      const criterion = entry.criterion ?? item?.criterion;
+      if (item) outstanding.set(item.id, { ...item, problem: entry.problem, action: entry.action, ...(criterion ? { criterion } : {}) });
+      else { const id = `item-${next++}`; outstanding.set(id, { id, problem: entry.problem, action: entry.action, listedBy: name, listedByActivityId: activity.activityId, ...(entry.criterion ? { criterion: entry.criterion } : {}) }); }
     }
   }
   return { outstanding: [...outstanding.values()], settled };
 }
 
 /** The audit prompt's list of outstanding items, one per line. */
-export const outstandingLines = (items: PersonItem[]) => items.map(item => `- ${item.id} (listed by ${item.listedBy}): ${item.problem} ${item.action}`).join("\n");
+export const outstandingLines = (items: PersonItem[]) => items.map(item => `- ${item.id} (listed by ${item.listedBy}${item.criterion ? `; criterion ${item.criterion}` : ""}): ${item.problem} ${item.action}`).join("\n");
 /** The final-delivery prompt's list of settled items, one per line. */
 export const settledLines = (items: SettledPersonItem[]) => items.map(item => `- ${item.problem} Listed by ${item.listedBy}, settled by ${item.settledBy}: ${item.how}`).join("\n");

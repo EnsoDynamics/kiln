@@ -151,6 +151,8 @@ Once release is proved, show the actual cwd and platform-correct quoted `cd <fol
 
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Held Phase That Can't Be Reopened (a hold whose conversation can't be reopened ends by a carry-on session or its advance, on the carry-on ownership check).
 
+Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Loop Stops (at a takeover audit's loop stop that holds, the report is accepted but the run holds there until Allow N more loops, a raised limit and Check again, or Accept what is left and deliver).
+
 Extend the handoff target to activity and attempt identity for takeover/recovery, while retaining existing ordinary phase endpoint compatibility. Audits keep assigned kind, activity UUID, round, continuation, report path and conversation. Never allocate a new round merely because a person took over.
 
 | Intent | Fresh checks complete | Incomplete | Read/check error |
