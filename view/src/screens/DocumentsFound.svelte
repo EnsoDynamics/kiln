@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Documents found (docs/design/mockups/kiln-screen-documents-found.html): what Kiln found
   // beside the PRD (PRD AC-START-04), the PRD's settings, changeable before Start and saved as
@@ -424,7 +425,8 @@
     </div>
 
     <div class="column end">
-      <button type="button" class="start" class:ready={startNow.enabled && !pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
+      <button type="button" class="start" class:ready={startNow.enabled} class:busy={pressing} aria-busy={pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
+      {#if pressing}<BusyStatus text={`Setting up the run and launching ${settings.agent}.`} />{/if}
       {#if closedLine || startNow.note}<span class="help">{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
       {#if documents.startError}<span class="message">{documents.startError}</span>{:else if startReason}<span class="message">{startReason}</span>{/if}
     </div>

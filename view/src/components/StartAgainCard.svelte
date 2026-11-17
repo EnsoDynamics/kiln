@@ -1,6 +1,7 @@
 <script lang="ts">
   // Start Phase N again (run restart AC-CASE-02): the one way to start a phase Kiln couldn't
   // launch, with the phase's work so far, and no reply box or terminal instructions.
+  import BusyStatus from "./BusyStatus.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { workLine } from "../lib/restart.js";
 
@@ -12,7 +13,8 @@
   <h2>Fix that, then have Kiln try again</h2>
   <p>Kiln starts {activity}'s first session again, exactly as it would have. No conversation had begun, so none is lost.</p>
   <ul class="work"><li><span>{activity}'s work so far</span><span>{workLine(work)}</span></li></ul>
-  <button type="button" class="button solid" disabled={disabled || !control.available} onclick={onpress}>{pending ? "Starting…" : `Start ${activity} again`}</button>
+  <button type="button" class="button solid" class:busy={pending} aria-busy={pending} disabled={disabled || !control.available} onclick={onpress}>{pending ? "Starting…" : `Start ${activity} again`}</button>
+  {#if pending}<BusyStatus text={`Launching ${activity}'s first session again.`} />{/if}
   {#if !control.available && control.reason}<p class="reason">{control.reason}</p>{/if}
   {#if reason}<p class="reason" role="status">{reason}</p>{/if}
   <p class="hint">There is no reply box here: there is no conversation to reply to.</p>

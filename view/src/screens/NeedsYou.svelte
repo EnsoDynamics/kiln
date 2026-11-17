@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Needs you (docs/design/mockups/kiln-screen-needs-you-ended-with-message.html and
   // kiln-screen-needs-you-crashed.html): how the session ended, word for word (PRD AC-STOP-02),
@@ -83,6 +84,8 @@
   let reason = $state<string | undefined>(undefined);
   let note = $state("");
   let resuming = $state(false);
+  // Which press set `pressing`: Check again shows the spinner, Refresh agent information does not.
+  let checkPressed = $state(false);
   let resumeReason = $state<string | undefined>(undefined);
   // Mark complete sits below Check again, usable once a recheck still fails and shown unusable
   // before one (waivers AC-WAIVE-02); a pressed offer stays shown, reading Checking…, while its rerun runs (AC-WAIVE-06).
@@ -140,10 +143,10 @@
   }
 
   async function pressCheckAgain() {
-    pressing = true;
+    pressing = true; checkPressed = true;
     markChanges = []; markError = undefined;
     const answer = await checkAgain(config);
-    pressing = false;
+    pressing = false; checkPressed = false;
     reason = answer.ok ? undefined : answer.reason;
   }
   async function pressMarkComplete() {
@@ -189,7 +192,7 @@
         {#if loopReasonRows.length}{@render checkRows(loopReasonRows)}{/if}
         {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
         <div class="again">
-          <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
+          <button type="button" class="button solid wide" class:busy={checkPressed} aria-busy={checkPressed} disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
           <span class="checked">{checkedText}</span>
           {#if loopCopy.checkAgainText}<span class="checked">{loopCopy.checkAgainText}</span>{:else if runsAll}<span class="checked">{runsAll}</span>{/if}
           {#if reason}<span class="reason">{reason}</span>{/if}
@@ -218,14 +221,14 @@
       </div>
     {/if}
     {#if stop.nothingToCheck}
-      <NothingToCheck {snapshot} {activity} pending={pressing} disabled={busy} warning={reason} onpress={pressCheckAgain} />
+      <NothingToCheck {snapshot} {activity} pending={checkPressed} disabled={busy} warning={reason} onpress={pressCheckAgain} />
     {:else}
       <aside class="card side">
         <span class="eyebrow">{copy.sideHeading}</span>
         {@render checkRows(reasonRows)}
         {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
         <div class="again">
-          <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check {activity} again</button>
+          <button type="button" class="button solid wide" class:busy={checkPressed} aria-busy={checkPressed} disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check {activity} again</button>
           <span class="checked">{checkedText}</span>
           {#if runsAll}<span class="checked">{runsAll}</span>{/if}
           {#if reason}<span class="reason">{reason}</span>{/if}
@@ -310,9 +313,10 @@
           <p class="hint">Your reply goes to the same {accountAgent} session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
           <div class="actions">
             <!-- The amber line never holds Resume (AC-LIMIT-03). -->
-            <button type="button" class="button solid" disabled={busy || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
+            <button type="button" class="button solid" class:busy={resuming} aria-busy={resuming} disabled={busy || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
             {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
           </div>
+          {#if resuming}<BusyStatus text={`Checking the work, then reopening the ${accountAgent} session.`} />{/if}
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
         </section>
       {:else if stop.resumeOffered}
@@ -328,9 +332,10 @@
           </label>
           <p class="hint">Your reply goes to the same {accountAgent} session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
           <div class="actions">
-            <button type="button" class="button solid" disabled={busy || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
+            <button type="button" class="button solid" class:busy={resuming} aria-busy={resuming} disabled={busy || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
             <span class="hint">Uses whichever {accountAgent} account is signed in now. Close the session first if you opened it in a terminal.</span>
           </div>
+          {#if resuming}<BusyStatus text={`Checking the work, then reopening the ${accountAgent} session.`} />{/if}
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
         </section>
       {/if}
@@ -340,7 +345,8 @@
           <section class="card pick">
             <span class="step-title">Start the preflight again</span>
             <p class="hint">Kiln starts a fresh preflight session, which changes nothing in the repository.</p>
-            <div class="actions"><button type="button" class="button solid" disabled={busy || !!restartPending || !stop.startAgain.available} onclick={() => restartAction("start")}>{restartPending === "start" ? "Starting…" : "Start the preflight again"}</button></div>
+            <div class="actions"><button type="button" class="button solid" class:busy={restartPending === "start"} aria-busy={restartPending === "start"} disabled={busy || !!restartPending || !stop.startAgain.available} onclick={() => restartAction("start")}>{restartPending === "start" ? "Starting…" : "Start the preflight again"}</button></div>
+            {#if restartPending === "start"}<BusyStatus text="Launching a fresh preflight session." />{/if}
             {#if !stop.startAgain.available && stop.startAgain.reason}<span class="reason">{stop.startAgain.reason}</span>{/if}
             {#if restartReason}<span class="reason">{restartReason}</span>{/if}
           </section>
@@ -401,7 +407,7 @@
         {@render checkRows(reasonRows)}
         {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
         <div class="again">
-          <button type="button" class="button solid wide" disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
+          <button type="button" class="button solid wide" class:busy={checkPressed} aria-busy={checkPressed} disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
           <span class="checked">{checkedText}</span>
           {#if runsAll}<span class="checked">{runsAll}</span>{/if}
           {#if reason}<span class="reason">{reason}</span>{/if}

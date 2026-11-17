@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Waiting for usage (docs/changes/kiln-usage-limit-recovery/mockups/kiln-screen-waiting-for-usage.html):
   // the limit the session stopped at and its reset, counting down (usage-limit recovery
@@ -103,9 +104,10 @@
               <LimitAccount limit={waiting.limit} footnote={copy.footnote} />
               <div class="actions">
                 <!-- The amber line never holds Resume now (AC-LIMIT-03); a resume or check under way does. -->
-                <button type="button" class="button solid" disabled={pressing || waiting.checking === true || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResumeNow}><Icon name="play" size={15} />Resume now</button>
+                <button type="button" class="button solid" class:busy={pressing} aria-busy={pressing} disabled={pressing || waiting.checking === true || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResumeNow}><Icon name="play" size={15} />Resume now</button>
                 {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
               </div>
+              {#if pressing}<BusyStatus text={`Checking ${waiting.phaseId === PR_ID ? "GitHub" : "Git"}, then resuming the same ${waiting.agent ?? snapshot.settings.agent} session.`} />{/if}
               {#if reason}<span class="reason">{reason}</span>{/if}
             </div>
           </li>

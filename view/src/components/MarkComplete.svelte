@@ -4,6 +4,7 @@
   // while Kiln reruns the checks. A refused waiver says the results changed (AC-WAIVE-04); an
   // error shows by the button. Before a recheck, `waiting` shows the heading and the button
   // unusable, saying to check again first.
+  import BusyStatus from "./BusyStatus.svelte";
   import type { ItemChange, MarkCompleteOffer } from "../../../src/engine/waivers.js";
   import { changedNote } from "../lib/waivers.js";
   import WarningMarker from "./WarningMarker.svelte";
@@ -27,7 +28,8 @@
     {:else}<p class="feedback">{paragraph.text}</p>{/if}
   {/each}
   {#if offer}
-    <div class="actions"><button type="button" class="button" disabled={disabled || pending} onclick={onmark}>{pending ? "Checking…" : offer.label}</button></div>
+    <div class="actions"><button type="button" class="button" class:busy={pending} aria-busy={pending} disabled={disabled || pending} onclick={onmark}>{pending ? "Checking…" : offer.label}</button></div>
+    {#if pending}<BusyStatus text="Running the checks again before marking it complete." />{/if}
   {:else if waiting}
     <div class="actions"><button type="button" class="button" disabled aria-describedby="mark-complete-waiting">{waiting.label}</button></div>
     <p class="hint" id="mark-complete-waiting">Check again first. If a check still fails, this button becomes available.</p>

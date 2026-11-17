@@ -7,6 +7,7 @@
   // in as 2; Accept what is left and deliver is offered at a test stop only, with its sentence;
   // Reply is not offered at a stored stop for listed items, where nothing would read it; the audit's
   // session can always be opened in a terminal. Kiln ranks nothing and judges nothing here.
+  import BusyStatus from "./BusyStatus.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { acceptAndDeliver, allowMoreLoops, resume, type PageConfig } from "../lib/api.js";
   import { LIMIT_ERROR, loopStopCopy, parsedLimit, stopLoopLine, type LoopStopView } from "../lib/audit-loops.js";
@@ -75,14 +76,16 @@
   <div class="control">
     <div class="allow">
       <label class="allow-label"><span>More loops</span><input type="number" min="1" step="1" inputmode="numeric" value={count} oninput={(event) => { count = event.currentTarget.value; countError = undefined; }} disabled={locked} aria-invalid={countError ? "true" : undefined} /></label>
-      <button type="button" class="button solid" disabled={locked} onclick={() => press("allow")}>{pending === "allow" ? "Starting…" : `Allow ${parsedLimit(count) ?? count} more loops`}</button>
+      <button type="button" class="button solid" class:busy={pending === "allow"} aria-busy={pending === "allow"} disabled={locked} onclick={() => press("allow")}>{pending === "allow" ? "Starting…" : `Allow ${parsedLimit(count) ?? count} more loops`}</button>
     </div>
+    {#if pending === "allow"}<BusyStatus text="Starting the next loop." />{/if}
     {#if countError}<span class="reason">{countError}</span>{/if}
     <p class="hint">{copy.allowText}</p>
   </div>
   {#if loop.kind === "test" && loop.acceptSentence}
     <div class="control">
-      <button type="button" class="button" disabled={locked} onclick={() => press("accept")}>{pending === "accept" ? "Starting…" : "Accept what is left and deliver"}</button>
+      <button type="button" class="button" class:busy={pending === "accept"} aria-busy={pending === "accept"} disabled={locked} onclick={() => press("accept")}>{pending === "accept" ? "Starting…" : "Accept what is left and deliver"}</button>
+      {#if pending === "accept"}<BusyStatus text="Accepting what is left and starting delivery." />{/if}
       <p class="hint">You say: “{loop.acceptSentence}” {copy.acceptText}</p>
     </div>
   {/if}
@@ -94,7 +97,8 @@
         <textarea rows="3" maxlength={4000} bind:value={note} disabled={locked}></textarea>
       </label>
       <p class="hint">Type your own answer. It goes to the audit’s conversation, which carries on from where it stopped. A reply is not a loop.</p>
-      <div><button type="button" class="button" disabled={locked || !note.trim()} onclick={() => press("reply")}>{pending === "reply" ? "Sending…" : "Send reply to the audit"}</button></div>
+      <div><button type="button" class="button" class:busy={pending === "reply"} aria-busy={pending === "reply"} disabled={locked || !note.trim()} onclick={() => press("reply")}>{pending === "reply" ? "Sending…" : "Send reply to the audit"}</button></div>
+      {#if pending === "reply"}<BusyStatus text={`Sending your reply and reopening the ${agent} audit session.`} />{/if}
     </div>
   {/if}
   {#if reason}<span class="reason">{reason}</span>{/if}
