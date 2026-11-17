@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BusyStatus from "./BusyStatus.svelte";
   import { onMount } from "svelte";
   import type { CompletedPlanCheck } from "../../../src/engine/completed-plan-discovery.js";
   import { awaitingMergeText } from "../../../src/engine/awaiting-merge.js";
@@ -7,6 +8,8 @@
   let { check, config, connected, acceptance }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"] } = $props();
   let pending = $state(false);
   let continuing = $state(false);
+  // Continue and Retry preparation, not the early-merge tick, show the busy spinner.
+  let accepting = $state(false);
   let dismissed = $state<string>();
   let error = $state<string>();
   let refreshFailure = $state<string>();
@@ -38,11 +41,11 @@
     if (!config || !connected || continuing) return;
     const proposal = result?.proposal;
     if (!retry && !proposal || retry && !acceptance) return;
-    continuing = true; error = undefined;
+    continuing = true; accepting = true; error = undefined;
     try {
       const answer = await continueFeature(config, retry ? acceptance!.completedExecutionId : proposal!.completedExecutionId, retry ? { acceptanceId: acceptance!.id } : { proposalId: proposal!.id });
       if (!answer.ok) error = answer.reason;
-    } finally { continuing = false; }
+    } finally { continuing = false; accepting = false; }
   }
   // One mount/reload read. SSE reconnect and the clock never request another check.
   onMount(() => { void refresh(); });
@@ -59,7 +62,7 @@
     <h3>{acceptance.state === "preparing" ? "Preparing additional work" : "Preparation needs attention"}</h3>
     {#if acceptance.reason}<p class="problem">{acceptance.reason}</p>{/if}
     {#each acceptance.repositories as repository}<p>{repository.name}: {repository.ready ? "Workspace ready" : "Waiting for setup"} · {repository.worktreePath}</p>{/each}
-    {#if acceptance.state === "blocked"}<button class="button" disabled={!connected || continuing || pending} onclick={() => accept(true)}>Retry preparation</button>{/if}
+    {#if acceptance.state === "blocked"}<button class="button" class:busy={accepting} aria-busy={accepting} disabled={!connected || continuing || pending} onclick={() => accept(true)}>Retry preparation</button>{#if accepting}<BusyStatus text="Preparing the workspace for the new phases." />{/if}{/if}
     <p>The accepted plan is retained. Earlier delivery remains complete while preparation is reconciled.</p>
   {/if}
   {#if result && dismissed === result.proposal?.id}
@@ -86,9 +89,10 @@
       {/each}
       {#if result.added.length}
         <div class="actions">
-          <button class="button" type="button" disabled={!connected || !config || continuing || pending || earlier || result.proposal.readiness !== "ready" || acceptance?.state === "preparing"} onclick={() => accept()}>Continue with {result.added.length} {result.added.length === 1 ? "phase" : "phases"}</button>
+          <button class="button" type="button" disabled={!connected || !config || continuing || pending || earlier || result.proposal.readiness !== "ready" || acceptance?.state === "preparing"} class:busy={accepting} aria-busy={accepting} onclick={() => accept()}>Continue with {result.added.length} {result.added.length === 1 ? "phase" : "phases"}</button>
           <button class="button" type="button" disabled={!connected || continuing || pending || acceptance?.state === "preparing"} onclick={() => { dismissed = result.proposal!.id; }}>Not now</button>
         </div>
+        {#if accepting && !acceptance}<BusyStatus text="Preparing the workspace for the new phases." />{/if}
         {#if result.proposal.prerequisites.some(row => row.status === "preparation_available")}<p>Prerequisite preparation has not been performed and independently verified. Dependent implementation cannot start.</p>{/if}
       {/if}
     {/if}

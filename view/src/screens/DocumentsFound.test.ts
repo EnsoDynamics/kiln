@@ -70,7 +70,7 @@ describe("Documents found", () => {
     const page = html();
     expect(text(page)).toContain("Kiln can’t tell from the files whether these documents went through requirements refinement; that workflow deletes its working file when it finishes. These documents have been through requirements refinement");
     expect(page).toMatch(/<input id="refined" type="checkbox"/);
-    expect(page).toMatch(/<button type="button" class="start[^"]*" disabled/);
+    expect(page).toMatch(/<button type="button" class="start[^"]*"[^>]* disabled/);
   });
 
   it("shows each field message under its field in amber, and git's error under Start", () => {

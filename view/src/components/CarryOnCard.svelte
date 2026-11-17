@@ -2,6 +2,7 @@
   // Reply here and let Kiln carry on (run restart AC-CARRY-01, 02, 05, 06): Kiln can't reopen the
   // earlier conversation, so it starts a new session given the person's optional reply, the
   // agent's last message and the phase's work, and says why the conversation can't be reopened.
+  import BusyStatus from "./BusyStatus.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { ReopenCheck } from "../../../src/engine/reopen-check.js";
   import { defectWords } from "../../../src/engine/reopen-check.js";
@@ -21,7 +22,8 @@
   <ul class="work"><li><span>{activity}'s work so far</span><span>{workLine(work)}</span></li></ul>
   <label class="note-field" for="carry-reply"><span>Your reply to {agent} <span class="optional">Optional</span></span></label>
   <textarea id="carry-reply" rows="3" maxlength="4000" bind:value={draft}></textarea>
-  <button type="button" class="button solid" disabled={disabled || !control.available} onclick={onpress}>{pending ? "Starting…" : `Send reply & continue ${activity}`}</button>
+  <button type="button" class="button solid" class:busy={pending} aria-busy={pending} disabled={disabled || !control.available} onclick={onpress}>{pending ? "Starting…" : `Send reply & continue ${activity}`}</button>
+  {#if pending}<BusyStatus text={`Launching a new ${agent} session for ${activity}.`} />{/if}
   {#if !control.available && control.reason}<p class="reason">{control.reason}</p>{/if}
   {#if reason}<p class="reason" role="status">{reason}</p>{/if}
   <div class="why">
@@ -35,7 +37,8 @@
     {:else if reopen.reason === "unreadable"}<span>Kiln couldn't read the saved conversation.</span>
     {:else if reopen.reason === "reopen_failed"}<span>Kiln tried to reopen the conversation, and the agent stopped before it began.</span>
     {:else}<span>{reopen.detail}</span>{/if}
-    <button type="button" class="button small" disabled={disabled || checking} onclick={oncheck}>{checking ? "Checking…" : "Check again"}</button>
+    <button type="button" class="button small" class:busy={checking} aria-busy={checking} disabled={disabled || checking} onclick={oncheck}>{checking ? "Checking…" : "Check again"}</button>
+    {#if checking}<BusyStatus text="Checking the saved conversation again." />{/if}
   </div>
 </section>
 

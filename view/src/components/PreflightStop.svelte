@@ -4,6 +4,7 @@
   // as the session wrote them, the command that reopens the session in a terminal, then Check
   // Preflight again and Mark complete side by side under no heading, with the sentence beneath.
   // No reply field, no check rows and none of the report's stop lines.
+  import BusyStatus from "./BusyStatus.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { checkAgain, markComplete } from "../lib/api.js";
   import { viewContext } from "../lib/view-context.js";
@@ -58,9 +59,10 @@
     </div>
   {/if}
   <div class="controls">
-    <button type="button" class="button solid" disabled={busy} onclick={pressCheck}><Icon name="check-again" size={15} />{pressing === "check" ? "Checking…" : "Check Preflight again"}</button>
-    <button type="button" class="button" disabled={busy || !offer} onclick={pressMark}>{pressing === "mark" ? "Marking…" : "Mark complete"}</button>
+    <button type="button" class="button solid" class:busy={pressing === "check"} aria-busy={pressing === "check"} disabled={busy} onclick={pressCheck}><Icon name="check-again" size={15} />{pressing === "check" ? "Checking…" : "Check Preflight again"}</button>
+    <button type="button" class="button" class:busy={pressing === "mark"} aria-busy={pressing === "mark"} disabled={busy || !offer} onclick={pressMark}>{pressing === "mark" ? "Marking…" : "Mark complete"}</button>
   </div>
+  {#if pressing === "check"}<BusyStatus text="Launching a fresh preflight session." />{/if}
   {#if offer}{#each offer.sentence as text, index (index)}<p class="hint">{text}</p>{/each}{/if}
   {#if reason}<p class="reason" role="alert">{reason}</p>{/if}
 </section>

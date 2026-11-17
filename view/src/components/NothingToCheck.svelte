@@ -1,6 +1,7 @@
 <script lang="ts">
   // Nothing to check yet (run restart AC-CASE-03): a stopped phase that built nothing shows no
   // completion checks until asked; a row giving the stop's own reason still shows below.
+  import BusyStatus from "./BusyStatus.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import CheckFacts from "./CheckFacts.svelte";
 
@@ -11,8 +12,9 @@
 <section class="card nothing" aria-label="Nothing to check yet">
   <div class="line">
     <span><strong>Nothing to check yet.</strong> {activity} has no commits and no uncommitted changes. Built it somewhere else? Kiln checks only this worktree, so bring the work here first. If a check still fails, you can mark {activity} complete.</span>
-    <button type="button" class="button" {disabled} onclick={onpress}>{pending ? "Checking…" : `Check ${activity} anyway`}</button>
+    <button type="button" class="button" class:busy={pending} aria-busy={pending} {disabled} onclick={onpress}>{pending ? "Checking…" : `Check ${activity} anyway`}</button>
   </div>
+  {#if pending}<BusyStatus text={`Running ${activity}'s completion checks.`} />{/if}
   {#if warning}<p class="warning" role="alert">{warning}</p>{/if}
   {#if reasons.length}
     <!-- The row kept for the stop's own reason carries the same label as the checks section (AC-STOPCHECK-04). -->

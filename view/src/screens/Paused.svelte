@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Paused (docs/design/mockups/kiln-screen-paused.html): Kiln holds between phases until Start
   // (PRD AC-VIEW-03), with the next phase named, the account to switch before it (AC-WATCH-08),
@@ -50,7 +51,8 @@
       </p>
       {#if reason}<span class="message">{reason}</span>{/if}
     </div>
-    <button type="button" class="button solid start" disabled={!connected || pressing || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressStart}><Icon name="arrow" size={15} strokeWidth={1.8} />{snapshot.restartReview ? "Resume Kiln" : nextIsPr ? "Start the pull request" : `Start ${nextName}`}</button>
+    <button type="button" class="button solid start" class:busy={pressing} aria-busy={pressing} disabled={!connected || pressing || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressStart}><Icon name="arrow" size={15} strokeWidth={1.8} />{snapshot.restartReview ? "Resume Kiln" : nextIsPr ? "Start the pull request" : `Start ${nextName}`}</button>
+    {#if pressing}<div class="busy-row"><BusyStatus text={`Launching ${snapshot.settings.agent} for ${snapshot.restartReview || !nextName ? "the next session" : nextIsPr ? "the pull request" : nextName}.`} /></div>{/if}
   </section>
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>
@@ -69,5 +71,7 @@
   h2 { margin: 0; font-size: 20px; font-weight: 600; color: var(--text); }
   p { margin: 0; font-size: 14.5px; color: var(--muted); line-height: 1.55; }
   .message { font-size: 12.5px; color: var(--amber); }
+  /* The busy line takes a row of its own under the button, right-aligned beneath it. */
+  .busy-row { flex-basis: 100%; display: flex; justify-content: flex-end; }
   .start { min-height: 48px; padding: 0 24px; font-size: 15px; }
 </style>

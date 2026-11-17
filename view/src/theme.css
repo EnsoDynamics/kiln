@@ -45,6 +45,14 @@ input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible
 .button.wide { width: 100%; }
 .button.small { min-height: 36px; padding: 0 14px; font-size: 13px; }
 .button:disabled { opacity: 0.4; cursor: not-allowed; }
+/* A pressed button whose action is under way keeps full contrast and shows a spinner in place
+   of its icon, so it never reads as unusable (BusyStatus.svelte carries the line beneath it).
+   The aria-busy attribute lifts this rule over the components' own :disabled opacity. */
+button.busy[aria-busy="true"], button.busy[aria-busy="true"]:disabled { opacity: 1; cursor: progress; }
+button.busy[aria-busy="true"] > svg { display: none; }
+button.busy[aria-busy="true"]::before { content: ""; flex: none; width: 15px; height: 15px; box-sizing: border-box; border-radius: 50%; border: 2px solid color-mix(in srgb, currentColor 25%, transparent); border-top-color: currentColor; animation: kiln-spin 0.8s linear infinite; }
+@keyframes kiln-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { button.busy[aria-busy="true"]::before { animation-duration: 2.4s; } }
 .code-inline { font-family: var(--mono); font-size: 12.5px; color: var(--text); }
 /* A repository's quiet label: "PRD’s repository", "added in phase 2b" (the multi-repo mockups). */
 .tag { padding: 1px 9px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 12px; font-weight: 400; color: var(--dim); white-space: nowrap; }

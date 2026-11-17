@@ -3,6 +3,7 @@
   // AC-SETUP-01): Start from, What will run, Documents found's settings in its words and order,
   // with recovery's extra help lines and fixed fields, and Before you start with the Starting lets
   // Kiln list and Start. Edits go to the engine's draft and nothing is saved before Start (AC-SAFE-01).
+  import BusyStatus from "./BusyStatus.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Part, PanelFields, SetupPanel, StartKind } from "../../../src/engine/folder-setup.js";
   import type { Effort } from "../../../src/state/records.js";
@@ -30,6 +31,8 @@
   let drafts = $state<Partial<Record<"worktreePath" | "workspaceFolder" | "featureBranch", string>>>({});
   const timers: Record<string, ReturnType<typeof setTimeout>> = {};
   let pressing = $state(false);
+  // Start, not Check again, shows the busy spinner: only Start waits on worktree setup.
+  let starting = $state(false);
   let reason = $state<string | undefined>(undefined);
   let commandId: string | undefined;
   // Start waits for the panel to show the person's latest edit (AC-SETUP-01, AC-SETUP-03): no change in flight, no typed
@@ -64,12 +67,12 @@
   async function pressStart() {
     if (!panel || pressing) return;
     if (settling) return;
-    pressing = true; reason = undefined;
+    pressing = true; starting = true; reason = undefined;
     commandId ??= crypto.randomUUID();
     const answer = await startFolderSetup(config, { commandId, factsId: view.factsId, previewId: panel.previewId, start: panel.selected, fields: {} });
     // A new press after a settled answer is a new Start; an uncertain one repeats the same instruction.
     if (!("uncertain" in answer && answer.uncertain)) commandId = undefined;
-    pressing = false;
+    pressing = false; starting = false;
     if (!answer.ok) reason = answer.reason;
   }
   async function checkAgain() { pressing = true; const answer = await checkFolders(config); pressing = false; reason = answer.ok ? undefined : answer.reason; }
@@ -214,7 +217,8 @@
           <ul class="allowed">{#each panel.preview.lets as row, index (index)}<li class:muted={!row.allowed}>{row.allowed ? "✓" : "✕"} {@render parts(row.parts)}</li>{/each}</ul>
         </div>
         <div class="go">
-          <button type="button" class="primary" disabled={!connected || pressing || settling || !!panel.busy || Object.keys(panel.fieldErrors).length > 0} onclick={pressStart}>{panel.preview.startLabel}</button>
+          <button type="button" class="primary" class:busy={starting} aria-busy={starting} disabled={!connected || pressing || settling || !!panel.busy || Object.keys(panel.fieldErrors).length > 0} onclick={pressStart}>{panel.preview.startLabel}</button>
+          {#if starting}<BusyStatus text="Setting up the worktree and starting the run." />{/if}
           {#if panel.busy}<p class="help">{panel.busy}</p>{:else}<p class="help">Earlier phases, sessions and delivery links stay in this run’s history.</p>{/if}
         </div>
       </div>

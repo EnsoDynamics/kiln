@@ -10,6 +10,14 @@ section to the new version.
 
 ## [Unreleased]
 
+### Changed
+
+- Buttons that take a while, such as Resume, Start, Send reply & continue, Check again, Mark
+  complete and Reset, now show they are working. The pressed button keeps its full color and
+  shows a spinner. A short line beneath it says what Kiln is doing, for example launching a new
+  Claude Code or Codex session, and after 8 seconds it also shows how long it has been waiting.
+  Before, the button just faded, which looked like the page had hung.
+
 ## [1.3.0] - 2026-11-16
 
 ### Added
