@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatTerminalEvent } from "./kiln-command.js";
 import type { PrdRecord } from "./state/records.js";
-import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, resetClock, terminalColors } from "./terminal-output.js";
+import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, resetClock, terminalColors, TransientStatus } from "./terminal-output.js";
 
 const plain = terminalColors({ isTTY: false }, {});
 
@@ -239,5 +239,29 @@ describe("audit activity terminal names", () => {
       expect(formatTerminalEvent({...event,event:"waiting",limit:{label:"Weekly"}},record,plain)).toContain("waiting · Weekly");
       expect(formatTerminalEvent({...event,event:"done"},record,plain)).toContain("Audit result recorded");
     }
+  });
+});
+
+describe("TransientStatus", () => {
+  const stream = (isTTY: boolean) => {
+    const written: string[] = [];
+    return { isTTY, written, write: (text: string) => written.push(text) };
+  };
+
+  it("shows a line on a terminal and erases it once, leaving the line free for what comes next", () => {
+    const out = stream(true);
+    const status = new TransientStatus(out, { NO_COLOR: "1" });
+    status.show("Checking where things stand…");
+    status.clear();
+    status.clear();
+    expect(out.written).toEqual(["Checking where things stand…", "\r\x1b[2K"]);
+  });
+
+  it("prints nothing when the output isn't a terminal", () => {
+    const out = stream(false);
+    const status = new TransientStatus(out, {});
+    status.show("Checking where things stand…");
+    status.clear();
+    expect(out.written).toEqual([]);
   });
 });

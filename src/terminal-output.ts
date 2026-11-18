@@ -190,3 +190,29 @@ export function formatDocumentsFound(featureName: string, found: StartCheckRepor
   if (repositoryCount > 1) documents.push(`${repositoryCount} repositories`);
   return featureName + colors.grey(`  ·  ${documents.join(", ")}  ·  all checks passed`);
 }
+
+/**
+ * A grey line shown only on a terminal while Kiln works quietly, erased before the next line is
+ * written so the output reads the same once the work is done:
+ *
+ *   const status = new TransientStatus(stdout, env);
+ *   status.show("Checking where things stand…");  // shown until clear()
+ *   status.clear();
+ */
+export class TransientStatus {
+  private shown = false;
+  constructor(private readonly stream: { isTTY?: boolean; write(text: string): unknown }, private readonly env: NodeJS.ProcessEnv) {}
+
+  show(text: string): void {
+    if (!this.stream.isTTY) return;
+    this.clear();
+    this.stream.write(terminalColors(this.stream, this.env).grey(text));
+    this.shown = true;
+  }
+
+  clear(): void {
+    if (!this.shown) return;
+    this.stream.write("\r\x1b[2K");
+    this.shown = false;
+  }
+}
