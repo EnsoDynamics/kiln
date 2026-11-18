@@ -27,6 +27,31 @@
 
 ---
 
+## Continuing Assumptions
+
+### DEV-001. When a run is continued on its open branch, does it keep the development deployments and early-merge permissions the person gave the original run?
+
+**Assumption**: **Yes: a run continued while its pull requests are still open keeps the development deployments and early-merge permissions** the person gave the original run. Kiln does not ask for them again.
+
+It is the **same run, on the same branch, in the same folders**, updating the same pull requests. Kiln already keeps these permissions when a person **starts a run again after its folder went missing**. A continuation **after a merge or close** still turns development deployments off and asks again, because it builds on a **new branch**.
+
+Against: the continued run also builds **phases added since delivery**, which the person had not seen when they gave the permission.
+
+**Example**: The person allowed early merges into **develop** for the run's repository. Delivery left **2 phases** open. While the pull request is still open, they choose **Continue with 2 phases**: Kiln may merge those phases' work into develop early **without asking again**.
+
+**If they choose otherwise**: A run continued on its open branch starts with development deployments **off** and asks for early-merge permission **again**, as a continuation after a merge or close does.
+
+**Researched**: 2026-11-18; Kiln Missing Worktree Recovery's rule for a Start after a missing folder (AC-SAFE-03), Kiln Continue Added Phases' rule for a continuation's early-merge permission (AC-CONTINUE-09), this PRD and its design.
+
+**Confirm or Correct**:
+- [ ] Correct — a run continued on its open branch keeps the permissions the person gave
+- [ ] Wrong — it starts with development deployments off and asks for early-merge permission again
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 86% | **Impact**: 🟡 MEDIUM
+
+---
+
 ## Decided by the Project Team
 
 > Business decisions, not technical ones, that the team made because each follows from what stakeholders have said or from the entries above, or is easy to change later. The stakeholder review shows them in an optional closing section.

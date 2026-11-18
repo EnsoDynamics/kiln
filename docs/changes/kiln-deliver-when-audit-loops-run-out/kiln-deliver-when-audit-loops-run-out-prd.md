@@ -49,7 +49,7 @@ The person makes one choice for both audits, before the run starts, and the defa
 
 Under the default, a delivery audit that still finds missing parts after its last loop no longer stops the run. What it found is recorded as phases, as always, and left for the person to decide on later.
 
-- [ ] **AC-GOON-01 — Phases added past the limit are left open and the run goes on.** Under **Deliver, and tell me what is left**, when an audit adds phases and no delivery audit loop is left, Kiln builds none of them and goes on with the closing audits and delivery as it would after an audit that found nothing to build. This applies to every audit that adds phases after the limit, including a test audit and a delivery audit run again later.
+- [ ] **AC-GOON-01 — Phases added past the limit are left open and the run goes on.** Under **Deliver, and tell me what is left**, when an audit adds phases and no delivery audit loop is left, Kiln builds none of them and goes on with the closing audits and delivery as it would after an audit that found nothing to build. A phase whose Phase dependencies name a phase left open is left open with it, whoever added it. This applies to every audit that adds phases after the limit, including a test audit and a delivery audit run again later.
   - Replaces in part: AC-DELIV-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Kiln stops instead of building past the limit only under **Always stop and ask me**, or for a criterion not built at all)
   - Replaces in part: AC-HANDBACK-04 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (phases left open under this criterion do not delay the closing audits or delivery)
   - Replaces in part: AC-HANDBACK-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a phase left open is not an eligible leaf for the rest of the run)
@@ -70,7 +70,7 @@ A person who comes back to a delivered run sees at once that work was left, what
 
   | Work left | What the description says |
   |---|---|
-  | Phases left open (AC-GOON-01) | Each phase by number and title, and each criterion it covers, marked partly built or not built at all, with a line saying those criteria's tests were not audited |
+  | Phases left open (AC-GOON-01) | Each phase by number and title, and each criterion it covers, marked partly built or not built at all, with a line saying those criteria's tests were not audited; a phase left open because it depends on one is listed with that phase, its criteria not assessed by an audit |
   | Tests the person accepted while still Weak, missing or failing | Each criterion whose tests were accepted, then the line AC-TEST-03 in Kiln Audit Loop Limits gives, with its summary word for word |
 
   - Replaces in part: AC-TEST-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (its line moves to the top, after a list of the criteria whose tests were accepted; what the line says is unchanged)
@@ -86,13 +86,14 @@ A person who comes back to a delivered run sees at once that work was left, what
   | While every pull request of the delivery is still open | On the run's feature branch, updating those pull requests |
   | Once any of them has merged or closed | As any continuation does today (AC-CONTINUE-06 in Kiln Continue Added Phases) |
 
-  While every pull request is still open, the plan is the one on the run's feature branch. A phase written only on the delivery base or in the shared checkout is shown as not ready, naming each document and where it was found, with the step to commit it on the feature branch, and Kiln offers no Continue until the sources agree (AC-FIND-02 in Kiln Continue Added Phases).
+  While every pull request is still open, the plan is the one on the run's feature branch. A phase written only on the delivery base or in the shared checkout is shown as not ready, naming each document and where it was found, with the step to commit it on the feature branch, and Kiln offers no Continue until the sources agree (AC-FIND-02 in Kiln Continue Added Phases). A run continued on its feature branch keeps the development deployments and early-merge permissions the person gave it, and Kiln does not ask for them again (DEV-001).
 
   - Replaces in part: AC-CONTINUE-06 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation with phases left open at delivery builds where the table says; on the run's feature branch it reads the plan from that branch rather than from one committed on the delivery base, departing from assumption CONTINUE-002 in Kiln Continue Added Phases; and the readiness example there for an open, unmerged pull request does not apply to it)
   - Replaces in part: AC-OFFER-01 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (the offer also appears for phases left open at delivery, under the **Delivered, with work left** heading instead of **New phases found**)
   - Replaces in part: AC-FIND-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (while every pull request of the delivery is open, the plan is read from the run's feature branch)
   - Replaces in part: AC-FIND-03 and AC-CONTINUE-03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a finished run's plan may hold phases left open at delivery; they count as unfinished work to continue, beside phases added since)
   - Replaces in part: AC-CONTINUE-05 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation on the run's feature branch records its delivery beside the earlier one, with the same pull requests, which it updates)
+  - Replaces in part: AC-CONTINUE-09 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation on the run's feature branch keeps the early-merge permissions the run had rather than authorizing only a fresh run, DEV-001)
 
 ### Stop for a Person Only When the Work Cannot Go On
 
