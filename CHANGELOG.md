@@ -12,6 +12,9 @@ section to the new version.
 
 ### Changed
 
+- `kiln run` now says "Checking where things stand…" in the terminal while it checks the
+  work at startup. Rechecking a phase that needs you can take half a minute, and
+  before, the terminal showed nothing while it did. The line disappears once Kiln has its answer.
 - Buttons that take a while, such as Resume, Start, Send reply & continue, Check again, Mark
   complete and Reset, now show they are working. The pressed button keeps its full color and
   shows a spinner. A short line beneath it says what Kiln is doing, for example launching a new
