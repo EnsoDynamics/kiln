@@ -64,7 +64,7 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 
 <section>
 <h2 class="state">2. The finished page: delivered, with work left</h2>
-<p class="note">The usual result under Deliver, and tell me what is left, when the delivery audit used its loops and still found parts missing. Covers AC-LEFT-02 and AC-LEFT-03.</p>
+<p class="note">The usual result under Deliver, and tell me what is left, when the delivery audit used its loops and still found parts missing. An item that held nothing up is listed under For you. Covers AC-LEFT-02, AC-LEFT-03 and AC-ITEM-03.</p>
 <div class="screen"><div class="page" style="width: 960px">
 <div class="status"><span class="pill" style="background: #a9c79a">Delivered</span><span>Pull request open</span><span>·</span><span>Finished today 6:12 AM</span></div>
 <div class="card">
@@ -72,6 +72,11 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 <div class="col"><span class="eyebrow">What is left</span>
 <div class="rows">
 <div class="row" style="flex-direction: column; gap: 6px"><span class="strong">3 of 14 criteria are partly built</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">AC-RETURNS-03, AC-REFUND-04 and AC-APPROVAL-01. The delivery audit added Phase 10 and Phase 11 for them. Both are in the plan, not built. The test audit left these 3 criteria out, so their tests are not audited yet.</span></div>
+</div>
+</div>
+<div class="col"><span class="eyebrow">For you</span>
+<div class="rows">
+<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">Record a change to AC-RETURNS-09 in the PRD</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">Behavior changed outside the requirements: the code emails the return label instead of showing it on screen, and no document says that was decided. Nothing waited on this, so Kiln delivered.</span></div>
 </div>
 <p class="hint" style="padding-top: 8px">The pull request says the same at the top.</p></div>
 <div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn solid">Open the pull request</span><span class="btn">Continue with 2 phases</span></div><p class="hint">Merge it as it is, or continue: Kiln builds Phase 10 and Phase 11 on the same branch, audits again, and updates the pull request.</p></div>
@@ -81,7 +86,7 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 
 <section>
 <h2 class="state">3. The pull request description</h2>
-<p class="note">What was left comes first, before the rest of the description. Covers AC-LEFT-01.</p>
+<p class="note">What was left comes first, then anything for the person, before the rest of the description. Covers AC-LEFT-01 and AC-ITEM-03.</p>
 <div class="screen"><div class="page" style="width: 960px">
 <pre>## Left unfinished
 
@@ -91,6 +96,10 @@ The delivery audit still found parts missing after its last loop. They are in th
 - Phase 11 — Finish approval reminders: AC-APPROVAL-01
 
 The test audit left these 3 criteria out, so their tests are not audited.
+
+## For you
+
+- Record a change to AC-RETURNS-09 in the PRD. Behavior changed outside the requirements: the code emails the return label instead of showing it on screen, and no document says that was decided.
 
 ## What this delivers
 …</pre>
@@ -172,6 +181,24 @@ The test audit left these 3 criteria out, so their tests are not audited.
 <div class="opt on"><span class="dot"></span><div class="col" style="gap: 12px"><div class="col" style="gap: 4px"><span class="strong">Keep fixing</span><p class="hint">Carry on with the saved test work. The work left may take more than one session.</p></div><span style="font-size: 15px">Allow up to &nbsp;<span class="num">2</span>&nbsp; more loops before Kiln checks with you again</span><p class="hint">The limit becomes 5.</p></div></div>
 <div class="opt"><span class="dot"></span><div class="col" style="gap: 4px"><span class="strong">Accept what is left and deliver</span><p class="hint">You say: “I accept the remaining Weak rows.” One more session records it and fixes nothing, then Kiln delivers.</p></div></div>
 <div class="col" style="gap: 10px"><div><span class="btn solid">Keep fixing</span></div><p class="hint">Loop 4 starts now. If test work is still left after loop 5, your “When the loops run out” setting applies again.</p></div>
+</div>
+</div></div>
+</section>
+
+<section>
+<h2 class="state">7. A stop for a person says why</h2>
+<p class="note">An audit holds the run only for an item delivery cannot go ahead without. The item gives its kind, the problem, the action and what waits on it. Covers AC-ITEM-01 and AC-ITEM-02.</p>
+<div class="screen"><div class="page" style="width: 900px">
+<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Delivery audit</span><span>·</span><span>Stopped today 2:04 AM</span></div>
+<div class="card amber">
+<div class="col" style="gap: 10px"><h3 class="serif">The delivery audit needs you for one thing</h3><p class="lead">Delivery can’t go ahead without it. Everything that could proceed is done.</p></div>
+<div class="col"><span class="eyebrow">Listed for you</span>
+<div class="rows">
+<div class="row"><span class="tag" style="flex-basis: 150px">Kind</span><span>Blocker</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">Problem</span><span>The carrier’s sandbox key has expired, and Kiln cannot issue one.</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">What you do</span><span>Issue a new sandbox key and save it where the run reads its keys.</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">What waits on it</span><span>AC-LABEL-02 can’t be checked as built until a label can be requested.</span></div>
+</div></div>
 </div>
 </div></div>
 </section>

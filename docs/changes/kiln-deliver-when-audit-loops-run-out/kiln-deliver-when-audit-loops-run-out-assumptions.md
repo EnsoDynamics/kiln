@@ -29,6 +29,29 @@
 
 > Business decisions, not technical ones, that the team made because each follows from what stakeholders have said or from the entries above, or is easy to change later. The stakeholder review shows them in an optional closing section.
 
+### ITEM-001. Does a run still stop before delivery when an audit only names something for the person to record or do later?
+
+**Assumption**: **No.** Two kinds of item stop holding the run: **behavior changed outside the requirements**, which the person records in the PRD, and **a human action still waiting** that the requirements do not place before delivery. Kiln delivers and lists each one under **For you** at the top of the pull request and on the finished page.
+
+A run is still held for a **critical finding**, a **blocker**, an action the requirements place **before delivery**, a business question with **no workable answer**, and a test only the person can accept.
+
+Doug, 2026-11-18: a stop for a person is fine "as long as it's a good reason", clearly stated and "in line with the whole Enso Method"; a declared assumption is "never a reason to kind of stop a user." The method names an action only a person can take in the wrap-up, and "it stops the session only when it is also a blocker."
+
+Against: Kiln Method-Neutral Audits (AC-NEUTRAL-03) stops today for "an audit that ended normally but lists behavior changed outside the requirements or a person action due before delivery". Doug's words above settle the declared assumption. That these two kinds also stop holding the run is **our reading** of them.
+
+**If they choose otherwise**: Those two kinds **keep holding the run before delivery**, as today. Only a declared assumption, a request to confirm or review, and something the audit can settle itself stop being items.
+
+**Researched**: 2026-11-18; still theirs. Tried: Doug's 2026-11-18 chat; the Enso Method's rule on what stops a session; the delivery audit and test audit skills' lists of what they name for the person; the Kiln Method-Neutral Audits PRD, assumptions and direction document.
+
+**Confirm or Correct**:
+- [ ] Correct — those two kinds are reported with the delivery and no longer hold the run
+- [ ] Wrong — they keep holding the run before delivery
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 80% | **Impact**: 🟡 MEDIUM
+
+---
+
 ### SET-001. Does a run that was already going when Kiln is upgraded keep its choice, now covering the delivery audit too?
 
 **Assumption**: **Yes.** A run started under an earlier Kiln keeps the choice it had, and that choice now covers **both audits**. A run on **Deliver** stops no longer at its delivery audit limit: it leaves the added phases open, delivers, and lists them at the top of the pull request. A run on **Always stop and ask me** keeps stopping at either limit.

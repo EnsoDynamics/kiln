@@ -10,7 +10,7 @@
 
 ## Summary
 
-When Kiln's closing audits use up their loops, Kiln delivers what is built and says what is left, instead of stopping to ask. One setting, **When the loops run out**, now covers both the delivery audit and the test audit, and its default keeps the run moving. The pull request and the finished page list what was left, and the phases an audit added stay in the plan so the person can continue with them. When Kiln does stop at a loop limit, the page says which loop the run is on and offers two answers: allow more loops, or accept what is left and deliver.
+When Kiln's closing audits use up their loops, Kiln delivers what is built and says what is left, instead of stopping to ask. One setting, **When the loops run out**, now covers both the delivery audit and the test audit, and its default keeps the run moving. The pull request and the finished page list what was left, and the phases an audit added stay in the plan so the person can continue with them. When Kiln does stop at a loop limit, the page says which loop the run is on and offers two answers: allow more loops, or accept what is left and deliver. An audit also holds a run for a person only when delivery cannot go ahead without them; anything else it names for the person is reported with the delivery.
 
 ## Business Context
 
@@ -23,6 +23,8 @@ Delivering in Kiln means opening a pull request, and a pull request is itself th
 This needs no change to the Enso Method. Both audit skills already leave out a criterion that an open completion phase covers, so running the test audit and opening a pull request while those phases are open is something a person can do by hand with the same skills.
 
 The same review found the stop page hard to use. It did not say which loop the run was on. It offered two controls for the same number, **Allow N more loops** on the page and the limit in the settings beside it, and they counted differently. It offered a reply box at a stop where the audit had finished and nothing would read the reply.
+
+An audit can also list an item for the person that needs no one, such as an assumption the documents already declare, still waiting to be confirmed, with no work depending on it. Today every item an audit lists holds the run before delivery, and nothing says what an audit may list. The Enso Method builds on a declared assumption without asking, and stops a session for four reasons only: a critical finding, a blocker, an action only a person can take when it is also a blocker, and a business question with no workable answer. Kiln's audits should hold a run for the same reasons and no others.
 
 ## Acceptance Criteria
 
@@ -67,6 +69,26 @@ A person who comes back to a delivered run sees at once that work was left, what
   - Replaces in part: AC-HANDBACK-04 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (phases left open under AC-GOON-01 do not hold back the final audits or delivery)
   - Replaces in part: AC-OFFER-01 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (the offer also appears for phases left open at delivery, under the **Delivered, with work left** heading, without waiting for the delivery to merge)
 
+### Stop for a Person Only When Delivery Cannot Go Ahead
+
+An audit can list things for a person. Kiln now says what may be listed, makes each item say why it is there, and holds the run only for the ones delivery cannot go ahead without.
+
+- [ ] **AC-ITEM-01 — An audit lists for a person only what the table allows.** Kiln's instructions to each audit define an item for a person as one of the kinds in the table. They say that a declared assumption, a request to confirm or review something, and anything the audit can settle itself are never items.
+
+  | Kind of item | Holds the run before delivery |
+  |---|---|
+  | A critical finding | Yes |
+  | A blocker: access, a resource or a permission the session cannot get itself, with criterion work that cannot proceed without it | Yes |
+  | An action the requirements place before delivery that only a person can take | Yes |
+  | A business question whose best answer is below 20% | Yes |
+  | A test only the person can accept: a criterion with no test, a failing test, a high-risk criterion still Weak, or a row the audit marked stuck | Yes, as today (AC-TEST-02 in Kiln Audit Loop Limits) |
+  | Anything else the audit skill names for the person, such as behavior changed outside the requirements or a human action still waiting | No (AC-ITEM-03, ITEM-001) |
+
+- [ ] **AC-ITEM-02 — Every item says why it is there.** Each item gives its kind, the problem, the action the person takes and, when it holds the run, what cannot go ahead without it. Kiln refuses a report whose item leaves one of these out. The Needs you page and `kiln status` show all of them.
+- [ ] **AC-ITEM-03 — An item that does not hold the run is reported with the delivery.** The run goes on through the audits and delivery under either choice. The item stays outstanding and later audits account for it, as today. Each item still open at delivery is listed under **For you** at the top of each pull request's description, after what was left, and on the finished page.
+  - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (only an item of a kind that holds the run stops it before delivery; an audit that ended normally and lists behavior changed outside the requirements no longer stops)
+  - Replaces in part: AC-TEST-02 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (a passing report that lists an item stops the run only for an item of a kind that holds it)
+
 ### Make a Loop Stop Easy to Answer
 
 Kiln still stops when loops run out under **Always stop and ask me**, or when something serious is left. The page then says where the run is and asks one question with two answers.
@@ -107,12 +129,13 @@ Everything this PRD changes on the page can also be done from the command line.
   | Allow up to N more loops (AC-ANSWER-02) | The existing stop command taking N, which now raises the limit |
   | Accept what is left and deliver at a delivery audit stop (AC-ANSWER-02) | The existing Accept stop command, no longer refused there |
   | See which loop the run is on, the phases left open and, on a finished run, what was left (AC-ANSWER-01, AC-LEFT-02) | `kiln status` |
+  | See each item for a person with its kind and what waits on it (AC-ITEM-02, AC-ITEM-03) | `kiln status` |
 
   - Replaces in part: AC-STOP-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (the choice's name and reach, what the Allow command does to the limit, and Accept at a delivery audit stop)
 
 ## Out of Scope
 
-- **Items an audit lists for a person.** An item an audit says a person must decide or do before delivery still stops the run before delivery, as today.
+- **Answering an item while Kiln keeps running.** An item that holds the run is still settled at a stop, as today.
 - **A note sent with more loops, or choosing which added phases to build.** The answers are all or none. A person who wants something narrower opens the audit's session in a terminal.
 - **A separate choice for each audit.** One choice covers both.
 - **The default limits.** Both stay at 3.
