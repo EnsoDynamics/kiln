@@ -15,13 +15,13 @@ Everything here is Kiln's. No Enso Method skill changes: both audit skills alrea
 **Posture: Preserve.** Kiln 1.3.0 is released with audit loop limits.
 
 - Reused: the loop ledger and its `start` epochs; the gate as the one place every decision after an audit passes through; `loop_limit` stops on a finished audit's key and the derived `needs_you` loop stop; the version-2 report and its admission; the outstanding-items ledger, derived from accepted reports; the Accept session and its prompt; the control journal, its receipts and the stop routes; the continuation proposal, acceptance and activation core.
-- Reused: the routing reader that already counts a phase skipped under a waived plan problem as closed. A phase set aside rides the same reader, so every router (leaf selection, report validation, the final no-unfinished-leaf check, development-delivery obligations) learns it in one place.
+- Not reused: the waiver closures (`effectivePlan`, `effectiveRecordedClosed` and the engine's own waiver check). They count a waived or skipped leaf as closed, and that reading also feeds the phases-done counts and the continuation baseline's completed phases, where a phase set aside must read not started and never completed. Set aside is a predicate of its own (§Phases Left Open).
 - Kept: test work still saved after the last test loop stops the run under either choice. Mark complete is offered only where a check fails. A `needs_you` report is never accepted. Marking an audit complete settles no item, and a run delivered after one lists every item still open.
 - Kept: the default limits, and every stop control this design does not name.
 
 ## Settings (AC-CHOICE-01, AC-CHOICE-02)
 
-The third loop setting is renamed where it is stored and exchanged, because its old name says it is about the test audit only:
+The third loop setting is renamed where it is stored, because its old name says it is about the test audit only. Where it is exchanged, the new name joins the released one (§Interfaces).
 
 ```
 auditLoops:
@@ -79,6 +79,8 @@ A result accepted by an earlier Kiln has none of these fields. Its phases read a
 
 **How a hold is measured.** Kiln keeps the measure it has today: the audit that lists or relists an item says, through its outcome, whether the work it leaves depends on it. `completion_phases` or `continue_test` with the item listed means that work does not need it, so the loop runs; `needs_you` means the work cannot go on. Delivery always needs a holding item, which admission enforces on the one report that leads to it. So a holding item stops the run exactly when no other work is left, and the measure is taken again by every later report, including the one from a session Allow or Accept starts. Kiln carries no dependency model of its own, which would be a second source of truth beside the audit's.
 
+**When the waiting work is set aside.** A `blocker` or `business_question` whose waiting work is only phases Kiln has since set aside no longer waits on anything Kiln will do in this run, so by the PRD's table it is a person's action reported with the delivery. The audit that next accounts for it relists it by `id` as `other`, keeping its problem and action. Without this, the report that leads to delivery could not list it and would have to stop the run for work Kiln has already decided not to do.
+
 The stop for a holding item is therefore always on a `needs_you` report, whose activity is unsettled: Reply reaches the audit's own session, which accounts for the settled item in its next report. A person who marks that audit complete overrides the hold, as today; the items still open are then listed under **For you**.
 
 **Item stops and loop stops.** A `needs_you` test report with no test loop left is a loop stop only when every item of a stopping or holding kind it lists is `test_acceptance`. With any `critical_next_step`, `blocker` or `business_question` item it is an item stop: the page of mockup state 7, with the controls an item stop has while loops are left, and no Allow or Accept. Once that item is settled and the audit reports again, the stop becomes a loop stop if tests are still left. This keeps Allow from ever starting work an item on the same page says cannot go on, and puts a critical finding ahead of the loop question. A loop stop on a finished audit (phases added, test work saved) shows every item its report listed beside its answers; those items do not block the answers, because that report's outcome already said its work does not need them.
@@ -95,12 +97,12 @@ leftOpen: { auditKey, phases: string[], at: ISO-8601 UTC,
             endedAt?: ISO-8601 UTC }[]
 ```
 
-A leaf at or under a phase in an entry with no `endedAt` is **set aside**. The routing reader counts a set-aside leaf as not to be built in this execution:
+A leaf at or under a phase in an entry with no `endedAt` is **set aside**: not to be built in this execution, and not closed. One predicate over the ledger answers it, and every place that decides what to build next or whether the work is finished asks it beside the closure checks it asks today:
 
-- Leaf selection skips it. A phase a person adds during the run is still built in plan order; the existing dependency check stops a leaf that depends on a set-aside one.
+- Leaf selection skips it, wherever the engine looks for the next open leaf. A phase a person adds during the run is still built in plan order (see Open Questions for one that depends on a set-aside phase).
 - Report validation's no-open-phase rules for `passed` and `continue_test` do not count it, so the test audit and any later delivery audit can end normally with it open. The skills leave its criteria out on their own.
 - The final check that no unfinished leaf remains does not count it, and its development-delivery obligations are not asked for.
-- It is never done. Its plan row reads not started, with a note that it was left open over the limit. Kiln writes nothing to the repository: no Closed line, no checkbox, no record file.
+- It is never done. The phases-done counts on the page and in `kiln status`, and the continuation baseline's completed phases, do not ask this predicate, so it counts as neither done nor waived there. Its plan row reads not started, with a note that it was left open over the limit. Kiln writes nothing to the repository: no Closed line, no checkbox, no record file.
 
 **Routing after phases are set aside.** A delivery audit whose appended phases are all set aside routes as `passed`, so the test audit follows. A test audit in the same position keeps today's routing for a `completion_phases` test report with nothing built since: a delivery audit first if it changed implementation, then a fresh test audit round, which is not a loop. A test audit may add phases and still have test work unfinished, and its one outcome cannot say both, so counting it as passed could deliver with test work nobody reported; the fresh round asks. Each further round must append a new phase to repeat this, so the number of criteria bounds it.
 
@@ -153,7 +155,7 @@ A delivery's work left is derived at the time it is shown, never stored, from th
 
 Order is the PRD's: what was left, then **For you**; when **For you** holds a critical finding it moves first with that finding at its top.
 
-**The pull request.** `pullRequestPromptValues` gains one block, built from those three lists, that the session is told to place word for word at the top of each description; `pull-request-loop-acceptance.txt` moves inside it. The pull request check gains a row, **Pull request says what was left**: each open pull request's description must open with that block, compared ignoring whitespace, and must not open with a stale one when nothing is left. A session that paraphrases or drops it stops at Needs you like any failed final check. Kiln checks rather than writes, as it does for every other delivery fact, because the claim that nothing is hidden is the point of delivering with work left.
+**The pull request.** `pullRequestPromptValues` gains one block, built from those three lists, that the session is told to place word for word at the top of each description; `pull-request-loop-acceptance.txt` moves inside it. The pull request check gains a row, **Pull request says what was left**: each open pull request's description must open with that block, compared ignoring whitespace and line endings, and must not open with a stale one when nothing is left. The check's existing `gh pr list` read adds `body` to the fields it asks for. A session that paraphrases or drops it stops at Needs you like any failed final check, where Mark complete is offered as for any failed check. This is the first check Kiln makes on a description's content: the lines it prompts for today (settled items, a loop acceptance) are not checked. It is added for this block alone because the claim that nothing is hidden is the point of delivering with work left, and Kiln checks the session's description rather than editing it, so the session stays the one author of the pull request.
 
 **The finished page** is headed **Delivered, with work left** when any of the three lists is non-empty, and shows them with the loops used of each kind (mockup state 2).
 
@@ -161,7 +163,7 @@ Order is the PRD's: what was left, then **For you**; when **For you** holds a cr
 
 **Which way.** For an execution that delivered with phases left open, the completed-plan check first reads the state of each of that delivery's pull requests from GitHub. A repository delivered by an early merge counts as merged. All open: the same-branch proposal below. Any merged or closed: today's discovery. A read that fails makes the check `failed`, with retry and no offer, as any failed source read does.
 
-**Same branch.** The proposal's plan is the one in the run's assigned worktree, which must be on the feature branch, clean, and at the head the pull request has. The feature branch is the only place the left-open phase documents exist until a merge, so it is the plan's source of truth; a phase added since delivery counts once it is committed there, and one written only on the delivery base is found by today's discovery after the merge. The plan is compared with the completed execution's baseline by the existing rules. The offer lists the left-open leaves, then any added since, and N counts both.
+**Same branch.** The proposal's plan is the one in the run's assigned worktree, which must be on the feature branch, clean, and at the head the pull request has. A worktree that is missing, on another branch, dirty or at another head makes the proposal `blocked`, with the problem named and no offer to Continue until it is put right. The feature branch is the only place the left-open phase documents exist until a merge, so it is the plan's source of truth; a phase added since delivery counts once it is committed there, and one written only on the delivery base is found by today's discovery after the merge. The plan is compared with the completed execution's baseline by the existing rules. The offer lists the left-open leaves, then any added since, and N counts both.
 
 `ContinuationProposal` gains `mode: "same_branch" | "fresh_base"` (absent on older proposals, read as `fresh_base`), and a same-branch proposal's identity binds each repository's feature head and pull request. Acceptance revalidates those and activates a fresh execution through the shared activation core with the completed execution's repositories, worktrees, branch and settings unchanged: no workspace preparation and no new branch. Its baseline carries each done leaf's receipt, built as a base-branch start from Folder missing builds them. A leaf left open carries none, so in the new execution it is an ordinary open leaf: built in plan order, with no loop counted, because no audit of this execution added it. The fresh execution starts with a preflight, a `start` ledger and empty required audits, which is what makes the loop counts start at zero and the closing audits run again. Its final delivery finds each pull request open and updates it; the check above holds the updated description to the new delivery's work left.
 
@@ -171,7 +173,7 @@ Order is the PRD's: what was left, then **For you**; when **For you** holds a cr
 
 ## Prompts
 
-- `audit-session.txt`: the contract fields above. The item kinds are defined in the PRD's words, with what is never an item: a declared assumption, a request to confirm or review something, and anything the audit can settle itself. The outcome guidance is rewritten around the kinds: `needs_you` when the audit's remaining work cannot go on without an item, when a critical finding would be caused or worsened by the step Kiln takes next (the prompt names that step for each outcome), or when the report would lead to delivery with a holding item open. A new `{{setAside}}` line names the phases Kiln has left open and says they do not count against a passing report.
+- `audit-session.txt`: the contract fields above. The item kinds are defined in the PRD's words, with what is never an item: a declared assumption, a request to confirm or review something, and anything the audit can settle itself. The outcome guidance is rewritten around the kinds: `needs_you` when the audit's remaining work cannot go on without an item, when a critical finding would be caused or worsened by the step Kiln takes next (the prompt names that step for each outcome), or when the report would lead to delivery with a holding item open. A new `{{setAside}}` line names the phases Kiln has left open, says they do not count against a passing report, and says to relist as `other` an item whose waiting work is only those phases (§Items for a Person).
 - `audit-loop-limits.txt`: the choice's new name.
 - `audit-accept.txt`: the sentence names tests only; the other listed items follow, to be kept open.
 - A new `pull-request-work-left.txt` for the block in §What Was Left and For You; the pull request prompt says to update an already open pull request's description.
@@ -187,13 +189,13 @@ kiln accept-and-deliver <prd> --only-if-status-matches <token> --command-id ID
 kiln continue-with-phases <prd> --proposal ID --only-if-status-matches <token> --command-id ID
 ```
 
-`--after-last-test-audit-loop` is refused with a message naming `--when-loops-run-out`; the settings and status JSON use `when_loops_run_out`, `when_loops_run_out_sentence` and `when_loops_run_out_chosen`. A loud refusal is chosen over an alias because a bot that set the old flag also read the old keys, and a renamed key fails silently.
+`--when-loops-run-out` is the flag help and status name. The released `--after-last-test-audit-loop` stays accepted with the same `deliver|ask` values and sets the same one choice, which now covers both audits, as a run's saved choice does at upgrade (SET-001); help lists it as the older name. The settings and status JSON add `when_loops_run_out` (`deliver | stop_and_ask`), `when_loops_run_out_sentence` and `when_loops_run_out_chosen`, and keep emitting `after_last_test_audit_loop` (`deliver_unless_serious | stop_and_ask`), `after_last_test_audit_loop_sentence` and `after_last_test_audit_loop_chosen` with the same choice, so a bot written against protocol 1 reads the same answer it read before. The control journal's `settings` input accepts either key, never both. Dropping the older names is a breaking change for a later major version, not this one.
 
 `continue-with-phases` is a new public action that reaches the engine path the page's Continue already uses, for either proposal mode, with that route's refusals (`proposal_changed`, `prerequisite_blocked` and the rest). It takes the proposal the status shows, as the page submits the one it displays. Early-merge authorization and retrying a blocked setup stay in the browser.
 
-The controller advertises a `deliver_at_loop_limit` feature; the CLI refuses the new command, the new flag and Accept at a delivery stop against a controller without it (`instance_incompatible`).
+The controller advertises a `deliver_at_loop_limit` feature; the CLI refuses the new command, the new flag and Accept at a delivery stop against a controller without it (`instance_incompatible`). The older flag works against either.
 
-**Control journal.** `settings` takes `when_loops_run_out` with `via`, as it took the old field; saved receipts carrying the old field still validate. `accept-and-deliver` at a delivery stop records `via` in the `leftOpen` entry. New outcome `phases_left_open` and refusal `limit_held_by_loop_stop` are declared in `prompts/kiln-command-contracts.json`.
+**Control journal.** `settings` takes `when_loops_run_out` or `after_last_test_audit_loop` with `via`, as it took the old field; saved receipts carrying the old field still validate. `accept-and-deliver` at a delivery stop records `via` in the `leftOpen` entry. New outcome `phases_left_open` and refusal `limit_held_by_loop_stop` are declared in `prompts/kiln-command-contracts.json`.
 
 **HTTP.** The existing settings, allow and accept routes carry the changes; Continue's route is unchanged.
 
@@ -201,7 +203,8 @@ The controller advertises a `deliver_at_loop_limit` feature; the CLI refuses the
 
 ```
 auditLoops:
-  settings: { deliveryLimit, testLimit, whenLoopsRunOut, whenLoopsRunOutSource }
+  settings: { deliveryLimit, testLimit, whenLoopsRunOut, whenLoopsRunOutSource,
+              afterLastTest, afterLastTestSource }     — the older two kept, same choice
   delivery, test: { used, limit }
   position?: { audit: "delivery" | "test", afterLoop, limit }     — at a closing audit; afterLoop 0 is "before loop 1"
   stop?:
@@ -244,12 +247,12 @@ Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-te
 
 Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Completed feature discovery (pull request state chooses the proposal mode; the baseline accepts a leaf left open), §Durable proposal and one acceptance and §Start, interruption and completion (a same-branch acceptance reuses the delivered branch, worktrees and pull requests), and §Interfaces (Continue is also a public command).
 
-Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Command grammar (`continue-with-phases`; the renamed settings flag).
+Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Command grammar (`continue-with-phases`; `--when-loops-run-out` beside the older settings flag).
 
 ## Delivery
 
 - **Expected build spend:** none. Proof uses scripted provider sessions, as the loop limits build did.
-- **After the build:** `CHANGELOG.md` entries under Unreleased (`Changed`: delivering when loops run out, the one setting, the loop stop page, what Allow does to the limit, the renamed `kiln settings` flag and JSON keys; `Added`: `kiln continue-with-phases`). The renamed flag and keys, and Allow's new meaning, change a released command surface, which the release's version choice has to weigh. Then the usual release steps.
+- **After the build:** `CHANGELOG.md` entries under Unreleased (`Changed`: delivering when loops run out, the one setting, the loop stop page, what Allow does to the limit, `--when-loops-run-out` and its JSON keys beside the older names; `Added`: `kiln continue-with-phases`). Allow still adds N loops to those the run may make; only the limit it shows and the loop numbering change. Then the usual release steps.
 
 ## Verification and Criteria Coverage
 
@@ -259,13 +262,13 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 |---|---|---|
 | AC-CHOICE-01 | Settings; Upgrade | The three settings on Documents found, the run's settings and `kiln settings`; the default delivers at both audits; a schema-23 run under each old value keeps it |
 | AC-CHOICE-02 | Settings; Loop Stops | Changing the choice at a delivery loop stop, then restarting, leaves the stop; the next time loops run out the new choice applies |
-| AC-GOON-01, AC-GOON-04 | Phases Left Open; Gate | A fourth audit's partly built phases are set aside and the run reaches delivery; the same for phases a test audit adds and for a later delivery audit's; the repository shows no Closed line or checked criterion and the plan rows read not started |
+| AC-GOON-01, AC-GOON-04 | Phases Left Open; Gate | A fourth audit's partly built phases are set aside and the run reaches delivery; the same for phases a test audit adds and for a later delivery audit's; the repository shows no Closed line or checked criterion, the plan rows read not started, and the phases-done count leaves them out |
 | AC-GOON-02 | Phases Left Open | A test audit's `passed` and `continue_test` reports are admitted with set-aside leaves open, and refused with any other open leaf |
 | AC-GOON-03 | Report Contract; Gate | A `none` row stops under `deliver` and the page names the criterion; a result with no `phaseCriteria` stops and says the audit did not say; a report that appends phases without the field is refused |
 | AC-LEFT-01 | What Was Left | The prompt block for each kind of work left; a description that drops or rewords it fails the pull request check, in one repository of two |
 | AC-LEFT-02 | What Was Left; Interfaces | The finished page and `kiln status` for mockup state 2 |
 | AC-LEFT-03 | Continuing | With every pull request open, Continue builds the left-open phases and one added on the branch in the same worktree, counts no loop for them, runs both audits again from zero and updates the pull requests; with one merged, today's path offers them from the delivery base; a failed pull request read offers nothing |
-| AC-ITEM-01 | Items; Report Contract | Each kind once: `critical_next_step` stops at once; a blocker listed with `completion_phases` lets the loop run and stops at the report that would deliver; `critical` and `other` reach delivery; each refusal in §Report Contract |
+| AC-ITEM-01 | Items; Report Contract | Each kind once: `critical_next_step` stops at once; a blocker listed with `completion_phases` lets the loop run and stops at the report that would deliver; a blocker whose phases are set aside is relisted as `other` and reaches delivery; `critical` and `other` reach delivery; each refusal in §Report Contract |
 | AC-ITEM-02 | Report Contract; Interfaces | An item with no kind, and a blocker with no `waitsOn`, are refused; the stop page and status show kind, problem, action and what waits |
 | AC-ITEM-03 | Items; What Was Left | A run delivers with an `other` item open under each choice and lists it under **For you** after what was left; a `critical` item moves **For you** first; a later audit that omits the item is refused |
 | AC-ANSWER-01 | Loop Stops; Interfaces | Status line before loop 1 and after loop 3; headings for each reason and for a lowered limit; loop rows and the waiting row for mockup states 4 and 6 |
@@ -273,10 +276,11 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 | AC-ANSWER-03 | Loop Stops | The text under the number for both audits, and the stuck-row line |
 | AC-ANSWER-04 | Loop Stops | The stop's limit is text on the page and refused by `kiln settings`; the other limit and the choice change; Check again is unavailable in both places |
 | AC-ANSWER-05 | Loop Stops | No Reply and a refused `reply` at a `loop_limit` stop; Reply offered at a `tests_to_accept` stop; an item stop with no test loop left has an item stop's controls |
-| AC-BOT-01 | Interfaces | Each command and each refusal through the packaged CLI; `continue-with-phases` for both proposal modes; controls with availability and reason; an older controller refused |
+| AC-BOT-01 | Interfaces | Each command and each refusal through the packaged CLI; `continue-with-phases` for both proposal modes; controls with availability and reason; an older controller refused; `--after-last-test-audit-loop` still sets the choice and the older JSON keys still read it |
 | AC-BOT-02 | Interfaces | Status text and JSON for a loop stop, an item stop and a finished run with work left |
 
 ## Open Questions
 
 - The same-branch continuation records its delivery as the new execution's, beside the completed one, with the same pull request numbers. Kiln Continue Added Phases AC-CONTINUE-05 was written when a new delivery always meant new pull requests, and the conflict check should confirm that reading.
+- Kiln has no check at run time that a leaf's Phase dependencies are closed: the plan check only confirms each dependency names an earlier phase with a document, and leaf selection takes the first open leaf. A phase a person adds during the run whose dependencies name a set-aside phase would therefore be built on work Kiln chose not to build. What should happen to it: set aside with the phase it depends on and listed as left open (with no criteria rows, since no audit added it), or a stop at Needs you naming the dependency? Check how often added phases name completion phases in their dependencies, and which answer AC-GOON-01 and AC-HANDBACK-04 in Kiln Continue Added Phases read more naturally.
 - The PRD does not say where a phase added after delivery must be written while the pull requests are open. This design counts it once it is committed on the feature branch. If the person expects one written on the delivery base to count too, the same-branch proposal would first have to bring the branch up to date, which the run-restart catch-up could do.
