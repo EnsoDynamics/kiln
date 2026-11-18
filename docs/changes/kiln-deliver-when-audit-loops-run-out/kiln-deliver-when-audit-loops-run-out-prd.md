@@ -119,19 +119,27 @@ Kiln still stops when loops run out under **Always stop and ask me**, or when so
 
 ### A Bot Can Do the Same
 
-Everything this PRD changes on the page can also be done from the command line.
+Every control on these screens that a person can press has a command a bot can run, as the controls Kiln already has do.
 
-- [ ] **AC-BOT-01 — The command line matches the page.**
+- [ ] **AC-BOT-01 — Every control on these screens has a command.** Each control in the table can be used from the command line, and `kiln status` lists each among the controls with whether it is available and why not, as it does for the existing commands. Settings chosen before Start stay in the browser, as today.
 
   | On the page | From the command line |
   |---|---|
-  | Choose **When the loops run out** (AC-CHOICE-01) | `kiln settings` |
-  | Allow up to N more loops (AC-ANSWER-02) | The existing stop command taking N, which now raises the limit |
-  | Accept what is left and deliver at a delivery audit stop (AC-ANSWER-02) | The existing Accept stop command, no longer refused there |
-  | See which loop the run is on, the phases left open and, on a finished run, what was left (AC-ANSWER-01, AC-LEFT-02) | `kiln status` |
-  | See each item for a person with its kind and what waits on it (AC-ITEM-02, AC-ITEM-03) | `kiln status` |
+  | Change either limit or **When the loops run out** during a run (AC-CHOICE-01) | `kiln settings` |
+  | Go on with **Allow up to N more loops** (AC-ANSWER-02) | `kiln allow-more-loops`, taking N, which now raises the limit by N |
+  | **Accept what is left and deliver**, at a delivery audit stop or a test audit stop (AC-ANSWER-02) | `kiln accept-and-deliver`, no longer refused at a delivery audit stop |
+  | **Continue with N phases** on the finished page (AC-LEFT-03) | A command beside them that continues with the phases the page offers. The button has no command today, so this also covers a finished run where new phases were found |
+  | Open the audit's session in a terminal | `kiln handoff`, as today |
 
   - Replaces in part: AC-STOP-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (the choice's name and reach, what the Allow command does to the limit, and Accept at a delivery audit stop)
+  - Replaces in part: AC-ACT-01 and AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (one more command joins the controls: continuing a finished run with the phases its page offers)
+- [ ] **AC-BOT-02 — The command line shows what the page shows.** `kiln status` reports everything these screens show, in text and in its JSON form.
+
+  | On the page | In `kiln status` |
+  |---|---|
+  | Which loop the run is on, and at a loop stop the loops that ran and the work waiting (AC-ANSWER-01) | The same, with the answers available there |
+  | On a finished run, the phases left open, their criteria and each pull request's address (AC-LEFT-02) | The same |
+  | Each item for a person, with its kind, the problem, the action and what waits on it (AC-ITEM-02, AC-ITEM-03) | The same |
 
 ## Out of Scope
 
