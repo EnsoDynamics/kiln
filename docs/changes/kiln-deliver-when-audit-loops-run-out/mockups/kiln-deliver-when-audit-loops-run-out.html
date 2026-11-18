@@ -89,7 +89,8 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 <h2 class="state">3. The pull request description</h2>
 <p class="note">With no critical finding, what was left comes first and For you follows, before the rest of the description. Covers AC-LEFT-01 and AC-ITEM-03.</p>
 <div class="screen"><div class="page" style="width: 960px">
-<pre>## What was left
+<pre>&lt;!-- kiln:work-left --&gt;
+## What was left
 
 The delivery audit still found parts missing after its last loop. They are in the plan as open phases, not built:
 
@@ -105,6 +106,7 @@ Test audit loop 3 of 3 was the last. It carried the person's words, from Deliver
 ## For you
 
 - Record a change to AC-RETURNS-09 in the PRD. Behavior changed outside the requirements: the code emails the return label instead of showing it on screen, and no document says that was decided.
+&lt;!-- /kiln:work-left --&gt;
 
 ## What this delivers
 …</pre>

@@ -41,7 +41,9 @@ The person makes one choice for both audits, before the run starts, and the defa
 
   - Replaces in part: AC-LOOP-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (the third setting and its default option are renamed, and the setting covers the delivery audit too)
   - Replaces in part: AC-LOOP-06 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (the default option's new name, in the first sentence's row)
+  - Replaces in part: AC-TEST-01 and AC-STOP-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (the setting's new name, and in AC-TEST-01 its default option's; otherwise unchanged)
 - [ ] **AC-CHOICE-02 — A change at a stop does not answer the stop.** Changing the choice at a loop stop applies from the next time loops run out. That stop is answered only by the answers on its page (AC-ANSWER-02), and the settings say so.
+  - Replaces in part: AC-LOOP-05 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (a change to the choice at a loop stop applies from the next time loops run out, and does not answer that stop)
 
 ### Keep Going When the Delivery Audit Runs Out of Loops
 
@@ -50,7 +52,13 @@ Under the default, a delivery audit that still finds missing parts after its las
 - [ ] **AC-GOON-01 — Phases added past the limit are left open and the run goes on.** Under **Deliver, and tell me what is left**, when an audit adds phases and no delivery audit loop is left, Kiln builds none of them and goes on with the closing audits and delivery as it would after an audit that found nothing to build. This applies to every audit that adds phases after the limit, including a test audit and a delivery audit run again later.
   - Replaces in part: AC-DELIV-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Kiln stops instead of building past the limit only under **Always stop and ask me**, or for a criterion not built at all)
   - Replaces in part: AC-HANDBACK-04 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (phases left open under this criterion do not delay the closing audits or delivery)
+  - Replaces in part: AC-HANDBACK-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a phase left open is not an eligible leaf for the rest of the run)
+  - Replaces in part: AC-TEST-04 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a criterion covered by a phase left open may remain partly built or not built at delivery, listed as what was left)
+  - Replaces in part: AC-PR-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the pull request session also starts with phases left open)
+  - Replaces in part: AC-DELIVER-04 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (phases left open need not satisfy their completion checks, and need no development verification)
 - [ ] **AC-GOON-02 — The test audit runs while those phases are open.** Kiln starts the test audit with the phases left open, under the test audit's own limit and rules. The audit skill leaves out the criteria those phases cover, so their tests are not audited.
+  - Replaces in part: AC-TEST-01 and AC-LOOP-03 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (the test audit also starts after a delivery audit whose phases are left open under AC-GOON-01)
+  - Replaces in part: AC-NEUTRAL-04 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (a passing or test-continuation report may leave open the phases left open under AC-GOON-01)
 - [ ] **AC-GOON-03 — A criterion not built at all still stops the run.** When an audit adds phases past the limit and says a criterion is not built at all, as opposed to partly built, Kiln stops at Needs you under either choice and the page names those criteria. Kiln takes the distinction from the audit and judges nothing itself.
 - [ ] **AC-GOON-04 — Nothing left open is recorded as done.** Kiln writes nothing to the repository to leave a phase open or to record that it was left. The phases keep no Closed line, the plan shows them not started, and their criteria stay unchecked.
 
@@ -66,16 +74,25 @@ A person who comes back to a delivered run sees at once that work was left, what
   | Tests the person accepted while still Weak, missing or failing | Each criterion whose tests were accepted, then the line AC-TEST-03 in Kiln Audit Loop Limits gives, with its summary word for word |
 
   - Replaces in part: AC-TEST-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (its line moves to the top, after a list of the criteria whose tests were accepted; what the line says is unchanged)
+  - Replaces in part: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the pull request check also confirms each description opens with what was left)
 - [ ] **AC-LEFT-02 — The finished page says the same.** When a run delivers with work left, its finished page is headed **Delivered, with work left** and lists what AC-LEFT-01 lists, with how many loops of each kind the run used. `kiln status` reports the same.
-- [ ] **AC-LEFT-03 — The person can continue with the phases still open.** When phases were left open, the finished page offers **Continue with N phases**, counting any phase added since delivery, and Kiln builds them where the table says. Either way the loop counts start at zero and the closing audits run again, as for any continued run (AC-LOOP-04 and its assumption RUN-003 in Kiln Audit Loop Limits).
+  - Replaces in part: AC-PR-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the phase plan also shows phases left open, as not started)
+  - Replaces in part: AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a delivery with work left is headed **Delivered, with work left**; the delivery facts shown are unchanged)
+  - Replaces in part: AC-DISPLAY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (a delivery with work left is headed **Delivered, with work left**; the delivery facts shown are unchanged)
+- [ ] **AC-LEFT-03 — The person can continue with the phases still open.** When phases were left open, the finished page offers **Continue with N phases**, counting any phase added since delivery, and Kiln builds them where the table says. Either way the loop counts start at zero and the closing audits run again, as for any continued run (AC-LOOP-04 and its assumption RUN-003 in Kiln Audit Loop Limits). A limit raised by Allow stays raised in the continued run (LOOP-001).
 
   | When the person continues | Where Kiln builds |
   |---|---|
   | While every pull request of the delivery is still open | On the run's feature branch, updating those pull requests |
   | Once any of them has merged or closed | As any continuation does today (AC-CONTINUE-06 in Kiln Continue Added Phases) |
 
-  - Replaces in part: AC-CONTINUE-06 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation with phases left open at delivery builds where the table says, and the readiness example there for an open, unmerged pull request does not apply to it)
+  While every pull request is still open, the plan is the one on the run's feature branch. A phase written only on the delivery base or in the shared checkout is shown as not ready, naming each document and where it was found, with the step to commit it on the feature branch, and Kiln offers no Continue until the sources agree (AC-FIND-02 in Kiln Continue Added Phases).
+
+  - Replaces in part: AC-CONTINUE-06 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation with phases left open at delivery builds where the table says; on the run's feature branch it reads the plan from that branch rather than from one committed on the delivery base, departing from assumption CONTINUE-002 in Kiln Continue Added Phases; and the readiness example there for an open, unmerged pull request does not apply to it)
   - Replaces in part: AC-OFFER-01 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (the offer also appears for phases left open at delivery, under the **Delivered, with work left** heading instead of **New phases found**)
+  - Replaces in part: AC-FIND-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (while every pull request of the delivery is open, the plan is read from the run's feature branch)
+  - Replaces in part: AC-FIND-03 and AC-CONTINUE-03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a finished run's plan may hold phases left open at delivery; they count as unfinished work to continue, beside phases added since)
+  - Replaces in part: AC-CONTINUE-05 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation on the run's feature branch records its delivery beside the earlier one, with the same pull requests, which it updates)
 
 ### Stop for a Person Only When the Work Cannot Go On
 
@@ -92,7 +109,9 @@ An audit can list things for a person. Kiln now says what may be listed, makes e
   | A test only the person can accept: a criterion with no test, a failing test, a high-risk criterion still Weak, or a row the audit marked stuck | Holds the run; once no test audit loop is left, its stop is a loop stop |
   | Anything else the audit skill names for the person, such as behavior changed outside the requirements or a human action that no work Kiln will still do needs | Goes on, and reports it with the delivery (AC-ITEM-03) |
 
+  - Replaces in part: AC-LOOP-04 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (only a critical finding that Kiln's next step would cause or worsen stops at once, and other critical findings are reported; a missing permission or a decision the audit cannot make holds the run instead)
 - [ ] **AC-ITEM-02 — Every item says why it is there.** Each item gives its kind, the problem, the action the person takes and, when its kind stops or holds the run, what waits on it. Kiln refuses a report where an item gives no kind or, if it stops or holds the run, leaves out any of the rest; any other item is reported as it stands. The Needs you page and `kiln status` show all of them.
+  - Replaces in part: AC-NEUTRAL-01 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (the report also gives each item's kind and, for an item that stops or holds the run, what waits on it; whether each criterion its added phases cover is partly built or not built at all; and the tests accepted while still Weak, missing or failing)
 - [ ] **AC-ITEM-03 — Any other item is reported with the delivery.** For an item that neither stops nor holds the run, the run goes on through the audits and delivery under either choice. The item stays outstanding and later audits account for it, as today. Each item still open at delivery is listed under **For you** in each pull request's description and on the finished page, after what was left; when it lists a critical finding, **For you** comes first, with that finding at its top.
   - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (only an item that stops or holds the run under AC-ITEM-01 stops it, and a test audit that changed only tests no longer waits for every item to be settled)
   - Replaces in part: AC-TEST-04 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (behavior changed outside the requirements, and a pending human action not holding the run, no longer keep it from completing)
@@ -156,5 +175,6 @@ Every control on these screens that a person can press has a command a bot can r
 - **Answering an item while Kiln keeps running.** An item that stops or holds the run is still settled at a stop, as today.
 - **A note sent with more loops, or choosing which added phases to build.** The answers are all or none. A person who wants something narrower opens the audit's session in a terminal.
 - **A separate choice for each audit.** One choice covers both.
+- **Continuing on the open branch when no phase was left open.** When a run delivered with nothing left open and a person adds a phase while every pull request is still open, Kiln does what it does today (AC-CONTINUE-06 in Kiln Continue Added Phases) and does not extend the open pull requests.
 - **The default limits.** Both stay at 3.
 - **Any change to the Enso Method's skills.**
