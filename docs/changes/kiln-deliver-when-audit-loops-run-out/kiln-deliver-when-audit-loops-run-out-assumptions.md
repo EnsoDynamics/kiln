@@ -58,7 +58,7 @@ Against: the continued run also builds **phases added since delivery**, which th
 
 **Assumption**: **Only the phases set aside because no loop was left.** Allow builds them with the phases the stopped audit added, in plan order and **as one loop**. **Phases the person accepted leaving open at an earlier stop stay open**, the page names them, and **Continue with N phases** offers them after delivery.
 
-The exception: when a phase the loop builds **depends on** an accepted phase, it cannot be built without it. Kiln then also builds the phases accepted **at that same stop**, and the page names them.
+The exception: when a phase the loop builds **depends on** an accepted phase, it cannot be built without it. Kiln then also builds that accepted phase, and any phase left open that it depends on in turn, and the page names them. The other phases accepted at that stop stay open.
 
 A phase set aside because no loop was left was never a decision: Allow gives loops, so its reason is gone. An accepted phase is: the person looked at it and chose to leave it, and Allow at a later stop answers what that later stop shows.
 
@@ -75,7 +75,7 @@ Against: **one answer that builds everything left open** is simpler to explain, 
 - [ ] Wrong — Allow builds every phase left open, accepted ones included
 - [ ] Wrong — different approach: _______________
 
-**Confidence**: 60% | **Impact**: 🟡 MEDIUM
+**Confidence**: 60% | **Impact**: 🔴 HIGH
 
 ---
 

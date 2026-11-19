@@ -158,11 +158,12 @@ Every control on these screens that a person can press has a command a bot can r
   | Change either limit or **When the loops run out** during a run (AC-CHOICE-01), apart from the limit a loop stop is on (AC-ANSWER-04) | `kiln settings` |
   | Go on with **Allow up to N more loops** (AC-ANSWER-02) | `kiln allow-more-loops`, taking N, which does what Allow does |
   | **Accept what is left and deliver**, at a delivery audit stop or a test audit stop (AC-ANSWER-02) | `kiln accept-and-deliver`, no longer refused at a delivery audit stop |
+  | **Check for new phases** on the finished page (AC-FIND-01 in Kiln Continue Added Phases) | `kiln check-for-new-phases`, which checks as the button does |
   | **Continue with N phases** on the finished page (AC-LEFT-03) | A new command that continues with the phases the page offers, here and on a finished run where new phases were found |
   | Open the audit's session in a terminal | `kiln handoff`, as today |
 
   - Replaces in part: AC-STOP-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (the choice's name and reach, what the Allow command does to the limit, Accept at a delivery audit stop, and `kiln settings` at a loop stop)
-  - Replaces in part: AC-ACT-01 and AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (one more command joins the controls: continuing a finished run with the phases its page offers)
+  - Replaces in part: AC-ACT-01 and AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (two more commands join the controls: checking a finished run for new phases, and continuing it with the phases its page offers)
 - [ ] **AC-BOT-02 — The command line shows what the page shows.** `kiln status` reports everything these screens show, in text and in its JSON form.
 
   | On the page | In `kiln status` |
@@ -170,6 +171,7 @@ Every control on these screens that a person can press has a command a bot can r
   | Which loop the run is on, and at a loop stop the loops that ran and the work waiting (AC-ANSWER-01) | The same, with the answers available there |
   | On a finished run, what was left and each pull request's address (AC-LEFT-01, AC-LEFT-02) | The same |
   | Each item for a person, with its kind, the problem, the action and what waits on it (AC-ITEM-02, AC-ITEM-03) | The same |
+  | The offer to continue: its phases, whether it is ready, and its problems (AC-LEFT-03) | The same, with the latest check's status and time |
 
 ## Out of Scope
 
