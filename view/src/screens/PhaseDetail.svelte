@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PREFLIGHT_LIVE_REASON } from "../../../src/engine/preflight.js";
+  import { PREFLIGHT_HEADING, PREFLIGHT_LIVE_REASON } from "../../../src/engine/preflight.js";
   // Phase detail (docs/design/mockups/kiln-screen-phase-detail-live.html): the current phase's
   // live output, its progress steps, its session and its commits (PRD AC-WATCH-04 to 06). For a
   // stopped phase it is Full session output (AC-WATCH-10; technical design, "Full session
@@ -82,7 +82,7 @@
     <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{paused ? "Paused" : pausing ? "All phases" : waiting ? "Waiting for usage" : stopped ? "Needs you" : "All phases"}</a>
     <div class="name">
       <PhaseCircle id={isAudit ? (row?.kind === "delivery_audit" ? "DA" : "TA") : isPreflight ? "PF" : phaseId} tone={paused ? "next" : pausing ? connected ? "implementing" : "amber" : live ? "implementing" : waiting && connected ? "next" : "amber"} />
-      <h2>{row?.title ?? ""}</h2>
+      <h2>{isPreflight ? PREFLIGHT_HEADING : row?.title ?? ""}</h2>
       {#if paused}<Pill tone="strong-outline" icon="pause">Paused</Pill>{:else if pausing && connected}<Pill tone="amber-outline" icon="spinner" spin>Pausing</Pill>{:else if pausing}<Pill tone="amber-outline">Last known: Pausing</Pill>{:else if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done" && donePill?.warning}<Pill tone="amber-outline" icon="warning">{donePill.text}</Pill>{#if row.waivedChecks}<WaivedStatus {row} />{/if}{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">{donePill?.text ?? (row.waivedChecks ? "Complete" : "Done")}</Pill>{#if row.waivedChecks || row.warnings?.length}<WaivedStatus {row} />{/if}{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span>{#if loopLabel}<span class="dot" aria-hidden="true">·</span><span class="loop">{loopLabel}</span>{/if}<span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
@@ -112,7 +112,7 @@
   {/if}
   {#if row?.waivedCompletion && row.state === "done"}<WaivedCompletion {snapshot} {row} />{/if}
   <div class="columns-main">
-    {#if !isPr}<div class="column-wide"><ProgressSteps steps={session.steps} followUp={current?.followUp} {live} reviewerWorking={current?.reviewerWorking === true} {now} /></div>{/if}
+    {#if !isPr && !isPreflight}<div class="column-wide"><ProgressSteps steps={session.steps} followUp={current?.followUp} {live} reviewerWorking={current?.reviewerWorking === true} {now} /></div>{/if}
     <div class="column-side">
       <aside class="card side">
         <span class="eyebrow">Session</span>

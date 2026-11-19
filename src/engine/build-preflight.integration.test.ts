@@ -106,6 +106,8 @@ describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01
     for (const name of ["message", "take-over"]) expect(h.engine.controlView().controls.find(one => one.name === name)).toMatchObject({ available: false, reason: expect.stringMatching(/^Live messages, Pause now and a pause after the activity are unavailable during the preflight\./) });
     expect(h.engine.resetControl().reason).not.toMatch(/Pause after the current/);
     expect(buildSnapshot(h.engine).feature.currentPhaseId).toMatch(/^preflight-/);
+    // A preflight runs build-preflight alone, so it shows none of a phase's build steps.
+    expect(buildSnapshot(h.engine).current?.steps).toEqual([]);
     writeFileSync(releasePath, "");
     await h.engine.settled();
     expect(h.engine.record.completedAt).toBeDefined();
