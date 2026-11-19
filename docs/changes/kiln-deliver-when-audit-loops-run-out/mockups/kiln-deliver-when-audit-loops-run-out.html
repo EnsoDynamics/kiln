@@ -79,7 +79,7 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 </section>
 <section>
 <h2 class="state">3. The finished page</h2>
-<p class="note">Both audits used all 4 loops. One line says so, with no warning. One test the last loop's sentence does not accept is listed under For you, with an item that did not stop the run. Covers AC-LEFT-02, AC-ITEM-03 and TEST-001.</p>
+<p class="note">Both audits used all 4 loops. One line says so, with no warning. One test the last loop's sentence does not accept is listed under For you, with an item that did not stop the run. Its last line is an action the requirements place after delivery, which For you lists in place of the Remaining human actions card. Covers AC-LEFT-02, AC-ITEM-03 and TEST-001.</p>
 <div class="screen"><div class="page" style="width: 960px">
 <div class="status"><span class="pill" style="background: #a9c79a">Delivered</span><span>Pull request open</span><span>·</span><span>Finished today 6:12 AM</span></div>
 <div class="card">
@@ -93,8 +93,33 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 <div class="rows">
 <div class="row"><span style="line-height: 1.6"><span class="strong">Test not accepted:</span> AC-LABEL-05 has no test. The label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.</span></div>
 <div class="row"><span style="line-height: 1.6">The code changed behavior outside the requirements: it emails the return label instead of showing it on screen, and no document says that was decided. Record a change to AC-RETURNS-09 in the PRD.</span></div>
+<div class="row"><span style="line-height: 1.6">After the release, turn on the nightly refund report in production.</span></div>
 </div>
 <p class="hint" style="padding-top: 8px">The pull request says the same.</p></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn solid">Open the pull request</span><span class="btn">Check for new phases</span></div></div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">3b. The finished page with a critical finding</h2>
+<p class="note">A critical finding puts For you first, below the state line and above the loop counts and the pull request. Covers AC-ITEM-03.</p>
+<div class="screen"><div class="page" style="width: 960px">
+<div class="status"><span class="pill" style="background: #a9c79a">Delivered</span><span>Pull request open</span><span>·</span><span>Finished today 6:12 AM</span></div>
+<div class="card">
+<div class="col"><span class="eyebrow">For you</span>
+<div class="rows">
+<div class="row"><span style="line-height: 1.6"><span class="strong">Critical finding:</span> The refund job retries a failed charge with no limit, so one declined card is charged on every retry. Cap the retries before you merge.</span></div>
+<div class="row"><span style="line-height: 1.6"><span class="strong">Test not accepted:</span> AC-LABEL-05 has no test. The label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.</span></div>
+</div>
+<p class="hint" style="padding-top: 8px">The pull request says the same.</p></div>
+</div>
+<div class="card">
+<div class="col" style="gap: 10px"><h3 class="serif">Delivered</h3><p class="lead">Kiln built every phase, ran the closing audits and opened the pull request.</p></div>
+<div class="col"><span class="eyebrow">Closing audits</span>
+<div class="rows">
+<div class="row"><span>Delivery audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
+<div class="row"><span>Test audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
+</div></div>
 <div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn solid">Open the pull request</span><span class="btn">Check for new phases</span></div></div>
 </div>
 </div></div>
@@ -106,6 +131,7 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 <pre>## For you
 - Test not accepted: AC-LABEL-05 has no test. The label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.
 - The code changed behavior outside the requirements: it emails the return label instead of showing it on screen, and no document says that was decided. Record a change to AC-RETURNS-09 in the PRD.
+- After the release, turn on the nightly refund report in production.
 
 ## Closing audits
 Delivery audit: 4 of 4 loops. Test audit: 4 of 4 loops.
