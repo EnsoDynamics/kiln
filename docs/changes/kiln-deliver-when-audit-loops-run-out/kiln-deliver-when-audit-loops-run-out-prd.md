@@ -76,7 +76,7 @@ A person who comes back to a delivered run sees how much checking it got, withou
 
 An audit can list things for a person. Kiln now says what may be listed, makes each item say why it is there, and stops the run only for the ones the work cannot go on without.
 
-- [ ] **AC-ITEM-01 — An audit lists for a person only what the table allows.** Kiln's instructions to each audit define an item for a person as one of the kinds in the table, and say that a declared assumption, a request to confirm or review something, and anything the audit can settle itself are never items. Kiln handles each kind as the table says, and opens no pull request while an item stops or holds the run. An item **holds the run** while work Kiln will still do in this run needs it, delivery included: Kiln goes on with the work that does not need it and stops at Needs you once none is left, as AC-NEUTRAL-03 in Kiln Method-Neutral Audits does for an item today.
+- [ ] **AC-ITEM-01 — An audit lists for a person only what the table allows.** Kiln's instructions to each audit define an item for a person as one of the kinds in the table, and say that a declared assumption, a request to confirm or review something, and anything the audit can settle itself are never items. Kiln handles each kind as the table says, and opens no pull request while an item stops or holds the run. An item **holds the run** while work Kiln will still do in this run needs it, delivery included: Kiln goes on with the work that does not need it and stops at Needs you once none is left, as AC-NEUTRAL-03 in Kiln Method-Neutral Audits does for an item today. At that stop the person can provide what each item asks outside Kiln and carry on: Kiln records each item as waived, never as settled, and opens the pull request instead of marking delivery complete. Each item stays listed under **For you** as still open, marked **Waived**. Kiln does not stop on a waived item again.
 
   | Kind of item | What Kiln does |
   |---|---|
@@ -88,6 +88,7 @@ An audit can list things for a person. Kiln now says what may be listed, makes e
   | Anything else the audit skill names for the person, such as behavior changed outside the requirements or a human action that no work Kiln will still do needs | Goes on, and reports it with the delivery (AC-ITEM-03) |
 
   - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (only a critical finding that Kiln's next step would cause or worsen stops at once; a blocker or a business question whose best answer is below 20% holds the run while work that does not need it goes on)
+  - Replaces in part: AC-WAIVE-02 and AC-WAIVE-04 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (where an item holds the run, the offer is **Continue in normal order**, which opens the pull request and never completes the run, even after a pull request session has run)
 - [ ] **AC-ITEM-02 — Every item says why it is there.** Each item gives its kind, the problem, the action the person takes and, when its kind stops or holds the run, what waits on it. Kiln refuses a report where an item gives no kind or, if it stops or holds the run, leaves out any of the rest; any other item is reported as it stands. The Needs you page and `kiln status` show all of them.
   - Replaces in part: AC-NEUTRAL-01 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (the report also gives each item's kind and, for an item that stops or holds the run, what waits on it)
 - [ ] **AC-ITEM-03 — Any other item is reported with the delivery.** For an item that neither stops nor holds the run, the run goes on through the audits and delivery. The item stays outstanding and later audits account for it, as today. Each item still open at delivery is listed under **For you** in each pull request's description and on the finished page, followed by the actions the requirements place after Kiln's delivery; when it lists a critical finding, **For you** comes first, with that finding at its top.
@@ -142,6 +143,6 @@ Retired labels, not reused: AC-GOON-01 to AC-GOON-04, AC-LEFT-03 and AC-ANSWER-0
 
 - **A stop or question at a loop limit.** The limits are the person's control; a person who wants more checking sets higher limits, before Start or during the run.
 - **Auditing again after a kind's last loop.** The pull request is where that work is reviewed.
-- **Answering an item while Kiln keeps running.** An item that stops or holds the run is still settled at a stop, as today.
+- **Answering an item while Kiln keeps running.** An item that stops or holds the run is still answered at a stop, as today.
 - **A separate default for each audit.** Both default to 4.
 - **Any change to the Enso Method's skills.**

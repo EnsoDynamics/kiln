@@ -84,6 +84,8 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 <div class="status"><span class="pill" style="background: #a9c79a">Delivered</span><span>Pull request open</span><span>·</span><span>Finished today 6:12 AM</span></div>
 <div class="card">
 <div class="col" style="gap: 10px"><h3 class="serif">Delivered</h3><p class="lead">Kiln built every phase, ran the closing audits and opened the pull request.</p></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn">Check for new phases</span></div></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; align-items: center; gap: 16px"><span class="strong">Pull request #214 · feature/return-labels → develop</span><span class="btn solid" style="margin-left: auto">Open on GitHub</span></div><p class="hint">Human review is next. Kiln stops at “PR ready” and doesn’t merge.</p></div>
 <div class="col"><span class="eyebrow">Closing audits</span>
 <div class="rows">
 <div class="row"><span>Delivery audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
@@ -96,13 +98,12 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 <div class="row"><span style="line-height: 1.6">After the release, turn on the nightly refund report in production.</span></div>
 </div>
 <p class="hint" style="padding-top: 8px">The pull request says the same.</p></div>
-<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn solid">Open the pull request</span><span class="btn">Check for new phases</span></div></div>
 </div>
 </div></div>
 </section>
 <section>
 <h2 class="state">3b. The finished page with a critical finding</h2>
-<p class="note">A critical finding puts For you first, below the state line and above the loop counts and the pull request. Covers AC-ITEM-03.</p>
+<p class="note">A critical finding puts For you first, below the state line and above the plan check, the pull request and the loop counts. Covers AC-ITEM-03.</p>
 <div class="screen"><div class="page" style="width: 960px">
 <div class="status"><span class="pill" style="background: #a9c79a">Delivered</span><span>Pull request open</span><span>·</span><span>Finished today 6:12 AM</span></div>
 <div class="card">
@@ -115,12 +116,13 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 </div>
 <div class="card">
 <div class="col" style="gap: 10px"><h3 class="serif">Delivered</h3><p class="lead">Kiln built every phase, ran the closing audits and opened the pull request.</p></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn">Check for new phases</span></div></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; align-items: center; gap: 16px"><span class="strong">Pull request #214 · feature/return-labels → develop</span><span class="btn solid" style="margin-left: auto">Open on GitHub</span></div><p class="hint">Human review is next. Kiln stops at “PR ready” and doesn’t merge.</p></div>
 <div class="col"><span class="eyebrow">Closing audits</span>
 <div class="rows">
 <div class="row"><span>Delivery audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
 <div class="row"><span>Test audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
 </div></div>
-<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn solid">Open the pull request</span><span class="btn">Check for new phases</span></div></div>
 </div>
 </div></div>
 </section>
@@ -155,6 +157,33 @@ Test audit loop 4 of 4 was the last. It carried your words, from the test audit 
 <div class="row"><span class="tag" style="flex-basis: 150px">What you do</span><span>Issue a new sandbox key and save it where the run reads its keys.</span></div>
 <div class="row"><span class="tag" style="flex-basis: 150px">What waits on it</span><span>AC-LABEL-02 can’t be checked as built until a label can be requested.</span></div>
 </div></div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">5b. The hold stop before the pull request</h2>
+<p class="note">The same blocker, listed beside the last loop’s phases, holds the run at the pull request step. The page offers Check again and the hold stop’s Continue in normal order, and no Reply or Take over. Covers AC-ITEM-01 and AC-ITEM-02.</p>
+<div class="screen"><div class="page" style="width: 1140px">
+<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Test audit <strong style="color: #ede8dd">(after loop 3 of 4)</strong></span><span>·</span><span>Stopped today 5:48 AM</span></div>
+<div class="split">
+<div class="card amber">
+<div class="col" style="gap: 10px"><h3 class="serif">The pull-request session hasn’t started</h3><p class="lead">Delivery can’t go on without what’s listed below. Everything that could proceed is done.</p></div>
+<div class="col"><span class="eyebrow">Listed for you</span>
+<div class="rows">
+<div class="row"><span class="tag" style="flex-basis: 150px">Kind</span><span>Blocker</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">Problem</span><span>The carrier’s sandbox key has expired, and Kiln cannot issue one.</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">What you do</span><span>Issue a new sandbox key and save it where the run reads its keys.</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">What waits on it</span><span>AC-LABEL-02 can’t be checked as built until a label can be requested.</span></div>
+</div></div>
+</div>
+<div class="card">
+<span class="eyebrow">Why Kiln stopped</span>
+<div class="rows">
+<div class="row"><span>Nothing holds the run</span><span class="dur amber-text" style="font-size: 15px">No</span></div>
+</div>
+<span class="btn solid" style="justify-content: center">Check again</span>
+<div class="col div" style="gap: 10px"><span class="strong">You’ve provided what’s listed above, and want Kiln to deliver?</span><p class="hint">Continue anyway. Kiln records each item above as waived, never as settled, and starts the pull request session. The items stay open and are listed under <strong>For you</strong>, each marked Waived.</p><span class="btn" style="justify-content: center">Continue in normal order</span></div>
+</div>
 </div>
 </div></div>
 </section>
