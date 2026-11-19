@@ -45,7 +45,7 @@ Against: a **failing test** in a pull request is more serious than a Weak one, a
 
 **Example**: The test audit used its **4** loops. The last one fixed what it could and accepted 2 Weak rows by the sentence. It still lists **AC-LABEL-05 with no test**, because the label service has no sandbox. Kiln opens the pull request, and **For you** lists AC-LABEL-05: no test, not accepted.
 
-**If they choose otherwise**: Kiln **stops at Needs you** once nothing else is left, with each such test listed, and opens no pull request. You move on by accepting or fixing them, then choosing **Continue in normal order** on the Needs you page.
+**If they choose otherwise**: Kiln **stops at Needs you** once nothing else is left, with each such test listed, and opens no pull request. You fix them yourself or decide to accept them, then press **Check again** and **Continue in normal order** on the Needs you page; each stays listed under **For you**, marked Waived.
 
 **Researched**: 2026-11-19; the stakeholder's words in the 2026-11-18 review chat, Kiln Audit Loop Limits' handling once no test loop is left (AC-TEST-02) and the test audit skill's rule that it accepts these tests only when the person names them.
 

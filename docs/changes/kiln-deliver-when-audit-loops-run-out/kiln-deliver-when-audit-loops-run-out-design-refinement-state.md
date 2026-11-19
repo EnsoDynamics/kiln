@@ -1,10 +1,10 @@
 # Design Refinement State — Kiln Deliver When Audit Loops Run Out
 
-Started: 2026-11-19   Current pass: 6   Status: In progress
+Started: 2026-11-19   Current pass: 6 (converged)   Status: In progress — Phase 7
 Branch: develop
 Existing code posture: Preserve for everything in Kiln 1.3.0 the design does not name; removed for the loop stop machinery (source: TD §Existing Code)
 PRD words: at start 3870 · growth baseline 3870
-Last updated: 2026-11-19 (pass 5 checkpoint)
+Last updated: 2026-11-19 (pass 6 checkpoint)
 
 ## Documents
 | Document | Path |
@@ -22,6 +22,7 @@ Last updated: 2026-11-19 (pass 5 checkpoint)
 | 3 | 5 | 12 (8 carried + 4) | 9 | 0 | 3 | 0 | 0 |
 | 4 | 3 | 10 (7 carried + 3) | 9 | 0 | 1 | 0 | 0 |
 | 5 | 2 | 5 (3 carried + 2) | 4 | 0 | 1 | 0 | 0 |
+| 6 | 1 | 4 (3 carried + 1) | 4 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -67,9 +68,10 @@ Last updated: 2026-11-19 (pass 5 checkpoint)
 | Q40 | 4 | **Pull request description** row forces a PR session when work is already merged in every repository or the execution used early delivery — contradicts AC-PRS-05 "start no further session"; Development Deployments §Evidence and Completion (conformance) | Technical | MEDIUM | 60 → 90 | Resolved | TD §What a Delivered Run Says, §Loops and the Ledger, hold stop, §Changes to Earlier Designs, §Verification AC-LEFT-01 |
 | Q41 | 4 | At a PR check stop where only **Pull request description** fails, is Mark final delivery complete offered? ("No waiver matches it" doesn't say) (conformance) | Technical | LOW | 70 → 92 | Resolved | TD §What a Delivered Run Says, §Changes to Earlier Designs, §Verification; PRD AC-LEFT-01 Replaces AC-WAIVE-02 |
 | Q42 | 5 | Does a PR session run that ended with a usage-limit refusal or an error exit count as having "delivered its block"? judgeEndedSession checks before the limitRefusal branch, so the run could complete with the description never edited | Technical | HIGH | 70 → 90 | Resolved | TD §What a Delivered Run Says, §Verification AC-LEFT-01 |
-| Q43 | 5 | A PR session running under 1.3.0 at upgrade has no saved block; resumed on 1.3.0's instructions it ends and the row fails → a Needs you stop on every upgraded run caught in the PR step | Technical | MEDIUM | 70 → 85 | Deferred | — |
-| Q44 | 5 | Hold-stop offer and `kiln status` preview copy for the all-merged / delivered-early case (Continue completes the run there) needs exact words (conformance) | Technical | LOW | 75 → 75 | Pending | — |
-| Q45 | 5 | AC-LEFT-01's two new behaviors (an open PR needs a session to write the block; Mark final delivery complete at the description stop) appear only in Replaces lines, not the criterion text — should the criterion say them? (conformance) | Technical | LOW | 70 → 70 | Pending | — |
+| Q43 | 5 | A PR session running under 1.3.0 at upgrade has no saved block; resumed on 1.3.0's instructions it ends and the row fails → a Needs you stop on every upgraded run caught in the PR step | Technical | MEDIUM | 70 → 93 | Resolved | TD §What a Delivered Run Says, §Upgrade, §Prompts, §Verification AC-LEFT-01 |
+| Q44 | 5 | Hold-stop offer and `kiln status` preview copy for the all-merged / delivered-early case (Continue completes the run there) needs exact words (conformance) | Technical | LOW | 75 → 90 | Resolved | TD hold stop, §Verification AC-ITEM-01 |
+| Q45 | 5 | AC-LEFT-01's two new behaviors (an open PR needs a session to write the block; Mark final delivery complete at the description stop) appear only in Replaces lines, not the criterion text — should the criterion say them? (conformance) | Technical | LOW | 70 → 90 | Resolved | PRD AC-LEFT-01 |
+| Q46 | 6 | Is the hold stop's Continue in normal order usable on the stop's own check run or only after Check again (AC-WAIVE-02)? Mockup 5b shows it usable with no "Check again first" | Technical | LOW | 85 → 90 | Resolved | TD hold stop, §Verification AC-ITEM-01; mockup 5b, 5c |
 | Q11 | 1 | New CLI refuses `kiln settings` loop flags against a 1.3.0 controller (`loop_limits_move_on`) | Technical | LOW | 80 → 95 | Resolved | TD §Interfaces Compatibility, §Removed Controls, §Verification |
 
 ## Question notes
@@ -78,8 +80,7 @@ Last updated: 2026-11-19 (pass 5 checkpoint)
 
 
 
-### Q43
-Proposed (85%): wider than PR-open. A 1.3.0 session (no saved block) resumed on "Everything in the first message still applies" never writes the block; same at the end of a usage-limit wait (recheckWait ~6861). Fix: Kiln resumes a PR session by itself only when its saved block equals the block Kiln would give now; otherwise starts a fresh PR session via the routing decision, as after a send-back (checkInterrupted/recheckWait return `done` for `pr`; drive ~4250/~4316 route to start_pull_request; launchSession opens a new record because the old has runs); the start decision then sets no `doneFirst` for `pr` (underway-output.ts:117). A Resume the person presses still resumes. Draft TD §What a Delivered Run Says: "Kiln resumes a pull request session by itself (after an interruption, or at the end of a usage-limit wait) only when that session's saved block is the block Kiln would give now. When the session has no saved block, or a different one, Kiln starts a fresh pull request session given the current block instead, through the routing decision, as after a send-back. The start decision then names nothing as done. A Resume the person presses still resumes that session." §Upgrade: "**A pull request session from Kiln 1.3.0** has no saved block. When it was interrupted or waiting at the upgrade, and its check fails, Kiln starts a fresh pull request session rather than resuming it (§What a Delivered Run Says). So an upgraded run caught in the pull request step does not stop for a person." §Verification as in investigator report. Why <90 / next pass: confirm the usage-limit wait path (Q42 makes a refused session resume via settleRefused — does a fresh start instead conflict when the block is unchanged?), that a person's Resume resuming a stale-block session then ends with the row failing (a stop again?), and that abandoning a half-done PR session's work is safe (it may have pushed commits).
+
 
 ## Exploration scripts
 | Script | Question | Finding |
@@ -87,7 +88,7 @@ Proposed (85%): wider than PR-open. A 1.3.0 session (no saved block) resumed on 
 
 ## Conflict check
 Pass 1: 2026-11-19 · 35 earlier criteria changed (21 already covered) · 14 Replaces-line fixes applied (5 added, 1 widened, 3 removed, 5 corrected; Changes: line gained Continue Added Phases and Completion Waivers) · 0 raised as questions. Note: `continue-with-phases` vs Bot Control's pending SCOPE-001 (new-run setup stays in browser) — not a conflict, PRD names the command on purpose and AC-BOT-01 keeps settings and Authorize early merges in the browser.
-Changed after pass 1: AC-ITEM-01 (all-merged hold stop wording, pass 5 conformance); AC-CHOICE-02 delivery-raise sentence (pass 5); AC-LEFT-01 (Replaces AC-WAIVE-02 for Mark complete at the description stop, pass 5; Replaces AC-PR-01 v1 and AC-PRS-05 multi-repo: open PR completes only after a session writes the block, pass 4); AC-LAST-02 (test loop includes the one after a changed-implementation delivery audit, pass 4); AC-CHOICE-02 test-raise sentence (pass 4); AC-ITEM-01 (how the hold stop is passed; Replaces AC-WAIVE-02/04, pass 3); AC-CHOICE-02 (floor counts the loops the latest audit or session has been told it will have and not yet used); AC-ITEM-03 (after-delivery actions listed under For you; AC-NEUTRAL-03 Replaces parenthetical)
+Changed after pass 1: AC-LEFT-01 text (open PR completes after a session writes the block; Mark complete at the description stop, pass 6); AC-ITEM-01 (all-merged hold stop wording, pass 5 conformance); AC-CHOICE-02 delivery-raise sentence (pass 5); AC-LEFT-01 (Replaces AC-WAIVE-02 for Mark complete at the description stop, pass 5; Replaces AC-PR-01 v1 and AC-PRS-05 multi-repo: open PR completes only after a session writes the block, pass 4); AC-LAST-02 (test loop includes the one after a changed-implementation delivery audit, pass 4); AC-CHOICE-02 test-raise sentence (pass 4); AC-ITEM-01 (how the hold stop is passed; Replaces AC-WAIVE-02/04, pass 3); AC-CHOICE-02 (floor counts the loops the latest audit or session has been told it will have and not yet used); AC-ITEM-03 (after-delivery actions listed under For you; AC-NEUTRAL-03 Replaces parenthetical)
 
 ## Register re-sort
 Pass 1: 2026-11-19 · 1 open entry (TEST-001) · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as questions · 1 stays business, below the line (folded). Doubt check doubted it (ruling settles it); orchestrator kept it business: the ruling addressed the loop stop, not delivering an unaccepted failing test, and the earlier release stopped on that (Audit Loop Limits AC-TEST-02).
@@ -102,4 +103,4 @@ Pass 1: 2026-11-19 · 1 open entry (TEST-001) · 0 moved to design · 0 written 
 |---|---|---|
 
 ## Next action
-Pass 6: discovery; investigate Q43 (deferred), Q44, Q45 first. Then conformance, checkpoint. Then conformance, checkpoint.
+Phase 7: final conformance done (pass 6 conformance). Run the conflict re-check for criteria changed after pass 1, and the final verification, in parallel; fold findings; then completion report, delete state file, completion commit, then Phase 8 consolidation. Then conformance, checkpoint. Then conformance, checkpoint.

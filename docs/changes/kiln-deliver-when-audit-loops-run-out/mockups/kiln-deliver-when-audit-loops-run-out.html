@@ -164,7 +164,7 @@ Test audit loop 4 of 4 was the last. It carried your words, from the test audit 
 </section>
 <section>
 <h2 class="state">5b. The hold stop before the pull request</h2>
-<p class="note">The same blocker, listed beside the last loop’s phases, holds the run at the pull request step. The page offers Check again and the hold stop’s Continue in normal order, and no Reply or Take over. The status line keeps the last loop’s position. Covers AC-ITEM-01, AC-ITEM-02 and AC-STOP-05.</p>
+<p class="note">The same blocker, listed beside the last loop’s phases, holds the run at the pull request step. Before a Check again, the hold stop’s Continue in normal order is unusable; there is no Reply or Take over. The status line keeps the last loop’s position. Covers AC-ITEM-01, AC-ITEM-02 and AC-STOP-05.</p>
 <div class="screen"><div class="page" style="width: 1140px">
 <div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Test audit <strong style="color: #ede8dd">loop 4 of 4 · last loop</strong></span><span>·</span><span>Stopped today 5:48 AM</span></div>
 <div class="split">
@@ -184,8 +184,22 @@ Test audit loop 4 of 4 was the last. It carried your words, from the test audit 
 <div class="row"><span>Nothing holds the run</span><span class="dur amber-text" style="font-size: 15px">No</span></div>
 </div>
 <span class="btn solid" style="justify-content: center">Check again</span>
-<div class="col div" style="gap: 10px"><span class="strong">You’ve provided what’s listed above, and want Kiln to deliver?</span><p class="hint">Continue anyway. Kiln records each item above as waived, never as settled, and starts the pull request session. The items stay open and are listed under <strong>For you</strong>, each marked Waived.</p><span class="btn" style="justify-content: center">Continue in normal order</span></div>
+<div class="col div" style="gap: 10px"><span class="strong">You’ve provided what’s listed above, and want Kiln to deliver?</span><span class="btn" style="justify-content: center; opacity: 0.45; cursor: not-allowed">Continue in normal order</span><p class="hint">Check again first. If a check still fails, this button becomes available.</p></div>
 </div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">5c. The hold stop after a Check again</h2>
+<p class="note">Check again found nothing that can settle the blocker, so the stop stays and Continue in normal order is usable, with the hold stop’s own sentence. Covers AC-ITEM-01.</p>
+<div class="screen"><div class="page" style="width: 476px">
+<div class="card">
+<span class="eyebrow">Why Kiln stopped</span>
+<div class="rows">
+<div class="row"><span>Nothing holds the run</span><span class="dur amber-text" style="font-size: 15px">No</span></div>
+</div>
+<span class="btn solid" style="justify-content: center">Check again</span>
+<div class="col div" style="gap: 10px"><span class="strong">You’ve provided what’s listed above, and want Kiln to deliver?</span><p class="hint">Continue anyway. Kiln records each item above as waived, never as settled, and starts the pull request session. The items stay open and are listed under <strong>For you</strong>, each marked Waived.</p><span class="btn" style="justify-content: center">Continue in normal order</span></div>
 </div>
 </div></div>
 </section>
