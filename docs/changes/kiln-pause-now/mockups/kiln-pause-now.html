@@ -75,9 +75,9 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </section>
 <section>
 <h2>3. Paused partway: resume, or take it over</h2>
-<p class="note">Covers AC-PAUSE-05 and AC-PAUSE-06. Sample PRD, folder and session id are illustrative. The grey note at the bottom is commentary, not part of the screen.</p>
+<p class="note">Covers AC-PAUSE-05 and AC-PAUSE-06: no checks on this page; Resume rechecks before carrying on. Sample PRD, folder and session id are illustrative. The grey note at the bottom is commentary, not part of the screen.</p>
 <div class="screen">
-<div style="width: 1280px; height: 1040px; box-sizing: border-box; padding: 48px 64px; background: #12110e; color: #ede8dd; font-family: Inter, -apple-system, sans-serif; font-size: 15px; display: flex; flex-direction: column; gap: 28px">
+<div style="width: 1280px; min-height: 1040px; box-sizing: border-box; padding: 48px 64px; background: #12110e; color: #ede8dd; font-family: Inter, -apple-system, sans-serif; font-size: 15px; display: flex; flex-direction: column; gap: 28px">
   <div style="display: flex; flex-direction: column; gap: 14px">
     <p style="margin: 0; color: #8c8577; font-size: 14px">Repository <span style="font-family: 'JetBrains Mono', monospace; color: #bdb6a8">acme-shop</span>    PRD folder <span style="font-family: 'JetBrains Mono', monospace; color: #bdb6a8">docs/prds/customer-returns/</span></p>
     <h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 76px; line-height: 0.98">Customer returns</h1>
@@ -104,8 +104,10 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
     <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; border-top: 1px solid rgba(237,232,221,0.12); padding-top: 22px">
       <div style="display: flex; flex-direction: column; gap: 14px">
         <h3 style="margin: 0; font-size: 16px; font-weight: 600">Let Kiln carry on</h3>
-        <p style="margin: 0; color: #bdb6a8; font-size: 14px; line-height: 1.6">Picks up in the same conversation, where it stopped.</p>
-        <button type="button" style="margin-top: auto; min-height: 44px; border-radius: 999px; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; font: 600 14.5px Inter, sans-serif; cursor: pointer">Resume phase 2b</button>
+        <p style="margin: 0; color: #bdb6a8; font-size: 14px; line-height: 1.6">Picks up in the same conversation, where it stopped. Whenever you’re ready; nothing is waiting on you.</p>
+        <label for="note" style="font-size: 13px; color: #8c8577">Note for Claude <span style="color: #8c8577">(optional)</span></label>
+        <textarea id="note" rows="3" placeholder="Anything to tell Claude before it carries on" style="box-sizing: border-box; width: 100%; padding: 10px 12px; border-radius: 10px; background: #0d0c0a; border: 1px solid rgba(237,232,221,0.18); color: #ede8dd; font: 14px Inter, sans-serif; resize: vertical"></textarea>
+        <button type="button" style="min-height: 44px; border-radius: 999px; background: #ede8dd; color: #12110e; border: 1px solid #ede8dd; font: 600 14.5px Inter, sans-serif; cursor: pointer">Resume phase 2b</button>
       </div>
       <div style="display: flex; flex-direction: column; gap: 14px; border-left: 1px solid rgba(237,232,221,0.12); padding-left: 32px">
         <h3 style="margin: 0; font-size: 16px; font-weight: 600">Or take it over yourself</h3>
@@ -114,8 +116,8 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
           <span style="flex: 1 1 auto; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: #ede8dd; overflow-wrap: anywhere">cd ~/devel/acme-shop-kiln/customer-returns &amp;&amp; claude --resume 9b0e3d72-1c5a-4f6e</span>
           <button type="button" style="flex: 0 0 auto; min-height: 36px; padding: 0 14px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font: 600 13px Inter, sans-serif; cursor: pointer">Copy</button>
         </div>
-        <p style="margin: 0; color: #8c8577; font-size: 13.5px; line-height: 1.6">When you’re done, exit Claude and come back. <strong style="color: #bdb6a8">Resume</strong> hands it back to Kiln; if you finished the phase there, check it instead.</p>
-        <button type="button" style="align-self: flex-start; min-height: 36px; padding: 0 14px; border-radius: 999px; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.24); font: 600 13px Inter, sans-serif; cursor: pointer">Check phase 2b again</button>
+        <p style="margin: 0; color: #8c8577; font-size: 13.5px; line-height: 1.6">When you’re done, exit Claude and press <strong style="color: #bdb6a8">Resume</strong>. If you finished phase 2b there, Kiln sees that and offers to move on instead.</p>
+        <details style="font-size: 13.5px; color: #bdb6a8"><summary style="cursor: pointer">Session won’t open? Start a fresh one</summary><p style="margin: 8px 0 0; color: #8c8577; line-height: 1.6">Today’s fresh-session instructions, unchanged.</p></details>
       </div>
     </div>
   </section>
@@ -127,7 +129,7 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
     <div style="display: flex; align-items: center; justify-content: space-between; color: #ede8dd; font-weight: 600"><span>2b  Store credit</span><span style="padding: 2px 12px; border-radius: 999px; border: 1px solid rgba(237,232,221,0.4)">Paused</span></div>
     <div style="display: flex; align-items: center; justify-content: space-between; color: #8c8577"><span>3  Returns dashboard</span><span>Planned</span></div>
   </section>
-  <p style="margin: 0; color: #8c8577; font-size: 13.5px; line-height: 1.6">One paused page for both use cases. Replaces today’s amber Needs you “Paused for terminal takeover” page. Check again passes and moves on when the phase is done; if a check still fails, Mark complete appears beneath it, as on today’s hand-back page.</p>
+  <p style="margin: 0; color: #8c8577; font-size: 13.5px; line-height: 1.6">One paused page for both use cases, replacing today’s amber Needs you “Paused for terminal takeover” page. No completion checks here: you paused it, nothing failed. The full session output link, a pending end-of-phase pause with its cancel, and the billing, delivery and reset panels stay below, as on today’s page. Resume rechecks before carrying on, so work finished in the terminal is noticed then.</p>
 </div>
 </div>
 </section>

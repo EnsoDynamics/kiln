@@ -43,6 +43,35 @@
 
 **Confidence**: 80% | **Impact**: 🟢 LOW
 
+### PAUSE-006. Keep `kiln status`'s status values and change only its wording?
+
+**Assumption**: **Yes.** A pending or completed Pause now keeps the status values bots read today; only the human-readable text changes, to "Pausing" and "Paused" (AC-PAUSE-05). The browser header and the terminal summary line change as the mockup shows.
+
+**If they choose otherwise**: `kiln status` gains a distinct paused-partway value, and bots that read the current values must be updated.
+
+**Evidence**: Bot control's status contract is consumed by scripts; new values would break them for a wording change. The mockup the stakeholder approved covers the browser only.
+
+**Confirm or Correct**:
+- [ ] Correct as stated
+- [ ] Wrong — add a distinct status value for a mid-activity pause
+
+**Confidence**: 85% | **Impact**: 🟢 LOW
+
+### PAUSE-007. Fold today's "reply and resume" into an optional note on Resume?
+
+**Assumption**: **Yes.** The paused page has no separate reply card. The **Let Kiln carry on** column has an optional **Note for Claude** box above **Resume**; with text, Resume sends it as today's **Send reply & resume** does, and keeps it unsent where today's reply is kept (AC-PAUSE-06).
+
+**If they choose otherwise**: The paused page also shows today's "Reply here and let Kiln finish" card, or drops replying altogether.
+
+**Evidence**: The approved mockup shows two columns and no reply card, but replying is an existing capability (AC-BACK-01 in Control a live Kiln session) the stakeholder did not ask to remove. A note on Resume keeps it in the column it belongs to.
+
+**Confirm or Correct**:
+- [ ] Correct as stated
+- [ ] Wrong — keep the separate reply card
+- [ ] Wrong — drop replying from this page
+
+**Confidence**: 80% | **Impact**: 🟢 LOW
+
 ---
 
 ## Technical Assumptions
@@ -65,6 +94,22 @@
 
 **Confidence**: 85% | **Impact**: 🟡 MEDIUM
 
+### PAUSE-005. Can a pending pause be withdrawn before the stop without disturbing the running session?
+
+**Assumption**: Yes. Withdrawing the hold before the agent reaches its next safe point lets the running attempt carry on unchanged, as if Pause now had never been pressed (AC-PAUSE-04).
+
+**Evidence**: The safe point is enforced when the agent next tries to start work, by reading the hold Kiln saved. Until then nothing has been sent to the session, so removing the hold should leave it untouched.
+
+**Blocked by**: Kiln has no cancel path today, so there is nothing to run against.
+
+**Would settle it**: A spike against the safe-point gate: request Pause now during a long command, withdraw it, and confirm the next command starts with no interruption or extra turn.
+
+**Confirm or Correct**:
+- [ ] Correct as stated
+- [ ] Wrong — the fact is: _______________
+
+**Confidence**: 80% | **Impact**: 🟡 MEDIUM
+
 ---
 
 ## Validated Assumptions
@@ -72,3 +117,4 @@
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
 | PAUSE-001 | One immediate pause, **Pause now**, replaces Pause & take over. Whether to resume in Kiln or take over in a terminal is chosen on the paused page, which offers both side by side. Per the stakeholder (2026-11-19): "it's like three different kinds of pauses ... maybe it should just be pause now. And once you do that, yes, it just pauses, but it also gives you the resume command"; on the resulting mockup: "it looks good now." Earlier the same day: "I also do want the ability to pause and take over the session ... we don't want to lose that." | ✅ 2026-11-19 | PRD AC-PAUSE-01, AC-PAUSE-06 |
+| PAUSE-004 | The page an immediate pause lands on shows no completion checks, Check again or Mark complete; Resume's own recheck notices work finished in the terminal. Per the stakeholder (2026-11-19): "if you just paused it here, there's nothing to check. ... It came to a stop because you explicitly hit pause." | ✅ 2026-11-19 | PRD AC-PAUSE-06 |
