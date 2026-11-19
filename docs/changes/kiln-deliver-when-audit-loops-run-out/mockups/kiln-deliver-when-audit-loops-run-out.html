@@ -91,8 +91,8 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 </div></div>
 <div class="col"><span class="eyebrow">For you</span>
 <div class="rows">
-<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">AC-LABEL-05 has no test, not accepted</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">A test only you can accept: the label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.</span></div>
-<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">Record a change to AC-RETURNS-09 in the PRD</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">Behavior changed outside the requirements: the code emails the return label instead of showing it on screen, and no document says that was decided.</span></div>
+<div class="row"><span style="line-height: 1.6"><span class="strong">Test not accepted:</span> AC-LABEL-05 has no test. The label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.</span></div>
+<div class="row"><span style="line-height: 1.6">The code changed behavior outside the requirements: it emails the return label instead of showing it on screen, and no document says that was decided. Record a change to AC-RETURNS-09 in the PRD.</span></div>
 </div>
 <p class="hint" style="padding-top: 8px">The pull request says the same.</p></div>
 <div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn solid">Open the pull request</span><span class="btn">Check for new phases</span></div></div>
@@ -104,8 +104,8 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 <p class="note">For you first when it lists anything, then the loop counts and the test audit's last-loop line as today, before the rest of the description. Covers AC-LEFT-01 and AC-ITEM-03.</p>
 <div class="screen"><div class="page" style="width: 960px">
 <pre>## For you
-- AC-LABEL-05 has no test, not accepted. The label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.
-- Record a change to AC-RETURNS-09 in the PRD. Behavior changed outside the requirements: the code emails the return label instead of showing it on screen, and no document says that was decided.
+- Test not accepted: AC-LABEL-05 has no test. The label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.
+- The code changed behavior outside the requirements: it emails the return label instead of showing it on screen, and no document says that was decided. Record a change to AC-RETURNS-09 in the PRD.
 
 ## Closing audits
 Delivery audit: 4 of 4 loops. Test audit: 4 of 4 loops.
