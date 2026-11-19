@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-deliver-when-audit-loops-run-out
 
-Started: 2026-11-18   Current pass: 6   Status: In progress
+Started: 2026-11-18   Current pass: 7   Status: In progress
 Branch: develop
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 3663 · growth baseline 4592 (reset 2026-11-18 after pass 4: growth was Replaces pointers and narrowing, no new scope)
@@ -18,6 +18,7 @@ Last updated: 2026-11-18
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 16 (13 discovery + 3 conflict check) | 12 | 7 | 1 | 8 (4 taken + 4 not taken) | 0 | 0 |
+| 7 | 1 (final verification) | 1 (Q61) | 1 (decision) | 0 | 0 | 0 | 0 |
 | 6 | 2 | 12 (Q41–Q47, Q56–Q60) | 11 (8 by decision) | 0 | 0 | 0 | 1 (Q45) |
 | 5 | 3 | 12 (Q30, Q33, Q35–Q37, Q40, Q50–Q55) | 12 (5 by decision) | 0 | 0 taken + 10 not taken (Q41–Q47, Q56–Q58) | 0 | 0 |
 | 4 | 6 (+3 from conformance/investigation, Q48–Q49) | 12 (backlog Q22, Q30, Q32–Q40, Q48) | 7 (Q22, Q32, Q34, Q38, Q39, Q48, Q49 — Q49 extra) | 0 | 6 taken (Q30, Q33, Q35, Q36, Q37, Q40) + 13 not taken | 0 | 0 |
@@ -87,6 +88,7 @@ Last updated: 2026-11-18
 | Q58 | 5 | Under Deliver, an audit that appends phases with no phaseCriteria stops (TD) but the PRD doesn't list it: widen AC-GOON-03 ("or does not say how much is built")? | Technical | MEDIUM | 80 → 85 | Resolved | PRD AC-GOON-03, AC-CHOICE-01; TD §Loop Gate |
 | Q59 | 6 | An audit-added phase set aside only by dependency skips the loop gate (no stop under stop_and_ask, no none check, wrong work-left text) — gate decides on every settled appending audit? | Technical | MEDIUM | 72 → 92 | Resolved | PRD AC-LEFT-01; TD §Loop Gate, §Phases Left Open, §What Was Left, §Interfaces, Verification |
 | Q60 | 6 | At a loop stop whose audit has not finished (items_listed), how is a report rewritten via `kiln handoff` picked up now Check again is withdrawn? Keep Check again there (re-run done check only)? | Technical | MEDIUM | 65 → 90 | Resolved | PRD AC-ANSWER-04; TD §Loop Stops, §Settings, §Interfaces, §Delivery, Verification |
+| Q61 | 7 (final verification) | Mixed appended phases (one depends on an accepted phase, one doesn't) with a loop left: gate decides on all of the audit's phases; loop builds the accepted dependency too | Technical | MEDIUM | 70 → 90 (LOOP-003 applied) | Resolved by decision | TD §Loop Gate, §Phases Left Open, §Loop Stops, Verification |
 
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
 
@@ -230,4 +232,4 @@ Pass 1: 2026-11-18 · 0 open entries (ITEM-001 and SET-001 already in the Valida
 |---|---|---|
 
 ## Next action
-Pass 6 + final conformance + completion conflict lines committed. Final verification (readiness check) next; then completion report, delete state file, completion commit, consolidation.
+Pass 7 committed. Re-run final verification; if clean: completion report, delete state file, completion commit, consolidation.
