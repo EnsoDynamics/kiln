@@ -1,9 +1,9 @@
 # Design Refinement State — kiln-deliver-when-audit-loops-run-out
 
-Started: 2026-11-18   Current pass: 5   Status: Paused: PRD growth (3663 → 4592 words, +25.4%) — waiting for Doug to say continue
+Started: 2026-11-18   Current pass: 6   Status: In progress
 Branch: develop
 Existing code posture: Preserve (source: TD §Existing Code)
-PRD words: at start 3663 · growth baseline 3663
+PRD words: at start 3663 · growth baseline 4592 (reset 2026-11-18 after pass 4: growth was Replaces pointers and narrowing, no new scope)
 Last updated: 2026-11-18
 
 ## Documents
@@ -18,6 +18,7 @@ Last updated: 2026-11-18
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 16 (13 discovery + 3 conflict check) | 12 | 7 | 1 | 8 (4 taken + 4 not taken) | 0 | 0 |
+| 5 | 3 | 12 (Q30, Q33, Q35–Q37, Q40, Q50–Q55) | 12 (5 by decision) | 0 | 0 taken + 10 not taken (Q41–Q47, Q56–Q58) | 0 | 0 |
 | 4 | 6 (+3 from conformance/investigation, Q48–Q49) | 12 (backlog Q22, Q30, Q32–Q40, Q48) | 7 (Q22, Q32, Q34, Q38, Q39, Q48, Q49 — Q49 extra) | 0 | 6 taken (Q30, Q33, Q35, Q36, Q37, Q40) + 13 not taken | 0 | 0 |
 | 3 | 10 (+5 from investigations/conformance, Q33–Q37) | 12 (backlog Q14, Q17, Q21–Q29, Q31) | 9 | 2 | 1 taken (Q22) + 17 not taken | 0 | 0 |
 | 2 | 13 (+3 from pass-1 investigations, Q17–Q19) | 12 (backlog Q1, Q2, Q5, Q8, Q13–Q19 + Q20) | 9 | 1 | 15 (Q14, Q17 + Q21–Q33 not taken) | 0 | 0 |
@@ -54,17 +55,17 @@ Last updated: 2026-11-18
 | Q27 | 2 | Development deployments on: work-left check row in `evaluateRepositories`; which PR descriptions are held | Technical | MEDIUM | 75 → 90 | Resolved | TD §What Was Left, §Changes to Earlier Designs, Verification |
 | Q28 | 2 | audit-accept.txt "passed only when needsYou is empty" vs riding items kept open | Technical | MEDIUM | 85 → 97 | Resolved | TD §Prompts, §Loop Stops |
 | Q29 | 2 | Upgrade: pre-upgrade needs_you test stop with kind-less items stays a loop stop? | Technical | LOW | 70 → 92 | Resolved | TD §Upgrade, §Items, Verification |
-| Q30 | 2 | AC-TEST-03 acceptance line when a session carried the sentence but `acceptedTests` is empty | Technical | LOW | 75 → 88 | Deferred | — |
+| Q30 | 2 | AC-TEST-03 acceptance line when a session carried the sentence but `acceptedTests` is empty | Technical | LOW | 75 → 88 | Resolved by decision | TD §What Was Left (decision) |
 | Q31 | 2 | Relisting by id: admission judges waitsOn/criterion on merged item? | Technical | LOW | 80 → 92 | Resolved | TD §Report Contract |
 | Q32 | 2 | After-delivery action shape in `forYou` (`kind: after_delivery`, no problem) | Technical | LOW | 85 → 90 | Resolved | TD §Interfaces, §What Was Left |
-| Q33 | 2 | Nothing refuses `test_acceptance` on a delivery-audit report (would become an item stop) — limit to test audits? | Technical | LOW | 75 → 85 | Deferred | — |
+| Q33 | 2 | Nothing refuses `test_acceptance` on a delivery-audit report (would become an item stop) — limit to test audits? | Technical | LOW | 75 → 85 | Resolved by decision | TD §Report Contract (decision) |
 | Q34 | 2 | Terminal phases-done count with phases left open: say something extra, or counts stand? (conformance) | Technical | LOW | 70 → 85 (already stated) | Resolved | already stated: TD §Phases Left Open (counts neither done nor waived) |
-| Q35 | 2 | Audit Loop Limits ledger field `itemsListedStops` has nothing to record once items_listed is not stored on passed reports: drop or clear at schema 24? (conformance) | Technical | LOW | 70 → 85 | Deferred | — |
-| Q36 | 3 | A raised delivery limit ending set-aside entries: does it append an `allowances` record (no held audit, no count) or only close the entries? (from LOOP-002 fold) | Technical | MEDIUM | 60 → 80 | Deferred | — |
-| Q37 | 3 | `stuck?: true` kept across relistings can never be cleared (stuck-only Go on line lingers): restate every relisting, or allow `stuck: false`? (from Q31) | Technical | LOW | 60 → 80 | Deferred | — |
+| Q35 | 2 | Audit Loop Limits ledger field `itemsListedStops` has nothing to record once items_listed is not stored on passed reports: drop or clear at schema 24? (conformance) | Technical | LOW | 70 → 85 | Resolved by decision | TD §Upgrade, §Changes (decision) |
+| Q36 | 3 | A raised delivery limit ending set-aside entries: does it append an `allowances` record (no held audit, no count) or only close the entries? (from LOOP-002 fold) | Technical | MEDIUM | 60 → 80 → 92 | Resolved | TD §Loop Stops, §Loop Gate |
+| Q37 | 3 | `stuck?: true` kept across relistings can never be cleared (stuck-only Go on line lingers): restate every relisting, or allow `stuck: false`? (from Q31) | Technical | LOW | 60 → 80 | Resolved by decision | TD §Report Contract, §Items (decision) |
 | Q38 | 3 | Outstanding `test_acceptance` item whose criterion is now covered by a set-aside phase: relist as `other` via `{{setAside}}`? | Technical | MEDIUM | 70 → 90 | Resolved | TD §Items, §Prompts, Verification |
 | Q39 | 3 | `needs_you` test report that also appends phases, no test loop left: loop stop or ordinary (code: loop-gate.ts:148-152)? | Technical | MEDIUM | 75 → 90 | Resolved | TD §Items, §Loop Stops, §Loop Gate, Verification |
-| Q40 | 3 | Status line/heading at a delivery loop stop held on a test audit: which kind's count? | Technical | LOW | 65 → 85 | Deferred | — |
+| Q40 | 3 | Status line/heading at a delivery loop stop held on a test audit: which kind's count? | Technical | LOW | 65 → 85 | Resolved by decision | TD §Loop Stops, §Interfaces (decision) |
 | Q41 | 3 | Set-aside leaf closed by hand during the run: still set aside? (predicate only unclosed) | Technical | LOW | 75 | Deferred | — |
 | Q42 | 3 | Finished page work left from the plan recorded at delivery, not the live branch plan? | Technical | LOW | 80 | Deferred | — |
 | Q43 | 3 | Pending-allowance marking now unreachable except pre-upgrade epoch: say so, build no path? | Technical | LOW | 80 | Deferred | — |
@@ -74,12 +75,15 @@ Last updated: 2026-11-18
 | Q47 | 3 | PR merged/closed while a same-branch continuation runs: final delivery opens a new one | Technical | LOW | 80 | Deferred | — |
 | Q48 | 3 | Allow at a later delivery stop: build the whole accepted entry, or only the depended-on phase (PRD AC-ANSWER-02 vs LOOP-003/TD)? (conformance) | Technical | MEDIUM | 60 → 90 | Resolved | TD §Loop Stops, §Phases Left Open, §Loop Gate; LOOP-003 |
 | Q49 | 3 | LOOP-003 Impact: HIGH, since LOOP-002 depends on it? (conformance) | Technical | LOW | 70 → 95 | Resolved | LOOP-003 Impact HIGH |
-| Q50 | 4 | Cherry-picked base edit never clears the same-branch block when the branch also changed that document (only a merge does); use a three-way merge check, or correct TD/Verification text? | Technical | MEDIUM | 65 | Deferred | — |
-| Q51 | 4 | Same-branch blocking: do linked Markdown documents (other PRDs linked from **Changes:**) count, or only the seed documents in the PRD folder? | Business | MEDIUM | 72 | Deferred | — |
-| Q52 | 4 | Raised delivery limit (LOOP-002) after the PR session has started or on a finished run: still brings phases back? | Technical | MEDIUM | 65 | Deferred | — |
-| Q53 | 4 | Stale shared checkout (not pulled since before the fork) falsely blocks: compare against merge-base(shared HEAD, feature HEAD)? | Technical | MEDIUM | 70 | Deferred | — |
-| Q54 | 4 | PRD AC-LEFT-03 blocking sentence reads as "differs from the feature branch": reword to changed since fork and not on the branch | Technical | LOW | 85 | Deferred | — |
-| Q55 | 4 | Where `kiln status` shows the LOOP-002 "raising builds these phases" note (`auditLoops.raiseBuilds?`) | Technical | LOW | 80 | Deferred | — |
+| Q50 | 4 | Cherry-picked base edit never clears the same-branch block when the branch also changed that document (only a merge does); use a three-way merge check, or correct TD/Verification text? | Technical | MEDIUM | 65 → 80 (decision: three-way check, beat merge-only) | Resolved by decision | PRD AC-LEFT-03; TD §Continuing, Verification |
+| Q51 | 4 | Same-branch blocking: do linked Markdown documents (other PRDs linked from **Changes:**) count, or only the seed documents in the PRD folder? | Business | MEDIUM | 72 → 85 (PRD's explicit list governs) | Resolved | PRD AC-LEFT-03; TD §Continuing, Verification |
+| Q52 | 4 | Raised delivery limit (LOOP-002) after the PR session has started or on a finished run: still brings phases back? | Technical | MEDIUM | 65 → 85 (boundary into LOOP-002) | Resolved | PRD AC-GOON-01; LOOP-002; TD §Loop Gate, §Settings, §Interfaces |
+| Q53 | 4 | Stale shared checkout (not pulled since before the fork) falsely blocks: compare against merge-base(shared HEAD, feature HEAD)? | Technical | MEDIUM | 70 → 92 | Resolved | PRD AC-LEFT-03; TD §Continuing, Verification |
+| Q54 | 4 | PRD AC-LEFT-03 blocking sentence reads as "differs from the feature branch": reword to changed since fork and not on the branch | Technical | LOW | 85 → 95 | Resolved | PRD AC-LEFT-03; TD §Continuing, Verification |
+| Q55 | 4 | Where `kiln status` shows the LOOP-002 "raising builds these phases" note (`auditLoops.raiseBuilds?`) | Technical | LOW | 80 → 85 (decision) | Resolved | TD §Interfaces (decision) |
+| Q56 | 5 | Same-branch Continue with development deployments on: carry the completed execution's development delivery ledger (activateExecution empties it, engine.ts:3320)? | Technical | HIGH | 72 | Deferred | — |
+| Q57 | 5 | Same-branch Continue: carry the completed execution's still-open For you items into the new ledger (block is replaced in the same PR)? | Technical | MEDIUM | 60 | Deferred | — |
+| Q58 | 5 | Under Deliver, an audit that appends phases with no phaseCriteria stops (TD) but the PRD doesn't list it: widen AC-GOON-03 ("or does not say how much is built")? | Technical | MEDIUM | 80 | Deferred | — |
 
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
 
@@ -165,6 +169,11 @@ Q37 80%: §Report Contract `stuck?: true — test_acceptance only: the row is st
 Q50: three-way merge (`git merge-file -p` fork/base/branch returns branch copy without conflict) = held; else merge-only and correct TD "whether merged or cherry-picked" and Verification. Q51: only seed docs in PRD folder (PRD's list); linked docs don't (plan-reconciliation.ts:196-232 recursive). Q52: raised-limit row and note apply only until the PR session first starts; after that Continue offers them (engine.ts:4733-4744). Q53: compare shared-checkout copy against merge-base(shared HEAD, feature HEAD) (discovery.ts:149-151 similar). Q54: reword PRD "changed on the delivery base or in the shared checkout since the branch forked, and not on the run's feature branch". Q55: `auditLoops.raiseBuilds?: { phases: {id,title}[] }`.
 Q36 note: gate joins a loop only by sourceAuditId (loop-gate.ts:44-46); two appending audits' phases count as two loops unless the gate joins on allowances[].phases → append an allowance and join on its phases (raised to MEDIUM). Q48 note: ending is a fixed point (a pulled-in accepted phase can pull in another accepted entry).
 Settled: which way under dev deployments — record.pullRequests holds only review PRs (development-delivery.ts:996); normalizer reuse (plan-reconciliation.ts:264-267); accept prompt composition (prompts.ts:357); prefix at test_work_saved (audit-loops.ts:158-161); switching to stop_and_ask after set-aside → they stay set aside (AC-CHOICE-02; engine.ts:4737-4742); raise hook in nextActivity (engine.ts:4733-4744).
+### Q50/Q51/Q53/Q54 (pass 5)
+Full replacement TD text and PRD AC-LEFT-03 text and Verification additions in the investigator's report (kept verbatim in the fold prompt). Seeds = readLinkedDocuments' seeds (plan-reconciliation.ts:186-242); normalizer drops Closed lines and checkbox marks (59-64); merge-file scratch tests in scratchpad/q50; linked PRDs edited 6–58 times in 60 days on develop.
+### Pass 5 discovery (Q56–Q58)
+Q56: same_branch activation carries developmentDelivery ledger unchanged (checkpoints, assessments, accepted docs, splits, repo results); else owesDevelopmentEvidence (development-delivery.ts:664-669, leavesClosedAtRunBase :675-688 uses runStartCommit ?? baseCommit = original fork) fails every earlier phase; merged checkpoints missing (:963-1012); new dependent checkpoint "Unknown prerequisite" (:225). Q57: same_branch ledger starts with the completed execution's items outstanding at its delivery; first audit gets them as outstanding and relists/settles; accepted tests not carried (person-items.ts:23-41). Q58: keep TD stop; widen AC-GOON-03 by "…says a criterion is not built at all, or does not say how much is built…".
+Settled: raise at a test loop stop/item stop takes effect only once answered (engine.ts:4735-4736); Accept at a delivery stop on an audit marked complete with no report names phases via effectiveAudit completionPhases (loop-gate.ts:25-27); same-branch preflight uses `continue` (engine.ts:3322); waived leaves carry via carriedWaived (engine.ts:6594-6603).
 ### Q13
 Proposed: keep pendingAllow honoring a legacy `allowed` epoch; new Allows use `allowances`. Evidence: loop-gate.ts:65-69,108-114.
 ### Q14
@@ -181,7 +190,7 @@ Proposed: the same whole block in every PR (PRD AC-LEFT-01 "each pull request's 
 
 ## Conflict check
 Pass 1: 2026-11-18 · 33 earlier criteria changed (34 with V1 AC-PR-02) · 17 already covered · 17 Replaces lines + 1 widened written (item 16 retargeted to MRD AC-PRS-05, which replaced V1 AC-PR-02; CAP CONTINUE-002 assumption got a "Later departure" line; CA AC-TEST-03 covered via the AC-DELIV-01 chain, per the check) · 2 raised as questions (C1 FIND-02 delivery-base phase, C2 hand-added phase alone) · design note C3 (items_listed status value)
-Changed after pass 1: AC-BOT-01, AC-BOT-02 (Q22); AC-ANSWER-02, AC-ANSWER-03 (LOOP-003); AC-GOON-01 (LOOP-002); AC-LEFT-03 (Q23); AC-LEFT-03 (Q3; LOOP-001 sentence, conformance; DEV-001 + Replaces AC-CONTINUE-09); Out of Scope line (Q9); AC-GOON-01, AC-LEFT-01 (Q5)
+Changed after pass 1: AC-LEFT-03 (Q50–Q54); AC-GOON-01 (Q52, LOOP-002 boundary); AC-BOT-01, AC-BOT-02 (Q22); AC-ANSWER-02, AC-ANSWER-03 (LOOP-003); AC-GOON-01 (LOOP-002); AC-LEFT-03 (Q23); AC-LEFT-03 (Q3; LOOP-001 sentence, conformance; DEV-001 + Replaces AC-CONTINUE-09); Out of Scope line (Q9); AC-GOON-01, AC-LEFT-01 (Q5)
 
 ## Register re-sort
 Pass 1: 2026-11-18 · 0 open entries (ITEM-001 and SET-001 already in the Validated table) · nothing to sort
@@ -201,6 +210,7 @@ Pass 1: 2026-11-18 · 0 open entries (ITEM-001 and SET-001 already in the Valida
 - blocked/failed same-branch check shows its own headings under "Delivered, with work left" — display polish
 - during a same-branch continuation `kiln status` shows no PRs (per-execution model)
 - mockup lacks a state for a later delivery stop with accepted phases staying open (LOOP-003); additive
+- a person's named Accept of tests is lost at any continuation (new test audit stops again) — pre-existing
 - loop-gate.ts:114 `items_listed` from a pending Allow is reachable only with a lowered limit; removed by `tests_to_accept`
 
 ## Blockers
@@ -208,4 +218,4 @@ Pass 1: 2026-11-18 · 0 open entries (ITEM-001 and SET-001 already in the Valida
 |---|---|---|
 
 ## Next action
-Pass 4 committed. Paused for PRD growth. When Doug says continue: reset the growth baseline to the current PRD word count, then start pass 5: discovery; backlog first by impact: Q50, Q51 (business), Q52, Q53, Q36 (MEDIUM), then Q30, Q33, Q35, Q37, Q40, Q41–Q47, Q54, Q55 (cap 12; batch LOW ones). Build choices deferred twice at unchanged confidence get recorded as design decisions.
+Pass 5 committed. Pass 6: discovery; take Q56 (HIGH), Q57, Q58, Q41–Q47 (10).
