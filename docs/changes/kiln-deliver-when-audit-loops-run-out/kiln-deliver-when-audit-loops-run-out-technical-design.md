@@ -26,10 +26,10 @@ auditLoops:
   deliveryLimit: integer >= 1          — default 4
   testLimit: integer >= 1              — default 4
   lastLoopSentence?:                   — present when the person gave the sentence (AC-LAST-04)
-    { at: ISO-8601 UTC, where: "documents_found" | "run_page" | "command_line" }
+    { sentence: string, at: ISO-8601 UTC, where: "documents_found" | "run_page" | "command_line" }
 ```
 
-`afterLastTest` and `afterLastTestSource` are gone (§Upgrade maps them). At Start, `lastLoopSentence` becomes `{ at: <Start time>, where: documents_found }`, because the test audit limit's help text showed the sentence and starting the run with it on screen is the acceptance. Nothing during a run sets it: a run started without it, which only an upgraded run can be, never gains it. A continuation copies `Settings` as today, so a continued run carries the sentence with its original where and when.
+`afterLastTest` and `afterLastTestSource` are gone (§Upgrade maps them). `sentence` holds the words as the help text showed them, so a later Kiln that rewords the help text still quotes what the person saw. At Start, `lastLoopSentence` becomes `{ sentence: <the help text's sentence>, at: <Start time>, where: documents_found }`, because the test audit limit's help text showed the sentence and starting the run with it on screen is the acceptance. Nothing during a run sets it: a run started without it, which only an upgraded run can be, never gains it. A continuation copies `Settings` as today, so a continued run carries the sentence with its original where and when.
 
 **When a change applies.** Every routing decision reads the limits fresh, so a change applies at Kiln's next decision whether to run an audit of that kind. Once the pull request session has started, the decisions read `atPullRequest` from the ledger instead (§Loops and the Ledger); the change is still saved to `Settings`, so it carries to a continuation, and the run's settings panel and `kiln settings` say it applies to a continuation.
 
@@ -68,7 +68,7 @@ Findings are always built (AC-LAST-01). The floor means an audit only runs with 
 `AdmissionContext` gains `closed: { delivery: boolean; test: boolean }`, which the engine fills from the ledger and limits. `auditNext` applies it in two places and is otherwise unchanged:
 
 - **Delivery closed.** Wherever `auditNext` would return `delivery_audit` because the latest delivery audit did not pass, is not current, or a test audit changed implementation, it goes on as if that delivery audit had passed and were current.
-- **Test closed.** `test_audit` and `continue_test` become `final_delivery`. So does `delivery_audit`, unless the latest delivery audit's own result is not a pass, which only happens when a raised delivery limit has reopened delivery after its last loop (below).
+- **Test closed.** `test_audit` and `continue_test` become `final_delivery`. So does `delivery_audit`, unless the latest delivery audit's own result is not a pass: an open delivery chain finishes first, as when a raised delivery limit has reopened delivery after its last loop (below).
 
 The second rule is what makes the test audit's last loop the end: after it, Kiln opens the pull request even when that loop built phases or changed implementation and delivery loops are left. This is the cost the PRD's Business Context accepts: the work of each kind's last loop is not audited again before the pull request.
 
@@ -136,7 +136,13 @@ Two released refusals are lifted: a `passed` report may list new items, and a te
 
 **How a hold is measured.** As today, the audit says through its outcome whether the work it leaves needs the item: `completion_phases` or `continue_test` with a holding item listed means that work does not, so Kiln builds it; `needs_you` means it does. Kiln keeps no dependency model of its own, which would be a second judge beside the audit. Delivery always needs a holding item, so Kiln checks once more before delivery, because with closed kinds no audit may run between the last build and the pull request:
 
-**The hold stop.** When routing reaches `final_delivery` and an outstanding item is `blocker`, `business_question` or has no kind (from before kinds, §Upgrade), Kiln does not start the pull request session. It records a `done_check` stop on the pull request step with one failing row, **Nothing holds the run**, listing each such item with its kind, problem, action and what waits on it. Check again reruns routing, so a raised limit that lets an audit run settles the item there; Mark complete waives the row as at any failing check, and the items then go to **For you**. Reply and Take over are not offered: no session belongs to this step yet. The page is mockup screen 5 with the pull request step's lead.
+**The hold stop.** When routing reaches `final_delivery` and an outstanding item is `blocker`, `business_question` or has no kind (from before kinds, §Upgrade), Kiln does not start the pull request session. The stop is a launch-check stop on the pull request step, recorded and rechecked as the **Completion audit readiness** stop is (`selection` kind, a step that has not run): one failing row, **Nothing holds the run**, joins `KNOWN_PROBLEM_CHECKS`, with one item per holding item, matched by its item id, giving its kind, problem, action and what waits on it. The constraint: no session has run on the step, so the stop must be rechecked and waived without one, and waiving it must start the step, not complete it.
+
+- **Check again** reruns routing and the hold check, and clears the stop when nothing holds. An audit runs only where a raised limit reopens a kind with work for it, such as saved test work, and that audit can then settle the item. With both kinds closed and nothing to audit, no audit can settle it.
+- **Continue in normal order** is the way on without one: it waives the row with effect `continued`, so the waived items hold nothing again, the pull request session starts, and they are listed under **For you** as they stand.
+- Reply and Take over are not offered: no session belongs to this step yet.
+
+The page is mockup screen 5 with the pull request step's lead.
 
 The audit prompt names the step each outcome leads to (§Prompts), so an audit with nothing left to build and a holding item open reports `needs_you` itself; the hold stop catches the cases it cannot foresee: a blocker listed beside phases that turn out to be the last work, or a limit lowered after it reported.
 
@@ -221,8 +227,8 @@ continuation?:                         — on a finished run, from the view the 
 
 Schema 24, in the record migration:
 
-- Both limits go up by one, on every record. On a started run that is the PRD's rule: a limit of 3 meant three loops and a fourth audit whose findings were not built, which a limit of 4 now covers. A record not yet started gets the same, so its draft settings keep the same meaning on the screen the person will see. A run that Kiln Audit Loop Limits' migration set to 3 and 3 reaches 4 and 4 the same way.
-- `afterLastTest: deliver_unless_serious` with a person's source becomes `lastLoopSentence` with that source's time and place. A record not yet started gets `lastLoopSentence` at Start, as a new one does. `stop_and_ask`, and the `kiln_for_earlier_run` source, give none.
+- Both limits go up by one, on every record. On a started run that is the PRD's rule: a limit of 3 meant three loops and a fourth audit whose findings were not built, which a limit of 4 now covers. A record not yet started gets the same, so its draft settings keep the same meaning on the screen the person will see. A run that Kiln Audit Loop Limits' migration set to 3 and 3 reaches 4 and 4 the same way, so the schema-22 step writes its own literal values (3, 3 and its `afterLastTest`), not the new defaults: read through the new defaults, a schema-21 record would reach 4 at step 22 and 5 at step 24.
+- `afterLastTest: deliver_unless_serious` with a person's source becomes `lastLoopSentence` with the released sentence and that source's time and place. A record not yet started gets `lastLoopSentence` at Start, as a new one does. `stop_and_ask`, and the `kiln_for_earlier_run` source, give none.
 - `itemsListedStops` is dropped. `acceptances`, epochs and loops stay as recorded.
 - A `needs_you` stop on an audit, whose report was admitted before kinds, is marked `kindsNeeded`.
 
@@ -243,6 +249,8 @@ Replaces in part: `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-a
 Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (no audit of a closed kind runs; a holding item stops the run before the pull request; items that go on do not keep the run from completing) and §Progress and Detail Contract (the status line names the audit and loop).
 
 Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Command grammar (`check-for-new-phases` and `continue-with-phases` added; `allow-more-loops`, `accept-and-deliver` and the third loop setting refused as removed) and §Local API and Integration Points (`POST /api/control/v1/continuation/check`).
+
+Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Durable proposal and one acceptance (`continuation-accept` becomes the public `continue-with-phases` action; the grant action stays browser-only).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot (`auditLoops` position and floor, `items`, `delivered`, `continuation`).
 
@@ -268,7 +276,7 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 | AC-LAST-03 | Routing | Each row of the routing table, and the pull request step's audit check passing after both kinds close |
 | AC-LAST-04, AC-LAST-05 | The Last Test Loop | The last loop's prompt with and without `lastLoopSentence`, the prompt of the audit whose findings will be the last loop, a phases-only last loop carrying nothing, a `continue_test` last-loop report with no `test` item refused |
 | AC-LEFT-01, AC-LEFT-02 | What a Delivered Run Says | The pull request prompt's block in order, with and without **For you**, in both repositories of a two-repository run; the finished page and status for mockup screen 3, unchanged by a later settings change |
-| AC-ITEM-01 | Items | Each kind once: `critical_next_step` stops; a blocker beside `completion_phases` lets the build run and reaches the hold stop; Mark complete there delivers with it under **For you**; `critical`, `test` and `other` reach delivery |
+| AC-ITEM-01 | Items | Each kind once: `critical_next_step` stops; a blocker beside `completion_phases` lets the build run and reaches the hold stop; Check again there stays stopped with both kinds closed; Continue in normal order there starts the pull request session with the item under **For you** and does not stop on it again; `critical`, `test` and `other` reach delivery |
 | AC-ITEM-02 | Report contract | Each refusal; a relisting by id keeps kind, `waitsOn` and criterion; mockup screen 5 from a scripted blocker; status shows the same |
 | AC-ITEM-03 | Items; What a Delivered Run Says | A `critical` item is first under **For you**; a test audit that changed only tests delivers with an `other` item open |
 | AC-STOP-04 | Removed Controls | The two commands and the removed setting refused through the packaged CLI and the journal with the message; no limit ever records a stop |
@@ -277,4 +285,4 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 
 ## Open Questions
 
-- TEST-001 is open with the stakeholder. If they choose the alternative, `test` items join the holding kinds for the hold stop only: a run whose test loops are used up stops there with each such test listed, and Mark complete is how the person accepts them. Nothing else changes.
+- TEST-001 is open with the stakeholder. If they choose the alternative, `test` items join the holding kinds for the hold stop only: a run whose test loops are used up stops there with each such test listed, and Continue in normal order is how the person accepts them. Nothing else changes.
