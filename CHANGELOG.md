@@ -21,6 +21,12 @@ section to the new version.
   Claude Code or Codex session, and after 8 seconds it also shows how long it has been waiting.
   Before, the button just faded, which looked like the page had hung.
 
+### Fixed
+
+- While the preflight runs, its card is now headed "Preflight check" with PF in its circle.
+  Before, the circle overflowed with the preflight's internal id, and the card listed a phase's
+  build steps (Build, Deliverable review and so on), which the preflight doesn't have.
+
 ## [1.3.0] - 2026-11-16
 
 ### Added

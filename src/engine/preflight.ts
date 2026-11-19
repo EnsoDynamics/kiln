@@ -44,6 +44,8 @@ export interface PreflightState {
 export const PREFLIGHT_SKILL = "build-preflight";
 export const PREFLIGHT_CHECK = "Preflight";
 export const PREFLIGHT_TITLE = "Preflight";
+/** The preflight's full name, where a page has room for it: the running card's and its session page's heading. */
+export const PREFLIGHT_HEADING = "Preflight check";
 export const PREFLIGHT_STOP_REASON = "At a preflight stop, use Check Preflight again or Mark complete.";
 export const PREFLIGHT_PAUSE_REASON = "Pause after this activity isn't offered during the preflight.";
 export const PREFLIGHT_LIVE_REASON = "Live messages, terminal takeover and a pause are unavailable during the preflight. Wait for its result; if it reports items, reopen its session in a terminal from the preflight stop.";

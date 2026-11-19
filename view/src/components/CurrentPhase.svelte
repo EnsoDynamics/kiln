@@ -6,6 +6,7 @@
   // multi-repository PRD the Details' Commits are grouped by repository, as Complete's Details
   // draw them (multi-repo AC-SHOW-01).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
+  import { PREFLIGHT_HEADING } from "../../../src/engine/preflight.js";
   import { commitsAcross, commitsByRepository, commitsLine, modelAndEffort, phaseOfTotal, PR_ID, type DetailRow } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { ago, clockTime, elapsed, timingText } from "../lib/time.js";
@@ -22,6 +23,7 @@
   const current = $derived(snapshot.current!);
   const row = $derived((snapshot.activities ?? snapshot.phases).find((phase) => phase.id === current.phaseId));
   const isPr = $derived(current.phaseId === PR_ID);
+  const isPreflight = $derived(row?.kind === "preflight");
   const nowDate = $derived(new Date(now));
   const link = $derived(phasePath(config.base, current.phaseId));
   const commits = $derived(current.repositories.flatMap((repository) => repository.commits));
@@ -45,12 +47,12 @@
 <section class="now" class:lost={!connected} aria-labelledby="now-h">
   <div class="top">
     <div class="name">
-      <PhaseCircle id={row?.kind === "delivery_audit" ? "DA" : row?.kind === "test_audit" ? "TA" : current.phaseId} tone={connected ? "implementing" : "amber"} />
-      <div class="words"><span class="eyebrow">{connected ? row?.kind?.endsWith("audit") ? "Now auditing" : "Now implementing" : "Last seen"} · {phaseOfTotal(snapshot, current.phaseId)}</span><h2 id="now-h">{row?.title ?? ""}</h2></div>
+      <PhaseCircle id={row?.kind === "delivery_audit" ? "DA" : row?.kind === "test_audit" ? "TA" : isPreflight ? "PF" : current.phaseId} tone={connected ? "implementing" : "amber"} />
+      <div class="words"><span class="eyebrow">{connected ? isPreflight ? "Now checking" : row?.kind?.endsWith("audit") ? "Now auditing" : "Now implementing" : "Last seen"}{isPreflight ? "" : ` · ${phaseOfTotal(snapshot, current.phaseId)}`}</span><h2 id="now-h">{isPreflight ? PREFLIGHT_HEADING : row?.title ?? ""}</h2></div>
     </div>
     <span class="meta">{current.agent ?? snapshot.settings.agent} · {modelAndEffort(current.model, current.effort)}{#if current.startedAt}<br />Started {clockTime(current.startedAt, nowDate, { afterWord: true })} · {row?.timing ? timingText(row.timing, now) : elapsed(now - Date.parse(current.startedAt))}{/if}</span>
   </div>
-  {#if !isPr}<StepsRow steps={current.steps} live={connected} followUp={current.followUp} />{/if}
+  {#if !isPr && !isPreflight}<StepsRow steps={current.steps} live={connected} followUp={current.followUp} />{/if}
   {#if current.seenInSession || connected}
     <div class="seen">
       {#if current.seenInSession}<span class="seen-text">{current.followUp ? "Previously seen" : "Seen in the session"}: <strong>{current.seenInSession.text}</strong> · {ago(current.seenInSession.at, nowDate)}</span>{:else}<span></span>{/if}

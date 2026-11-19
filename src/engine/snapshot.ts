@@ -691,7 +691,7 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
   const session = current.session;
   const settings = engine.record.settings;
   if (!session) {
-    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: engine.auditActivity(current.phaseKey) ? [] : stepStates([], settings.agentId), repositories: [] };
+    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: engine.auditActivity(current.phaseKey) || isPreflightKey(current.phaseKey) ? [] : stepStates([], settings.agentId), repositories: [] };
   }
   const followUp = session.runs.some((run, index) => run.cause === "person_resume" && (run.note !== undefined || session.runs[index - 1]?.limitRefusal === undefined));
   const steps = sessionSteps(engine, current.phaseKey, session).map(step => followUp && step.state === "current" ? { ...step, state: "observed" as const } : step);
@@ -1363,6 +1363,8 @@ function observedDeliveryActivity(engine: Engine, session: SessionRecord, output
 }
 
 function sessionSteps(engine: Engine, key: string, session: SessionRecord): StepView[] {
+  // A preflight session runs build-preflight alone: it has none of a phase's build steps.
+  if (isPreflightKey(key)) return [];
   const audit = engine.auditActivity(key);
   if (!audit) return stepStates(session.steps, session.agentId);
   return [
