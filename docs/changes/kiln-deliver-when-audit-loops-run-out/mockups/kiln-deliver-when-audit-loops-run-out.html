@@ -43,161 +43,83 @@ pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-si
 </head>
 <body>
 <main>
-
 <section>
 <h2 class="state">1. Audit loop settings, before Start</h2>
-<p class="note">Two limits and one choice for both audits. The run's settings show the same three during a run. Covers AC-CHOICE-01.</p>
+<p class="note">Two limits, each 4 by default, and nothing to choose about what happens at a limit. The run's settings and kiln settings show the same two during a run. Covers AC-CHOICE-01.</p>
 <div class="screen"><div class="page" style="width: 900px">
 <div class="card">
-<div class="col"><span class="eyebrow">Audit loops</span><p class="lead">After the planned phases close, two audits can send Kiln back for more work. Each trip back is a loop. These set how many Kiln makes, and what it does when they run out.</p></div>
-<div class="col"><span class="strong">Delivery audit loops, at most &nbsp;<span class="num">3</span></span><p class="hint">The delivery audit checks that every acceptance criterion is built. A loop is one round of building what it finds unfinished.</p></div>
-<div class="col"><span class="strong">Test audit loops, at most &nbsp;<span class="num">3</span></span><p class="hint">The test audit checks that the tests would notice if a criterion broke. A loop is one session of test fixes.</p></div>
-<div class="col div" style="gap: 12px">
-<div class="col" style="gap: 2px"><span class="strong">When the loops run out</span><p class="hint">One choice for both audits.</p></div>
-<div class="opt on"><span class="dot"></span><div class="col"><span class="strong">Deliver, and tell me what is left</span><p class="hint">Kiln opens the pull request and lists at the top any criteria still partly built and any tests still Weak. The phases an audit added stay in the plan, so you can continue later.</p><p class="hint">For the test audit you say: “I accept the remaining Weak rows after the last test audit loop.”</p><p class="hint">It still stops for something serious: a criterion not built at all; after the last test audit loop, test work still saved or a test only you can accept by name (no test, a failing test, a high-risk criterion still Weak, or a row the audit is stuck on); or anything else an audit lists that the work can’t go on without.</p></div></div>
-<div class="opt"><span class="dot"></span><div class="col"><span class="strong">Always stop and ask me</span><p class="hint">Kiln stops at Needs you with what is left, and opens no pull request until you answer.</p></div></div>
-</div>
-<p class="hint">These can be changed while Kiln runs, from the page or the command line.</p>
+<div class="col"><span class="eyebrow">Audit loops</span><p class="lead">After the planned phases close, two audits check the work. Whatever an audit finds, Kiln builds or fixes, and that is one loop. These set how many loops of each Kiln makes. After the last one, Kiln moves on without auditing again.</p></div>
+<div class="col"><span class="strong">Delivery audit loops, at most &nbsp;<span class="num">4</span></span><p class="hint">The delivery audit checks that every acceptance criterion is built. A loop is building the phases it adds. After loop 4, Kiln goes on to the test audit.</p></div>
+<div class="col"><span class="strong">Test audit loops, at most &nbsp;<span class="num">4</span></span><p class="hint">The test audit checks that the tests would notice if a criterion broke. A loop is building the phases it adds, if any, then one session of test fixes. After loop 4, Kiln opens the pull request.</p><p class="hint">Kiln tells the last test loop, in your words: “I accept the remaining Weak rows after the last test audit loop.”</p></div>
+<p class="hint">Both can be changed while Kiln runs, from the page or the command line.</p>
 </div>
 </div></div>
 </section>
-
 <section>
-<h2 class="state">2. The finished page: delivered, with work left</h2>
-<p class="note">The usual result under Deliver, and tell me what is left, when both audits used their loops: phases left open, tests accepted as Weak, and an item that did not stop the run under For you. Covers AC-LEFT-02, AC-LEFT-03 and AC-ITEM-03.</p>
+<h2 class="state">2. A run on its last delivery audit loop</h2>
+<p class="note">The status line names the loop. When loop 4 is done, Kiln goes on to the test audit without another delivery audit. Covers AC-STOP-05, AC-LAST-01 and AC-LAST-03.</p>
+<div class="screen"><div class="page" style="width: 960px">
+<div class="status"><span class="pill" style="background: #8fb3d9">Running</span><span>Delivery audit <strong style="color: #ede8dd">loop 4 of 4 · last loop</strong></span><span>·</span><span>Started 9:40 PM</span></div>
+<div class="card">
+<div class="col" style="gap: 10px"><h3 class="serif">Building Phase 10 and Phase 11</h3><p class="lead">The audit after loop 3 found three criteria partly built and added two phases. This is the last delivery audit loop: once these phases are built, Kiln goes on to the test audit.</p></div>
+<div class="col"><span class="eyebrow">Closing audits</span>
+<div class="rows">
+<div class="row"><span class="tag">Audit</span><span>Delivery audit · added Phase 7</span><span class="dur">14m</span></div>
+<div class="row"><span class="tag">Loop 1</span><span>Built Phase 7</span><span class="dur">1h 52m</span></div>
+<div class="row"><span class="tag">Audit</span><span>Delivery audit · added Phase 8</span><span class="dur">11m</span></div>
+<div class="row"><span class="tag">Loop 2</span><span>Built Phase 8</span><span class="dur">39m</span></div>
+<div class="row"><span class="tag">Audit</span><span>Delivery audit · added Phase 9</span><span class="dur">12m</span></div>
+<div class="row"><span class="tag">Loop 3</span><span>Built Phase 9</span><span class="dur">1h 05m</span></div>
+<div class="row"><span class="tag">Audit</span><span>Delivery audit · added Phase 10, Phase 11</span><span class="dur">13m</span></div>
+<div class="row wait"><span class="tag">Loop 4</span><span>Building Phase 10, then Phase 11 · last loop</span><span class="dur">running</span></div>
+<div class="row"><span class="tag">Next</span><span style="color: #a49d90">Test audit, up to 4 loops</span></div>
+</div></div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">3. The finished page</h2>
+<p class="note">Both audits used all 4 loops. One line says so, with no warning. One test the last loop's sentence does not accept is listed under For you, with an item that did not stop the run. Covers AC-LEFT-02, AC-ITEM-03 and TEST-001.</p>
 <div class="screen"><div class="page" style="width: 960px">
 <div class="status"><span class="pill" style="background: #a9c79a">Delivered</span><span>Pull request open</span><span>·</span><span>Finished today 6:12 AM</span></div>
 <div class="card">
-<div class="col" style="gap: 10px"><h3 class="serif">Delivered, with work left</h3><p class="lead">Kiln used all 3 delivery audit loops and all 3 test audit loops, then opened the pull request. Your setting is Deliver, and tell me what is left.</p></div>
-<div class="col"><span class="eyebrow">What is left</span>
+<div class="col" style="gap: 10px"><h3 class="serif">Delivered</h3><p class="lead">Kiln built every phase, ran the closing audits and opened the pull request.</p></div>
+<div class="col"><span class="eyebrow">Closing audits</span>
 <div class="rows">
-<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">2 phases left open, not built</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">Phase 10, Finish partial refunds: AC-REFUND-04 and AC-RETURNS-03, both partly built.<br>Phase 11, Finish approval reminders: AC-APPROVAL-01, partly built.<br>The test audit left these 3 criteria out, so their tests are not audited yet.</span></div>
-<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">2 criteria have tests still Weak</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">AC-RETURNS-07 and AC-REFUND-02, accepted after the last test audit loop by your setting’s sentence: “I accept the remaining Weak rows after the last test audit loop.”<br>The last test audit loop’s summary: “Recorded the acceptance for AC-RETURNS-07 and AC-REFUND-02. Both still check the wording of the refund email rather than the amount refunded.”</span></div>
-</div>
-</div>
+<div class="row"><span>Delivery audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
+<div class="row"><span>Test audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
+</div></div>
 <div class="col"><span class="eyebrow">For you</span>
 <div class="rows">
-<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">Record a change to AC-RETURNS-09 in the PRD</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">Behavior changed outside the requirements: the code emails the return label instead of showing it on screen, and no document says that was decided. Nothing waited on this, so Kiln delivered.</span></div>
+<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">AC-LABEL-05 has no test, not accepted</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">A test only you can accept: the label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.</span></div>
+<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">Record a change to AC-RETURNS-09 in the PRD</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">Behavior changed outside the requirements: the code emails the return label instead of showing it on screen, and no document says that was decided.</span></div>
 </div>
-<p class="hint" style="padding-top: 8px">The pull request says the same at the top.</p></div>
-<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn solid">Open the pull request</span><span class="btn">Continue with 2 phases</span></div><p class="hint">Merge it as it is, or continue: Kiln builds Phase 10 and Phase 11 on the same branch, audits again, and updates the pull request.</p></div>
+<p class="hint" style="padding-top: 8px">The pull request says the same.</p></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn solid">Open the pull request</span><span class="btn">Check for new phases</span></div></div>
 </div>
 </div></div>
 </section>
-
 <section>
-<h2 class="state">3. The pull request description</h2>
-<p class="note">With no critical finding, what was left comes first and For you follows, before the rest of the description. Covers AC-LEFT-01 and AC-ITEM-03.</p>
+<h2 class="state">4. The pull request description</h2>
+<p class="note">For you first when it lists anything, then the loop counts and the test audit's last-loop line as today, before the rest of the description. Covers AC-LEFT-01 and AC-ITEM-03.</p>
 <div class="screen"><div class="page" style="width: 960px">
-<pre>&lt;!-- kiln:work-left --&gt;
-## What was left
-
-The delivery audit still found parts missing after its last loop. They are in the plan as open phases, not built:
-
-- Phase 10 — Finish partial refunds: AC-REFUND-04 (partly built), AC-RETURNS-03 (partly built)
-- Phase 11 — Finish approval reminders: AC-APPROVAL-01 (partly built)
-
-The test audit left these 3 criteria out, so their tests are not audited.
-
-Tests accepted while still Weak: AC-RETURNS-07, AC-REFUND-02.
-
-Test audit loop 3 of 3 was the last. It carried the person's words, from Deliver, and tell me what is left, chosen on Documents found on 17 November: "I accept the remaining Weak rows after the last test audit loop." Its summary, word for word: "Recorded the acceptance for AC-RETURNS-07 and AC-REFUND-02. Both still check the wording of the refund email rather than the amount refunded."
-
-## For you
-
+<pre>## For you
+- AC-LABEL-05 has no test, not accepted. The label service has no sandbox, so the test audit could not write one. Accept it or have a test written before you merge.
 - Record a change to AC-RETURNS-09 in the PRD. Behavior changed outside the requirements: the code emails the return label instead of showing it on screen, and no document says that was decided.
-&lt;!-- /kiln:work-left --&gt;
+
+## Closing audits
+Delivery audit: 4 of 4 loops. Test audit: 4 of 4 loops.
+Test audit loop 4 of 4 was the last. It carried your words, from the test audit limit chosen on Documents found on 17 November: "I accept the remaining Weak rows after the last test audit loop." Its summary, word for word: "Fixed 9 of 11 Weak rows. Accepted AC-RETURNS-07 and AC-REFUND-02, which still check the wording of the refund email rather than the amount refunded."
 
 ## What this delivers
 …</pre>
 </div></div>
 </section>
-
 <section>
-<h2 class="state">4. Delivery audit loop stop, with Go on chosen</h2>
-<p class="note">Shown under Always stop and ask me. The delivery audit limit is text in the settings while Kiln is stopped on it, and there is no reply box or Check again. Covers AC-ANSWER-01 to AC-ANSWER-05 and AC-CHOICE-02.</p>
-<div class="screen"><div class="page" style="width: 1280px">
-<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Delivery audit <strong style="color: #ede8dd">(after loop 3 of 3)</strong></span><span>·</span><span>Stopped yesterday 8:38 PM</span></div>
-<div class="split">
-<div class="col" style="gap: 24px">
-<div class="card amber">
-<div class="col" style="gap: 10px"><h3 class="serif">Loop 3 of 3 is done. The audit found more.</h3><p class="lead">Your setting is Always stop and ask me. The audit after loop 3 added Phase 10 and Phase 11 for criteria that aren’t finished. Building them would be loop 4, and your limit is 3, so Kiln stopped. They are in the plan, not started.</p></div>
-<div class="col"><span class="eyebrow">The loops</span><p class="hint">One loop is one round: Kiln builds every phase the audit added, then the audit checks again.</p>
-<div class="rows">
-<div class="row"><span class="tag">Loop 1</span><span>Audit added Phase 7 · built</span><span class="dur">1h 52m</span></div>
-<div class="row"><span class="tag">Loop 2</span><span>Audit added Phase 8 · built</span><span class="dur">39m</span></div>
-<div class="row"><span class="tag">Loop 3</span><span>Audit added Phase 9 · built</span><span class="dur">1h 05m</span></div>
-<div class="row wait"><span class="tag amber-text">Loop 4</span><span>Audit added Phase 10, Phase 11 · <span class="amber-text">not built: over your limit of 3</span></span></div>
-</div></div>
-<div class="col" style="gap: 10px"><span class="eyebrow">What the latest delivery audit found</span><p class="quote">“11 of 14 criteria are built and 3 are partly built: AC-RETURNS-03, AC-REFUND-04 and AC-APPROVAL-01. They are recorded as completion phases 10 and 11.”</p></div>
-</div>
-<div class="card">
-<div class="col"><span class="eyebrow">Your decision</span><span style="font-size: 19px; font-weight: 600">What should Kiln do with Phase 10 and Phase 11?</span></div>
-<div class="opt on"><span class="dot"></span><div class="col" style="gap: 12px"><div class="col" style="gap: 4px"><span class="strong">Go on</span><p class="hint">Loop 4 builds both phases, one after the other, then the audit checks again. Two phases are still one loop.</p></div><span style="font-size: 15px">Allow up to &nbsp;<span class="num">2</span>&nbsp; more loops before Kiln checks with you again</span><p class="hint">The limit becomes 5: loop 4 builds Phase 10 and Phase 11, and loop 5 is spare in case the next audit finds more.</p></div></div>
-<div class="opt"><span class="dot"></span><div class="col" style="gap: 4px"><span class="strong">Accept what is left and deliver</span><p class="hint">Kiln goes on to the test audit, then opens the pull request with the 3 partly built criteria listed at the top. Phase 10 and Phase 11 stay in the plan, not built, so you can continue with them later.</p></div></div>
-<div class="col" style="gap: 10px"><div><span class="btn solid">Build Phase 10 and Phase 11</span></div><p class="hint">Loop 4 starts now. If the audit after loop 5 still finds work, your “When the loops run out” setting applies again.</p></div>
-</div>
-<div class="card" style="gap: 12px"><span class="eyebrow">Or pick it up yourself</span><span class="strong">Open the delivery audit’s session in a terminal</span><pre>cd ~/work/comet-library-returns &amp;&amp; claude --resume 8c2f…</pre></div>
-</div>
-<div class="col" style="gap: 24px">
-<div class="card" style="gap: 14px"><span class="eyebrow">Why Kiln stopped</span><div class="row" style="border-top: 1px solid rgba(237,232,221,0.12)"><div class="col" style="gap: 2px"><span>Delivery audit loops</span><span style="font-size: 13.5px; color: #a49d90">3 of 3 done · none left</span></div><span class="dur amber-text" style="font-weight: 600; font-size: 14.5px">At limit</span></div><p class="hint">Nothing failed. The audit wants a 4th loop and your limit is 3.</p></div>
-<div class="card" style="gap: 16px"><span class="eyebrow">Audit loops</span>
-<div class="col"><span class="strong">Delivery audit loops, at most</span><span><span style="font-size: 20px">3</span> &nbsp;<span style="font-size: 14px; color: #a49d90">3 used</span></span><p class="hint">Kiln is stopped on this limit. Answer under Your decision.</p></div>
-<div class="col div"><span class="strong">Test audit loops, at most</span><span><span class="num">3</span> &nbsp;<span style="font-size: 14px; color: #a49d90">0 used</span></span></div>
-<div class="col div" style="gap: 10px"><span class="strong">When the loops run out</span><p class="hint">One choice for both audits. A change here applies the next time loops run out; this stop is answered under Your decision.</p>
-<div class="opt" style="padding: 14px 16px"><span class="dot"></span><div class="col" style="gap: 4px"><span style="font-size: 14.5px; font-weight: 600">Deliver, and tell me what is left</span><p class="hint">Kiln opens the pull request with what is left at the top. It still stops for something serious.</p></div></div>
-<div class="opt on" style="padding: 14px 16px"><span class="dot"></span><div class="col" style="gap: 4px"><span style="font-size: 14.5px; font-weight: 600">Always stop and ask me</span><p class="hint">Kiln opens no pull request until you answer.</p></div></div>
-</div>
-</div>
-</div>
-</div>
-</div></div>
-</section>
-
-<section>
-<h2 class="state">5. The same decision, with Accept what is left and deliver chosen</h2>
-<p class="note">One button carries out whichever answer is chosen. Covers AC-ANSWER-02.</p>
+<h2 class="state">5. A stop for a person says why</h2>
+<p class="note">An audit stops the run only for an item the work cannot go on without; this blocker holds it. The item gives its kind, the problem, the action and what waits on it, and the status line names the loop. Covers AC-ITEM-01, AC-ITEM-02 and AC-STOP-05.</p>
 <div class="screen"><div class="page" style="width: 900px">
-<div class="card">
-<div class="col"><span class="eyebrow">Your decision</span><span style="font-size: 19px; font-weight: 600">What should Kiln do with Phase 10 and Phase 11?</span></div>
-<div class="opt"><span class="dot"></span><div class="col" style="gap: 4px"><span class="strong">Go on</span><p class="hint">Loop 4 builds both phases, one after the other, then the audit checks again. Two phases are still one loop.</p></div></div>
-<div class="opt on"><span class="dot"></span><div class="col" style="gap: 4px"><span class="strong">Accept what is left and deliver</span><p class="hint">Kiln goes on to the test audit, then opens the pull request with the 3 partly built criteria listed at the top. Phase 10 and Phase 11 stay in the plan, not built, so you can continue with them later.</p></div></div>
-<div class="col" style="gap: 10px"><div><span class="btn solid">Accept and deliver</span></div><p class="hint">The test audit starts now. Nothing is marked as built that isn’t.</p></div>
-</div>
-</div></div>
-</section>
-
-<section>
-<h2 class="state">6. Test audit loop stop</h2>
-<p class="note">The same two answers. Here a loop is one session of test fixes, and Accept gives its sentence as today. Covers AC-ANSWER-01 to AC-ANSWER-03 and AC-ANSWER-05.</p>
-<div class="screen"><div class="page" style="width: 900px">
-<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Test audit <strong style="color: #ede8dd">(after loop 3 of 3)</strong></span><span>·</span><span>Stopped today 4:47 AM</span></div>
-<div class="card amber">
-<div class="col" style="gap: 10px"><h3 class="serif">Loop 3 of 3 is done. Test work is left.</h3><p class="lead">Your setting is Always stop and ask me. The last test audit saved test work for another session. That would be loop 4, and your limit is 3, so Kiln stopped.</p></div>
-<div class="col"><span class="eyebrow">The loops</span><p class="hint">One loop is one session of test fixes after the test audit.</p>
-<div class="rows">
-<div class="row"><span class="tag">Loop 1</span><span>Test fixes · saved more test work</span><span class="dur">2h 31m</span></div>
-<div class="row"><span class="tag">Loop 2</span><span>Test fixes · saved more test work</span><span class="dur">3h 48m</span></div>
-<div class="row"><span class="tag">Loop 3</span><span>Test fixes, told it was the last · saved more test work</span><span class="dur">2h 52m</span></div>
-<div class="row wait"><span class="tag amber-text">Loop 4</span><span>Saved test work · <span class="amber-text">not started: over your limit of 3</span></span></div>
-</div></div>
-<div class="col" style="gap: 10px"><span class="eyebrow">What the latest test audit found</span><p class="quote">“5 criteria still have Weak tests, most of them assertions about wording and layout. No criterion is without a test and no test fails.”</p></div>
-</div>
-<div class="card">
-<div class="col"><span class="eyebrow">Your decision</span><span style="font-size: 19px; font-weight: 600">What should Kiln do with the test work that is left?</span></div>
-<div class="opt on"><span class="dot"></span><div class="col" style="gap: 12px"><div class="col" style="gap: 4px"><span class="strong">Go on</span><p class="hint">Carry on with the saved test work. The work left may take more than one session.</p></div><span style="font-size: 15px">Allow up to &nbsp;<span class="num">2</span>&nbsp; more loops before Kiln checks with you again</span><p class="hint">The limit becomes 5: loop 4 carries on with the saved test work, and loop 5 is spare in case work is still left after it.</p></div></div>
-<div class="opt"><span class="dot"></span><div class="col" style="gap: 4px"><span class="strong">Accept what is left and deliver</span><p class="hint">You say: “I accept the remaining Weak rows.” One more session records it and fixes nothing, then Kiln delivers.</p></div></div>
-<div class="col" style="gap: 10px"><div><span class="btn solid">Go on with loop 4</span></div><p class="hint">Loop 4 starts now. If test work is still left after loop 5, your “When the loops run out” setting applies again.</p></div>
-</div>
-<div class="card" style="gap: 12px"><span class="eyebrow">Or pick it up yourself</span><span class="strong">Open the test audit’s session in a terminal</span><pre>cd ~/work/comet-library-returns &amp;&amp; claude --resume 3a91…</pre></div>
-</div></div>
-</section>
-
-<section>
-<h2 class="state">7. A stop for a person says why</h2>
-<p class="note">An audit stops the run only for an item the work cannot go on without; this blocker holds it. The item gives its kind, the problem, the action and what waits on it, and the status line names the loop. Covers AC-ITEM-01, AC-ITEM-02 and the status line in AC-ANSWER-01.</p>
-<div class="screen"><div class="page" style="width: 900px">
-<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Delivery audit <strong style="color: #ede8dd">(after loop 1 of 3)</strong></span><span>·</span><span>Stopped today 2:04 AM</span></div>
+<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Delivery audit <strong style="color: #ede8dd">(after loop 1 of 4)</strong></span><span>·</span><span>Stopped today 2:04 AM</span></div>
 <div class="card amber">
 <div class="col" style="gap: 10px"><h3 class="serif">The delivery audit needs you for one thing</h3><p class="lead">The work can’t go on without it. Everything that could proceed is done.</p></div>
 <div class="col"><span class="eyebrow">Listed for you</span>
@@ -210,36 +132,6 @@ Test audit loop 3 of 3 was the last. It carried the person's words, from Deliver
 </div>
 </div></div>
 </section>
-
-<section>
-<h2 class="state">8. Delivery audit loop stop for a criterion not built at all</h2>
-<p class="note">Under Deliver, and tell me what is left, Kiln stops because the audit after the last loop says a criterion is not built at all; the page names it, apart from those partly built. Covers AC-GOON-03 and AC-ANSWER-02.</p>
-<div class="screen"><div class="page" style="width: 900px">
-<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Delivery audit <strong style="color: #ede8dd">(after loop 3 of 3)</strong></span><span>·</span><span>Stopped today 1:26 AM</span></div>
-<div class="card amber">
-<div class="col" style="gap: 10px"><h3 class="serif">Loop 3 of 3 is done. The audit found more.</h3><p class="lead">Your setting is Deliver, and tell me what is left, but the audit says one criterion is not built at all, so Kiln stopped instead of delivering. The audit after loop 3 added Phase 10 and Phase 11. Building them would be loop 4, and your limit is 3.</p></div>
-<div class="col"><span class="eyebrow">The loops</span><p class="hint">One loop is one round: Kiln builds every phase the audit added, then the audit checks again.</p>
-<div class="rows">
-<div class="row"><span class="tag">Loop 1</span><span>Audit added Phase 7 · built</span><span class="dur">1h 52m</span></div>
-<div class="row"><span class="tag">Loop 2</span><span>Audit added Phase 8 · built</span><span class="dur">39m</span></div>
-<div class="row"><span class="tag">Loop 3</span><span>Audit added Phase 9 · built</span><span class="dur">1h 05m</span></div>
-<div class="row wait"><span class="tag amber-text">Loop 4</span><span>Audit added Phase 10, Phase 11 · <span class="amber-text">not built: over your limit of 3</span></span></div>
-</div></div>
-<div class="col"><span class="eyebrow">Not built at all</span>
-<div class="rows">
-<div class="row" style="flex-direction: column; gap: 6px"><span class="strong">AC-APPROVAL-01 — Approvers get a reminder</span><span style="font-size: 14.5px; color: #c9c2b5; line-height: 1.6">No part of it is built. Phase 11, Finish approval reminders, covers it.</span></div>
-</div></div>
-<div class="col" style="gap: 10px"><span class="eyebrow">What the latest delivery audit found</span><p class="quote">“11 of 14 criteria are built, 2 are partly built (AC-RETURNS-03 and AC-REFUND-04) and 1 is not built at all (AC-APPROVAL-01). They are recorded as completion phases 10 and 11.”</p></div>
-</div>
-<div class="card">
-<div class="col"><span class="eyebrow">Your decision</span><span style="font-size: 19px; font-weight: 600">What should Kiln do with Phase 10 and Phase 11?</span></div>
-<div class="opt on"><span class="dot"></span><div class="col" style="gap: 12px"><div class="col" style="gap: 4px"><span class="strong">Go on</span><p class="hint">Loop 4 builds both phases, one after the other, then the audit checks again.</p></div><span style="font-size: 15px">Allow up to &nbsp;<span class="num">2</span>&nbsp; more loops before Kiln checks with you again</span><p class="hint">The limit becomes 5: loop 4 builds Phase 10 and Phase 11, and loop 5 is spare in case the next audit finds more.</p></div></div>
-<div class="opt"><span class="dot"></span><div class="col" style="gap: 4px"><span class="strong">Accept what is left and deliver</span><p class="hint">Kiln goes on to the test audit, then opens the pull request with what is left at the top: AC-APPROVAL-01 not built at all, and AC-RETURNS-03 and AC-REFUND-04 partly built. Phase 10 and Phase 11 stay in the plan, not built.</p></div></div>
-<div class="col" style="gap: 10px"><div><span class="btn solid">Build Phase 10 and Phase 11</span></div><p class="hint">Loop 4 starts now.</p></div>
-</div>
-</div></div>
-</section>
-
 </main>
 </body>
 </html>

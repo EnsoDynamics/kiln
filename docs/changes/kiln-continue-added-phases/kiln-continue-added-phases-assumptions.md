@@ -32,8 +32,6 @@ These two proposed product choices accompany the [change PRD](kiln-continue-adde
 
 **Impact if wrong:** Medium — the person must first commit/integrate the changed requirements; a workflow that restarts a finished run directly from an unmerged requirements revision would need broader scope.
 
-**Later departure:** AC-LEFT-03 in [Kiln Deliver When Audit Loops Run Out](../kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md) continues a run whose phases were left open at delivery on its feature branch, reading the plan from there, while every pull request of that delivery is still open.
-
 **Confirm or Correct:**
 
 - [ ] Correct as stated

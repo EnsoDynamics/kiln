@@ -27,111 +27,34 @@
 
 ---
 
-## Continuing Assumptions
+## Test Assumptions
 
-### DEV-001. When a run is continued on its open branch, does it keep the development deployments and early-merge permissions the person gave the original run?
+### TEST-001. After the test audit's last loop, does a test only you can accept go to the pull request, listed for you, instead of stopping the run? — ⏳ PENDING (Added 2026-11-18 — new question; 85% confidence)
 
-**Assumption**: **Yes: a run continued while its pull requests are still open keeps the development deployments and early-merge permissions** the person gave the original run. Kiln does not ask for them again.
+**Assumption**: **Yes: Kiln goes on to the pull request** and lists each such test under **For you** at the top, as **not accepted**. It does not stop and wait for you.
 
-It is the **same run, on the same branch, in the same folders**, updating the same pull requests. Kiln already keeps these permissions when a person **starts a run again after its folder went missing**. A continuation **after a merge or close** still turns development deployments off and asks again, because it builds on a **new branch**.
+These are a criterion with **no test**, a **failing test**, a **high-risk criterion still Weak**, or a row the audit marked **stuck**. The last loop's sentence accepts only the **remaining Weak rows**, and the test audit accepts these others only when **you name them**, so Kiln cannot accept them for you.
 
-Against: the continued run also builds **phases added since delivery**, which the person had not seen when they gave the permission.
+While test loops are left, such a test **does not stop the run either**: the next loop may fix it.
 
-**Example**: The person allowed early merges into **develop** for the run's repository. Delivery left **2 phases** open. While the pull request is still open, they choose **Continue with 2 phases**: Kiln may merge those phases' work into develop early **without asking again**.
+The same goes for **test work the last loop saved** but did not do, and for **Weak rows** the last loop's sentence did not accept, such as in a run whose person chose to be asked: they are listed, not stopped on.
 
-**If they choose otherwise**: A run continued on its open branch starts with development deployments **off** and asks for early-merge permission **again**, as a continuation after a merge or close does.
+Delivering is what you asked for at the limit: when the last loop is done, the run goes **straight to the pull request**. Kiln never merges its own pull request, so you still decide on each listed test **before the work lands**.
 
-**Researched**: 2026-11-18; Kiln Missing Worktree Recovery's rule for a Start after a missing folder (AC-SAFE-03), Kiln Continue Added Phases' rule for a continuation's early-merge permission (AC-CONTINUE-09), this PRD and its design.
+Against: a **failing test** in a pull request is more serious than a Weak one, and a stop would make you look at it before anything is delivered.
 
-**Confirm or Correct**:
-- [ ] Correct — a run continued on its open branch keeps the permissions the person gave
-- [ ] Wrong — it starts with development deployments off and asks for early-merge permission again
-- [ ] Wrong — different approach: _______________
+**Example**: The test audit used its **4** loops. The last one fixed what it could and accepted 2 Weak rows by the sentence. It still lists **AC-LABEL-05 with no test**, because the label service has no sandbox. Kiln opens the pull request, and **For you** lists AC-LABEL-05: no test, not accepted.
 
-**Confidence**: 86% | **Impact**: 🟡 MEDIUM
+**If they choose otherwise**: Kiln **stops at Needs you** once nothing else is left, with each such test listed, and opens no pull request until you accept or fix them.
 
----
-
-## Loop Assumptions
-
-### LOOP-003. When Kiln stops at a later delivery audit limit, does Allow also build the phases left open earlier?
-
-**Assumption**: **Only the phases set aside because no loop was left.** Allow builds them with the phases the stopped audit added, in plan order and **as one loop**. **Phases the person accepted leaving open at an earlier stop stay open**, the page names them, and **Continue with N phases** offers them after delivery.
-
-The exception: when a phase the loop builds **depends on** an accepted phase, it cannot be built without it. Kiln then also builds that accepted phase, and any phase left open that it depends on in turn, and the page names them. The other phases accepted at that stop stay open.
-
-A phase set aside because no loop was left was never a decision: Allow gives loops, so its reason is gone. An accepted phase is: the person looked at it and chose to leave it, and Allow at a later stop answers what that later stop shows.
-
-Against: **one answer that builds everything left open** is simpler to explain, and a person who allows more loops may expect it to finish the lot.
-
-**Example**: The run used its **3** delivery audit loops. At the stop after loop 3, the person accepted leaving **Phase 10** open. The test audit then added **Phase 11**, partly built, and Kiln set it aside because no loop was left. A later delivery audit added **Phase 12** with a criterion not built at all, so Kiln stopped. The person allows **1** more loop: loop 4 builds **Phase 11 and Phase 12**, and **Phase 10 stays open**, offered by Continue after delivery. Had Phase 12 depended on Phase 10, loop 4 would build **Phase 10** too, and the page would say so.
-
-**If they choose otherwise**: Allow builds **every phase left open, accepted ones included**, and the page names the accepted ones as being built after all.
-
-**Researched**: 2026-11-18; Kiln's code for choosing the next phase and skipping phases set aside, this design's Allow and phases left open, this PRD's Allow (AC-ANSWER-02) and Out of Scope.
+**Researched**: 2026-11-18; the stakeholder ruling of 2026-11-18 that a run at its limits goes straight to the pull request, Kiln Audit Loop Limits' handling once no test loop is left (AC-TEST-02) and the test audit skill's rule that it accepts these tests only when the person names them.
 
 **Confirm or Correct**:
-- [ ] Correct — Allow builds the phases set aside because no loop was left; accepted ones stay open unless a phase it builds depends on one
-- [ ] Wrong — Allow builds every phase left open, accepted ones included
+- [ ] Correct — after the last test audit loop, such tests go to the pull request, listed under For you as not accepted
+- [ ] Wrong — Kiln stops at Needs you until you accept or fix them
 - [ ] Wrong — different approach: _______________
 
-**Confidence**: 60% | **Impact**: 🔴 HIGH
-
----
-
-## Decided by the Project Team
-
-> Business decisions, not technical ones, that the team made because each follows from what stakeholders have said or from the entries above, or is easy to change later. The stakeholder review shows them in an optional closing section.
-
-### LOOP-001. When a run that was allowed more loops is continued with new phases, does it keep the raised limit?
-
-**Assumption**: **Yes: the continued run keeps the limit Allow raised**, rather than going back to the limit the person first chose. Its loop counts still start at **zero**.
-
-**Example**: The person chose **3** delivery audit loops. The run used all 3, stopped, and the person allowed **2** more, so the limit became **5**. After delivery they choose **Continue with N phases**: the continued run starts at loop 0 of **5**, not 0 of 3.
-
-That is what "the three settings **carry over unchanged**" means today (RUN-003 in Kiln Audit Loop Limits): Allow raises the limit in the run's own settings, and nothing records the number it replaced. The person also sees **both limits** on the finished run's page and can **lower one before pressing Continue**.
-
-Against: the reason limits exist is a closing pass that runs away (Doug, 2026-11-14, coming back "two days later" to "a dozen iterations of the audit"). A raised limit lets the continued run loop longer before it stops than the person's own number would.
-
-**Depends on**: RUN-003 in Kiln Audit Loop Limits
-
-**If they choose otherwise**: Each time the person allows more loops, Kiln **remembers the limit it replaced**, and Continue **puts back the earliest one** for each kind, so a continued run starts again with the person's own number (**3** in the example).
-
-**Researched**: 2026-11-18; Kiln's code for Allow and for Continue, this PRD and its design, the Kiln Audit Loop Limits PRD and assumptions.
-
-**Confirm or Correct**:
-- [ ] Correct — a continued run keeps the raised limit (5 in the example)
-- [ ] Wrong — a continued run goes back to the limit the person first chose (3 in the example)
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 80% | **Impact**: 🟢 LOW
-
----
-
-### LOOP-002. Under Deliver, and tell me what is left, does raising the delivery audit limit while the run is still going build the phases left open?
-
-**Assumption**: **Yes: raising the delivery audit limit builds the phases left open**, with the phases that depend on them, in plan order and **as one loop**, as Allow does. It takes effect at **Kiln's next decision whether to start a loop**; a test audit running at the time **finishes first**, and the audits after the loop run as usual. **Once the pull request session has started**, a raise builds nothing in this run: Continue offers those phases after delivery, with the raised limit (LOOP-001).
-
-It builds **the phases Allow would build** (LOOP-003). The run's settings say so **beside the delivery audit limit** while such phases are left open and the pull request session has not started.
-
-Allow now raises the limit itself, so **a raise and Allow are the same number** and should do the same thing. Kiln Audit Loop Limits already says a change applies from Kiln's next decision whether to start a loop (AC-LOOP-05). Under this setting there is **no stop, so no Allow**: otherwise the only way to build them is **Continue after delivery**.
-
-Against: a decision already recorded should stand. A settings change brings back work that was set aside, and the test audit **redoes its results** after the loop.
-
-**Example**: The person chose **3** delivery audit loops. The audit after loop 3 added **Phase 10 and Phase 11**, both partly built, so Kiln left them open and started the test audit. While it runs, the person raises the delivery limit to **4**. Once the test audit finishes, Kiln builds Phase 10 and Phase 11 as **loop 4 of 4**, then runs both audits again.
-
-**Depends on**: LOOP-003
-
-**If they choose otherwise**: Raising the limit applies **only to phases audits add later**; the phases already left open stay open until **Continue after delivery**, and the settings say so beside the limit.
-
-**Researched**: 2026-11-18; Kiln Audit Loop Limits' rule for changing a limit during a run (AC-LOOP-05), this PRD's Allow (AC-ANSWER-02), this design's loop gate.
-
-**Confirm or Correct**:
-- [ ] Correct — raising the delivery limit before the pull request session starts builds the phases Allow would build, at Kiln's next decision whether to start a loop
-- [ ] Wrong — a raise applies only to phases audits add later; those left open wait for Continue after delivery
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 80% | **Impact**: 🟡 MEDIUM
+**Confidence**: 85% | **Impact**: 🟡 MEDIUM
 
 ---
 
@@ -139,5 +62,9 @@ Against: a decision already recorded should stand. A settings change brings back
 
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
+| DEV-001 | A run continued on its open branch keeps the development deployments and early-merge permissions | No longer applies 2026-11-18 | Stakeholder ruling 2026-11-18: every audit finding is built, so no phase is left open and no run continues on its open branch |
+| LOOP-001 | A continued run keeps the limit Allow raised | No longer applies 2026-11-18 | Stakeholder ruling 2026-11-18 removed Allow; a limit changed in the settings carries over as any setting does (PRD AC-CHOICE-02) |
+| LOOP-002 | Raising the delivery limit mid-run builds the phases left open | No longer applies 2026-11-18 | Stakeholder ruling 2026-11-18: no phase is left open; a raise after a kind's last loop runs that audit again (PRD AC-CHOICE-02) |
+| LOOP-003 | Allow at a later stop builds only the phases set aside for lack of a loop | Answered 2026-11-18 | Stakeholder ruling 2026-11-18, in chat on the review: "if it finds stuff, it should always fix whatever it found", and at the limit "it would just end". No phase is left open and there is no stop at a limit: PRD AC-LAST-01 to AC-LAST-03, AC-STOP-04 |
 | ITEM-001 | Behavior changed outside the requirements, and a human action that none of Kiln's remaining work in the run needs, no longer hold the run; Kiln delivers and lists both under **For you** | Written up 2026-11-18 | The team's call, research settled it at 95%: now a PRD requirement in AC-ITEM-01 and AC-ITEM-03, basis in Business Context |
-| SET-001 | A run already going when Kiln is upgraded keeps its **When the loops run out** choice, which then covers both audits | Written up 2026-11-18 | The team's call, one sensible answer: now a PRD requirement in AC-CHOICE-01 |
+| SET-001 | A run already going when Kiln is upgraded keeps its **When the loops run out** choice, which then covers both audits | No longer applies 2026-11-18 | Stakeholder ruling 2026-11-18 removed the setting; a run already going keeps its limits (PRD AC-CHOICE-01) |
