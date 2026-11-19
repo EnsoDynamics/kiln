@@ -2,7 +2,7 @@
 
 **Source:** Doug's review on 2026-11-18 of a run that stopped at its delivery audit loop limit, and the settings, stop and finished screens he worked through on mockups that day.
 
-**Changes:** [Kiln Audit Loop Limits](../kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md), [Kiln Continue Added Phases](../kiln-continue-added-phases/kiln-continue-added-phases-prd.md), [Kiln Method-Neutral Audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md), [Kiln Completion Audits](../kiln-completion-audits/kiln-completion-audits-prd.md), [Kiln Bot Control](../../prds/kiln-bot-control/kiln-bot-control-prd.md)
+**Changes:** [Kiln Audit Loop Limits](../kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md), [Kiln Continue Added Phases](../kiln-continue-added-phases/kiln-continue-added-phases-prd.md), [Kiln Method-Neutral Audits](../kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md), [Kiln Completion Audits](../kiln-completion-audits/kiln-completion-audits-prd.md), [Kiln Bot Control](../../prds/kiln-bot-control/kiln-bot-control-prd.md), [Kiln Multi-Repo Delivery](../kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md), [Kiln v1](../../prds/kiln-v1/kiln-v1-prd.md)
 
 **Mockup:** [Open the mockup](mockups/kiln-deliver-when-audit-loops-run-out.html).
 
@@ -36,7 +36,7 @@ The person makes one choice for both audits, before the run starts, and the defa
 
   | Choice | When loops run out |
   |---|---|
-  | **Deliver, and tell me what is left** | Kiln goes on to delivery and reports what is left (AC-GOON-01, AC-LEFT-01). It still stops for something serious: a criterion not built at all (AC-GOON-03), an item that stops or holds the run (AC-ITEM-01), and test work still saved after the last test audit loop (AC-TEST-02 in Kiln Audit Loop Limits) |
+  | **Deliver, and tell me what is left** | Kiln goes on to delivery and reports what is left (AC-GOON-01, AC-LEFT-01). It still stops for something serious: a criterion not built at all, or an audit that did not say how much is built (AC-GOON-03), an item that stops or holds the run (AC-ITEM-01), and test work still saved after the last test audit loop (AC-TEST-02 in Kiln Audit Loop Limits) |
   | **Always stop and ask me** | Kiln stops at Needs you at either audit's limit and opens no pull request until the person answers (AC-ANSWER-02) |
 
   - Replaces in part: AC-LOOP-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (the third setting and its default option are renamed, and the setting covers the delivery audit too)
@@ -50,16 +50,18 @@ The person makes one choice for both audits, before the run starts, and the defa
 Under the default, a delivery audit that still finds missing parts after its last loop no longer stops the run. What it found is recorded as phases, as always, and left for the person to decide on later.
 
 - [ ] **AC-GOON-01 — Phases added past the limit are left open and the run goes on.** Under **Deliver, and tell me what is left**, when an audit adds phases and no delivery audit loop is left, Kiln builds none of them and goes on with the closing audits and delivery as it would after an audit that found nothing to build. A phase whose Phase dependencies name a phase left open is left open with it, whoever added it. This applies to every audit that adds phases after the limit, including a test audit and a delivery audit run again later. If the person raises the delivery audit limit while the run goes on and before its pull request session starts, Kiln builds the phases left open that Allow would build (AC-ANSWER-02), with those that depend on them, at its next decision whether to start a loop, in plan order and as one loop. While such phases are left open and that session has not started, the run's settings say so beside that limit. Once it has started, a raise builds nothing in this run, and Continue offers those phases after delivery (LOOP-002).
-  - Replaces in part: AC-DELIV-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Kiln stops instead of building past the limit only under **Always stop and ask me**, or for a criterion not built at all)
+  - Replaces in part: AC-DELIV-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Kiln stops instead of building past the limit only under **Always stop and ask me**, for a criterion not built at all, or when the audit does not say how much of each criterion is built)
   - Replaces in part: AC-HANDBACK-04 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (phases left open under this criterion do not delay the closing audits or delivery)
   - Replaces in part: AC-HANDBACK-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a phase left open is not an eligible leaf for the rest of the run)
   - Replaces in part: AC-TEST-04 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a criterion covered by a phase left open may remain partly built or not built at delivery, listed as what was left)
   - Replaces in part: AC-PR-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the pull request session also starts with phases left open)
   - Replaces in part: AC-DELIVER-04 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (phases left open need not satisfy their completion checks, and need no development verification)
+  - Replaces in part: AC-LOOP-05 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (a raised delivery audit limit builds the phases left open only until the run's pull request session starts; after that, Continue offers them, LOOP-002)
+  - Replaces in part: AC-PRS-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the pull request also opens while phases are left open)
 - [ ] **AC-GOON-02 — The test audit runs while those phases are open.** Kiln starts the test audit with the phases left open, under the test audit's own limit and rules. The audit skill leaves out the criteria those phases cover, so their tests are not audited.
   - Replaces in part: AC-TEST-01 and AC-LOOP-03 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (the test audit also starts after a delivery audit whose phases are left open under AC-GOON-01)
   - Replaces in part: AC-NEUTRAL-04 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (a passing or test-continuation report may leave open the phases left open under AC-GOON-01)
-- [ ] **AC-GOON-03 — A criterion not built at all still stops the run.** When an audit adds phases past the limit and says a criterion is not built at all, as opposed to partly built, Kiln stops at Needs you under either choice and the page names those criteria. Kiln takes the distinction from the audit and judges nothing itself.
+- [ ] **AC-GOON-03 — A criterion not built at all still stops the run.** When an audit adds phases past the limit and says a criterion is not built at all, as opposed to partly built, or does not say how much of each criterion is built, Kiln stops at Needs you under either choice. The page names those criteria, or says the audit did not say. Kiln takes the distinction from the audit and judges nothing itself.
 - [ ] **AC-GOON-04 — Nothing left open is recorded as done.** Kiln writes nothing to the repository to leave a phase open or to record that it was left. The phases keep no Closed line, the plan shows them not started, and their criteria stay unchecked.
 
 ### Say What Was Left
@@ -70,11 +72,12 @@ A person who comes back to a delivered run sees at once that work was left, what
 
   | Work left | What the description says |
   |---|---|
-  | Phases left open (AC-GOON-01) | Each phase by number and title, and each criterion it covers, marked partly built or not built at all, with a line saying those criteria's tests were not audited; a phase left open because it depends on one is listed with that phase, its criteria not assessed by an audit |
+  | Phases left open (AC-GOON-01) | Each phase by number and title, and each criterion it covers, marked partly built or not built at all, with a line saying those criteria's tests were not audited; a phase left open because it depends on one is listed with that phase, with its criteria as the audit that added it marked them, or, when no audit added it, a line saying no audit assessed its criteria |
   | Tests the person accepted while still Weak, missing or failing | Each criterion whose tests were accepted, then the line AC-TEST-03 in Kiln Audit Loop Limits gives, with its summary word for word |
 
   - Replaces in part: AC-TEST-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (its line moves to the top, after a list of the criteria whose tests were accepted; what the line says is unchanged)
   - Replaces in part: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the pull request check also confirms each description opens with what was left)
+  - Replaces in part: AC-DELIVER-04 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (with development deployments on, each remaining review pull request's description also opens with what was left, or its repository stays unresolved; merged checkpoint pull requests are not checked)
 - [ ] **AC-LEFT-02 — The finished page says the same.** When a run delivers with work left, its finished page is headed **Delivered, with work left** and lists what AC-LEFT-01 lists, with how many loops of each kind the run used. `kiln status` reports the same.
   - Replaces in part: AC-PR-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the phase plan also shows phases left open, as not started)
   - Replaces in part: AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a delivery with work left is headed **Delivered, with work left**; the delivery facts shown are unchanged)
@@ -90,10 +93,11 @@ A person who comes back to a delivered run sees at once that work was left, what
 
   - Replaces in part: AC-CONTINUE-06 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation with phases left open at delivery builds where the table says; on the run's feature branch it reads the plan from that branch rather than from one committed on the delivery base, departing from assumption CONTINUE-002 in Kiln Continue Added Phases; and the readiness example there for an open, unmerged pull request does not apply to it)
   - Replaces in part: AC-OFFER-01 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (the offer also appears for phases left open at delivery, under the **Delivered, with work left** heading instead of **New phases found**)
-  - Replaces in part: AC-FIND-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (while every pull request of the delivery is open, the plan is read from the run's feature branch)
+  - Replaces in part: AC-FIND-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (while every pull request of the delivery is open, the plan is read from the run's feature branch, and any requirements document Kiln reads for the plan that changed on the delivery base or in the shared checkout since the branch forked and is not on that branch withholds Continue, whether or not it changes the work to run)
   - Replaces in part: AC-FIND-03 and AC-CONTINUE-03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a finished run's plan may hold phases left open at delivery; they count as unfinished work to continue, beside phases added since)
   - Replaces in part: AC-CONTINUE-05 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation on the run's feature branch records its delivery beside the earlier one, with the same pull requests, which it updates)
   - Replaces in part: AC-CONTINUE-09 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation on the run's feature branch keeps the early-merge permissions the run had rather than authorizing only a fresh run, DEV-001)
+  - Replaces in part: AC-PERMIT-03 and AC-PERMIT-04 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (a run continued on its open feature branch carries the earlier run's effective early-merge choice and approved targets into its fresh execution, DEV-001)
 
 ### Stop for a Person Only When the Work Cannot Go On
 
@@ -141,8 +145,8 @@ At a loop stop, the page says where the run is and asks one question with two an
   - Replaces in part: AC-STOP-02 and AC-LOOP-06 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Allow raises the limit instead of setting it to N and restarting the count; Accept is also offered at a delivery audit stop and names only tests)
   - Replaces in part: AC-LOOP-04 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (a count no longer starts again when the person allows more loops)
 - [ ] **AC-ANSWER-03 — The page says what the number buys.** Under the number, the page gives the limit it leads to and what each loop is for. At a delivery audit stop it names the phases the next loop builds and the phases the person accepted leaving open that stay open (LOOP-003), and says the loops after it are spare, in case a later audit finds more.
-- [ ] **AC-ANSWER-04 — The limit is raised in one place.** At a loop stop, that kind's limit is raised only by Allow (AC-ANSWER-02). The run's settings on the page show that limit and the loops used as text, not as a field, and `kiln settings` refuses to change it. Check again is not offered there, on the page or from the command line. The other limit and the choice stay editable in both places.
-  - Replaces in part: AC-STOP-02 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (at a loop stop, the limit it stopped on is raised only by Allow, and Check again is not offered)
+- [ ] **AC-ANSWER-04 — The limit is raised in one place.** At a loop stop, that kind's limit is raised only by Allow (AC-ANSWER-02). The run's settings on the page show that limit and the loops used as text, not as a field, and `kiln settings` refuses to change it. At a loop stop whose audit has finished, Check again is not offered, on the page or from the command line. At one whose audit has not finished, Check again reads the audit's report again, as `kiln run` does, and never changes the limit or answers the stop. The other limit and the choice stay editable in both places.
+  - Replaces in part: AC-STOP-02 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (at a loop stop, the limit it stopped on is raised only by Allow, and Check again is not offered where the audit has finished)
   - Replaces in part: AC-LOOP-05 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (at a loop stop, that kind's limit cannot be changed in the settings)
 - [ ] **AC-ANSWER-05 — No reply box where nothing would read it.** A loop stop whose audit has finished offers no Reply. The audit's session can still be opened in a terminal.
   - Replaces in part: AC-STOP-02 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Reply is no longer offered at any loop stop whose audit has finished)
@@ -151,7 +155,7 @@ At a loop stop, the page says where the run is and asks one question with two an
 
 Every control on these screens that a person can press has a command a bot can run, as the controls Kiln already has do.
 
-- [ ] **AC-BOT-01 — Every control on these screens has a command.** Each control in the table can be used from the command line, and `kiln status` lists each among the controls with whether it is available and why not, as it does for the existing commands. Settings chosen before Start stay in the browser, as today.
+- [ ] **AC-BOT-01 — Every control on these screens has a command.** Each control in the table can be used from the command line, and `kiln status` lists each among the controls with whether it is available and why not, as it does for the existing commands. Settings chosen before Start, and **Authorize early merges** before a continuation, stay in the browser, as today.
 
   | On the page | From the command line |
   |---|---|
