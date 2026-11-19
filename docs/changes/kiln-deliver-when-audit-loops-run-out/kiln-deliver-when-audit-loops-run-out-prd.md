@@ -141,12 +141,12 @@ Every control on these screens that a person can press has a command a bot can r
   | Each item for a person, with its kind, the problem, the action and what waits on it (AC-ITEM-02, AC-ITEM-03) | The same |
   | The offer to continue, when new phases were found: its phases, whether it is ready, and its problems | The same, with the latest check's status and time |
 
-Retired labels, not reused: AC-GOON-01 to AC-GOON-04, AC-LEFT-03 and AC-ANSWER-01 to AC-ANSWER-05, from the earlier draft that left the last audit's phases open and stopped to ask at a limit.
+Retired labels, not reused: AC-GOON-01 to AC-GOON-04, AC-LEFT-03 and AC-ANSWER-01 to AC-ANSWER-05.
 
 ## Out of Scope
 
 - **A stop or question at a loop limit.** The limits are the person's control; a person who wants more checking sets higher limits, before Start or during the run.
 - **Auditing again after a kind's last loop.** The pull request is where that work is reviewed.
 - **Answering an item while Kiln keeps running.** An item that stops or holds the run is still answered at a stop, as today.
-- **A separate default for each audit.** Both default to 4.
+- **A separate default for each audit.** (AC-CHOICE-01)
 - **Any change to the Enso Method's skills.**
