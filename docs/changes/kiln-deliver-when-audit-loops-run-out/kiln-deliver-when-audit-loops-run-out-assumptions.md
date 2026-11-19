@@ -112,7 +112,7 @@ Against: the reason limits exist is a closing pass that runs away (Doug, 2026-11
 
 **Assumption**: **Yes: raising the delivery audit limit builds the phases left open**, with the phases that depend on them, in plan order and **as one loop**, as Allow does. It takes effect at **Kiln's next decision whether to start a loop**; a test audit running at the time **finishes first**, and the audits after the loop run as usual. **Once the pull request session has started**, a raise builds nothing in this run: Continue offers those phases after delivery, with the raised limit (LOOP-001).
 
-It builds **the phases Allow would build** (LOOP-003): those set aside because no loop was left, and a phase the person **accepted** leaving open only when one of those depends on it. The run's settings say so **beside the delivery audit limit** while such phases are left open and the pull request session has not started.
+It builds **the phases Allow would build** (LOOP-003). The run's settings say so **beside the delivery audit limit** while such phases are left open and the pull request session has not started.
 
 Allow now raises the limit itself, so **a raise and Allow are the same number** and should do the same thing. Kiln Audit Loop Limits already says a change applies from Kiln's next decision whether to start a loop (AC-LOOP-05). Under this setting there is **no stop, so no Allow**: otherwise the only way to build them is **Continue after delivery**.
 
