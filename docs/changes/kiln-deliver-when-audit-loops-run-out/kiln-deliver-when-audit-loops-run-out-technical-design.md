@@ -334,4 +334,4 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 
 ## Open Questions
 
-None.
+- A raise that brings back a phase set aside by the setting builds that phase and its dependents in one loop, but not an independent phase the same settled audit appended. Take P10 set aside by the setting, the delivery limit raised while the test audit runs, and that audit appending P11 (depends on P10) and P13 (depends on nothing). The raised-limit row's allowance names P10 and P11, so P13 reaches the first or second row with no loop left. That contradicts the rule below the table that no appended phase of a settled audit is built, set aside or stopped on apart from the others. Proposed answer, at 85%: the raised-limit row's allowance also takes every appended phase of each settled audit that has a phase among the dependents it names, and any set-aside phase those depend on, ending or splitting their entries as Allow does, so one loop builds P10, P11 and P13 in plan order; §Loop Stops' sentence on a raise and the AC-GOON-01 proof gain the same case.
