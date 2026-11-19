@@ -52,6 +52,33 @@ Against: the continued run also builds **phases added since delivery**, which th
 
 ---
 
+## Loop Assumptions
+
+### LOOP-003. When Kiln stops at a later delivery audit limit, does Allow also build the phases left open earlier?
+
+**Assumption**: **Only the phases set aside because no loop was left.** Allow builds them with the phases the stopped audit added, in plan order and **as one loop**. **Phases the person accepted leaving open at an earlier stop stay open**, the page names them, and **Continue with N phases** offers them after delivery.
+
+The exception: when a phase the loop builds **depends on** an accepted phase, it cannot be built without it. Kiln then also builds the phases accepted **at that same stop**, and the page names them.
+
+A phase set aside because no loop was left was never a decision: Allow gives loops, so its reason is gone. An accepted phase is: the person looked at it and chose to leave it, and Allow at a later stop answers what that later stop shows.
+
+Against: **one answer that builds everything left open** is simpler to explain, and a person who allows more loops may expect it to finish the lot.
+
+**Example**: The run used its **3** delivery audit loops. At the stop after loop 3, the person accepted leaving **Phase 10** open. The test audit then added **Phase 11**, partly built, and Kiln set it aside because no loop was left. A later delivery audit added **Phase 12** with a criterion not built at all, so Kiln stopped. The person allows **1** more loop: loop 4 builds **Phase 11 and Phase 12**, and **Phase 10 stays open**, offered by Continue after delivery. Had Phase 12 depended on Phase 10, loop 4 would build **Phase 10** too, and the page would say so.
+
+**If they choose otherwise**: Allow builds **every phase left open, accepted ones included**, and the page names the accepted ones as being built after all.
+
+**Researched**: 2026-11-18; Kiln's code for choosing the next phase and skipping phases set aside, this design's Allow and phases left open, this PRD's Allow (AC-ANSWER-02) and Out of Scope.
+
+**Confirm or Correct**:
+- [ ] Correct — Allow builds the phases set aside because no loop was left; accepted ones stay open unless a phase it builds depends on one
+- [ ] Wrong — Allow builds every phase left open, accepted ones included
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 60% | **Impact**: 🟡 MEDIUM
+
+---
+
 ## Decided by the Project Team
 
 > Business decisions, not technical ones, that the team made because each follows from what stakeholders have said or from the entries above, or is easy to change later. The stakeholder review shows them in an optional closing section.
@@ -78,6 +105,33 @@ Against: the reason limits exist is a closing pass that runs away (Doug, 2026-11
 - [ ] Wrong — different approach: _______________
 
 **Confidence**: 80% | **Impact**: 🟢 LOW
+
+---
+
+### LOOP-002. Under Deliver, and tell me what is left, does raising the delivery audit limit while the run is still going build the phases left open?
+
+**Assumption**: **Yes: raising the delivery audit limit builds the phases left open**, with the phases that depend on them, in plan order and **as one loop**, as Allow does. It takes effect at **Kiln's next decision whether to start a loop**; a test audit running at the time **finishes first**, and the audits after the loop run as usual.
+
+It builds **the phases Allow would build** (LOOP-003): those set aside because no loop was left, and a phase the person **accepted** leaving open only when one of those depends on it. The run's settings say so **beside the delivery audit limit** while such phases are left open.
+
+Allow now raises the limit itself, so **a raise and Allow are the same number** and should do the same thing. Kiln Audit Loop Limits already says a change applies from Kiln's next decision whether to start a loop (AC-LOOP-05). Under this setting there is **no stop, so no Allow**: otherwise the only way to build them is **Continue after delivery**.
+
+Against: a decision already recorded should stand. A settings change brings back work that was set aside, and the test audit **redoes its results** after the loop.
+
+**Example**: The person chose **3** delivery audit loops. The audit after loop 3 added **Phase 10 and Phase 11**, both partly built, so Kiln left them open and started the test audit. While it runs, the person raises the delivery limit to **4**. Once the test audit finishes, Kiln builds Phase 10 and Phase 11 as **loop 4 of 4**, then runs both audits again.
+
+**Depends on**: LOOP-003
+
+**If they choose otherwise**: Raising the limit applies **only to phases audits add later**; the phases already left open stay open until **Continue after delivery**, and the settings say so beside the limit.
+
+**Researched**: 2026-11-18; Kiln Audit Loop Limits' rule for changing a limit during a run (AC-LOOP-05), this PRD's Allow (AC-ANSWER-02), this design's loop gate.
+
+**Confirm or Correct**:
+- [ ] Correct — raising the delivery limit builds the phases Allow would build, at Kiln's next decision whether to start a loop
+- [ ] Wrong — a raise applies only to phases audits add later; those left open wait for Continue after delivery
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 80% | **Impact**: 🟡 MEDIUM
 
 ---
 
