@@ -82,7 +82,7 @@
 
 **Assumption**: Yes. When the lid closes while Kiln is pausing, the running command and Kiln freeze together. On wake, the command finishes, the session stops at the same safe point, and no new work starts in between. AC-PAUSE-03 tells the person they can close the lid on that basis.
 
-**Evidence**: Kiln's hold is saved on disk before the pause is acknowledged (AC-TAKE-01 in Control a live Kiln session) and is honored after a Kiln restart. The safe stop happens when the agent next tries to start work, which cannot happen while the computer is asleep.
+**Evidence**: Kiln's hold is saved on disk before the pause is acknowledged (AC-TAKE-01 in Control a live Kiln session) and is honored after a Kiln restart. The safe stop happens when the agent next tries to start work, which cannot happen while the computer is asleep. The gate's hooks fail closed, so a hook that times out across a sleep blocks the new operation rather than allowing it, and nothing in the hold runs on a wall-clock deadline. Kiln's keep-awake holds idle sleep only, so closing the lid does sleep the machine (Technical Design §The Stop and Cancel).
 
 **Blocked by**: Observable only by sleeping a real machine mid-command, which the investigation for this PRD did not do.
 
@@ -94,22 +94,6 @@
 
 **Confidence**: 85% | **Impact**: 🟡 MEDIUM
 
-### PAUSE-005. Can a pending pause be withdrawn before the stop without disturbing the running session?
-
-**Assumption**: Yes. Withdrawing the hold before the agent reaches its next safe point lets the running attempt carry on unchanged, as if Pause now had never been pressed (AC-PAUSE-04).
-
-**Evidence**: The safe point is enforced when the agent next tries to start work, by reading the hold Kiln saved. Until then nothing has been sent to the session, so removing the hold should leave it untouched.
-
-**Blocked by**: Kiln has no cancel path today, so there is nothing to run against.
-
-**Would settle it**: A spike against the safe-point gate: request Pause now during a long command, withdraw it, and confirm the next command starts with no interruption or extra turn.
-
-**Confirm or Correct**:
-- [ ] Correct as stated
-- [ ] Wrong — the fact is: _______________
-
-**Confidence**: 80% | **Impact**: 🟡 MEDIUM
-
 ---
 
 ## Validated Assumptions
@@ -118,3 +102,4 @@
 |----|------------|-----------|-------|
 | PAUSE-001 | One immediate pause, **Pause now**, replaces Pause & take over. Whether to resume in Kiln or take over in a terminal is chosen on the paused page, which offers both side by side. Per the stakeholder (2026-11-19): "it's like three different kinds of pauses ... maybe it should just be pause now. And once you do that, yes, it just pauses, but it also gives you the resume command"; on the resulting mockup: "it looks good now." Earlier the same day: "I also do want the ability to pause and take over the session ... we don't want to lose that." | ✅ 2026-11-19 | PRD AC-PAUSE-01, AC-PAUSE-06 |
 | PAUSE-004 | The page an immediate pause lands on shows no completion checks, Check again or Mark complete; Resume's own recheck notices work finished in the terminal. Per the stakeholder (2026-11-19): "if you just paused it here, there's nothing to check. ... It came to a stop because you explicitly hit pause." | ✅ 2026-11-19 | PRD AC-PAUSE-06 |
+| PAUSE-005 | A pending pause can be withdrawn before the stop without disturbing the running session. | Written up 2026-11-19 | Settled by reading the code: a hold reaches the session only through the gate's deny, yield and seal, and the design records the first of them as the stop and admits Cancel only before it. Technical Design §Existing Code and §The Stop and Cancel; the Cancel spike under §Verification proves it. |
