@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-pause-now
 
-Started: 2026-11-19   Current pass: 2   Status: In progress
+Started: 2026-11-19   Current pass: 3   Status: In progress
 Branch: feature/kiln-preflight-card-fixes
 Existing code posture: Preserve (source: TD)
 PRD words: at start 2013 · growth baseline 2562 (reset 2026-11-20 on the user's continue)
@@ -19,6 +19,7 @@ Last updated: 2026-11-20
 |---|---|---|---|---|---|---|---|
 | 1 | 12 | 12 | 9 | 3 | 0 | 0 | 0 |
 | 2 | 13 | 13 | 13 | 0 | 0 | 0 | 0 |
+| 3 | 7 | 7 | 7 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -48,8 +49,18 @@ Last updated: 2026-11-20
 | Q23 | 2 | Where the async background-process lookup runs and whether its result is saved (snapshot is synchronous) | Technical | LOW | 85 → 90 | Resolved | TD §The Pause Now State |
 | Q24 | 2 | Several background processes: one line each? | Technical | LOW | 88 → 95 | Resolved | PRD AC-PAUSE-03; TD §The Pause Now State |
 | Q25 | 2 | PAUSE-010 register text lags the Q13/Q14 folds | Technical | LOW | 90 → 95 | Resolved | PAUSE-010 text |
+| Q26 | 3 | Claude's turn ended with only a backgrounded task left, before the stop: the stop never comes; which row? | Technical | MEDIUM | 70 → 90 | Resolved | PRD AC-PAUSE-03; TD §The Pause Now State, §Verification; PAUSE-010 |
+| Q27 | 3 | Restart summary and ● line while still pausing | Technical | LOW | 75 → 90 | Resolved | PRD AC-PAUSE-03; TD surface table |
+| Q28 | 3 | lastCommand stored at the press or derived (backgrounded mark arrives later)? | Technical | LOW | 80 → 95 | Resolved | TD §The Pause Now State |
+| Q29 | 3 | Kind-1 background entries after Claude exits with the task unsettled | Technical | LOW | 80 → 90 | Resolved | TD §The Pause Now State, §Verification |
+| Q30 | 3 | Paused card sentence for a gate-less attempt | Technical | LOW | 80 → 90 | Resolved | PRD AC-PAUSE-05; TD §The Pause Now State |
+| Q31 | 3 | Cap on the ps command line | Technical | LOW | 85 → 95 | Resolved | TD §The Pause Now State |
+| Q32 | 3 | Exact kiln status pausing text | Technical | LOW | 88 → 95 | Resolved | TD surface table |
 
 ## Question notes
+
+### Q26 (decision)
+claude-session.ts:290 maybeDrain returns while background.pending, and the hook acts only on Claude's next call, so with the turn ended and a background Bash running the stop never comes; kind-1 entries now show before the stop once the turn has ended (inputs all answered, no other top-level op unsettled), Cancel offered. Amends Q14. Q27 and Q30 written up as the only sensible readings ("never Needs you while pausing"; the before-next-command sentence is false for a gate-less attempt).
 
 ### Q16/Q18 (decision)
 Backgrounded = top-level op whose own result arrives while a non-ambient task it started is unsettled (background Bash); marked once by the gate. running excludes backgrounded; background = backgrounded ops (no pid) + tracked processes alive once Claude exited and its last observation finished. Residual: no recording of a background Bash's event order (task_started before the result); TD §Verification records one. Evidence gate.ts:16-17,104-106,132-143; claude-session.ts:241,289-290; engine.ts:1157-1211.
@@ -89,6 +100,10 @@ Decision replacing Cancel step 3: reconciliation applies results (stop, "stopped
 
 Pass 2 conformance: 2026-11-20 · AC-PAUSE-03 condition and row order aligned, PAUSE-010 naming, §Verification coverage for folded behaviors · no new questions
 
+Pass 3 conformance: 2026-11-20 · AC-PAUSE-03 rows made mutually exclusive in design order, kind-1 "turn ended" with several background tasks, field comments, §Verification additions · no new questions
+
+Out of gate (pass 3): phase-plan row derivation (snapshot.ts:1135,1142) needs a pauseNow override for "never Needs you" — answered by the design, build detail; the saved snapshot may carry the in-memory background list to disk — cosmetic.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -111,4 +126,4 @@ Pass 1: 2026-11-19 · 4 open entries · 1 moved to design (PAUSE-006) · 0 writt
 | No real Mac sleep available to agents | PAUSE-003 | The hands-on lid-close run in TD §Delivery |
 
 ## Next action
-Pass 2 checkpoint committed. Next: pass-3 discovery (pass 2 surfaced 10 new, above the yield stop of 3).
+Pass 3 checkpoint committed. Next: pass-4 discovery (pass 3 surfaced 7, above the yield stop of 3).
