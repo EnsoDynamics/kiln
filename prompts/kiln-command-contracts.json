@@ -2479,7 +2479,7 @@
         "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
         "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
-        "Accepted only on a finished run whose latest check for new phases offers this proposal. Refused as proposal_changed when the offer changed since status was read, and while a proposal still needs Authorize early merges, which stays in the browser.",
+        "Accepted only on a finished run whose latest check for new phases offers this proposal. Once accepted, its receipt fails with outcome proposal_changed when the offer changed since status was read, and prerequisite_blocked while a proposal still needs Authorize early merges or preparation, which stays in the browser.",
         "Its receipt's action is continuation-accept and it completes with outcome completed; an identical retry replays the same acceptance (continuation_replayed). Kiln then prepares the continued run under its own receipt."
       ],
       "result_fields": {
@@ -2496,7 +2496,7 @@
         "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
         "operation.effects.session": "not_started | starting | resumed | unknown. resumed requires a correlated saved attempt and provider start; it does not mean the phase finished.",
         "operation.effects.plan": "not_advanced | advanced | unknown. advanced accepts completion once; it does not promise the next model turn started.",
-        "operation.outcome": "completed records the continuation; Kiln prepares and starts the continued run through its existing launch gates. continuation_replayed answers an identical retry.",
+        "operation.outcome": "completed records the continuation; Kiln prepares and starts the continued run through its existing launch gates. continuation_replayed answers an identical retry. On a failed receipt: proposal_changed, the offer changed since status was read (check for new phases again and use the refreshed proposal ID); prerequisite_blocked, the proposal still needs Authorize early merges or preparation, which stays in the browser. Other failures name their cause in operation.reason. The first reply is usually in_progress; read the settled receipt with command-status.",
         "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
         "operation.reply_text": "Normalized literal accepted reply, or null for non-reply commands. A phase_already_complete reply stays not_sent and retained for the saved history lifetime.",
         "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
@@ -2518,9 +2518,7 @@
         "controller_unreachable",
         "instance_incompatible",
         "state_unavailable",
-        "operation_indeterminate",
-        "proposal_changed",
-        "prerequisite_blocked"
+        "operation_indeterminate"
       ],
       "exits": {
         "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
@@ -2556,9 +2554,7 @@
         "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
         "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
         "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
-        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations.",
-        "proposal_changed": "Operation outcome: the offer changed since status was read. Check for new phases again and use the refreshed proposal ID.",
-        "prerequisite_blocked": "Operation outcome: the proposal still needs Authorize early merges or preparation; that authorization stays in the browser."
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
       }
     },
     {

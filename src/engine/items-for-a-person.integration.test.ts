@@ -96,6 +96,9 @@ describe("only an item the work cannot go on without stops the run (AC-ITEM-01, 
     // The status line names the pull request step, which listed the items at the hold stop (AC-ITEM-02).
     const held = buildSnapshot(current.engine);
     expect(headerState(held, true, new Date()).facts[0]).toBe(`PR · ${held.phases.find(row => row.id === "pr")!.title}`);
+    // At this Needs you stop after the audits, the latest audit is test audit loop 1 of 1, and the status line names it (AC-STOP-05).
+    expect(held.auditLoops!.position).toEqual({ audit: "test", loop: 1, limit: 1 });
+    expect(headerState(held, true, new Date()).facts[1]).toBe("Test audit loop 1 of 1");
     // The relisting kept the kind and what waits on it (AC-ITEM-02).
     expect(buildSnapshot(current.engine).items).toEqual([{ id: "item-1", kind: "blocker", words: "Blocker", problem: expect.stringContaining(blocker.problem), action: "Still open.", waitsOn: blocker.waitsOn, effect: "holds" }]);
     // Continue anyway is offered with its own heading, unusable until a Check again (AC-WAIVE-02 as AC-ITEM-01 replaces it).
@@ -197,6 +200,30 @@ describe("any other item is reported with the delivery (AC-ITEM-03, AC-LAST-05)"
     expect(pullRequestPrompt(current)).toContain(`## For you\n\n${forYou.items.map(item => `- ${item.line}`).join("\n")}`);
     // No item is recorded as done that isn't: nothing settled, the test row reported (AC-LAST-05).
     expect(pullRequestPrompt(current)).not.toContain("Settled during the build");
+  });
+
+  it("after the last test loop's fixes leave a row Weak, marks no criterion built, closes only phases its sessions ran, and reports the row (AC-LAST-05)", { timeout: 240_000 }, async () => {
+    const weak = { kind: "test", problem: "AC-PROOF-01 is still Weak.", action: "Strengthen its test.", criterion: "AC-PROOF-01" };
+    // Test audit loop 1 of 1 saves test work; the session of test fixes ends with the row still Weak.
+    const current = await fixture([audit(), audit({ continueTest: true, findingText: "AC-PROOF-01 is Weak." }), audit({ items: [weak], findingText: "AC-PROOF-01 is still Weak." })]);
+    expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 4, testLimit: 1 } })).ok).toBe(true);
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
+    expect(current.engine.record.completionAudits!.activities.map(a => `${a.kind} ${a.continuationIndex}`)).toEqual(["delivery_audit 1", "test_audit 1", "test_audit 2"]);
+    // Kiln marks no criterion built: the PRD Kiln delivered still has the criterion unchecked.
+    expect(git(current.sandbox, current.engine.worktreePath, "show", `HEAD:${directory}/proof-prd.md`)).toContain("- [ ] **AC-PROOF-01");
+    // Every phase Kiln closed, the pull request step included, was run by one of its own sessions.
+    const closed = Object.entries(current.engine.record.phases).filter(([key, facts]) => facts.doneAt && !key.startsWith("audit-"));
+    expect(closed.map(([key]) => key)).toEqual(["pr"]);
+    for (const [key, facts] of closed) expect(facts.sessionIds, key).not.toHaveLength(0);
+    // The plan's Phase 1, closed before the run, is not reopened or re-closed by Kiln.
+    expect(current.engine.record.phases["1"]?.sessionIds ?? []).toEqual([]);
+    // The Weak row is reported, not hidden: on the finished page and in kiln status.
+    const forYou = buildSnapshot(current.engine).delivered!.forYou;
+    expect(forYou.items.map(item => item.line)).toEqual(["Test gap: AC-PROOF-01 is still Weak. Strengthen its test."]);
+    const status = statusProjection(readWork(stateRoot(current.env), current.stateDirectory), current.engine) as unknown as { delivered: { forYou: { items: { kind: string | null; line: string }[] } } };
+    expect(status.delivered.forYou.items).toEqual([expect.objectContaining({ kind: "test", line: "Test gap: AC-PROOF-01 is still Weak. Strengthen its test." })]);
+    expect(pullRequestPrompt(current)).toContain("- Test gap: AC-PROOF-01 is still Weak. Strengthen its test.");
   });
 });
 

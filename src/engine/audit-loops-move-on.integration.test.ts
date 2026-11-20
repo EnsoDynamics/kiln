@@ -93,6 +93,8 @@ describe("after a kind's last loop, no audit of that kind runs again (AC-LAST-03
     expect(current.engine.record.completedAt).toBeTruthy();
     expect(kinds(current)).toEqual(["delivery", "test"]);
     expect(current.engine.record.phases["2"]!.doneAt).toBeTruthy();
+    // The added phase was closed by a session Kiln ran for it (AC-LAST-05).
+    expect(current.engine.record.phases["2"]!.sessionIds).toHaveLength(1);
     expect(loops(current)).toEqual(["delivery 1", "test 1"]);
     expect(auditPrompts(current)[0]).toContain("- completion_phases: Kiln builds the phases you added, then runs the test audit.");
     expect(buildSnapshot(current.engine).auditLoops).toMatchObject({ delivery: { used: 1, limit: 1, closed: true } });
@@ -149,8 +151,15 @@ describe("after a kind's last loop, no audit of that kind runs again (AC-LAST-03
   });
 
   it("a test audit that changed implementation runs a delivery audit while one is left, counted as a loop, then the test audit again", { timeout: 240_000 }, async () => {
-    const current = await fixture([audit(), audit({ directFix: true }), audit(), audit()]);
-    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const current = await fixture([]);
+    const path = marker(current, "second-test-audit");
+    writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [pullRequestSession()], auditSessions: [audit(), audit({ directFix: true }), audit(), audit({ beforeSubmitFile: path })] }));
+    await current.engine.start({ refinementConfirmed: true });
+    await reached(path);
+    // While test audit loop 2 runs, a test limit below the test runs already made is refused (AC-CHOICE-02).
+    expect(await current.engine.changeSettings({ auditLoops: { deliveryLimit: 4, testLimit: 1 } })).toMatchObject({ ok: false, status: 422, fieldErrors: { testLimit: "Enter 2 or more: this run has already made 2 test audit loops." } });
+    expect(current.engine.record.settings.auditLoops).toEqual({ deliveryLimit: 4, testLimit: 4 });
+    go(path); await current.engine.settled();
     expect(stops(current)).toEqual([]);
     expect(current.engine.record.completedAt).toBeTruthy();
     expect(kinds(current)).toEqual(["delivery", "test", "delivery", "test"]);
@@ -200,8 +209,9 @@ describe("a limit changed during a run (AC-CHOICE-02, AC-STOP-05)", () => {
     go(path); await current.engine.settled();
     expect(stops(current)).toEqual([]);
     expect(current.engine.record.completedAt).toBeTruthy();
-    // The second audit's phase is built; no third delivery audit runs.
+    // The second audit's phase is built, by a session Kiln ran for it (AC-LAST-05); no third delivery audit runs.
     expect(current.engine.record.phases["3"]!.doneAt).toBeTruthy();
+    expect(current.engine.record.phases["3"]!.sessionIds).toHaveLength(1);
     expect(kinds(current)).toEqual(["delivery", "delivery", "test"]);
   });
 
@@ -264,6 +274,22 @@ describe("a limit changed during a run (AC-CHOICE-02, AC-STOP-05)", () => {
     expect(current.engine.record.completedAt).toBeTruthy();
     expect(kinds(current)).toEqual(["delivery", "test"]);
   });
+
+  it("a raise of the test limit after test's last loop with nothing unchecked changes nothing", { timeout: 180_000 }, async () => {
+    const current = await fixture([]);
+    const path = marker(current, "last-test-audit-nothing-unchecked");
+    writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [pullRequestSession()], auditSessions: [audit(), audit({ beforeSubmitFile: path }), audit()] }));
+    expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 4, testLimit: 1 } })).ok).toBe(true);
+    await current.engine.start({ refinementConfirmed: true });
+    await reached(path);
+    expect(buildSnapshot(current.engine).auditLoops).toMatchObject({ test: { used: 1, limit: 1, closed: true } });
+    expect(await current.engine.changeSettings({ auditLoops: { deliveryLimit: 4, testLimit: 3 } })).toEqual({ ok: true });
+    go(path); await current.engine.settled();
+    expect(stops(current)).toEqual([]);
+    expect(current.engine.record.completedAt).toBeTruthy();
+    expect(kinds(current)).toEqual(["delivery", "test"]);
+    expect(loops(current)).toEqual(["delivery 1", "test 1"]);
+  });
 });
 
 describe("the run's page names a phase an audit added, with no loop (AC-STOP-05)", () => {
@@ -295,6 +321,36 @@ describe("Mark complete's next step respects a closed kind (AC-LAST-03)", () => 
     await control(current, "check-again");
     const offer = current.engine.markCompleteOffer();
     expect(offer).toMatchObject({ offered: true, nextActivity: { kind: "final_delivery", title: "Final delivery" } });
+    if (!offer.offered) throw new Error("not offered");
+    // Pressing it follows that route: no further test audit, and the run completes.
+    await control(current, "waive-and-advance", { check_run_id: offer.checkRunId, via: "command_line", by: "ops-bot" });
+    await current.engine.settled();
+    expect(stops(current)).toEqual([]);
+    expect(current.engine.record.completedAt).toBeTruthy();
+    expect(kinds(current)).toEqual(["delivery", "test", "delivery"]);
+    expect(loops(current)).toEqual(["delivery 1", "test 1", "delivery 2"]);
+  });
+
+  it("phases from delivery audit loop 1 of 1 marked complete are built, with no delivery audit after them", { timeout: 240_000 }, async () => {
+    const critical = { kind: "critical_next_step", problem: "The pull request would publish the production key.", action: "Rotate the key.", waitsOn: "The pull request." };
+    const current = await fixture([audit({ gap: true, items: [critical] }), audit()], [landing(), pullRequestSession()]);
+    expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 4 } })).ok).toBe(true);
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    const stopped = current.engine.record.completionAudits!.activities.at(-1)!;
+    expect(stopped.kind).toBe("delivery_audit");
+    expect(current.engine.stoppedPhaseKey()).toBe(auditKey(stopped));
+    await control(current, "check-again");
+    const offer = current.engine.markCompleteOffer();
+    if (!offer.offered) throw new Error(`not offered: ${JSON.stringify(offer)}`);
+    await control(current, "waive-and-advance", { check_run_id: offer.checkRunId, via: "command_line", by: "ops-bot" });
+    await current.engine.settled();
+    expect(stops(current)).toEqual([]);
+    expect(current.engine.record.completedAt).toBeTruthy();
+    // The phase the marked-complete audit appended is built, then the test audit runs; delivery is closed, so no delivery audit checks it.
+    expect(current.engine.record.phases["2"]!.doneAt).toBeTruthy();
+    expect(current.engine.record.phases["2"]!.sessionIds).toHaveLength(1);
+    expect(kinds(current)).toEqual(["delivery", "test"]);
+    expect(loops(current)).toEqual(["delivery 1", "test 1"]);
   });
 });
 
