@@ -16,6 +16,8 @@ section to the new version.
   **Check for new phases** button does, and `kiln continue-with-phases` continues the run with
   the phases it offers. `kiln status` shows the offer, with its phases, whether it is ready and
   its proposal ID.
+- `kiln status` lists `kiln handoff` among its controls, with whether it can open the run's
+  session in a terminal and why not, even when Kiln isn't running.
 
 ### Changed
 

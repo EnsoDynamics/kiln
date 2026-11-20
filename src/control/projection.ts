@@ -37,9 +37,9 @@ import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed
 import type { AuditLoopsView } from "../engine/loop-view.js";
 import { continuationFacts, deliveredFacts } from "./delivered-facts.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases", "handoff"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
-const requiredInputs = (name: string) => name === "check-for-new-phases" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
+const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -265,10 +265,12 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   let control: ReturnType<Engine["controlView"]> | undefined;
   try { control = engine ? inspectionReader(engine, deadline).controlView() : undefined; }
   catch { statusErrors.push(errorFact("state_unavailable", "Current controls could not be read; no executable controls are returned.")); }
-  const controls = control && engine ? [...control.controls.filter(c => c.name !== "message-review"), ...engine.newPhaseControls()].map(c => ({ ...c, required_inputs: requiredInputs(c.name), invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: requiredInputs(name), invocation: null }));
+  const controls: { name: string; available: boolean; reason: string | null; required_inputs: string[]; invocation: string[] | null }[] = control && engine ? [...control.controls.filter(c => c.name !== "message-review"), ...engine.newPhaseControls()].map(c => ({ ...c, required_inputs: requiredInputs(c.name), invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.filter(name => name !== "handoff").map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: requiredInputs(name), invocation: null }));
   const active = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, active, deadline);
   try {
+  // `kiln handoff` reads saved sessions itself, so it is listed with its own availability, with or without a controller (AC-BOT-01).
+  controls.push(handoffControl(work, history, engine, active));
   const last = latestActivity({ ...work, record }, history, view, cache?.last_activity, deadline);
   const savedMessage = savedStop && savedStop[1].stop?.kind !== "not_resumable" && !savedStop[1].stop?.interrupted ? modelSession?.runs.at(-1)?.result?.text : undefined;
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
@@ -381,6 +383,25 @@ function auditWaiverReader(root: string, stateDirectory: string, deadline: numbe
     const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as AuditWaiverResult;
     return value.kind === "audit_waiver" ? value : undefined;
   };
+}
+/**
+ * `kiln handoff` among the status controls (AC-BOT-01): available when the session it would open
+ * isn't running under Kiln or held by a takeover and its working directory is there. The provider
+ * history read stays with `kiln handoff`, which reports it when it runs.
+ */
+function handoffControl(work: SavedWork, history: History, engine: Engine | undefined, activeId: string | undefined) {
+  const control = (available: boolean, reason: string | null) => ({ name: "handoff", available, reason, required_inputs: requiredInputs("handoff"), invocation: ["kiln", "handoff", work.canonical] });
+  let selected: Conversation | null;
+  try { selected = chooseSession(work, history, undefined, activeId); } catch { return control(false, "Saved sessions could not be read."); }
+  if (!selected) return control(false, "No saved session.");
+  if (activeId === selected.id || engine?.ownsInspectionSession(selected.id)) return control(false, "This conversation is currently running under Kiln; a concurrent manual resume is unavailable.");
+  if (!workingDirectoryAvailable(selected.record.workingDirectory ?? work.record.settings.worktreePath)) return control(false, "The recorded working directory is unavailable.");
+  const provider = selected.record.agentId === "codex" ? selected.record.conversation?.threadId : selected.record.sessionId;
+  if (typeof provider !== "string" || !safeSelector(provider)) return control(false, "Provider conversation identity is unknown.");
+  const hold = engine?.record.liveControl?.takeover ?? work.record.liveControl?.takeover;
+  const liveRun = selected.record.runs.at(-1);
+  if ((hold?.target.sessionId === selected.record.sessionId || !!liveRun?.live && !liveRun.endedAt) && (!engine || hold?.state !== "released")) return control(false, !engine ? "Controller disconnected; reconnect to establish safe terminal release." : hold?.reason ?? "This conversation is still running.");
+  return control(true, null);
 }
 export async function handoffProjection(work: SavedWork, selector: string | undefined, env: NodeJS.ProcessEnv, engine?: Engine): Promise<Result> {
   const folders = failingFolders(engine?.record ?? work.record, engine, Date.now() + 5000);

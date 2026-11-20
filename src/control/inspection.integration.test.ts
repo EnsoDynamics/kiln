@@ -285,11 +285,11 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
     expect(detail.agent).toBe('claude_code');expect(detail.stop).toMatchObject({reason:'done_check',final_message:'Literal final question: "UPS?"\nDo not run $(anything).',message_complete:true,session_id:h.engine.latestSession('1')!.sessionId,phaseId:'1',checked_at:h.engine.record.phases['1']!.stop!.checkedAt,checks:browser.checks,failed_checks:browser.checks.filter(c=>!c.passed),resumeOffered:true,resumeCommand:browser.resumeCommand,freshSessionCommand:browser.freshSessionCommand,freshSessionPrompt:browser.freshSessionPrompt});
     // AC-ACT-01: pin the complete inventory, not an every() over a possibly empty list.
-    const controlNames=['reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','check-for-new-phases','continue-with-phases','settings','message','take-over'].sort();
+    const controlNames=['reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','check-for-new-phases','continue-with-phases','handoff','settings','message','take-over'].sort();
     const controls=detail.controls as {name:string;available:boolean;reason:string|null}[];
     expect(controls.map(c=>c.name).sort()).toEqual(controlNames);
-    for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);expect(c).toMatchObject({required_inputs:c.name==='check-for-new-phases'?['PRD-path']:c.name==='continue-with-phases'?['PRD-path','--proposal','--only-if-status-matches','--command-id']:['PRD-path','--only-if-status-matches','--command-id'],invocation:['kiln',c.name,path]});}
-    for(const name of ['reply','resume','settings'])expect(controls.find(c=>c.name===name)?.available).toBe(true);
+    for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);expect(c).toMatchObject({required_inputs:c.name==='check-for-new-phases'||c.name==='handoff'?['PRD-path']:c.name==='continue-with-phases'?['PRD-path','--proposal','--only-if-status-matches','--command-id']:['PRD-path','--only-if-status-matches','--command-id'],invocation:['kiln',c.name,path]});}
+    for(const name of ['reply','resume','settings','handoff'])expect(controls.find(c=>c.name===name)?.available).toBe(true);
 
     const handoff=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
     expect(handoff.code,handoff.stdout).toBe(0);expect(handoff.json().data).toMatchObject({resume_command:browser.resumeCommand,continuation_prompt:browser.resumePrompt??null,working_directory:h.engine.worktreePath,resumable:true});
@@ -306,7 +306,9 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const stopped=(await command(['status',path,'--json'],h.env,h.sandbox.root)).json();expect(stopped.facts).toMatchObject({state:'stale',observed_at:cacheDate});expect(stopped.status_token).toBeNull();expect(stopped.stop).toMatchObject({final_message:browser.finalMessage});
     const retained=stopped.controls as {name:string;available:boolean;reason:string|null}[];
     expect(retained.map(c=>c.name).sort()).toEqual(controlNames);
-    for(const c of retained){expect(c.available).toBe(false);expect(c.reason).toContain('disconnected');}
+    // kiln handoff reads saved sessions itself, so it stays available with the controller gone (AC-BOT-01).
+    for(const c of retained.filter(c=>c.name!=='handoff')){expect(c.available).toBe(false);expect(c.reason).toContain('disconnected');}
+    expect(retained.find(c=>c.name==='handoff')).toMatchObject({available:true,reason:null,invocation:['kiln','handoff',path]});
 
   });
   it('keeps active handoffs unavailable and retains earlier-conversation instructions when the controller closes',async()=>{

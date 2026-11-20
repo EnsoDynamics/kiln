@@ -9,12 +9,13 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
-import { createHarness, type Harness } from "../test-support/engine-harness.js";
+import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { boundPort } from "../test-support/os-ports.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { writeJsonAtomically } from "../state/state-files.js";
+import { writeSessionRecord } from "../state/records.js";
 
 let h: Harness;
 let server: LocalServer | undefined;
@@ -115,6 +116,34 @@ it("reads and changes the two limits during a run, refusing a limit below the ru
   const go = await cli(["continue-with-phases", target(), "--proposal", proposal, "--only-if-status-matches", await token(), "--command-id", "continue-early", "--json"]);
   expect(go.code, go.stdout).toBe(3);
   expect(go.json()).toMatchObject({ ok: false, operation: { state: "refused", action: "continuation-accept" } });
+
+  // Opening the stopped session in a terminal is listed too, available, and the command it names opens that session (AC-BOT-01).
+  const sessionId = h.engine.record.phases["1"]!.sessionIds.at(-1);
+  expect(controls.find(c => c.name === "handoff")).toEqual({ name: "handoff", available: true, reason: null, required_inputs: ["PRD-path"], invocation: ["kiln", "handoff", target()] });
+  expect(text.stdout).toMatch(/name: handoff\n\s+available: true\n\s+reason: unknown\n/);
+  const handoff = await cli(["handoff", target(), "--json"]);
+  expect((handoff.json().data as Record<string, unknown>).session_id).toBe(sessionId);
+  // With the controller gone the other controls can't run, but kiln handoff reads saved sessions itself, so it stays available.
+  await server!.close(); server = undefined;
+  const disconnected = (await cli(["status", target(), "--json"])).json().controls as typeof controls;
+  expect(disconnected.find(c => c.name === "settings")).toMatchObject({ available: false, invocation: null });
+  expect(disconnected.find(c => c.name === "handoff")).toEqual({ name: "handoff", available: true, reason: null, required_inputs: ["PRD-path"], invocation: ["kiln", "handoff", target()] });
+  // A conversation still live when the controller went away can't be released safely, so it isn't offered.
+  const session = h.engine.latestSession("1")!; session.runs.at(-1)!.live = { attemptId: "held", gateDirectory: h.stateDirectory, configRoot: h.stateDirectory, profile: "test" }; delete session.runs.at(-1)!.endedAt;
+  writeSessionRecord(h.stateDirectory, session);
+  const live = (await cli(["status", target(), "--json"])).json().controls as typeof controls;
+  expect(live.find(c => c.name === "handoff")).toMatchObject({ available: false, reason: "Controller disconnected; reconnect to establish safe terminal release." });
+});
+
+it("lists the handoff as unavailable, with why, while its session is running under Kiln (AC-BOT-01)", async () => {
+  h = await createHarness({ sessions: [{ actions: [{ waitForFile: "never-created" }] }] });
+  await h.engine.start({ refinementConfirmed: true });
+  await waitFor(() => !!h.engine.current?.processRunning && !!h.engine.current.session);
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
+  await lockOn(boundPort(server.address));
+  const controls = (await cli(["status", target(), "--json"])).json().controls as { name: string; available: boolean; reason: string | null }[];
+  expect(controls.find(c => c.name === "handoff")).toMatchObject({ available: false, reason: "This conversation is currently running under Kiln; a concurrent manual resume is unavailable." });
+  expect((await cli(["status", target()])).stdout).toMatch(/name: handoff\n\s+available: false\n\s+reason: This conversation is currently running under Kiln; a concurrent manual resume is unavailable\.\n/);
 });
 
 it("refuses the removed loop stop commands and setting before reading any flag or the controller (AC-STOP-04)", async () => {

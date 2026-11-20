@@ -1,5 +1,7 @@
 # Phase 4: List the handoff among the status controls
 
+**Closed:** 2026-11-20
+
 **Added by delivery audit:** 2026-11-20, after every planned phase closed. It builds what earlier phases left out of the criterion below.
 **Parent PRD:** [Kiln Deliver When Audit Loops Run Out](kiln-deliver-when-audit-loops-run-out-prd.md)
 **Technical design:** [Kiln Deliver When Audit Loops Run Out technical design](kiln-deliver-when-audit-loops-run-out-technical-design.md) — relevant sections: "Interfaces" (Status and snapshot: "Its controls list gives `settings`, `check-for-new-phases`, `continue-with-phases` and the handoff, each with availability and reason")
