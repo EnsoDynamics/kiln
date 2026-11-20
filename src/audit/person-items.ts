@@ -12,7 +12,7 @@
  *   const ledger = personItems(stateDirectory, record.completionAudits!.activities, activity.sequence);
  *   ledger.outstanding // [{ id: "item-1", kind: "blocker", problem, action, waitsOn, listedBy: "Delivery audit round 1", … }]
  */
-import { PERSON_ITEM_KINDS, type AuditActivity, type AuditReport, type PersonItemKind } from "./contracts.js";
+import { PERSON_ITEM_KINDS, type AuditActivity, type AuditReport, type NeedsYouEntry, type PersonItemKind } from "./contracts.js";
 import { acceptedAudit } from "./effective-result.js";
 import { AuditStore } from "./storage.js";
 import type { AuditWaiverResult, Waiver, WaiverRef } from "../engine/waivers.js";
@@ -44,6 +44,16 @@ function itemsReport(stateDirectory: string, activity: AuditActivity, store: Pic
   return accepted ? { report: accepted.report } : undefined;
 }
 
+/**
+ * What a needsYou entry means once read against the item it lists again, if any: a relisting keeps
+ * the item's kind, what waits on it and its criterion unless it gives new ones (AC-ITEM-02).
+ */
+export function keptFields(entry: Pick<NeedsYouEntry, "kind" | "waitsOn" | "criterion">, kept?: Pick<PersonItem, "kind" | "waitsOn" | "criterion">): { kind: PersonItemKind | null; waitsOn?: string; criterion?: string } {
+  const kind = entry.kind && PERSON_ITEM_KINDS.includes(entry.kind) ? entry.kind : kept?.kind ?? null;
+  const waitsOn = entry.waitsOn ?? kept?.waitsOn; const criterion = entry.criterion ?? kept?.criterion;
+  return { kind, ...(waitsOn ? { waitsOn } : {}), ...(criterion ? { criterion } : {}) };
+}
+
 /** The ledger after every settled audit sequenced before `before` (all of them when omitted). */
 export function personItems(stateDirectory: string, activities: AuditActivity[], before = Infinity, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): PersonItemLedger {
   const outstanding = new Map<string, PersonItem>(); const settled: SettledPersonItem[] = []; let next = 1;
@@ -57,10 +67,8 @@ export function personItems(stateDirectory: string, activities: AuditActivity[],
     }
     for (const entry of read.report.needsYou) {
       const item = entry.id ? outstanding.get(entry.id) : undefined;
-      const kind = entry.kind && PERSON_ITEM_KINDS.includes(entry.kind) ? entry.kind : item?.kind ?? null;
-      const criterion = entry.criterion ?? item?.criterion; const waitsOn = entry.waitsOn ?? item?.waitsOn;
       const waived = item?.auditWaiverId ? { auditWaiverId: item.auditWaiverId, auditWaivedBy: item.auditWaivedBy! } : read.waiverId ? { auditWaiverId: read.waiverId, auditWaivedBy: name } : {};
-      const kept = { problem: entry.problem, action: entry.action, kind, ...(criterion ? { criterion } : {}), ...(waitsOn ? { waitsOn } : {}), ...waived };
+      const kept = { problem: entry.problem, action: entry.action, ...keptFields(entry, item), ...waived };
       if (item) outstanding.set(item.id, { id: item.id, listedBy: item.listedBy, listedByActivityId: item.listedByActivityId, ...kept });
       else { const id = `item-${next++}`; outstanding.set(id, { id, listedBy: name, listedByActivityId: activity.activityId, ...kept }); }
     }

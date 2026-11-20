@@ -2,7 +2,7 @@ import { preparationPermissions } from "./preparation-permissions.js";
 import { claudeReopenCheck, conversationBegan as sessionBegan, lastRecordedRun, readPhaseWork, type WorkRead } from "./stopped-phase.js";
 import type { ReopenCheck } from "./reopen-check.js";
 import { markReasonRows } from "../state/records.js";
-import { itemEffect, itemLine, itemWaiver, kindWords, outstandingLines, personItems } from "../audit/person-items.js";
+import { itemEffect, itemLine, itemWaiver, keptFields, kindWords, outstandingLines, personItems } from "../audit/person-items.js";
 import { deliveryBlock, forYou, type ForYou } from "../audit/for-you.js";
 import { readContinuationProposal } from "./continuation-readiness.js";
 import { preparationPrompt, preparationImplementationPrompt, carryOnPrompt, freshSessionPrompt } from "../session/prompts.js";
@@ -4387,9 +4387,8 @@ export class Engine {
     const known = new Map(personItems(this.stateDirectory, audits, activity.sequence, auditStore).outstanding.map(item => [item.id, item]));
     return report.needsYou.map(entry => {
       const kept = entry.id ? known.get(entry.id) : undefined;
-      const waitsOn = entry.waitsOn ?? kept?.waitsOn; const criterion = entry.criterion ?? kept?.criterion;
       const waiver = kept ? itemWaiver(kept, this.record.waivers) : undefined;
-      return view({ ...(entry.id ? { id: entry.id } : {}), kind: entry.kind ?? kept?.kind ?? null, problem: entry.problem, action: entry.action, ...optionalField("waitsOn", waitsOn), ...optionalField("criterion", criterion), ...(waiver ? { waiver } : {}) });
+      return view({ ...(entry.id ? { id: entry.id } : {}), problem: entry.problem, action: entry.action, ...keptFields(entry, kept), ...(waiver ? { waiver } : {}) });
     });
   }
 

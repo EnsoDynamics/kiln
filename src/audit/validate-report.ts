@@ -7,7 +7,7 @@ import type { PrdRecord } from "../state/records.js";
 import { AuditRefusal, requireAudit, type AuditActivity, type AuditReportV2, type AuditResult, type WorkSnapshot } from "./contracts.js";
 import { requirementsDocumentFilter } from "./snapshots.js";
 import { effectiveRecordedClosed } from "../engine/waivers.js";
-import { itemEffect, itemWaiver, type PersonItem } from "./person-items.js";
+import { itemEffect, itemWaiver, keptFields, type PersonItem } from "./person-items.js";
 import { PERSON_ITEM_KINDS } from "./contracts.js";
 import type { Waiver } from "../engine/waivers.js";
 
@@ -49,11 +49,11 @@ function validate(report: AuditReportV2, { record, activity, initial, current, o
   // Every item says why it is there (AC-ITEM-02), and only an item that stops or holds the run stops it (AC-ITEM-01).
   const entries = report.needsYou.map(entry => {
     const kept = entry.id === undefined ? undefined : known.get(entry.id);
-    const kind = entry.kind ?? kept?.kind ?? null;
+    const { kind, waitsOn } = keptFields(entry, kept);
     const named = entry.id ? `${entry.id} (${entry.problem})` : `"${entry.problem}"`;
     requireAudit(kind !== null, `needsYou entry ${named} gives no kind; give one of ${PERSON_ITEM_KINDS.join(", ")}.`);
     const effect = itemEffect(kind);
-    requireAudit(effect === "goes_on" || nonempty(entry.waitsOn ?? kept?.waitsOn), `needsYou entry ${named} is a ${kind} item, so it needs waitsOn: what waits on it.`);
+    requireAudit(effect === "goes_on" || nonempty(waitsOn), `needsYou entry ${named} is a ${kind} item, so it needs waitsOn: what waits on it.`);
     return { kind, effect, named, covered: !!kept && !!itemWaiver(kept, waivers) };
   });
   const uncoveredCritical = entries.find(entry => entry.kind === "critical_next_step" && !entry.covered);
