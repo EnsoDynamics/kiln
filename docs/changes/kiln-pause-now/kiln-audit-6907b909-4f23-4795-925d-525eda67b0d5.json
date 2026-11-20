@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "77bc76ad-bd4c-4d31-b6a4-3b6da5caea30",
+  "activityId": "6907b909-4f23-4795-925d-525eda67b0d5",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Delivery audit of Kiln Pause Now (whole PRD, two rounds): AC-PAUSE-02 and AC-PAUSE-04 are fully built; AC-PAUSE-01, 03, 05 and 06 each miss a part. After a phase splits mid-session, Pause now names the launched phase rather than the leaf the running header names (header, phase-plan row, paused card and Resume label); an audit with no live target, such as a Codex audit, loses its round in the pause panel; and the session page shows a bare Pausing pill instead of the Pausing {activity} header beside the phases done. Phase 2 was added to build these.",
+  "completionPhases": ["2"],
+  "needsYou": [],
+  "settled": []
+}
