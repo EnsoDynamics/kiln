@@ -31,6 +31,7 @@ This needs no change to the Enso Method. The test audit skill already accepts We
 The person chooses the limits before the run starts, on the same screen as Kiln's other settings. Each setting says what one loop is, because the two kinds of loop are different things.
 
 - [ ] **AC-LOOP-01 — Three settings before Start.** Documents found has an **Audit loops** section with three settings, each with help text that says what it does using the numbers currently chosen:
+  - Superseded in part by: AC-CHOICE-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (two settings instead of three, named Max delivery audit loops and Max test audit loops; both defaults 4).
 
   | Setting | Values | Default |
   |---|---|---|
@@ -42,11 +43,16 @@ The person chooses the limits before the run starts, on the same screen as Kiln'
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Documents found, the run's settings and the loop stop page gain this change's sections; the rest of each layout remains)
 
 - [ ] **AC-LOOP-02 — A delivery audit loop is one round of building what an audit added.** A delivery audit loop starts each time Kiln starts building phases that an audit, delivery or test, added for unfinished criteria.
+  - Superseded by: AC-LAST-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a loop is one run of an audit, not the work on its findings).
 - [ ] **AC-LOOP-03 — A test audit loop is one session of test fixes after an audit.** A test audit session is a loop when Kiln starts it to continue test work a test audit saved, even with a delivery audit run in between, or, when the person chooses **Allow _N_ more loops** at a stop whose report saved none, to fix what that report listed (AC-STOP-02). No other test audit session is a loop, even one that fixes gaps itself.
+  - Superseded by: AC-LAST-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a loop is one run of an audit, not the work on its findings).
 - [ ] **AC-LOOP-04 — Loops are counted from when the run starts, or from when the person last allowed more.** Each count starts at zero when a run starts: at the first Start on Documents found, at **Continue with _N_ phases** (RUN-003), and at a Start from the base branch on the Folder missing page (AC-SETUP-04 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md`); and again when the person chooses **Allow _N_ more loops** of that kind (AC-STOP-02). Starting again after a pause, or from the run's existing feature branch (AC-SETUP-05 there), keeps both counts. At **Continue with _N_ phases**, the three settings carry over unchanged, and the earlier run's loops are not counted again. Resetting a run restores the default settings and both counts to zero.
+  - Superseded in part by: AC-LAST-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a count never starts again during a run).
 - [ ] **AC-LOOP-05 — Kiln never starts a loop past its limit, and the limits can change while it runs.** Kiln starts a loop only while one of that kind is left under the current limit. The person can change all three settings during a run, and a change applies from Kiln's next decision whether to start a loop.
   - Replaces in part: AC-WATCH-07 and AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the three loop settings are shown with the run's settings and can change during a run)
+  - Superseded in part by: AC-CHOICE-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (two settings; a limit cannot be set below the runs of that audit already made; a raise after a kind's last loop runs that audit again where there is work it has not checked, until the pull request session starts).
 - [ ] **AC-LOOP-06 — Kiln quotes only two sentences as the person's words.** Each sentence is shown beside the choice that gives it, and whenever Kiln quotes one it says where and when the person chose it:
+  - Superseded by: AC-CHOICE-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (neither acceptance sentence is offered).
 
   | Sentence | Where the person chose it |
   |---|---|
@@ -54,6 +60,7 @@ The person chooses the limits before the run starts, on the same screen as Kiln'
   | "I accept the remaining Weak rows, and AC-REFUND-04, AC-APPROVAL-01 and AC-RETURNS-03.", naming each item the audit listed, if it listed any: a row by its criterion's ID, anything else in the audit's words | **Accept what is left and deliver**, pressed at a test audit stop or given with its stop command (AC-STOP-02, AC-STOP-03) |
 
 - [ ] **AC-LOOP-07 — A run begun before this feature runs under Always stop and ask me.** A run begun under an earlier Kiln never showed the setting, so it runs under **Always stop and ask me**, with both limits at 3, until the person chooses, and counts the loops it has already made, as its saved audit history shows them (RUN-002).
+  - Superseded in part by: AC-CHOICE-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (no run stops and asks at a limit).
 
 ### Stop When the Delivery Audit Keeps Finding Unfinished Work
 
@@ -95,6 +102,7 @@ The last session of test fixes, and any test audit after it, is told no more loo
 A **loop stop** is a stop under AC-DELIV-01 or AC-TEST-02, because no loop of that kind is left. It is an ordinary Needs you stop: nothing failed. The page gives the person what they need to judge whether the work left matters, and the ways to go on.
 
 - [ ] **AC-STOP-01 — The page says which loops ran and what is left.** A loop stop's page shows the following, with no judgment of Kiln's own about which items matter:
+  - Superseded by: AC-STOP-04 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (there is no loop stop).
 
   | Part of the page | What it shows |
   |---|---|
@@ -104,6 +112,7 @@ A **loop stop** is a stop under AC-DELIV-01 or AC-TEST-02, because no loop of th
   | At a test audit stop | The person's **After the last test audit loop** choice |
 
 - [ ] **AC-STOP-02 — The person chooses how the run goes on.** At a loop stop, a report that adds phases or saves test work holds the run there until a loop of that kind is left or the person accepts, even when the audit is marked complete (RUN-001). Each control does what the table says:
+  - Superseded by: AC-STOP-04 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (there is no loop stop; Allow and Accept are removed).
 
   | Control | What Kiln does | Counted as a loop |
   |---|---|---|
@@ -120,6 +129,7 @@ A **loop stop** is a stop under AC-DELIV-01 or AC-TEST-02, because no loop of th
   - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Allow _N_ more loops and Accept what is left and deliver join the browser view's controls)
   - Replaces in part: AC-BACK-03 and AC-BACK-04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (at a takeover audit's loop stop that holds, because its report added phases or saved test work, a passing Check again does not advance, and the next work waits for a loop or an Accept)
 - [ ] **AC-STOP-03 — A bot can do everything the page does.** Everything this PRD adds to the page for a run that has started can also be done from the command line:
+  - Superseded in part by: AC-STOP-04 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the loop stop page and its two stop commands are removed, and `kiln status` no longer shows the removed setting; `kiln settings` sets the two limits).
 
   | On the page | From the command line |
   |---|---|

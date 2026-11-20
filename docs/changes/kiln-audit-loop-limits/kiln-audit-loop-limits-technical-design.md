@@ -18,6 +18,8 @@ Everything here is Kiln's. The Enso Method's skills are unchanged: the test audi
 
 ## Settings (AC-LOOP-01, AC-LOOP-05, AC-LOOP-06, AC-EFFORT-01)
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Settings (two limits, default 4, no third setting).
+
 `Settings` (and so `AgentSettings`) gains:
 
 ```
@@ -37,6 +39,8 @@ The settings are read fresh at each gate decision, never cached on a loop (AC-LO
 **Effort.** `defaultSettings` gives Claude Code `medium` instead of `high`. Codex's first-selection default (`high`) and the existing rule that replaces an effort the chosen model does not support are unchanged, and a saved choice is never rewritten.
 
 ## The Loop Ledger (AC-LOOP-02 to AC-LOOP-04, AC-SHOW-01)
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Loops and the Ledger (a loop is one run of an audit, counted when the audit is allocated; no `allowed` epoch, acceptance or `itemsListedStops`; `atPullRequest`).
 
 `PrdRecord` gains `auditLoops`, append-only like `waivers`:
 
@@ -83,6 +87,8 @@ A loop is appended in the same record write that commits Kiln to it, so a crash 
 
 ## The Loop Gate (AC-LOOP-05, AC-DELIV-01, AC-TEST-02)
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Routing After the Last Loop (the gate is removed; closing a kind is in `auditNext`).
+
 The gate runs inside the engine's `nextActivity`, after the pending-audit check and before it runs the next leaf or asks `auditNext` for the next audit or final delivery, on the record as it is now. It acts on the first row that fits:
 
 | Situation | Gate |
@@ -99,6 +105,8 @@ A `needs_you` test report is already a `done_check` stop with a failing **Audit 
 The gate's decision is a pure function of the record, settings and effective results. The engine's `nextActivity` applies it and writes the loop or the stop. `forecastNext` asks it about the activity it forecasts, treating the stopped audit as settled with `countedOutcome`, and never writes or rebuilds the ledger. So Check again, `kiln run`, a restart and a changed setting all reach the same decision; nothing is remembered between decisions except the ledger.
 
 ## Loop Stops (AC-STOP-01, AC-STOP-02, RUN-001)
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Removed Controls (there is no loop stop).
 
 `StopKind` gains `"loop_limit"`, and `PhaseStop` gains:
 
@@ -145,6 +153,8 @@ An item relisted by id need not repeat it, so `PersonItem` gains `criterion?`, s
 
 ## Prompts (AC-LOOP-06, AC-TEST-01, AC-TEST-03, AC-STOP-02)
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Prompts (no loop-limit or acceptance text; `{{nextSteps}}`).
+
 Four templates join `prompts/`. Three fill a new `{{loops}}` slot of `audit-session.txt` (empty when nothing applies), in the order listed, with the Allow note below last; the fourth, `pull-request-loop-acceptance.txt`, serves the pull request session (**What a session carried**, below). Every session Allow or Accept starts, at any stop, builds from `auditPrompt`, so this slot reaches it:
 
 - **`audit-loop-limits.txt`**, for a test audit session that is the last test loop, or that Kiln starts once no test loop is left (including an Accept session): no more test audit loops follow; the limit; the **After the last test audit loop** choice, with "applied by Kiln because this run began before the setting existed" when the source is `kiln_for_earlier_run`. Under `deliver_unless_serious` it quotes, word for word as the person's, "I accept the remaining Weak rows after the last test audit loop.", with where and when (`afterLastTestSource`). Under `stop_and_ask` it carries nothing more from the setting.
@@ -165,6 +175,8 @@ The Allow session at an `items_listed` stop gets a short note in the same slot: 
 **What a session carried.** The session record gains `carried?: { sentence, source }[]`, written at launch with the prompt: every sentence its prompt quotes, the setting's, each earlier `Acceptance`'s and its own Accept's. `pull-request-loop-acceptance.txt` is filled from the latest session, by `createdAt`, in the current execution whose `carried` is non-empty. It quotes every sentence in that session's `carried`, each as the person's with where and when, and adds the `summary` of that session's activity's accepted report, leaving it out when the activity has none (marked complete). `pullRequestPromptValues` gains a `loopAcceptance` value beside `personItemsForDelivery`; `pullRequestSessionPrompt` appends it after the person-items block in both the pull request and development-finalization paths.
 
 ## Interfaces (AC-STOP-03)
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (no loop stop commands; the two limits, `check-for-new-phases` and `continue-with-phases`).
 
 **Control journal.** `settings` takes `delivery_audit_loops`, `test_audit_loops` and `after_last_test_audit_loop` (`deliver_unless_serious | stop_and_ask`) beside `keep_awake`; the receipt's `settings` echo includes them, and the receipt validator accepts a receipt saved before them without the new fields. New actions `allow-more-loops` (`{ count }`) and `accept-and-deliver` (`{ via }`) join `STARTING_ACTIONS`, so a session either one dispatches settles `started`, never `resumed`. At a `needs_you` stop each dispatches the new audit session under its own receipt, as `carry-on` does (`controlDispatch`, `requestedLaunch` of kind `audit`), and settles `session_started` or `dispatch_not_started`. At every other loop stop it dispatches nothing. Its one record write stamps `controlApplied` with `loops_allowed` or `acceptance_recorded`, and the receipt settles `completed` with session `not_started` and plan `not_advanced`, as `continue` does. Only then does the deferred kick run the gate, which starts the session under Kiln's automatic receipt; the control never sets `controlDispatch`. After a restart, a receipt that `controlApplied` names settles with that outcome. One still `applying` with its stop in place saved nothing and settles `failed`, `not_applied`, as an interrupted Mark complete does. The two outcome names stay out of the plan-advanced outcome list and are declared in the two new commands' entries in `prompts/kiln-command-contracts.json`, beside the existing stop commands. `accept-and-deliver`, and a `settings` instruction that carries `after_last_test_audit_loop`, take `via: "browser" | "command_line"`, as `waive-and-advance` does, because the receipt's `source` is `caller` for both the page and the CLI and cannot say where the person was. The page's routes set `browser`. The control route sets `command_line` and refuses a `via` from the caller. The CLI's local instruction check skips these, as it does for `waive-and-advance`. Saved `settings` receipts without the new field still validate. Kiln records `browser` as `where: run_page` for a settings change and as `Acceptance.via: "browser"` for an Accept, matching `WaiverSource`. `allow-more-loops` takes no `via`, since it quotes no sentence. The controller advertises an `audit_loops` feature; the CLI refuses with `instance_incompatible` against a controller without it.
 
@@ -201,11 +213,15 @@ The stop's `controls` list adds the two actions with availability and reason. Ma
 
 ## Display Contract (AC-LOOP-01, AC-STOP-01, AC-SHOW-01, AC-TEST-03)
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §The Status Line (no loop stop page; the status line names the loop).
+
 - **Documents found and the run's settings panel:** the **Audit loops** section of mockup screens 0 and 1, help text computed from the values shown; Effort's help line as screen 0.
 - **Activity rows:** `PhaseView` gains `loops?: { number, limit, last, sessionId?, observed? }[]` (`sessionId` on test loops, `observed` copied from the ledger loop) from the ledger (each with the limit in force when it started), one per loop the activity holds (§The Loop Ledger, "Which loop a session belongs to"). The row reads by the latest: **loop N of M**, or **last loop** when `last`. The detail lists each loop with its time, `runTiming` over its own sessions' runs, and what it did: its latest attempt holding a report, as the outcome in words, then that report's `summary`, absent when it left none. A delivery loop names the phases it built. A row whose session carried a sentence says which one, and its detail quotes it. A loop with `observed` adds "counted from this run's history when Kiln was upgraded" to its entry in the detail, and to its line on a stop page (§Upgrade).
 - **Needs you:** a loop stop (a `loop_limit` stop, or a `needs_you` loop stop by `loopStopOf`) renders mockup screens 2 and 3 from `auditLoops.stop`, with no ranking or judgment of Kiln's. A holding `loop_limit` stop shows the **Audit loop left** row and Mark complete's refusal reason (§Loop Stops). **Allow _N_ more loops** takes N, filled in as 2. A session an `Acceptance` started (§The Loop Ledger, "Which loop a session belongs to") is a line of its own, **Accept session**, with its own sessions' time and what it did, never part of the loop or audit session before it on the same activity.
 
 ## Upgrade (AC-LOOP-07, RUN-002)
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Upgrade (schema 24 rebuilds the loops as audit runs).
 
 Schema 22, in two steps, because `migrateRecord` sees only the record while the audit history lives in the audit store and session records:
 

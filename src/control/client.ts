@@ -13,8 +13,8 @@ import { outputPage, LOG_BYTES } from "./logs.js";
 import { commandHelp, parseCommand } from "./help.js";
 import { ControlFailure, errorFact, failed, exitFor, result, serialize, type Result } from "./result.js";
 import type { CommandContext } from "../kiln-command.js";
-import { loopSettings } from "../state/audit-loops.js";
-import { afterLastTestFacts, afterLastTestText, auditLoopsText, loopCount, loopSettingInputs, SETTING_FLAGS, type AuditLoopsView, type StatusControl } from "./loop-text.js";
+import { loopSettings, REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
+import { auditLoopsText, loopSettingInputs, SETTING_FLAGS, type AuditLoopsView } from "./loop-text.js";
 
 interface Capability { protocol_major: number; execution_id: string; prd_path: string; instance: { pid: number; process_start_time: string | null }; features: string[] }
 interface Controller { features?: string[]; state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
@@ -90,6 +90,14 @@ async function inventory(env: NodeJS.ProcessEnv): Promise<Result> {
   if (errors.length) errors.unshift(errorFact("inventory_incomplete", "Some saved work or controller facts are unavailable; counts are incomplete."));
   return result({ collection_started_at: started, inventory_complete: !errors.length, counts, runs: runs.sort((a, b) => a.prd_path!.localeCompare(b.prd_path!)) }, errors);
 }
+const INCOMPATIBLE_LOOPS = "This controller does not support the new audit loop limits. Restart it with updated Kiln.";
+
+/** `kiln settings`' line for the two limits; once the pull request session has started, a change applies to a continuation (AC-CHOICE-02). */
+function loopLimitsLead(record: SavedWork["record"]): string {
+  const loops = loopSettings(record.settings);
+  return `Max delivery audit loops: ${loops.deliveryLimit} · Max test audit loops: ${loops.testLimit}${record.auditLoops?.atPullRequest ? "\nThe limits are held for the rest of this run: a change to either limit applies to a continuation of it." : ""}`;
+}
+
 /** Returns undefined only for the existing execution helpers, whose contracts remain unchanged. */
 export async function runInspectionCommand(args: string[], context: CommandContext): Promise<number | undefined> {
   const json = args.includes("--json"); const logs = args[0] === "logs";
@@ -104,7 +112,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
   const statusLead = (answer: Result) => {
     if (answer.state === "folder_missing") return folderMissingText(progressHeading(answer), answer.folder_missing as FolderMissingFacts);
     const rows = answer.progress as ProgressRow[] | undefined;
-    const loops = auditLoopsText(answer.audit_loops as AuditLoopsView | null | undefined, answer.controls as StatusControl[] | undefined);
+    const loops = auditLoopsText(answer.audit_loops as AuditLoopsView | null | undefined);
     const lead = [rows?.length ? progressText(progressHeading(answer), rows).trimEnd() : undefined, loops].filter(Boolean).join("\n");
     return lead ? `${lead}\n` : undefined;
   };
@@ -115,6 +123,9 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       if (args.some((a, i) => i > 0 && a !== "--json") || args.filter(a => a === "--json").length > 1) throw new ControlFailure("invalid_input", "Unknown or duplicate help flag.", 2);
       context.stdout.write(commandHelp([], json)); return 0;
     }
+    // The loop stop controls and the third loop setting were removed (AC-STOP-04): refused before any other flag is read or the controller is looked up.
+    if (args[0] === "allow-more-loops" || args[0] === "accept-and-deliver") throw new ControlFailure("removed_command", REMOVED_LOOP_COMMAND, 2);
+    if (args[0] === "settings" && args.includes("--after-last-test-audit-loop")) throw new ControlFailure("removed_command", REMOVED_LOOP_SETTING, 2);
     const legacy = ["run", "audit", "delivery", "add-repository", "preparation"].includes(args[0]!);
     if (legacy && !args.includes("--help") && !args.includes("-h")) return undefined;
     const parsed = parseCommand(args); const name = parsed.contract.path[0]!; const flags = parsed.flags;
@@ -126,7 +137,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       if (name === "reply" || name === "message" || name === "carry-on" && (flags["message-file"] || flags["message-from-stdin"])) message = await readMessage(typeof flags["message-file"] === "string" ? flags["message-file"] : undefined, context.cwd, name === "message" ? "live" : "reply");
       for (const key of ["keep-awake", "resume-after-usage-limit"]) if (flags[key] && !["on", "off"].includes(String(flags[key]))) throw new ControlFailure("invalid_input", "Settings accept on or off.", 2);
     }
-    const loopInputs = name === "settings" ? loopSettingInputs(flags) : name === "allow-more-loops" ? { count: loopCount(flags.loops, "--loops") } : {};
+    const loopInputs = name === "settings" ? loopSettingInputs(flags) : {};
 
     if (name === "status" && !parsed.positionals.length) {
       if (flags.detail) throw new ControlFailure("invalid_input", "--detail full requires a PRD path.", 2);
@@ -144,6 +155,12 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       const answer = receiptResult(work.canonical, receipt, "last_known", true);
       return write(answer, receiptLead(answer, work.record));
     }
+    if (name === "check-for-new-phases") {
+      // The finished page's Check for new phases (AC-BOT-01): no inputs and no receipt, so no command ID or status token.
+      if (owner.state !== "reachable") throw new ControlFailure("controller_unreachable", "Checking for new phases requires its matching live controller.");
+      if (!owner.features?.includes("loop_limits_move_on")) throw new ControlFailure("instance_incompatible", INCOMPATIBLE_LOOPS);
+      return write(await request(work, owner, "continuation/check", 35000, true));
+    }
     if (mutation) {
       if (owner.state !== "reachable") throw new ControlFailure("controller_unreachable", "Changing work requires its matching live controller.");
       if (!owner.features?.includes("commands")) throw new ControlFailure("instance_incompatible", "This controller does not support durable controls. Restart it with updated Kiln.");
@@ -152,25 +169,24 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       const waive = name === "waive-and-advance";
       if (waive && !owner.features?.includes("waive_and_advance")) throw new ControlFailure("instance_incompatible", "This controller does not support waive-and-advance. Restart it with updated Kiln.");
       if ((name === "carry-on" || name === "start-again" || name === "reset") && !owner.features?.includes(name.replace("-", "_"))) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
-      // Kiln Audit Loop Limits AC-STOP-03: the two stop commands and the loop settings need a controller that knows audit loops.
-      if ((name === "allow-more-loops" || name === "accept-and-deliver" || Object.keys(loopInputs).length) && !owner.features?.includes("audit_loops")) throw new ControlFailure("instance_incompatible", "This controller does not support audit loop limits. Restart it with updated Kiln.");
+      // The loop limits and continuing with new phases need a controller that moves on at the limits (AC-BOT-01).
+      if ((name === "continue-with-phases" || Object.keys(loopInputs).length) && !owner.features?.includes("loop_limits_move_on")) throw new ControlFailure("instance_incompatible", INCOMPATIBLE_LOOPS);
       const token = String(flags["only-if-status-matches"]);
       const instruction = { command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
-        inputs: name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}), ...loopInputs } : name === "allow-more-loops" ? loopInputs : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };
+        inputs: name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}), ...loopInputs } : name === "continue-with-phases" ? { proposal_id: flags.proposal } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };
       if (flags["message-reviewed"]) Object.assign(instruction.inputs, { reviewed_receipt_ids: flags["message-reviewed"] });
       // Run restart AC-CURRENT-01: the session-starting commands catch an untouched branch up unless told not to.
       if (flags["leave-branch-as-is"]) Object.assign(instruction.inputs, { leave_branch: true });
       // The control route picks the recheck or Mark complete and fills in the check run and source (AC-WAIVE-05).
       if (waive) Object.assign(instruction.inputs, waiveInputs(flags));
       // Live target is resolved by the controller from the guarded status or original receipt.
-      // The control route fills in `via` for an Accept and a change of After the last test audit loop (Kiln Audit Loop Limits, "Interfaces"), so those skip the local check as Mark complete does.
-      const routeFillsVia = name === "accept-and-deliver" || "after_last_test_audit_loop" in instruction.inputs;
-      if (name !== "message" && name !== "take-over" && !waive && !routeFillsVia) validateInstruction(instruction);
+      // The control route turns continue-with-phases into the journal's continuation acceptance, which it validates.
+      if (name !== "message" && name !== "take-over" && !waive && name !== "continue-with-phases") validateInstruction(instruction);
       try {
         const response = await fetch(`${owner.address}/api/control/v1/commands`, { method: "POST", headers: { Origin: owner.address!, "X-Kiln-Token": work.record.token, "Content-Type": "application/json" }, redirect: "error", signal: AbortSignal.timeout(5000), body: JSON.stringify(instruction) });
         const answer = await response.json() as Result;
         if (answer.schema_version !== "1" || answer.prd_path !== work.canonical || answer.command_id !== instruction.command_id || !Array.isArray(answer.errors)) throw new Error("Invalid command receipt");
-        return write(answer, waive ? receiptLead(answer, freshRecord(work), true) : undefined);
+        return write(answer, waive ? receiptLead(answer, freshRecord(work), true) : Object.keys(loopInputs).length && answer.ok ? loopLimitsLead(freshRecord(work)) : undefined);
       } catch { return write(result({ prd_path: work.canonical, execution_id: instruction.execution_id, command_id: instruction.command_id }, [errorFact("operation_indeterminate", "The command response was lost. Inspect its receipt before retrying.", ["kiln", "command-status", work.canonical, "--command-id", instruction.command_id, "--json"])])); }
     }
     if (owner.state === "incompatible" || owner.state === "unreachable") {
@@ -201,7 +217,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       const history = readHistory(work);
       try { return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: accountFacts(work, undefined, false, history) }, history.errors)); } finally { history.dispose(); }
     }
-    if (name === "settings") { const loops = loopSettings(work.record.settings); return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { keep_awake: work.record.settings.keepAwake, resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, after_last_test_audit_loop: loops.afterLastTest, ...afterLastTestFacts(loops.afterLastTest, loops.afterLastTestSource), observed_at: work.observedAt, state: owner.state === "reachable" ? "current" : "stale" } }), `After the last test audit loop: ${afterLastTestText(loops.afterLastTest, loops.afterLastTestSource)}`); }
+    if (name === "settings") { const loops = loopSettings(work.record.settings); return write(result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { keep_awake: work.record.settings.keepAwake, resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, observed_at: work.observedAt, state: owner.state === "reachable" ? "current" : "stale" } }), loopLimitsLead(work.record)); }
     if (name === "handoff") return write(await handoffProjection(work, typeof flags["session-id"] === "string" ? flags["session-id"] : undefined, context.env));
     const history = readHistory(work); const selector = typeof flags["session-id"] === "string" ? flags["session-id"] : undefined;
     try {

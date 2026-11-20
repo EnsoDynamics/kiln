@@ -318,7 +318,7 @@ export type MarkCompleteOffer = {
   /** Every unmet item the waiver would save. */
   items: WaivedItem[];
   failingChecks: number;
-  nextActivity: { kind: "phase" | "audit" | "final_delivery" | "complete" | "loop_stop"; key: string; title: string } | null;
+  nextActivity: { kind: "phase" | "audit" | "final_delivery" | "complete"; key: string; title: string } | null;
   resultingLabel: string;
   /** The sentence above the button, one paragraph per entry (AC-WAIVE-03). */
   sentence: string[];

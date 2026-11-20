@@ -14,6 +14,7 @@ import { ResponseSpool } from "./spool.js";
 import { progressHeading, progressText, type ProgressRow } from "./waiver-facts.js";
 import type { Engine } from "../engine/engine.js";
 import { processStartTime } from "../platform/process-start-time.js";
+import { REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
 
 export async function installInspectionRoutes(app: Hono, current: () => Engine, cacheError: () => string | undefined): Promise<void> {
   const epoch = instanceEpoch(); const processTime = await processStartTime(process.pid, { timeoutMs: 2000 });
@@ -36,7 +37,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "audit_loops"] }));
+    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -83,6 +84,18 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); }
   });
   route("commands/:command_id", [], c => current().refreshCommand(c.req.param("command_id")!));
+  // `kiln check-for-new-phases`: the finished page's check, with no inputs and no receipt (AC-BOT-01).
+  app.post("/api/control/v1/continuation/check", async c => {
+    const engine = current(); const canonical = resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory);
+    try {
+      if (c.req.header("content-length") && Number(c.req.header("content-length")) !== 0) throw new ControlFailure("invalid_input", "check-for-new-phases accepts no inputs.", 2);
+      const control = engine.newPhaseControls().find(one => one.name === "check-for-new-phases")!;
+      if (!control.available) throw new ControlFailure(engine.currentlyComplete ? "busy" : "wrong_activity", control.reason!, 3);
+      const check = await engine.checkCompletedPlan();
+      const errors = check.status === "failed" ? [errorFact("check_unavailable", check.errors.join(" ") || "The check for new phases could not read the plan.")] : [];
+      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check) }, errors));
+    } catch (e) { return send(c, { ...failed(e), prd_path: canonical, execution_id: engine.record.executionId! }); }
+  });
   app.post("/api/control/v1/commands", async c => {
     let commandId: string | null = null;
     try {
@@ -105,11 +118,20 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
           const engine = current(); const canonical = resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory);
           return c.json(result({ prd_path: canonical, execution_id: engine.record.executionId!, command_id: command.command_id, mark_complete: markCompletePreview(engine.markCompleteOffer(), canonical, engine.controlView().token), run_state: engine.controlRunState() }), 200);
         }
-        // An Accept, and a change of After the last test audit loop, record where the person was; the control route is the command line (Kiln Audit Loop Limits, "Interfaces").
-        if ((command.action === "accept-and-deliver" || command.action === "settings") && command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
+        // The removed loop stop controls and third loop setting, from an older script (AC-STOP-04).
+        if (command.action === "allow-more-loops" || command.action === "accept-and-deliver") throw new ControlFailure("removed_command", REMOVED_LOOP_COMMAND, 2);
+        if (command.action === "settings" && command.inputs && typeof command.inputs === "object" && "after_last_test_audit_loop" in command.inputs) throw new ControlFailure("removed_command", REMOVED_LOOP_SETTING, 2);
+        // A limit below its floor is refused at admission, with the floor in the message (AC-CHOICE-02).
+        if (command.action === "settings" && command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
           const inputs = command.inputs as Record<string, unknown>;
-          if (inputs.via !== undefined) throw new ControlFailure("invalid_input", "Kiln fills in where an instruction came from; the caller never supplies it.", 2);
-          if (command.action === "accept-and-deliver" || inputs.after_last_test_audit_loop !== undefined) inputs.via = "command_line";
+          const errors = current().loopLimitErrors({ ...(typeof inputs.delivery_audit_loops === "number" ? { deliveryLimit: inputs.delivery_audit_loops } : {}), ...(typeof inputs.test_audit_loops === "number" ? { testLimit: inputs.test_audit_loops } : {}) });
+          if (Object.keys(errors).length) throw new ControlFailure("invalid_input", Object.values(errors).join(" "), 2);
+        }
+        // `kiln continue-with-phases` is the finished page's Continue with N phases: the journal's continuation acceptance (AC-BOT-01).
+        if (command.action === "continue-with-phases") {
+          const inputs = command.inputs as Record<string, unknown> | undefined;
+          if (!inputs || typeof inputs !== "object" || Array.isArray(inputs) || Object.keys(inputs).join() !== "proposal_id" || typeof inputs.proposal_id !== "string") throw new ControlFailure("invalid_input", "continue-with-phases takes --proposal with the offer's proposal ID.", 2);
+          return c.json(...await continueWithPhases(current(), command));
         }
         const old = current().commands.all().find(r => r.command_id === command.command_id);
         if (old && old.instruction.action !== command.action) throw new ControlFailure("command_id_conflict", "Command ID already belongs to a different action. Use a new ID for a new instruction.", 2);
@@ -132,6 +154,25 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     } catch (error) { return send(c, { ...failed(error), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId!, command_id: commandId }); }
   });
   app.all("/api/control/*", c => send(c, result({}, [{ code: "control_unavailable", message: "Unknown command API route or unsupported protocol.", retryable: false, next_command: null, next_argv: null }])));
+}
+
+/**
+ * `kiln continue-with-phases`: submits the journal's `continuation-accept` instruction for the
+ * offered proposal under the caller's command ID and status token, as the page's Continue with N
+ * phases does, and answers with its receipt, refusals included (AC-BOT-01).
+ */
+async function continueWithPhases(engine: Engine, command: Record<string, unknown>): Promise<[Result, 202 | 400 | 409 | 503]> {
+  const answer = engine.commands.submitInternal({ command_id: command.command_id, execution_id: command.execution_id, status_token: command.status_token, action: "continuation-accept", inputs: { proposal_id: (command.inputs as Record<string, unknown>).proposal_id } });
+  return [answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400];
+}
+
+/** The check's status and offer as `kiln status` shows them (AC-BOT-02). */
+export function continuationFacts(check: Awaited<ReturnType<Engine["checkCompletedPlan"]>>): Record<string, unknown> {
+  const proposal = check.result?.proposal;
+  return {
+    check: { status: check.status, attemptedAt: check.attemptedAt, lastSuccessfulAt: check.lastSuccessfulAt ?? null, errors: check.errors },
+    ...(proposal ? { proposal: { id: proposal.id, readiness: proposal.readiness, phases: proposal.added.map(phase => ({ id: phase.id, title: phase.title })), problems: proposal.problems } } : {}),
+  };
 }
 
 /**

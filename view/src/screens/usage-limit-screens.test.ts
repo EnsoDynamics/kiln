@@ -265,9 +265,9 @@ describe("Resume after a usage limit, beside keep-awake (AC-AUTO-04, AC-AUTO-03)
 
   it("sits under keep-awake on Documents found", () => {
     const words = text(strip(render(DocumentsFound, { props: { snapshot: documentsFoundSnapshot(), config: { token: "t", base: "/customer-returns" }, connected: true, now: USAGE_LIMIT_NOW } }).body));
-    // The Audit loops section follows it, before the fixed facts (Kiln Audit Loop Limits mockup screen 0).
+    // The Audit loops section follows it, before the fixed facts (Kiln Deliver When Audit Loops Run Out mockup screen 1).
     expect(words).toContain(`Kiln picks up where it left off afterwards. ${ROW} Audit loops`);
-    expect(words).toMatch(/ like keep-awake\. Pushes After every phase/);
+    expect(words).toMatch(/ from the page or the command line\. Pushes After every phase/);
   });
 
   it("sits under keep-awake on the waiting screen", () => {

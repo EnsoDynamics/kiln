@@ -37,6 +37,8 @@ Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-wai
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Gate (completion phases an audit appended and a saved test continuation start only through the loop gate while a loop of that kind is left; otherwise the run holds at a loop stop).
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Routing After the Last Loop (no audit of a closed kind runs).
+
 Every startup, loop continuation, session settlement, Check again and Resume uses one next-activity decision. Evaluate outstanding workspace, plan and required development evidence first. Then select the first applicable row:
 
 | Current facts | Next work |
@@ -210,6 +212,8 @@ Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-c
 Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Display Contract (completion-phase and test audit rows that are part of a loop also show **loop N of M** or **last loop**, and the loop in their detail).
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §The Status Line (the status line names the audit and loop).
 
 Expose a unified `activities` projection in the snapshot, retaining `phases` for plan details/counts. Rows include activity identity, kind, display label, round/continuation, state, timing, session details, result summary and checks. Started rows follow monotonic execution sequence; pending plan leaves follow them in plan order. Added completion phases appear after the audit that added them. Split parents keep their existing relationships and details, without counting audits as phases.
 

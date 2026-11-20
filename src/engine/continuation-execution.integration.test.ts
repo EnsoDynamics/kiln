@@ -4,6 +4,7 @@ import * as durable from "../control/durable-file.js";
 import { once } from "node:events";
 import { Engine } from "./engine.js";
 import { createCometContinuation } from "../test-support/comet-continuation-fixture.js";
+import { effectiveAudit } from "../audit/workflow.js";
 import type { Harness } from "../test-support/engine-harness.js";
 import { landingSession, pullRequestSession, waitFor } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
@@ -408,28 +409,29 @@ it.each(["sidecar", "acceptance", "workspace-progress", "integration-baseline", 
   expect(h.engine.record.continuation?.acceptances.length ?? 0).toBe(boundary === "sidecar" ? 0 : 1);
 });
 
-it("starts both loop counts at zero on Continue with N phases, keeping the three loop settings and their source (Kiln Audit Loop Limits AC-LOOP-04, RUN-003)", async () => {
+it("starts both loop counts at zero on Continue with N phases, keeping the two limits (Kiln Deliver When Audit Loops Run Out AC-LAST-02, AC-CHOICE-02)", async () => {
   const f = await createCometContinuation(); h = f.h; f.integrate();
   h.engine.close();
   // The finished run had used both limits.
   const saved = readPrdRecord(h.stateDirectory)!;
-  const source = { kind: "person" as const, at: "2026-10-01T10:00:00.000Z", where: "documents_found" as const };
-  saved.settings.auditLoops = { deliveryLimit: 1, testLimit: 1, afterLastTest: "stop_and_ask", afterLastTestSource: source };
-  saved.auditLoops = { epochs: [{ kind: "delivery", at: "2026-10-01T10:00:00.000Z", cause: "start", loopsBefore: 0 }, { kind: "test", at: "2026-10-01T10:00:00.000Z", cause: "start", loopsBefore: 0 }], loops: [{ kind: "delivery", number: 1, limitAtStart: 1, last: true, startedAt: "2026-10-01T11:00:00.000Z", sourceAuditId: "a", activityKeys: ["8"] }, { kind: "test", number: 1, limitAtStart: 1, last: true, startedAt: "2026-10-01T12:00:00.000Z", sourceAuditId: "b", activityKeys: ["audit-b"] }], acceptances: [], itemsListedStops: [] };
+  saved.settings.auditLoops = { deliveryLimit: 1, testLimit: 1 };
+  saved.auditLoops = { epochs: [{ kind: "delivery", at: "2026-10-01T10:00:00.000Z", cause: "start", loopsBefore: 0 }, { kind: "test", at: "2026-10-01T10:00:00.000Z", cause: "start", loopsBefore: 0 }], loops: [{ kind: "delivery", number: 1, startedAt: "2026-10-01T11:00:00.000Z", activityKey: "audit-a" }, { kind: "test", number: 1, startedAt: "2026-10-01T12:00:00.000Z", activityKey: "audit-b" }], atPullRequest: { at: "2026-10-01T13:00:00.000Z", deliveryLimit: 1, testLimit: 1 } };
   writePrdRecord(h.stateDirectory, saved);
   h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
   await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  // A raise once the pull request session has started is saved for a continuation, below the old counts too (floor 1).
+  expect(await h.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 2 } })).toEqual({ ok: true });
   const check = await h.engine.checkCompletedPlan();
   const answer = await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "continue-loops"));
   expect(answer.ok, JSON.stringify(answer)).toBe(true);
   await h.engine.settled();
-  expect(h.engine.record.settings.auditLoops).toEqual({ deliveryLimit: 1, testLimit: 1, afterLastTest: "stop_and_ask", afterLastTestSource: source });
-  expect(h.engine.record.auditLoops).toEqual({ epochs: [{ kind: "delivery", at: h.engine.record.startedAt, cause: "start", loopsBefore: 0 }, { kind: "test", at: h.engine.record.startedAt, cause: "start", loopsBefore: 0 }], loops: [], acceptances: [], itemsListedStops: [] });
+  expect(h.engine.record.settings.auditLoops).toEqual({ deliveryLimit: 1, testLimit: 2 });
+  expect(h.engine.record.auditLoops).toEqual({ epochs: [{ kind: "delivery", at: h.engine.record.startedAt, cause: "start", loopsBefore: 0 }, { kind: "test", at: h.engine.record.startedAt, cause: "start", loopsBefore: 0 }], loops: [] });
   // The earlier run's loops stay in its archived record and are not counted again.
   expect(h.engine.historicalExecution(saved.executionId!)?.record.auditLoops?.loops).toHaveLength(2);
 });
 
-it("after Continue with N phases, completion phases an audit adds wait for a delivery audit loop (Kiln Audit Loop Limits AC-DELIV-01, AC-CONTINUE-05 in part)", async () => {
+it("after Continue with N phases, the phases a delivery audit adds at its last loop are built and the run moves on (Kiln Deliver When Audit Loops Run Out AC-LAST-01, AC-LAST-03; AC-CONTINUE-05 in part)", async () => {
   const f = await createCometContinuation(); h = f.h; f.integrate();
   const { writeFileSync } = await import("node:fs"); const { join } = await import("node:path");
   const { COMET_DIRECTORY } = await import("../test-support/comet-continuation-fixture.js");
@@ -439,13 +441,13 @@ it("after Continue with N phases, completion phases an audit adds wait for a del
   git(h.sandbox, h.repository, "add", COMET_DIRECTORY, ".gitignore"); git(h.sandbox, h.repository, "commit", "-qm", "test: seed audit evidence"); f.publish();
   h.engine.close();
   const saved = readPrdRecord(h.stateDirectory)!;
-  saved.settings.auditLoops = { deliveryLimit: 1, testLimit: 3, afterLastTest: "deliver_unless_serious" };
+  saved.settings.auditLoops = { deliveryLimit: 1, testLimit: 3 };
   writePrdRecord(h.stateDirectory, saved);
   h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
   await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   const audit = (behavior = {}) => ({ actions: [{ auditReport: behavior }, { result: "Audit ended." }, { exit: 0 }] });
-  const sessions = [...Array.from({ length: 7 }, (_, index) => landingSession(`capability-${index + 9}.txt`, `Capability ${index + 9}.\n`)), landingSession("audit-repair.txt", "Audit completion work.\n"), landingSession("audit-repair-2.txt", "More completion work.\n"), pullRequestSession(41)];
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions: [audit({ gap: true }), audit({ gap: true }), audit(), audit()] }));
+  const sessions = [...Array.from({ length: 7 }, (_, index) => landingSession(`capability-${index + 9}.txt`, `Capability ${index + 9}.\n`)), landingSession("audit-repair.txt", "Audit completion work.\n"), pullRequestSession(41)];
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions: [audit({ gap: true }), audit()] }));
   const { startFixtureController } = await import("../test-support/controller-server.js");
   const hosted = await startFixtureController({ engine: h.engine, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
   try {
@@ -453,12 +455,50 @@ it("after Continue with N phases, completion phases an audit adds wait for a del
     expect((await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "continue-gated"))).ok).toBe(true);
     await h.engine.settled();
     const audits = h.engine.record.completionAudits!.activities;
-    expect(audits.map(row => row.kind)).toEqual(["delivery_audit", "delivery_audit"]);
-    // The first audit's phase is built as delivery loop 1 of 1; the second audit's waits.
-    expect(h.engine.record.auditLoops!.loops.filter(loop => loop.kind === "delivery").map(loop => [loop.number, loop.limitAtStart, loop.sourceAuditId])).toEqual([[1, 1, audits[0]!.activityId]]);
-    const held = `audit-${audits[1]!.activityId}`;
-    expect(h.engine.record.phases[held]!.stop).toMatchObject({ kind: "loop_limit", loop: { kind: "delivery", reason: "phases_added", heldAuditKey: held } });
-    expect(h.engine.record.phases["17"]).toBeUndefined();
-    expect(h.engine.record.completedAt).toBeUndefined();
+    // Delivery audit loop 1 of 1 adds a phase; it is built, and no delivery audit runs after it: the test audit, then the pull request.
+    expect(audits.map(row => row.kind)).toEqual(["delivery_audit", "test_audit"]);
+    const added = effectiveAudit(h.stateDirectory, audits[0]!)!.completionPhases();
+    expect(added).toHaveLength(1);
+    expect(h.engine.record.phases[added[0]!]!.doneAt).toBeTruthy();
+    expect(h.engine.record.auditLoops!.loops.map(loop => [loop.kind, loop.number])).toEqual([["delivery", 1], ["test", 1]]);
+    // Nothing stops at a loop limit: the run reaches final delivery (whose pull request this fixture does not open).
+    expect(Object.entries(h.engine.record.phases).filter(([, facts]) => facts.stop).map(([key]) => key)).toEqual(["pr"]);
+    expect(h.engine.record.auditLoops!.atPullRequest).toMatchObject({ deliveryLimit: 1, testLimit: 3 });
+  } finally { await hosted.server.close(); hosted.release(); }
+}, 180_000);
+
+it("a bot checks a finished run for new phases and continues it from the command line (Kiln Deliver When Audit Loops Run Out AC-BOT-01)", async () => {
+  await fixture();
+  const { spawn } = await import("node:child_process"); const { fileURLToPath } = await import("node:url"); const { join } = await import("node:path");
+  const { startFixtureController } = await import("../test-support/controller-server.js");
+  const { COMET_DIRECTORY } = await import("../test-support/comet-continuation-fixture.js");
+  const hosted = await startFixtureController({ engine: h.engine, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
+  const cli = async (args: string[]) => {
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), ...args], { cwd: h.sandbox.root, env: h.env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = ""; child.stdout.on("data", data => stdout += String(data));
+    const code = await new Promise<number | null>(resolve => child.once("close", resolve));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a status read the test walks freely
+    return { code, stdout, json: () => JSON.parse(stdout) as Record<string, any> };
+  };
+  const target = join(h.repository, COMET_DIRECTORY);
+  const control = async (name: string) => (await cli(["status", target, "--json"])).json().controls.find((c: { name: string }) => c.name === name);
+  try {
+    const before = h.engine.record.executionId;
+    expect(await control("check-for-new-phases")).toMatchObject({ available: true, reason: null, invocation: ["kiln", "check-for-new-phases", target] });
+    expect(await control("continue-with-phases")).toMatchObject({ available: false, reason: "No new phases are offered. Check for new phases first." });
+    const check = await cli(["check-for-new-phases", target, "--json"]);
+    expect(check.code, check.stdout).toBe(0);
+    const proposal = check.json().data.proposal;
+    expect(check.json().data.check).toMatchObject({ status: "available" });
+    expect(proposal).toMatchObject({ id: h.engine.record.completedPlanCheck!.result!.proposal!.id, readiness: "ready" });
+    expect(proposal.phases.length).toBeGreaterThan(0);
+    expect(await control("continue-with-phases")).toMatchObject({ available: true, reason: null });
+    const token = (await cli(["status", target, "--json"])).json().status_token as string;
+    const go = await cli(["continue-with-phases", target, "--proposal", proposal.id, "--only-if-status-matches", token, "--command-id", "bot-continue", "--json"]);
+    expect(go.code, go.stdout).toBe(0);
+    await h.engine.commands.settled(); await h.engine.settled();
+    expect(h.engine.commands.lookup("bot-continue").operation).toMatchObject({ state: "completed", outcome: "completed", action: "continuation-accept" });
+    expect(h.engine.record.continuation?.acceptances.filter(row => row.commandId === "bot-continue")).toHaveLength(1);
+    expect(h.engine.record.executionId).not.toBe(before);
   } finally { await hosted.server.close(); hosted.release(); }
 }, 180_000);

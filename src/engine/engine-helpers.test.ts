@@ -334,7 +334,7 @@ describe("the default settings", () => {
       effort: "medium",
       keepAwake: true,
       resumeAfterUsageLimit: true,
-      auditLoops: { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" },
+      auditLoops: { deliveryLimit: 4, testLimit: 4 },
     });
     expect(defaultSettings(paths, { branches: new Map([["trunk", "a"]]), defaultBranch: "trunk" }).baseBranch).toBe("trunk");
     expect(defaultSettings(paths, { branches: new Map([["x", "a"]]), defaultBranch: undefined }).baseBranch).toBe("");

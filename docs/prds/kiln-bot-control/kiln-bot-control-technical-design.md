@@ -105,6 +105,8 @@ Superseded in part by: [Kiln Run Restart technical design](../../changes/kiln-ru
 Superseded in part by: [Kiln Build Preflight technical design](../../changes/kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (at a preflight stop only `check-again` and `waive-and-advance` are accepted).
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (two more changing commands, `allow-more-loops` and `accept-and-deliver`, whose receipts settle `started`; `kiln settings` takes the three loop settings).
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`check-for-new-phases` and `continue-with-phases` added; `allow-more-loops`, `accept-and-deliver` and the third loop setting refused as removed).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |
@@ -276,6 +278,8 @@ The inspection surface uses version-1 sidecars for retained browser facts and pe
 Inspection cache writes share the existing 100 ms snapshot cadence and flush pending observations when the controller closes. Live reads still project current engine facts. Retained inspection facts keep their original collection time after disconnection. A failed projection/cache write is explicit in live status; corrupt or unreadable session records still appear as incomplete history. Selected earlier conversations retain their own provider/activity prompts, including Codex's recorded skill context. Status samples saved output with bounded memory and marks any fragment; complete final stop messages remain unabridged.
 
 ## Local API and Integration Points
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`POST /api/control/v1/continuation/check`).
 
 Every route retains loopback-only binding, strict Host and matching mutation Origin, `X-Kiln-Token`, no CORS, no-store and owner-only token lookup. CLI does not expose tokens in argv or public output. Validate execution binding on all responses. Redirects are refused; a loopback redirect cannot forward a token elsewhere.
 

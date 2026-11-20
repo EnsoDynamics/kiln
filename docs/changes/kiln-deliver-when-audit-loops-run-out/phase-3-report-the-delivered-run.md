@@ -18,3 +18,7 @@ The parent PRD's Out of Scope.
 ## Phase-specific notes
 - Proves AC-ITEM-01's scenarios with a pull request already open or opened outside Kiln (see Phase 2's notes).
 - Adds the design's Delivery `CHANGELOG.md` entries under Unreleased; the release is a major version.
+
+## Carried forward from Phase 1
+- `kiln status` text prints the loop lines (`auditLoopsText` in `src/control/loop-text.ts`) whatever the controller's version; the design's Compatibility section renders them only when the controller advertises `loop_limits_move_on`. Gate them as part of this phase's `kiln status` work.
+- `kiln check-for-new-phases` already returns the check and offer as `data.check` and `data.proposal` (`continuationFacts` in `src/control/server.ts`); `kiln status`'s own `continuation` object (AC-BOT-02) reuses that projection, and the `continue-with-phases` help in `prompts/kiln-command-contracts.json` then points at `status.continuation.proposal.id` too.

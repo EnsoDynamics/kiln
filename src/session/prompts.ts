@@ -70,8 +70,6 @@ export interface PullRequestPromptValues {
   repositories: PromptRepository[];
   /** Items audits left for a person, settled or still open, one per line (AC-NEUTRAL-03). */
   personItems?: string;
-  /** The sentences the latest session that carried any quoted as the person's, and its report's summary (Kiln Audit Loop Limits AC-TEST-03). */
-  loopAcceptance?: { sentences: string[]; summary?: string };
 }
 
 /**
@@ -96,8 +94,7 @@ export function pullRequestSessionPrompt(values: PullRequestPromptValues): strin
     .map((repository) => `- \`${repository.name}\` (\`${repository.github}\`), worktree \`${repository.worktreePath}\`, into \`${repository.baseBranch}\``)
     .join("\n");
   const crossLinks = values.repositories.length > 1 ? template("pull-request-cross-links.txt") : "";
-  const items = (values.personItems ? `\n\n${fill(template("pull-request-person-items.txt"), { items: values.personItems })}` : "")
-    + (values.loopAcceptance?.sentences.length ? `\n${fill(template("pull-request-loop-acceptance.txt"), { sentences: values.loopAcceptance.sentences.map(line => `- ${line}`).join("\n"), summary: values.loopAcceptance.summary ? `- The last session's summary: ${values.loopAcceptance.summary}` : "" })}` : "");
+  const items = (values.personItems ? `\n\n${fill(template("pull-request-person-items.txt"), { items: values.personItems })}` : "");
   if (values.deliveryAuthority) return fill(template("development-finalization.txt"), { featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, repositoryList: list, deliveryAuthority: authorityBlock(values.deliveryAuthority) }) + items;
   return fill(template("pull-request-session.txt"), {
     featureName: values.featureName,
@@ -328,8 +325,8 @@ function authorizedPhase(prompt: string, authority?: string): string {
 /** With development delivery on, an audit owns an assessment of its own that the report cannot carry; without one its submission is refused. */
 const AUDIT_DELIVERY_STEP = " Before submitting, record this audit's development-delivery assessment with `kiln delivery assess`, as the development authority below describes; Kiln refuses the report until a current one exists.";
 
-export function auditSessionPrompt(values: { label: string; skillName: string; skillPath: string; executionId: string; activityId: string; round: number; continuationIndex: number; reportPath: string; prdFile: string; repositories: PromptRepository[]; branch: string; cli: string; deliveryAuthority?: string | undefined; previous?: string; outstanding?: string; loops?: string }): string {
-  return fill(template("audit-session.txt"), { ...values, loops: values.loops ?? "", outstanding: values.outstanding || "None.", round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ? authorityBlock(values.deliveryAuthority) : "No development merge or deployment is authorized.", deliveryStep: values.deliveryAuthority ? AUDIT_DELIVERY_STEP : "", previous: values.previous ?? "No prior audit result." });
+export function auditSessionPrompt(values: { label: string; skillName: string; skillPath: string; executionId: string; activityId: string; round: number; continuationIndex: number; reportPath: string; prdFile: string; repositories: PromptRepository[]; branch: string; cli: string; deliveryAuthority?: string | undefined; previous?: string; outstanding?: string; nextSteps?: string }): string {
+  return fill(template("audit-session.txt"), { ...values, nextSteps: values.nextSteps ?? "", outstanding: values.outstanding || "None.", round: String(values.round), continuationIndex: String(values.continuationIndex), repositories: values.repositories.map(r => `- ${r.name}: ${r.worktreePath}, base ${r.baseBranch}`).join("\n"), deliveryAuthority: values.deliveryAuthority ? authorityBlock(values.deliveryAuthority) : "No development merge or deployment is authorized.", deliveryStep: values.deliveryAuthority ? AUDIT_DELIVERY_STEP : "", previous: values.previous ?? "No prior audit result." });
 }
 
 /** The build preflight session's prompt (build preflight "The Preflight Session"): no pinned CLI, no report path. */
@@ -340,21 +337,3 @@ export function preflightSessionPrompt(values: { skillName: string; skillPath: s
 export function preparationPrompt(values: { phaseId: string; featureName: string; branch: string; bindings: string; cli: string; executionId: string; recovery: string }): string { return fill(template("preparation-session.txt"), values); }
 export function preparationImplementationPrompt(values: { phaseId: string; checkpoint: string; phasePrompt: string }): string { return fill(template("preparation-implementation.txt"), values); }
 
-/**
- * The `{{loops}}` slot of an audit prompt (Kiln Audit Loop Limits, "Prompts"): the last-loop note,
- * the earlier acceptances, the session's own Accept and the Allow note, in that order; empty when
- * none applies.
- */
-export function auditLoopsSlot(values: {
-  lastLoop?: { limit: number; choice: string; appliedByKiln: boolean; quote?: string };
-  earlier?: string[];
-  accept?: { sentence: string; source: string; items: string };
-  allowedItems?: string;
-}): string {
-  const parts: string[] = [];
-  if (values.lastLoop) parts.push(fill(template("audit-loop-limits.txt"), { limit: String(values.lastLoop.limit), choice: `${values.lastLoop.choice}${values.lastLoop.appliedByKiln ? " (applied by Kiln because this run began before the setting existed)" : ""}`, quote: values.lastLoop.quote ?? "" }));
-  if (values.earlier?.length) parts.push(fill(template("audit-earlier-acceptances.txt"), { sentences: values.earlier.map(line => `- ${line}`).join("\n") }));
-  if (values.accept) parts.push(fill(template("audit-accept.txt"), values.accept));
-  if (values.allowedItems !== undefined) parts.push(fill(template("audit-allowed-loops.txt"), { items: values.allowedItems || "None." }));
-  return parts.length ? `${parts.join("\n")}\n` : "";
-}

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, installPreflightSkill, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { formatTerminalEvent } from "../kiln-command.js";
-import { readPrdRecord } from "../state/records.js";
+import { readPrdRecord, SCHEMA_VERSION } from "../state/records.js";
 import { isPreflightKey } from "../state/activity-keys.js";
 import { PREFLIGHT_PAUSE_REASON, PREFLIGHT_STOP_REASON, preflightSettled } from "./preflight.js";
 import { buildSnapshot, documentsFound } from "./snapshot.js";
@@ -182,7 +182,7 @@ describe("items stop the run at Needs you (AC-PREFLIGHT-03)", () => {
     expect(prompts(h).filter(isPreflightPrompt)).toHaveLength(1);
     expect(prompts(h)[1]).toContain("phase-1-return-intake.md");
     expect(preflightRows(h.engine)[0]).toMatchObject({ state: "done", waivedChecks: 1, preflight: { outcome: "items" } });
-    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(23);
+    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("Check Preflight again starts a fresh session under the same activity and reads its report as it read the first", async () => {

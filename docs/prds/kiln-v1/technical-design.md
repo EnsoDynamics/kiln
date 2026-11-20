@@ -582,6 +582,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (ordered audit activities alongside preserved phase details), implemented in Phase 2b. Existing authority and evidence protections remain.
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`auditLoops` position and floor).
+
 **Running and waiting time (AC-WATCH-01, 02, 06).** Derive timing from saved runs across all sessions belonging to a phase; no schema migration. Count the union of run intervals, capped at interruption or exit, as running. For an unended run not currently executing, use its last recorded output as the known boundary. Everything else from the original start through Done (or now while unfinished) is waiting, including Needs you and usage limits. Feature totals use all runs, from feature start to completion, including pauses between phases. Snapshots carry running/waiting milliseconds, the calculation time and which clock advances; the view ticks only that clock and freezes on disconnect. A running process includes tests and tool waits; this does not claim model compute time.
 
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Local API and snapshot changes (selected agent, catalogue, readiness and selection generation).

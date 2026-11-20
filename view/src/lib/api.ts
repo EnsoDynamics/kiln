@@ -176,7 +176,3 @@ export async function newerVersion(config: PageConfig): Promise<string | undefin
     return undefined;
   }
 }
-/** Allow N more loops at a loop stop (Kiln Audit Loop Limits AC-STOP-02), against the page's status token like Mark complete. */
-export const allowMoreLoops = (config: PageConfig, count: number) => send(config, "POST", "/api/allow-more-loops", { count });
-/** Accept what is left and deliver, at a test audit loop stop only (AC-STOP-02). */
-export const acceptAndDeliver = (config: PageConfig) => send(config, "POST", "/api/accept-and-deliver", {});

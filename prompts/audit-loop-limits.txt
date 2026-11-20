@@ -1,4 +1,0 @@
-
-No more test audit loops follow this session: the limit is {{limit}} test audit loops, and Kiln will not start another session of test fixes on its own.
-The person's choice for after the last test audit loop: {{choice}}.
-{{quote}}

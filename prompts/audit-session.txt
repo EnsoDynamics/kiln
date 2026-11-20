@@ -55,7 +55,9 @@ The report has these fields and nothing else is required:
   such as a later production release; these alone do not make the outcome needs_you.
 Report the outcome the skill actually reached. Never write "passed" to finish; if you are stuck,
 write "needs_you" and say what is needed.
-{{loops}}
+
+{{nextSteps}}
+
 Items earlier audits left for a person (outstanding):
 {{outstanding}}
 

@@ -33,10 +33,12 @@ import { statusCompatibility } from "../engine/compatibility-notices.js";
 import { checkFoldersSync, type FolderCheck } from "../engine/folder-check.js";
 import { findExecutable } from "../platform/helper-process.js";
 import { displayPath } from "../engine/worktree-setup.js";
-import { loopSettings, loopsUsed } from "../state/audit-loops.js";
+import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed } from "../state/audit-loops.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "allow-more-loops", "accept-and-deliver"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases"];
+/** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
+const requiredInputs = (name: string) => name === "check-for-new-phases" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -262,7 +264,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   let control: ReturnType<Engine["controlView"]> | undefined;
   try { control = engine ? inspectionReader(engine, deadline).controlView() : undefined; }
   catch { statusErrors.push(errorFact("state_unavailable", "Current controls could not be read; no executable controls are returned.")); }
-  const controls = control ? control.controls.filter(c => c.name !== "message-review").map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
+  const controls = control && engine ? [...control.controls.filter(c => c.name !== "message-review"), ...engine.newPhaseControls()].map(c => ({ ...c, required_inputs: requiredInputs(c.name), invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: requiredInputs(name), invocation: null }));
   const active = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, active, deadline);
   try {
@@ -324,7 +326,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     live_control: view?.liveControl ? { ...view.liveControl, messages: view.liveControl.messages?.map(m => ({ ...m, receipt: messageReceiptLabel(m.delivery) })), state: reachable ? "current" : "stale", ...(reachable ? {} : { available: false, reason: "Controller disconnected; reconnect before acting.", input: { ...view.liveControl.input, available: false, reason: "Controller disconnected; reconnect before sending." } }) } : null,
     compatibility: statusCompatibility(record),
     pause_status: pauseStatus,
-    // Kiln Audit Loop Limits AC-STOP-03: the snapshot's loop settings, counts and loop stop page; read from the record when no snapshot was saved.
+    // The snapshot's loop limits, counts and position (AC-STOP-05); read from the record when no snapshot was saved.
     audit_loops: view?.auditLoops ?? savedAuditLoops(record),
     pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
     progress,
@@ -337,15 +339,16 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   history.dispose(); return answer;
   } catch (error) { history.dispose(); throw error; }
 }
-/** The audit loop settings and counts from the saved record, for a run with no saved snapshot; no loop stop page without one. */
+/** The audit loop limits and counts from the saved record, for a run with no saved snapshot; no position without one. */
 function savedAuditLoops(record: SavedWork["record"]): AuditLoopsView {
-  const settings = loopSettings(record.settings);
-  return { settings, delivery: { used: loopsUsed(record.auditLoops, "delivery"), limit: settings.deliveryLimit }, test: { used: loopsUsed(record.auditLoops, "test"), limit: settings.testLimit } };
+  const limits = limitsInForce(record);
+  const kind = (one: "delivery" | "test") => ({ used: loopsUsed(record.auditLoops, one), limit: limitOf(limits, one), closed: kindClosed(record, one), floor: limitFloor(record, one) });
+  return { settings: loopSettings(record.settings), delivery: kind("delivery"), test: kind("test"), ...(record.auditLoops?.atPullRequest ? { frozen: { at: record.auditLoops.atPullRequest.at } } : {}) };
 }
-/** `--detail full`'s settings: the runtime preferences and the three audit loop settings. */
+/** `--detail full`'s settings: the runtime preferences and the two audit loop limits. */
 function settingsFacts(record: SavedWork["record"]): Record<string, unknown> {
   const loops = loopSettings(record.settings);
-  return { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, after_last_test_audit_loop: loops.afterLastTest };
+  return { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit };
 }
 /** `kiln status` while a folder is missing (AC-GONE-02): the state, no current activity, no stop, no phase progress. */
 function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folders: FolderCheck, full: boolean): Result {
@@ -359,7 +362,7 @@ function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folder
     state: "folder_missing", folder_missing: folderFacts(folders, work.canonical), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
     progress: [], started_at: record.startedAt ?? null, completion: { completed_at: null, pull_requests: [], merged_branches: [] },
     // Reset is the one control left while a folder is missing (run restart "Availability"), so a running Kiln returns its status token.
-    status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }), unsent_replies: [],
+    status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: requiredInputs(name), invocation: null }), unsent_replies: [],
     ...(full ? { plan: record.plan ?? [], settings: settingsFacts(record) } : {}),
   });
 }

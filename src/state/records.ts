@@ -21,9 +21,9 @@ import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 import { assertPreflightState } from "../engine/preflight.js";
 import { preflightKey } from "./activity-keys.js";
-import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
+import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -49,7 +49,7 @@ export interface Settings {
   keepAwake: boolean;
   /** Wait out a usage limit and resume by itself (usage-limit recovery AC-AUTO-04). */
   resumeAfterUsageLimit: boolean;
-  /** How many audit loops Kiln makes on its own, and what follows the last test audit loop (Kiln Audit Loop Limits AC-LOOP-01). */
+  /** Max delivery audit loops and Max test audit loops (Kiln Deliver When Audit Loops Run Out AC-CHOICE-01). */
   auditLoops?: AuditLoopSettings;
 }
 
@@ -125,15 +125,8 @@ export interface PhaseStop {
   run?: CheckRun;
   /** The rows came from a finished check since the stop that ran the activity's completion checks (checks at a stop AC-STOPCHECK-03). */
   rowsAreCompletionChecks?: true;
-  /** Stored only on a `loop_limit` stop: which loops ran out and why the run holds (Kiln Audit Loop Limits, "Loop Stops"). */
-  loop?: LoopStop;
-}
-
-/** A loop stop's facts; a `needs_you` loop stop derives them (`loopStopOf`). */
-export interface LoopStop {
-  kind: "delivery" | "test";
-  reason: "phases_added" | "test_work_saved" | "items_listed";
-  heldAuditKey: string;
+  /** A `loop_limit` stop saved by Kiln 1.3.0 kept which loops ran out; it is read only so the record loads (technical design, "Upgrade"). */
+  loop?: { kind: "delivery" | "test"; reason: string; heldAuditKey: string };
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
@@ -333,10 +326,10 @@ export interface CompatibilityNotice {
 }
 
 /** The `settings` receipt's echo; the loop fields are absent on a receipt saved before them. */
-export interface ControlSettingsEcho { keep_awake: boolean; resume_after_usage_limit: boolean; delivery_audit_loops?: number; test_audit_loops?: number; after_last_test_audit_loop?: string }
+export interface ControlSettingsEcho { keep_awake: boolean; resume_after_usage_limit: boolean; delivery_audit_loops?: number; test_audit_loops?: number }
 
 export interface PrdRecord {
-  /** The audit loop ledger, append-only (Kiln Audit Loop Limits, "The Loop Ledger"); absent before Start and on a run carried over from schema 21 until rebuilt. */
+  /** The audit loop ledger, append-only (Kiln Deliver When Audit Loops Run Out, "Loops and the Ledger"); absent before Start. */
   auditLoops?: AuditLoopLedger;
   /** At most one per feature (technical design, Compatibility notices row). */
   compatibility?: CompatibilityNotice[];
@@ -545,7 +538,7 @@ export interface SessionRecord {
   sleeps: { at: string; seconds: number; detectedAt: string; run: number }[];
   lastSkill?: { name: string; at: string };
   steps: StepStart[];
-  /** Every sentence the session's prompt quoted as the person's, with where and when (AC-TEST-03). */
+  /** Kiln 1.3.0 only: sentences an audit prompt quoted as the person's. Kiln no longer writes or reads it. */
   carried?: { sentence: string; source: string }[];
   /** `carry_on`: the launch was a carry-on session for a stopped phase (run restart AC-CARRY-05); absent for an ordinary launch. */
   startedAs?: "carry_on";
@@ -618,7 +611,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -674,13 +667,12 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     for (const facts of Object.values(record.phases)) if (facts.stop) markReasonRows(facts.stop.checks);
     if (record.billing?.hold?.checks) markReasonRows(record.billing.hold.checks);
   }
-  // Schema 22: audit loop limits (AC-LOOP-07). A run not started gets the defaults, as a new one; a run
-  // already started runs under Always stop and ask me with limits 3 and 3, and its ledger is rebuilt
-  // from its saved audit history by the engine (RUN-002).
-  if (record.schemaVersion < 22) {
-    if (record.startedAt === undefined) record.settings.auditLoops ??= defaultLoopSettings();
-    else record.settings.auditLoops ??= { ...defaultLoopSettings(), afterLastTest: "stop_and_ask", afterLastTestSource: { kind: "kiln_for_earlier_run" } };
-  }
+  // Schema 22 added audit loop limits; a record from before them takes the defaults.
+  if (record.schemaVersion < 22) record.settings.auditLoops ??= defaultLoopSettings();
+  // Schema 24: a loop is one run of an audit (Kiln Deliver When Audit Loops Run Out, "Upgrade"). The
+  // limits stay as recorded and the released third setting goes; the ledger is rebuilt as audit
+  // runs, and a run already at its pull request, or complete, holds its limits from then.
+  if (record.schemaVersion < 24) migrateLoops(record);
   assertAuditLoopSettings(record.settings.auditLoops);
   assertLedger(record.auditLoops);
   // Schema 23 adds `preflight`; a record from earlier has none, so its preflight is not settled (build preflight "Upgrade").
@@ -735,6 +727,20 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   for (const phase of record.plan ?? []) phase.repositories ??= [];
   record.schemaVersion = SCHEMA_VERSION;
   return record;
+}
+
+/** Schema 23 to 24: the loop settings and ledger as this design counts them (technical design, "Upgrade"). */
+function migrateLoops(record: PrdRecord): void {
+  const saved = record.settings.auditLoops as (AuditLoopSettings & { afterLastTest?: unknown; afterLastTestSource?: unknown }) | undefined;
+  if (saved) { delete saved.afterLastTest; delete saved.afterLastTestSource; }
+  if (record.startedAt === undefined) return;
+  const old = record.auditLoops as { epochs?: { kind: string; at: string; cause: string; loopsBefore: number }[] } | undefined;
+  const ledger = rebuiltLedger(record, old?.epochs, record.startedAt);
+  const limits = saved ?? defaultLoopSettings();
+  const pr = record.activities?.find(activity => activity.kind === "final_delivery");
+  const at = record.phases[PR_PHASE_KEY]?.sessionIds.length ? pr?.createdAt ?? record.completedAt ?? record.startedAt : record.completedAt;
+  if (at !== undefined) ledger.atPullRequest = { at, deliveryLimit: limits.deliveryLimit, testLimit: limits.testLimit };
+  record.auditLoops = ledger;
 }
 
 /** A migrated billing hold's rows, as the snapshot built them before schema 19: the retained stop's or wait's rows, then Billing approval. */

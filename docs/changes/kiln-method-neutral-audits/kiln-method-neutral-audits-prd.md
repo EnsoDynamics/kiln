@@ -38,6 +38,7 @@ Kiln's report validation encodes the current audit procedures: the method's grad
 - [ ] **AC-NEUTRAL-06 — A test audit's implementation change returns to the delivery audit.** When a test audit reports that it changed implementation, Kiln runs a fresh delivery audit, then a fresh test audit, before final delivery. When it reports only test and record changes, Kiln does not repeat the delivery audit for them, provided nothing changed between one audit's acceptance and the next one's start. Any other change to the work after an accepted audit invalidates it under the existing currentness rules.
   - Superseded in part by: AC-WAIVE-12 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (a waived audit stays current as an accepted one, and a no-report test audit counts as having changed only tests).
   - Replaces in part: AC-TEST-03 and AC-RUN-03 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (the audit's own statement decides whether its changes were implementation; Kiln no longer classifies test files from assessor evidence).
+  - Superseded in part by: AC-LAST-03 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (after a test audit changes implementation, a fresh delivery audit runs only while a delivery audit loop is left, and a fresh test audit only while a test audit loop is left).
 
 ### Sturdy facts still gate
 

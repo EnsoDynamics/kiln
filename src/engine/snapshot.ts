@@ -32,6 +32,7 @@ import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage
 import type { StartCheckReport } from "../start-checks.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
+import { LOOP_STOP_LINE } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type CheckRun, type CheckResult, type PrdRecord, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import type { ExecutionSummary } from "./continuation-state.js";
@@ -200,10 +201,8 @@ export interface PhaseView {
   waivers?: WaiverView[];
   /** Warning markers beside its status (AC-WAIVE-04, AC-WAIVE-12). */
   warnings?: { kind: WaiverWarningKind; text: string }[];
-  /** The loops this activity holds, oldest first; the row reads by the latest (Kiln Audit Loop Limits AC-SHOW-01). */
+  /** The loop this audit activity is, with the limit in force (Kiln Deliver When Audit Loops Run Out AC-STOP-05). */
   loops?: import("./loop-view.js").ActivityLoopView[];
-  /** The sentences its latest session's prompt quoted as the person's (AC-TEST-03). */
-  carried?: { sentence: string; source: string }[];
   /** Skipped under a waived plan problem (AC-WAIVE-04): not built, counted as closed. */
   skippedByWaiver?: true;
   details?: SessionIdentityView & {
@@ -745,9 +744,9 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
-  // A hold for loops gets its one reason row here, never a stored check, so it is never waivable (Kiln Audit Loop Limits, "Loop Stops").
-  const loopHold = !hold && stop.kind === "loop_limit" && stop.loop && stop.loop.reason !== "items_listed" ? stop.loop : undefined;
-  const checks = [...(loopHold ? [{ name: "Audit loop left", passed: false, reason: true as const, facts: [`No ${loopHold.kind} audit loop is left.`] }] : []), ...(phaseRecovery ? retainedStop?.checks ?? [] : stop.checks)].map(check => auditCheckTitle(phaseKey, check));
+  // A loop stop saved by Kiln 1.3.0 shows its one line, never a stored check, so it is never waivable; Check again clears it ("Upgrade").
+  const loopStop = !hold && stop.kind === "loop_limit";
+  const checks = [...(loopStop ? [{ name: "Audit loop limit", passed: false, reason: true as const, facts: [LOOP_STOP_LINE] }] : []), ...(phaseRecovery ? retainedStop?.checks ?? [] : loopStop ? [] : stop.checks)].map(check => auditCheckTitle(phaseKey, check));
   const checkRun = phaseRecovery ? retainedStop?.run : stop.run;
   const bookkeeping = !hold && !phaseRecovery && stop.kind === "done_check" ? bookkeepingStop(record, judged, checks) : undefined;
   const base = {
@@ -1506,12 +1505,10 @@ function preflightPlanned(engine: Engine, state: FeatureState, documents?: Docum
   return { preflight: { planned: { before: next.key ?? "end" } } };
 }
 
-/** An activity row's loops and the sentences its latest session carried (Kiln Audit Loop Limits AC-SHOW-01, AC-TEST-03). */
-function loopFacts(engine: Engine, key: string): Pick<PhaseView, "loops" | "carried"> {
+/** The loop an audit row is, with the limit in force (Kiln Deliver When Audit Loops Run Out AC-STOP-05); phase rows and sessions of test fixes carry none. */
+function loopFacts(engine: Engine, key: string): Pick<PhaseView, "loops"> {
   const loops = activityLoops(engine, key);
-  // Every session the activity holds that carried a sentence, oldest first, each sentence once (AC-TEST-03).
-  const carried = (engine.record.phases[key]?.sessionIds ?? []).flatMap(id => engine.sessionRecord(key, id)?.carried ?? []).filter((one, index, all) => all.findIndex(other => other.sentence === one.sentence && other.source === one.source) === index);
-  return { ...(loops ? { loops } : {}), ...(carried?.length ? { carried } : {}) };
+  return loops ? { loops } : {};
 }
 
 /** "Phase 3", "Final delivery" or "Delivery audit": an activity's name in a sentence. */

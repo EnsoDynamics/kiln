@@ -22,6 +22,12 @@ export function auditResultCheck(activity: Pick<AuditActivity, "reportPath">, re
 export interface AdmissionContext {
   record: PrdRecord; stateDirectory: string; git: GitContext; signal: AbortSignal;
   developmentChecks?(): CheckResult[];
+  /**
+   * Whether each audit kind's loops have reached its limit in force (Kiln Deliver When Audit Loops
+   * Run Out, "Routing After the Last Loop"); `auditNext` allocates no new audit of a closed kind.
+   * Absent: neither is closed.
+   */
+  closed?: { delivery: boolean; test: boolean };
   /** While a waived plan problem stops the plan from reading, the phases Normal Order uses; snapshots read them (waivers AC-WAIVE-04). */
   planPhases?: import("../plan/phase-plan.js").PlannedPhase[];
 }

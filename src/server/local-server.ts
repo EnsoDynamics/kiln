@@ -1,4 +1,4 @@
-import { validAfterLastTest, validLimit, type AuditLoopSettings } from "../state/audit-loops.js";
+import { type AuditLoopSettings } from "../state/audit-loops.js";
 import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageProblem } from "../live/target.js";
 import { readBaseline } from "../engine/plan-reconciliation.js";
 import { judgedPhase } from "../engine/plan-reading.js";
@@ -455,14 +455,12 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     if (typeof change === "string") return refuse(c, 400, change);
     const loops = change.auditLoops;
     if (loops) {
-      // The loop settings (Kiln Audit Loop Limits AC-LOOP-01, AC-LOOP-05): a field error for a value out of range; nothing is clamped.
-      const fieldErrors: Record<string, string> = {};
-      if (loops.deliveryLimit !== undefined && !validLimit(loops.deliveryLimit)) fieldErrors.deliveryLimit = "Enter a whole number of 1 or more.";
-      if (loops.testLimit !== undefined && !validLimit(loops.testLimit)) fieldErrors.testLimit = "Enter a whole number of 1 or more.";
+      // The two limits (AC-CHOICE-01, AC-CHOICE-02): a field error for a value out of range or below its floor; nothing is clamped.
+      const fieldErrors = engine.loopLimitErrors(loops);
       if (Object.keys(fieldErrors).length) return c.json({ ok: false, status: 422, reason: "The audit loop settings don't pass their checks.", fieldErrors }, 422);
     }
     // During a run they change through the settings control, as keep-awake does; before Start they are a draft field.
-    if (Object.keys(change).every(k => ["keepAwake", "resumeAfterUsageLimit", "auditLoops"].includes(k)) && Object.keys(change).length && (engine.record.startedAt !== undefined || !loops)) return legacyControl(c, "settings", { ...(change.keepAwake === undefined ? {} : { keep_awake: change.keepAwake }), ...(change.resumeAfterUsageLimit === undefined ? {} : { resume_after_usage_limit: change.resumeAfterUsageLimit }), ...(loops?.deliveryLimit === undefined ? {} : { delivery_audit_loops: loops.deliveryLimit }), ...(loops?.testLimit === undefined ? {} : { test_audit_loops: loops.testLimit }), ...(loops?.afterLastTest === undefined ? {} : { after_last_test_audit_loop: loops.afterLastTest, via: "browser" }) });
+    if (Object.keys(change).every(k => ["keepAwake", "resumeAfterUsageLimit", "auditLoops"].includes(k)) && Object.keys(change).length && (engine.record.startedAt !== undefined || !loops)) return legacyControl(c, "settings", { ...(change.keepAwake === undefined ? {} : { keep_awake: change.keepAwake }), ...(change.resumeAfterUsageLimit === undefined ? {} : { resume_after_usage_limit: change.resumeAfterUsageLimit }), ...(loops?.deliveryLimit === undefined ? {} : { delivery_audit_loops: loops.deliveryLimit }), ...(loops?.testLimit === undefined ? {} : { test_audit_loops: loops.testLimit }) });
     if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
     const result = await engine.changeSettings(change);
     return result.ok ? c.json({ settings: snapshot().settings }) : commandRefused(c, result);
@@ -538,7 +536,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   // Send reply & continue and Start Phase N again (run restart "Interfaces"): journal actions admitted
   // only against the page's own full status token, as Mark complete is, and answered once settled.
-  const startingControl = async (c: Context, action: "carry-on" | "start-again" | "allow-more-loops" | "accept-and-deliver", inputs: Record<string, unknown>) => {
+  const startingControl = async (c: Context, action: "carry-on" | "start-again", inputs: Record<string, unknown>) => {
     const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
     if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "This action needs the page's status token and command id." }, 400);
     try {
@@ -555,17 +553,6 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
     }
   };
-  // Allow N more loops and Accept what is left and deliver (Kiln Audit Loop Limits AC-STOP-02): page routes of their own, as Mark complete has.
-  app.post("/api/allow-more-loops", async (c) => {
-    const body = await recoveryBody(c);
-    if (body === undefined || Object.keys(body).some(k => k !== "count") || !validLimit(body.count)) return c.json({ ok: false, code: "invalid_request", reason: "Allow more loops takes a whole number of 1 or more." }, 400);
-    return startingControl(c, "allow-more-loops", { count: body.count });
-  });
-  app.post("/api/accept-and-deliver", async (c) => {
-    const body = await recoveryBody(c);
-    if (body === undefined || Object.keys(body).length) return c.json({ ok: false, code: "invalid_request", reason: "Accept what is left and deliver takes no fields." }, 400);
-    return startingControl(c, "accept-and-deliver", { via: "browser" });
-  });
   app.post("/api/carry-on", async (c) => {
     const body = await recoveryBody(c);
     if (body === undefined || Object.keys(body).some(k => !["note", "target", "reviewedReceiptIds", "bringUpToDate"].includes(k)) || body.note !== undefined && typeof body.note !== "string" || body.bringUpToDate !== undefined && typeof body.bringUpToDate !== "boolean") return c.json({ ok: false, code: "invalid_request", reason: "Invalid carry-on request." }, 400);
@@ -802,9 +789,8 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
   }
   if (body.auditLoops !== undefined) {
     const loops = body.auditLoops as Record<string, unknown> | null;
-    if (!loops || typeof loops !== "object" || Array.isArray(loops) || Object.keys(loops).some(key => !["deliveryLimit", "testLimit", "afterLastTest"].includes(key))) return "auditLoops takes deliveryLimit, testLimit and afterLastTest.";
+    if (!loops || typeof loops !== "object" || Array.isArray(loops) || Object.keys(loops).some(key => !["deliveryLimit", "testLimit"].includes(key))) return "auditLoops takes deliveryLimit and testLimit.";
     for (const key of ["deliveryLimit", "testLimit"]) if (loops[key] !== undefined && typeof loops[key] !== "number") return `auditLoops.${key} must be a number.`;
-    if (loops.afterLastTest !== undefined && !validAfterLastTest(loops.afterLastTest)) return "auditLoops.afterLastTest is deliver_unless_serious or stop_and_ask.";
     change.auditLoops = loops as Partial<AuditLoopSettings> as AuditLoopSettings;
   }
   for (const field of ["keepAwake", "resumeAfterUsageLimit"] as const) {
