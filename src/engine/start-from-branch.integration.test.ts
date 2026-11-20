@@ -76,7 +76,7 @@ async function submit(engine: Engine, action: "start-again" | "resume" | "carry-
 
 describe("starting on a branch someone built phases on (AC-FROM-01, AC-FROM-02, AC-FROM-04)", () => {
   it("selects the existing branch, reads the plan there, starts at its first open phase and adds to the branch without rewriting it", async () => {
-    harness = await createHarness({ sessions: [landingSession("src/dashboard.txt"), pullRequestSession(49)] });
+    harness = await createHarness({ sessions: [landingSession("src/dashboard.txt"), { actions: [{ result: "Edited #48's description." }, { exit: 0 }] }] });
     const h = harness;
     const handTip = branchBuiltByHand(h);
     h.setPulls([{ number: 48, url: "https://github.com/acme/acme-shop/pull/48", title: "Customer returns", isDraft: false, isCrossRepository: false, headRefName: BRANCH, baseRefName: "develop", additions: 1, deletions: 0, commits: 1 }]);
@@ -124,10 +124,12 @@ describe("starting on a branch someone built phases on (AC-FROM-01, AC-FROM-02, 
     git(h.sandbox, h.repository, "fetch", "-q", "origin");
     expect(git(h.sandbox, h.repository, "merge-base", "--is-ancestor", handTip, `origin/${BRANCH}`)).toBe("");
     expect(git(h.sandbox, h.repository, "log", "--format=%s", `${handTip}..origin/${BRANCH}`).trim().split("\n")).toEqual(["feat: the phase"]);
-    // Final delivery uses the branch's open pull request into the base: #48, and no second one (AC-FROM-04).
+    // Final delivery uses the branch's open pull request into the base: #48, and no second one (AC-FROM-04); a pull request
+    // session writes this run's block into its description first (Kiln Deliver When Audit Loops Run Out AC-LEFT-01).
     expect(h.engine.record.completedAt).toBeDefined();
     expect(h.engine.record.pullRequests?.map(pull => pull.number)).toEqual([48]);
-    expect(h.claudeCalls()).toHaveLength(1);
+    expect(h.claudeCalls()).toHaveLength(2);
+    expect(h.claudeCalls()[1]!.prompt).toContain("Where a pull request is already open, edit its description (`gh pr edit`)");
   });
 });
 

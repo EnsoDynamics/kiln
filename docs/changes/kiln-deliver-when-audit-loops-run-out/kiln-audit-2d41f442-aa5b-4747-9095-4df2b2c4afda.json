@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6d8a0186-fc0d-4a67-81b3-4e1a6c7b139a",
+  "activityId": "2d41f442-aa5b-4747-9095-4df2b2c4afda",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The test audit graded all fifteen criteria of the whole PRD at b51517d. Seven are Adequate, and red checks saw tests fail for six of them when the behavior was broken on purpose. One criterion, AC-STOP-04, has a failing mapped test: the package test's command list still expects the removed loop-stop commands. Seven criteria are Weak, two of them high risk (AC-CHOICE-02 and AC-ITEM-01). The audit found no delivery gap and changed no code. All eight rows are saved under To fix in test-audit.md for sessions of test fixes, starting with the failing package test.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}

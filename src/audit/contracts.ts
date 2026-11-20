@@ -66,14 +66,24 @@ export interface AuditReportV2 {
   schemaVersion: 2; executionId: string; activityId: string; kind: AuditKind;
   outcome: "passed" | "completion_phases" | "continue_test" | "needs_you";
   summary: string; completionPhases: string[];
-  /** `id` names an outstanding item listed again; an entry without one is a new item (AC-NEUTRAL-03). */
-  needsYou: { id?: string; problem: string; action: string; criterion?: string }[];
+  /**
+   * `id` names an outstanding item listed again; an entry without one is a new item (AC-NEUTRAL-03).
+   * `kind` decides whether the item stops the run, holds it or goes on (Kiln Deliver When Audit
+   * Loops Run Out AC-ITEM-01); a relisting by id may leave out `kind` and `waitsOn` to keep them.
+   */
+  needsYou: NeedsYouEntry[];
   /** Outstanding items this audit found settled, and how. */
   settled?: { id: string; how: string }[];
   /** Test audits only: whether the audit changed anything other than tests and audit records. */
   changedImplementation?: boolean;
   afterDeliveryActions?: string[];
+  /** On a session of test fixes' `continue_test` report: the criteria whose rows it raised (AC-LAST-01). */
+  raised?: string[];
 }
+/** The kinds an item for a person may have (AC-ITEM-01). */
+export const PERSON_ITEM_KINDS = ["critical_next_step", "critical", "blocker", "business_question", "test", "other"] as const;
+export type PersonItemKind = typeof PERSON_ITEM_KINDS[number];
+export interface NeedsYouEntry { id?: string; problem: string; action: string; criterion?: string; kind?: PersonItemKind; waitsOn?: string }
 export type AuditReport = AuditReportV1 | AuditReportV2;
 /** The phase IDs an accepted report appended, for either report version. */
 export function completionPhaseIds(report: AuditReport): string[] {
@@ -87,6 +97,12 @@ export interface AuditActivity {
   snapshots: string[]; attempts: string[]; acceptedResult?: string;
   /** The audit-waiver result in the audit store, when this audit was marked complete (AC-WAIVE-12). */
   waivedResult?: string;
+  /**
+   * Set by the schema-24 migration on an audit Kiln 1.3.0 marked complete: the item ledger reads
+   * nothing from its waiver, which covers no item, and reads its accepted report, if any, as 1.3.0
+   * did (Kiln Deliver When Audit Loops Run Out, "Upgrade").
+   */
+  itemsUnread?: true;
 }
 export interface AuditState {
   revision: number; policy: "required" | "legacy_complete";

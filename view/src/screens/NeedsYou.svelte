@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PersonItems from "../components/PersonItems.svelte";
   import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Needs you (docs/design/mockups/kiln-screen-needs-you-ended-with-message.html and
@@ -19,9 +20,8 @@
   // stay and step 1's fresh session waits for the reset or another account (technical design, "Screens").
   // A selection stop precedes a new conversation: offer settings and sign-in repair instead
   // of session recovery (Codex support technical design, "Local API and snapshot changes").
-  // A loop stop (Kiln Audit Loop Limits AC-STOP-01, AC-STOP-02) has a page of its own: the loops,
-  // what the audit found and the ways on, with Check again beside them; a hold adds the Audit loop
-  // left row and Mark complete's refusal reason, never a disabled Mark complete button.
+  // A `loop_limit` stop saved by Kiln 1.3.0 shows one line and Check again only, which always
+  // clears it (Kiln Deliver When Audit Loops Run Out AC-STOP-04, technical design "Upgrade").
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
@@ -58,14 +58,15 @@
   import PreflightStop from "../components/PreflightStop.svelte";
   import AttendedCard from "../components/AttendedCard.svelte";
   import { activityKeyKind } from "../../../src/state/activity-keys.js";
-  import LoopStop from "../components/LoopStop.svelte";
-  import { loopStopCopy, shownLoopSettings } from "../lib/audit-loops.js";
-  import AuditLoopSettings from "../components/AuditLoopSettings.svelte";
+  import { LOOP_STOP_LINE } from "../lib/audit-loops.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
   const { config, router, connection } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const nowDate = $derived(new Date(now));
+  // An audit's items, or the hold stop's: one heading whichever step listed them (AC-ITEM-02).
+  const itemCount = $derived(snapshot.items?.length ?? 0);
+  const itemsHeadline = $derived(itemCount ? `Kiln needs you for ${itemCount === 1 ? "one thing" : `${itemCount} things`}` : undefined);
   const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository, snapshot.developmentDelivery?.authorization.enabled));
   const ending = $derived(endingFact(stop));
   const output = $derived(outputTail(stop.lastLines ?? []));
@@ -103,8 +104,6 @@
   const VERDICT = { passed: "Yes", waived: "Waived", failed: "Not yet" } as const;
   // Until a check of the completion checks has run, the failing rows saved at the stop read Why Kiln stopped and any passing ones sit beneath (AC-STOPCHECK-01 to 03).
   const reasonRows = $derived(stop.rowsAreCompletionChecks ? stop.checks : stop.checks.filter(check => verdict(check) === "failed"));
-  // The snapshot's Audit loop left row is drawn above with the loop counts, so it is not listed twice.
-  const loopReasonRows = $derived(reasonRows.filter(check => check.name !== "Audit loop left"));
   const alsoRows = $derived(stop.rowsAreCompletionChecks ? [] : stop.checks.filter(check => verdict(check) !== "failed"));
   const checkedText = $derived(stop.checking ? "Checking…" : stop.checkedAt ? `${stop.checkRun?.origin === "recheck" ? stop.checkRun.finished ? "Checked again" : "Checked" : "Checked when Kiln stopped,"} ${clockTime(stop.checkedAt, nowDate, { afterWord: true })}.` : "Not yet checked");
   const runsAll = $derived(!stop.rowsAreCompletionChecks && stop.recheckRunsAll ? `Check again runs all of ${activityInSentence(stop.phaseId, snapshot)}’s completion checks.` : undefined);
@@ -112,8 +111,6 @@
   const activity = $derived(`Phase ${stop.phaseId}`);
   const agentName = $derived(stop.agent ?? snapshot.settings.agent);
   const restart = $derived(stop.case ? caseHeadline(stop, activity, agentName) : undefined);
-  const loopStop = $derived(snapshot.auditLoops?.stop);
-  const loopCopy = $derived(loopStop ? loopStopCopy(loopStop, snapshot.auditLoops!, stop.kind === "loop_limit") : undefined);
   let restartPending = $state<"carry" | "start" | "reopen" | undefined>(undefined);
   let restartReason = $state<string | undefined>(undefined);
   let carryDraft = $state("");
@@ -175,34 +172,14 @@
   <StateHeader {snapshot} connected {now} />
   {#if stop.preflight}
   <PreflightStop {snapshot} />
-  {:else if loopStop && loopCopy}
-  <div class="columns-main">
-    <div class="column-wide"><LoopStop {snapshot} loop={loopStop} {config} {busy} /></div>
-    <div class="column-side">
-      <aside class="card side">
-        <span class="eyebrow">Why Kiln stopped</span>
-        {#if loopCopy.loopLeftFact}
-          <ul class="checks">
-            <li>
-              <span class="mark"></span>
-              <span class="check"><span class="check-head">Audit loop left<span class="verdict">No</span></span><span class="fact">{loopCopy.loopLeftFact}</span></span>
-            </li>
-          </ul>
-        {/if}
-        {#if loopReasonRows.length}{@render checkRows(loopReasonRows)}{/if}
-        {#if alsoRows.length}<span class="eyebrow">Also checked when Kiln stopped</span>{@render checkRows(alsoRows)}{/if}
-        <div class="again">
-          <button type="button" class="button solid wide" class:busy={checkPressed} aria-busy={checkPressed} disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
-          <span class="checked">{checkedText}</span>
-          {#if loopCopy.checkAgainText}<span class="checked">{loopCopy.checkAgainText}</span>{:else if runsAll}<span class="checked">{runsAll}</span>{/if}
-          {#if reason}<span class="reason">{reason}</span>{/if}
-        </div>
-        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if loopStop.holds && stop.markComplete && !stop.markComplete.offered}<p class="footnote">{stop.markComplete.reason}</p>{:else if waiting}<MarkComplete {waiting} />{/if}
-      </aside>
-      <!-- The limits can be raised here, as the page says (AC-LOOP-05, AC-STOP-02); a raised limit starts the loop at Check again. -->
-      <aside class="card side"><AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} disabled={!connected} short /></aside>
+  {:else if stop.kind === "loop_limit"}
+  <section class="card ended loop-stop">
+    <p class="line">{LOOP_STOP_LINE}</p>
+    <div class="again">
+      <button type="button" class="button solid" class:busy={checkPressed} aria-busy={checkPressed} disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
+      {#if reason}<span class="reason">{reason}</span>{/if}
     </div>
-  </div>
+  </section>
   {:else if stop.case && (restart || stop.launchFailure || stop.startAgain || stop.carryOn)}
   <div class="restart">
     {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
@@ -247,11 +224,14 @@
             <h2>{limitCopy.headline}</h2>
             {#if limitCopy.refusedAgain}<p class="line">{limitCopy.refusedAgain}</p>{/if}
             <p class="line">{limitCopy.reported} {#if limitCopy.reset}<strong>{limitCopy.reset}</strong>{/if}</p>
+          {:else if itemsHeadline}
+            <h2>{itemsHeadline}</h2>
           {:else}
             <h2>{copy.headline}</h2>
             <p class="line">{copy.line}</p>
           {/if}
         </div>
+        <PersonItems {snapshot} />
         {#if failure}<p class="failure">{failure}</p>{/if}
         {#if copy.showFacts && ending}
           <div class="facts mono"><span>{ending}</span><span>{clockTime(stop.stoppedAt, nowDate)}</span>{#if stop.lastSkill}<span>last skill seen: {stop.lastSkill.name}, {earlier(stop.lastSkill.at, stop.stoppedAt)}</span>{/if}</div>
@@ -273,7 +253,7 @@
       </section>
 
       <CodexSessionFacts facts={stop} />
-      {#if stop.kind === "selection"}
+      {#if stop.kind === "selection" && !itemCount}
         <section class="card">
           <h2 class="eyebrow">{snapshot.settings.agent} · Model and effort</h2>
           <ModelEffortEditor {snapshot} save={saveSelection} />
@@ -441,6 +421,8 @@
   .peer-choices { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
   .ended { border-color: rgba(230, 180, 80, 0.5); gap: 18px; }
+  .loop-stop { max-width: 720px; }
+  .loop-stop .again { align-items: flex-start; }
   .headline { display: flex; flex-direction: column; gap: 8px; }
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 3.6vw, 40px); line-height: 1.1; color: var(--text); }
   .line { margin: 0; font-size: 15.5px; color: var(--muted); line-height: 1.6; text-wrap: pretty; }
@@ -497,6 +479,5 @@
   .again { display: flex; flex-direction: column; gap: 10px; }
   .checked { font-size: 12.5px; color: var(--dim); }
   .reason { font-size: 12.5px; color: var(--amber); }
-  .fact { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
   .footnote { margin: 0; font-size: 12.5px; color: var(--dim); line-height: 1.6; text-wrap: pretty; }
 </style>

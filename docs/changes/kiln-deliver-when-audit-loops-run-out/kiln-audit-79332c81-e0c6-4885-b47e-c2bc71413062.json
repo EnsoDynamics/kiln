@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6d8a0186-fc0d-4a67-81b3-4e1a6c7b139a",
+  "activityId": "79332c81-e0c6-4885-b47e-c2bc71413062",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "This repair delivery audit checked the whole PRD at commit be5dfa6, after Phase 4 closed. Phase 4 changed one source file, src/control/projection.ts, and only AC-BOT-01 runs through the changed code. A fresh assessor and the main agent confirmed AC-BOT-01 is now implemented: kiln status lists kiln handoff among its controls, with availability and reason, whether the controller is connected, disconnected or the run's folder is missing. The other fourteen criteria keep the Implemented status the previous whole-PRD audit gave them. One round ran and found no gap, so nothing is left to build and the test audit is next.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": []
+}

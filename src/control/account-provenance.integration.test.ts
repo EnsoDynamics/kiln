@@ -57,7 +57,8 @@ async function account(expected: Record<string, unknown>, state = "current") {
   expect(full.body.account.last_attempt.state).toBe(state);
   if (full.body.controller === "stopped") {
     expect(full.body.status_token).toBeNull();
-    expect(full.body.controls.every((c: { available: boolean }) => !c.available)).toBe(true);
+    // kiln handoff reads saved sessions itself, so only it can still be available with no controller (AC-BOT-01).
+    expect(full.body.controls.filter((c: { name: string }) => c.name !== "handoff").every((c: { available: boolean }) => !c.available)).toBe(true);
   }
   return read.body.data;
 }

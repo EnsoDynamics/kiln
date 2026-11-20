@@ -7,39 +7,35 @@ import type { PrdRecord } from "../state/records.js";
 import { AuditRefusal, requireAudit, type AuditActivity, type AuditReportV2, type AuditResult, type WorkSnapshot } from "./contracts.js";
 import { requirementsDocumentFilter } from "./snapshots.js";
 import { effectiveRecordedClosed } from "../engine/waivers.js";
-import type { PersonItem } from "./person-items.js";
+import { itemEffect, itemWaiver, keptFields, type PersonItem } from "./person-items.js";
+import { PERSON_ITEM_KINDS } from "./contracts.js";
+import type { Waiver } from "../engine/waivers.js";
 
 const OUTCOMES = ["passed", "completion_phases", "continue_test", "needs_you"];
 const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(nonempty);
-export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, problem, action, criterion?}[]; with passed, only outstanding items listed again by id, and none when final delivery follows), settled ({id, how}[], optional), changedImplementation (test audits) and optional afterDeliveryActions";
-export interface ValidationContext { record: PrdRecord; activity: AuditActivity; initial: WorkSnapshot; current: WorkSnapshot; outstanding: PersonItem[] }
+export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, kind, problem, action, waitsOn?, criterion?}[]; kind is critical_next_step, critical, blocker, business_question, test or other, and waitsOn is required for critical_next_step, blocker and business_question; a relisting by id may leave out kind and waitsOn to keep them), settled ({id, how}[], optional), changedImplementation (test audits), raised (criteria whose rows a session of test fixes raised, required on its continue_test) and optional afterDeliveryActions";
+export interface ValidationContext { record: PrdRecord; activity: AuditActivity; initial: WorkSnapshot; current: WorkSnapshot; outstanding: PersonItem[]; waivers?: readonly Waiver[] }
 
 export function validateReport(raw: unknown, context: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
   try { return validate(raw as AuditReportV2, context); }
   catch (error) { if (error instanceof AuditRefusal) throw error; throw new AuditRefusal("invalid_report", `Malformed audit report: ${(error as Error).message}`); }
 }
 
-function validate(report: AuditReportV2, { record, activity, initial, current, outstanding }: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
+function validate(report: AuditReportV2, { record, activity, initial, current, outstanding, waivers }: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
   requireAudit(report && typeof report === "object" && !Array.isArray(report), "The audit report must be a JSON object.");
   requireAudit((report.schemaVersion as number) === 2, `Unsupported audit report schemaVersion ${JSON.stringify(report.schemaVersion)}. Write the version-2 report: ${REPORT_FIELDS}.`);
   requireAudit(report.executionId === record.executionId && report.activityId === activity.activityId && report.kind === activity.kind, "Report identity differs from the assigned audit activity.");
   requireAudit(OUTCOMES.includes(report.outcome), `Unknown audit outcome ${JSON.stringify(report.outcome)}; use passed, completion_phases, continue_test or needs_you.`);
   requireAudit(nonempty(report.summary), "The report needs a non-empty summary.");
   requireAudit(strings(report.completionPhases) && new Set(report.completionPhases).size === report.completionPhases.length, "completionPhases must list distinct appended phase IDs ([] when none).");
-  requireAudit(Array.isArray(report.needsYou) && report.needsYou.every(item => item && nonempty(item.problem) && nonempty(item.action) && (item.id === undefined || nonempty(item.id)) && (item.criterion === undefined || nonempty(item.criterion))), "needsYou must be a list of {problem, action}, with id when listing an outstanding item again and criterion, when given, a criterion's ID ([] when none).");
+  requireAudit(Array.isArray(report.needsYou) && report.needsYou.every(item => item && nonempty(item.problem) && nonempty(item.action) && (item.id === undefined || nonempty(item.id)) && (item.criterion === undefined || nonempty(item.criterion)) && (item.waitsOn === undefined || nonempty(item.waitsOn)) && (item.kind === undefined || (PERSON_ITEM_KINDS as readonly string[]).includes(item.kind))), `needsYou must be a list of {kind, problem, action}, with id when listing an outstanding item again, kind one of ${PERSON_ITEM_KINDS.join(", ")}, and waitsOn and criterion, when given, non-empty ([] when none).`);
+  requireAudit(report.raised === undefined || strings(report.raised), "raised must be a list of criterion IDs.");
   requireAudit(report.settled === undefined || (Array.isArray(report.settled) && report.settled.every(item => item && nonempty(item.id) && nonempty(item.how))), "settled must be a list of {id, how}.");
   requireAudit(report.afterDeliveryActions === undefined || strings(report.afterDeliveryActions), "afterDeliveryActions must be a list of strings.");
   if (activity.kind === "test_audit") requireAudit(typeof report.changedImplementation === "boolean", "A test audit report needs changedImplementation: true or false.");
   else requireAudit(report.changedImplementation === undefined, "Only a test audit reports changedImplementation.");
   if (report.outcome === "needs_you") requireAudit(report.needsYou.length > 0, "A needs_you report must say what a person must decide in needsYou.");
-  // A passing report that leads to another audit carries still-open items to it, since that audit does not depend
-  // on them (AC-NEUTRAL-03); one that leads to final delivery, a test audit that changed only tests, lists none.
-  if (report.outcome === "passed") {
-    const toFinalDelivery = activity.kind === "test_audit" && !report.changedImplementation;
-    if (toFinalDelivery) requireAudit(!report.needsYou.length, "A passing test audit that changed only tests lists nothing in needsYou, since final delivery follows; use needs_you when a person is needed, or settled for an earlier item that is settled.");
-    else requireAudit(report.needsYou.every(item => item.id !== undefined), "A passing report lists in needsYou only outstanding items still open, each with its id; report needs_you for a new item a person must resolve.");
-  }
   // Every item an earlier audit left for a person is accounted for: open again, or settled (AC-NEUTRAL-03).
   const known = new Map(outstanding.map(item => [item.id, item]));
   const named = [...report.needsYou.flatMap(item => item.id === undefined ? [] : [item.id]), ...(report.settled ?? []).map(item => item.id)];
@@ -49,6 +45,21 @@ function validate(report: AuditReportV2, { record, activity, initial, current, o
   requireAudit(!repeated.length, `Each outstanding item is listed once, in needsYou or settled; repeated: ${[...new Set(repeated)].join(", ")}.`);
   const missing = outstanding.filter(item => !named.includes(item.id));
   requireAudit(!missing.length, `Account for every item earlier audits left for a person, in needsYou with its id when still open or in settled with how: missing ${missing.map(item => `${item.id} (${item.problem})`).join("; ")}.`);
+
+  // Every item says why it is there (AC-ITEM-02), and only an item that stops or holds the run stops it (AC-ITEM-01).
+  const entries = report.needsYou.map(entry => {
+    const kept = entry.id === undefined ? undefined : known.get(entry.id);
+    const { kind, waitsOn } = keptFields(entry, kept);
+    const named = entry.id ? `${entry.id} (${entry.problem})` : `"${entry.problem}"`;
+    requireAudit(kind !== null, `needsYou entry ${named} gives no kind; give one of ${PERSON_ITEM_KINDS.join(", ")}.`);
+    const effect = itemEffect(kind);
+    requireAudit(effect === "goes_on" || nonempty(waitsOn), `needsYou entry ${named} is a ${kind} item, so it needs waitsOn: what waits on it.`);
+    return { kind, effect, named, covered: !!kept && !!itemWaiver(kept, waivers) };
+  });
+  const uncoveredCritical = entries.find(entry => entry.kind === "critical_next_step" && !entry.covered);
+  requireAudit(!uncoveredCritical || report.outcome === "needs_you", `needsYou entry ${uncoveredCritical?.named} is a critical finding the next step would cause or worsen, so the outcome is needs_you.`);
+  if (report.outcome === "needs_you") requireAudit(entries.some(entry => entry.effect !== "goes_on" && !entry.covered), "A needs_you report needs an item that stops or holds the run and is not marked waived (critical_next_step, blocker or business_question); with items that let the work go on, report the outcome the audit reached.");
+  if (report.outcome === "continue_test" && activity.continuationIndex > 1) requireAudit(!!report.raised?.length, "A session of test fixes that raised none of the rows it took ends the test work: report passed and list each row left as a test item. Otherwise list the criteria whose rows it raised in raised.");
 
   // The audit may append phases; it never rewrites the plan it started from (AC-NEUTRAL-04).
   requireAudit(initial.plan.every((phase, index) => { const now = current.plan[index]; return now && now.id === phase.id && now.file === phase.file && now.closed === phase.closed && now.content === phase.content && JSON.stringify(now.splitInto ?? []) === JSON.stringify(phase.splitInto ?? []); }), "The audit changed an original phase's identity, order, scope or closure; it may only append phases.", "inconsistent_plan");

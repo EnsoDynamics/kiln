@@ -10,8 +10,36 @@ section to the new version.
 
 ## [Unreleased]
 
+### Added
+
+- `kiln check-for-new-phases` checks a finished run for new phases, as the finished page's
+  **Check for new phases** button does, and `kiln continue-with-phases` continues the run with
+  the phases it offers. `kiln status` shows the offer, with its phases, whether it is ready and
+  its proposal ID.
+- `kiln status` lists `kiln handoff` among its controls, with whether it can open the run's
+  session in a terminal and why not, even when Kiln isn't running.
+
 ### Changed
 
+- A loop is now one run of an audit, and the settings are **Max delivery audit loops** and
+  **Max test audit loops**, both 4 by default. Kiln builds whatever each audit finds, and once a
+  kind of audit has used its last loop it moves on instead of stopping to ask: from the delivery
+  audit to the test audit, and from the test audit to the pull request. The run's page says
+  which loop is running, such as **Delivery audit loop 2 of 4**.
+- An audit now stops the run only for what the work cannot go on without: a critical finding
+  the next step would make worse stops it at once, and a blocker or a business question with no
+  workable answer holds it before the pull request until you provide what it asks and press
+  **Continue anyway**. Everything else an audit lists for you is reported with the delivery.
+  Each item says its kind, the problem, what to do and what waits on it.
+- Each pull request's description now opens with **For you**, listing what is left for you,
+  and **Closing audits**, saying how many loops of each audit the run used, such as "Delivery
+  audit: 4 of 4 loops. Test audit: 2 of 4 loops." The finished page and `kiln status` show the
+  same. The **Remaining human actions** card is gone; those actions are listed under **For you**.
+- A pull request that is already open, including one you opened yourself, no longer completes
+  the run on its own: Kiln runs a pull request session that writes this run's **For you** and
+  **Closing audits** into its description first. When an out-of-date description is all that
+  stops final delivery, Check again starts that session, and you can mark final delivery complete
+  without checking again first.
 - `kiln run` now says "Checking where things stand…" in the terminal while it checks the
   work at startup. Rechecking a phase that needs you can take half a minute, and
   before, the terminal showed nothing while it did. The line disappears once Kiln has its answer.
@@ -20,6 +48,15 @@ section to the new version.
   shows a spinner. A short line beneath it says what Kiln is doing, for example launching a new
   Claude Code or Codex session, and after 8 seconds it also shows how long it has been waiting.
   Before, the button just faded, which looked like the page had hung.
+
+### Removed
+
+- The loop stop page, with **Allow N more loops** and **Accept what is left and deliver**, and
+  the commands `kiln allow-more-loops` and `kiln accept-and-deliver`, which now refuse with a
+  message saying to change the limits with `kiln settings`.
+- The **After the last test audit loop** setting and its `--after-last-test-audit-loop` flag,
+  the sentence accepting Weak test rows, and the `kiln status` fields that described them. Test
+  rows still missing, failing or Weak after the last test audit's work are listed under **For you**.
 
 ## [1.3.0] - 2026-11-16
 

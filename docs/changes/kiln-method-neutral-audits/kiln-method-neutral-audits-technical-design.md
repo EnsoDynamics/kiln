@@ -10,6 +10,8 @@
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Report Contract (`needsYou` entries take an optional `criterion`, which the outstanding-items ledger keeps across relisting).
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Report contract, version 2 (`kind` and `waitsOn` on `needsYou` entries; `afterDeliveryActions` is listed under **For you** in the pull request description, the finished page and `kiln status`, not at Complete alone).
+
 The session writes `<prd-directory>/kiln-audit-<activityId>.json`, as today.
 
 | Field | Contract |
@@ -33,6 +35,8 @@ The audit prompt (`prompts/audit-session.txt`) states this contract and maps it 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage and §Audits Marked Complete (the no-open-phase routing rule counts phases closed or skipped by waiver as closed; a waived attempt counts as AC-WAIVE-12 says).
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Gate (`nextAction` and the advance on `completion_phases` and `continue_test` now pass through the loop gate).
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Admission (the refusals and lifted refusals in §Items for a Person; under **Outstanding items** and **Display**, a result marked complete with a valid report adds, relists and settles items as an accepted one does, and the plan row's waiting count ends at a later audit's effective result).
 
 `kiln audit submit` keeps idempotent retries, revision and activity checks, attempt retention and Needs you on refusal. Every refusal is recorded as a failing **Audit result recorded** check whose fact is the reason; the refusal code stays in the attempt's `refusal` and the resume prompt. A missing report reads "No audit report at <path> yet." Kiln captures the checked snapshot itself at submission; the session never issues one. Checks, in order:
 

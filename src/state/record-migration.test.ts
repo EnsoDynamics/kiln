@@ -81,7 +81,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(23);
+    expect(SCHEMA_VERSION).toBe(24);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -152,23 +152,101 @@ describe("schema 19: completion waivers (waivers technical design, Upgrade)", ()
   });
 });
 
-describe("schema 22: audit loop limits (Kiln Audit Loop Limits AC-LOOP-07, Upgrade)", () => {
-  it("gives a record not started the defaults, and a started one limits 3 and 3 under Always stop and ask me, applied by Kiln", () => {
+describe("schema 22: audit loop limits (Kiln Audit Loop Limits AC-LOOP-07)", () => {
+  it("gives a record from before the limits the defaults, started or not", () => {
     const notStarted = migrateRecord(schemaOne({}));
     notStarted.schemaVersion = 21; delete notStarted.settings.auditLoops;
-    expect(migrateRecord(notStarted).settings.auditLoops).toEqual({ deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" });
+    expect(migrateRecord(notStarted).settings.auditLoops).toEqual({ deliveryLimit: 4, testLimit: 4 });
     const started = migrateRecord(schemaOne({ startedAt: "2026-11-01T10:00:00Z", setupCompletedAt: "2026-11-01T10:00:00Z" }));
-    started.schemaVersion = 21; delete started.settings.auditLoops;
+    started.schemaVersion = 21; delete started.settings.auditLoops; delete started.auditLoops;
     const migrated = migrateRecord(started);
-    expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 3, testLimit: 3, afterLastTest: "stop_and_ask", afterLastTestSource: { kind: "kiln_for_earlier_run" } });
-    expect(migrated.auditLoops).toBeUndefined();
-    expect(migrated.schemaVersion).toBe(23);
+    expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 4, testLimit: 4 });
+    expect(migrated.auditLoops).toEqual({ epochs: [{ kind: "delivery", at: "2026-11-01T10:00:00Z", cause: "start", loopsBefore: 0 }, { kind: "test", at: "2026-11-01T10:00:00Z", cause: "start", loopsBefore: 0 }], loops: [] });
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("refuses malformed loop settings rather than clamping them", () => {
     const record = migrateRecord(schemaOne({}));
-    record.settings.auditLoops = { deliveryLimit: 0, testLimit: 3, afterLastTest: "deliver_unless_serious" };
+    record.settings.auditLoops = { deliveryLimit: 0, testLimit: 3 };
     expect(() => migrateRecord(record)).toThrow("Malformed audit loop settings.");
+  });
+});
+
+describe("schema 24: a loop is one run of an audit (Kiln Deliver When Audit Loops Run Out, \"Upgrade\")", () => {
+  const at = "2026-11-10T10:00:00.000Z";
+  const activity = (id: string, sequence: number, kind: "delivery_audit" | "test_audit", continuationIndex: number, sessionIds: string[]) => ({ activityId: id, sequence, kind, round: 1, continuationIndex, createdAt: `2026-11-10T1${sequence}:00:00.000Z`, sessionIds, reportPath: `r-${id}.json`, snapshots: [], attempts: [] });
+  /** A record Kiln 1.3.0 saved: its third setting, acceptances, an `allowed` epoch and loops counted as the work on findings. */
+  function released(extra: Record<string, unknown> = {}): PrdRecord {
+    const record = migrateRecord(schemaOne({ startedAt: at, setupCompletedAt: at }));
+    record.schemaVersion = 23;
+    (record.settings as unknown as Record<string, unknown>).auditLoops = { deliveryLimit: 2, testLimit: 5, afterLastTest: "deliver_unless_serious", afterLastTestSource: { kind: "person", at, where: "documents_found" } };
+    (record as unknown as Record<string, unknown>).auditLoops = {
+      epochs: [{ kind: "delivery", at, cause: "start", loopsBefore: 0 }, { kind: "test", at, cause: "start", loopsBefore: 0 }, { kind: "delivery", at: "2026-11-10T15:00:00.000Z", cause: "allowed", limit: 2, heldAuditKey: "audit-d2", loopsBefore: 1 }],
+      loops: [{ kind: "delivery", number: 1, limitAtStart: 1, last: true, startedAt: at, sourceAuditId: "d1", activityKeys: ["2"] }],
+      acceptances: [{ at, via: "browser", heldAuditKey: "audit-t1", sentence: "I accept the remaining Weak rows.", items: [] }],
+      itemsListedStops: ["audit-t1"],
+    };
+    record.completionAudits = { revision: 4, policy: "required", evidence: [], activities: [
+      activity("d1", 1, "delivery_audit", 1, ["s1"]),
+      // Settled with no session: completed at once under a waived readiness problem, never a loop.
+      activity("d2", 2, "delivery_audit", 1, []),
+      activity("t1", 3, "test_audit", 1, ["s2"]),
+      // A session of test fixes is never a loop.
+      activity("t2", 4, "test_audit", 2, ["s3"]),
+      // Allocated, not settled and not yet launched: counted, as Kiln counts it at allocation.
+      activity("d3", 5, "delivery_audit", 1, []),
+    ] } as unknown as NonNullable<PrdRecord["completionAudits"]>;
+    record.phases = { "audit-d1": { sessionIds: ["s1"], finishedByPerson: false, repositories: {}, doneAt: at }, "audit-d2": { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: at }, "audit-t1": { sessionIds: ["s2"], finishedByPerson: false, repositories: {}, doneAt: at }, "audit-t2": { sessionIds: ["s3"], finishedByPerson: false, repositories: {}, doneAt: at }, "audit-d3": { sessionIds: [], finishedByPerson: false, repositories: {} } } as PrdRecord["phases"];
+    return Object.assign(record, extra);
+  }
+
+  it("keeps the limits as recorded, drops the third setting, and rebuilds the loops as audit runs with only start epochs", () => {
+    const migrated = migrateRecord(released());
+    expect(migrated.schemaVersion).toBe(24);
+    expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 2, testLimit: 5 });
+    expect(migrated.auditLoops).toEqual({
+      epochs: [{ kind: "delivery", at, cause: "start", loopsBefore: 0 }, { kind: "test", at, cause: "start", loopsBefore: 0 }],
+      loops: [
+        { kind: "delivery", number: 1, startedAt: "2026-11-10T11:00:00.000Z", activityKey: "audit-d1" },
+        { kind: "test", number: 1, startedAt: "2026-11-10T13:00:00.000Z", activityKey: "audit-t1" },
+        { kind: "delivery", number: 2, startedAt: "2026-11-10T15:00:00.000Z", activityKey: "audit-d3" },
+      ],
+    });
+  });
+
+  it("holds the limits from the pull request session's activity, or from completion, and not before either", () => {
+    expect(migrateRecord(released()).auditLoops!.atPullRequest).toBeUndefined();
+    const atPr = released({ activities: [{ activityId: "pr-1", sequence: 6, kind: "final_delivery", key: "pr", createdAt: "2026-11-10T18:00:00.000Z" }] });
+    atPr.phases.pr = { sessionIds: ["s9"], finishedByPerson: false, repositories: {} };
+    expect(migrateRecord(atPr).auditLoops!.atPullRequest).toEqual({ at: "2026-11-10T18:00:00.000Z", deliveryLimit: 2, testLimit: 5 });
+    const complete = released({ completedAt: "2026-11-10T20:00:00.000Z" });
+    expect(migrateRecord(complete).auditLoops!.atPullRequest).toEqual({ at: "2026-11-10T20:00:00.000Z", deliveryLimit: 2, testLimit: 5 });
+  });
+
+  it("gives a started record with no ledger one by the same count, and a record not started none", () => {
+    const none = released(); delete none.auditLoops;
+    expect(migrateRecord(none).auditLoops!.loops.map(loop => loop.activityKey)).toEqual(["audit-d1", "audit-t1", "audit-d3"]);
+    const fresh = migrateRecord(schemaOne({})); fresh.schemaVersion = 23;
+    (fresh.settings as unknown as Record<string, unknown>).auditLoops = { deliveryLimit: 3, testLimit: 3, afterLastTest: "stop_and_ask" };
+    const migrated = migrateRecord(fresh);
+    expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 3, testLimit: 3 });
+    expect(migrated.auditLoops).toBeUndefined();
+  });
+
+  it("marks every audit Kiln 1.3.0 marked complete itemsUnread, accepted first or not, and no other", () => {
+    const record = released();
+    const [d1, d2, t1] = record.completionAudits!.activities;
+    d1!.acceptedResult = "accepted-d1"; d1!.waivedResult = "waived-d1";
+    d2!.waivedResult = "waived-d2";
+    t1!.acceptedResult = "accepted-t1";
+    const audits = migrateRecord(record).completionAudits!.activities;
+    expect(audits.map(audit => audit.itemsUnread ?? false)).toEqual([true, true, false, false, false]);
+  });
+
+  it("still loads a stored loop_limit stop", () => {
+    const stopped = released();
+    stopped.phases["audit-d3"]!.stop = { kind: "loop_limit", at, checks: [], checkedAt: at, loop: { kind: "delivery", reason: "phases_added", heldAuditKey: "audit-d3" } };
+    expect(migrateRecord(stopped).phases["audit-d3"]!.stop).toMatchObject({ kind: "loop_limit" });
   });
 });
 
@@ -177,7 +255,7 @@ describe("schema 23: the build preflight's state (build preflight \"Upgrade\")",
     const old = migrateRecord(schemaOne({}));
     old.schemaVersion = 22;
     const migrated = migrateRecord(old);
-    expect(migrated.schemaVersion).toBe(23);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     expect(migrated.preflight).toBeUndefined();
     expect(preflightSettled(migrated)).toBe(false);
     expect(() => migrateRecord({ ...migrated, preflight: { activities: [{ activityId: "a", sequence: 1, createdAt: "2026-11-15T10:00:00Z", trigger: "sometime" }] } } as unknown as PrdRecord)).toThrow(/preflight/);
@@ -186,7 +264,7 @@ describe("schema 23: the build preflight's state (build preflight \"Upgrade\")",
 
   it("refuses a record from a newer schema under the existing rule", () => {
     const newer = migrateRecord(schemaOne({}));
-    newer.schemaVersion = 24;
+    newer.schemaVersion = 25;
     expect(() => migrateRecord(newer)).toThrow(/newer|Update Kiln/);
   });
 });

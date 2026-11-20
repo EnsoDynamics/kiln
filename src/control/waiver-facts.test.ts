@@ -159,6 +159,15 @@ describe("the command line's Mark complete preview", () => {
     ]);
   });
 
+  it.each([
+    ["pull_request_session", "Kiln would then start the pull request session, with each item under For you as still open and marked Waived."],
+    ["complete", "Kiln would then complete the run, with each item under For you as still open and marked Waived."],
+  ] as const)("ends Continue anyway's preview at the hold stop with what it leads to, %s (Kiln Deliver When Audit Loops Run Out AC-ITEM-01)", (hold, last) => {
+    const lines = previewLines(markCompletePreview({ ...offer, label: "Continue anyway", continueInOrder: true, hold, nextActivity: null, sentence: ["Continue anyway. Kiln records each item above as waived, never as settled."] }, "/p", "7f3c9a1e"), "2026-11-02T00:14:05.000Z");
+    expect(lines).toContain(last);
+    expect(lines.join("\n")).not.toContain("a warning on each step");
+  });
+
   it("leads a recheck receipt with the preview, and a waiver receipt with its outcome and source", () => {
     const recheck = { operation: { id: "op_51d1", action: "check-again", state: "completed", outcome: "completion_checks_failed", reason: null, updated_at: "2026-11-02T00:14:05.000Z" }, mark_complete: markCompletePreview(offer, "/p", "7f3c9a1e") };
     expect(receiptLines(recheck)![0]).toBe("Operation op_51d1 completed. Phase 3 is still at Needs you.");

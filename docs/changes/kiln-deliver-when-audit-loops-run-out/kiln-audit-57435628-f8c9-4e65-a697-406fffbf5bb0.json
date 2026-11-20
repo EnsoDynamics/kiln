@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6d8a0186-fc0d-4a67-81b3-4e1a6c7b139a",
+  "activityId": "57435628-f8c9-4e65-a697-406fffbf5bb0",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The second session of test fixes worked five of the six rows. The failing package test for AC-BOT-01 was a wrong help contract, not a wrong test. proposal_changed and prerequisite_blocked are outcomes of a continue-with-phases receipt that fails after acceptance, so they moved out of its exit-coded errors into its outcome text, and the test passes. New or strengthened tests cover AC-CHOICE-02, AC-STOP-05, AC-LAST-05 and AC-LAST-03, and each was seen to fail against a break of the behavior it proves. Fresh re-graders put all five rows at Adequate. AC-ITEM-01 (high risk) is still Weak and is the one row left under To fix in test-audit.md. The full suite passed: unit, integration and package. The help contract file is runtime help content, so the implementation changed.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": true,
+  "raised": ["AC-BOT-01", "AC-CHOICE-02", "AC-STOP-05", "AC-LAST-05", "AC-LAST-03"]
+}

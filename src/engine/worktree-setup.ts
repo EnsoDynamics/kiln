@@ -65,7 +65,7 @@ export function expandHome(path: string): string {
   return path;
 }
 
-export type FieldErrors = Partial<Record<"workspaceFolder" | "worktreePath" | "featureBranch" | "baseBranch" | "model" | "deliveryLimit" | "testLimit" | "afterLastTest", string>>;
+export type FieldErrors = Partial<Record<"workspaceFolder" | "worktreePath" | "featureBranch" | "baseBranch" | "model" | "deliveryLimit" | "testLimit", string>>;
 
 /** One of the PRD's repositories as the field checks and setup see it, the PRD's repository first. */
 export interface PlannedRepository {

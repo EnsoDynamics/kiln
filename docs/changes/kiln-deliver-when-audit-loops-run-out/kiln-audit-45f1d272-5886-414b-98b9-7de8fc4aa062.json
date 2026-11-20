@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6d8a0186-fc0d-4a67-81b3-4e1a6c7b139a",
+  "activityId": "45f1d272-5886-414b-98b9-7de8fc4aa062",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The first session of test fixes worked six of the eight rows. It fixed the stale package test for AC-STOP-04 and added or strengthened tests for AC-CHOICE-02, AC-ITEM-01, AC-ITEM-02, AC-STOP-05 and AC-LEFT-02. Each new assertion was seen to fail when the behavior was broken on purpose. A fresh re-grade puts AC-STOP-04, AC-ITEM-02 and AC-LEFT-02 at Adequate. AC-CHOICE-02, AC-ITEM-01 and AC-STOP-05 are still Weak, on gaps the re-grade newly found. The full run found one more failing package test, for AC-BOT-01: since Phase 1, the help contract for continue-with-phases lists two receipt outcomes among its exit-coded errors. Six rows remain under To fix in test-audit.md, starting with that failing test. Only tests and audit records changed.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false,
+  "raised": ["AC-STOP-04", "AC-ITEM-02", "AC-LEFT-02"]
+}

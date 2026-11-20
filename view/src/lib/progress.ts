@@ -8,6 +8,7 @@ import type { Effort } from "../../../src/state/records.js";
 import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
 import { clockTime, limitTime, shortDuration, timeSpan, timingAt, timingText } from "./time.js";
 import { activityKeyKind } from "../../../src/state/activity-keys.js";
+import { positionText } from "./audit-loops.js";
 
 export const PR_ID = "pr";
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
@@ -86,6 +87,9 @@ export interface HeaderState {
  * started, its total line (time totals AC-TOTAL-01). A wait reads Waiting for usage.
  * Disconnected views label it last known without asserting the work stopped (live-session
  * control AC-LIVE-02); the caller passes the last-seen time as `now` there, so the totals hold.
+ * During the closing audits it names the loop from the snapshot's position: a running audit's or
+ * session of test fixes' as the pill, and at a Needs you stop the latest loop beside the stopped
+ * activity (Kiln Deliver When Audit Loops Run Out AC-STOP-05); a phase reads as any phase.
  *
  *   headerState(running, true, now).totals  // { running: "6h 12m", waiting: "1h 47m", since: "since Tue 9:02 AM" }
  */
@@ -120,7 +124,11 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
       const stopped = snapshot.needsYou!;
       const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === stopped.phaseId);
       const which = namedActivity(stopped.phaseId) ? row?.title ?? "Audit" : stopped.phaseId === PR_ID ? "PR" : `Phase ${stopped.phaseId}`;
-      return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`] };
+      const position = snapshot.auditLoops?.position;
+      const stoppedFact = `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`;
+      // An audit's own stop is named by its loop alone; any other stop keeps its name beside the latest loop.
+      if (position) return { kind: "needs_you", label: "Needs you", facts: [...(activityKeyKind(stopped.phaseId) === "audit" ? [] : [`${which} · ${row?.title ?? ""}`]), positionText(position), stoppedFact] };
+      return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, stoppedFact] };
     }
     case "waiting": {
       if (!connected) return { kind: "interrupted", label: `Last known: ${phaseName(current ?? "", snapshot)}`, facts: [done] };
@@ -141,6 +149,7 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
     }
     default:
       if (!connected) return { kind: "interrupted", label: `Last known: ${phaseName(current ?? "", snapshot)}`, facts: [done] };
+      if (snapshot.auditLoops?.position) return { kind: "implementing", label: positionText(snapshot.auditLoops.position), facts: [done] };
       return { kind: "implementing", label: current && namedActivity(current) ? `Running ${phaseName(current, snapshot)}` : `Implementing ${phaseName(current ?? "")}`, facts: [done] };
   }
 }

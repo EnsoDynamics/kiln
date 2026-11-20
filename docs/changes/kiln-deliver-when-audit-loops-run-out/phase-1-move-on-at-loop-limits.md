@@ -1,5 +1,7 @@
 # Phase 1: Move on at the loop limits
 
+**Closed:** 2026-11-19
+
 **Parent PRD:** [Kiln Deliver When Audit Loops Run Out](kiln-deliver-when-audit-loops-run-out-prd.md)
 **Technical design:** [Kiln Deliver When Audit Loops Run Out technical design](kiln-deliver-when-audit-loops-run-out-technical-design.md) — relevant sections: "Existing Code" (the loop stop machinery removed), "Settings", "Loops and the Ledger", "Routing After the Last Loop", "The Status Line", "Removed Controls", "Interfaces" (the two new commands, `kiln settings` flags, controls list, Compatibility), "Prompts" (`{{nextSteps}}`; deleted loop and acceptance prompts), "Upgrade" (settings, ledger, `atPullRequest`, a stored `loop_limit` stop)
 

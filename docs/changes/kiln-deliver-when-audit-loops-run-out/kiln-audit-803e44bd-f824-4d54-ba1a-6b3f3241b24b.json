@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6d8a0186-fc0d-4a67-81b3-4e1a6c7b139a",
+  "activityId": "803e44bd-f824-4d54-ba1a-6b3f3241b24b",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "This whole-PRD delivery audit checked all fifteen criteria at commit 6b9b2a8, once Phases 1 to 3 had closed. Two rounds of fresh assessors ran: the first confirmed one gap, the second none. Fourteen criteria are implemented. AC-BOT-01 is partly implemented: kiln handoff works, but kiln status does not list it among its controls with whether it is available and why not, as it lists the other controls in the criterion's table. Phase 4 was added to build it.",
+  "completionPhases": ["4"],
+  "needsYou": [],
+  "settled": []
+}

@@ -7,8 +7,9 @@
   // workspace folder and each repository's base, fixed, as Documents found draws them without
   // their help text (multi-repo AC-PRS-04, AC-SHOW-01). Under keep-awake, which covers a wait for
   // usage too, "Resume after a usage limit" applies at once, as the waiting screen draws it
-  // (usage-limit recovery AC-AUTO-03, AC-AUTO-04). Last, the three audit loop settings, changeable
-  // while Kiln runs and applied from its next decision whether to start a loop (Kiln Audit Loop Limits AC-LOOP-05).
+  // (usage-limit recovery AC-AUTO-03, AC-AUTO-04). Last, the two audit loop limits, changeable
+  // while Kiln runs and applied from its next decision whether to run that audit, each at or above
+  // the runs already made (Kiln Deliver When Audit Loops Run Out AC-CHOICE-02).
   import DevelopmentDelivery from "./DevelopmentDelivery.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
@@ -102,7 +103,7 @@
       </div>
     {/if}
   </dl>
-  <AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} disabled={!connected} short />
+  <AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} view={snapshot.auditLoops} disabled={!connected} short />
 </section>
 
 <style>
