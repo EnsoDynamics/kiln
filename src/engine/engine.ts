@@ -2,7 +2,8 @@ import { preparationPermissions } from "./preparation-permissions.js";
 import { claudeReopenCheck, conversationBegan as sessionBegan, lastRecordedRun, readPhaseWork, type WorkRead } from "./stopped-phase.js";
 import type { ReopenCheck } from "./reopen-check.js";
 import { markReasonRows } from "../state/records.js";
-import { outstandingLines, personItems, settledLines } from "../audit/person-items.js";
+import { itemEffect, itemLine, itemWaiver, kindWords, outstandingLines, personItems } from "../audit/person-items.js";
+import { deliveryBlock, forYou, type ForYou } from "../audit/for-you.js";
 import { readContinuationProposal } from "./continuation-readiness.js";
 import { preparationPrompt, preparationImplementationPrompt, carryOnPrompt, freshSessionPrompt } from "../session/prompts.js";
 import { newPreparationState, preparationAttemptNeedsReconciliation, preparationDigest, preparesPhase, type PreparationReference } from "./preparation-state.js";
@@ -46,7 +47,7 @@ import { keyOf as preflightKeyOf, latestPreflight, preflightActivity, preflightS
 import { appendLoop, closedKinds, limitFloor, LOOP_STOP_LINE, loopSettings, REMOVED_LOOP_COMMAND, startedLedger, validLimit, type AuditLoopSettings } from "../state/audit-loops.js";
 import { nextStepsForecast } from "./next-steps.js";
 import { assignAuditObligations } from "./development-owners.js";
-import type { AuditActivity, AuditKind } from "../audit/contracts.js";
+import type { AuditActivity, AuditKind, AuditReport, AuditResult } from "../audit/contracts.js";
 import { orderedRecoveryOwners } from "./development-owners.js";
 import { ownerDocuments, ownerDeliveryCheck } from "./development-delivery.js";
 import { deliveryOwner, ownerKey, ownerFields, recoveryOwners, recoveryStopKey, type DeliveryOwner } from "../state/development-delivery.js";
@@ -139,7 +140,7 @@ import {
   type StopKind,
   type StopLimit,
 } from "../state/records.js";
-import { applyWaivers, changedItems, checkCounts, closedWaiver, completeLabel, effectivePlan, fillAgainst, itemize, knownProblemWaiver, KNOWN_PROBLEM_CHECKS, previewSentence, unmetItems, READINESS_CHECK, type ItemChange, type MarkCompleteOffer, type MarkCompleteOutcome, type Waiver, type WaiverSource } from "./waivers.js";
+import { applyWaivers, changedItems, checkCounts, closedWaiver, completeLabel, effectivePlan, fillAgainst, itemize, knownProblemWaiver, KNOWN_PROBLEM_CHECKS, previewSentence, unmetItems, READINESS_CHECK, HOLD_CHECK, type ItemChange, type MarkCompleteOffer, type MarkCompleteOutcome, type Waiver, type WaiverRef, type WaiverSource } from "./waivers.js";
 import { userInfo } from "node:os";
 import { readRepositoryFingerprints } from "./waiver-fingerprints.js";
 import { readPhasePlan } from "../plan/phase-plan.js";
@@ -1983,6 +1984,7 @@ export class Engine {
     const { run, checks } = this.stopRun(key);
     const failing = checks.filter(check => !check.passed);
     const { label, heading, continueInOrder } = this.offerWording(key, failing);
+    const hold = failing.some(check => check.name === HOLD_CHECK) ? this.record.phases[key]?.stop?.holdLeadsTo ?? "pull_request_session" : undefined;
     // Only a finished recheck is missing when the stop's checks still fail, or none has run yet.
     const awaiting = !run || failing.length ? { awaitingRecheck: { label, heading } } : {};
     if (!run || run.origin !== "recheck") return { offered: false, reason: `No check has run since ${name} stopped. Run without --confirm to check again first.`, ...awaiting };
@@ -2005,8 +2007,8 @@ export class Engine {
     return {
       offered: true,
       label, heading, continueInOrder, checkRunId: run.id, items, failingChecks: failing.length, nextActivity, resultingLabel, noReport: preview?.report === "none",
-      sentence: previewSentence({ activity: name, failingChecks: failing.length, next, resultingLabel, repositoryWork, resumeOffered: this.resumeOffered(key), noReport: preview?.report === "none", continueInOrder, builtNothing }),
-      ...(builtNothing ? { builtNothing: true as const } : {}),
+      sentence: previewSentence({ activity: name, failingChecks: failing.length, next, resultingLabel, repositoryWork, resumeOffered: this.resumeOffered(key), noReport: preview?.report === "none", continueInOrder, builtNothing, ...(hold ? { hold } : {}) }),
+      ...(builtNothing ? { builtNothing: true as const } : {}), ...(hold ? { hold } : {}),
     };
   }
 
@@ -2017,6 +2019,8 @@ export class Engine {
     const problemStop = (stopKind === "plan" || stopKind === "selection") && failing.some(check => KNOWN_PROBLEM_CHECKS.includes(check.name));
     const continueInOrder = problemStop && !(this.activityRan(key) || this.alreadyComplete(key));
     const lower = name.charAt(0).toLowerCase() + name.slice(1);
+    // The hold stop's offer follows its row, whether or not a pull request session has run (AC-ITEM-01).
+    if (failing.some(check => check.name === HOLD_CHECK)) return { label: "Continue anyway", heading: "You’ve provided what’s listed above, and want Kiln to deliver?", continueInOrder: true };
     return {
       label: continueInOrder ? "Continue in normal order" : `Mark ${lower} complete`,
       heading: continueInOrder ? "Kiln can’t work out the next step, and you want it to carry on?" : `${name} is done, and Kiln’s check is wrong?`,
@@ -4157,6 +4161,7 @@ export class Engine {
       return withDone({ kind: "start_audit" as const, phaseKey: next.key, label: auditLabel(next.activity.kind), round: next.activity.round });
     }
     const leaf = next.leaf;
+    if (!leaf && await this.holdStops()) return withDone({ kind: "needs_you" as const, phaseKey: PR_PHASE_KEY, again: true });
     if (!leaf) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (deliveryEnabled(record) && check.ghError) { this.recordStop(PR_PHASE_KEY, "pull_request_check", check.checks); return withDone({ kind: "needs_you" as const, phaseKey: PR_PHASE_KEY, again: true }); }
@@ -4292,6 +4297,8 @@ export class Engine {
           return;
         }
       }
+      // Every arrival at final delivery checks that nothing holds the run, before anything that can complete it (AC-ITEM-01).
+      if (!leaf && !audit && await this.holdStops()) { this.current = undefined; this.pullRequestPrecheckDone = false; return; }
       if (!leaf && !audit && !this.pullRequestPrecheckDone) {
         // A gh error here starts the pull-request session without showing it; that session's own check decides.
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
@@ -4352,6 +4359,44 @@ export class Engine {
   }
 
 
+
+  /**
+   * The items for a person at a Needs you stop (AC-ITEM-02): on an audit, each entry of its latest
+   * report, with the kind and what waits on it it gives or keeps; at the hold stop, each holding
+   * item. Undefined elsewhere. Each says what it does, and an item a waiver covers carries its tag.
+   */
+  stopItems(store?: Pick<AuditStore, "read">): PersonItemView[] | undefined {
+    const key = this.stoppedPhaseKey();
+    if (key === undefined) return undefined;
+    const audits = this.record.completionAudits?.activities ?? [];
+    const view = (item: Omit<PersonItemView, "words" | "effect">): PersonItemView => ({ ...item, words: kindWords(item.kind), effect: itemEffect(item.kind) });
+    if (key === PR_PHASE_KEY && this.record.phases[key]?.stop?.checks.some(check => check.name === HOLD_CHECK)) {
+      return personItems(this.stateDirectory, audits, Infinity, store).outstanding.filter(item => itemEffect(item.kind) === "holds").map(item => {
+        const waiver = itemWaiver(item, this.record.waivers);
+        return view({ id: item.id, kind: item.kind, problem: item.problem, action: item.action, ...optionalField("waitsOn", item.waitsOn), ...optionalField("criterion", item.criterion), ...(waiver ? { waiver } : {}) });
+      });
+    }
+    const activity = this.auditActivity(key);
+    const latest = activity?.attempts.at(-1);
+    if (!activity || !latest || hasEffectiveResult(activity)) return undefined;
+    const auditStore = store ?? new AuditStore(this.stateDirectory);
+    const attempt = auditStore.read<AuditResult>(latest);
+    if (attempt.refusal || !attempt.reportBytes) return undefined;
+    const report = JSON.parse(attempt.reportBytes) as AuditReport;
+    if (report.schemaVersion !== 2 || !report.needsYou.length) return undefined;
+    const known = new Map(personItems(this.stateDirectory, audits, activity.sequence, auditStore).outstanding.map(item => [item.id, item]));
+    return report.needsYou.map(entry => {
+      const kept = entry.id ? known.get(entry.id) : undefined;
+      const waitsOn = entry.waitsOn ?? kept?.waitsOn; const criterion = entry.criterion ?? kept?.criterion;
+      const waiver = kept ? itemWaiver(kept, this.record.waivers) : undefined;
+      return view({ ...(entry.id ? { id: entry.id } : {}), kind: entry.kind ?? kept?.kind ?? null, problem: entry.problem, action: entry.action, ...optionalField("waitsOn", waitsOn), ...optionalField("criterion", criterion), ...(waiver ? { waiver } : {}) });
+    });
+  }
+
+  /** **For you** on a finished run (AC-ITEM-03). */
+  deliveredForYou(store?: Pick<AuditStore, "read">): ForYou | undefined {
+    return this.record.completedAt ? forYou(this.stateDirectory, this.record, store) : undefined;
+  }
 
   auditActivity(key: string): AuditActivity | undefined { return this.record.completionAudits?.activities.find(a => auditKey(a) === key); }
 
@@ -4669,6 +4714,55 @@ export class Engine {
   }
 
   /**
+   * The hold check's one row (Items for a Person, "The hold stop"): one `other` item per outstanding
+   * item that holds the run, keyed by its ledger id so a waiver keeps covering it whatever the feature
+   * heads. An item the waiver of an audit marked complete covers is left out; waivers are applied by
+   * the caller.
+   */
+  private holdRow(): CheckResult {
+    const audits = this.record.completionAudits?.activities ?? [];
+    const waivers = this.record.waivers ?? [];
+    const holding = personItems(this.stateDirectory, audits).outstanding.filter(item => itemEffect(item.kind) === "holds" && !(item.auditWaiverId && waivers.some(w => w.waiverId === item.auditWaiverId)));
+    if (!holding.length) return { name: HOLD_CHECK, passed: true, facts: ["No item for a person holds the run."] };
+    const text = (item: typeof holding[number]) => `${item.kind === null ? "Listed before item kinds: " : ""}${itemLine(item)}${item.waitsOn ? ` Waits on: ${item.waitsOn}` : ""}`;
+    const items = holding.map(item => ({ kind: "other" as const, subject: item.id, text: text(item), against: item.id }));
+    return { name: HOLD_CHECK, passed: false, facts: items.map(item => item.text), items };
+  }
+
+  /** At an arrival at final delivery: true, with the hold stop recorded, while an item no waiver covers holds the run. */
+  private async holdStops(): Promise<boolean> {
+    const row = this.holdRow();
+    if (await this.markChecks(PR_PHASE_KEY, [row])) return false;
+    this.recordStop(PR_PHASE_KEY, "selection", [row]);
+    return true;
+  }
+
+  /**
+   * Check again at the hold stop: routing on the limits in force, then the hold check. An audit or
+   * a phase still to run clears the stop, since its work can settle the item; otherwise the stop is
+   * kept with the new run, which makes Continue anyway usable, and remembers whether Continue
+   * anyway would complete the run with no pull request session.
+   */
+  private async recheckHold(phaseKey: string, routeAudits = true): Promise<"cleared" | "still_stopped"> {
+    // Continue anyway's rerun (`routeAudits: false`) never routes to work: it only rechecks the row it would waive.
+    if (routeAudits) {
+      let next: Awaited<ReturnType<typeof auditNext>> | undefined;
+      try { next = await auditNext(this.admissionContext()); }
+      catch { return this.clearStop(phaseKey); }
+      const read = await this.readPlan();
+      if (next !== "final_delivery" || read.ok && this.nextExecutionLeaf(read.plan)) return this.clearStop(phaseKey);
+    }
+    const row = this.holdRow();
+    if (await this.markChecks(phaseKey, [row])) return this.clearStop(phaseKey);
+    const final = await this.pullRequestCheck(PR_PHASE_KEY);
+    if (this.stopping) return "still_stopped";
+    this.updateStop(phaseKey, [row], false);
+    this.record.phases[phaseKey]!.stop!.holdLeadsTo = final.passed && !final.ghError ? "complete" : "pull_request_session";
+    this.save();
+    return "still_stopped";
+  }
+
+  /**
    * Where the record cannot tell: the next of delivery audit, test audit, final delivery after the
    * last settled audit, with a closed kind's audit skipped as `auditNext` skips it (AC-LAST-03).
    */
@@ -4730,7 +4824,7 @@ export class Engine {
     const history = this.record.completionAudits!.activities.filter(a => a.sequence < activity.sequence && hasEffectiveResult(a) && effectiveAudit(this.stateDirectory, a)?.reportBytes);
     const previous = [history.findLast(a => a.kind === "delivery_audit"), history.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a).sort((a, b) => a.sequence - b.sequence);
     const nextSteps = nextStepsForecast({ kind: activity.kind, fixing: activity.continuationIndex > 1, closed: closedKinds(this.record), latestTestContinues: latestTestContinues(this.gateContext) });
-    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}), outstanding: outstandingLines(personItems(this.stateDirectory, this.record.completionAudits!.activities, activity.sequence).outstanding), nextSteps });
+    return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}), outstanding: outstandingLines(personItems(this.stateDirectory, this.record.completionAudits!.activities, activity.sequence).outstanding, this.record.waivers), nextSteps });
   }
 
   private emitAudit(activity: AuditActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
@@ -5868,6 +5962,7 @@ export class Engine {
     if (stop.kind === "loop_limit") return this.clearStop(phaseKey);
     const latest = this.latestSession(phaseKey);
     if (latest?.agentId === "codex") await this.stopLiveProcess(latest);
+    if (stop.kind === "selection" && stop.checks.some(check => check.name === HOLD_CHECK)) return this.recheckHold(phaseKey, routeAudits);
     if (stop.kind === "selection" && stop.checks.some(check => check.name === READINESS_CHECK)) {
       // The scheduling decision and, when the next step is an audit, its skill resolution, without allocating an activity.
       try {
@@ -5962,6 +6057,8 @@ export class Engine {
       return this.clearStop(phaseKey);
     }
     if (phaseKey === PR_PHASE_KEY) {
+      // A holding item no waiver covers stops the run before anything completes it, such as an item with no kind on a stop saved by Kiln 1.3.0 (AC-ITEM-01, "Upgrade").
+      if (routeAudits && await this.holdStops()) return "still_stopped";
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
       if (this.stopping) return "still_stopped";
       // GitHub or the delivery source could not be read: a check that could not finish, so Mark complete is not offered on it (AC-WAIVE-02).
@@ -7577,10 +7674,14 @@ export class Engine {
     };
   }
 
-  /** Settled items once each, then any still open because an audit was marked complete (AC-NEUTRAL-03). */
+  /**
+   * The block each pull request's description opens with (AC-ITEM-03): **For you**, each item's line
+   * with its Waived tag, then the after-delivery actions; then **Settled during the build**.
+   */
   private personItemsForDelivery(): string {
-    const ledger = personItems(this.stateDirectory, this.record.completionAudits?.activities ?? []);
-    return [settledLines(ledger.settled), ...ledger.outstanding.map(item => `- ${item.problem} Listed by ${item.listedBy}; still open, not settled by a later audit.`)].filter(Boolean).join("\n");
+    const audits = this.record.completionAudits?.activities ?? [];
+    const tag = (ref: WaiverRef) => [`waived at ${this.activityName(ref.activityKey)}, ${ref.at.slice(0, 16).replace("T", " ")} UTC`, ref.via === "browser" ? "browser" : "command line", ref.account, ...(ref.by ? [ref.by] : [])].join(" · ");
+    return deliveryBlock(forYou(this.stateDirectory, this.record), personItems(this.stateDirectory, audits).settled, tag);
   }
 
   private checkedRepository(entry: RepositoryEntry): CheckedRepository {
@@ -8003,3 +8104,16 @@ async function raceTimeout(promise: Promise<unknown>, ms: number, skip?: Promise
     clearTimeout(timer);
   }
 }
+
+/** One item for a person as the page and `kiln status` show it (AC-ITEM-02). */
+export interface PersonItemView {
+  /** Absent only on a new entry of an unaccepted needs_you report. */
+  id?: string;
+  kind: import("../audit/contracts.js").PersonItemKind | null;
+  words: string | null;
+  problem: string; action: string;
+  waitsOn?: string; criterion?: string;
+  waiver?: WaiverRef;
+  effect: "stops" | "holds" | "goes_on";
+}
+const optionalField = <K extends string, V>(key: K, value: V | undefined) => (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };

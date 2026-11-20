@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PersonItems from "../components/PersonItems.svelte";
   import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Needs you (docs/design/mockups/kiln-screen-needs-you-ended-with-message.html and
@@ -63,6 +64,9 @@
   const { config, router, connection } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const nowDate = $derived(new Date(now));
+  // An audit's items, or the hold stop's: one heading whichever step listed them (AC-ITEM-02).
+  const itemCount = $derived(snapshot.items?.length ?? 0);
+  const itemsHeadline = $derived(itemCount ? `Kiln needs you for ${itemCount === 1 ? "one thing" : `${itemCount} things`}` : undefined);
   const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository, snapshot.developmentDelivery?.authorization.enabled));
   const ending = $derived(endingFact(stop));
   const output = $derived(outputTail(stop.lastLines ?? []));
@@ -220,11 +224,14 @@
             <h2>{limitCopy.headline}</h2>
             {#if limitCopy.refusedAgain}<p class="line">{limitCopy.refusedAgain}</p>{/if}
             <p class="line">{limitCopy.reported} {#if limitCopy.reset}<strong>{limitCopy.reset}</strong>{/if}</p>
+          {:else if itemsHeadline}
+            <h2>{itemsHeadline}</h2>
           {:else}
             <h2>{copy.headline}</h2>
             <p class="line">{copy.line}</p>
           {/if}
         </div>
+        <PersonItems {snapshot} />
         {#if failure}<p class="failure">{failure}</p>{/if}
         {#if copy.showFacts && ending}
           <div class="facts mono"><span>{ending}</span><span>{clockTime(stop.stoppedAt, nowDate)}</span>{#if stop.lastSkill}<span>last skill seen: {stop.lastSkill.name}, {earlier(stop.lastSkill.at, stop.stoppedAt)}</span>{/if}</div>
@@ -246,7 +253,7 @@
       </section>
 
       <CodexSessionFacts facts={stop} />
-      {#if stop.kind === "selection"}
+      {#if stop.kind === "selection" && !itemCount}
         <section class="card">
           <h2 class="eyebrow">{snapshot.settings.agent} · Model and effort</h2>
           <ModelEffortEditor {snapshot} save={saveSelection} />

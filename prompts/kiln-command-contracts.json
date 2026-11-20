@@ -3113,13 +3113,14 @@
           "AuditReport": {
             "schemaVersion": "Required literal 2. A version-1 report is refused with invalid_report.",
             "executionId, activityId, kind": "Required exact values from audit status; kind delivery_audit or test_audit.",
-            "outcome": "Required: passed (nothing left), completion_phases (phases appended for missing work), continue_test (test audit only; remaining test work saved for another session), needs_you (a person must decide or act; also when added phases depend on that answer).",
+            "outcome": "Required: passed (nothing left), completion_phases (phases appended for missing work), continue_test (test audit only; remaining test work saved for another session), needs_you (the work the report leaves cannot go on without an item, a critical finding the next step would cause or worsen, or nothing left to build with a blocker or business question not marked waived open before the pull request; needs an item that stops or holds the run and is not marked waived).",
             "summary": "Required non-empty plain text.",
             "completionPhases": "Required string[] of the phase IDs this audit appended; [] when none. Must equal the phases appended to the plan.",
-            "needsYou": "Required {id?,problem,action}[]; non-empty with needs_you; with completion_phases or continue_test it lists items the added work does not depend on; with passed, only outstanding items listed again by id, and [] from a test audit that changed only tests, since final delivery follows. id names an outstanding item listed again.",
+            "needsYou": "Required {id?,kind,problem,action,waitsOn?,criterion?}[]; non-empty with needs_you. kind is critical_next_step (stops at once, so the outcome is needs_you), critical, blocker, business_question, test or other; waitsOn says what waits on the item and is required for critical_next_step, blocker and business_question. id names an outstanding item listed again; a relisting may leave out kind and waitsOn to keep them, and must give a kind to an item shown with none. Any outcome may list new items.",
             "settled": "Optional {id,how}[]: outstanding items this audit found settled. Every outstanding item appears once, in needsYou by id or in settled; a report that omits one is refused.",
             "changedImplementation": "Test audits only, required boolean: true when the audit changed anything other than tests and audit records. Absent for delivery audits.",
-            "afterDeliveryActions": "Optional string[] of person actions the requirements place after delivery."
+            "afterDeliveryActions": "Optional string[] of person actions the requirements place after delivery.",
+            "raised": "Required non-empty string[] on a continue_test report from a session of test fixes: the criteria whose rows it raised. One that raised none reports passed, listing each row left as a test item."
           }
         },
         "rules": [

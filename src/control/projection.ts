@@ -26,7 +26,7 @@ import { privateJson, privateBytes, deadlineCheck, safeSelector, type SavedWork 
 import { chooseSession, readHistory, readInspectionSession, newestSession, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
-import { markCompletePreview, progressRows, projectCheck, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
+import { markCompletePreview, progressRows, projectCheck, projectPersonItem, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
 import { checkCounts, effectiveRecordedClosed, type AuditWaiverResult } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 import { statusCompatibility } from "../engine/compatibility-notices.js";
@@ -328,6 +328,8 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     pause_status: pauseStatus,
     // The snapshot's loop limits, counts and position (AC-STOP-05); read from the record when no snapshot was saved.
     audit_loops: view?.auditLoops ?? savedAuditLoops(record),
+    // The items for a person at a Needs you stop on an audit, or at the hold stop (AC-ITEM-02).
+    items: view?.items?.map(projectPersonItem) ?? null,
     pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
     progress,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },

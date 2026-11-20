@@ -173,7 +173,7 @@ export interface PhaseView {
   };
   round?: number;
   continuationIndex?: number;
-  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[];
+  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[];
     /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
     personItems?: { count: number; waiting: boolean };
     /** Items this audit settled, each as "<problem> Listed by <audit>, settled by <audit>: <how>". */
@@ -282,6 +282,10 @@ export interface Snapshot {
   preflight?: { planned?: { before: string } };
   /** The audit loop settings, counts and, at a loop stop, its page (Kiln Audit Loop Limits). */
   auditLoops?: import("./loop-view.js").AuditLoopsView;
+  /** The items for a person at a Needs you stop on an audit, and at the hold stop (Kiln Deliver When Audit Loops Run Out AC-ITEM-02). */
+  items?: import("./engine.js").PersonItemView[];
+  /** On a finished run: **For you** (AC-ITEM-03), in the order it is listed, each line word for word. */
+  delivered?: { forYou: import("../audit/for-you.js").ForYou };
   auditHistoryUnavailable?: boolean;
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
   feature: {
@@ -547,6 +551,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...preflightPlanned(engine, state, documents),
     auditLoops: auditLoopsView(engine),
+    ...personItemFields(engine, reads.auditStore),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {
       name: engine.paths.featureName,
@@ -1415,18 +1420,17 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       const repositories = snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [];
       if (report?.schemaVersion === 2) {
         row.audit = { outcome: report.outcome, summary: report.summary, checks, criteria: [], repositories, blockers: report.needsYou.map(item => `${item.problem} ${item.action}`), pendingActions: [] };
-        if (report.outcome === "passed" && accepted && facts?.doneAt) row.audit.remainingAfterDeliveryActions = report.afterDeliveryActions ?? [];
-        if (accepted && report.needsYou.length) {
-          // Until a later audit's report is accepted, every item this one listed is still outstanding;
-          // an audit marked complete in between settles nothing, so the items are still waiting.
-          row.audit.personItems = { count: report.needsYou.length, waiting: !audits.some(other => other.sequence > audit.sequence && other.acceptedResult) };
+        // An audit marked complete with a valid report counts as accepted (AC-ITEM-01), unless Kiln 1.3.0 marked it.
+        const counted = accepted || (waivedResult?.reportBytes !== undefined && !audit.itemsUnread);
+        if (counted && report.needsYou.length) {
+          // Until a later audit has an effective result read for items, every item this one listed is still outstanding.
+          row.audit.personItems = { count: report.needsYou.length, waiting: !audits.some(other => other.sequence > audit.sequence && (other.waivedResult && !other.itemsUnread ? store.read<AuditWaiverResult>(other.waivedResult).reportBytes !== undefined : !!other.acceptedResult)) };
         }
         const settledHere = ledger?.settled.filter(item => item.settledByActivityId === audit.activityId) ?? [];
         if (settledHere.length) row.audit.settledItems = settledLines(settledHere).split("\n").map(line => line.slice(2));
       } else {
         // A version-1 result keeps its history: criteria, findings, blockers and human actions.
         row.audit = { ...optional("outcome", report?.outcome), checks, criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories, blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
-        if (report?.outcome === "passed" && accepted && facts?.doneAt) row.audit.remainingAfterDeliveryActions = report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
       }
     } catch (error) { if (inspectionStore) throw error; row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
     Object.assign(row, waivedFacts(engine, activity.key, row.state === "done", waivedResult));
@@ -1571,4 +1575,12 @@ function waivedFacts(engine: Engine, key: string, done: boolean, waivedResult?: 
     ...(warnings.length ? { warnings } : {}),
     ...(facts?.skippedByWaiver && !done ? { skippedByWaiver: true as const } : {}),
   };
+}
+
+/** The items at a stop and, on a finished run, **For you**; left out when the audit history cannot be read. */
+function personItemFields(engine: Engine, store?: Pick<AuditStore, "read">): Pick<Snapshot, "items" | "delivered"> {
+  try {
+    const items = engine.stopItems(store); const forYou = engine.deliveredForYou(store);
+    return { ...(items?.length ? { items } : {}), ...(forYou ? { delivered: { forYou } } : {}) };
+  } catch (error) { if (store) throw error; return {}; }
 }

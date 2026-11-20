@@ -72,6 +72,7 @@ Kiln never delivers work the delivery audit says is unfinished. When the loops a
   - Replaces in part: AC-RUN-07 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a loop stop whose report added phases or saved test work, when no loop of the needed kind is left, also holds continuation)
   - Replaces in part: AC-CONTINUE-05 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (completion phases audits add after a continuation are built only while a delivery audit loop is left)
   - Replaces in part: AC-WAIVE-12 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (completion phases that an audit marked complete with no usable report already appended run first only while a delivery audit loop is left; otherwise Kiln stops at Needs you)
+  - Superseded by: AC-LAST-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md`
 
 ### Finish the Test Work at the Last Loop
 
@@ -95,6 +96,8 @@ The last session of test fixes, and any test audit after it, is told no more loo
 
   - Replaces in part: AC-NEUTRAL-03 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (once no test audit loop is left, a test audit report that saved test work, or passed while still listing an item a person must decide or do before delivery, stops at Needs you instead of advancing)
   - Replaces in part: AC-TEST-02 and AC-RUN-07 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (test audit continuations start only while a test audit loop is left; once none is left, saved test work stops at Needs you, and that loop stop holds continuation; a passing report that still lists items for a person stops at Needs you until Check again)
+  - Superseded in part by: AC-LAST-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a report that adds phases or saves test work never stops the run because no loop is left; its test work is done in as many sessions as it takes)
+  - Superseded in part by: AC-ITEM-03 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (once no test loop is left, only an item that stops or holds the run under AC-ITEM-01 stops it)
 - [ ] **AC-TEST-03 — The last loop is shown, never hidden.** The last test audit loop's row and detail say it was the last, and those of each session whose prompt quoted the default's sentence (AC-TEST-01) or an Accept sentence (AC-STOP-02) say which sentence it carried. The pull request session gets a line saying the same, with the latest such session's summary, to include word for word, as for settled items.
 
 ### Decide at the Stop

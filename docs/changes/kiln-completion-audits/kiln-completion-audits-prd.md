@@ -71,6 +71,7 @@ The test audit asks whether the tests would notice if an acceptance criterion br
 - [ ] **AC-TEST-04 — Final completion has no unresolved audit blocker.** No applicable criterion remains Missing, Weak, waiting on delivery, or blocked on evidence required to verify the PRD. Fully superseded criteria are excluded with their replacement pointers. Behavior changed outside the requirements requires a recorded human decision before completion; the audit does not revert it automatically. A pending human action may remain only when the governing requirements place it after Kiln’s delivery boundary, such as a later production release; Kiln lists it without claiming it happened.
   - Superseded in part by: AC-NEUTRAL-02 in `docs/changes/kiln-method-neutral-audits/kiln-method-neutral-audits-prd.md` (Kiln no longer checks grades; the outcome gates completion).
   - Superseded in part by: AC-WAIVE-12 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (final delivery can follow a test audit marked complete with blockers unresolved).
+  - Superseded in part by: AC-ITEM-03 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (behavior changed outside the requirements and a pending human action not holding the run no longer keep it from completing)
 
 ### Keep the unattended run understandable and recoverable
 

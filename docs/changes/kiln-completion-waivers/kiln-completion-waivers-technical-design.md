@@ -65,6 +65,8 @@ A plan that reads with structural problems, or that the retained baseline cannot
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (Mark complete is offered at a preflight stop without a recheck).
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Check Runs and When Mark Complete Is Offered (at a **Nothing holds the run** stop the offer is Continue anyway with effect `continued`, even after a pull request session ran, so waiving it never completes the run).
+
 A stop records the identity of its latest check run:
 
 ```
@@ -105,6 +107,8 @@ Waiver:
 
 ## Coverage (AC-WAIVE-09, AC-WAIVE-10)
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Coverage (AC-WAIVE-09, AC-WAIVE-10) (a waived **Nothing holds the run** item is matched by its ledger id, not the feature heads, so its waiver survives feature-head changes for the rest of the run).
+
 `applyWaivers(record, plan, checks)` is the only place coverage is decided. For each failing item it finds the latest waiver item with the same match key whose `against` equals the item's current `against`, and sets `item.waiver`. A check whose failing items are all covered gets `passed: true, waived: true`; one with some uncovered items stays failing, with its covered items tagged. Covered items are excluded from comparisons and counts as "failing".
 
 Every check result that decides what happens next passes through it before `passed` is read: the done check, the audit done check, final delivery's check (both the pull-request and development-delivery forms), the closed-leaf development check before scheduling, finished audit owners' development checks inside `nextActivity`, activation-recovery checks, and the plan-read and audit-readiness decisions below. Display and receipts read the same marked results, so the browser, terminal and status JSON cannot disagree.
@@ -122,6 +126,8 @@ An activity can complete normally on a carried waiver, with no waiver of its own
 ## Mark Complete (AC-WAIVE-03, AC-WAIVE-04)
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (no rerun at a preflight stop; the waiver is saved from the stop's items).
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Mark Complete (at a **Nothing holds the run** stop the offer is Continue anyway with effect `continued`, even after a pull request session ran, so waiving it never completes the run).
 
 Under the exclusive checking boundary, held from admission until the record write or refusal:
 
@@ -155,6 +161,8 @@ The next activity is a forecast computed inside the offered predicate from the s
 ## Audits Marked Complete (AC-WAIVE-12)
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Loop Stops (appended phases of a waived audit run first only while a delivery loop is left; a counted `continue_test` continues only while a test loop is left).
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Audits Marked Complete (`personItems` joins the readers of `effectiveAudit`, so each item a waived audit's valid report listed enters the ledger as waived by that audit waiver, and its `settled` entries close items).
 
 An audit waiver stores an audit-waiver result in the audit store, referenced by the waiver and by `activity.waivedResult`:
 

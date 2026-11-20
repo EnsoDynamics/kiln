@@ -79,7 +79,7 @@ describe("an audit marked complete counts as its report allows (AC-WAIVE-12)", (
   it.each<Row>([
     ["an accepted delivery report, its own outcome", "delivery_audit", async (f, a) => { f.saveReport(a); expect((await f.submit(a)).disposition).toBe("recorded"); }, { report: "accepted", countedOutcome: "passed" }],
     ["an accepted test report, its own changedImplementation", "test_audit", async (f, a) => { f.change("value.mjs", "export const value = () => 42; // fixed\n"); f.saveReport(a, { changedImplementation: true }); expect((await f.submit(a)).disposition).toBe("recorded"); }, { report: "accepted", countedOutcome: "passed", countedChangedImplementation: true }],
-    ["a valid report that needs a person, counted as passed", "delivery_audit", async (f, a) => { f.saveReport(a, { outcome: "needs_you", needsYou: [{ problem: "Needs a login.", action: "Grant it." }] }); expect((await f.submit(a)).refusal).toBeUndefined(); }, { report: "valid", countedOutcome: "passed" }],
+    ["a valid report that needs a person, counted as passed", "delivery_audit", async (f, a) => { f.saveReport(a, { outcome: "needs_you", needsYou: [{ kind: "blocker", problem: "Needs a login.", action: "Grant it.", waitsOn: "The rest of the audit." }] }); expect((await f.submit(a)).refusal).toBeUndefined(); }, { report: "valid", countedOutcome: "passed" }],
     ["a valid report whose repository check failed, its own outcome", "delivery_audit", async (f, a) => { appendPhase(f, "2"); f.saveReport(a, { outcome: "completion_phases", completionPhases: ["2"] }, false); expect(await f.submit(a)).toMatchObject({ disposition: "unresolved" }); }, { report: "valid", countedOutcome: "completion_phases" }],
     ["a valid test report, changedImplementation from the report", "test_audit", async (f, a) => { f.change("value.mjs", "export const value = () => 42; // fixed\n"); writeFileSync(join(f.root, "dirty.txt"), "x"); f.saveReport(a, { changedImplementation: true }); expect((await f.submit(a)).refusal).toBeUndefined(); }, { report: "valid", countedOutcome: "passed", countedChangedImplementation: true }],
     ["no report submitted", "delivery_audit", async () => {}, { report: "none", countedOutcome: "passed" }],
@@ -163,7 +163,8 @@ describe("an audit marked complete counts as its report allows (AC-WAIVE-12)", (
     expect(await auditNext(f.context)).toBe("continue_test");
 
     const continuation = await f.allocate("test_audit", 2);
-    f.saveReport(continuation, { outcome: "continue_test" });
+    // It names a row it raised (Kiln Deliver When Audit Loops Run Out AC-LAST-01), so the refusal is for making no progress.
+    f.saveReport(continuation, { outcome: "continue_test", raised: ["AC-PROOF-01"] });
     expect((await f.submit(continuation)).refusal?.reason).toContain("made no progress");
     await f.markComplete(continuation);
     expect(continuablePredecessor(f.context)).toBeUndefined();

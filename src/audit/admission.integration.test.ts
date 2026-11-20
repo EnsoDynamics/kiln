@@ -100,7 +100,7 @@ describe("version-2 audit admission", () => {
     expect(f.activity.acceptedResult).toBeUndefined();
   });
   it("needs a person when the audit says so, showing each problem and action (AC-NEUTRAL-03)", async () => {
-    const f = await fixture(); f.report.outcome = "needs_you"; f.report.needsYou = [{ problem: "AC-PROOF-01 needs a staging login.", action: "Grant the staging role." }]; f.saveReport();
+    const f = await fixture(); f.report.outcome = "needs_you"; f.report.needsYou = [{ kind: "blocker", problem: "AC-PROOF-01 needs a staging login.", action: "Grant the staging role.", waitsOn: "The rest of the audit." }]; f.saveReport();
     const result = await f.submit();
     expect(result.refusal).toBeUndefined(); expect(result).toMatchObject({ disposition: "unresolved", nextAction: "needs_you" });
     expect(result.checks).toContainEqual({ name: "Audit work resolved", passed: false, facts: ["AC-PROOF-01 needs a staging login. Grant the staging role."] });
@@ -108,7 +108,7 @@ describe("version-2 audit admission", () => {
   });
   it("builds added phases while a person settles what the audit also listed (AC-NEUTRAL-03)", async () => {
     const f = await fixture(); appendPhase(f, "2");
-    f.report.outcome = "completion_phases"; f.report.completionPhases = ["2"]; f.report.needsYou = [{ problem: "AC-RET-04 names a file the design kept.", action: "Amend AC-RET-04 or ask for the rename." }]; f.saveReport();
+    f.report.outcome = "completion_phases"; f.report.completionPhases = ["2"]; f.report.needsYou = [{ kind: "other", problem: "AC-RET-04 names a file the design kept.", action: "Amend AC-RET-04 or ask for the rename." }]; f.saveReport();
     const result = await f.submit();
     expect(result).toMatchObject({ disposition: "recorded", nextAction: "implementation" });
     expect(result.checks.map(check => check.name)).not.toContain("Audit work resolved");
@@ -116,14 +116,14 @@ describe("version-2 audit admission", () => {
   });
   it("stops at Needs you when phases the audit added depend on the person's answer (AC-NEUTRAL-03)", async () => {
     const f = await fixture(); appendPhase(f, "2");
-    f.report.outcome = "needs_you"; f.report.completionPhases = ["2"]; f.report.needsYou = [{ problem: "Phase 2 depends on the refund rate.", action: "Choose the rate." }]; f.saveReport();
+    f.report.outcome = "needs_you"; f.report.completionPhases = ["2"]; f.report.needsYou = [{ kind: "business_question", problem: "Phase 2 depends on the refund rate.", action: "Choose the rate.", waitsOn: "Phase 2." }]; f.saveReport();
     const result = await f.submit();
     expect(result.refusal).toBeUndefined();
     expect(result).toMatchObject({ disposition: "unresolved", nextAction: "needs_you" });
     expect(result.checks).toContainEqual({ name: "Audit work resolved", passed: false, facts: ["Phase 2 depends on the refund rate. Choose the rate."] });
   });
   describe("items an audit left for a person (AC-NEUTRAL-03)", () => {
-    const item = { problem: "AC-RET-04 names a file the design kept.", action: "Amend AC-RET-04 or ask for the rename." };
+    const item = { kind: "other" as const, problem: "AC-RET-04 names a file the design kept.", action: "Amend AC-RET-04 or ask for the rename." };
     /** An accepted round-1 delivery audit that added phase 2 and listed one item, then phase 2 closed and round 2 allocated. */
     async function carried() {
       const f = await fixture(); appendPhase(f, "2");
@@ -146,12 +146,13 @@ describe("version-2 audit admission", () => {
       expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", ...item, listedBy: "Delivery audit round 1" }]);
       expect((await round2.submit(round2.report({}))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining(`missing item-1 (${item.problem})`) });
       expect((await round2.submit(round2.report({ settled: [{ id: "item-9", how: "x" }] }))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("No outstanding item item-9") });
-      expect((await round2.submit(round2.report({ outcome: "needs_you", needsYou: [{ id: "item-1", ...item }], settled: [{ id: "item-1", how: "x" }] }))).refusal).toMatchObject({ reason: expect.stringContaining("repeated: item-1") });
+      expect((await round2.submit(round2.report({ needsYou: [{ id: "item-1", ...item }], settled: [{ id: "item-1", how: "x" }] }))).refusal).toMatchObject({ reason: expect.stringContaining("repeated: item-1") });
       expect(round2.activity.acceptedResult).toBeUndefined();
     });
     it("keeps an item listed again outstanding, and records how a later audit settled it", async () => {
       const { f, allocate } = await carried(); const round2 = await allocate(2);
-      const relisted = await round2.submit(round2.report({ outcome: "needs_you", needsYou: [{ id: "item-1", ...item, action: "Decide before Phase 3." }] }));
+      // Relisted as a blocker, the item now holds the work: needs_you, with what waits on it (AC-ITEM-01).
+      const relisted = await round2.submit(round2.report({ outcome: "needs_you", needsYou: [{ id: "item-1", ...item, kind: "blocker", waitsOn: "Phase 3.", action: "Decide before Phase 3." }] }));
       expect(relisted.refusal).toBeUndefined(); expect(relisted).toMatchObject({ disposition: "unresolved", nextAction: "needs_you" });
       const settled = await round2.submit(round2.report({ settled: [{ id: "item-1", how: "A person amended AC-RET-04 to keep the name." }] }));
       expect(settled).toMatchObject({ disposition: "recorded", nextAction: "test_audit" });
@@ -159,22 +160,53 @@ describe("version-2 audit admission", () => {
       expect(ledger.outstanding).toEqual([]);
       expect(ledger.settled).toMatchObject([{ id: "item-1", listedBy: "Delivery audit round 1", settledBy: "Delivery audit round 2", how: "A person amended AC-RET-04 to keep the name." }]);
     });
-    it("lets a delivery audit that found nothing to build pass while carrying an open item to the test audit", async () => {
+    it("lets a delivery audit that found nothing to build pass with an item relisted by id alone and a new item, keeping the kind (AC-ITEM-02)", async () => {
       const { f, allocate } = await carried(); const round2 = await allocate(2);
-      expect((await round2.submit(round2.report({ needsYou: [item] }))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("only outstanding items still open") });
-      const carriedOn = await round2.submit(round2.report({ needsYou: [{ id: "item-1", ...item }] }));
+      // A relisting needs only id, problem and action; a passing report may list new items (Kiln Deliver When Audit Loops Run Out, "Report contract").
+      const carriedOn = await round2.submit(round2.report({ needsYou: [{ id: "item-1", problem: item.problem, action: item.action }, { kind: "test", problem: "AC-PROOF-01 has no test.", action: "Add one.", criterion: "AC-PROOF-01" }] }));
       expect(carriedOn.refusal).toBeUndefined(); expect(carriedOn).toMatchObject({ disposition: "recorded", nextAction: "test_audit" });
-      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", listedBy: "Delivery audit round 1" }]);
+      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", kind: "other", listedBy: "Delivery audit round 1" }, { id: "item-2", kind: "test", criterion: "AC-PROOF-01", listedBy: "Delivery audit round 2" }]);
     });
-    it("refuses a passing test audit that changed only tests and leaves an item open, since final delivery follows", async () => {
+    it("admits a passing test audit that changed only tests with an item open, leading to final delivery (AC-ITEM-03)", async () => {
       const { allocate } = await carried(); const tests = await allocate(2, "test_audit");
-      expect((await tests.submit(tests.report({ needsYou: [{ id: "item-1", ...item }] }))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("since final delivery follows") });
+      const result = await tests.submit(tests.report({ needsYou: [{ id: "item-1", ...item }] }));
+      expect(result.refusal).toBeUndefined(); expect(result).toMatchObject({ disposition: "recorded", nextAction: "final_delivery" });
     });
     it("lets a passing test audit that changed implementation carry an open item to the fresh delivery audit", async () => {
       const { f, allocate } = await carried(); const tests = await allocate(2, "test_audit");
       writeFileSync(join(f.root, "src-change.ts"), "export const changed = true;\n"); commit(f.sandbox, f.root, ["src-change.ts"]);
       const result = await tests.submit(tests.report({ changedImplementation: true, needsYou: [{ id: "item-1", ...item }] }));
       expect(result.refusal).toBeUndefined(); expect(result).toMatchObject({ disposition: "recorded", nextAction: "delivery_audit" });
+    });
+    it("reads the items and settlements of an audit marked complete with a valid report, waived by it, except one Kiln 1.3.0 marked (AC-ITEM-01, Upgrade)", async () => {
+      const { f, allocate } = await carried(); const round2 = await allocate(2);
+      const blocker = { kind: "blocker" as const, problem: "The key is missing.", action: "Add it.", waitsOn: "Delivery." };
+      const bytes = JSON.stringify(round2.report({ outcome: "needs_you", needsYou: [blocker], settled: [{ id: "item-1", how: "Renamed." }] }));
+      round2.activity.waivedResult = f.store.put({ kind: "audit_waiver", activityId: round2.activity.activityId, waiverId: "waiver-2", report: "valid", reportBytes: bytes, reportDigest: hashBytes(bytes), countedOutcome: "passed", snapshotRef: round2.activity.snapshots[0] });
+      const read = personItems(f.stateDirectory, f.record.completionAudits!.activities);
+      expect(read.settled).toMatchObject([{ id: "item-1", settledBy: "Delivery audit round 2", how: "Renamed." }]);
+      expect(read.outstanding).toMatchObject([{ id: "item-2", kind: "blocker", waitsOn: "Delivery.", auditWaiverId: "waiver-2", auditWaivedBy: "Delivery audit round 2" }]);
+      // Kiln 1.3.0 read nothing from a waiver: an upgraded audit keeps that, so later ids are unchanged.
+      round2.activity.itemsUnread = true;
+      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities)).toMatchObject({ outstanding: [{ id: "item-1" }], settled: [] });
+      // An upgraded audit accepted before it was marked complete is read from its accepted report, as 1.3.0 did, and its waiver covers nothing.
+      f.activity.itemsUnread = true; f.activity.waivedResult = round2.activity.waivedResult;
+      const upgraded = personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding;
+      expect(upgraded).toMatchObject([{ id: "item-1", kind: "other" }]); expect(upgraded[0]!.auditWaiverId).toBeUndefined();
+    });
+    it("refuses needs_you whose only holding item is waived, admits a new blocker beside it, and a passing relisting of a waived critical finding (AC-ITEM-01)", async () => {
+      const { f, allocate } = await carried(); const round2 = await allocate(2);
+      // The item, relisted as a blocker earlier, was waived at the hold stop: matched by its ledger id.
+      f.record.waivers = [{ waiverId: "hold", at: new Date().toISOString(), activityKey: "pr", activityKind: "final_delivery", effect: "continued", source: { via: "browser", account: "alex" }, operationId: "op", checkRun: { id: "r", at: new Date().toISOString() }, items: [{ check: "Nothing holds the run", kind: "other", subject: "item-1", text: "x", against: "item-1" }], checks: [] }];
+      const relisted = { id: "item-1", ...item, kind: "blocker" as const, waitsOn: "Delivery." };
+      expect((await round2.submit(round2.report({ outcome: "needs_you", needsYou: [relisted] }))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("A needs_you report needs an item that stops or holds the run and is not marked waived") });
+      expect((await round2.submit(round2.report({ outcome: "passed", needsYou: [{ ...relisted, kind: "critical_next_step" }] }))).refusal).toBeUndefined();
+    });
+    it("admits needs_you for a new blocker listed beside a waived one (AC-ITEM-01)", async () => {
+      const { f, allocate } = await carried(); const round2 = await allocate(2);
+      f.record.waivers = [{ waiverId: "hold", at: new Date().toISOString(), activityKey: "pr", activityKind: "final_delivery", effect: "continued", source: { via: "browser", account: "alex" }, operationId: "op", checkRun: { id: "r", at: new Date().toISOString() }, items: [{ check: "Nothing holds the run", kind: "other", subject: "item-1", text: "x", against: "item-1" }], checks: [] }];
+      const result = await round2.submit(round2.report({ outcome: "needs_you", needsYou: [{ id: "item-1", ...item, kind: "blocker", waitsOn: "Delivery." }, { kind: "blocker", problem: "A new key is missing.", action: "Add it.", waitsOn: "Delivery." }] }));
+      expect(result.refusal).toBeUndefined(); expect(result).toMatchObject({ nextAction: "needs_you" });
     });
     it("carries items past an audit marked complete without an accepted report", async () => {
       const { f, allocate } = await carried(); const round2 = await allocate(2);
@@ -190,7 +222,13 @@ describe("version-2 audit admission", () => {
     ["another activity", (r: Record<string, unknown>) => { r.activityId = "other"; }, "Report identity differs"],
     ["an unknown outcome", (r: Record<string, unknown>) => { r.outcome = "blocked"; }, "Unknown audit outcome"],
     ["an empty summary", (r: Record<string, unknown>) => { r.summary = " "; }, "non-empty summary"],
-    ["needsYou on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "x", action: "y" }]; }, "only outstanding items still open"],
+    // Every item says why it is there, and only an item that stops or holds the run stops it (Kiln Deliver When Audit Loops Run Out AC-ITEM-01, AC-ITEM-02).
+    ["a needsYou entry with no kind", (r: Record<string, unknown>) => { r.needsYou = [{ problem: "The key is missing.", action: "Add it." }]; }, "needsYou entry \"The key is missing.\" gives no kind"],
+    ["an unknown kind", (r: Record<string, unknown>) => { r.needsYou = [{ kind: "fyi", problem: "x", action: "y" }]; }, "kind one of critical_next_step, critical, blocker, business_question, test, other"],
+    ["a blocker with no waitsOn", (r: Record<string, unknown>) => { r.outcome = "needs_you"; r.needsYou = [{ kind: "blocker", problem: "The key is missing.", action: "Add it." }]; }, "is a blocker item, so it needs waitsOn"],
+    ["a business question with no waitsOn", (r: Record<string, unknown>) => { r.needsYou = [{ kind: "business_question", problem: "Which rate?", action: "Choose." }]; }, "is a business_question item, so it needs waitsOn"],
+    ["a critical finding the next step would worsen on a passing report", (r: Record<string, unknown>) => { r.needsYou = [{ kind: "critical_next_step", problem: "The key leaks.", action: "Rotate it.", waitsOn: "The pull request." }]; }, "so the outcome is needs_you"],
+    ["needs_you whose items all let the work go on", (r: Record<string, unknown>) => { r.outcome = "needs_you"; r.needsYou = [{ kind: "other", problem: "Logging changed.", action: "Record it." }, { kind: "critical", problem: "Old logs hold emails.", action: "Delete them." }]; }, "A needs_you report needs an item that stops or holds the run"],
     ["needs_you without needsYou", (r: Record<string, unknown>) => { r.outcome = "needs_you"; }, "must say what a person must decide"],
     ["changedImplementation on a delivery audit", (r: Record<string, unknown>) => { r.changedImplementation = false; }, "Only a test audit reports changedImplementation"],
     ["a malformed needsYou entry", (r: Record<string, unknown>) => { r.outcome = "needs_you"; r.needsYou = [{ problem: "x" }]; }, "needsYou must be a list"],
@@ -199,6 +237,22 @@ describe("version-2 audit admission", () => {
     const result = await f.submit();
     expect(result.refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining(reason) });
     expect(f.activity.acceptedResult).toBeUndefined();
+  });
+  it("ends the test work when a session of test fixes raised none of its rows (Kiln Deliver When Audit Loops Run Out AC-LAST-01)", async () => {
+    const f = await fixture("test_audit"); f.activity.continuationIndex = 2;
+    writeFileSync(join(f.root, "value.test.mjs"), `${readFileSync(join(f.root, "value.test.mjs"), "utf8")}// stronger\n`); commit(f.sandbox, f.root, ["value.test.mjs"]);
+    f.report.outcome = "continue_test"; f.saveReport();
+    expect((await f.submit()).refusal).toMatchObject({ code: "invalid_report", reason: "A session of test fixes that raised none of the rows it took ends the test work: report passed and list each row left as a test item. Otherwise list the criteria whose rows it raised in raised." });
+    f.report.raised = []; f.saveReport();
+    expect((await f.submit()).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("raised none of the rows it took") });
+    f.report.raised = ["AC-PROOF-01"]; f.saveReport();
+    expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "continue_test" });
+  });
+  it("lets a session of test fixes that raised none of its rows report passed with each row left as a test item (AC-LAST-01, AC-LAST-05)", async () => {
+    const f = await fixture("test_audit"); f.activity.continuationIndex = 2;
+    f.report.needsYou = [{ kind: "test", problem: "AC-PROOF-01 is still Weak.", action: "Strengthen its test.", criterion: "AC-PROOF-01" }]; f.saveReport();
+    expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "final_delivery" });
+    expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", kind: "test", criterion: "AC-PROOF-01" }]);
   });
   it("requires a test audit to say whether it changed implementation", async () => {
     const f = await fixture("test_audit"); delete f.report.changedImplementation; f.saveReport();

@@ -1,5 +1,7 @@
 # Phase 2: Items for a person
 
+**Closed:** 2026-11-19
+
 **Parent PRD:** [Kiln Deliver When Audit Loops Run Out](kiln-deliver-when-audit-loops-run-out-prd.md)
 **Technical design:** [Kiln Deliver When Audit Loops Run Out technical design](kiln-deliver-when-audit-loops-run-out-technical-design.md) — relevant sections: "Items for a Person" (Report contract, What each kind does, For you), "Loops and the Ledger" (findings always built; nothing recorded as done that isn't), "Prompts" (`audit-session.txt` kinds and `{{nextSteps}}` lines; `pull-request-person-items.txt` **For you**), "Upgrade" (`itemsUnread`, items with no kind), "Open Questions"
 

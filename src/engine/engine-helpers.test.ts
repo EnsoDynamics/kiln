@@ -124,10 +124,13 @@ describe("the prompts", () => {
     const prompt = auditSessionPrompt({ label: "Test audit", skillName: "test-audit", skillPath: "/skills/test-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [{ name: "proof", github: "acme/proof", worktreePath: "/w/proof", baseBranch: "develop", isPrd: true }], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
     expect(prompt).toContain("Follow that skill exactly as it is written");
     for (const field of ['"schemaVersion": 2', '"outcome"', '"summary"', '"completionPhases"', '"needsYou"', '"changedImplementation"', '"afterDeliveryActions"']) expect(prompt).toContain(field);
-    expect(prompt).toContain("or when it ended normally but lists anything a person must still decide or do before delivery");
-    // Items: chosen by whether the added work depends on the answer, and every outstanding one accounted for (AC-NEUTRAL-03).
-    expect(prompt).toContain("choose by whether that work depends on the person's answer: if it does not, report completion_phases or continue_test with the items in needsYou");
-    expect(prompt).toContain("if it does, or the skill stopped to surface a critical finding, report needs_you");
+    // Items: the kinds in the PRD's words, what is never an item, and an outcome that stops only for an item the work cannot go on without (Kiln Deliver When Audit Loops Run Out AC-ITEM-01).
+    expect(prompt).toContain("\"needs_you\" when the work this report leaves cannot go on without an item for a person, when a critical finding would be caused or worsened by the step that outcome leads to, or when nothing is left to build and a blocker or business question not marked waived is open before the pull request.");
+    for (const kind of ['"critical_next_step":', '"critical":', '"blocker":', '"business_question":', '"test":', '"other":', '"raised"', '"waitsOn"']) expect(prompt).toContain(kind);
+    expect(prompt).toContain("A declared assumption, a request to confirm or review something, and anything the audit can settle itself are never items.");
+    expect(prompt).toContain("A person action the requirements place after delivery goes in afterDeliveryActions, never in needsYou.");
+    expect(prompt).toContain("To list an item again, give its id, problem and action. Leave out kind and waitsOn to keep the ones shown. Give a new value only when the item itself has changed, such as a blocker that no longer holds anything. An item shown with no kind must be given one.");
+    for (const released of ["or when it ended normally but lists anything", "choose by whether that work depends on the person's answer", "A test audit that changed only tests leads to delivery"]) expect(prompt).not.toContain(released);
     expect(prompt).toContain("Account for every outstanding item exactly once, in needsYou with its id when it is still open or in settled; Kiln refuses a report that leaves one out.");
     expect(prompt).toContain("Items earlier audits left for a person (outstanding): None.");
     const carried = auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/s", executionId: "e", activityId: "a", round: 2, continuationIndex: 1, reportPath: "r.json", prdFile: "p.md", repositories: [], branch: "b", cli: "kiln", outstanding: "- item-1 (listed by Delivery audit round 1): Decide the names. Amend the PRD." });

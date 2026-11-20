@@ -147,6 +147,8 @@ Take over and Reply are unchanged. Allow and Accept never catch the branch up an
 
 ## Report Contract (AC-LOOP-06)
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Report Contract (item kinds; `raised`).
+
 The Accept sentence names a row by its criterion's ID. Kiln does not parse prose to find one, so each `needsYou` entry in the version-2 report gains an optional `criterion` (the acceptance criterion's ID when the item is that criterion's test row). The audit prompt's `needsYou` line and `REPORT_FIELDS` name `criterion?`; admission checks only that it is a non-empty string when present. Older readers already ignore unknown fields.
 
 An item relisted by id need not repeat it, so `PersonItem` gains `criterion?`, set from the entry that first lists the item and replaced only when a relisting gives one (`entry.criterion ?? item.criterion`); `SettledPersonItem` inherits it. `outstandingLines` adds `; criterion AC-X` after "listed by …", so the audit can repeat it.

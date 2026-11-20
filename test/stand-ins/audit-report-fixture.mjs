@@ -28,7 +28,7 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
    changed.push(path);ids.push(id);
   }
   report.outcome='completion_phases';report.completionPhases=ids;report.summary='One criterion is not delivered; added a completion phase.';
-  if(behavior.decision)report.needsYou=[{problem:behavior.decision,action:'Decide it before the next audit.'}];
+  if(behavior.decision)report.needsYou=[{kind:behavior.decisionKind??'other',problem:behavior.decision,action:'Decide it before the next audit.',...(behavior.decisionKind==='blocker'||behavior.decisionKind==='business_question'||behavior.decisionKind==='critical_next_step'?{waitsOn:'The pull request.'}:{})}];
  }
  if(testing&&!behavior.noRecord){writeFileSync(`${directory}/test-audit.md`,`# Test audit\n\n${behavior.findingText??'Every criterion has adequate tests.'}\n`);changed.push(`${directory}/test-audit.md`);}
  if(behavior.continueTest){
@@ -37,12 +37,18 @@ export async function auditReportFixture({prompt,toolCall,toolResult,behavior={}
  }
  if(behavior.humanAction){
   if(behavior.beyondDelivery??true){if(!behavior.recordedHumanResult)report.afterDeliveryActions=[behavior.humanAction];}
-  else{report.outcome='needs_you';report.needsYou=[{problem:`${behavior.humanAction} is due before delivery.`,action:'Perform it and record the result.'}];}
+  else{report.outcome='needs_you';report.needsYou=[{kind:'blocker',problem:`${behavior.humanAction} is due before delivery.`,action:'Perform it and record the result.',waitsOn:'Delivery.'}];}
  }
- if(behavior.blocked){report.outcome='needs_you';report.needsYou=[{problem:'Required evidence is unavailable.',action:'Restore the named evidence.'}];}
+ if(behavior.blocked){report.outcome='needs_you';report.needsYou=[{kind:'blocker',problem:'Required evidence is unavailable.',action:'Restore the named evidence.',waitsOn:'The rest of the audit.'}];}
+ // Explicit items for a person (Kiln Deliver When Audit Loops Run Out AC-ITEM-01), and an outcome or raised rows to report.
+ if(behavior.items)report.needsYou.push(...behavior.items);
+ if(behavior.outcome)report.outcome=behavior.outcome;
+ // A session of test fixes that continues names the rows it raised (AC-LAST-01); `raised: false` leaves it out.
+ if(behavior.raised)report.raised=behavior.raised;
+ else if(behavior.raised!==false&&report.outcome==='continue_test'&&s.continuationIndex>1)report.raised=['AC-PROOF-01'];
  // Items earlier audits left for a person, as the prompt lists them: list each again or settle it.
- const outstanding=[...(/Items earlier audits left for a person \(outstanding\):\n([\s\S]*?)\n\n/.exec(prompt)?.[1]??'').matchAll(/^- (item-\d+) \(listed by [^)]*\): (.*)$/gm)].map(m=>({id:m[1],text:m[2]}));
- if(behavior.relist)report.needsYou.push(...outstanding.map(item=>({id:item.id,problem:item.text,action:'Still open.'})));
+ const outstanding=[...(/Items earlier audits left for a person \(outstanding\):\n([\s\S]*?)\n\n/.exec(prompt)?.[1]??'').matchAll(/^- (item-\d+) \((?:[^;]*; )?listed by [^)]*\): (.*?)(?: \(waived .*)?$/gm)].map(m=>({id:m[1],text:m[2]}));
+ if(behavior.relist)report.needsYou.push(...outstanding.map(item=>({id:item.id,problem:item.text,action:'Still open.',...(behavior.relistKind?{kind:behavior.relistKind}:{})})));
  if(behavior.settle)report.settled=outstanding.map(item=>({id:item.id,how:behavior.settle}));
  // A new item that is a criterion's test row names it (Kiln Audit Loop Limits, "Report Contract").
  if(behavior.criterion)for(const item of report.needsYou)if(!item.id)item.criterion=behavior.criterion;

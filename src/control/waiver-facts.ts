@@ -33,7 +33,7 @@ export interface ProgressRow extends ActivityWaivers {
 
 export const checkState = (check: CheckResult): CheckState => check.passed ? check.waived ? "waived" : "passed" : "failed";
 
-function projectRef(ref: WaiverRef): NonNullable<ProjectedItem["waived"]> {
+export function projectRef(ref: WaiverRef): NonNullable<ProjectedItem["waived"]> {
   return { waiver_id: ref.waiverId, activity: ref.activityKey, at: ref.at, via: ref.via, account: ref.account, by: ref.by ?? null };
 }
 
@@ -219,7 +219,7 @@ export function markCompletePreview(offer: MarkCompleteOffer, canonical: string,
   if (!offer.offered) return { offered: false, reason: offer.reason };
   const argv = token ? ["kiln", "waive-and-advance", canonical, "--confirm", ...(withoutSendingReply ? ["--without-sending-reply"] : []), "--only-if-status-matches", token, "--command-id", NEW_COMMAND_ID] : null;
   return {
-    offered: true, label: offer.label, heading: offer.heading, continue_in_order: offer.continueInOrder, check_run_id: offer.checkRunId,
+    offered: true, label: offer.label, heading: offer.heading, continue_in_order: offer.continueInOrder, ...(offer.hold ? { hold: offer.hold } : {}), check_run_id: offer.checkRunId,
     failing_checks: offer.failingChecks, items: offer.items.map(item => ({ check: item.check, kind: item.kind, subject: item.subject, text: item.text })),
     next_activity: offer.nextActivity, resulting_label: offer.resultingLabel, sentence: offer.sentence, no_report: offer.noReport,
     next_argv: argv, next_command: argv ? commandText(argv) : null,
@@ -265,7 +265,9 @@ export function previewLines(preview: Record<string, unknown>, checkedAt: string
   }
   const sentence = (preview.sentence ?? []) as string[];
   for (const extra of sentence.filter(line => !/^(Mark it complete|Continue anyway)\./.test(line))) lines.push(extra);
-  lines.push(preview.continue_in_order === true
+  lines.push(preview.hold === "complete" ? "Kiln would then complete the run, with each item under For you as still open and marked Waived."
+    : preview.hold === "pull_request_session" ? "Kiln would then start the pull request session, with each item under For you as still open and marked Waived."
+    : preview.continue_in_order === true
     ? "Kiln would then follow its normal order, with a warning on each step it reaches this way."
     : `${activity} would then show as ${String(preview.resulting_label)}, and Kiln would ${nextText(preview.next_activity)}.`);
   const argv = preview.next_argv as string[] | null;
@@ -330,4 +332,22 @@ function refusalLine(code: string, message: string): string {
   // "Refused: no check has run since Phase 3 stopped." keeps an activity's name capitalized.
   const lead = /^(No|Nothing|The|This|A|An|Another|Mark)\b/.test(reason) ? `${reason.charAt(0).toLowerCase()}${reason.slice(1)}` : reason;
   return `Refused: ${lead}${hint}`;
+}
+
+/** An item for a person as `kiln status` JSON gives it (Kiln Deliver When Audit Loops Run Out AC-ITEM-02). */
+export function projectPersonItem(item: import("../engine/engine.js").PersonItemView): Record<string, unknown> {
+  return { id: item.id ?? null, kind: item.kind, words: item.words, problem: item.problem, action: item.action, waits_on: item.waitsOn ?? null, criterion: item.criterion ?? null, effect: item.effect, ...(item.waiver ? { waived: projectRef(item.waiver) } : {}) };
+}
+
+const EFFECT_WORDS = { stops: "stops the run", holds: "holds the run", goes_on: "Kiln goes on" } as const;
+/** `kiln status` text: a stop's items, each with its kind, what it does and what waits on it. */
+export function personItemsText(items: readonly Record<string, unknown>[] | null | undefined): string | undefined {
+  if (!items?.length) return undefined;
+  const lines = [`Kiln needs you for ${items.length === 1 ? "one thing" : `${items.length} things`}:`];
+  for (const item of items) {
+    const kind = (item.words as string | null) ?? (item.kind === null ? "Listed before item kinds" : "Other");
+    lines.push(`  ${kind} (${EFFECT_WORDS[item.effect as keyof typeof EFFECT_WORDS]}${item.waived ? ", waived" : ""}): ${String(item.problem)} ${String(item.action)}`);
+    if (item.waits_on) lines.push(`    What waits on it: ${String(item.waits_on)}`);
+  }
+  return lines.join("\n");
 }

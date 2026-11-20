@@ -233,6 +233,16 @@ describe("schema 24: a loop is one run of an audit (Kiln Deliver When Audit Loop
     expect(migrated.auditLoops).toBeUndefined();
   });
 
+  it("marks every audit Kiln 1.3.0 marked complete itemsUnread, accepted first or not, and no other", () => {
+    const record = released();
+    const [d1, d2, t1] = record.completionAudits!.activities;
+    d1!.acceptedResult = "accepted-d1"; d1!.waivedResult = "waived-d1";
+    d2!.waivedResult = "waived-d2";
+    t1!.acceptedResult = "accepted-t1";
+    const audits = migrateRecord(record).completionAudits!.activities;
+    expect(audits.map(audit => audit.itemsUnread ?? false)).toEqual([true, true, false, false, false]);
+  });
+
   it("still loads a stored loop_limit stop", () => {
     const stopped = released();
     stopped.phases["audit-d3"]!.stop = { kind: "loop_limit", at, checks: [], checkedAt: at, loop: { kind: "delivery", reason: "phases_added", heldAuditKey: "audit-d3" } };

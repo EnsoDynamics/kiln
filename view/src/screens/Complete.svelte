@@ -8,6 +8,7 @@
   // the workspace folder Kiln keeps with its worktrees (multi-repo AC-PRS-03, AC-SPACE-05).
   import CompletedPlanCheck from "../components/CompletedPlanCheck.svelte";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
+  import ForYou from "../components/ForYou.svelte";
   import type { DeliveryEvent, PullRequestFacts } from "../../../src/state/records.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
@@ -23,8 +24,8 @@
   const pullRequests = $derived(snapshot.pullRequests ?? []);
   const pr = $derived(pullRequests[0]);
   const mergedBranches = $derived(snapshot.mergedBranches ?? []);
-  // The latest delivery and test audits own the current after-delivery actions; prior rounds are history.
-  const humanActions = $derived([...new Set(["delivery_audit", "test_audit"].flatMap(kind => snapshot.activities?.findLast(row => row.kind === kind)?.audit?.remainingAfterDeliveryActions ?? []))]);
+  // A critical finding moves For you directly below the state header (AC-ITEM-03, mockup screen 3b).
+  const criticalFirst = $derived(!!snapshot.delivered?.forYou.items.some(item => item.kind === "critical_next_step" || item.kind === "critical"));
   const histories = $derived(snapshot.deliveryHistory?.repositories.map(history => ({ ...history, ...deliveryGroups(history.events) })) ?? []);
   let expanded = $state<Record<string, boolean>>({});
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
@@ -50,6 +51,7 @@
 
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
+  {#if criticalFirst}<ForYou {snapshot} />{/if}
   <CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} check={snapshot.continuation?.check} {config} {connected} />
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
@@ -97,6 +99,7 @@
       <p class="note">Kiln confirmed that the feature commits are already in their intended base branches. No additional pull request is needed for these repositories.</p>
     </section>
   {/if}
+  {#if !criticalFirst}<ForYou {snapshot} />{/if}
   {#if mergedBranches.length || snapshot.deliveryHistory || snapshot.deliveryHistoryPending || snapshot.deliveryHistoryError}
   <section class="pr" id="delivery-history" aria-label="PRD delivery history">
     <h2>Delivery history</h2>
@@ -132,13 +135,6 @@
     {/if}
   </section>
   {/if}
-  {#if humanActions.length}
-    <section class="card human-actions" aria-labelledby="human-actions-heading">
-      <h2 id="human-actions-heading" class="eyebrow">Remaining human actions</h2>
-      <p class="note">These actions remain for a person after Kiln’s delivery. Kiln has not performed them.</p>
-      <ul>{#each humanActions as action}<li>{action}</li>{/each}</ul>
-    </section>
-  {/if}
   <div class="columns-main">
     <div class="column-wide">{#if snapshot.auditHistoryUnavailable}<p class="note">Automatic audit history is unavailable for this historical completion.</p>{/if}
       <PhasePlan {snapshot} {connected} {now} /></div>
@@ -165,9 +161,6 @@
 </main>
 
 <style>
-  .human-actions h2 { margin: 0; }
-  .human-actions ul { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
-  .human-actions li + li { margin-top: 8px; }
   .history-repo .pr-title { overflow-wrap: anywhere; }
   .history-repo h3 { margin: 0; }
   .history-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 8px; }

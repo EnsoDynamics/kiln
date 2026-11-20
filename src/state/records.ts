@@ -127,6 +127,12 @@ export interface PhaseStop {
   rowsAreCompletionChecks?: true;
   /** A `loop_limit` stop saved by Kiln 1.3.0 kept which loops ran out; it is read only so the record loads (technical design, "Upgrade"). */
   loop?: { kind: "delivery" | "test"; reason: string; heldAuditKey: string };
+  /**
+   * The hold stop only (Kiln Deliver When Audit Loops Run Out, "The hold stop"): what Continue anyway
+   * would lead to, read at its latest Check again, `complete` when the pull request precheck would
+   * complete the run with no pull request session.
+   */
+  holdLeadsTo?: "pull_request_session" | "complete";
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
@@ -733,6 +739,8 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
 function migrateLoops(record: PrdRecord): void {
   const saved = record.settings.auditLoops as (AuditLoopSettings & { afterLastTest?: unknown; afterLastTestSource?: unknown }) | undefined;
   if (saved) { delete saved.afterLastTest; delete saved.afterLastTestSource; }
+  // Kiln 1.3.0 read no items from an audit's waiver: reading them now would renumber items later audits relisted or settled by id.
+  for (const activity of record.completionAudits?.activities ?? []) if (activity.waivedResult) activity.itemsUnread = true;
   if (record.startedAt === undefined) return;
   const old = record.auditLoops as { epochs?: { kind: string; at: string; cause: string; loopsBefore: number }[] } | undefined;
   const ledger = rebuiltLedger(record, old?.epochs, record.startedAt);
