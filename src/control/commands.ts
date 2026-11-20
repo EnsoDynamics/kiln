@@ -17,10 +17,11 @@ export const isStartingReceipt = (receipt: Pick<Receipt, "instruction" | "starts
 export type Action = typeof ACTIONS[number];
 /** Allow N more loops and Accept what is left and deliver refuse with `not_at_loop_stop` anywhere but a loop stop (Kiln Audit Loop Limits, "Interfaces"). */
 const LOOP_ACTIONS: readonly string[] = ["allow-more-loops", "accept-and-deliver"];
-const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant", "folder-setup-start"] as const;
+/** Browser-only instructions: never in `kiln status`'s controls, and refused on the bot route (Cancel pause, Kiln Pause Now "Interfaces"). */
+const INTERNAL_ACTIONS = ["continuation-accept", "continuation-retry", "continuation-grant", "folder-setup-start", "cancel-take-over"] as const;
 export type JournalAction = Action | typeof INTERNAL_ACTIONS[number];
 export interface Instruction { command_id: string; execution_id: string; status_token: string; action: JournalAction; inputs: Record<string, unknown> }
-export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "started" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
+export interface Effects { message?: "not_sent" | "submitted" | "received" | "unknown"; takeover?: "not_requested" | "requested" | "checkpoint_pending" | "released" | "withdrawn" | "unknown"; reply: "not_applicable" | "not_sent" | "submitted" | "delivered" | "unknown"; session: "not_started" | "starting" | "started" | "resumed" | "unknown"; plan: "not_advanced" | "advanced" | "unknown" }
 export interface Receipt {
   message?: import("../live/target.js").LiveMessage;
   live_target?: import("../live/target.js").LiveTarget;
@@ -154,6 +155,14 @@ function validateInternalInstruction(raw: unknown): Instruction {
   if (value.action === "continuation-grant") {
     const input = value.inputs;
     if (!input || Object.keys(input).sort().join() !== "authorization_revision,proposal_id,target" || typeof input.proposal_id !== "string" || !/^[a-f0-9]{64}$/.test(input.proposal_id) || !Number.isSafeInteger(input.authorization_revision) || !input.target || typeof input.target !== "object" || Array.isArray(input.target)) throw new ControlFailure("invalid_input", "Invalid continuation grant instruction.", 2);
+    validateInstruction({ ...value, action: "continue", inputs: {} });
+    return value;
+  }
+  if (value.action === "cancel-take-over") {
+    // Cancel pause and keep going (Kiln Pause Now, "Cancel"): the exact live target and the take-over it withdraws.
+    const input = value.inputs;
+    if (!input || Object.keys(input).sort().join() !== "takeover_instruction_id,target" || typeof input.takeover_instruction_id !== "string" || !/^[\w.-]{1,128}$/.test(input.takeover_instruction_id) || !validLiveTarget(input.target)) throw new ControlFailure("invalid_input", "Supply the exact live target and the Pause now instruction to cancel.", 2);
+    input.target = canonicalLiveTarget(input.target);
     validateInstruction({ ...value, action: "continue", inputs: {} });
     return value;
   }
@@ -341,7 +350,8 @@ export class CommandJournal {
   submit(raw: unknown, source: Receipt["source"] = "caller", matchStatusToken = false): Result {
     return this.submitValidated(validateInstruction(raw), source, matchStatusToken);
   }
-  submitInternal(raw: unknown): Result { return this.submitValidated(validateInternalInstruction(raw), "caller", true); }
+  /** Live internal instructions are admitted on their exact live target rather than the status token, as take-over is. */
+  submitInternal(raw: unknown, matchStatusToken = true): Result { return this.submitValidated(validateInternalInstruction(raw), "caller", matchStatusToken); }
   private submitValidated(instruction: Instruction, source: Receipt["source"], matchStatusToken: boolean): Result {
     const digest = hash(instruction);
     const old = this.find(instruction.command_id);
@@ -362,7 +372,7 @@ export class CommandJournal {
     const unsent = this.unsent(view.target);
     const waive = instruction.action === "waive-and-advance";
     const offer = waive ? this.host.markCompleteOffer?.() : undefined;
-    const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || matchStatusToken && instruction.status_token !== view.token || (["take-over", "message", "message-review"].includes(instruction.action) || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."]
+    const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || matchStatusToken && instruction.status_token !== view.token || (["take-over", "cancel-take-over", "message", "message-review"].includes(instruction.action) || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."]
       : waive && offer && !offer.offered ? ["mark_complete_not_offered", offer.reason]
       : waive && offer?.offered && offer.checkRunId !== instruction.inputs.check_run_id ? ["stale_check_run", "Mark complete was offered on an earlier check run. Refresh status."]
       : !control.available ? [waive && !offer ? "mark_complete_not_offered" : LOOP_ACTIONS.includes(instruction.action) && !control.reason!.startsWith("Kiln is checking") ? "not_at_loop_stop" : "control_unavailable", control.reason!]

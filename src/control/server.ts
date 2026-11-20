@@ -173,7 +173,7 @@ function withProgress(answer: Result): ResponseSpool {
   if (!rows?.length) return body;
   const output = new ResponseSpool();
   try {
-    output.append(Buffer.from(`${progressText(heading, rows)}\n`));
+    output.append(Buffer.from(`${progressText(heading, rows, (answer.live_control as { pauseNow?: { activityKey: string; phase: "pausing" | "paused" } } | null | undefined)?.pauseNow)}\n`));
     for (const chunk of body.chunks()) output.append(chunk);
     return output;
   } catch (error) { output.close(); throw error; }

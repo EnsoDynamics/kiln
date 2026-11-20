@@ -4,6 +4,7 @@
 
 import { STEP_NAMES, type StepName, type StepStart } from "../state/records.js";
 import { runsGitCommit, runsGitPush } from "./bash-command.js";
+import { toolMainInput } from "./tool-main-input.js";
 
 export type OutputSource = "claude" | "codex" | "tool" | "out" | "skill" | "reviewer" | "subagent" | "stderr" | "exit";
 
@@ -214,13 +215,9 @@ function contentBlocks(event: StreamEvent): ContentBlock[] {
   return Array.isArray(content) ? (content as ContentBlock[]) : [];
 }
 
-const MAIN_INPUT_KEYS = ["command", "file_path", "notebook_path", "description", "pattern", "url", "query", "path", "skill"];
-
 /** A tool call's line: the tool name and its main input, `Bash git status`, `Read src/returns/models.py`. */
 export function toolLineText(block: { name?: string; input?: Record<string, unknown> }): string {
-  const input = block.input ?? {};
-  const key = MAIN_INPUT_KEYS.find((candidate) => typeof input[candidate] === "string");
-  const main = key ? (input[key] as string) : Object.values(input).find((value) => typeof value === "string");
+  const main = toolMainInput(block.input);
   return main ? `${block.name ?? "tool"} ${main}` : (block.name ?? "tool");
 }
 

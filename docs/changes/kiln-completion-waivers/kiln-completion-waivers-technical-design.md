@@ -215,6 +215,8 @@ The snapshot and the status JSON carry, from the same marked results:
 
 ## Display Contract
 
+Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Paused Page (the hand-back page bullet does not apply to a Pause now hold's page).
+
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts, Nothing to check yet (no checks shown for a phase that built nothing until asked; the sentence above Mark complete).
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop and §Display Contract (Mark complete's label, placement and sentence at a preflight stop).

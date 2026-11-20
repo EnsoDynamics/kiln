@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { runSessionProcess, launchArguments } from '../../dist/session/claude-session.js';
+import { runSessionProcess, launchArguments, sessionFiles } from '../../dist/session/claude-session.js';
 import { createGate, readGate, withGate, unsettled } from '../../dist/live/gate.js';
 import { requireExited, requireHistory, requireNoTerminal } from '../../dist/live/ownership.js';
 import { claudeConfigFolder } from '../../dist/session/transcripts.js';
@@ -34,14 +34,28 @@ const command = `sleep 4; echo FIRST > first.txt${mode === 'failed' ? '; exit 7'
 const settings = { hooks: Object.fromEntries(['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PostToolBatch'].map(event => [event, [{ hooks: [{ type: 'command', command: process.execPath, args: [recorder, fileURLToPath(new URL('../../dist/live/checkpoint-hook.js', import.meta.url)), gate, hookLog], timeout: 10, onFailure: 'block' }] }]])) };
 const agents = { 'probe-worker': { description: 'Disposable safe checkpoint probe', prompt: `Use a first Bash call for ${JSON.stringify(command)}. Then a SECOND separate Bash call for 'echo SECOND > second.txt'. Both operations are mandatory unless a hook stops you.`, tools: ['Bash'], model: 'sonnet' } };
 const record = { schemaVersion: 11, agentId: 'claude_code', executionId: target.executionId, activityId: target.activityId, sessionId, phaseId: '1', kind: 'phase', createdAt: new Date().toISOString(), model: 'sonnet', modelDisplayName: 'Sonnet', workingDirectory: root, runs: [], sleeps: [], steps: [] };
-let held = false;
+let held = false; let cancelled = false;
 const polling = setInterval(() => {
   if (held || !Object.values(readGate(gate).operations).some(o => o.name === 'Bash')) return;
   held = true;
   void withGate(gate, state => { state.held = { operationId: 'proof', instructionId: 'proof', requestedAt: new Date().toISOString() }; });
+  // Cancel pause and keep going (Kiln Pause Now PAUSE-005): withdraw the hold while the first command
+  // still runs, in the gate critical section, refusing once a stop is recorded, as Cancel step 1 does.
+  if (mode === 'cancel') setTimeout(() => { void withGate(gate, state => { if (!state.stop) { delete state.held; cancelled = true; } }); }, 1000);
 }, 50);
 const run = await runSessionProcess({ claude: proofClaude, args: [...launchArguments(sessionId, 'sonnet', undefined), '--tools', mode.includes('agent') ? 'Agent,Bash' : 'Bash', '--allowedTools', 'Bash', 'Agent', ...(mode.includes('agent') ? ['--agents', JSON.stringify(agents)] : []), '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--setting-sources', '', '--settings', JSON.stringify(settings), '--system-prompt', 'Follow the disposable probe instructions. Work only in cwd. No skills or delegation.'], cwd: root, env: process.env, prompt: mode.includes("agent") ? `Use Agent with subagent_type probe-worker${mode === "background-agent" ? " and run_in_background true" : ""}. Its task is both mandatory operations in its instructions. Do no other work.` : mode === "background" ? `Use Bash for ${JSON.stringify(command)} with run_in_background true. Then a SECOND SEPARATE Bash call for echo SECOND > second.txt. Do not combine.` : `Disposable safe-yield proof. Use one Bash call for ${JSON.stringify(command)}. Then a SECOND SEPARATE Bash call for 'echo SECOND > second.txt', even if the first fails. Do not combine calls. Both operations are mandatory unless a hook stops you.`, cause: 'launch', stateDirectory: root, record, live: { attemptId, gateDirectory: gate, configRoot: claudeConfigFolder(process.env), profile: `claude-code-${cliVersion}/darwin`, agentVersion: cliVersion, messageContract: 'unproven', hookContract: 'unproven' } });
 clearInterval(polling);
+if (mode === 'cancel') {
+  // The cancelled pause never reached the session: the second command ran, no call was denied, no stop recorded, one turn.
+  const calls = readFileSync(hookLog, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  const denied = calls.filter(call => call.status === 2 || call.stdout.includes('"deny"') || call.stdout.includes('"continue":false'));
+  const results = readFileSync(sessionFiles(root, record).events, 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(saved => saved.event?.type === 'result');
+  assert.equal(cancelled, true, 'the cancel must land before any stop'); assert.equal(readGate(gate).stop, undefined); assert.deepEqual(denied, []);
+  assert.equal(existsSync(join(root, 'first.txt')), true); assert.equal(existsSync(join(root, 'second.txt')), true); assert.equal(results.length, 1);
+  assert.equal(run.exitCode, 0);
+  console.log(JSON.stringify({ passed: true, cliVersion, mode, hookCalls: calls.length, deniedCalls: 0, turns: results.length, secondCommandRan: true }));
+  process.exit(0);
+}
 assert.equal(held, true); assert.equal(existsSync(join(root, 'first.txt')), true); assert.equal(existsSync(join(root, 'second.txt')), false);
 assert.equal(run.signal, undefined); assert.equal(run.exitCode, 0);
 assert.deepEqual(unsettled(readGate(gate)), []);

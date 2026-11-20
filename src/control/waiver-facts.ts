@@ -196,15 +196,18 @@ export function progressHeading(answer: Record<string, unknown>): string {
   return [prd?.name, ((answer.repositories ?? []) as string[]).join(", "), prd?.directory].filter(Boolean).join(" · ");
 }
 
-/** The progress block `kiln status` prints first in text mode (the mockup's `kiln status` blocks). */
-export function progressText(heading: string, rows: readonly ProgressRow[]): string {
+/**
+ * The progress block `kiln status` prints first in text mode (the mockup's `kiln status` blocks).
+ * An activity under Pause now reads "pausing" or "paused" where it says "needs you"; its JSON state stays `needs_you`.
+ */
+export function progressText(heading: string, rows: readonly ProgressRow[], pauseNow?: { activityKey: string; phase: "pausing" | "paused" }): string {
   const labelWidth = Math.max(0, ...rows.map(r => r.label.length)) + 3;
   const titleWidth = rows.some(r => r.title) ? Math.max(...rows.map(r => r.title.length)) + 3 : 0;
   const indent = " ".repeat(labelWidth + titleWidth);
   const lines = [heading];
   for (const row of rows) {
     const suffix = row.state === "complete" ? waiverSuffix(row) : undefined;
-    lines.push(`${row.label.padEnd(labelWidth)}${titleWidth ? row.title.padEnd(titleWidth) : ""}${STATE_WORDS[row.state]}${suffix ? ` ${suffix}` : ""}`.trimEnd());
+    lines.push(`${row.label.padEnd(labelWidth)}${titleWidth ? row.title.padEnd(titleWidth) : ""}${pauseNow?.activityKey === row.key && row.state === "needs_you" ? pauseNow.phase : STATE_WORDS[row.state]}${suffix ? ` ${suffix}` : ""}`.trimEnd());
     lines.push(...waiverDetailLines(row, indent));
   }
   return `${lines.join("\n")}\n`;

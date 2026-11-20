@@ -421,6 +421,29 @@ for (const action of session.actions) {
     toolResult(toolCall("PowerShell", { command: action.powershell }), "");
   } else if (action.stderr) {
     process.stderr.write(`${action.stderr}\n`);
+  } else if (action.runUntil) {
+    // A Bash command that runs until a file appears, then returns: the command a Pause now waits for.
+    const id = toolCall("Bash", { command: action.runUntil.command });
+    if (!deniedTools.has(id)) while (!existsSync(action.runUntil.file)) {
+      if (abandoned()) process.exit(1);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    toolResult(id, deniedTools.has(id) ? "" : "finished");
+  } else if (action.background) {
+    // A background Bash, as Claude Code reports one: its task starts, then its "running in background"
+    // result arrives; with `until`, its task ends once that file appears, followed by a turn of its own.
+    const id = toolCall("Bash", { command: action.background.command, run_in_background: true });
+    const task = { task_id: `task_${id}`, run_id: "run_1" };
+    if (!deniedTools.has(id)) emit({ type: "system", subtype: "task_started", ...task, tool_use_id: id });
+    toolResult(id, deniedTools.has(id) ? "" : `Command running in background with ID: ${task.task_id}`);
+    if (action.background.until && !deniedTools.has(id)) {
+      if (action.background.result !== undefined) { emit({ type: "result", subtype: "success", is_error: false, result: action.background.result }); }
+      while (!existsSync(action.background.until)) {
+        if (abandoned()) process.exit(1);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      emit({ type: "system", subtype: "task_notification", ...task, tool_use_id: id, status: "completed" });
+    }
   } else if (action.waitForFile) {
     // Gives up once abandoned, so a failed test leaves no process behind.
     while (!existsSync(action.waitForFile)) {

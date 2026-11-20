@@ -15,6 +15,7 @@
   import DocumentsFound from "./screens/DocumentsFound.svelte";
   import FolderMissing from "./screens/FolderMissing.svelte";
   import PhaseHandoff from "./screens/PhaseHandoff.svelte";
+  import PausedHold from "./screens/PausedHold.svelte";
   import type { PhaseRecoveryPage } from "./lib/phase-recovery-page.js";
   import NeedsYou from "./screens/NeedsYou.svelte";
   import Paused from "./screens/Paused.svelte";
@@ -112,7 +113,9 @@
     {:else if snapshot.feature.state === "not_started" && snapshot.documents}
       <DocumentsFound {snapshot} {config} {connected} {lastSeenAt} {now} />
     {:else if snapshot.feature.state === "needs_you" && connected}
-      {#if snapshot.needsYou?.phaseRecovery}<PhaseHandoff {snapshot} {now} page={recoveryPage} />{:else}<NeedsYou {snapshot} {now} />{/if}
+      <!-- A held Pause now gets its own screen until Resume finds the work complete, when the recovery page's advance flow takes over (Kiln Pause Now, "The Paused Page"). -->
+      {#if snapshot.needsYou?.phaseRecovery && snapshot.liveControl?.pauseNow && !recoveryPage.choice && !recoveryPage.rechecked}<PausedHold {snapshot} {now} page={recoveryPage} />
+      {:else if snapshot.needsYou?.phaseRecovery}<PhaseHandoff {snapshot} {now} page={recoveryPage} />{:else}<NeedsYou {snapshot} {now} />{/if}
     {:else if snapshot.feature.state === "waiting" && connected}
       <Waiting {snapshot} {now} />
     {:else if snapshot.feature.state === "paused"}

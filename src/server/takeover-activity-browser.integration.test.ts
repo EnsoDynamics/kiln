@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { readGate, withGate, unsettled } from "../live/gate.js";
+import { BACKGROUND_NOTE } from "../live/pause-now.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { sessionFiles } from "../session/claude-session.js";
 import { findTranscripts } from "../session/transcripts.js";
@@ -67,16 +68,20 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("preserves elapsed wa
     expect(unsettled(readGate(directory))).toEqual(["Bash blocker"]);
     expect(h.engine.record.liveControl!.takeover).toMatchObject({ state: "pending", latestActivityAt: activityAt, observedAt: new Date(clock).toISOString() });
     page = await chrome.open(controller.address, { width, height: 1000 });
-    await page.waitFor(`document.body.innerText.includes('Bash blocker')`);
+    // Claude has exited and the process it started is still alive: the pausing panel names that process,
+    // never the hold's evidence reason, and offers no terminal command (Kiln Pause Now AC-PAUSE-03).
+    const backgroundRow = `document.body.innerText.includes('Pausing — waiting for a process Claude started to end:') && document.body.innerText.includes('(process ${child.pid})')`;
+    await page.waitFor(backgroundRow);
     expect(await page.evaluate("document.body.innerText")).not.toContain("seconds since the last observed activity");
     const assertWaiting = async () => {
       await page!.waitFor(`document.body.innerText.includes('Waiting 45 seconds since the last observed activity.')`);
+      await page!.waitFor(backgroundRow);
       const text = await page!.evaluate<string>("document.body.innerText");
-      expect(text).toContain("There is no automatic cancellation deadline.");
-      expect(text).toContain("Wait before opening Claude");
+      expect(text).toContain("Pausing phase 1");
+      expect(text).toContain(BACKGROUND_NOTE);
       expect(text).toContain("Full session output");
-      expect(text).toContain("Yielded with unfinished work");
-      expect(await page!.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.includes('Copy resume command'))`)).toBe(false);
+      expect(text).not.toMatch(/Wait before opening Claude|claude --resume|Bash blocker|Needs you/);
+      expect(await page!.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>/^Copy|Resume/.test(b.textContent.trim()))`)).toBe(false);
       expect(buildSnapshot(h.engine).needsYou?.resumeCommand).toBeUndefined();
       expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined();
       expect(h.claudeCalls()).toHaveLength(1);

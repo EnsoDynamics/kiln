@@ -57,29 +57,33 @@
   /** "10:58 AM · 49 min" on its own; after "Started" a day reads in lowercase (UI-010 item 8). */
   const started = (afterWord: boolean) => (session.startedAt ? `${clockTime(session.startedAt, new Date(now), { afterWord })} · ${sinceStart}` : undefined);
   const back = $derived(config.base);
+  // Pause now takes the pill, back link, circle and pause panel from its own state, not the recorded stop (Kiln Pause Now, "The Pause Now State").
+  const pauseHere = $derived(snapshot.liveControl?.pauseNow?.activityKey === phaseId ? snapshot.liveControl.pauseNow : undefined);
+  const pausing = $derived(pauseHere?.phase === "pausing");
+  const paused = $derived(pauseHere?.phase === "paused");
 </script>
 
 <main class="page-main detail-page">
   <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId, snapshot)} {now} />{/if}
   <section class="phase">
-    <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{waiting ? "Waiting for usage" : stopped ? "Needs you" : "All phases"}</a>
+    <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{paused ? "Paused" : pausing ? "All phases" : waiting ? "Waiting for usage" : stopped ? "Needs you" : "All phases"}</a>
     <div class="name">
-      <PhaseCircle id={isAudit ? (row?.kind === "delivery_audit" ? "DA" : "TA") : isPreflight ? "PF" : phaseId} tone={live ? "implementing" : waiting && connected ? "next" : "amber"} />
+      <PhaseCircle id={isAudit ? (row?.kind === "delivery_audit" ? "DA" : "TA") : isPreflight ? "PF" : phaseId} tone={paused ? "next" : pausing ? connected ? "implementing" : "amber" : live ? "implementing" : waiting && connected ? "next" : "amber"} />
       <h2>{row?.title ?? ""}</h2>
-      {#if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done" && donePill?.warning}<Pill tone="amber-outline" icon="warning">{donePill.text}</Pill>{#if row.waivedChecks}<WaivedStatus {row} />{/if}{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">{donePill?.text ?? (row.waivedChecks ? "Complete" : "Done")}</Pill>{#if row.waivedChecks || row.warnings?.length}<WaivedStatus {row} />{/if}{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
+      {#if paused}<Pill tone="strong-outline" icon="pause">Paused</Pill>{:else if pausing && connected}<Pill tone="amber-outline" icon="spinner" spin>Pausing</Pill>{:else if pausing}<Pill tone="amber-outline">Last known: Pausing</Pill>{:else if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done" && donePill?.warning}<Pill tone="amber-outline" icon="warning">{donePill.text}</Pill>{#if row.waivedChecks}<WaivedStatus {row} />{/if}{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">{donePill?.text ?? (row.waivedChecks ? "Complete" : "Done")}</Pill>{#if row.waivedChecks || row.warnings?.length}<WaivedStatus {row} />{/if}{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span><span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
   {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={live && !stopped} total={session.total} {now} />{/key}
   {#if current}
-    {#if isPr}<section class="card"><p>Live messages and terminal takeover are unavailable during final delivery. Live controls support Claude phases and audits.</p></section>
+    {#if isPr}<section class="card"><p>Live messages and Pause now are unavailable during final delivery. Live controls support Claude phases and audits.</p></section>
     {:else if isPreflight}<section class="card"><p>{PREFLIGHT_LIVE_REASON}</p></section>
     {:else if snapshot.liveControl && snapshot.liveControl.target.sessionId === session.id}<LiveComposer view={snapshot.liveControl} {connected} />
-    {:else}<section class="card"><p>Live messages and terminal takeover are available for supported Claude phase and audit attempts.</p></section>{/if}
+    {:else}<section class="card"><p>Live messages and Pause now are available for supported Claude phase and audit attempts.</p></section>{/if}
   {/if}
   {#if session.id}<LiveMessages sessionId={session.id} {connected} view={snapshot.liveControl?.target.sessionId === session.id ? snapshot.liveControl : undefined} />{/if}
-  {#if current && !isPr && !isPreflight}<PausePanel {snapshot} {connected} />{/if}
+  {#if (current || pausing) && !isPr && !isPreflight}<PausePanel {snapshot} {connected} />{/if}
   {#if row?.audit}
     <section class="card">
       <h3>{row.title} · {row.file}</h3>

@@ -848,7 +848,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const messageRun = engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : run;
   const finalMessage = interrupted === undefined && messageRun?.result?.text?.trim() ? messageRun.result.text : undefined;
   // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
-  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released");
+  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released" || record.liveControl.takeover.kind !== "delivery_recovery" && record.liveControl.takeover.releasedAt !== undefined);
+  // A held Pause now keeps its command from the release on, whatever later readings find (Kiln Pause Now, "The Paused Page").
   const resumeFolder = engine.workingDirectoryOf(recovery!);
   return {
     ...base,

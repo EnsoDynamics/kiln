@@ -99,7 +99,7 @@ darwin("Message Claude: a message awaiting its receipt when the contract becomes
 for (const mutation of ["no-tool-use-id", "no-post-tool-use-id"] as const) {
   const detail = mutation === "no-tool-use-id" ? "PreToolUse hook input had no tool_use_id" : "PostToolUse hook input had no tool_use_id";
   darwin(`Pause & take over (${mutation}): an unrecognised hook input lets the tool run, turns takeover off with a notice while the phase completes, and that version starts without the hook`, async () => {
-    const NOTICE = `Pause & take over unavailable with Claude Code 2.1.320: ${detail}`;
+    const NOTICE = `Pause now unavailable with Claude Code 2.1.320: ${detail}`;
     await start("2.1.320", () => [landing("src/one.txt", [{ bash: `echo FIRST > ${JSON.stringify(file("first.txt"))}` }]), landing("src/two.txt", paused("two")), landing("src/three.txt", paused("three"))], { KILN_STANDIN_HOOK_MUTATION: mutation });
     await waitFor(() => existsSync(file("two-ready")));
     expect(h!.engine.record.phases["1"]!.doneAt).toEqual(expect.any(String));
@@ -185,7 +185,7 @@ darwin("Live launch arguments: a Claude Code that rejects --replay-user-messages
   expect(h!.claudeCalls()[1]!.args).not.toContain("--replay-user-messages"); expect(h!.claudeCalls()[1]!.args).not.toContain("--settings");
   expect(run("2b").live).toMatchObject({ literalInput: false, messageContract: "unrecognised", hookContract: "unrecognised" }); expect(run("2b").live!.rejectedLaunch).toBeUndefined();
   expect(h!.engine.liveView()).toMatchObject({
-    available: false, reason: "Pause & take over unavailable with Claude Code 2.1.320: --replay-user-messages was rejected at launch.",
+    available: false, reason: "Pause now unavailable with Claude Code 2.1.320: --replay-user-messages was rejected at launch.",
     input: { available: false, reason: "Message Claude unavailable with Claude Code 2.1.320: --replay-user-messages was rejected at launch." },
   });
   expect(readFileSync(`${h!.scenarioPath}.rejected.jsonl`, "utf8").trim().split("\n")).toHaveLength(1);
@@ -219,9 +219,9 @@ darwin("Version comparison: a failing claude --version launches without live con
   expect(run("1").live).toBeUndefined();
   expect(h!.claudeCalls()[0]!.args).not.toContain("--replay-user-messages"); expect(h!.claudeCalls()[0]!.args).not.toContain("--settings");
   expect(h!.engine.record.compatibility?.map(notice => [notice.feature, notice.agentVersion, notice.detail, notice.attemptId])).toEqual([["live_messages", "unrecognised", detail, run("1").control!.attemptId], ["takeover", "unrecognised", detail, run("1").control!.attemptId]]);
-  expect(h!.engine.liveView()).toMatchObject({ available: false, reason: `Pause & take over unavailable with Claude Code unrecognised: ${detail}.`, input: { available: false, reason: `Message Claude unavailable with Claude Code unrecognised: ${detail}.` } });
-  await idle(); expect(refusal(submit("take-over", "refused", h!.engine.liveTarget()!))).toEqual({ code: "control_unavailable", message: `Pause & take over unavailable with Claude Code unrecognised: ${detail}.` });
-  expect(buildSnapshot(h!.engine).compatibility).toEqual([`Message Claude unavailable with Claude Code unrecognised: ${detail}`, `Pause & take over unavailable with Claude Code unrecognised: ${detail}`]);
+  expect(h!.engine.liveView()).toMatchObject({ available: false, reason: `Pause now unavailable with Claude Code unrecognised: ${detail}.`, input: { available: false, reason: `Message Claude unavailable with Claude Code unrecognised: ${detail}.` } });
+  await idle(); expect(refusal(submit("take-over", "refused", h!.engine.liveTarget()!))).toEqual({ code: "control_unavailable", message: `Pause now unavailable with Claude Code unrecognised: ${detail}.` });
+  expect(buildSnapshot(h!.engine).compatibility).toEqual([`Message Claude unavailable with Claude Code unrecognised: ${detail}`, `Pause now unavailable with Claude Code unrecognised: ${detail}`]);
   // kiln status reads the saved record, so it names both with the controller stopped.
   expect(statusCompatibility(readPrdRecord(h!.stateDirectory)!)).toEqual(["live_messages", "takeover"].map(feature => ({ feature, agent: "claude_code", agent_version: "unrecognised", detail, attempt_id: run("1").control!.attemptId, observed_at: expect.any(String) })));
   // The run keeps working, and an attempt on a version Kiln reads drops both notices and offers live control again.
@@ -285,7 +285,7 @@ for (const when of ["still running", "exited"] as const) {
       // Saved, so the panel and kiln status name it with the controller stopped.
       expect(readPrdRecord(h.stateDirectory)!.compatibility).toEqual([expect.objectContaining(notice)]);
       expect(statusCompatibility(readPrdRecord(h.stateDirectory)!)).toEqual([expect.objectContaining({ feature: "takeover", agent: "claude_code", agent_version: "2.1.320", detail })]);
-      expect(buildSnapshot(h.engine).compatibility).toEqual([`Pause & take over unavailable with Claude Code 2.1.320: ${detail}`]);
+      expect(buildSnapshot(h.engine).compatibility).toEqual([`Pause now unavailable with Claude Code 2.1.320: ${detail}`]);
       if (when === "still running") { writeFileSync(file("two-release"), ""); await waitFor(async () => !await isProcessLive(attempt.pid!, attempt.processStartTime)); }
     } finally { if (controller.exitCode === null && controller.signalCode === null) controller.kill("SIGKILL"); await exited; }
   });

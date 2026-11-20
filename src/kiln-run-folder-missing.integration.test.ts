@@ -471,10 +471,10 @@ describe("an unfinished run whose folder is missing", () => {
       delete run.endedAt; run.pid = child.pid!; run.processStartTime = startTime!;
       run.control = { operationId: "launch", attemptId: "attempt-1", promptDigest: "0".repeat(64) };
       writeSessionRecord(h.stateDirectory, session);
-      // Pause & take over was pending on that session when the earlier Kiln ended.
+      // Pause now was pending on that session when the earlier Kiln ended.
       const at = new Date().toISOString();
       const record = h.engine.record;
-      record.liveControl = { version: 1, revision: 1, takeover: { target: { executionId: record.executionId!, activityId: "1", activityKey: "1", sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: "attempt-1" }, operationId: "hold", instructionId: "hold", requestedAt: at, state: "pending", observedAt: at, reason: "Pausing for terminal takeover." } };
+      record.liveControl = { version: 1, revision: 1, takeover: { target: { executionId: record.executionId!, activityId: "1", activityKey: "1", sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: "attempt-1" }, operationId: "hold", instructionId: "hold", requestedAt: at, state: "pending", observedAt: at, reason: "Pause now is pausing — finishing the current operation." } };
       writePrdRecord(h.stateDirectory, record);
       rmSync(saved, { recursive: true, force: true });
       let busy: string | undefined;

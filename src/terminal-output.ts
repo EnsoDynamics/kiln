@@ -75,6 +75,8 @@ export function planColumns(plan: { id: string; title: string }[]): PlanColumns 
 export type PhaseLineEvent =
   | { kind: "started" }
   | { kind: "stopped"; viewAddress?: string }
+  /** Pause now completed: in the normal colour, never the amber of what needs the person (PAUSE-009). */
+  | { kind: "paused"; viewAddress?: string }
   | { kind: "interrupted" }
   | { kind: "resumed" }
   | { kind: "waiting"; label: string; resetsAt?: string }
@@ -89,6 +91,7 @@ export type PhaseLineEvent =
  *
  *   10:09  1   Return intake      done · pushed a1c4e09
  *   10:42  2   Store credit       stopped · waiting for you at http://127.0.0.1:4700/customer-returns
+ *   10:42  2   Store credit       paused · at http://127.0.0.1:4700/customer-returns
  */
 export function formatPhaseLine(at: Date, id: string, title: string, event: PhaseLineEvent, columns: PlanColumns, colors: TerminalColors): string {
   const pad = (text: string, width: number) => (text.length + 2 > width ? `${text}  ` : text.padEnd(width));
@@ -98,6 +101,8 @@ export function formatPhaseLine(at: Date, id: string, title: string, event: Phas
       ? colors.red(event.kind)
       : event.kind === "stopped"
         ? colors.amber("stopped") + colors.grey(" · waiting for you") + (event.viewAddress ? colors.grey(" at ") + colors.red(event.viewAddress) : "")
+      : event.kind === "paused"
+        ? "paused" + (event.viewAddress ? colors.grey(" · at ") + colors.red(event.viewAddress) : "")
       : event.kind === "interrupted"
         ? colors.amber("interrupted")
         : event.kind === "waiting"

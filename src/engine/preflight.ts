@@ -46,7 +46,7 @@ export const PREFLIGHT_CHECK = "Preflight";
 export const PREFLIGHT_TITLE = "Preflight";
 export const PREFLIGHT_STOP_REASON = "At a preflight stop, use Check Preflight again or Mark complete.";
 export const PREFLIGHT_PAUSE_REASON = "Pause after this activity isn't offered during the preflight.";
-export const PREFLIGHT_LIVE_REASON = "Live messages, terminal takeover and a pause are unavailable during the preflight. Wait for its result; if it reports items, reopen its session in a terminal from the preflight stop.";
+export const PREFLIGHT_LIVE_REASON = "Live messages, Pause now and a pause after the activity are unavailable during the preflight. Wait for its result; if it reports items, reopen its session in a terminal from the preflight stop.";
 
 const TRIGGERS: readonly PreflightTrigger[] = ["start", "unpause", "continue", "resume"];
 const OUTCOMES: readonly PreflightOutcome[] = ["ready", "items", "no_report"];

@@ -89,6 +89,7 @@ A phase can stop in three different ways, and today's page treats them alike. Th
   | A session began one, and the phase has built something | **Phase N needs your input.** as today |
 
   - Replaces in part: AC-PAGE-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (the headline).
+  - Superseded in part by: AC-PAUSE-06 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the held page's header for a Pause now hold).
 - [ ] **AC-CASE-04 — The first card shows the latest launch.** On a stopped phase's page, the first card shows the phase's latest launch: when it began a conversation, today's **Last message from** the agent; when the agent's process didn't start or exited before beginning one, **What Kiln found**, saying what Kiln ran and the error it got, then any earlier conversation's **Last message from** card.
   - Replaces in part: AC-RESUME-04 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (after the person's Resume, or Kiln's own at the end of a usage-limit wait, of a session that ended on its own, the first card gives its last message, not its last lines).
   - Superseded in part by: AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (in a marked phase, the planned-as-needing-you card comes first, above the latest launch's card).
@@ -149,6 +150,7 @@ When Kiln can't reopen a phase's saved conversation, today's page offers only te
 
   In place of today's wait text and card, the page shows **Reply here and let Kiln carry on** (AC-CARRY-05, with AC-CARRY-02's reason and **Check again**) beside today's card for a fresh session in the terminal. Above them, each uncertain message shows with its acknowledgement (AC-MSG-05 in Kiln Live Session Control), and **Send reply & continue Phase N** is unavailable until each is acknowledged; the continue command takes the acknowledgements as `kiln resume` does. The button and the terminal card's copy buttons are unavailable, saying why, while Claude is open on that conversation or work the attempt started is still running (AC-TAKE-02 and AC-TAKE-04 there). Starting the carry-on session, or advancing from the button's already-complete choice, ends the hold; neither needs the hold released. An uncertain message reaches the new session only if the person's reply includes it.
   - Replaces in part: AC-LIVE-02, AC-TAKE-01, AC-TAKE-02, AC-MSG-05, AC-BACK-04 and AC-BOT-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (for a hold whose conversation can't be reopened, the page offers these two cards in place of the explanation that terminal use must wait, and starting a Kiln-run new session, or advancing from the carry-on button's already-complete choice, ends the hold without its release).
+  - Superseded in part by: AC-PAUSE-06 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the held page's header, layout and the hold's name for a Pause now hold).
 
 ### Reset Kiln for This PRD
 
@@ -157,6 +159,7 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
 - [ ] **AC-RESET-01 — Reset sits at the bottom of every screen.** Once a PRD has been started, every screen for it ends with a line saying what reset does and a **Reset Kiln for this PRD** button. Documents found, before the first Start, has none.
   - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Reset Kiln for this PRD joins the browser view's controls).
 - [ ] **AC-RESET-02 — Reset waits for Kiln to stop working.** While Kiln is working on the PRD (a session running, or Kiln's own work between sessions), the button is unavailable and the line says to stop the session first with **Pause & take over** where offered, or to pause after the current phase or audit and reset once it ends.
+  - Superseded in part by: AC-PAUSE-02 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the reset explanation names Pause now).
 - [ ] **AC-RESET-03 — Reset asks first, and says what goes and what stays.** Pressing the button opens a confirmation in place that lists the table's lines, leaving out any with nothing to name, and says the reset can't be undone. With several repositories, the branch and worktree counts are per repository. **Cancel** closes it and changes nothing.
 
   | Kiln forgets | Stays exactly as it is |
@@ -182,6 +185,7 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
 - [ ] **AC-LOOK-01 — The screens match their drawings.** Documents found with **Start from**, the three stopped-phase pages, the held page AC-CARRY-06 changes, the reset line and its confirmation match this change's mockup for layout, order and wording, in Kiln's existing visual style. Each is today's screen with the drawn change, not a new screen. Sample names, paths, commits and counts are illustrative.
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md`, AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md`, AC-PAGE-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` and AC-LOOK-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (the screens this change draws, and the reset line on every screen; the rest of each layout remains).
   - Superseded in part by: AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (in a marked phase, the planned-as-needing-you card comes first on the stopped-phase pages).
+  - Superseded in part by: AC-PAUSE-06 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the held page's header and layout for a Pause now hold).
 
 ## Out of Scope
 

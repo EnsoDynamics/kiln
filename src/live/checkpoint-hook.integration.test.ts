@@ -25,7 +25,7 @@ it("admits exact main/subagent operations, retains completion and denies new wor
     for (const name of ["Bash", "Read", "Write", "Edit", "Agent"]) {
       const response = invoke({ hook_event_name: "PreToolUse", tool_name: name, tool_use_id: `withheld-${name}`, agent_id: "worker" });
       expect(response.status, response.stderr).toBe(0);
-      expect(JSON.parse(response.stdout)).toMatchObject({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: expect.stringContaining("terminal takeover") } });
+      expect(JSON.parse(response.stdout)).toMatchObject({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: expect.stringContaining("Kiln paused this activity.") } });
       expect(readGate(root).operations[`withheld-${name}`]).toBeUndefined();
     }
     for (const [index, kind] of ["PostToolUse", "PostToolUseFailure"].entries()) {

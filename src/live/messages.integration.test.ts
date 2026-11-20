@@ -155,12 +155,13 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
       server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Restarted uncertain input", token: h.engine.record.token });
       const page = await browser.open(`${server.address}/phase/1`, { width: 390, height: 1100 });
       try {
-        const take = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Pause & take over')`;
+        const take = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Pause now')`;
         await page.waitFor(`${take} && !${take}.disabled`);
         expect(await page.evaluate("document.body.innerText")).toContain("Input connection lost");
         expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Send message').disabled`)).toBe(true);
         await page.evaluate(`${take}.click()`);
-        await page.waitFor(`document.body.innerText.includes('Pausing for takeover — finishing the current operation')`);
+        // The pause panel turns to its pausing wording with Cancel, and Pause now is no longer offered (Kiln Pause Now AC-PAUSE-03).
+        await page.waitFor(`/^Pausing — /.test(document.querySelector('.pausing .title')?.textContent ?? '') && Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Cancel pause and keep going') && !${take}`);
         writeFileSync("/tmp/kiln-phase8-restarted-uncertain-390.png", await page.screenshot());
         expect(page.problems).toEqual([]);
       } finally { await page.close(); await browser.close(); await server.close(); server = undefined; }

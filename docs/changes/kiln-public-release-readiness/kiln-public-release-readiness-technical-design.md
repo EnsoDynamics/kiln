@@ -21,6 +21,8 @@ Proof that billing and live control work on newer Claude Code comes from recorde
 
 ## Design Decisions
 
+Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Stop and Cancel and §Wording (Takeover hook recognition row: an accepted takeover can be withdrawn before its stop, and the hook reads `tool_input` for a label without making it part of the recognised contract; Compatibility notices row: the `takeover` feature's display name is **Pause now**).
+
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (Text help: a fourth task group, **Start over**; a group's names may take more than one line).
 
 | Decision | Choice | Rationale |

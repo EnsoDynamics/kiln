@@ -6,6 +6,8 @@ import type { CheckItem, MarkCompleteOffer, WaiverRef } from "../engine/waivers.
 import type { CheckResult } from "../state/records.js";
 import type { OutputLine } from "../session/session-output.js";
 import { outsideWorkspacePrompt } from "../session/prompts.js";
+import type { LiveTarget, TakeoverHold } from "../live/target.js";
+import type { PauseNowView } from "../live/pause-now.js";
 
 export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot["settings"]>; documents?: Partial<NonNullable<Snapshot["documents"]>> } & Partial<Omit<Snapshot, "settings" | "documents">> = {}): Snapshot {
   const { settings, documents, ...rest } = overrides;
@@ -962,4 +964,43 @@ export function testLoopStopSnapshot(): Snapshot {
     row("audit-ta3", "Test audit", [loop(2, false, "2026-10-17T17:40:00Z", 146 * MINUTE, "Saved test work · fixed 5 Weak rows, saved the rest")]),
     row("audit-ta4", "Test audit", [loop(3, true, "2026-10-17T20:10:00Z", 182 * MINUTE, "Needs you · fixed 6 Weak rows")], { state: "needs_you", carried }),
   ]);
+}
+
+/** Pause now on phase 2b (Kiln Pause Now): pressed at 11:45 AM during `npm test -- src/refunds`, released at 11:46 AM. */
+export const PAUSE_REQUESTED_AT = "2026-10-17T15:45:00Z";
+export const PAUSE_RELEASED_AT = "2026-10-17T15:46:00Z";
+export const PAUSE_TARGET: LiveTarget = { executionId: "display-execution", activityId: "act-2b", activityKey: "2b", sessionId: SESSION_2B, providerSessionId: SESSION_2B, attemptId: "attempt-2b" };
+
+function pauseNowLive(pauseNow: PauseNowView, hold: Partial<TakeoverHold>): NonNullable<Snapshot["liveControl"]> {
+  const takeover: TakeoverHold = { target: PAUSE_TARGET, operationId: "op-pause-2b", instructionId: "pause-now-2b", requestedAt: PAUSE_REQUESTED_AT, state: pauseNow.phase === "paused" ? "released" : "pending", observedAt: "2026-10-17T15:46:58Z", reason: "Pausing", ...(pauseNow.releasedAt ? { releasedAt: pauseNow.releasedAt } : {}), ...hold };
+  return { target: PAUSE_TARGET, label: "Phase 2b", observedAt: "2026-10-17T15:46:58Z", available: false, reason: "Pause now is pausing or has paused this activity.", messages: [], reviewRequired: [], takeover, pauseNow };
+}
+
+/**
+ * Pausing phase 2b (AC-PAUSE-03): Claude still running `npm test -- src/refunds`, Cancel offered.
+ * With `exited`, Claude's process has ended and the feature is needs_you underneath, as after the stop.
+ */
+export function pausingSnapshot(view: Partial<PauseNowView> = {}, options: { exited?: boolean; hold?: Partial<TakeoverHold> } = {}): Snapshot {
+  const pauseNow: PauseNowView = { phase: "pausing", activityKey: "2b", label: "phase 2b", requestedAt: PAUSE_REQUESTED_AT, stopped: false, running: [{ tool: "Bash", input: "npm test -- src/refunds" }], cancel: { available: true }, ...view };
+  const snapshot = options.exited ? heldNeedsYou() : runningSnapshot();
+  snapshot.liveControl = pauseNowLive(pauseNow, options.hold ?? {});
+  return snapshot;
+}
+
+/** Paused in phase 2b (AC-PAUSE-05, 06): released at 11:46 AM after `npm test -- src/refunds` finished. */
+export function pausedHoldSnapshot(view: Partial<PauseNowView> = {}, hold: Partial<TakeoverHold> = {}): Snapshot {
+  const pauseNow: PauseNowView = {
+    phase: "paused", activityKey: "2b", label: "phase 2b", requestedAt: PAUSE_REQUESTED_AT, releasedAt: PAUSE_RELEASED_AT, stopped: true, running: [],
+    lastCommand: { tool: "Bash", input: "npm test -- src/refunds" }, lastSaid: "Running the refund tests, then I’ll wire store credit into the receipt email.", cancel: { available: false, reason: "Kiln had already paused. Press Resume once it’s paused to carry on." }, ...view,
+  };
+  const snapshot = heldNeedsYou();
+  snapshot.liveControl = pauseNowLive(pauseNow, hold);
+  return snapshot;
+}
+
+/** Phase 2b stopped under a Pause now hold: needs_you underneath, with the hold's live recovery target. */
+function heldNeedsYou(): Snapshot {
+  const snapshot = needsYouMessageSnapshot();
+  snapshot.needsYou = { ...snapshot.needsYou!, stoppedAt: "2026-10-17T15:45:40Z", phaseRecovery: { target: { executionId: "display-execution", phaseKey: "2b", sessionId: SESSION_2B, stoppedAt: "2026-10-17T15:45:40Z", live: PAUSE_TARGET }, completion: "incomplete" } };
+  return snapshot;
 }

@@ -15,6 +15,8 @@ import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck }
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
 import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate, type GateState } from "../live/gate.js";
+import { ALREADY_PAUSED, type PauseNowView } from "../live/pause-now.js";
+import { aliveTrackedProcesses, backgroundedWork, lastCommandOf, lastSaidOf, runningOperations } from "./pause-now-state.js";
 import { sameLiveTarget, validLiveTarget, consumedUuids, messageContractProblem, messageProblem, type LiveTarget, type LiveView, type TakeoverHold } from "../live/target.js";
 import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from "../live/ownership.js";
 import { writeDurableMetadata } from "../control/durable-file.js";
@@ -197,7 +199,7 @@ export type TerminalEvent =
   | { kind: "folder_missing"; view: FolderMissingView; folders: FolderCheck; address?: string }
   | { kind: "completed_plan_checked"; check: CompletedPlanCheck }
   | { kind: "plan_updated"; at: Date; addedPhaseIds: string[]; remainingCount: number; source: string }
-  | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string };
+  | { kind: "audit"; at: Date; activityId: string; label: string; round: number; continuationIndex?: number; event: "started" | "stopped" | "paused" | "done" | "interrupted" | "resumed" | "waiting"; limit?: { label: string; resetsAt?: string };
       /** Set on the build preflight's lines, printed as an audit titled Preflight with id PF (build preflight "Display Contract"). */
       preflight?: { outcome?: "ready" | "no_report"; reason?: string } }
   | { kind: "prd_started"; at: Date; branch: string; baseBranch: string; repositoryCount: number }
@@ -206,7 +208,7 @@ export type TerminalEvent =
       at: Date;
       phaseId: string;
       title: string;
-      event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting";
+      event: "started" | "stopped" | "paused" | "done" | "interrupted" | "resumed" | "waiting";
       pushedSha?: string;
       /** A wait's limit: its label and reset (usage-limit recovery AC-LIMIT-05). */
       limit?: { label: string; resetsAt?: string };
@@ -217,7 +219,7 @@ export type TerminalEvent =
   | {
       kind: "pull_request";
       at: Date;
-      event: "started" | "stopped" | "opened" | "completed" | "interrupted" | "resumed" | "waiting";
+      event: "started" | "stopped" | "paused" | "opened" | "completed" | "interrupted" | "resumed" | "waiting";
       summary?: string;
       number?: number;
       limit?: { label: string; resetsAt?: string };
@@ -228,6 +230,8 @@ export type TerminalEvent =
   | { kind: "message"; text: string };
 
 class TakeoverAlreadyComplete extends Error {}
+/** A Pause now on an attempt recovered from an earlier Kiln with no gate: nothing can stop it (Kiln Pause Now, "Wording"). */
+const GATELESS_PAUSE_REASON = "Input connection lost. Pause now waits for this session to end on its own; no forced interruption.";
 
 export type CommandResult =
   | { ok: true; noteSkipped?: true; outcome?: PhaseRecoveryOutcome; target?: PhaseRecoveryTarget }
@@ -479,6 +483,10 @@ export class Engine {
   private takeoverTimer: NodeJS.Timeout | undefined;
   private takeoverReading: Promise<void> | undefined;
   private returningTakeover = false;
+  /** The background-process lookup's last result, keyed by the hold it was read for; derived each second, never saved. */
+  private pauseNowProcesses: { operationId: string; entries: { pid: number; command?: string }[] } | undefined;
+  /** The last thing the agent said before a Pause now stop, read once per hold from its saved events. */
+  private pauseNowSaid: { operationId: string; text: string | undefined } | undefined;
   private recoveredLive = false;
   /**
    * Folder missing (missing worktree recovery, "The Folder Check"): computed from disk and Git
@@ -548,7 +556,7 @@ export class Engine {
         if (instruction.action !== "take-over" || !validLiveTarget(target) || target.executionId !== this.record.executionId || !this.record.phases[target.activityKey]?.doneAt) return undefined;
         const activity = activityHistory(this.record, this.stateDirectory).find(a => a.key === target.activityKey && a.activityId === target.activityId);
         const session = this.sessionRecord(target.activityKey, target.sessionId);
-        if (activity && session?.executionId === target.executionId && session.sessionId === target.providerSessionId && session.runs.some((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session, i)) === target.attemptId)) return "The targeted activity finished before takeover was accepted. Its successor was not paused.";
+        if (activity && session?.executionId === target.executionId && session.sessionId === target.providerSessionId && session.runs.some((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session, i)) === target.attemptId)) return "The targeted activity finished before Pause now was accepted. Its successor was not paused.";
         return undefined;
       },
       apply: (action, inputs, receipt) => this.applyControl(action, inputs, receipt),
@@ -638,10 +646,12 @@ export class Engine {
     const preflightRunning = isPreflightKey(this.current?.phaseKey) || !!this.record.preflight?.due;
     if (preflightRunning) available["request-pause"] = false;
     const unavailable: Partial<Record<Action, string>> = {
-      "take-over": this.liveView()?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "Live takeover requires an active supported Claude phase or audit."),
+      "take-over": this.liveView()?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "Pause now needs an active supported Claude phase or audit."),
       message: this.liveView()?.input?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "No active supported Claude input is available."),
-      "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : "A pause is already requested or this activity cannot pause.",
-      "cancel-pause": "No pause is requested.", resume: "Resume isn't offered here.", reply: "Resume isn't offered here.",
+      "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : !this.record.pause.requestedAt && this.record.liveControl && this.record.liveControl.takeover.kind !== "delivery_recovery" && key ? `${this.auditActivity(key) ? auditLabel(this.auditActivity(key)!.kind) : `Phase ${this.judgedId(key)}`} is pausing or paused, which offers no pause after.` : "A pause is already requested or this activity cannot pause.",
+      "cancel-pause": "No pause is requested.",
+      // A paused Pause now whose later reading found an obstacle (Claude open on the conversation) says so (AC-PAUSE-06).
+      resume: this.pausedObstacle() ?? "Resume isn't offered here.", reply: this.pausedObstacle() ?? "Resume isn't offered here.",
       "outside-confirmation": "Workspace confirmations have been retired; recheck the remaining completion requirements.",
       "verify-and-advance": releasePending ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : "No stopped activity is available to verify.",
       "waive-and-advance": (() => { const offer = this.markCompleteOffer(); return offer.offered ? this.record.liveControl?.takeover.reason ?? "Wait for the current attempt and tracked work to be released." : offer.reason; })(),
@@ -658,7 +668,10 @@ export class Engine {
     const fixedReason = (name: Action) => name === "reset" || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
     const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : fixedReason(name) ? unavailable[name]! : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
-    const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, run: key ? (this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold.run?.id : this.record.phases[key]?.stop?.run?.id) : undefined, controls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
+    // A Pause now's per-reading reasons (the hold's reason, its rows) stay out of the token, so a pause still pausing doesn't change it every second (Kiln Pause Now, "Interfaces").
+    const pauseHeld = !!this.record.liveControl && this.record.liveControl.takeover.kind !== "delivery_recovery";
+    const tokenControls = pauseHeld ? controls.map(c => ["take-over", "message", "verify-and-advance", "waive-and-advance", "resume", "reply"].includes(c.name) ? { name: c.name, available: c.available } : c) : controls;
+    const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, run: key ? (this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold.run?.id : this.record.phases[key]?.stop?.run?.id) : undefined, controls: tokenControls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
       unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
     return { token: `${this.record.executionId!}:${createHash("sha256").update(JSON.stringify(fingerprint)).digest("base64url")}`, target, controls };
   }
@@ -709,6 +722,25 @@ export class Engine {
       // Never repeat external input after a controller crash. Full replay happens once the journal exists.
       return { ...receipt, state: receipt.message.resultAt ? "completed" : "indeterminate", stage: "settled", outcome: receipt.message.resultAt ? "message_received" : "delivery_uncertain", message: { ...receipt.message, delivery: receipt.message.resultAt ? "received" : "uncertain" }, effects: { ...receipt.effects, message: receipt.message.resultAt ? "received" : "unknown" } };
     }
+    if (receipt.instruction.action === "cancel-take-over" && validLiveTarget(receipt.instruction.inputs.target)) {
+      // Startup settles an unsettled cancel before admitting other live actions (Kiln Pause Now, "Restart").
+      const target = receipt.instruction.inputs.target; const takeoverId = receipt.instruction.inputs.takeover_instruction_id;
+      const session = this.sessionRecord(target.activityKey, target.sessionId);
+      const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === target.attemptId);
+      const saved = this.record.liveControl?.takeover;
+      const holdsIt = !!saved && saved.kind !== "delivery_recovery" && saved.instructionId === takeoverId && sameLiveTarget(saved.target, target);
+      const settle = (withdrawn: boolean): Receipt => ({ ...receipt, state: withdrawn ? "completed" : "failed", stage: "settled", outcome: withdrawn ? "takeover_withdrawn" : "not_applied", reason: withdrawn ? null : ALREADY_PAUSED, effects: { ...receipt.effects, ...(withdrawn ? { takeover: "withdrawn" as const } : {}) } });
+      let gateHolds = false;
+      if (run?.live) { try { gateHolds = readGate(run.live.gateDirectory).held?.instructionId === takeoverId; } catch { gateHolds = true; } }
+      if (run?.live) {
+        if (gateHolds) return settle(false);
+        if (holdsIt) this.restoreAfterCancel(saved);
+        return settle(true);
+      }
+      if (!holdsIt) return settle(true);
+      if (run && !run.endedAt) { this.restoreAfterCancel(saved); return settle(true); }
+      return settle(false);
+    }
     if (receipt.instruction.action === "take-over" && validLiveTarget(receipt.instruction.inputs.target)) {
       const target = receipt.instruction.inputs.target;
       const session = this.sessionRecord(target.activityKey, target.sessionId);
@@ -716,7 +748,7 @@ export class Engine {
       const held = run?.live ? readGate(run.live.gateDirectory).held : undefined;
       const saved = this.record.liveControl?.takeover;
       if (held?.operationId === receipt.id || saved?.operationId === receipt.id || receipt.effects.takeover === "requested") {
-        if (!saved) this.record.liveControl = { version: 1, revision: 1, takeover: { target, operationId: receipt.id, instructionId: receipt.command_id, requestedAt: held?.requestedAt ?? receipt.accepted_at, state: "pending", observedAt: this.now().toISOString(), reason: "Reconciling recovered attempt before terminal use." } };
+        if (!saved) this.record.liveControl = { version: 1, revision: 1, takeover: { target, operationId: receipt.id, instructionId: receipt.command_id, requestedAt: held?.requestedAt ?? receipt.accepted_at, state: "pending", observedAt: this.now().toISOString(), reason: "Reconciling the recovered attempt." } };
         return { ...receipt, state: "completed", stage: "settled", outcome: "takeover_requested", effects: { ...receipt.effects, takeover: "requested" } };
       }
     }
@@ -781,6 +813,7 @@ export class Engine {
     if (action === "continuation-accept") return this.acceptContinuation(inputs, receipt);
     if (action === "continuation-retry") return this.retryContinuation(inputs);
     if (action === "folder-setup-start") return this.applyFolderStart(inputs, receipt);
+    if (action === "cancel-take-over") return this.cancelTakeover(inputs.target, inputs.takeover_instruction_id, receipt);
     let answer: CommandResult;
     const target = this.phaseRecoveryTarget();
     const priorKey = this.stoppedPhaseKey() ?? this.waitingPhaseKey();
@@ -996,11 +1029,11 @@ export class Engine {
     let detail: string | undefined;
     try { detail = readGate(run.live.gateDirectory).contract?.detail; } catch { /* the saved contract decides */ }
     if (!detail && run.live.hookContract !== "unrecognised") return undefined;
-    return `${this.takeoverNotice(run.live, detail)} The safe checkpoint can't be used, so Kiln is waiting for this attempt and its processes to end. Wait before opening Claude.`;
+    return `${this.takeoverNotice(run.live, detail)} The safe checkpoint can't be used, so Kiln is waiting for this attempt and its processes to end.`;
   }
 
   private takeoverNotice(live: LiveRunFacts, detail: string | undefined): string {
-    return detail ? `${noticeText(liveNotice(live, "takeover", detail, ""))}.` : liveNoticeReason(this.record, "takeover") ?? "Pause & take over is unavailable for this attempt.";
+    return detail ? `${noticeText(liveNotice(live, "takeover", detail, ""))}.` : liveNoticeReason(this.record, "takeover") ?? "Pause now is unavailable for this attempt.";
   }
 
   private endLiveMessages(target: LiveTarget): void {
@@ -1028,6 +1061,7 @@ export class Engine {
       receipt.effects.message = "unknown";
       this.commands.checkpoint(receipt); // fsync before any bytes can be supplied to stdin.
       inputs[receipt.message!.uuid] = { terminal: false };
+      delete gate.turnEndedAt; // Newly admitted input starts a turn (Kiln Pause Now, background row).
       writeDurableMetadata(join(run.live!.gateDirectory, "gate.json"), gate);
       admitted = true;
       writing = control.sendMessage!(text as string, receipt.message!.uuid);
@@ -1092,8 +1126,46 @@ export class Engine {
     const inputAvailable = !submitting && !!run?.live?.literalInput && !messageOff && !!this.control?.inputOpen?.() && !hold && !sealed && pending < 32;
     // Until a carry-on's run ends the hold, the hold is the live target and the new attempt is starting (AC-CARRY-06).
     const starting = !!hold && this.returningTakeover && !!this.current?.processRunning;
-    const inputReason = starting ? "The new session is starting." : this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use safe takeover to recover." : hold ? uncertain ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pausing or paused for terminal takeover." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? unreadVersion("live_messages") ?? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
-    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !starting && !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (starting ? "The new session is starting." : undefined) ?? (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Safe checkpoint takeover needs a supported Claude Code on macOS. Existing end-of-activity pause remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? "Input connection lost. Takeover waits for safe release; no forced interruption." : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}) };
+    // While a launch from the paused page is starting, no Pause now state is projected (Kiln Pause Now, "The Pause Now State").
+    const pauseNow = hold && hold.kind !== "delivery_recovery" && !starting ? this.pauseNowView(hold, label) : undefined;
+    const inputReason = starting ? "The new session is starting." : this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use Pause now to recover." : hold ? uncertain || hold.kind === "delivery_recovery" ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pause now is pausing or has paused this activity." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? unreadVersion("live_messages") ?? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
+    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !starting && !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (starting ? "The new session is starting." : undefined) ?? (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Pause now needs a supported Claude Code on macOS. Pause after the current activity remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? GATELESS_PAUSE_REASON : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}), ...(pauseNow ? { pauseNow } : {}) };
+  }
+
+  /** The Pause now state (Kiln Pause Now technical design, "The Pause Now State"): one projection every surface reads. */
+  private pauseNowView(hold: TakeoverHold, label: string): PauseNowView {
+    const session = this.sessionRecord(hold.target.activityKey, hold.target.sessionId);
+    const runIndex = session ? session.runs.findIndex((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session, i)) === hold.target.attemptId) : -1;
+    const run = runIndex >= 0 ? session!.runs[runIndex] : undefined;
+    const attempt = this.current?.session?.runs.at(-1);
+    const processRunning = !!this.current?.processRunning && this.current.session?.sessionId === hold.target.sessionId && !!attempt && (attempt.control?.attemptId ?? this.legacyAttempt(this.current.session!, this.current.session!.runs.length - 1)) === hold.target.attemptId;
+    let gate: GateState | undefined;
+    try { gate = run?.live ? readGate(run.live.gateDirectory) : undefined; } catch { /* an unreadable gate shows through the hold's obstacle */ }
+    const gateStop = gate?.stop?.operationId === hold.operationId ? gate.stop : undefined;
+    const ended = !processRunning;
+    const stopped = !!gateStop || ended;
+    const phase = hold.releasedAt !== undefined ? "paused" : "pausing";
+    const running = gate ? runningOperations(gate) : [];
+    const processes = this.pauseNowProcesses?.operationId === hold.operationId ? this.pauseNowProcesses.entries : [];
+    // Kind 1 while Claude runs; once its process has exited and Kiln's last observation finished, kind 2 (processes still alive).
+    const background = !gate ? [] : processRunning ? backgroundedWork(gate, stopped) : this.current?.session?.sessionId === hold.target.sessionId && this.current?.processRunning ? [] : processes;
+    const lastCommand = gate ? lastCommandOf(gate) : undefined;
+    if (phase === "paused" && this.pauseNowSaid?.operationId !== hold.operationId && session && runIndex >= 0) {
+      let text: string | undefined;
+      try { text = lastSaidOf(eventsOfRun(this.stateDirectory, session, runIndex), gateStop); } catch { text = undefined; }
+      this.pauseNowSaid = { operationId: hold.operationId, text };
+    }
+    const lastSaid = this.pauseNowSaid?.operationId === hold.operationId ? this.pauseNowSaid.text : undefined;
+    const waited = hold.latestActivityAt ? Math.floor((Date.parse(hold.observedAt) - Date.parse(hold.latestActivityAt)) / 1000) : undefined;
+    const cancelAvailable = phase === "pausing" && !stopped && !this.commands?.busy;
+    const cancelReason = stopped ? "Claude has stopped, so the pause can no longer be cancelled. Press Resume once it’s paused to carry on." : phase === "paused" ? ALREADY_PAUSED : "Kiln is checking, dispatching or reconciling an instruction.";
+    const activity = activityKeyKind(hold.target.activityKey) === "audit" ? label.toLowerCase() : `phase ${hold.target.activityKey}`;
+    return {
+      phase, activityKey: hold.target.activityKey, label: activity, requestedAt: hold.requestedAt, ...(hold.releasedAt !== undefined ? { releasedAt: hold.releasedAt } : {}),
+      stopped, running: processRunning ? running : [], ...(background.length ? { background } : {}), ...(lastCommand ? { lastCommand } : {}), ...(lastSaid ? { lastSaid } : {}),
+      ...(phase === "pausing" && waited !== undefined && waited >= 30 ? { waitingSeconds: waited } : {}), ...(hold.obstacle ? { obstacle: hold.obstacle } : {}),
+      cancel: cancelAvailable ? { available: true } : { available: false, reason: cancelReason }, ...(run && !run.live ? { gateless: true } : {}),
+    };
   }
 
   private async acceptTakeover(raw: unknown, receipt: Receipt) {
@@ -1102,18 +1174,62 @@ export class Engine {
     const held = { operationId: receipt.id, instructionId: receipt.command_id, requestedAt: this.now().toISOString() };
     const persist = () => {
       receipt.live_target = raw; receipt.effects.takeover = "requested"; this.commands.checkpoint(receipt);
-      this.record.liveControl = { version: 1, revision: 1, takeover: { ...held, target: raw, state: "pending", observedAt: this.now().toISOString(), reason: "Pausing for takeover — finishing the current operation. Wait before opening Claude." } };
+      this.record.liveControl = { version: 1, revision: 1, takeover: { ...held, target: raw, state: "pending", observedAt: this.now().toISOString(), reason: "Pause now is pausing — finishing the current operation." } };
       this.save();
     };
     if (run.live) await withGate(run.live.gateDirectory, state => {
-      if (!sameLiveTarget(state.target, raw) || !sameLiveTarget(raw, this.liveTarget()) || !this.current?.processRunning) throw new Error("Attempt ended before takeover admission.");
-      state.held = held;
+      if (!sameLiveTarget(state.target, raw) || !sameLiveTarget(raw, this.liveTarget()) || !this.current?.processRunning) throw new Error("Attempt ended before Pause now was admitted.");
+      // What can still finish after the press: the operations admitted and unsettled now (Kiln Pause Now, "lastCommand").
+      state.held = { ...held, inFlight: Object.entries(state.operations).filter(([, o]) => !o.settled).map(([id]) => id) };
       writeDurableMetadata(join(run.live!.gateDirectory, "gate.json"), state);
       persist();
     });
     else persist(); // Legacy attempts wait naturally; never signal or invent a checkpoint.
     this.unwatchWait(); this.watchTakeover(); this.changed();
     return { ok: true, outcome: "takeover_requested" };
+  }
+
+  /**
+   * Cancel pause and keep going (Kiln Pause Now, "Cancel"): withdraws a Pause now hold before its
+   * stop. Inside the gate critical section, in one synchronous step: recheck the stop and that the
+   * attempt still runs, remove the gate's hold, then replace the saved hold with the delivery
+   * recovery its uncertain messages need, or nothing. Nothing is sent to the session.
+   */
+  private async cancelTakeover(raw: unknown, takeoverId: unknown, receipt: Receipt) {
+    const hold = this.record.liveControl?.takeover;
+    if (!validLiveTarget(raw) || !hold || hold.kind === "delivery_recovery" || !sameLiveTarget(hold.target, raw) || hold.instructionId !== takeoverId) return { ok: false, code: "stale_target", reason: "This pause ended or changed. Refresh the active session." };
+    const alreadyPaused = { ok: false, code: "already_paused", reason: ALREADY_PAUSED };
+    const session = this.sessionRecord(raw.activityKey, raw.sessionId);
+    const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === raw.attemptId);
+    const running = () => !!this.current?.processRunning && this.current.session?.sessionId === raw.sessionId && !run?.endedAt && sameLiveTarget(this.liveTarget(), raw);
+    const withdraw = () => {
+      receipt.live_target = raw; receipt.effects.takeover = "withdrawn"; this.commands.checkpoint(receipt);
+      this.restoreAfterCancel(hold);
+    };
+    let refused = false;
+    if (run?.live) {
+      await withGate(run.live.gateDirectory, state => {
+        if (state.stop?.operationId === hold.operationId || state.held?.operationId !== hold.operationId || !running()) { refused = true; return; }
+        delete state.held;
+        // The gate's hold goes first: a crash before the record write leaves a hold no hook honors, which startup finishes removing.
+        writeDurableMetadata(join(run.live!.gateDirectory, "gate.json"), state);
+        withdraw();
+      });
+    } else if (!running()) refused = true;
+    else withdraw(); // An attempt without a gate has no gate hold; its only stop is its end.
+    if (refused) return alreadyPaused;
+    this.pauseNowProcesses = undefined; this.pauseNowSaid = undefined;
+    this.changed();
+    return { ok: true, outcome: "takeover_withdrawn" };
+  }
+
+  /** Step 2 of Cancel: the saved hold becomes the delivery recovery re-derived from unresolved uncertain receipts on the attempt, or nothing. */
+  private restoreAfterCancel(hold: TakeoverHold): void {
+    if (this.record.liveControl?.takeover.operationId === hold.operationId) delete this.record.liveControl;
+    // Startup reconciliation runs before the journal is assigned, so it reads the same receipts directly.
+    const receipts = this.commands ? this.commands.all() : readReceipts(this.stateDirectory);
+    for (const r of receipts) if (r.message && sameLiveTarget(r.live_target, hold.target) && r.message.delivery === "uncertain" && !r.message.resolvedBy) this.holdMessage(r);
+    this.save();
   }
 
   private async observeRecoveredLive(): Promise<void> {
@@ -1147,18 +1263,33 @@ export class Engine {
   private async reconcileTakeoverOnce(): Promise<void> {
     if (!this.record.liveControl) return;
     const hold = this.record.liveControl.takeover;
+    const operationId = hold.operationId;
+    // A reading applies its results only while the saved hold is still the one it started with: Cancel never waits for it (Kiln Pause Now, "Cancel").
+    const sameHold = () => this.record.liveControl?.takeover.operationId === operationId;
+    const pauseNow = hold.kind !== "delivery_recovery";
+    // A Resume or carry-on launched from the paused page is starting: its own `claude --resume` is not a terminal in use.
+    const launching = () => this.returningTakeover && !!this.current?.processRunning;
     let releaseEvidence: { directory: string; state: string } | undefined;
+    let gateless = false; let exited = false;
+    const firstRelease = pauseNow && hold.releasedAt === undefined;
     try {
       const session = this.sessionRecord(hold.target.activityKey, hold.target.sessionId);
       const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === hold.target.attemptId);
-      if (!session || !run) throw new OwnershipError("ownership_unknown", "Saved takeover attempt is unavailable.");
+      if (!session || !run) throw new OwnershipError("ownership_unknown", "The paused attempt's saved record is unavailable.");
+      gateless = !run.live;
       const latestActivityAt = run.live ? readGate(run.live.gateDirectory).observedAt : runLastOutputAt(this.stateDirectory, session, session.runs.indexOf(run));
       if (latestActivityAt) hold.latestActivityAt = latestActivityAt;
       await requireExited(run);
+      exited = true;
       // OS exit precedes adapter finalization, which awaits the last descendant
       // scan and saved-event callbacks. No readiness may race those writers.
       const running = this.current?.session; const attempt = running?.runs.at(-1);
       if (this.current?.processRunning && running?.sessionId === hold.target.sessionId && attempt && (attempt.control?.attemptId ?? this.legacyAttempt(running, running.runs.length - 1)) === hold.target.attemptId) throw new OwnershipError("takeover_pending", "Waiting for final attempt and tracked-process observations to finish.");
+      // The background-process lookup runs first, because the release checks stop at the first unmet condition (Kiln Pause Now, "The Pause Now State").
+      if (pauseNow && run.live) {
+        const alive = await aliveTrackedProcesses(readGate(run.live.gateDirectory).tracked).catch(() => undefined);
+        if (alive && sameHold()) this.pauseNowProcesses = { operationId, entries: alive };
+      }
       // A pending hold whose saved conversation can't be reopened ends by a carry-on (run restart AC-CARRY-06):
       // release stops here, and the carry-on ownership check runs in its place.
       if (!this.returningTakeover) {
@@ -1169,6 +1300,7 @@ export class Engine {
           try { await this.carryOnOwnership(hold, run); delete hold.carryOnObstacle; }
           catch (error) { hold.carryOnObstacle = (error as Error).message; }
           hold.state = "pending";
+          if (pauseNow && sameHold()) { hold.releasedAt ??= this.now().toISOString(); delete hold.obstacle; }
           hold.reason = "Kiln can't reopen the saved conversation history. Carry on in a new session, or start a fresh session in your terminal.";
           if (first) void this.refreshStoppedWork(hold.target.activityKey);
           return;
@@ -1212,19 +1344,37 @@ export class Engine {
       await requireNoTerminal(this.environment, hold.target.providerSessionId);
       requireHistory(this.environment, hold.target.providerSessionId);
       if (releaseEvidence && JSON.stringify(readGate(releaseEvidence.directory)) !== releaseEvidence.state) throw new OwnershipError("takeover_pending", "Tracked-process release evidence changed during ownership checks; retry reconciliation.");
-      hold.state = "released"; hold.reason = hold.kind === "delivery_recovery" ? "Conversation released. Review uncertain messages before explicit Resume or Verify." : "Paused for terminal takeover.";
-    } catch (error) { hold.state = "pending"; hold.reason = this.checkpointUnavailable(hold) ?? (error as Error).message; }
+      hold.state = "released"; hold.reason = hold.kind === "delivery_recovery" ? "Conversation released. Review uncertain messages before explicit Resume or Verify." : "Paused.";
+      if (pauseNow && sameHold()) { hold.releasedAt ??= this.now().toISOString(); delete hold.obstacle; }
+    } catch (error) {
+      hold.state = "pending";
+      if (!launching()) {
+        // A concrete error beats the checkpoint-unavailable text, so a checkpoint problem never hides `terminal_in_use`.
+        const code = error instanceof OwnershipError ? error.code : "state_unavailable";
+        const concrete = code !== "takeover_pending" ? (error as Error).message : undefined;
+        const checkpoint = this.checkpointUnavailable(hold);
+        hold.reason = concrete ?? checkpoint ?? (error as Error).message;
+        if (pauseNow && sameHold()) {
+          const unestablished = hold.releasedAt === undefined ? checkpoint ?? (gateless && !exited ? GATELESS_PAUSE_REASON : undefined) : undefined;
+          if (concrete) hold.obstacle = { code, reason: concrete };
+          else if (unestablished) hold.obstacle = { code: "control_unavailable", reason: unestablished };
+          else delete hold.obstacle;
+        }
+      }
+    }
     finally {
       hold.observedAt = this.now().toISOString();
       let newStop = false;
-      if (!this.current?.processRunning && this.launchClearedStop !== hold.target.activityKey) {
+      if (sameHold() && !this.current?.processRunning && this.launchClearedStop !== hold.target.activityKey) {
         const facts = this.record.phases[hold.target.activityKey]!;
         newStop = facts.stop === undefined;
         facts.stop ??= { kind: "done_check", at: hold.requestedAt, checkedAt: hold.observedAt, checks: [] };
       }
       this.save();
       // This runs every second while the hold lasts, so only the stop's creation prints (AC-START-09).
-      if (newStop) this.emitSessionEvent(hold.target.activityKey, "stopped");
+      // A Pause now prints once, when the pause completes, never at the process's exit (PAUSE-009).
+      if (newStop && !pauseNow) this.emitSessionEvent(hold.target.activityKey, "stopped");
+      if (firstRelease && sameHold() && hold.releasedAt !== undefined) this.emitSessionEvent(hold.target.activityKey, "paused");
       this.changed();
     }
   }
@@ -1312,7 +1462,7 @@ export class Engine {
     if (!hold.history) throw new OwnershipError("takeover_pending", hold.reason);
     const session = this.sessionRecord(hold.target.activityKey, hold.target.sessionId);
     const run = session?.runs.find((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session!, i)) === hold.target.attemptId);
-    if (!session || !run) throw new OwnershipError("ownership_unknown", "Saved takeover attempt is unavailable.");
+    if (!session || !run) throw new OwnershipError("ownership_unknown", "The paused attempt's saved record is unavailable.");
     await this.carryOnOwnership(hold, run);
   }
 
@@ -2412,7 +2562,7 @@ export class Engine {
     const pauseAfter = this.isUnderway && !this.currentlyComplete && !this.stoppedPhaseKey() && !this.waitingPhaseKey() && !paused && !this.record.pause.requestedAt && this.current !== undefined && this.current.phaseKey !== PR_PHASE_KEY && !isPreflightKey(this.current.phaseKey) && !this.commands?.busy && !this.folderMissing;
     if (session) {
       const takeOver = !!this.liveView()?.available && !this.commands?.busy;
-      if (takeOver && pauseAfter) return { available: false, reason: "Reset isn't available while a session is working. Stop it now with Pause & take over above, or pause after the current phase or audit and reset once it ends." };
+      if (takeOver && pauseAfter) return { available: false, reason: "Reset isn't available while a session is working. Stop it now with Pause now above, or pause after the current phase or audit and reset once it ends." };
       if (pauseAfter) return { available: false, reason: "Reset isn't available while a session is working. Pause after the current phase or audit and reset once it ends." };
       return { available: false, reason: "A session is still running. Reset becomes available when it ends." };
     }
@@ -2972,10 +3122,25 @@ export class Engine {
     return report;
   }
 
+  /** A paused Pause now's current obstacle, the reason its Resume is refused. */
+  private pausedObstacle(): string | undefined {
+    const hold = this.record.liveControl?.takeover;
+    return hold && hold.kind !== "delivery_recovery" && hold.releasedAt !== undefined && hold.state !== "released" ? hold.obstacle?.reason ?? hold.reason : undefined;
+  }
+
+  /** Where a Pause now hold stands, read from the record alone: the activity and whether it has released (Kiln Pause Now, "kiln run terminal lines"). */
+  pauseNowPhase(): { key: string; phase: "pausing" | "paused" } | undefined {
+    const hold = this.record.liveControl?.takeover;
+    if (!hold || hold.kind === "delivery_recovery") return undefined;
+    return { key: hold.target.activityKey, phase: hold.releasedAt !== undefined ? "paused" : "pausing" };
+  }
+
   /** The line a stop prints, for what Kiln is doing as it begins (UI-010 item 3). */
   private describeStop(): StopReport {
     const { record } = this;
     const name = (key: string) => (key === PR_PHASE_KEY ? "the pull request" : this.auditActivity(key) ? auditLabel(this.auditActivity(key)!.kind).toLowerCase() : isPreflightKey(key) ? "the preflight" : `phase ${this.judgedId(key)}`);
+    const pause = this.pauseNowPhase();
+    if (pause) return { text: pause.phase === "paused" ? `Kiln stopped while paused in ${name(pause.key)}.` : `Kiln stopped while ${name(pause.key)} was pausing.`, grey: "kiln run picks it back up." };
     const run = this.current?.session?.runs.at(-1);
     // A live run, or an interrupted session about to be resumed: either way its phase is interrupted.
     const interrupted = this.current?.session && run && run.endedAt === undefined ? this.current.phaseKey : this.interruptedKey;
@@ -3109,7 +3274,7 @@ export class Engine {
     return this.sleepReading;
   }
 
-  private emitSessionEvent(phaseKey: string, event: "interrupted" | "resumed" | "stopped" | "waiting", limit?: { label: string; resetsAt?: string }): void {
+  private emitSessionEvent(phaseKey: string, event: "interrupted" | "resumed" | "stopped" | "paused" | "waiting", limit?: { label: string; resetsAt?: string }): void {
     const extra = limit === undefined ? {} : { limit };
     if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event, ...extra });
     else if (this.auditActivity(phaseKey)) this.emitAudit(this.auditActivity(phaseKey)!, event, limit);
@@ -3127,6 +3292,8 @@ export class Engine {
   private continuationControl(instruction: import("../control/commands.js").Instruction) {
     // Start on the Folder missing page is offered while the mode is set; its own checks say why it can't act.
     if (instruction.action === "folder-setup-start") return { available: !!this.folderMissing, reason: this.folderMissing ? null : "The run’s folders are in place; there is nothing to set up again." };
+    // Cancel is admitted wherever a Pause now hold exists; its own step decides stale target or already paused.
+    if (instruction.action === "cancel-take-over") { const held = !!this.record.liveControl && this.record.liveControl.takeover.kind !== "delivery_recovery"; return { available: held, reason: held ? null : "No Pause now is pending." }; }
     const known = instruction.action === "continuation-grant" ? undefined : this.continuationReference(instruction.action, instruction.inputs, instruction.execution_id);
     if (known && (instruction.action === "continuation-accept" || known.state === "active" || known.state === "superseded" || known.state === "preparing" && !!this.driving)) return { available: true, reason: null, alreadyApplied: true };
     const available = this.currentlyComplete && !this.checking && !this.driving && !this.settingUp && !this.deliveryBusy && !this.stopping && !this.billing.busy && !this.billing.pending;
@@ -4471,7 +4638,7 @@ export class Engine {
     return preflightSessionPrompt({ skillName: activity.skill?.name ?? PREFLIGHT_SKILL, skillPath: activity.skill?.path ?? PREFLIGHT_SKILL, prdFile: this.pathFrom(folder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch });
   }
 
-  private emitPreflight(activity: PreflightActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
+  private emitPreflight(activity: PreflightActivity, event: "started" | "stopped" | "paused" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
     const result = activity.result;
     this.emit({ kind: "audit", at: this.now(), activityId: activity.activityId, label: PREFLIGHT_TITLE, round: 0, event, preflight: { ...(event === "done" && result && result.outcome !== "items" ? { outcome: result.outcome } : {}), ...(event === "done" && result?.reason ? { reason: result.reason } : {}) }, ...(limit ? { limit } : {}) });
   }
@@ -4903,7 +5070,7 @@ export class Engine {
     return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}), outstanding: outstandingLines(personItems(this.stateDirectory, this.record.completionAudits!.activities, activity.sequence).outstanding), loops });
   }
 
-  private emitAudit(activity: AuditActivity, event: "started" | "stopped" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
+  private emitAudit(activity: AuditActivity, event: "started" | "stopped" | "paused" | "done" | "interrupted" | "resumed" | "waiting", limit?: { label: string; resetsAt?: string }): void {
     this.emit({ kind: "audit", at: this.now(), activityId: activity.activityId, label: auditLabel(activity.kind), round: activity.round, continuationIndex: activity.continuationIndex, event, ...(limit ? { limit } : {}) });
   }
 
@@ -6368,7 +6535,7 @@ export class Engine {
    * write (AC-WAIVE-08); a completing run that any waiver met is kept as `completionChecks` (AC-WAIVE-10).
    */
   private async recordDone(phaseKey: string, outcome: DoneCheckOutcome, byPerson: boolean, acceptManual = false, takeoverMaterial?: string, waiver?: Waiver): Promise<void> {
-    if (this.record.liveControl && !acceptManual) throw new CompletionCheckUnavailable("Takeover holds completion until explicit hand-back.");
+    if (this.record.liveControl && !acceptManual) throw new CompletionCheckUnavailable("A pause holds completion until explicit hand-back.");
     const facts = this.record.phases[phaseKey]!;
     const finalTakeoverCheck = async () => {
       if (!this.record.liveControl || !acceptManual) return;

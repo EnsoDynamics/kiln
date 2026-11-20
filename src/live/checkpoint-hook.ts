@@ -1,6 +1,7 @@
 /** Packaged CLI hook; no controller token or user text crosses argv. */
 import { readFileSync } from "node:fs";
-import { settleSeenResults, withGate } from "./gate.js";
+import { recordStop, settleSeenResults, withGate } from "./gate.js";
+import { operationLabel } from "./operation-label.js";
 import { hookInputProblem } from "./hook-contract.js";
 const directory = process.argv[2];
 const checkpointText = () => readFileSync(new URL("../../prompts/takeover-checkpoint.txt", import.meta.url), "utf8").trim();
@@ -20,13 +21,15 @@ try {
     const problem = hookInputProblem(event, state);
     if (problem) {
       if (!state.contract) { state.contract = { state: "unrecognised", detail: problem, at: now }; settleSeenResults(state); }
-      return state.held ? { failure: `Kiln checkpoint unavailable: ${problem}` } : { output: {} };
+      if (state.held) { recordStop(state, "deny", now); return { failure: `Kiln checkpoint unavailable: ${problem}` }; }
+      return { output: {} };
     }
     const kind = fields.hook_event_name;
     const id = fields.tool_use_id as string;
     if (kind === "PreToolUse") {
-      if (state.held) return { output: { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: checkpointText() } } };
-      state.operations[id] ??= { name: fields.tool_name as string, admittedAt: now, ...(typeof fields.agent_id === "string" ? { agentId: fields.agent_id } : {}), ...(typeof fields.parent_tool_use_id === "string" ? { parentId: fields.parent_tool_use_id } : {}) };
+      if (state.held) { recordStop(state, "deny", now); return { output: { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: checkpointText() } } }; }
+      // The label is for display only: a missing or unexpected tool_input gives the bare tool name.
+      state.operations[id] ??= { name: fields.tool_name as string, admittedAt: now, label: operationLabel(fields.tool_name as string, fields.tool_input), ...(typeof fields.agent_id === "string" ? { agentId: fields.agent_id } : {}), ...(typeof fields.parent_tool_use_id === "string" ? { parentId: fields.parent_tool_use_id } : {}) };
     }
     if (kind === "PostToolUse" || kind === "PostToolUseFailure") {
       state.operations[id]!.hookSettled = true;
@@ -36,7 +39,7 @@ try {
       if (typeof fields.agent_id === "string") state.operations[id]!.settled = true;
     }
     if (kind === "PostToolBatch" && state.held) {
-      state.checkpoint = now;
+      state.checkpoint = now; recordStop(state, "yield", now);
       return { output: { continue: false, stopReason: checkpointText() } };
     }
     return { output: {} };

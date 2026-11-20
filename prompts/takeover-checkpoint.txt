@@ -1,1 +1,1 @@
-Kiln paused this activity for terminal takeover. Finish no further substantive work. The completed operation and this conversation are saved; unfinished phase or audit work remains for the person to continue. Yield at this completed-operation boundary.
+Kiln paused this activity. Finish no further substantive work. The completed operation and this conversation are saved; the person will resume the unfinished phase or audit work through Kiln or continue it in a terminal. Yield at this completed-operation boundary.

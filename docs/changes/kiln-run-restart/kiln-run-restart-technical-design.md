@@ -298,6 +298,8 @@ When a later launch of the phase began no conversation, a resumed run is recorde
 
 ## A Held Phase That Can't Be Reopened (AC-CARRY-06)
 
+Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Paused Page (for a Pause now hold, the page's header is the Paused header and the page shows no checks).
+
 While a hold is pending and its attempt's process has exited, each takeover reconciliation, including the one **Check again** runs, also computes the `ReopenCheck` for the hold's conversation. It saves the check on the hold as `history` when it is `unavailable`, and removes `history` when it is `available`. Release then proceeds as today, and the page returns to today's held page: `pending` until release passes, `released` once it does. Release's own path stops at `requireHistory`, before its process checks, so for a hold with `history` reconciliation runs the **carry-on ownership check** in its place and saves its obstacle, if any, as the hold's reason:
 
 - the attempt's process has exited and its final observations are saved (no running adapter for that attempt);
