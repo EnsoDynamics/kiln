@@ -1148,7 +1148,7 @@ export class Engine {
     const running = gate ? runningOperations(gate) : [];
     const processes = this.pauseNowProcesses?.operationId === hold.operationId ? this.pauseNowProcesses.entries : [];
     // Kind 1 while Claude runs; once its process has exited and Kiln's last observation finished, kind 2 (processes still alive).
-    const background = !gate ? [] : processRunning ? backgroundedWork(gate, stopped) : this.current?.session?.sessionId === hold.target.sessionId && this.current?.processRunning ? [] : processes;
+    const background = !gate ? [] : processRunning ? backgroundedWork(gate, stopped) : processes;
     const lastCommand = gate ? lastCommandOf(gate) : undefined;
     if (phase === "paused" && this.pauseNowSaid?.operationId !== hold.operationId && session && runIndex >= 0) {
       let text: string | undefined;
