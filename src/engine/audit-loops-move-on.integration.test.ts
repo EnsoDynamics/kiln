@@ -11,6 +11,8 @@ import { startFixtureController } from "../test-support/controller-server.js";
 import { buildSnapshot } from "./snapshot.js";
 import { auditKey, effectiveAudit } from "../audit/workflow.js";
 import { LOOP_STOP_LINE } from "../state/audit-loops.js";
+import { auditLoopsText } from "../control/loop-text.js";
+import { headerState } from "../../view/src/lib/progress.js";
 import type { Receipt } from "../control/commands.js";
 import type { LocalServer } from "../server/local-server.js";
 
@@ -190,7 +192,10 @@ describe("a limit changed during a run (AC-CHOICE-02, AC-STOP-05)", () => {
     const page = await fetch(`${origin}/api/settings`, { method: "POST", headers: { "X-Kiln-Token": current.engine.record.token, Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ auditLoops: { deliveryLimit: 1 } }) });
     expect(page.status).toBe(422);
     expect(await page.json()).toMatchObject({ fieldErrors: { deliveryLimit: "Enter 2 or more: this run has already made 2 delivery audit loops." } });
-    expect(await current.engine.changeSettings({ auditLoops: { deliveryLimit: 2, testLimit: 4 } })).toEqual({ ok: true });
+    // The floor is accepted through the page's route too, and saved for Kiln's next decision.
+    const accepted = await fetch(`${origin}/api/settings`, { method: "POST", headers: { "X-Kiln-Token": current.engine.record.token, Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ auditLoops: { deliveryLimit: 2 } }) });
+    expect(accepted.status, await accepted.clone().text()).toBe(200);
+    expect(current.engine.record.settings.auditLoops).toMatchObject({ deliveryLimit: 2, testLimit: 4 });
     expect(buildSnapshot(current.engine).auditLoops!.position).toEqual({ audit: "delivery", loop: 2, limit: 2 });
     go(path); await current.engine.settled();
     expect(stops(current)).toEqual([]);
@@ -214,6 +219,22 @@ describe("a limit changed during a run (AC-CHOICE-02, AC-STOP-05)", () => {
     expect(current.engine.record.completedAt).toBeTruthy();
     expect(kinds(current)).toEqual(["delivery", "test", "delivery", "test"]);
     expect(loops(current)).toEqual(["delivery 1", "test 1", "delivery 2", "test 2"]);
+  });
+
+  it("a delivery raise after its last loop, with test closed, audits the test audit's phases once and goes on to the pull request", { timeout: 240_000 }, async () => {
+    const current = await fixture([], [landing(), pullRequestSession()]);
+    const path = marker(current, "test-audit-with-gap");
+    writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [landing(), pullRequestSession()], auditSessions: [audit(), audit({ gap: true, beforeSubmitFile: path }), audit()] }));
+    expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 1 } })).ok).toBe(true);
+    await current.engine.start({ refinementConfirmed: true });
+    await reached(path);
+    expect(buildSnapshot(current.engine).auditLoops).toMatchObject({ delivery: { used: 1, limit: 1, closed: true }, position: { audit: "test", loop: 1, limit: 1 } });
+    expect(await current.engine.changeSettings({ auditLoops: { deliveryLimit: 2, testLimit: 1 } })).toEqual({ ok: true });
+    go(path); await current.engine.settled();
+    expect(stops(current)).toEqual([]);
+    expect(current.engine.record.completedAt).toBeTruthy();
+    expect(kinds(current)).toEqual(["delivery", "test", "delivery"]);
+    expect(loops(current)).toEqual(["delivery 1", "test 1", "delivery 2"]);
   });
 
   it("a raise of the test limit after test's last loop runs a test audit when work changed since it", { timeout: 240_000 }, async () => {
@@ -242,6 +263,24 @@ describe("a limit changed during a run (AC-CHOICE-02, AC-STOP-05)", () => {
     go(path); await current.engine.settled();
     expect(current.engine.record.completedAt).toBeTruthy();
     expect(kinds(current)).toEqual(["delivery", "test"]);
+  });
+});
+
+describe("the run's page names a phase an audit added, with no loop (AC-STOP-05)", () => {
+  it("while the phase delivery audit loop 1 added is built, the status line and kiln status name the phase and no loop", { timeout: 240_000 }, async () => {
+    const current = await fixture([], [landing(), pullRequestSession()]);
+    const path = marker(current, "added-phase-building");
+    const held = landing(); held.actions.splice(1, 0, { waitForFile: path });
+    writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [held, pullRequestSession()], auditSessions: [audit({ gap: true }), audit(), audit()] }));
+    await current.engine.start({ refinementConfirmed: true });
+    await waitFor(() => current.engine.record.phases["2"]?.sessionIds.length === 1 && buildSnapshot(current.engine).current?.phaseId === "2", 90_000);
+    const snapshot = buildSnapshot(current.engine);
+    expect(snapshot.auditLoops!.position).toBeUndefined();
+    expect(headerState(snapshot, true, new Date())).toMatchObject({ label: "Implementing phase 2" });
+    expect(JSON.stringify(headerState(snapshot, true, new Date()))).not.toMatch(/loop \d+ of/i);
+    expect(auditLoopsText(snapshot.auditLoops)).toBe("Audit loops: delivery 1 of 4 · test 0 of 4");
+    go(path); await current.engine.settled();
+    expect(current.engine.record.completedAt).toBeTruthy();
   });
 });
 

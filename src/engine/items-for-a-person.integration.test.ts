@@ -10,6 +10,7 @@ import { createHarness, landingSession, pullRequestSession, type Harness } from 
 import { git } from "../test-support/git-repositories.js";
 import { startFixtureController } from "../test-support/controller-server.js";
 import { buildSnapshot } from "./snapshot.js";
+import { headerState } from "../../view/src/lib/progress.js";
 import { auditKey } from "../audit/workflow.js";
 import { HOLD_CHECK } from "./waivers.js";
 import { statusProjection } from "../control/projection.js";
@@ -72,6 +73,8 @@ describe("only an item the work cannot go on without stops the run (AC-ITEM-01, 
       { id: null, kind: "critical_next_step", words: "Critical finding", problem: critical.problem, action: critical.action, waits_on: critical.waitsOn, criterion: null, effect: "stops" },
       { id: null, kind: "other", words: null, problem: "Logging changed outside the requirements.", action: "Record the change.", waits_on: null, criterion: null, effect: "goes_on" },
     ]);
+    // The status line names the step that listed the items: the audit and its loop (AC-ITEM-02, AC-STOP-05).
+    expect(headerState(snapshot, true, new Date())).toMatchObject({ label: "Needs you", facts: ["Delivery audit loop 1 of 4", expect.stringMatching(/^Stopped /)] });
     expect(personItemsText(status.items)).toBe(`Kiln needs you for 2 things:\n  Critical finding (stops the run): ${critical.problem} ${critical.action}\n    What waits on it: ${critical.waitsOn}\n  Other (Kiln goes on): Logging changed outside the requirements. Record the change.`);
   });
 
@@ -90,6 +93,9 @@ describe("only an item the work cannot go on without stops the run (AC-ITEM-01, 
       text: `Blocker: ${blocker.problem} ${blocker.action} Still open. Waits on: ${blocker.waitsOn}` }] }]);
     expect(current.engine.record.pullRequests ?? []).toEqual([]);
     expect(prompts(current).some(prompt => /Opened #/.test(prompt))).toBe(false);
+    // The status line names the pull request step, which listed the items at the hold stop (AC-ITEM-02).
+    const held = buildSnapshot(current.engine);
+    expect(headerState(held, true, new Date()).facts[0]).toBe(`PR · ${held.phases.find(row => row.id === "pr")!.title}`);
     // The relisting kept the kind and what waits on it (AC-ITEM-02).
     expect(buildSnapshot(current.engine).items).toEqual([{ id: "item-1", kind: "blocker", words: "Blocker", problem: expect.stringContaining(blocker.problem), action: "Still open.", waitsOn: blocker.waitsOn, effect: "holds" }]);
     // Continue anyway is offered with its own heading, unusable until a Check again (AC-WAIVE-02 as AC-ITEM-01 replaces it).

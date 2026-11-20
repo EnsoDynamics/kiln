@@ -261,6 +261,18 @@ describe("the finished page and kiln status say the same (AC-LEFT-02, AC-BOT-02)
     expect(offline.delivered).toEqual(status(current).delivered);
   });
 
+  it("counts each kind on its own: different loops used and limits reach the finished page and kiln status unswapped", { timeout: 240_000 }, async () => {
+    const current = await fixture([audit({ gap: true }), audit(), audit()], [landingSession("docs/prds/proof/value.mjs", files["value.mjs"]), pullRequestSession()]);
+    expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 3, testLimit: 5 } })).ok).toBe(true);
+    await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
+    expect(current.engine.record.completedAt).toBeTruthy();
+    const loops = { delivery: { used: 2, limit: 3 }, test: { used: 1, limit: 5 } };
+    expect(buildSnapshot(current.engine).delivered!.loops).toEqual(loops);
+    const answer = status(current);
+    expect((answer.delivered as { loops: unknown }).loops).toEqual(loops);
+    expect(deliveredText(answer.delivered as Parameters<typeof deliveredText>[0], false)!.split("\n")[0]).toBe("Closing audits: Delivery audit: 2 of 3 loops. Test audit: 1 of 5 loops.");
+  });
+
   it("shows For you and Closing audits for a run completed with no pull request session, its work already merged", { timeout: 240_000 }, async () => {
     const current = await fixture([audit({ gap: true, items: [blocker] }), audit({ relist: true })], [landingSession("docs/prds/proof/value.mjs", files["value.mjs"]), pullRequestSession()]);
     expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 1 } })).ok).toBe(true);

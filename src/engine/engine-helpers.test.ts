@@ -130,6 +130,18 @@ describe("the prompts", () => {
     expect(prompt).toContain("\"needs_you\" when the work this report leaves cannot go on without an item for a person, when a critical finding would be caused or worsened by the step that outcome leads to, or when nothing is left to build and a blocker or business question not marked waived is open before the pull request.");
     for (const kind of ['"critical_next_step":', '"critical":', '"blocker":', '"business_question":', '"test":', '"other":', '"raised"', '"waitsOn"']) expect(prompt).toContain(kind);
     expect(prompt).toContain("A declared assumption, a request to confirm or review something, and anything the audit can settle itself are never items.");
+    // Each kind's definition and its effect on the run, in the table's words, in both audits' prompts (AC-ITEM-01).
+    const definitions = [
+      '"critical_next_step": a critical finding that Kiln\'s next step would cause or worsen. Kiln stops at once, so the outcome is needs_you;',
+      '"critical": any other critical finding. Kiln goes on and reports it first;',
+      '"blocker": access, a resource, a permission or an action that only a person can provide and that work Kiln will still do in this run needs, delivery included. It holds the run;',
+      '"business_question": a business question whose best answer is below 20%. It holds the run;',
+      '"test": a test the audit cannot settle on its own: a criterion with no test, a failing test, a high-risk criterion still Weak, a row the audit marked stuck, or, once the test work ends, any row still missing, failing or Weak. Kiln goes on, and one still open at delivery is reported;',
+      '"other": anything else the skill names for the person, such as behavior changed outside the requirements or a human action that no work Kiln will still do needs. Kiln goes on and reports it.',
+      '"waitsOn" says what waits on the item, required for critical_next_step, blocker and business_question.',
+    ];
+    const deliveryPrompt = auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/skills/delivery-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
+    for (const definition of definitions) { expect(prompt).toContain(definition); expect(deliveryPrompt).toContain(definition); }
     expect(prompt).toContain("A person action the requirements place after delivery goes in afterDeliveryActions, never in needsYou.");
     expect(prompt).toContain("To list an item again, give its id, problem and action. Leave out kind and waitsOn to keep the ones shown. Give a new value only when the item itself has changed, such as a blocker that no longer holds anything. An item shown with no kind must be given one.");
     for (const released of ["or when it ended normally but lists anything", "choose by whether that work depends on the person's answer", "A test audit that changed only tests leads to delivery"]) expect(prompt).not.toContain(released);

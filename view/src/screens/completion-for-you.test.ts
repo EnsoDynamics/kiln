@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { ForYou } from "../../../src/audit/for-you.js";
 import { completeSnapshot, RUNNING_NOW } from "../../../src/test-support/sample-snapshots.js";
 import Complete from "./Complete.svelte";
+import { headerState } from "../lib/progress.js";
 
 const item = (id: string, kind: ForYouItemKind, words: string | null, problem: string, extra: Partial<ForYou["items"][number]> = {}): ForYou["items"][number] =>
   ({ id, kind, words, problem, action: "Act on it.", line: `${words ? `${words}: ` : ""}${problem} Act on it.`, listedBy: "Delivery audit round 1", listedByActivityId: "a1", ...extra });
@@ -17,6 +18,7 @@ function page(forYou?: ForYou, connected = true) {
   if (forYou) snapshot.delivered = { loops: LOOPS, forYou, pullRequests: [] };
   return render(Complete, { props: { snapshot, connected, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body.replace(/<!--[^>]*-->/g, "");
 }
+const renderComplete = (snapshot: ReturnType<typeof completeSnapshot>) => render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body.replace(/<!--[^>]*-->/g, "");
 const section = (html: string) => /<section[^>]*id="for-you"[\s\S]*?<\/section>/.exec(html)?.[0];
 
 describe("For you on the finished page (AC-ITEM-03)", () => {
@@ -66,5 +68,19 @@ describe("Closing audits on the finished page (AC-LEFT-02)", () => {
     expect(critical.indexOf('id="closing-audits"')).toBeGreaterThan(critical.indexOf('<section class="pr'));
     expect(critical.indexOf('id="for-you"')).toBeLessThan(critical.indexOf('id="closing-audits"'));
     expect(closing(page({ items: [], afterDelivery: [] }))).toContain("4 of 4 loops");
+  });
+});
+
+describe("the finished page's heading on a delivered run (AC-LEFT-02)", () => {
+  it("is unchanged: the same state header with and without the delivered facts", () => {
+    const plain = completeSnapshot();
+    const delivered = completeSnapshot(); delivered.delivered = { loops: LOOPS, forYou: { items: [], afterDelivery: [] }, pullRequests: [] };
+    const now = new Date(RUNNING_NOW);
+    expect(headerState(delivered, true, now)).toEqual(headerState(plain, true, now));
+    expect(headerState(delivered, true, now).label).toBe("PR ready for review");
+    const header = (html: string) => /<div class="state[^"]*">[\s\S]*?<\/div>/.exec(html)?.[0];
+    const render = (snapshot: ReturnType<typeof completeSnapshot>) => renderComplete(snapshot);
+    expect(header(render(delivered))).toBe(header(render(plain)));
+    expect(header(render(delivered))).toContain("PR ready for review");
   });
 });
