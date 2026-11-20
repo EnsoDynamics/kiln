@@ -107,5 +107,5 @@ After an immediate pause, the person comes back to a page that says plainly wher
 - What the end-of-activity pause does, and when it takes effect. Only its label changes.
 - Pause now for Codex sessions, the preflight or final delivery.
 - New command-line commands or status values. `kiln take-over` is the command-line Pause now.
-- Stopping mid-command. Pause now always lets the running command finish.
+- Stopping mid-command (AC-PAUSE-02).
 - Wording on other pages that refers to ending a takeover, such as the Folder missing page's "End your terminal takeover and take control back" (AC-SAFE-03 in Kiln Missing Worktree Recovery). It keeps its wording.
