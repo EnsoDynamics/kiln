@@ -1,10 +1,10 @@
 # Design Refinement State — kiln-pause-now
 
-Started: 2026-11-19   Current pass: 2   Status: Paused: PRD growth 2013 → 2562 words (+27%, +549) — awaiting the user's word to continue
+Started: 2026-11-19   Current pass: 2   Status: In progress
 Branch: feature/kiln-preflight-card-fixes
 Existing code posture: Preserve (source: TD)
-PRD words: at start 2013 · growth baseline 2013
-Last updated: 2026-11-19
+PRD words: at start 2013 · growth baseline 2562 (reset 2026-11-20 on the user's continue)
+Last updated: 2026-11-20
 
 ## Documents
 | Document | Path |
@@ -18,6 +18,7 @@ Last updated: 2026-11-19
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 12 | 12 | 9 | 3 | 0 | 0 | 0 |
+| 2 | 13 | 13 | 13 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -34,11 +35,30 @@ Last updated: 2026-11-19
 | Q10 | 1 | Terminal column drops BACK-01/TERMINAL-02's "record changed decisions" tip and "no special handoff phrase" line (conflict check, unintended) | Business | LOW | 70 → 80 | Assumption | PAUSE-008; PRD AC-PAUSE-06; mockup frame 3 |
 | Q11 | 1 | Is Cancel offered while an incompatibility notice holds the pause (AGENT-04)? | Technical | LOW | 90 → 95 | Resolved | TD §The Stop and Cancel |
 | Q12 | 1 | A paused audit's header: keep the running header's audit naming (loop position, deliver-when-audit-loops AC-STOP-05)? | Technical | LOW | 90 → 95 | Resolved | PRD AC-PAUSE-03, AC-PAUSE-05 |
-| Q13 | 2 | AC-PAUSE-03 background-process row when the command can't be read (design makes it optional)? | Technical | LOW | 90 → 90 | Pending | — |
-| Q14 | 2 | Should the background-process row apply only after the stop (its words hold only then)? | Technical | LOW | 85 → 85 | Pending | — |
-| Q15 | 2 | Mockup frame 2 lacks the two new pausing rows (Claude has stopped; waiting for a process) | Technical | LOW | 95 → 95 | Pending | — |
+| Q13 | 2 | AC-PAUSE-03 background-process row when the command can't be read (design makes it optional)? | Technical | LOW | 90 → 95 | Resolved | PRD AC-PAUSE-03; TD §The Pause Now State; mockup frame 2b |
+| Q14 | 2 | Should the background-process row apply only after the stop (its words hold only then)? | Technical | LOW | 85 → 92 | Resolved | PRD AC-PAUSE-03; TD §The Pause Now State |
+| Q15 | 2 | Mockup frame 2 lacks the two new pausing rows (Claude has stopped; waiting for a process) | Technical | LOW | 95 → 95 | Resolved | mockup frame 2b |
+| Q16 | 2 | Background-Bash dev server (run_in_background) counts as `running` forever, never reaching the PAUSE-010 row; lastCommand could say it "finished" | Technical | MEDIUM | 65 → 85 | Resolved | PRD AC-PAUSE-03; TD §The Pause Now State, §Verification; mockup 2b |
+| Q17 | 2 | Pre-release obstacles have no code on the saved hold, so the pausing panel can't tell an obstacle from waiting; checkpointUnavailable text says "Wait before opening Claude" | Technical | MEDIUM | 70 → 85 | Resolved | TD §The Pause Now State, §Wording, §Verification |
+| Q18 | 2 | `background` from gate.tracked includes MCP servers, the command's shell, hooks while Claude exits → PAUSE-010 row flashes | Technical | MEDIUM | 85 → 90 | Resolved | TD §The Pause Now State, §Verification |
+| Q19 | 2 | {next activity} in the Now/After choices when the activity is an audit or the last phase | Technical | LOW | 75 → 90 | Resolved | TD §The Pause Now State |
+| Q20 | 2 | Gate-less (recovered) attempt has no running facts or stop; which pausing row? | Technical | LOW | 75 → 85 | Resolved | TD §The Pause Now State, §Wording |
+| Q21 | 2 | Is Pause after offered while Pause now is pausing? | Business | LOW | 80 → 95 | Resolved | TD §The Pause Now State (written up: PRD AC-PAUSE-03/04 already settle it) |
+| Q22 | 2 | 30-second waiting line: its own row (PRD) or an extra line under the row (mockup)? | Technical | LOW | 85 → 95 | Resolved | PRD AC-PAUSE-03 |
+| Q23 | 2 | Where the async background-process lookup runs and whether its result is saved (snapshot is synchronous) | Technical | LOW | 85 → 90 | Resolved | TD §The Pause Now State |
+| Q24 | 2 | Several background processes: one line each? | Technical | LOW | 88 → 95 | Resolved | PRD AC-PAUSE-03; TD §The Pause Now State |
+| Q25 | 2 | PAUSE-010 register text lags the Q13/Q14 folds | Technical | LOW | 90 → 95 | Resolved | PAUSE-010 text |
 
 ## Question notes
+
+### Q16/Q18 (decision)
+Backgrounded = top-level op whose own result arrives while a non-ambient task it started is unsettled (background Bash); marked once by the gate. running excludes backgrounded; background = backgrounded ops (no pid) + tracked processes alive once Claude exited and its last observation finished. Residual: no recording of a background Bash's event order (task_started before the result); TD §Verification records one. Evidence gate.ts:16-17,104-106,132-143; claude-session.ts:241,289-290; engine.ts:1157-1211.
+
+### Q17/Q20 (decision)
+obstacle set/cleared on every reading, fenced; concrete error beats checkpoint text; control_unavailable (existing code, local-server.ts:551) for unrecognised hook contract under the hold and gate-less attempt still running; cleared on release, can't-reopen, takeover_pending only.
+
+### Q14 (decision)
+Before the stop Kiln waits on Claude's next command, not on a background process, so the background row needs `stopped`; row order: running → command; else stopped+background → background; stopped → Claude has stopped; else before-next-command. PRD row 2 condition narrowed to "No command is running, before the stop".
 
 ### Q6
 Last thing the agent said = newest top-level Claude output line (source claude) at or before gate stop.at; without a gate stop, newest such line in the attempt's run; omitted if none; never the run's result text or lastRecordedRun. A yielded turn ends result "" terminal_reason hook_stopped (probe on Claude Code 2.1.329 in scratchpad; proof transcripts); later text comes from a self-started turn (background task notice) replying to the checkpoint. Quote, shortened with ellipsis. Mockup frame 3 sample quote implies post-command speech — change to pre-command text. Evidence claude-session.ts:364-366, stopped-phase.ts:34-35, snapshot.ts:848-849, session-output.ts:126-135.
@@ -67,6 +87,8 @@ Decision replacing Cancel step 3: reconciliation applies results (stop, "stopped
 ### Q9
 §Interfaces bot row: no new action, control, feature, status value or error code; JSON gains optional fields compatible readers ignore (bot-control TD:78 version compatibility): hold releasedAt/obstacle under live_control.takeover in kiln status and under takeover in session inspection; pauseNow under live_control; obstacle.code uses only existing identifiers. Precedent: history/carryOnObstacle (target.ts:16-19).
 
+Pass 2 conformance: 2026-11-20 · AC-PAUSE-03 condition and row order aligned, PAUSE-010 naming, §Verification coverage for folded behaviors · no new questions
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -80,6 +102,8 @@ Conflict folds: 9 Replaces lines written, 2 rescoped, Q10 → PAUSE-008.
 Pass 1: 2026-11-19 · 4 open entries · 1 moved to design (PAUSE-006) · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as questions · 3 stay (PAUSE-002, PAUSE-007 business below the line; PAUSE-003 technical) · PAUSE-002 evidence gained the bot-parity precedent and `kiln cancel-pause`
 
 ## Noticed, out of scope
+- Waiting line counts only seconds ("Waiting 7200 seconds…") on long waits; PRD keeps today's wording.
+- kiln status/session inspection gate resume_command on hold.state === released (projection.ts:437) while the browser gates on releasedAt (intended under Q3).
 
 ## Blockers
 | Blocker | Questions affected | What unblocks it |
@@ -87,4 +111,4 @@ Pass 1: 2026-11-19 · 4 open entries · 1 moved to design (PAUSE-006) · 0 writt
 | No real Mac sleep available to agents | PAUSE-003 | The hands-on lid-close run in TD §Delivery |
 
 ## Next action
-On the user's continue: reset the growth baseline to the current PRD count, then pass 2: fold Q13–Q15 (raised by pass 1 conformance), run discovery, investigate, conformance, checkpoint.
+Pass 2 checkpoint committed. Next: pass-3 discovery (pass 2 surfaced 10 new, above the yield stop of 3).

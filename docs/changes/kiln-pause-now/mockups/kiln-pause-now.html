@@ -74,6 +74,35 @@ main>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </div>
 </section>
 <section>
+<h2>2b. After the stop: still pausing</h2>
+<p class="note">Covers the AC-PAUSE-03 rows after the stop. Cancel is no longer offered (AC-PAUSE-04). The grey note at the bottom is commentary, not part of the screen.</p>
+<div class="screen">
+<div style="width: 1100px; height: 520px; box-sizing: border-box; padding: 40px; background: #12110e; color: #ede8dd; font-family: Inter, -apple-system, sans-serif; font-size: 15px; display: flex; flex-direction: column; gap: 24px">
+  <div style="display: flex; align-items: center; gap: 18px; flex-wrap: wrap">
+    <span style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 18px; border-radius: 999px; border: 1px solid rgba(230,180,80,0.55); color: #e6b450; font-weight: 600; font-size: 15px">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 2a6 6 0 1 0 6 6" stroke-linecap="round"></path></svg>
+      Pausing phase 2b
+    </span>
+    <span style="color: #bdb6a8">2 of 5 phases done</span>
+  </div>
+  <div style="display: flex; gap: 20px; flex-wrap: wrap">
+  <section style="flex: 1 1 420px; background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Pause</h2>
+    <p style="margin: 0; font-size: 17px; font-weight: 600">Pausing — Claude has stopped; Kiln is checking nothing is still running.</p>
+    <p style="margin: 0; color: #bdb6a8; font-size: 14px; line-height: 1.6">You can close the lid now: if the computer sleeps first, the pause completes when it wakes, and nothing new starts.</p>
+  </section>
+  <section style="flex: 1 1 420px; background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Pause</h2>
+    <p style="margin: 0; font-size: 17px; font-weight: 600">Pausing — waiting for a process Claude started to end:</p>
+    <p style="margin: 0; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; color: #ede8dd">npm run dev</p>
+    <p style="margin: 0; color: #bdb6a8; font-size: 14px; line-height: 1.6">Kiln won’t stop it for you; if it’s a server that keeps running, stop it and the pause completes.</p>
+  </section>
+  </div>
+  <p style="margin: 0 4px; color: #8c8577; font-size: 13.5px; line-height: 1.6">Left: the usual few seconds between the stop and the pause completing. Right: Claude started a dev server in the background. A process Kiln found still running after Claude exited reads “npm run dev (process 48213)”, or “process 48213” alone when its command can’t be read.</p>
+</div>
+</div>
+</section>
+<section>
 <h2>3. Paused partway: resume, or take it over</h2>
 <p class="note">Covers AC-PAUSE-05 and AC-PAUSE-06: no checks on this page; Resume rechecks before carrying on. Sample PRD, folder and session id are illustrative. The grey note at the bottom is commentary, not part of the screen.</p>
 <div class="screen">

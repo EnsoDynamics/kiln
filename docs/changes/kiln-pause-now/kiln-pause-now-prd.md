@@ -51,11 +51,11 @@ Between pressing Pause now and the release, the person needs to know what Kiln i
   | Situation | Panel wording |
   |---|---|
   | A command is running | **Pausing — finishing the command it is running.** Then the command, and: "Kiln starts no more work after it. You can close the lid now: if the computer sleeps first, the pause completes when it wakes, and nothing new starts." (PAUSE-003) |
-  | No command or process Claude started is running, before the stop | **Pausing — Claude isn't running a command; Kiln stops it before its next one.** Then the same lid sentence |
+  | No command is running, before the stop | **Pausing — Claude isn't running a command; Kiln stops it before its next one.** Then the same lid sentence |
   | No command or process Claude started is running, and the stop has happened or the session has ended | **Pausing — Claude has stopped; Kiln is checking nothing is still running.** Then the same lid sentence |
-  | No command is running, but a process Claude started still is, such as a dev server | **Pausing — waiting for a process Claude started to end:** {command} (process {pid}). Then: "Kiln won't stop it for you; if it's a server that keeps running, stop it and the pause completes." (PAUSE-010) |
-  | 30 seconds or more since the last observed activity | Today's waiting line (AC-TAKE-05), without "There is no automatic cancellation deadline." |
+  | The stop has happened or the session has ended, and no command is running but a process Claude started still is, such as a dev server | **Pausing — waiting for a process Claude started to end:** then each such process on its own line, as {command} (process {pid}), the command alone when Kiln has no process number for it, or "process {pid}" alone when its command can't be read. Then: "Kiln won't stop it for you; if it's a server that keeps running, stop it and the pause completes." (PAUSE-010) |
   | Kiln can't establish the stop or the release | The concrete obstacle and its recovery path, as today (AC-TAKE-02, AC-TAKE-05) |
+  | In addition, from 30 seconds after the last observed activity | Today's waiting line (AC-TAKE-05) below whichever row above applies, without "There is no automatic cancellation deadline." |
 
   - Replaces in part: AC-TAKE-02 and AC-TAKE-05, and the pausing rows of AC-LIVE-02 and AC-LIVE-04, in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the pausing state's wording, and showing it until the release on every page; the release requirement and obstacle reporting remain).
   - Replaces in part: AC-STOP-05 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the header while an audit is pausing under Pause now).

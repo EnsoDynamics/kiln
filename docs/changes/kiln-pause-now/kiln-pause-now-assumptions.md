@@ -88,7 +88,7 @@
 
 ### PAUSE-010. Name a process Claude started that is keeping the pause from completing, and say Kiln won't stop it?
 
-**Assumption**: **Yes.** While Kiln is pausing and a process Claude started is still running, such as a dev server, the pause panel names it with its process number and says **"Kiln won't stop it for you; if it's a server that keeps running, stop it and the pause completes."** (AC-PAUSE-03).
+**Assumption**: **Yes.** When Claude has stopped but a process it started is still running, such as a dev server, the pause panel names it (by its command, its process number, or both) and says **"Kiln won't stop it for you; if it's a server that keeps running, stop it and the pause completes."** (AC-PAUSE-03).
 
 **If they choose otherwise**: The panel shows today's generic "The old process still owns this conversation.", and the person has to work out why the pause doesn't complete.
 
