@@ -68,8 +68,8 @@ export interface PullRequestPromptValues {
   branch: string;
   /** The repositories that get a pull request, in list order. */
   repositories: PromptRepository[];
-  /** Items audits left for a person, settled or still open, one per line (AC-NEUTRAL-03). */
-  personItems?: string;
+  /** The block each description opens with: **For you**, **Closing audits**, **Settled during the build** (AC-LEFT-01). */
+  deliveryBlock: string;
 }
 
 /**
@@ -94,7 +94,8 @@ export function pullRequestSessionPrompt(values: PullRequestPromptValues): strin
     .map((repository) => `- \`${repository.name}\` (\`${repository.github}\`), worktree \`${repository.worktreePath}\`, into \`${repository.baseBranch}\``)
     .join("\n");
   const crossLinks = values.repositories.length > 1 ? template("pull-request-cross-links.txt") : "";
-  const items = (values.personItems ? `\n\n${fill(template("pull-request-person-items.txt"), { items: values.personItems })}` : "");
+  // Every pull request prompt carries the block, whether or not it lists anything for a person (AC-LEFT-01).
+  const items = `\n\n${fill(template("pull-request-person-items.txt"), { items: values.deliveryBlock })}`;
   if (values.deliveryAuthority) return fill(template("development-finalization.txt"), { featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, repositoryList: list, deliveryAuthority: authorityBlock(values.deliveryAuthority) }) + items;
   return fill(template("pull-request-session.txt"), {
     featureName: values.featureName,
@@ -197,6 +198,8 @@ export interface ResumePromptValues {
   note?: string;
   /** AC-OUTSIDE-02's prompt, after the note, while Stayed in the workspace fails (multi-repo AC-OUTSIDE-04). */
   outside?: string;
+  /** For the pull-request session: the block Kiln would give now, carried after the carry-on line (AC-LEFT-01). */
+  deliveryBlock?: string;
 }
 
 /**
@@ -230,7 +233,9 @@ export function resumePrompt(values: ResumePromptValues): string {
       : fill(template("resume-carry-on-phase.txt"), { phaseDoc: values.phaseDoc, place: values.multiRepository ? "workspace" : "worktree" });
   const before = [...(values.note === undefined ? [] : [fill(template("resume-note.txt"), { note: values.note })]), ...(values.outside === undefined ? [] : [values.outside])];
   // An audit task's instructions already carry the authority block.
-  return [...before, ...(values.deliveryAuthority && !values.auditTask?.instructions ? [authorityBlock(values.deliveryAuthority)] : []), `${opening} ${carryOn}`, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
+  // A pull-request session's resume carries the block Kiln would give now, in place of the first message's (AC-LEFT-01).
+  const block = values.deliveryBlock !== undefined && values.phaseDoc === undefined && !values.auditTask && !values.preflightTask ? [fill(template("resume-delivery-block.txt"), { block: values.deliveryBlock }).trimEnd()] : [];
+  return [...before, ...(values.deliveryAuthority && !values.auditTask?.instructions ? [authorityBlock(values.deliveryAuthority)] : []), `${opening} ${carryOn}`, ...block, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
 }
 
 /** A checkout outside the workspace that a session changed, as the prompt names it. */

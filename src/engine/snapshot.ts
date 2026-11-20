@@ -32,7 +32,7 @@ import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage
 import type { StartCheckReport } from "../start-checks.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
-import { LOOP_STOP_LINE } from "../state/audit-loops.js";
+import { closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type CheckRun, type CheckResult, type PrdRecord, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import type { ExecutionSummary } from "./continuation-state.js";
@@ -284,8 +284,11 @@ export interface Snapshot {
   auditLoops?: import("./loop-view.js").AuditLoopsView;
   /** The items for a person at a Needs you stop on an audit, and at the hold stop (Kiln Deliver When Audit Loops Run Out AC-ITEM-02). */
   items?: import("./engine.js").PersonItemView[];
-  /** On a finished run: **For you** (AC-ITEM-03), in the order it is listed, each line word for word. */
-  delivered?: { forYou: import("../audit/for-you.js").ForYou };
+  /**
+   * On a finished run (AC-LEFT-02, AC-ITEM-03): each kind's loops used and limit in force, **For you**
+   * in the order it is listed with each line word for word, and each pull request's address.
+   */
+  delivered?: { loops: import("../state/audit-loops.js").ClosingAudits; forYou: import("../audit/for-you.js").ForYou; pullRequests: { repository: string; number: number; url: string }[] };
   auditHistoryUnavailable?: boolean;
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
   feature: {
@@ -796,6 +799,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
               baseBranch: entry.baseBranch,
               isPrd: entry.kind === "prd",
             })),
+            deliveryBlock: engine.deliveryBlockNow(),
           })
         : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran);
 
@@ -1581,6 +1585,7 @@ function waivedFacts(engine: Engine, key: string, done: boolean, waivedResult?: 
 function personItemFields(engine: Engine, store?: Pick<AuditStore, "read">): Pick<Snapshot, "items" | "delivered"> {
   try {
     const items = engine.stopItems(store); const forYou = engine.deliveredForYou(store);
-    return { ...(items?.length ? { items } : {}), ...(forYou ? { delivered: { forYou } } : {}) };
+    const delivered = forYou && { loops: closingAudits(engine.record), forYou, pullRequests: (engine.record.pullRequests ?? []).map(pull => ({ repository: pull.repository, number: pull.number, url: pull.url })) };
+    return { ...(items?.length ? { items } : {}), ...(delivered ? { delivered } : {}) };
   } catch (error) { if (store) throw error; return {}; }
 }

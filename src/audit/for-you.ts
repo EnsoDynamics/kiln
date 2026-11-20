@@ -14,6 +14,7 @@ import type { AuditActivity, AuditReport } from "./contracts.js";
 import { acceptedAudit } from "./effective-result.js";
 import { itemLine, itemWaiver, kindWords, personItems, settledLines, type PersonItem } from "./person-items.js";
 import { AuditStore } from "./storage.js";
+import { closingAuditsText, type ClosingAudits } from "../state/audit-loops.js";
 
 export interface ForYouItem extends PersonItem { line: string; words: string | null; waiver?: WaiverRef }
 export interface ForYou { items: ForYouItem[]; afterDelivery: string[] }
@@ -53,13 +54,19 @@ export function afterDeliveryActions(stateDirectory: string, activities: AuditAc
 }
 
 /**
- * The block each pull request's description opens with: **For you** when it lists anything, then
- * **Settled during the build**. `tag` renders an item's Waived tag.
+ * The block each pull request's description opens with (AC-LEFT-01): **For you** when it lists
+ * anything, then **Closing audits** with each kind's loops used and limit in force, then **Settled
+ * during the build**. `tag` renders an item's Waived tag. Built only from saved facts, so the same
+ * facts always give the same block, which is how a pull request session is known to have delivered it.
+ *
+ *   deliveryBlock(forYou(dir, record), settled, tag, closingAudits(record))
+ *   // "## For you\n\n- Test gap: …\n\n## Closing audits\n\nDelivery audit: 4 of 4 loops. Test audit: 2 of 4 loops."
  */
-export function deliveryBlock(block: ForYou, settled: ReturnType<typeof personItems>["settled"], tag: (ref: WaiverRef) => string): string {
+export function deliveryBlock(block: ForYou, settled: ReturnType<typeof personItems>["settled"], tag: (ref: WaiverRef) => string, loops: ClosingAudits): string {
   const lines = [...block.items.map(item => `- ${item.line}${item.waiver ? ` (Waived: ${tag(item.waiver)})` : ""}`), ...block.afterDelivery.map(action => `- ${action}`)];
   return [
     ...(lines.length ? [`## For you\n\n${lines.join("\n")}`] : []),
+    `## Closing audits\n\n${closingAuditsText(loops)}`,
     ...(settled.length ? [`## Settled during the build\n\n${settledLines(settled)}`] : []),
   ].join("\n\n");
 }

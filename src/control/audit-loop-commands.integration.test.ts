@@ -46,11 +46,12 @@ async function token(): Promise<string> {
 const body = (request: IncomingMessage) => new Promise<string>(resolve => { let text = ""; request.on("data", chunk => text += String(chunk)); request.on("end", () => resolve(text)); });
 
 /** A stand-in controller for this execution advertising `features`; it records each instruction posted and accepts it. */
-async function standIn(features: string[]) {
+async function standIn(features: string[], status?: Record<string, unknown>) {
   const posted: Record<string, unknown>[] = [];
   const canonical = target(); const execution = h.engine.record.executionId;
   const fake = createServer(async (request, response) => {
     response.setHeader("Content-Type", "application/json");
+    if (status && request.method === "GET" && request.url?.startsWith("/api/control/v1/status")) { response.end(JSON.stringify({ schema_version: "1", ok: true, observed_at: new Date().toISOString(), prd_path: canonical, execution_id: execution, errors: [], ...status })); return; }
     if (request.method === "GET" && request.url === "/api/control/v1/capabilities") { response.end(JSON.stringify({ protocol_major: 1, execution_id: execution, prd_path: canonical, instance: { pid: process.pid, process_start_time: null }, features })); return; }
     if (request.method === "POST" && request.url === "/api/control/v1/commands") {
       const instruction = JSON.parse(await body(request)) as Record<string, unknown>; posted.push(instruction);
@@ -169,5 +170,32 @@ it("sends continue-with-phases with its proposal and the loop limits, and refuse
     // The older settings still reach it.
     expect((await cli(["settings", target(), "--keep-awake", "on", ...safety("old-keep-awake")])).code).toBe(0);
     expect(older.posted.map(one => one.action)).toEqual(["settings"]);
+  } finally { await older.close(); }
+});
+
+it("prints the loop lines and a finished run's facts only from a controller that moves on at the limits (Compatibility, AC-BOT-02)", async () => {
+  await stopped();
+  await server!.close(); server = undefined;
+  const answer = {
+    state: "complete",
+    audit_loops: { settings: { deliveryLimit: 4, testLimit: 4 }, delivery: { used: 4, limit: 4, closed: true, floor: 1 }, test: { used: 2, limit: 4, closed: false, floor: 1 } },
+    delivered: { loops: { delivery: { used: 4, limit: 4 }, test: { used: 2, limit: 4 } }, forYou: { items: [{ kind: "test", line: "Test gap: AC-1 has no test. Write one." }], afterDelivery: [] }, pullRequests: [{ repository: "acme-shop", number: 214, url: "https://github.com/acme/acme-shop/pull/214" }] },
+    continuation: { check: { status: "unchanged", attemptedAt: "2026-11-20T01:00:00Z", lastSuccessfulAt: null, errors: [] } },
+  };
+  const current = await standIn(["status", "commands", "loop_limits_move_on"], answer);
+  try {
+    const text = await cli(["status", target()]);
+    expect(text.stdout).not.toContain("Audit loops:");
+    expect(text.stdout).toContain("Closing audits: Delivery audit: 4 of 4 loops. Test audit: 2 of 4 loops.\nPull request: https://github.com/acme/acme-shop/pull/214\nFor you:\n  - Test gap: AC-1 has no test. Write one.\nCheck for new phases: unchanged at 2026-11-20T01:00:00Z\n");
+    // A critical finding puts For you first, ahead of the loop counts.
+    const critical = await standIn(["status", "commands", "loop_limits_move_on"], { ...answer, delivered: { ...answer.delivered, forYou: { items: [{ kind: "critical", line: "Critical finding: Keys are logged. Rotate them." }], afterDelivery: [] } } });
+    try { expect((await cli(["status", target()])).stdout).toMatch(/For you:\n {2}- Critical finding: Keys are logged\. Rotate them\.\nClosing audits:/); } finally { await critical.close(); }
+  } finally { await current.close(); }
+  const older = await standIn(["status", "commands", "audit_loops"], answer);
+  try {
+    const text = await cli(["status", target()]);
+    expect(text.stdout).not.toContain("Audit loops:");
+    expect(text.stdout).not.toContain("Closing audits:");
+    expect(text.stdout).not.toContain("For you:");
   } finally { await older.close(); }
 });

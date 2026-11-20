@@ -82,6 +82,7 @@ Work may need more than one development delivery before it is finished. Earlier 
   - Replaces in part: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one open pull request per changed repository is replaced by the applicable final result for executions using authorized early delivery).
   - Replaces in part: AC-WORK-04 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (the final delivery check accepts confirmed earlier deliveries; Codex evidence and workspace-check requirements remain).
   - Replaces in part: AC-WORK-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (the open-pull-request endpoint and mandatory final pull-request session give way to the applicable final result and outstanding finalization work; Codex remains the selected agent).
+  - Superseded in part by: AC-LEFT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a pull request already open is completed only after a pull request session in this run has written its **For you** and loop counts into the description, or when the person marks final delivery complete)
 
 ### Recover with the same authority and accurate evidence
 
@@ -111,6 +112,7 @@ The interface should make early development delivery understandable without requ
   - Replaces in part: AC-PR-05 and AC-WATCH-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (final-session naming, recovery copy and the completion header where the result is not solely open review pull requests).
   - Replaces in part: AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (older mockup copy for delivery permissions, progress and completion gives way to this change’s outcomes; unaffected layout and visual style remain).
   - Replaces in part: AC-SPACE-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a one-repository execution using development deployments adopts this change’s authorization, progress and final-result presentation; assigned workspace layout and restricted behavior remain).
+  - Superseded in part by: AC-LEFT-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the Complete screen also shows the loops used of each kind and **For you**)
 
 **Business validation, 2026-10-30:** Doug directed: “remove the remember/reuse feature and its preference storage, update the requirements, and keep early-merge permission scoped to the current PRD.” AC-PERMIT-03 reflects that correction; AUTH-001 is settled. Doug subsequently selected “One checkbox for all listed repository branches” for AC-PERMIT-02. Separate product and code repositories remain supported.
 

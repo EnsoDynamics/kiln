@@ -5,6 +5,7 @@ import type { Hono, Context } from "hono";
 import { dirname, resolve } from "node:path";
 import { readWork } from "./private-state.js";
 import { handoffProjection, instanceEpoch, statusProjection } from "./projection.js";
+import { continuationFacts } from "./delivered-facts.js";
 import { readHistory, chooseOutputSession } from "./history.js";
 import { outputPage } from "./logs.js";
 import { ControlFailure, failed, exitFor, result, errorFact, type Result } from "./result.js";
@@ -166,14 +167,6 @@ async function continueWithPhases(engine: Engine, command: Record<string, unknow
   return [answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400];
 }
 
-/** The check's status and offer as `kiln status` shows them (AC-BOT-02). */
-export function continuationFacts(check: Awaited<ReturnType<Engine["checkCompletedPlan"]>>): Record<string, unknown> {
-  const proposal = check.result?.proposal;
-  return {
-    check: { status: check.status, attemptedAt: check.attemptedAt, lastSuccessfulAt: check.lastSuccessfulAt ?? null, errors: check.errors },
-    ...(proposal ? { proposal: { id: proposal.id, readiness: proposal.readiness, phases: proposal.added.map(phase => ({ id: phase.id, title: phase.title })), problems: proposal.problems } } : {}),
-  };
-}
 
 /**
  * `kiln waive-and-advance` (waivers "Command line", AC-WAIVE-05): the control route picks the

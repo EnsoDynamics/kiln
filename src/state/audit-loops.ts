@@ -97,6 +97,19 @@ export function closedKinds(record: Parameters<typeof limitsInForce>[0]): { deli
   return { delivery: kindClosed(record, "delivery"), test: kindClosed(record, "test") };
 }
 
+/** Each kind's loops used and limit in force: what **Closing audits** shows on a delivered run (AC-LEFT-01, AC-LEFT-02). */
+export interface ClosingAudits { delivery: { used: number; limit: number }; test: { used: number; limit: number } }
+export function closingAudits(record: Parameters<typeof limitsInForce>[0]): ClosingAudits {
+  const limits = limitsInForce(record);
+  const kind = (one: LoopKind) => ({ used: loopsUsed(record.auditLoops, one), limit: limitOf(limits, one) });
+  return { delivery: kind("delivery"), test: kind("test") };
+}
+
+/** "Delivery audit: 4 of 4 loops. Test audit: 2 of 4 loops." (AC-LEFT-01). */
+export function closingAuditsText(loops: ClosingAudits): string {
+  return `Delivery audit: ${loops.delivery.used} of ${loops.delivery.limit} loops. Test audit: ${loops.test.used} of ${loops.test.limit} loops.`;
+}
+
 /**
  * The lowest value a limit may be set to: the runs of that audit already made in this execution,
  * the one under way included; 1 once `atPullRequest` is written, since nothing in this execution

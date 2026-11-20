@@ -546,6 +546,15 @@ export interface SessionRecord {
   steps: StepStart[];
   /** Kiln 1.3.0 only: sentences an audit prompt quoted as the person's. Kiln no longer writes or reads it. */
   carried?: { sentence: string; source: string }[];
+  /**
+   * A pull-request session: the block its description opens with (**For you**, **Closing audits**,
+   * **Settled during the build**) as its latest launch or resume was given it, saved before that
+   * process starts (Kiln Deliver When Audit Loops Run Out AC-LEFT-01). Absent on a session from
+   * before Kiln saved blocks, which therefore never counts as having delivered this run's block.
+   * `run` is the index of the run it was given to, so a launch or resume that never started a run
+   * leaves the earlier run's delivery unchanged.
+   */
+  deliveryBlock?: { block: string; run: number };
   /** `carry_on`: the launch was a carry-on session for a stopped phase (run restart AC-CARRY-05); absent for an ordinary launch. */
   startedAs?: "carry_on";
 }

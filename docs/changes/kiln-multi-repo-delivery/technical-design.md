@@ -337,6 +337,8 @@ Wherever v1 resumes an interrupted session after its check fails (Ctrl+C, a clos
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (audits precede final repository evaluation), implemented in Phase 2b. Existing authority and evidence protections remain.
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §What a Delivered Run Says (each description opens with **For you** and **Closing audits**; the check gains the **Pull request description** row, so a pull request already open no longer skips the pull request session; a repository already merged still needs no session).
+
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Evidence and Completion (enabled final repository results; restricted delivery history remains). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (waivable checks, `waivedHead`).
@@ -489,6 +491,8 @@ SessionRecord (schema 2): adds workingDirectory, the folder the session was laun
 ## Screens (AC-SHOW-01)
 
 Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Needs you Layout (implementation-phase Needs you arrangement).
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §What a Delivered Run Says (the finished page's **Closing audits** and **For you**).
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (ordered audit rows and inspectable findings), implemented in Phase 2b. Existing authority and evidence protections remain.
 

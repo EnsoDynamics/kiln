@@ -189,6 +189,7 @@ When every leaf is closed, Kiln finishes with a single pull request for the whol
 - [ ] **AC-PR-01 — A final session opens the pull request.** Once every leaf is closed, Kiln completes the PRD at once if AC-PR-02's check already passes; otherwise it starts one more session, authorized to open one pull request from the feature branch into the base branch. That session may not merge the pull request or touch other branches.
   - Superseded in part by: AC-AUDIT-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (automatic whole-PRD audits precede final delivery).
   - Superseded in part by: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one pull request per repository that changed)
+  - Superseded in part by: AC-LEFT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a pull request already open is completed only after a pull request session in this run has written its **For you** and loop counts into the description, or when the person marks final delivery complete)
 - [ ] **AC-PR-02 — Kiln confirms the pull request is open.** The pull-request session's check, in place of the done check, is that a pull request from the feature branch into the base branch is open. When it passes, the PRD is complete; when it fails, Kiln goes to Needs you.
   - Superseded in part by: AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one pull request per repository that changed)
   - Superseded in part by: AC-PRS-06 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (its check includes Stayed in the workspace)
@@ -201,10 +202,12 @@ When every leaf is closed, Kiln finishes with a single pull request for the whol
   - the phase plan with every phase Done, followed by the pull-request session's row (AC-PR-05);
   - the agent, and the worktree with a note that Kiln keeps it until the person removes it.
   - Superseded in part by: AC-SPACE-05 and AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the workspace in place of the one worktree, including Complete's note that Kiln keeps it; every pull request, and commits by repository)
+  - Superseded in part by: AC-LEFT-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the Complete screen also shows the loops used of each kind and **For you**)
 - [ ] **AC-PR-05 — The pull-request session is handled as a last phase.** Wherever a phase's session appears, the pull-request session appears as one more phase, numbered "PR" and titled "Final pull request", except as the table says.
   - Superseded in part by: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (final-session allocation follows the required audit activities).
   - Superseded in part by: AC-DISPLAY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (final-session naming, recovery copy and the completion header where the result is not solely open review pull requests).
   - Superseded in part by: AC-PRS-05 and AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one pull request per repository that changed; every pull request, and commits by repository)
+  - Superseded in part by: AC-LEFT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a pull request found already open no longer completes without a session, so its row and terminal lines show the session that wrote its description)
 
   | | The pull-request session |
   |---|---|

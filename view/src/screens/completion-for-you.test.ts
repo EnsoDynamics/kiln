@@ -1,6 +1,7 @@
-// For you on the finished page (Kiln Deliver When Audit Loops Run Out AC-ITEM-03, mockup screens 3
-// and 3b): each item still open at delivery as Kiln built its line, kind words bold, Waived tags,
-// then the after-delivery actions; a critical finding moves it below the state header.
+// Closing audits and For you on the finished page (Kiln Deliver When Audit Loops Run Out AC-LEFT-02,
+// AC-ITEM-03, mockup screens 3 and 3b): each kind's loops used and limit after the pull request
+// section; each item still open at delivery as Kiln built its line, kind words bold, Waived tags,
+// then the after-delivery actions; a critical finding moves For you below the state header.
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { ForYou } from "../../../src/audit/for-you.js";
@@ -10,9 +11,10 @@ import Complete from "./Complete.svelte";
 const item = (id: string, kind: ForYouItemKind, words: string | null, problem: string, extra: Partial<ForYou["items"][number]> = {}): ForYou["items"][number] =>
   ({ id, kind, words, problem, action: "Act on it.", line: `${words ? `${words}: ` : ""}${problem} Act on it.`, listedBy: "Delivery audit round 1", listedByActivityId: "a1", ...extra });
 type ForYouItemKind = ForYou["items"][number]["kind"];
+const LOOPS = { delivery: { used: 4, limit: 4 }, test: { used: 2, limit: 4 } };
 function page(forYou?: ForYou, connected = true) {
   const snapshot = completeSnapshot();
-  if (forYou) snapshot.delivered = { forYou };
+  if (forYou) snapshot.delivered = { loops: LOOPS, forYou, pullRequests: [] };
   return render(Complete, { props: { snapshot, connected, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body.replace(/<!--[^>]*-->/g, "");
 }
 const section = (html: string) => /<section[^>]*id="for-you"[\s\S]*?<\/section>/.exec(html)?.[0];
@@ -44,5 +46,25 @@ describe("For you on the finished page (AC-ITEM-03)", () => {
 
   it("shows no For you when nothing is left for a person", () => {
     for (const forYou of [undefined, { items: [], afterDelivery: [] }]) expect(page(forYou)).not.toContain('id="for-you"');
+  });
+});
+
+describe("Closing audits on the finished page (AC-LEFT-02)", () => {
+  const closing = (html: string) => /<section[^>]*id="closing-audits"[\s\S]*?<\/section>/.exec(html)?.[0];
+  it.each([true, false])("shows each kind's loops used and limit after the pull request section, before For you and Delivery history, connected=%s", connected => {
+    const html = page({ items: [item("item-2", "test", "Test gap", "AC-RET-04 has no test.")], afterDelivery: [] }, connected);
+    const block = closing(html)!;
+    expect(block).toMatch(/Delivery audit<\/dt><dd[^>]*>4 of 4 loops<\/dd>/);
+    expect(block).toMatch(/Test audit<\/dt><dd[^>]*>2 of 4 loops<\/dd>/);
+    expect(html.indexOf('id="closing-audits"')).toBeGreaterThan(html.indexOf('<section class="pr'));
+    expect(html.indexOf('id="closing-audits"')).toBeLessThan(html.indexOf('id="for-you"'));
+    if (html.includes('id="delivery-history"')) expect(html.indexOf('id="closing-audits"')).toBeLessThan(html.indexOf('id="delivery-history"'));
+  });
+
+  it("keeps its place, and shows with nothing for a person, when a critical finding moves For you up", () => {
+    const critical = page({ items: [item("item-1", "critical", "Critical finding", "Card numbers are logged.")], afterDelivery: [] });
+    expect(critical.indexOf('id="closing-audits"')).toBeGreaterThan(critical.indexOf('<section class="pr'));
+    expect(critical.indexOf('id="for-you"')).toBeLessThan(critical.indexOf('id="closing-audits"'));
+    expect(closing(page({ items: [], afterDelivery: [] }))).toContain("4 of 4 loops");
   });
 });

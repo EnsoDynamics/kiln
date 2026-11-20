@@ -14,6 +14,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 
 const plain = terminalColors({ isTTY: false }, {});
 const plan = readPhasePlan(Object.entries(PHASES).map(([fileName, markdown]) => ({ fileName, markdown })));
+const BLOCK = "## Closing audits\n\nDelivery audit: 1 of 4 loops. Test audit: 1 of 4 loops.";
 
 describe("the terminal's phase lines", () => {
   // The mockup's plan: the longest title is "Returns dashboard", so titles pad to 19.
@@ -106,7 +107,7 @@ describe("the prompts", () => {
 
   it("asks the pull-request session for one ready pull request per repository, each through gh --repo", () => {
     const repository = (name: string, base: string, isPrd = false) => ({ name, github: `acme/${name}`, worktreePath: `/w/${name}`, baseBranch: base, isPrd });
-    const one = pullRequestSessionPrompt({ featureName: "Customer returns", prdFile: "docs/prds/customer-returns/customer-returns-prd.md", branch: "feature/customer-returns", repositories: [repository("acme-shop", "develop", true)] });
+    const one = pullRequestSessionPrompt({ featureName: "Customer returns", prdFile: "docs/prds/customer-returns/customer-returns-prd.md", branch: "feature/customer-returns", repositories: [repository("acme-shop", "develop", true)], deliveryBlock: BLOCK });
     expect(one).toContain("Pass `--repo github.com/<owner>/<name>` to every `gh` command for that repository:\n\n- `acme-shop` (`acme/acme-shop`), worktree `/w/acme-shop`, into `develop`\n\nOpen them ready for review");
     expect(one).not.toContain("links every other pull request");
     expect(one).toContain("You may not merge, deploy anything, or touch any other branch.");
@@ -115,6 +116,7 @@ describe("the prompts", () => {
       prdFile: "product/docs/prds/customer-returns/customer-returns-prd.md",
       branch: "feature/customer-returns",
       repositories: [repository("product", "main", true), repository("returns-api", "develop")],
+      deliveryBlock: BLOCK,
     });
     expect(several).toContain("- `returns-api` (`acme/returns-api`), worktree `/w/returns-api`, into `develop`\n\nEach description names the PRD and links every other pull request opened for it");
     expect(several).toContain("as the technical design gives the order.\n\nOpen them ready for review");

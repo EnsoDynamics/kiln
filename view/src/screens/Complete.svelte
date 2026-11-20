@@ -9,6 +9,7 @@
   import CompletedPlanCheck from "../components/CompletedPlanCheck.svelte";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import ForYou from "../components/ForYou.svelte";
+  import ClosingAudits from "../components/ClosingAudits.svelte";
   import type { DeliveryEvent, PullRequestFacts } from "../../../src/state/records.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
@@ -99,6 +100,7 @@
       <p class="note">Kiln confirmed that the feature commits are already in their intended base branches. No additional pull request is needed for these repositories.</p>
     </section>
   {/if}
+  <ClosingAudits {snapshot} />
   {#if !criticalFirst}<ForYou {snapshot} />{/if}
   {#if mergedBranches.length || snapshot.deliveryHistory || snapshot.deliveryHistoryPending || snapshot.deliveryHistoryError}
   <section class="pr" id="delivery-history" aria-label="PRD delivery history">

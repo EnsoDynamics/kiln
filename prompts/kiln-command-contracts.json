@@ -55,7 +55,9 @@
         "unsent_replies": "Current stop-bound unsent command IDs and literal text, marked not_sent; inspect receipts before explicitly advancing.",
         "compatibility": "Agent compatibility notices from the saved record, present with the controller stopped: [{feature (live_messages, takeover or codex_history), agent, agent_version, detail, attempt_id, observed_at}], at most one per feature; empty when none. A listed feature is unavailable on that agent version; the rest of the run keeps working.",
         "live_control": "Exact live target, activity label/audit round, observedAt, input availability/reason, message receipts and reviewRequired IDs, takeover checkpoint/release progress. state current/stale; disconnected actions disabled. pause_status distinguishes takeover from an independent deferred pause.",
-        "audit_loops": "Audit loop limits: settings {deliveryLimit, testLimit}, the limits saved in the run's settings; delivery and test {used, limit, closed, floor}, each kind's runs against its limit in force, whether no further audit of that kind runs, and the lowest value kiln settings accepts; frozen {at} once the first pull request session launched or the run completed, after which a change applies only to a continuation; position {audit delivery | test, loop, limit, fixing} naming the audit loop running, the latest test loop while a session of test fixes runs, or the latest loop at a Needs you stop. A loop is one run of an audit; Kiln never stops at a limit."
+        "audit_loops": "Audit loop limits: settings {deliveryLimit, testLimit}, the limits saved in the run's settings; delivery and test {used, limit, closed, floor}, each kind's runs against its limit in force, whether no further audit of that kind runs, and the lowest value kiln settings accepts; frozen {at} once the first pull request session launched or the run completed, after which a change applies only to a continuation; position {audit delivery | test, loop, limit, fixing} naming the audit loop running, the latest test loop while a session of test fixes runs, or the latest loop at a Needs you stop. A loop is one run of an audit; Kiln never stops at a limit.",
+        "delivered": "On a finished run, null otherwise: loops {delivery, test} each {used, limit}, the runs of each audit against its limit in force at delivery; forYou {items, afterDelivery}, each item {id, kind, words, line, problem, action, waits_on, criterion, waived, waived_tag} in the order the finished page lists them, line word for word as each pull request's description has it, and the person actions the requirements place after delivery; pullRequests [{repository, number, url}].",
+        "continuation": "On a finished run whose finished page has checked for new phases, null otherwise: check {status, attemptedAt, lastSuccessfulAt, errors} and, when new phases were found, proposal {id, readiness, phases, problems}; proposal.id is what continue-with-phases takes."
       },
       "errors": [
         "invalid_input",
@@ -2455,7 +2457,7 @@
         },
         "proposal": {
           "value": "ID",
-          "source": "The offer's proposal ID, copied unchanged from data.proposal.id of a fresh kiln check-for-new-phases."
+          "source": "The offer's proposal ID, copied unchanged from continuation.proposal.id of kiln status --json, or from data.proposal.id of a fresh kiln check-for-new-phases."
         },
         "only-if-status-matches": {
           "value": "status_token",

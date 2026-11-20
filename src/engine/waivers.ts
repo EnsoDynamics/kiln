@@ -97,6 +97,8 @@ export const PLAN_CHECK = "Phase plan reads";
 export const READINESS_CHECK = "Completion audit readiness";
 /** The hold stop's one row (Kiln Deliver When Audit Loops Run Out, "The hold stop"): one `other` item per holding item, keyed by its ledger id. */
 export const HOLD_CHECK = "Nothing holds the run";
+/** The pull request check's last row (Kiln Deliver When Audit Loops Run Out AC-LEFT-01): each open pull request's description carries this run's block. Added after waivers are applied, so no waiver matches it on a check. */
+export const DESCRIPTION_CHECK = "Pull request description";
 /** Checks whose one item is their joined failure text, matched under either check (AC-WAIVE-09). */
 export const KNOWN_PROBLEM_CHECKS: readonly string[] = [PLAN_CHECK, READINESS_CHECK];
 /** Checks that can stop an activity before it runs; their item key also names the stopped activity. */

@@ -422,11 +422,12 @@ describe("the pull-request session, interrupted", () => {
     expect(phaseEvents(h).slice(-2)).toEqual(["PR resumed", "PR opened"]);
   });
 
-  it("completes the feature with no resume when the pull request is already open", async () => {
+  // An open pull request no longer completes an interrupted session that had not delivered this run's block (Kiln Deliver When Audit Loops Run Out AC-LEFT-01).
+  it("resumes the session when the pull request is already open, carrying the block, and completes once it delivers", async () => {
     harness = await createHarness({ sessions: [] });
     const h = harness;
     const working = flagIn(h, "working");
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: throughToPullRequest(working) }));
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [...throughToPullRequest(working), { actions: [{ result: "Edited #219's description." }, { exit: 0 }] }] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
     await h.engine.stop("sigint");
@@ -434,9 +435,13 @@ describe("the pull-request session, interrupted", () => {
 
     const engine = h.reopenFromDisk();
     await engine.prepare();
-    expect(await engine.decide()).toEqual({ kind: "complete" });
+    expect(await engine.decide()).toEqual({ kind: "resume", phaseKey: "pr", sessionId: sessionOf(h, "pr").sessionId });
+    await engine.continue();
+    expect(h.claudeCalls()).toHaveLength(5);
+    expect(h.claudeCalls()[4]!.prompt).toContain("Use this block in place of the one in the first message:\n\n## Closing audits");
+    expect(sessionOf(h, "pr").deliveryBlock).toEqual({ block: engine.deliveryBlockNow(), run: 1 });
+    expect(engine.record.completedAt).toBeDefined();
     expect(engine.record.pullRequests?.[0]?.number).toBe(219);
-    expect(h.claudeCalls()).toHaveLength(4);
   });
 });
 

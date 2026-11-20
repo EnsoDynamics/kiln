@@ -4,6 +4,7 @@ import type { ReopenCheck } from "./reopen-check.js";
 import { markReasonRows } from "../state/records.js";
 import { itemEffect, itemLine, itemWaiver, keptFields, kindWords, outstandingLines, personItems } from "../audit/person-items.js";
 import { deliveryBlock, forYou, type ForYou } from "../audit/for-you.js";
+import { descriptionRow } from "./description-check.js";
 import { readContinuationProposal } from "./continuation-readiness.js";
 import { preparationPrompt, preparationImplementationPrompt, carryOnPrompt, freshSessionPrompt } from "../session/prompts.js";
 import { newPreparationState, preparationAttemptNeedsReconciliation, preparationDigest, preparesPhase, type PreparationReference } from "./preparation-state.js";
@@ -44,7 +45,7 @@ import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt, preflightSessionPrompt } from "../session/prompts.js";
 import { isPreflightKey, activityKeyKind } from "../state/activity-keys.js";
 import { keyOf as preflightKeyOf, latestPreflight, preflightActivity, preflightSettled, readPreflightReport, setPreflightDue, unfinishedPreflight, PREFLIGHT_CHECK, PREFLIGHT_LIVE_REASON, PREFLIGHT_PAUSE_REASON, PREFLIGHT_SKILL, PREFLIGHT_STOP_REASON, PREFLIGHT_TITLE, type PreflightActivity, type PreflightReport, type PreflightTrigger } from "./preflight.js";
-import { appendLoop, closedKinds, limitFloor, LOOP_STOP_LINE, loopSettings, REMOVED_LOOP_COMMAND, startedLedger, validLimit, type AuditLoopSettings } from "../state/audit-loops.js";
+import { appendLoop, closedKinds, closingAudits, limitFloor, LOOP_STOP_LINE, loopSettings, REMOVED_LOOP_COMMAND, startedLedger, validLimit, type AuditLoopSettings } from "../state/audit-loops.js";
 import { nextStepsForecast } from "./next-steps.js";
 import { assignAuditObligations } from "./development-owners.js";
 import type { AuditActivity, AuditKind, AuditReport, AuditResult } from "../audit/contracts.js";
@@ -140,7 +141,7 @@ import {
   type StopKind,
   type StopLimit,
 } from "../state/records.js";
-import { applyWaivers, changedItems, checkCounts, closedWaiver, completeLabel, effectivePlan, fillAgainst, itemize, knownProblemWaiver, KNOWN_PROBLEM_CHECKS, previewSentence, unmetItems, READINESS_CHECK, HOLD_CHECK, type ItemChange, type MarkCompleteOffer, type MarkCompleteOutcome, type Waiver, type WaiverRef, type WaiverSource } from "./waivers.js";
+import { applyWaivers, changedItems, checkCounts, closedWaiver, completeLabel, effectivePlan, fillAgainst, itemize, knownProblemWaiver, KNOWN_PROBLEM_CHECKS, previewSentence, unmetItems, READINESS_CHECK, HOLD_CHECK, DESCRIPTION_CHECK, type ItemChange, type MarkCompleteOffer, type MarkCompleteOutcome, type Waiver, type WaiverRef, type WaiverSource } from "./waivers.js";
 import { userInfo } from "node:os";
 import { readRepositoryFingerprints } from "./waiver-fingerprints.js";
 import { readPhasePlan } from "../plan/phase-plan.js";
@@ -1985,9 +1986,11 @@ export class Engine {
     const failing = checks.filter(check => !check.passed);
     const { label, heading, continueInOrder } = this.offerWording(key, failing);
     const hold = failing.some(check => check.name === HOLD_CHECK) ? this.record.phases[key]?.stop?.holdLeadsTo ?? "pull_request_session" : undefined;
+    // Where only the description fails, Check again starts the pull request session rather than keeping the stop, so the stop's own run is offered (AC-LEFT-01).
+    const ownRun = key === PR_PHASE_KEY && this.onlyDescriptionFails(checks);
     // Only a finished recheck is missing when the stop's checks still fail, or none has run yet.
     const awaiting = !run || failing.length ? { awaitingRecheck: { label, heading } } : {};
-    if (!run || run.origin !== "recheck") return { offered: false, reason: `No check has run since ${name} stopped. Run without --confirm to check again first.`, ...awaiting };
+    if (!run || run.origin !== "recheck" && !ownRun) return { offered: false, reason: `No check has run since ${name} stopped. Run without --confirm to check again first.`, ...awaiting };
     if (!run.finished) return { offered: false, reason: "The last check could not finish. Check again when its evidence can be read.", ...awaiting };
     if (!failing.length) return { offered: false, reason: "Every check passed. Check again advances without a waiver." };
     const items = unmetItems(checks);
@@ -2257,7 +2260,8 @@ export class Engine {
     this.changed();
     let verdict: "done" | "complete" | "cleared" | "still_stopped" | undefined;
     try {
-      verdict = await this.recheckStop(key);
+      // Resume reopens the stopped conversation, so an out-of-date description resumes that session rather than starting a new one (AC-LEFT-01).
+      verdict = await this.recheckStop(key, { resuming: true });
     } finally {
       // Held on through the resume only when the check failed; the run's start releases it.
       if (verdict !== "still_stopped" || this.stopping) {
@@ -5202,11 +5206,13 @@ export class Engine {
 
   private async runPullRequestSession(): Promise<Verdict> {
     this.phaseFacts(PR_PHASE_KEY);
-    const prompt = pullRequestSessionPrompt(await this.pullRequestPromptValues(this.sessionFolder));
+    // The prompt and saved block read the limits in force, the same as the ones frozen next.
+    const values = await this.pullRequestPromptValues(this.sessionFolder);
+    const prompt = pullRequestSessionPrompt(values);
     // The limits are held from the first pull request session on; the launch's own write saves them (AC-CHOICE-02).
     this.freezeLimits();
     this.emit({ kind: "pull_request", at: this.now(), event: "started" });
-    await this.launchSession(PR_PHASE_KEY, "pull_request", prompt);
+    await this.launchSession(PR_PHASE_KEY, "pull_request", prompt, { deliveryBlock: values.deliveryBlock });
     return this.settleSession(PR_PHASE_KEY);
   }
 
@@ -5214,7 +5220,7 @@ export class Engine {
    * Launches one session for a phase. The session record is written before spawning; a session
    * recorded but never started (Kiln stopped in between) is launched as planned, same ID.
    */
-  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on" } = {}): Promise<void> {
+  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on"; deliveryBlock?: string } = {}): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
     const audit = this.auditActivity(phaseKey) ?? this.preflightActivity(phaseKey);
     const auditRecord = this.auditActivity(phaseKey);
@@ -5256,6 +5262,8 @@ export class Engine {
       if (options.startedAs) session.startedAs = options.startedAs; else delete session.startedAs;
       writeSessionRecord(this.options.stateDirectory, session);
     }
+    // A pull request session's block is saved before its process starts, as the block it was given (AC-LEFT-01).
+    if (options.deliveryBlock !== undefined) { session.deliveryBlock = { block: options.deliveryBlock, run: session.runs.length }; writeSessionRecord(this.options.stateDirectory, session); }
     const cwd = this.workingDirectoryOf(session);
     await this.runProcess(phaseKey, session, launchArguments(session.sessionId, session.model, session.effort, this.addDirs(cwd)), prompt, "launch", cwd, undefined, options.started);
   }
@@ -5320,6 +5328,8 @@ export class Engine {
     const multi = cwd !== this.worktreePath;
     const label = facts.stop?.limit?.label ?? refusal?.label;
     const auditTask = this.auditRecoveryTask(phaseKey, cwd);
+    // Every resume of a pull request session carries the block Kiln would give now, saved on the session before its process starts (AC-LEFT-01).
+    const block = phaseKey === PR_PHASE_KEY ? this.deliveryBlockNow() : undefined;
     const prompt = resumePrompt({
       deliveryAuthority: this.deliveryAuthority(),
       agentId: session.agentId ?? "claude_code",
@@ -5329,7 +5339,9 @@ export class Engine {
       ...(auditTask ? { auditTask } : this.preflightActivity(phaseKey) ? { preflightTask: { prdFile: this.pathFrom(cwd, this.prdFile()), skillPath: this.preflightActivity(phaseKey)!.skill?.path ?? PREFLIGHT_SKILL } } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
       multiRepository: phaseKey === PR_PHASE_KEY ? this.pullRequestRepositories().length > 1 : multi,
       ...(request?.note === undefined ? {} : { note: request.note }),
+      ...(block === undefined ? {} : { deliveryBlock: block }),
     });
+    if (block !== undefined) { session.deliveryBlock = { block, run: session.runs.length }; writeSessionRecord(this.options.stateDirectory, session); }
     if (!request) this.emitSessionEvent(phaseKey, "resumed");
     // The stop or wait ends as the run starts, and with it the hold on Resume, Resume now and Check
     // again; the end of a wait switched off by then is that stop instead, and nothing runs (AC-AUTO-04).
@@ -5910,6 +5922,8 @@ export class Engine {
     if (hold?.phaseKey === phaseKey) return !!(hold.sessionId ? this.sessionRecord(phaseKey, hold.sessionId) : this.latestSession(phaseKey))?.runs.length;
     const stop = this.record.phases[phaseKey]?.stop;
     if (!stop || stop.kind === "selection" || stop.kind === "plan" || stop.kind === "loop_limit") return false;
+    // Where only the description fails, Check again starts the pull request session, so the line saying what it runs is left out (AC-LEFT-01).
+    if (phaseKey === PR_PHASE_KEY && this.onlyDescriptionFails(stop.checks)) return false;
     const activation = this.record.developmentAuthorization?.activationRecovery;
     if (activation && recoveryStopKey(activation) === phaseKey && this.record.phases[phaseKey]!.sessionIds.length === 0) return false;
     return phaseKey === PR_PHASE_KEY || !(stop.kind === "done_check" && this.alreadyComplete(phaseKey) && stop.checks.every(check => check.passed || check.name === DELIVERY_CHECK));
@@ -5921,7 +5935,7 @@ export class Engine {
    * (waivers "Check Runs"). `routeAudits: false` is Mark complete's rerun, which never routes a
    * final delivery whose only failing check is Current completion audits to the audits.
    */
-  private async recheckStop(phaseKey: string, options: { routeAudits?: boolean } = {}): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
+  private async recheckStop(phaseKey: string, options: { routeAudits?: boolean; resuming?: boolean } = {}): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
     const routeAudits = options.routeAudits !== false;
     if (isPreflightKey(phaseKey)) { const preflight = await this.recheckPreflight(phaseKey); if (preflight) return preflight; }
     const facts = this.record.phases[phaseKey]!;
@@ -6068,6 +6082,8 @@ export class Engine {
         return "complete";
       }
       if (routeAudits && this.finalNeedsAudits(check)) return "done";
+      // Only an out-of-date description stops final delivery: Check again clears the stop and a pull request session starts (AC-LEFT-01). Mark complete's rerun keeps it.
+      if (routeAudits && !options.resuming && this.onlyDescriptionFails(check.checks)) return this.clearStop(phaseKey);
       this.updateStop(phaseKey, check.checks, true);
       return "still_stopped";
     }
@@ -6248,7 +6264,7 @@ export class Engine {
         const result = await evaluateRepositories(this.deliveryContext(phaseKey)); this.announceDelivery();
         const check = result.checks[0]!;
         const outcome = this.withCodexSafety(PR_PHASE_KEY, { passed: result.passed, check, checks: result.checks, pullRequests: result.pullRequests, mergedBranches: [] as MergedBranchFacts[], ghError: ledger(this.record).sourceUnavailable === true });
-        await this.requireCurrentAudits(outcome); outcome.passed = await this.markChecks(PR_PHASE_KEY, outcome.checks); ledger(this.record).currentComplete = outcome.passed; this.save();
+        await this.requireCurrentAudits(outcome); outcome.passed = await this.markChecks(PR_PHASE_KEY, outcome.checks); this.addDescriptionRow(outcome); ledger(this.record).currentComplete = outcome.passed; this.save();
         this.lastFinalCheck = { pullRequests: outcome.pullRequests, mergedBranches: outcome.mergedBranches }; return outcome;
       }
       const repositories = await this.pullRequestRepositoriesNow();
@@ -6270,6 +6286,7 @@ export class Engine {
       await this.requireCurrentAudits(outcome);
       const marked = this.withCodexSafety(PR_PHASE_KEY, outcome);
       marked.passed = await this.markChecks(PR_PHASE_KEY, marked.checks);
+      this.addDescriptionRow(marked);
       this.lastFinalCheck = { pullRequests: marked.pullRequests, mergedBranches: marked.mergedBranches };
       return marked;
     } finally {
@@ -7669,18 +7686,39 @@ export class Engine {
       prdFile: this.pathFrom(folder, this.prdFile()),
       branch: this.record.settings.featureBranch,
       repositories: this.promptRepositories(await this.pullRequestRepositoriesNow()),
-      personItems: this.personItemsForDelivery(),
+      deliveryBlock: this.deliveryBlockNow(),
     };
   }
 
   /**
-   * The block each pull request's description opens with (AC-ITEM-03): **For you**, each item's line
-   * with its Waived tag, then the after-delivery actions; then **Settled during the build**.
+   * The block each pull request's description opens with (AC-LEFT-01, AC-ITEM-03): **For you**, each
+   * item's line with its Waived tag, then the after-delivery actions; **Closing audits** from the
+   * ledger and the limits in force; then **Settled during the build**. Built only from saved facts.
    */
-  private personItemsForDelivery(): string {
+  deliveryBlockNow(): string {
     const audits = this.record.completionAudits?.activities ?? [];
     const tag = (ref: WaiverRef) => [`waived at ${this.activityName(ref.activityKey)}, ${ref.at.slice(0, 16).replace("T", " ")} UTC`, ref.via === "browser" ? "browser" : "command line", ref.account, ...(ref.by ? [ref.by] : [])].join(" · ");
-    return deliveryBlock(forYou(this.stateDirectory, this.record), personItems(this.stateDirectory, audits).settled, tag);
+    return deliveryBlock(forYou(this.stateDirectory, this.record), personItems(this.stateDirectory, audits).settled, tag, closingAudits(this.record));
+  }
+
+  /**
+   * The pull request check's **Pull request description** row (AC-LEFT-01), added after waivers are
+   * applied, only while the run is not complete, every other row passes and at least one pull request
+   * is open: it passes only when the latest pull request session in this execution that delivered its
+   * block was given the block Kiln would give now.
+   */
+  private addDescriptionRow(outcome: { passed: boolean; checks: CheckResult[]; pullRequests?: PullRequestFacts[] }): void {
+    if (this.record.completedAt || !outcome.passed || !outcome.pullRequests?.length) return;
+    const sessions = (this.record.phases[PR_PHASE_KEY]?.sessionIds ?? []).flatMap(id => { const one = this.sessionRecord(PR_PHASE_KEY, id); return one && (!one.executionId || one.executionId === this.record.executionId) ? [one] : []; });
+    const row = descriptionRow(sessions, this.deliveryBlockNow(), outcome.pullRequests.length);
+    outcome.checks.push(row);
+    outcome.passed = row.passed;
+  }
+
+  /** A stop on final delivery whose only failing row is **Pull request description**: Check again starts the pull request session, and Mark final delivery complete needs no recheck first (AC-LEFT-01). */
+  private onlyDescriptionFails(checks: readonly CheckResult[]): boolean {
+    const failing = checks.filter(check => !check.passed);
+    return failing.length > 0 && failing.every(check => check.name === DESCRIPTION_CHECK);
   }
 
   private checkedRepository(entry: RepositoryEntry): CheckedRepository {

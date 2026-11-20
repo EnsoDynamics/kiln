@@ -15,6 +15,7 @@ import { ControlFailure, errorFact, failed, exitFor, result, serialize, type Res
 import type { CommandContext } from "../kiln-command.js";
 import { loopSettings, REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
 import { auditLoopsText, loopSettingInputs, SETTING_FLAGS, type AuditLoopsView } from "./loop-text.js";
+import { continuationText, deliveredText } from "./delivered-facts.js";
 
 interface Capability { protocol_major: number; execution_id: string; prd_path: string; instance: { pid: number; process_start_time: string | null }; features: string[] }
 interface Controller { features?: string[]; state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
@@ -109,12 +110,16 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (lead && !json) context.stdout.write(`${lead}\n`);
     await output.writeTo(context.stdout); return exitFor(answer);
   };
-  const statusLead = (answer: Result) => {
+  // `current`: the answer came from this Kiln, or from a controller that moves on at the limits; only then are the loop lines its own (Compatibility).
+  const statusLead = (answer: Result, current = true) => {
     if (answer.state === "folder_missing") return folderMissingText(progressHeading(answer), answer.folder_missing as FolderMissingFacts);
     const rows = answer.progress as ProgressRow[] | undefined;
-    const loops = auditLoopsText(answer.audit_loops as AuditLoopsView | null | undefined);
+    const delivered = current ? deliveredText(answer.delivered as Parameters<typeof deliveredText>[0], (answer.repositories as unknown[] | undefined ?? []).length > 1) : undefined;
+    // A finished run says its loops once, in Closing audits, so For you can come first when it lists a critical finding.
+    const loops = current && !delivered ? auditLoopsText(answer.audit_loops as AuditLoopsView | null | undefined) : undefined;
     const items = personItemsText(answer.items as Record<string, unknown>[] | null | undefined);
-    const lead = [rows?.length ? progressText(progressHeading(answer), rows).trimEnd() : undefined, loops, items].filter(Boolean).join("\n");
+    const offer = current ? continuationText(answer.continuation as Parameters<typeof continuationText>[0]) : undefined;
+    const lead = [rows?.length ? progressText(progressHeading(answer), rows).trimEnd() : undefined, loops, items, delivered, offer].filter(Boolean).join("\n");
     return lead ? `${lead}\n` : undefined;
   };
   const receiptLead = (answer: Result, record: SavedWork["record"] | undefined, waive = false) => receiptLines(answer, record, waive)?.join("\n");
@@ -211,7 +216,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
         await output.writeTo(context.stdout); return code;
       } finally { try { await reader.cancel(); } finally { try { reader.releaseLock(); } finally { output.close(); } } }
     }
-    if (owner.state === "reachable" && name !== "settings") { const answer = await request(work, owner, name === "account" && flags.refresh ? "account/refresh" : `${name}${query.size ? `?${query}` : ""}`, name === "account" && flags.refresh || name === "handoff" ? 35000 : 5000, name === "account" && !!flags.refresh); return write(answer, name === "status" ? statusLead(answer) : undefined); }
+    if (owner.state === "reachable" && name !== "settings") { const answer = await request(work, owner, name === "account" && flags.refresh ? "account/refresh" : `${name}${query.size ? `?${query}` : ""}`, name === "account" && flags.refresh || name === "handoff" ? 35000 : 5000, name === "account" && !!flags.refresh); return write(answer, name === "status" ? statusLead(answer, !!owner.features?.includes("loop_limits_move_on")) : undefined); }
     if (name === "status") { const answer = statusProjection(work, undefined, flags.detail === "full"); return write(answer, statusLead(answer)); }
     if (name === "account") {
       if (flags.refresh) throw new ControlFailure("controller_unreachable", "Fresh account reads require the matching live controller.");

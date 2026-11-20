@@ -474,7 +474,8 @@ describe("automatic completion activities", () => {
   });
 
   it.each(["open PR", "already merged"])("keeps existing %s evidence behind audits at startup, Check again and Resume", async existing => {
-    const h=await fixture([auditSession({noReport:true}),auditSession(),auditSession()]);
+    // An open pull request gets this run's block from a pull request session before the run completes (Kiln Deliver When Audit Loops Run Out AC-LEFT-01).
+    const h=await fixture([auditSession({noReport:true}),auditSession(),auditSession()],[{actions:[{result:"Edited #7's description."},{exit:0}]}]);
     const branch=h.engine.record.settings.featureBranch;
     if(existing==="open PR")h.setPulls([{repo:"acme/acme-shop",number:7,title:"Existing review",url:"https://github.com/acme/acme-shop/pull/7",headRefName:branch,baseRefName:"develop",isDraft:false,isCrossRepository:false,additions:1,deletions:0,commits:[]}]);
     let integrated="";
@@ -491,7 +492,8 @@ describe("automatic completion activities", () => {
       expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ok:true});await h.engine.settled();
       expect(h.engine.record.completedAt,JSON.stringify(h.engine.record.phases)).toBeTruthy();
       expect(h.engine.record.completionAudits!.activities.map(a=>a.kind)).toEqual(["delivery_audit","test_audit"]);
-      expect(h.claudeCalls()).toHaveLength(3);expect(h.claudeCalls().some(c=>c.prompt.includes("Open one pull request"))).toBe(false);
+      const finals=existing==="open PR"?1:0;
+      expect(h.claudeCalls()).toHaveLength(3+finals);expect(h.claudeCalls().filter(c=>c.prompt.includes("Open one pull request"))).toHaveLength(finals);
       if(existing==="open PR")expect(h.engine.record.pullRequests?.[0]?.number).toBe(7);
     } finally {off();}
   });
@@ -691,11 +693,14 @@ describe("automatic completion activities", () => {
 
   it("automatically reaudits material finalization changes and reuses the existing final pull request", { timeout: 120_000 }, async () => {
     const final = pullRequestSession(); final.actions.unshift({ write: { path: `${directory}/value.mjs`, content: files["value.mjs"] + "// Finalization changed tracked implementation.\n" } }, { commit: "fix(value): retain final source update" }, { push: true });
-    const h = await fixture(undefined, [final]);
+    // The reaudits change this run's Closing audits, so a second pull request session writes the new block into the same pull request (AC-LEFT-01).
+    const h = await fixture(undefined, [final, { actions: [{ result: "Edited #218's description." }, { exit: 0 }] }]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit",1],["test_audit",1],["delivery_audit",2],["test_audit",2]]);
-    expect(h.claudeCalls().filter(c => c.prompt.includes("Open one pull request"))).toHaveLength(1);
+    const finals = h.claudeCalls().filter(c => c.prompt.includes("Open one pull request"));
+    expect(finals).toHaveLength(2);
+    expect(finals[1]!.prompt).toContain("Delivery audit: 2 of 4 loops. Test audit: 2 of 4 loops.");
     expect(h.engine.record.pullRequests).toHaveLength(1);
   });
 

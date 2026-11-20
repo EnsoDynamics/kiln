@@ -99,6 +99,7 @@ The last session of test fixes, and any test audit after it, is told no more loo
   - Superseded in part by: AC-LAST-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a report that adds phases or saves test work never stops the run because no loop is left; its test work is done in as many sessions as it takes)
   - Superseded in part by: AC-ITEM-03 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (once no test loop is left, only an item that stops or holds the run under AC-ITEM-01 stops it)
 - [ ] **AC-TEST-03 — The last loop is shown, never hidden.** The last test audit loop's row and detail say it was the last, and those of each session whose prompt quoted the default's sentence (AC-TEST-01) or an Accept sentence (AC-STOP-02) say which sentence it carried. The pull request session gets a line saying the same, with the latest such session's summary, to include word for word, as for settled items.
+  - Superseded in part by: AC-LEFT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (its line is replaced by the loop counts)
 
 ### Decide at the Stop
 

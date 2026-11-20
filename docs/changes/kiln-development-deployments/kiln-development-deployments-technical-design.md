@@ -127,6 +127,8 @@ All routes retain loopback, Host, Origin and token checks. Each remote read uses
 
 ## Evidence and Completion
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §What a Delivered Run Says (the **Pull request description** row is a finalization obligation, so an open review pull request no longer skips the pull request session; an all-delivered execution still starts none).
+
 ### Merge, deployment and verification are separate
 
 GitHub and Git facts establish delivery. Read the exact PR number once known; discover interrupted creations using repository, same-repository head branch, base and recorded head SHA across open/merged/closed results, with pagination. An open PR or closed-unmerged PR is never a merge. Capture `headRefOid`, `baseRefName`, `mergedAt`, `mergeCommit` and PR state; check the approved base's actual remote history contains the merge result. The PR's merged head must match the prepared checkpoint. Unexpected new commits or a foreign repository cannot be adopted. Preserve the original source head even when squash/rebase changed commit IDs. A successful merge command that only enabled auto-merge or entered a merge queue remains pending until the PR is actually merged. The merge result is the target merge commit, squash commit or last rebased commit as GitHub reports; it is not necessarily the original feature head. A merge method that cannot be established is recorded as unknown without guessing, while the verified source/result pair remains the coverage proof.
@@ -188,6 +190,8 @@ Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, �
 ## Display Contract
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (audit activity identity and owner-aware progress), implemented in Phase 2b. Existing authority and evidence protections remain.
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §What a Delivered Run Says (the Complete screen also shows the loops used of each kind).
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §Display Contract (the early-merge warning beneath Allow early merges).
 

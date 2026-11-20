@@ -1,5 +1,7 @@
 # Phase 3: Report the delivered run
 
+**Closed:** 2026-11-20
+
 **Parent PRD:** [Kiln Deliver When Audit Loops Run Out](kiln-deliver-when-audit-loops-run-out-prd.md)
 **Technical design:** [Kiln Deliver When Audit Loops Run Out technical design](kiln-deliver-when-audit-loops-run-out-technical-design.md) — relevant sections: "What a Delivered Run Says", "Interfaces" (Status and snapshot), "Prompts" (`pull-request-person-items.txt` **Closing audits**; the resume carry-on lines), "Upgrade" (a 1.3.0 pull request session with no saved block), "Delivery"
 

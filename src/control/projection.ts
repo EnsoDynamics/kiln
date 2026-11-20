@@ -35,6 +35,7 @@ import { findExecutable } from "../platform/helper-process.js";
 import { displayPath } from "../engine/worktree-setup.js";
 import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed } from "../state/audit-loops.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
+import { continuationFacts, deliveredFacts } from "./delivered-facts.js";
 
 export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
@@ -49,7 +50,7 @@ function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot)
   const task = engine.auditRecoveryTask(selected.phase, cwd);
   const fresh = task ? auditRecoveryPrompt(task, engine.deliveryAuthority())
     : session.kind === "pull_request" ? pullRequestSessionPrompt({ deliveryAuthority: engine.deliveryAuthority(), featureName: engine.paths.featureName, prdFile: engine.pathFrom(cwd, engine.prdFile()), branch: engine.record.settings.featureBranch,
-      repositories: engine.pullRequestRepositories().map(r => ({ name: r.name, github: r.github, worktreePath: expandHome(r.worktreePath), baseBranch: r.baseBranch, isPrd: r.kind === "prd" })) })
+      repositories: engine.pullRequestRepositories().map(r => ({ name: r.name, github: r.github, worktreePath: expandHome(r.worktreePath), baseBranch: r.baseBranch, isPrd: r.kind === "prd" })), deliveryBlock: engine.deliveryBlockNow() })
     : plan ? freshSessionPrompt(engine.phasePromptValues(plan.file, cwd), true) : null;
   const providerFresh = fresh && session.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(fresh, session.codex.launchIntent.skills) : fresh;
   return {
@@ -330,6 +331,9 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     audit_loops: view?.auditLoops ?? savedAuditLoops(record),
     // The items for a person at a Needs you stop on an audit, or at the hold stop (AC-ITEM-02).
     items: view?.items?.map(projectPersonItem) ?? null,
+    // A finished run's loops, For you and pull requests, and the offer to continue the finished page shows (AC-LEFT-02, AC-BOT-02).
+    delivered: view?.delivered ? deliveredFacts(view.delivered, record) : null,
+    continuation: record.completedAt && (view?.continuation?.check ?? record.completedPlanCheck) ? continuationFacts((view?.continuation?.check ?? record.completedPlanCheck)!) : null,
     pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
     progress,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },

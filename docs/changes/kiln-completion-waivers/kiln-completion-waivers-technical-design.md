@@ -65,6 +65,8 @@ A plan that reads with structural problems, or that the retained baseline cannot
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (Mark complete is offered at a preflight stop without a recheck).
 
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §What a Delivered Run Says (at a pull request check stop whose only failing row is **Pull request description**, Mark final delivery complete is offered on the stop's own check run, and the line by Check again is left out).
+
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Check Runs and When Mark Complete Is Offered (at a **Nothing holds the run** stop the offer is Continue anyway with effect `continued`, even after a pull request session ran, so waiving it never completes the run).
 
 A stop records the identity of its latest check run:
@@ -126,6 +128,8 @@ An activity can complete normally on a carried waiver, with no waiver of its own
 ## Mark Complete (AC-WAIVE-03, AC-WAIVE-04)
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop (no rerun at a preflight stop; the waiver is saved from the stop's items).
+
+Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §What a Delivered Run Says (at a pull request check stop whose only failing row is **Pull request description**, Mark final delivery complete's rerun keeps the stop rather than starting the session, and its waiver marks the row **Waived** only in the rows it completes the run with).
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Mark Complete (at a **Nothing holds the run** stop the offer is Continue anyway with effect `continued`, even after a pull request session ran, so waiving it never completes the run).
 
