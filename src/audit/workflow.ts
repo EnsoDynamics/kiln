@@ -59,11 +59,7 @@ export async function auditNext(context: AdmissionContext): Promise<AuditKind | 
   if (!state) throw new AuditRefusal("missing_evidence", "Completion audit policy is missing; reopen with a compatible Kiln.");
   if (state.policy === "legacy_complete" && context.record.completedAt) return "final_delivery";
   const closed = context.closed ?? { delivery: false, test: false };
-  const testAudit = (): "test_audit" | "continue_test" | "final_delivery" => {
-    if (!closed.test) return "test_audit";
-    const latest = state.activities.findLast(a => a.kind === "test_audit" && !!context.record.phases[auditKey(a)]?.doneAt && hasEffectiveResult(a));
-    return latest && effectiveAudit(context.stateDirectory, latest)?.countedOutcome === "continue_test" ? "continue_test" : "final_delivery";
-  };
+  const testAudit = (): "test_audit" | "continue_test" | "final_delivery" => !closed.test ? "test_audit" : latestTestContinues(context) ? "continue_test" : "final_delivery";
   const delivery = state.activities.findLast(a => a.kind === "delivery_audit");
   if (!delivery) return closed.delivery ? testAudit() : "delivery_audit";
   const settled = effectiveAudit(context.stateDirectory, delivery);
@@ -86,6 +82,11 @@ export async function auditNext(context: AdmissionContext): Promise<AuditKind | 
   if (!current.testsCurrent) return testAudit();
   if (testResult.outcome === "continue_test") return "continue_test";
   return testResult.outcome === "passed" ? "final_delivery" : testAudit();
+}
+/** Whether the latest settled test audit counts as `continue_test`, so its saved test work is still to be worked through (AC-LAST-03). */
+export function latestTestContinues(context: Pick<AdmissionContext, "record" | "stateDirectory">): boolean {
+  const latest = context.record.completionAudits?.activities.findLast(a => a.kind === "test_audit" && !!context.record.phases[auditKey(a)]?.doneAt && hasEffectiveResult(a));
+  return !!latest && effectiveAudit(context.stateDirectory, latest)?.countedOutcome === "continue_test";
 }
 /** Whether each audit's checked work is what the next one started from (accepted or waiver snapshot). */
 export function untouchedBetweenAudits(context: AdmissionContext, chain: AuditActivity[]): boolean {

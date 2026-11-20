@@ -36,7 +36,7 @@ import { CommandJournal, ACTIONS, isStartingReceipt, lookupReceipt, readReceipts
 import { CompletionCheckUnavailable, RecoveryStateWriteFailed, sameRecoveryTarget, validRecoveryTarget, type PhaseRecoveryTarget, type PhaseRecoveryView, type PhaseRecoveryOutcome, type PhaseRecoveryCode } from "./phase-recovery.js";
 import { BillingAuthority, BillingError, newBillingState } from "../billing/authority.js";
 import { classify, readInventory, type BillingSummary } from "../billing/inspection.js";
-import { activityHistory, observeActivity, auditKey, auditLabel, auditNext, resolveAuditSkill, resolveSkill, type SkillResolution, effectiveAudit, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
+import { activityHistory, observeActivity, latestTestContinues, auditKey, auditLabel, auditNext, resolveAuditSkill, resolveSkill, type SkillResolution, effectiveAudit, hasEffectiveResult, classifyAuditReport, waiveAudit, waiveUnstartedAudit, continuablePredecessor } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
@@ -2046,8 +2046,7 @@ export class Engine {
     const closed = closedKinds(this.record);
     const testAudit = { kind: "audit" as const, key: "", title: "Test audit" };
     const finalDelivery = { kind: "final_delivery" as const, key: PR_PHASE_KEY, title: "Final delivery" };
-    const latestTest = this.record.completionAudits?.activities.findLast(a => a.kind === "test_audit" && this.record.phases[auditKey(a)]?.doneAt && hasEffectiveResult(a));
-    const afterDelivery = () => !closed.test || latestTest && effectiveAudit(this.stateDirectory, latestTest)?.countedOutcome === "continue_test" ? testAudit : finalDelivery;
+    const afterDelivery = () => !closed.test || latestTestContinues(this.gateContext) ? testAudit : finalDelivery;
     if (!audit) return closed.delivery ? afterDelivery() : { kind: "audit", key: "", title: "Delivery audit" };
     if (countedOutcome === "continue_test") return testAudit;
     return audit.kind === "delivery_audit" ? afterDelivery() : finalDelivery;
@@ -4596,6 +4595,8 @@ export class Engine {
 
   // ---- Audit loops (Kiln Deliver When Audit Loops Run Out) -----------------------------------
 
+  private get gateContext() { return { record: this.record, stateDirectory: this.stateDirectory }; }
+
   /**
    * Writes `atPullRequest` once, from `Settings`, so the rest of the execution reads the limits it
    * had when its first pull request session launched or the run completed ("Loops and the Ledger").
@@ -4675,8 +4676,7 @@ export class Engine {
     const closed = closedKinds(this.record);
     const activities = this.record.completionAudits?.activities ?? [];
     const settled = activities.findLast(a => this.record.phases[auditKey(a)]?.doneAt);
-    const latestTest = activities.findLast(a => a.kind === "test_audit" && this.record.phases[auditKey(a)]?.doneAt);
-    const testContinues = !!latestTest && effectiveAudit(this.stateDirectory, latestTest)?.countedOutcome === "continue_test";
+    const testContinues = latestTestContinues(this.gateContext);
     // After a delivery audit, or none: the test audit while one is left, else saved test work, else final delivery.
     const afterDelivery = () => !closed.test ? "test_audit" : testContinues ? "continue_test" : "final_delivery";
     if (!settled) return closed.delivery ? afterDelivery() : "delivery_audit";
@@ -4729,8 +4729,7 @@ export class Engine {
     // Grades remain history: this activity independently reassesses all current rows.
     const history = this.record.completionAudits!.activities.filter(a => a.sequence < activity.sequence && hasEffectiveResult(a) && effectiveAudit(this.stateDirectory, a)?.reportBytes);
     const previous = [history.findLast(a => a.kind === "delivery_audit"), history.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a).sort((a, b) => a.sequence - b.sequence);
-    const latestTest = this.record.completionAudits!.activities.findLast(a => a.kind === "test_audit" && a.sequence < activity.sequence && this.record.phases[auditKey(a)]?.doneAt && hasEffectiveResult(a));
-    const nextSteps = nextStepsForecast({ kind: activity.kind, fixing: activity.continuationIndex > 1, closed: closedKinds(this.record), latestTestContinues: !!latestTest && effectiveAudit(this.stateDirectory, latestTest)?.countedOutcome === "continue_test" });
+    const nextSteps = nextStepsForecast({ kind: activity.kind, fixing: activity.continuationIndex > 1, closed: closedKinds(this.record), latestTestContinues: latestTestContinues(this.gateContext) });
     return auditSessionPrompt({ label: auditLabel(activity.kind), skillName: runnableSkill(activity).name, skillPath: runnableSkill(activity).path, executionId: this.record.executionId!, activityId: activity.activityId, round: activity.round, continuationIndex: activity.continuationIndex, reportPath: activity.reportPath, prdFile: this.pathFrom(this.sessionFolder, this.prdFile()), repositories: this.promptRepositories(this.setUpRepositories), branch: this.record.settings.featureBranch, cli: `${JSON.stringify(process.execPath)} ${JSON.stringify(fileURLToPath(new URL("../cli.js", import.meta.url)))}`, deliveryAuthority: this.deliveryAuthority(), ...(previous.length ? { previous: previous.map(a => effectiveAudit(this.stateDirectory, a)!.reportBytes!).join("\n\n") } : {}), outstanding: outstandingLines(personItems(this.stateDirectory, this.record.completionAudits!.activities, activity.sequence).outstanding), nextSteps });
   }
 
