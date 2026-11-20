@@ -59,6 +59,7 @@ Between pressing Pause now and the release, the person needs to know what Kiln i
 
   - Replaces in part: AC-TAKE-02 and AC-TAKE-05, and the pausing rows of AC-LIVE-02 and AC-LIVE-04, in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the pausing state's wording, and showing it until the release on every page; the release requirement and obstacle reporting remain).
   - Replaces in part: AC-STOP-05 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the header while an audit is pausing under Pause now).
+  - Replaces in part: AC-START-09 and AC-CLI-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (on a restart while Pause now is pausing, the summary says "pausing in {activity}", not "needs you", and the ● line says Kiln finishes the pause on its own).
 
 - [ ] **AC-PAUSE-04 — A pause can be cancelled until the stop.** Until the stop, **Cancel pause and keep going** withdraws the request: the hold ends without a hand-back, the session carries on in the same attempt as if Pause now had not been pressed, the panel returns to its two choices, and `kiln status` no longer reports the pause. From the stop on, Cancel is not offered; a cancel that arrives after it is refused with "Kiln had already paused. Press Resume once it’s paused to carry on." Cancel is unavailable while disconnected, with the usual reason, and is a browser control only (PAUSE-002). Cancelling never cancels a separately requested end-of-activity pause.
   - Replaces in part: AC-TAKE-01 and AC-LIVE-04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (a pending Pause now can be withdrawn, ending the hold without a hand-back).
@@ -81,7 +82,7 @@ After an immediate pause, the person comes back to a page that says plainly wher
   - Replaces in part: AC-TAKE-03, the "Paused for terminal takeover" row of AC-LIVE-02 and the "Takeover ready" row of AC-LIVE-04 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the Needs you layout and its wording; the facts shown remain).
   - Replaces in part: AC-WATCH-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the header for a pending or completed Pause now).
   - Replaces in part: AC-WATCH-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (an activity paused by Pause now is marked Paused in the phase plan, not Needs you).
-  - Replaces in part: AC-START-09 in `docs/prds/kiln-v1/kiln-v1-prd.md` (after an immediate pause, how far the feature has got says "paused in {activity}", not "needs you", and the activity's line reads "paused" and prints when the pause completes).
+  - Replaces in part: AC-START-09 in `docs/prds/kiln-v1/kiln-v1-prd.md` (after an immediate pause, how far the feature has got says "paused in {activity}", not "needs you", the ● line says to press Resume {activity}, and the activity's line reads "paused" and prints when the pause completes).
   - Replaces in part: AC-CLI-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (on reopening, an activity paused by Pause now shows as Paused rather than Needs you; it still waits for Resume).
   - Replaces in part: AC-STOP-05 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the header while an audit is paused by Pause now).
 

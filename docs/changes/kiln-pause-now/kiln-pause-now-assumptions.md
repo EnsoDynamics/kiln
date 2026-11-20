@@ -18,10 +18,12 @@
      Gaps in numbering (e.g., DATA-001, DATA-003) are expected
      when assumptions are validated and moved. NEVER close gaps. -->
 
-**Last Updated**: 2026-11-19
+**Last Updated**: 2026-11-20
 **Status**: DRAFT - Pending business validation
 
 **Document Purpose**: This document lists the assumptions we're making to proceed with Kiln Pause Now. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong. Every numbered entry before the Technical Assumptions section is a business assumption.
+
+**Technical details** are documented in the [Technical Design](kiln-pause-now-technical-design.md).
 
 ---
 
