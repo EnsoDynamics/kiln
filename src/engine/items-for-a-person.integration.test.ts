@@ -4,8 +4,9 @@
 // stops at once, a blocker or business question holds the run short of the pull request until a
 // person presses Continue anyway, and everything else goes on and is listed under For you.
 import { afterEach, describe, expect, it } from "vitest";
-import { writeFileSync } from "node:fs";
+import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
 import { startFixtureController } from "../test-support/controller-server.js";
@@ -17,6 +18,9 @@ import { statusProjection } from "../control/projection.js";
 import { personItemsText } from "../control/waiver-facts.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot } from "../state/state-files.js";
+import { ownerDocuments, type DeliveryContext } from "./development-delivery.js";
+import type { DeliveryCheckpoint, DeliveryOwner } from "../state/development-delivery.js";
+import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import type { Receipt } from "../control/commands.js";
 import type { LocalServer } from "../server/local-server.js";
 
@@ -145,12 +149,84 @@ describe("Continue anyway when the work is already delivered (AC-ITEM-01)", () =
     expect(pullRequests(current)).toEqual([]);
     expect(buildSnapshot(current.engine).delivered!.forYou.items).toMatchObject([{ id: "item-1", kind: "blocker", waiver: { activityKey: "pr" } }]);
   });
+  it("completes the run with no pull request session when every repository's work was confirmed delivered early through development delivery", { timeout: 240_000 }, async () => {
+    // Development delivery is on; the delivery audit lists a blocker and the test audit, which owns an early delivery of every commit, relists it.
+    h = await createHarness({ folder: "proof", files, sessions: [pullRequestSession()], auditCycles: true });
+    const current = h;
+    writeFileSync(join(h.repository, ".gitignore"), ".proof/\n"); git(h.sandbox, h.repository, "add", "--", ".gitignore"); git(h.sandbox, h.repository, "commit", "-m", "test(audit): ignore transient requests"); git(h.sandbox, h.repository, "push", "origin", "develop");
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [pullRequestSession()], auditSessions: [audit({ items: [blocker] }), audit({ relist: true })] }));
+    const target = { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "test-development" };
+    expect((await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: [{ target, confirmedTarget: target, confirmedNonProduction: true }] } })).ok).toBe(true);
+    expect((await h.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 1 } })).ok).toBe(true);
+    // The captured GitHub contract, read through the development-delivery gh stand-in.
+    const responses: Record<string, { body?: unknown }> = {};
+    const statePath = join(h.sandbox.root, "delivery-responses.json");
+    const save = () => writeFileSync(statePath, JSON.stringify({ responses, log: join(h!.sandbox.root, "delivery-gh-calls.jsonl") })); save();
+    const peer = fileURLToPath(new URL("../../test/stand-ins/development-gh-stand-in.mjs", import.meta.url));
+    const executable = join(h.sandbox.root, "delivery-gh");
+    writeFileSync(executable, `#!/bin/sh\nexec '${process.execPath}' '${peer}' "$@"\n`); chmodSync(executable, 0o755);
+    h.tools.gh = executable; h.env.KILN_DELIVERY_GH_RESPONSES = statePath;
+    const hosted = await startFixtureController({ engine: h.engine, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
+    server = hosted.server; release = hosted.release;
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    const repo = h.engine.record.repositories[0]!;
+    const context = (owner: DeliveryOwner): DeliveryContext => ({ record: current.engine.record, stateDirectory: current.stateDirectory, prdWorktree: repo.worktreePath, prdDirectory: current.engine.paths.prdDirectoryFromRoot, git: { git: current.tools.git, env: current.env }, gh: executable, env: current.env, owner, commands: () => Promise.resolve([]), now: () => new Date().toISOString() });
+    // The delivery audit needs no development delivery.
+    const delivery = h.engine.record.completionAudits!.activities.at(-1)!; const deliveryOwner: DeliveryOwner = { kind: "audit", activityId: delivery.activityId };
+    expect(h.engine.stoppedPhaseKey()).toBe(auditKey(delivery));
+    h.engine.record.developmentDelivery!.assessments.push({ owner: deliveryOwner, ...ownerDocuments(context(deliveryOwner), deliveryOwner), required: false, criteria: ["AC-PROOF-01"], reason: "The audit needs no development delivery", checkpointIds: [] });
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+    // The test audit's checkpoint: its head squash-merged into develop, deployed and verified there, and synchronized back.
+    const testAudit = h.engine.record.completionAudits!.activities.at(-1)!; const testOwner: DeliveryOwner = { kind: "audit", activityId: testAudit.activityId };
+    expect(testAudit.kind).toBe("test_audit");
+    const featureBranch = h.engine.record.settings.featureBranch;
+    const head = git(h.sandbox, repo.worktreePath, "rev-parse", "HEAD").trim();
+    git(h.sandbox, h.repository, "fetch", "origin", featureBranch); git(h.sandbox, h.repository, "merge", "--squash", "FETCH_HEAD"); git(h.sandbox, h.repository, "commit", "-m", "Squash the early delivery"); git(h.sandbox, h.repository, "push", "origin", "develop");
+    const merged = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+    const capture = JSON.parse(readFileSync(fileURLToPath(new URL("../../test/fixtures/development-delivery/github-contract.json", import.meta.url)), "utf8")) as { pull: Record<string, unknown>; deployment: Record<string, unknown>; statuses: Record<string, unknown>[]; run: Record<string, unknown>; jobs: { jobs: Record<string, unknown>[] } };
+    const now = Date.now() - 120_000; const at = (seconds: number) => new Date(now + seconds * 1000).toISOString();
+    const jobUrl = "https://github.com/acme/acme-shop/actions/runs/21/job/31";
+    const deployment = { ...capture.deployment, id: 11, sha: merged, environment: target.environment, created_at: at(11) };
+    Object.assign(responses, {
+      "repos/acme/acme-shop/pulls/1": { body: { ...capture.pull, number: 1, html_url: "https://github.com/acme/acme-shop/pull/1", state: "closed", draft: false, body: `PRD: ${directory}/proof-prd.md`, merged_at: at(10), merge_commit_sha: merged, head: { sha: head, ref: featureBranch, repo: { full_name: "acme/acme-shop" } }, base: { ref: "develop", repo: { full_name: "acme/acme-shop" } } } },
+      [`repos/acme/acme-shop/compare/${merged}...develop`]: { body: { status: "identical", merge_base_commit: { sha: merged } } },
+      "repos/acme/acme-shop/deployments/11": { body: deployment },
+      "repos/acme/acme-shop/deployments/11/statuses?per_page=100&page=1": { body: [{ ...capture.statuses[0], state: "success", environment: target.environment, log_url: jobUrl, created_at: at(20) }] },
+      "repos/acme/acme-shop/actions/runs/21/attempts/1": { body: { ...capture.run, id: 21, head_sha: merged, path: ".github/workflows/deploy.yml", run_attempt: 1, status: "completed", conclusion: "success", created_at: at(10) } },
+      "repos/acme/acme-shop/actions/runs/21/attempts/1/jobs?per_page=100&page=1": { body: { jobs: [{ ...capture.jobs.jobs[1], id: 31, name: "deploy", status: "completed", conclusion: "success", html_url: jobUrl, started_at: at(11), completed_at: at(20) }, { ...capture.jobs.jobs[2], id: 32, name: "verify", status: "completed", conclusion: "success", html_url: `${jobUrl}-verify`, started_at: at(21), completed_at: at(30) }] } },
+      "repos/acme/acme-shop/deployments?environment=test-development&per_page=100&page=1": { body: [deployment] },
+    }); save();
+    const source = { path: "README.md", revision: head };
+    const binding = ownerDocuments(context(testOwner), testOwner);
+    const checkpoint: DeliveryCheckpoint = { id: "early-delivery", owner: testOwner, executionId: h.engine.record.executionId!, target, featureBranch, headSha: head, baseSha: repo.baseCommit!, criteria: ["AC-PROOF-01"], ...(binding.requirementManifestDigest ? { requirementManifestDigest: binding.requirementManifestDigest } : {}), dependsOn: [], workflowSource: source, requirements: [{ id: "deploy", purpose: "deployment", source, match: { kind: "github_deployment" } }, { id: "verify", purpose: "verification", source, match: { kind: "github_workflow", path: ".github/workflows/deploy.yml", jobs: ["verify"], deploymentJob: "deploy", attempt: 1 } }], requiredChecks: ["required-check"], requireReview: false, createdAt: at(0), operations: [{ id: "merge-intent", kind: "merge", state: "prepared", preparedAt: at(1), references: [], pullRequest: 1 }], references: [{ requirementId: "deploy", kind: "github_deployment", id: "11" }, { requirementId: "verify", kind: "github_workflow", id: "21" }], evidence: [] };
+    h.engine.record.developmentDelivery!.checkpoints.push(checkpoint);
+    h.engine.record.developmentDelivery!.assessments.push({ owner: testOwner, ...binding, required: true, criteria: ["AC-PROOF-01"], reason: "Deploy and verify the early delivery", checkpointIds: [checkpoint.id] });
+    git(h.sandbox, repo.worktreePath, "fetch", "origin", "develop"); git(h.sandbox, repo.worktreePath, "merge", "--no-edit", "origin/develop"); git(h.sandbox, repo.worktreePath, "push", "origin", featureBranch);
+    checkpoint.operations.push({ id: "sync-intent", kind: "synchronize", sourceHead: head, intendedBaseSha: merged, state: "prepared", preparedAt: at(40), references: [] });
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")); await h.engine.settled();
+    // The relisted blocker holds the run at the pull request step, with no pull request.
+    expect(h.engine.stoppedPhaseKey()).toBe("pr");
+    expect(h.engine.record.phases.pr!.stop!.checks).toMatchObject([{ name: HOLD_CHECK, passed: false, items: [{ subject: "item-1" }] }]);
+    await control(h, "check-again");
+    // Every repository is delivered early, not merged as a whole, so Continue anyway completes the run.
+    expect(h.engine.record.developmentDelivery!.repositoryResults).toMatchObject([{ state: "delivered", deliveredCheckpointIds: [checkpoint.id] }]);
+    const offer = h.engine.markCompleteOffer();
+    expect(offer).toMatchObject({ offered: true, label: "Continue anyway", hold: "complete",
+      sentence: ["Continue anyway. Kiln records each item above as waived, never as settled, and completes the run, because the work is already delivered. The items stay open and are listed under For you, each marked Waived."] });
+    if (!offer.offered) throw new Error(offer.reason);
+    expect((await control(h, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" })).outcome).toBe("continued");
+    expect(h.engine.record.completedAt).toBeTruthy();
+    expect(pullRequests(h)).toEqual([]);
+    expect(h.engine.record.pullRequests ?? []).toEqual([]);
+    expect(buildSnapshot(h.engine).delivered!.forYou.items).toMatchObject([{ id: "item-1", kind: "blocker", waiver: { activityKey: "pr" } }]);
+  });
 });
 
 describe("a waived item holds nothing again; a new one stops the run on its own (AC-ITEM-01)", () => {
   it("after Continue anyway reaches another audit, its prompt marks the item waived, a relisting with another kind stays covered, and a new item stops the run alone", { timeout: 300_000 }, async () => {
     const second = { kind: "business_question", problem: "Which refund rate applies?", action: "Choose the rate.", waitsOn: "Delivery." };
-    const current = await fixture([audit({ gap: true, items: [blocker] }), audit({ relist: true }), audit({ relist: true, relistKind: "business_question", items: [second] })], [landing(), pullRequestSession()]);
+    // Delivery audit loop 2 adds a phase, so a landing session moves the feature head after the waiver and before the next hold check (AC-WAIVE-09 as AC-ITEM-01 replaces it).
+    const current = await fixture([audit({ gap: true, items: [blocker] }), audit({ relist: true }), audit({ gap: true, relist: true, relistKind: "business_question", items: [second] })], [landing(), landingSession(`${directory}/value.mjs`, "export const value = () => 42; // rebuilt\n"), pullRequestSession()]);
     expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 1 } })).ok).toBe(true);
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
     expect(current.engine.stoppedPhaseKey()).toBe("pr");
@@ -159,9 +235,13 @@ describe("a waived item holds nothing again; a new one stops the run on its own 
     if (!first.offered) throw new Error(first.reason);
     // A delivery loop raised before the pull request session starts reopens the kind: the phase built since its latest run is audited (AC-CHOICE-02).
     expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 2, testLimit: 1 } })).ok).toBe(true);
+    const headAtWaiver = git(current.sandbox, current.engine.worktreePath, "rev-parse", "HEAD").trim();
     expect((await control(current, "waive-and-advance", { check_run_id: first.checkRunId, via: "browser" })).outcome).toBe("continued");
     // Delivery audit loop 2 ran after the waiver and listed a new item; no pull request session has started.
     expect(current.engine.record.completionAudits!.activities.map(a => a.kind)).toEqual(["delivery_audit", "test_audit", "delivery_audit"]);
+    // The phase it added was built by a session, so the feature head moved since the waiver.
+    expect(current.engine.record.phases["3"]?.doneAt).toBeTruthy();
+    expect(git(current.sandbox, current.engine.worktreePath, "log", "--format=%s", `${headAtWaiver}..HEAD`)).toContain("feat: the phase");
     expect(pullRequests(current)).toEqual([]);
     const resent = prompts(current).filter(prompt => prompt.startsWith("Run Delivery audit")).at(-1)!;
     expect(resent).toMatch(/- item-1 \(blocker; listed by Delivery audit round 1; waits on: [^)]*\): .* \(waived at final delivery: settle it if it is done, otherwise list it again by its id; it holds nothing and is never a reason for `needs_you`\. A need it does not name is a new entry with no id\.\)/);
