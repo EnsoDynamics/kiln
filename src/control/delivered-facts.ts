@@ -9,24 +9,19 @@
  *   // { loops: { delivery: { used: 4, limit: 4 }, … }, forYou: { items: [{ id, kind, words, line, … }], afterDelivery: [] }, pullRequests: [{ repository, number, url }] }
  */
 import { auditLabel } from "../audit/workflow.js";
+import { waivedTagText } from "../audit/for-you.js";
 import { closingAuditsText, type ClosingAudits } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type PrdRecord } from "../state/records.js";
 import { isPreflightKey } from "../state/activity-keys.js";
 import { PREFLIGHT_TITLE } from "../engine/preflight.js";
 import type { CompletedPlanCheck } from "../engine/completed-plan-discovery.js";
 import type { Snapshot } from "../engine/snapshot.js";
-import type { WaiverRef } from "../engine/waivers.js";
 import { projectRef } from "./waiver-facts.js";
 
 /** "Final delivery", "Delivery audit", "Phase 3": the activity a Waived tag names. */
 function activityName(record: Pick<PrdRecord, "completionAudits">, key: string): string {
   const audit = record.completionAudits?.activities.find(one => `audit-${one.activityId}` === key);
   return key === PR_PHASE_KEY ? "Final delivery" : audit ? auditLabel(audit.kind) : isPreflightKey(key) ? PREFLIGHT_TITLE : `Phase ${key}`;
-}
-
-/** The Waived tag's text, as the pull request description renders it after an item's line. */
-export function waivedTagText(ref: WaiverRef, activity: string): string {
-  return [`waived at ${activity}, ${ref.at.slice(0, 16).replace("T", " ")} UTC`, ref.via === "browser" ? "browser" : "command line", ref.account, ...(ref.by ? [ref.by] : [])].join(" · ");
 }
 
 /** A finished run's facts in `kiln status` JSON. */

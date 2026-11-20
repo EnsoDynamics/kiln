@@ -53,6 +53,11 @@ export function afterDeliveryActions(stateDirectory: string, activities: AuditAc
   return [...new Set(actions)];
 }
 
+/** The Waived tag's text, as the pull request description and `kiln status` render it after an item's line: "waived at Final delivery, 2026-11-19 10:00 UTC · browser · alex". */
+export function waivedTagText(ref: WaiverRef, activity: string): string {
+  return [`waived at ${activity}, ${ref.at.slice(0, 16).replace("T", " ")} UTC`, ref.via === "browser" ? "browser" : "command line", ref.account, ...(ref.by ? [ref.by] : [])].join(" · ");
+}
+
 /**
  * The block each pull request's description opens with (AC-LEFT-01): **For you** when it lists
  * anything, then **Closing audits** with each kind's loops used and limit in force, then **Settled

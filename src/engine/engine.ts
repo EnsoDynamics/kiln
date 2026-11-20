@@ -3,7 +3,7 @@ import { claudeReopenCheck, conversationBegan as sessionBegan, lastRecordedRun, 
 import type { ReopenCheck } from "./reopen-check.js";
 import { markReasonRows } from "../state/records.js";
 import { itemEffect, itemLine, itemWaiver, keptFields, kindWords, outstandingLines, personItems } from "../audit/person-items.js";
-import { deliveryBlock, forYou, type ForYou } from "../audit/for-you.js";
+import { deliveryBlock, forYou, waivedTagText, type ForYou } from "../audit/for-you.js";
 import { descriptionRow } from "./description-check.js";
 import { readContinuationProposal } from "./continuation-readiness.js";
 import { preparationPrompt, preparationImplementationPrompt, carryOnPrompt, freshSessionPrompt } from "../session/prompts.js";
@@ -7697,7 +7697,7 @@ export class Engine {
    */
   deliveryBlockNow(): string {
     const audits = this.record.completionAudits?.activities ?? [];
-    const tag = (ref: WaiverRef) => [`waived at ${this.activityName(ref.activityKey)}, ${ref.at.slice(0, 16).replace("T", " ")} UTC`, ref.via === "browser" ? "browser" : "command line", ref.account, ...(ref.by ? [ref.by] : [])].join(" · ");
+    const tag = (ref: WaiverRef) => waivedTagText(ref, this.activityName(ref.activityKey));
     return deliveryBlock(forYou(this.stateDirectory, this.record), personItems(this.stateDirectory, audits).settled, tag, closingAudits(this.record));
   }
 
