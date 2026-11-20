@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-pause-now
 
-Started: 2026-11-19   Current pass: 3   Status: In progress
+Started: 2026-11-19   Current pass: 4   Status: In progress
 Branch: feature/kiln-preflight-card-fixes
 Existing code posture: Preserve (source: TD)
 PRD words: at start 2013 · growth baseline 2562 (reset 2026-11-20 on the user's continue)
@@ -20,6 +20,7 @@ Last updated: 2026-11-20
 | 1 | 12 | 12 | 9 | 3 | 0 | 0 | 0 |
 | 2 | 13 | 13 | 13 | 0 | 0 | 0 | 0 |
 | 3 | 7 | 7 | 7 | 0 | 0 | 0 | 0 |
+| 4 | 4 | 4 | 4 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -56,8 +57,15 @@ Last updated: 2026-11-20
 | Q30 | 3 | Paused card sentence for a gate-less attempt | Technical | LOW | 80 → 90 | Resolved | PRD AC-PAUSE-05; TD §The Pause Now State |
 | Q31 | 3 | Cap on the ps command line | Technical | LOW | 85 → 95 | Resolved | TD §The Pause Now State |
 | Q32 | 3 | Exact kiln status pausing text | Technical | LOW | 88 → 95 | Resolved | TD surface table |
+| Q33 | 4 | Pause Now state while a Resume/carry-on launched from the paused page is starting (reading finds Kiln's own claude --resume → terminal_in_use obstacle) | Technical | MEDIUM | 70 → 90 | Resolved | TD §The Pause Now State, §Verification |
+| Q34 | 4 | How Kiln knows Claude's turn has ended (gate.inputs holds only live messages) | Technical | MEDIUM | 75 → 90 | Resolved | TD §The Pause Now State, §Verification |
+| Q35 | 4 | Cancel for a recovered or gate-less attempt; startup settlement without a gate | Technical | LOW | 80 → 90 | Resolved | TD §The Stop and Cancel, §Verification |
+| Q36 | 4 | Startup without a gate: a cancel whose step 2 already removed the saved hold before a crash must settle withdrawn (raised by conformance) | Technical | LOW | 90 → 95 | Resolved | TD §The Stop and Cancel |
 
 ## Question notes
+
+### Q33–Q35 (decisions)
+Q33: engine.ts:1094 starting, 1164 skips only reopen while returning, 1213 requireNoTerminal sees Kiln's own resume; no pauseNow and no obstacle while starting. Q34: gate.inputs only live messages (engine.ts:1030), first prompt has no uuid; observeGate records turnEndedAt on result, cleared on later assistant/new input. Q35: Cancel wherever take-over admission accepts; gate-less step 1 = process-running check; startup without gate settles by attempt running.
 
 ### Q26 (decision)
 claude-session.ts:290 maybeDrain returns while background.pending, and the hook acts only on Claude's next call, so with the turn ended and a background Bash running the stop never comes; kind-1 entries now show before the stop once the turn has ended (inputs all answered, no other top-level op unsettled), Cancel offered. Amends Q14. Q27 and Q30 written up as the only sensible readings ("never Needs you while pausing"; the before-next-command sentence is false for a gate-less attempt).
@@ -104,6 +112,10 @@ Pass 3 conformance: 2026-11-20 · AC-PAUSE-03 rows made mutually exclusive in de
 
 Out of gate (pass 3): phase-plan row derivation (snapshot.ts:1135,1142) needs a pauseNow override for "never Needs you" — answered by the design, build detail; the saved snapshot may carry the in-memory background list to disk — cosmetic.
 
+Pass 4 conformance: 2026-11-20 · starting-window exception in the obstacle paragraph, data model gains turnEndedAt and the backgrounded mark, §Verification rows regrouped and extended · 1 new question (Q36)
+
+Out of gate (pass 4): observeRecoveredLive (engine.ts:1130) recordStop prints "stopped" under a Pause now hold — covered by "nothing printed for the process's exit"; status-token fingerprint (engine.ts:661) should leave pauseNow out; audit naming for Resume/● line follows existing phaseName convention.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -126,4 +138,4 @@ Pass 1: 2026-11-19 · 4 open entries · 1 moved to design (PAUSE-006) · 0 writt
 | No real Mac sleep available to agents | PAUSE-003 | The hands-on lid-close run in TD §Delivery |
 
 ## Next action
-Pass 3 checkpoint committed. Next: pass-4 discovery (pass 3 surfaced 7, above the yield stop of 3).
+Pass 4 checkpoint committed. Next: pass-5 discovery (pass 4 surfaced 3 in discovery, not fewer than the yield stop).
