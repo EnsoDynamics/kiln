@@ -234,7 +234,7 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </section>
 <section>
 <h2>4. The merge session stopped before merging</h2>
-<p class="about">The existing Needs you page, for the merge session. Continue’s push session stops on the same page; the dashed note shows what it says. Covers AC-MERGE-06, AC-BACK-05 and AC-EXIT-01.</p>
+<p class="about">The existing Needs you page, for the merge session. Continue’s push session stops on the same page; the first dashed note shows what it says, and the second what a merge stop says when a pull request was closed on GitHub. Covers AC-MERGE-06, AC-MERGE-07, AC-BACK-05 and AC-EXIT-01.</p>
 <div class="screen">
 <div style="width: 1280px; min-height: 1100px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box">
 <header style="display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
@@ -249,9 +249,10 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 
 <section class="card" style="border-color: rgba(230,182,92,.55)">
 <span class="eyebrow" style="color: #e6b65c">The merge session stopped before merging · its last message</span>
-<p style="margin: 0; font-size: 15px; color: #ede8dd">The conflict in src/returns/refund-router.ts needs a decision from you. develop now routes store credit through the new ledger, and this branch routes it to the old balance table. Which should win? I left the merge uncommitted in the worktree and did not push.</p>
+<p style="margin: 0; font-size: 15px; color: #ede8dd">The conflict in src/returns/refund-router.ts needs a decision from you. develop now routes store credit through the new ledger, and this branch routes it to the old balance table. Which should win? I aborted the merge and did not push.</p>
 <p class="hint">Pull request #218 is unchanged on GitHub. <a href="#">Open on GitHub</a></p>
 <p class="note" style="border-style: dashed">Shown instead when Continue’s push session stops, for example: “develop on this machine holds another commit that would be pushed along, <span class="mono" style="font-size: 12.5px">c93e1b4</span> “wip: gift card copy”. Nothing was pushed. Reply to push it too, and the session pushes it with the plan.”</p>
+<p class="note" style="border-style: dashed">Shown instead when a pull request was closed on GitHub: “acme-api #57 was closed on GitHub without merging. Reopen it there, then press Resume.”</p>
 </section>
 
 <section class="card">
@@ -271,7 +272,7 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 <p class="hint">Full history, right where it stopped. Kiln stays out of it. When #218 is merged, come back and press Check again, and Kiln shows Merged.</p>
 <div><button type="button" class="btn outline">Check again</button></div>
 </section>
-<div style="display: flex; align-items: center; gap: 14px"><button type="button" class="btn outline">Exit Kiln</button><span class="hint">Stops Kiln in its terminal. The pull request, the worktree and the uncommitted merge stay.</span></div>
+<div style="display: flex; align-items: center; gap: 14px"><button type="button" class="btn outline">Exit Kiln</button><span class="hint">Stops Kiln in its terminal. The pull request and the worktree stay.</span></div>
 </main>
 </div>
 </div>
@@ -289,6 +290,7 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 <section class="card">
 <h2 class="serif" style="margin: 0; font-size: 32px; line-height: 1.1">No new phases found</h2>
 <div style="display: flex; align-items: center; gap: 14px"><button type="button" class="btn outline">Check for new phases</button><span class="hint">Last checked Dec 12 at 9:40 AM.</span></div>
+<p class="note" style="border-style: dashed">Shown only when a finished phase’s document was edited later: “Phase 2’s document was edited after Kiln finished it. Kiln doesn’t rebuild finished phases. To change that work, add a new phase.” (PLAN-001 reopened: not built unless the ruling stands)</p>
 <p class="note" style="border-style: dashed">Shown only when the main checkout is on another branch: “The main checkout is on feature/gift-cards, so Kiln read the plan from origin/develop only.” When Kiln can’t find the main checkout at the path it was started from, there is no answer: the panel reads Could not check for new phases, with “Kiln could not find the main checkout at ~/devel/acme-shop: nothing is there. Put it back at that path, then check for new phases again.”</p>
 <p class="note" style="border-style: dashed">Shown only when this PRD’s documents have edits that aren’t committed in the main checkout: “phase-5-return-labels.md has edits in your main checkout that aren’t committed. Kiln didn’t read them.”</p>
 </section>
@@ -357,7 +359,7 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 </section>
 <section>
 <h2>8. What Kiln may do, before Start and in the settings</h2>
-<p class="about">The statement of what Kiln may do now names the merge. A run in one repository states nothing about merging in its settings. Covers AC-MERGE-08.</p>
+<p class="about">The statement of what Kiln may do now names the merge and, in the PRD’s repository, the plan push. A run in one repository states nothing about merging in its settings. Covers AC-MERGE-08.</p>
 <div class="screen">
 <div style="width: 1280px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box; padding: 40px 80px; display: flex; gap: 28px; align-items: flex-start">
 <section class="card" style="flex: 1 1 0">
@@ -367,15 +369,16 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 <li style="display: flex; gap: 10px"><span style="color: #9cc49a">✓</span><span>Commit and push to <span class="mono" style="font-size: 13px">feature/customer-returns</span></span></li>
 <li style="display: flex; gap: 10px"><span style="color: #9cc49a">✓</span><span>Open one pull request into <span class="mono" style="font-size: 13px">develop</span> once every phase closes</span></li>
 <li style="display: flex; gap: 10px"><span style="color: #9cc49a">✓</span><span>Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page</span></li>
+<li style="display: flex; gap: 10px"><span style="color: #9cc49a">✓</span><span>Push this PRD’s documents to <span class="mono" style="font-size: 13px">develop</span> only when you press Continue on the finished page</span></li>
 <li style="display: flex; gap: 10px"><span style="color: #8c8577">✕</span><span>Never deploy or touch other branches</span></li>
 </ul>
-<p class="note" style="border-style: dashed">When early merges are allowed, the list shows its early-merges lines instead, and the merge line stays.</p>
+<p class="note" style="border-style: dashed">When early merges are allowed, the list shows its early-merges lines instead, and the merge and push lines stay.</p>
 </section>
 <section class="card" style="flex: 1 1 0">
 <span class="eyebrow">Settings while Kiln works · a run in several repositories</span>
 <span style="font-size: 13px; font-weight: 600; color: #bdb6a8">In each repository</span>
-<p style="margin: 0; font-size: 14.5px; color: #ede8dd">Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page, and never deploys or touches other branches.</p>
-<p class="note" style="border-style: dashed">Shown instead when early merges are allowed: “Required early merges may reach approved repository branches. Remaining work stays open for review, and Kiln merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page.”</p>
+<p style="margin: 0; font-size: 14.5px; color: #ede8dd">Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page, in the PRD’s repository pushes this PRD’s documents to its base only when you press Continue there, and never deploys or touches other branches.</p>
+<p class="note" style="border-style: dashed">Shown instead when early merges are allowed: “Required early merges may reach approved repository branches. Remaining work stays open for review, and Kiln merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page. In the PRD’s repository, it pushes this PRD’s documents to its base only when you press Continue there.”</p>
 </section>
 </div>
 </div>
