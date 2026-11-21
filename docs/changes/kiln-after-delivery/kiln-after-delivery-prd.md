@@ -109,7 +109,7 @@ After a PRD ships, a later session may plan more phases for it, for example afte
   - Replaces in part: AC-FIND-03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (changes to earlier phases are no longer shown as unresolved; the rest of its counting remains)
   - Replaces in part: AC-FIND-04 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (copies of the plan that differ are not a failed check; AC-BACK-03 says which copy is read. Unreadable or invalid plans and failed repository checks remain as they are)
   - Replaces in part: AC-RUN-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (in a build Continue started, a phase finished before it began counts as done when choosing the next phase, even once its Closed line is removed)
-- **AC-BACK-02 — retired; what Kiln says about an edited finished phase is now in AC-BACK-01.**
+AC-BACK-02 is retired; what Kiln says about an edited finished phase is now in AC-BACK-01.
 - [ ] **AC-BACK-03 — Kiln reads the plan from one named place.** Kiln reads this PRD's plan as the table says, never from another feature branch or worktree. Uncommitted edits in the main checkout are never read, committed, stashed, changed or pushed, whatever a reply to a session says; when some are to this PRD's documents, the page names those documents and says Kiln did not read them.
 
   | The person's main checkout of the repository is | Kiln reads the plan from |
