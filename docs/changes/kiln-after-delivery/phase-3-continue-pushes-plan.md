@@ -18,4 +18,4 @@ Exit Kiln, including its availability while a push activity is accepting (Phase 
 ## Phase-specific notes
 - While a push activity is `accepting`, the run is not currently complete, so the check and acceptance guards (`engine.ts`, near lines 3310 and 3531 before the develop merge) must let the automatic re-check and acceptance through.
 - The automatic acceptance must supply a current status token to `submitInternal`.
-- The real push session with each agent runs against the disposable GitHub repository named in the design's "Before the build".
+- The real push session with each agent runs against the temporary GitHub test repository Phase 1 created (the design's "Delivery").

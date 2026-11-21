@@ -17,6 +17,7 @@ None.
 
 ## Phase-specific notes
 - Before the build, merge `origin/develop` into this branch: Pause Now changed `engine.ts`, `projection.ts` and the Paused page since the design was refined.
+- Create the temporary GitHub test repository the design's "Delivery" describes, and capture from it the responses the delivery reading needs: an open, conflicting, merged and closed pull request.
 - The page-load check request lives in `CompletedPlanCheck.svelte`'s `onMount`. AC-WAIT-02 hides that panel while the delivery waits, so the request moves to the finished page.
 - Until Phase 3 builds the push session, accepting an offer read from the main checkout is refused, since its documents are not in the base branch yet. Phase 3 replaces the refusal with the push.
 - Schema 25 starts here with `afterDelivery.pullRequests`, `readError`, `checkedWhileClosedAt`, `continuationBaselineId` and the proposal's `source`; Phases 2 and 3 add the `merge` and `planPushes` fields to the same unreleased schema.

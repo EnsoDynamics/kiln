@@ -17,4 +17,4 @@ The push session and its row, header, stop and wait (Phase 3; this phase builds 
 
 ## Phase-specific notes
 - The status token's fingerprint includes control reasons (`engine.ts`, near line 665 before the develop merge). Keep per-reading failure text and times out of the merge control's reason, as Pause Now did.
-- The real merge session with each agent runs against the disposable GitHub repository named in the design's "Before the build".
+- The real merge session with each agent runs against the temporary GitHub test repository Phase 1 created (the design's "Delivery").
