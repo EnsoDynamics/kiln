@@ -73,6 +73,10 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("preserves elapsed wa
     const backgroundRow = `document.body.innerText.includes('Pausing — waiting for a process Claude started to end:') && document.body.innerText.includes('(process ${child.pid})')`;
     await page.waitFor(backgroundRow);
     expect(await page.evaluate("document.body.innerText")).not.toContain("seconds since the last observed activity");
+    // The waiting line starts at exactly 30 seconds (Kiln Pause Now AC-PAUSE-03).
+    clock = Date.parse(activityAt) + 30_000;
+    for (let i = 0; i < 3; i++) await h.engine.reconcileTakeover();
+    await page.waitFor(`document.body.innerText.includes('Waiting 30 seconds since the last observed activity.')`);
     const assertWaiting = async () => {
       await page!.waitFor(`document.body.innerText.includes('Waiting 45 seconds since the last observed activity.')`);
       await page!.waitFor(backgroundRow);

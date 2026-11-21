@@ -302,6 +302,20 @@ it.skipIf(process.platform !== "darwin")("offers takeover on a newer Claude Code
   writeFileSync(release, "done"); await h.engine.settled();
 });
 
+// Kiln Pause Now AC-PAUSE-02: the withheld reasons name Pause now.
+it.skipIf(process.platform !== "darwin")("names Pause now when withholding it off macOS with no version notice, and once no live Claude target remains", async () => {
+  const { release } = await setup();
+  expect(h.engine.record.compatibility).toBeUndefined();
+  // Live control needs macOS: the same attempt seen from another platform is withheld with the reason naming Pause now.
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { ...platform, value: "linux" });
+  try { expect(h.engine.liveView()).toMatchObject({ available: false, reason: "Pause now needs a supported Claude Code on macOS. Pause after the current activity remains available." }); }
+  finally { Object.defineProperty(process, "platform", platform); }
+  writeFileSync(release, "done"); await h.engine.settled();
+  expect(h.engine.liveTarget()).toBeUndefined();
+  expect(h.engine.controlView().controls.find(c => c.name === "take-over")).toMatchObject({ available: false, reason: "Pause now needs an active supported Claude phase or audit." });
+});
+
 it.skipIf(process.platform !== "darwin")("keeps an accepted takeover through actual controller death while the old operation remains running", async () => {
   h = await createHarness({ sessions: [] }); h.engine.close(); h.env.KILN_STANDIN_VERSION = "2.1.311";
   // The provider must survive the killed controller, but not its owning test worker.

@@ -14,7 +14,8 @@ import { terminalColors } from "../terminal-output.js";
 import type { Receipt } from "../control/commands.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { readGate, withGate } from "./gate.js";
-import { ALREADY_PAUSED, pausedSentence, pausingRow } from "./pause-now.js";
+import { pausedSentence, pausingRow } from "./pause-now.js";
+import { writeSessionRecord } from "../state/records.js";
 import type { LiveTarget } from "./target.js";
 
 const darwin = it.skipIf(process.platform !== "darwin");
@@ -69,6 +70,8 @@ darwin("cancels during a running command: the session carries on with no denied 
   const target = await pressPauseNow("first");
   const view = pauseNow()!;
   expect(view).toMatchObject({ phase: "pausing", stopped: false, running: [{ tool: "Bash", input: "npm test -- src/refunds" }], cancel: { available: true } });
+  // Message Claude names Pause now while the hold lasts (AC-PAUSE-02).
+  expect(h.engine.liveView()?.input?.reason).toBe("Pause now is pausing or has paused this activity.");
   expect(pausingRow(view)).toMatchObject({ kind: "command", lines: ["Bash(npm test -- src/refunds)"], lid: true });
   // kiln run's lines while pausing: its stop line, the restart summary and the ● line (AC-PAUSE-03).
   const describeStop = () => (h.engine as unknown as { describeStop(): { text: string; grey?: string } }).describeStop();
@@ -117,6 +120,10 @@ darwin("cancels during a running command: the session carries on with no denied 
 darwin("refuses Cancel once the stop is recorded, prints the paused line once at the release, and reads Paused everywhere (AC-PAUSE-03 to AC-PAUSE-05)", async () => {
   await start([{ text: "Running the refund tests, then I'll wire store credit into the receipt email." }, { runUntil: { command: "npm test -- src/refunds", file: "$SANDBOX/release" } }, { text: "Answering the checkpoint." }, { bash: "echo after" }, { result: "" }]);
   const done = file("release");
+  // What the record held each time the paused line printed: it prints when the pause completes, never at Claude's exit (PAUSE-009, AC-PAUSE-05).
+  const releasedWhenPrinted: (string | undefined)[] = [];
+  const push = h.events.push.bind(h.events);
+  h.events.push = (...printed) => { for (const e of printed) if (e.kind === "phase" && e.event === "paused") releasedWhenPrinted.push(h.engine.record.liveControl?.takeover.releasedAt); return push(...printed); };
   await waitFor(() => !!h.engine.latestSession("1")?.runs.at(-1)?.live && Object.values(gateOf().operations).some(o => o.label?.input === "npm test -- src/refunds"));
   const target = await pressPauseNow("pause");
   expect(gateOf().held?.inFlight?.length).toBe(1);
@@ -125,7 +132,7 @@ darwin("refuses Cancel once the stop is recorded, prints the paused line once at
   await waitFor(() => !!gateOf().stop);
   expect(gateOf().stop).toMatchObject({ by: "yield", operationId: h.engine.record.liveControl!.takeover.operationId });
   const refused = await post("live/cancel-take-over", { instructionId: "late-cancel", target, takeoverInstructionId: "pause" });
-  expect(refused.status).toBe(409); expect(refused.body).toMatchObject({ ok: false, code: "already_paused", reason: ALREADY_PAUSED });
+  expect(refused.status).toBe(409); expect(refused.body).toMatchObject({ ok: false, code: "already_paused", reason: "Kiln had already paused. Press Resume once it’s paused to carry on." });
   expect(h.engine.record.liveControl).toBeDefined();
 
   await h.engine.settled();
@@ -142,6 +149,7 @@ darwin("refuses Cancel once the stop is recorded, prints the paused line once at
   await h.engine.reconcileTakeover(); await h.engine.reconcileTakeover();
   const paused = h.events.filter(e => e.kind === "phase" && e.event === "paused");
   expect(paused).toHaveLength(1);
+  expect(releasedWhenPrinted).toEqual([h.engine.record.liveControl!.takeover.releasedAt]);
   expect(h.events.filter(e => e.kind === "phase" && e.event === "stopped")).toEqual([]);
 
   // Snapshot: the command is offered from the release; the activity's state stays needs_you underneath.
@@ -167,14 +175,15 @@ darwin("refuses Cancel once the stop is recorded, prints the paused line once at
   // Opening Claude on the conversation is an obstacle on the paused page, never a return to pausing.
   const registry = join(h.env.CLAUDE_CONFIG_DIR!, "sessions", "open.json");
   writeFileSync(registry, JSON.stringify({ pid: process.pid, sessionId: target.providerSessionId, procStart: await processStartTime(process.pid) }));
-  await h.engine.reconcileTakeover();
+  // A reconcile already in flight (the 1-second timer) may have read the registry before it was written: wait for one that sees it.
+  await waitFor(async () => { await h.engine.reconcileTakeover(); return pauseNow()?.obstacle?.code === "terminal_in_use"; });
   expect(pauseNow()).toMatchObject({ phase: "paused", obstacle: { code: "terminal_in_use" } });
   expect(buildSnapshot(h.engine).needsYou?.resumeCommand).toContain(target.sessionId);
   const recovery = buildSnapshot(h.engine).needsYou!.phaseRecovery!.target;
   const resume = await post("resume", { target: recovery });
   expect(resume.body, JSON.stringify(resume.body)).toMatchObject({ ok: false, reason: "Exit Claude in your terminal before handing this conversation back to Kiln." });
   const { unlinkSync } = await import("node:fs"); unlinkSync(registry);
-  await h.engine.reconcileTakeover();
+  await waitFor(async () => { await h.engine.reconcileTakeover(); return pauseNow()?.obstacle === undefined; });
   expect(pauseNow()?.obstacle).toBeUndefined();
   expect(h.events.filter(e => e.kind === "phase" && e.event === "paused")).toHaveLength(1);
 
@@ -189,6 +198,12 @@ darwin("refuses Cancel once the stop is recorded, prints the paused line once at
   expect(formatSummaryLine(h.engine, colors)).toContain("paused in phase 1a");
   // kiln status's progress rows are keyed by the launched activity, and still read paused.
   expect((await cli(["status"], false)).output).toMatch(/1\s+Return intake\s+paused/);
+
+  // A run an earlier Kiln saved without live control has no gate: the engine derives the gate-less card sentence (AC-PAUSE-05).
+  const saved = h.engine.latestSession("1")!; delete saved.runs.at(-1)!.live; writeSessionRecord(h.stateDirectory, saved);
+  const gateless = buildSnapshot(h.engine).liveControl!.pauseNow!;
+  expect(gateless).toMatchObject({ phase: "paused", gateless: true });
+  expect(pausedSentence(gateless)).toBe("The session ended on its own. Nothing is running.");
 }, 120000);
 
 darwin("shows the before-its-next-command row, then restores delivery recovery when a Pause now pressed from it is cancelled (AC-PAUSE-03, AC-PAUSE-04)", async () => {

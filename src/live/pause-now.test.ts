@@ -8,7 +8,7 @@ import { progressText, statusPause, type ProgressRow } from "../control/waiver-f
 import { formatPhaseLine, terminalColors } from "../terminal-output.js";
 import type { GateState } from "./gate.js";
 import { capLabel, operationLabel } from "./operation-label.js";
-import { backgroundText, pausedSentence, pausingRow, pausingStatusText, type PauseNowView } from "./pause-now.js";
+import { backgroundText, LID_SENTENCE, pausedSentence, pausingRow, pausingStatusText, type PauseNowView } from "./pause-now.js";
 
 const plain = terminalColors({ isTTY: false }, {});
 const view = (change: Partial<PauseNowView>): PauseNowView => ({ phase: "pausing", activityKey: "2b", label: "phase 2b", requestedAt: "2026-11-20T15:00:00.000Z", stopped: false, running: [], cancel: { available: true }, ...change });
@@ -28,7 +28,11 @@ describe("the pausing row (AC-PAUSE-03)", () => {
   });
   it("adds today's waiting line from 30 seconds, without the old deadline sentence", () => {
     expect(pausingRow(view({ waitingSeconds: 29 })).waiting).toBeUndefined();
+    expect(pausingRow(view({ waitingSeconds: 30 })).waiting).toBe("Waiting 30 seconds since the last observed activity.");
     expect(pausingRow(view({ waitingSeconds: 40, stopped: true })).waiting).toBe("Waiting 40 seconds since the last observed activity.");
+  });
+  it("pins the lid sentence to the PRD's words", () => {
+    expect(LID_SENTENCE).toBe("You can close the lid now: if the computer sleeps first, the pause completes when it wakes, and nothing new starts.");
   });
   it("names a background process by command and pid, the command alone, or the pid alone", () => {
     expect([{ command: "npm run dev", pid: 1 }, { command: "npm run dev" }, { pid: 2 }].map(backgroundText)).toEqual(["npm run dev (process 1)", "npm run dev", "process 2"]);

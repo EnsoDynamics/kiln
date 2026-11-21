@@ -114,3 +114,56 @@ it("sends the Note for Claude with Resume only when the box has text (AC-PAUSE-0
     expect(bodies[1]!.note).toBe("Use the new receipt template.");
   } finally { await page.close(); await server.close(); }
 });
+
+// AC-PAUSE-06: both columns in plain view, side by side or carry-on first on a narrow screen; the panels
+// today's takeover page keeps; launch restrictions on Resume; and Resume's already-complete answer.
+it.each([1200, 390])("lays the paused page's columns out with the kept panels, honours launch restrictions, and keeps the note through an already-complete Resume at %i", async width => {
+  const { pausedHoldSnapshot } = await import("../test-support/sample-snapshots.js");
+  const snapshot = pausedHoldSnapshot();
+  const launch = { agentId: "claude_code", route: "subscription", sources: [], email: "alex@acme-shop.dev", observedAt: "2026-10-17T15:40:00Z", diagnostics: [], approved: false } as const;
+  snapshot.billing = { executionId: "e", selectionGeneration: 0, pending: false, lastLaunch: launch, next: { ...launch, readingId: "r", canApprove: false, canClear: false }, canLaunch: true } as unknown as NonNullable<typeof snapshot.billing>;
+  snapshot.reset = { available: true };
+  const target = snapshot.needsYou!.phaseRecovery!.target;
+  const resume = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Resume phase 2b')`;
+  const restricted = { ...snapshot, billing: { ...snapshot.billing!, canLaunch: false } };
+  let server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: restricted });
+  let page = await chrome.open(server.address, { width, height: 1400 });
+  try {
+    await page.waitFor(`document.querySelector('.paused-card') && document.body.innerText.includes('Billing follows your Claude account settings.')`);
+    expect(await page.evaluate(`${resume}.disabled`)).toBe(true);
+  } finally { await page.close(); await server.close(); }
+
+  server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async command => command.startsWith("POST /api/resume") ? { status: 200, body: { ok: true, outcome: "already_complete", target } } : command === "GET /api/live/messages" ? { status: 200, body: { ok: true, receipts: [] } } : null });
+  page = await chrome.open(server.address, { width, height: 1400 });
+  try {
+    await page.waitFor(`${resume} && !${resume}.disabled`);
+    // Neither column is behind a disclosure: their words are in the rendered text, and they sit side by side, or carry-on first.
+    const main = await page.evaluate<string>("document.querySelector('main').innerText");
+    expect(main).toContain("Let Kiln carry on\n\nPicks up in the same conversation, where it stopped. Whenever you’re ready; nothing is waiting on you.");
+    expect(main).toContain("Or take it over yourself\n\nOpen the same conversation in your terminal. Kiln waits while you work.");
+    const [carry, take] = await page.evaluate<{ top: number; bottom: number; left: number; right: number }[]>(`["Let Kiln carry on", "Or take it over yourself"].map(label => { const r = document.querySelector('.paused-card section[aria-label="' + label + '"]').getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; })`);
+    if (width === 1200) { expect(carry!.top).toBe(take!.top); expect(carry!.right).toBeLessThanOrEqual(take!.left); }
+    else expect(carry!.bottom).toBeLessThanOrEqual(take!.top);
+    // The full session output link, then the billing and development delivery panels, and the reset line, stay.
+    const body = await page.evaluate<string>("document.body.innerText");
+    const at = ["Full session output", "Billing follows your Claude account settings.", "Reset makes Kiln forget its progress on this PRD"].map(words => body.indexOf(words));
+    expect(at.every(index => index >= 0), body).toBe(true); expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(await page.evaluate(`!!document.querySelector('main section.delivery[aria-label="Early merges"]')`)).toBe(true);
+
+    // Resume finds the work complete: the advance choice in place of resuming, the note kept unsent.
+    await page.evaluate(`(() => { const box = document.querySelector('#paused-note'); box.value = 'Use the new receipt template.'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await page.evaluate(`${resume}.click()`);
+    await page.waitFor(`document.body.innerText.includes('Phase 2b is already complete.')`);
+    const choice = await page.evaluate<string>("document.querySelector('main').innerText");
+    expect(choice).toContain("Your reply has not been sent. It is preserved when you return. Advancing proceeds without sending it.");
+    expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).map(b=>b.textContent.trim())`)).toEqual(expect.arrayContaining(["Advance without sending reply", "Back to recovery page"]));
+    expect(choice).not.toContain("Let Kiln carry on");
+    const sent = server.commands.filter(c => c.startsWith("POST /api/resume")).map(c => JSON.parse(c.slice(c.indexOf("{"))) as { note?: string });
+    expect(sent.map(one => one.note)).toEqual(["Use the new receipt template."]);
+    await page.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Back to recovery page').click()`);
+    await page.waitFor(`document.querySelector('#paused-note')`);
+    expect(await page.evaluate("document.querySelector('#paused-note').value")).toBe("Use the new receipt template.");
+    expect(await page.evaluate<string>("document.querySelector('main').innerText")).toContain("Your note has not been sent.");
+    expect(page.problems, JSON.stringify(page.problems)).toEqual([]);
+  } finally { await page.close(); await server.close(); }
+});

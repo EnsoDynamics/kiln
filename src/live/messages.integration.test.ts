@@ -141,14 +141,20 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
     await waitFor(() => existsSync(killedAt), 15000); controller.kill("SIGKILL"); await exited; await request;
     h.engine = h.reopenFromDisk(); await h.engine.prepare();
     const r = receipt(`crash-${boundary}`);
-    if (boundary === "intent") expect(r.message?.delivery).toBe("not_sent");
+    if (boundary === "intent") {
+      expect(r.message?.delivery).toBe("not_sent");
+      // A recovered attempt with no hold names Pause now in why it waits (Kiln Pause Now AC-PAUSE-02).
+      await h.engine.decide();
+      expect(h.engine.liveView()?.reason).toBe("Input connection lost. Pause now waits for this session to end on its own; no forced interruption.");
+    }
     else if (boundary === "evidence") expect(r.message?.resultAt).toBeDefined();
     else { expect(r.message?.delivery).toBe("uncertain"); expect(h.engine.record.liveControl).toBeDefined(); }
     expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(!boundary.endsWith("review")); expect(h.claudeCalls()).toHaveLength(1);
     if (boundary === "write_completed") {
       await h.engine.decide();
       expect(h.engine.liveView()).toMatchObject({ available: true, input: { available: false } });
-      expect(h.engine.liveView()?.input?.reason).toContain("Input connection lost");
+      // The recovered attempt's reasons name Pause now (Kiln Pause Now AC-PAUSE-02).
+      expect(h.engine.liveView()?.input?.reason).toBe("Input connection lost. Your unsent draft is retained; use Pause now to recover.");
       expect(h.engine.controlView().controls.find(c => c.name === "verify-and-advance")).toMatchObject({ available: false, reason: expect.any(String) });
       const { launchChrome } = await import("../test-support/headless-chrome.js");
       const browser = await launchChrome();
