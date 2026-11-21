@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { backgroundedWork, lastCommandOf, lastSaidOf, runningOperations } from "../engine/pause-now-state.js";
 import type { SavedEvent } from "../session/run-verdict.js";
-import { progressText, type ProgressRow } from "../control/waiver-facts.js";
+import { progressText, statusPause, type ProgressRow } from "../control/waiver-facts.js";
 import { formatPhaseLine, terminalColors } from "../terminal-output.js";
 import type { GateState } from "./gate.js";
 import { capLabel, operationLabel } from "./operation-label.js";
@@ -125,5 +125,13 @@ describe("kiln run's line and kiln status's progress words (AC-PAUSE-05)", () =>
     expect(progressText("F", rows, { activityKey: "2b", phase: "pausing" })).toMatch(/Store credit\s+pausing/);
     expect(progressText("F", rows, { activityKey: "2b", phase: "paused" })).toMatch(/Store credit\s+paused/);
     expect(progressText("F", rows, { activityKey: "3", phase: "paused" })).toContain("needs you");
+  });
+  it("matches the launched activity's row after a split, not the leaf the Pause now state names", () => {
+    const rows = [{ key: "2", kind: "implementation", label: "Phase 2", title: "Refund routing", state: "needs_you", status_label: null, waived_checks: 0, waivers: [], warnings: [] }] as unknown as ProgressRow[];
+    const live = { pauseNow: { phase: "paused", activityKey: "2b" }, takeover: { target: { activityKey: "2" } } };
+    expect(statusPause(live)).toEqual({ activityKey: "2", phase: "paused" });
+    expect(progressText("F", rows, statusPause(live))).toMatch(/Refund routing\s+paused/);
+    expect(statusPause({ takeover: { target: { activityKey: "2" } } })).toBeUndefined();
+    expect(statusPause(null)).toBeUndefined();
   });
 });

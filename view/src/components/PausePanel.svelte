@@ -14,12 +14,15 @@
   let { snapshot, connected = true }: { snapshot: Snapshot; connected?: boolean } = $props();
   const { config } = viewContext();
   const pauseNow = $derived(snapshot.liveControl?.pauseNow);
-  const id = $derived(pauseNow?.activityKey ?? snapshot.liveControl?.target.activityKey ?? snapshot.current?.phaseId ?? snapshot.needsYou?.phaseId ?? "");
+  // The leaf the running header names, not the launched key a split phase started as (AC-PAUSE-01, AC-PAUSE-03).
+  const id = $derived(pauseNow?.activityKey ?? snapshot.current?.phaseId ?? snapshot.liveControl?.target.activityKey ?? snapshot.needsYou?.phaseId ?? "");
   const audit = $derived(activityKeyKind(id) === "audit");
-  // The panel names a phase by its number and an audit by its name and round (AC-PAUSE-01): "delivery audit · round 2".
-  const name = $derived(audit && snapshot.liveControl?.label ? snapshot.liveControl.label.toLowerCase() : phaseName(id, snapshot));
+  // The panel names a phase by its number and an audit by its name and round (AC-PAUSE-01): "delivery audit · round 2",
+  // from the audit row's round when there is no live target (a Codex audit, or a Claude audit between sessions).
+  const auditRow = $derived(audit ? (snapshot.activities ?? snapshot.phases).find(one => one.id === id) : undefined);
+  const name = $derived(audit && snapshot.liveControl?.label ? snapshot.liveControl.label.toLowerCase() : auditRow?.round !== undefined ? `${phaseName(id, snapshot)} · round ${auditRow.round}` : phaseName(id, snapshot));
   // The pending end-of-activity pause's sentence keeps its existing words ("Will pause after Phase 2b finishes.").
-  const activity = $derived(snapshot.liveControl?.label ?? capitalized(name));
+  const activity = $derived(audit && snapshot.liveControl?.label ? snapshot.liveControl.label : capitalized(name));
   const submitting = $derived(snapshot.liveControl && (liveDraft(snapshot.liveControl.target).submitting || !!liveDraft(snapshot.liveControl.target).instructionId || snapshot.liveControl.messages?.some(m => m.delivery === "submitting")));
   const held = $derived(snapshot.liveControl?.takeover);
   const row = $derived(pauseNow?.phase === "pausing" ? pausingRow(pauseNow) : undefined);

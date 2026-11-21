@@ -24,7 +24,7 @@
   import PausePanel from "../components/PausePanel.svelte";
   import WaivedCompletion from "../components/WaivedCompletion.svelte";
   import WaivedStatus from "../components/WaivedStatus.svelte";
-  import { addedLabel, capitalized, commitsByRepository, modelAndEffort, phaseName, phaseOfTotal, preflightPill, PR_ID } from "../lib/progress.js";
+  import { addedLabel, capitalized, commitsByRepository, headerState, modelAndEffort, phaseName, phaseOfTotal, preflightPill, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
   import { carriedQuote, loopEntryLabel, loopEntryLine, rowLoopLabel } from "../lib/audit-loops.js";
   import { clockTime, elapsed, timingText } from "../lib/time.js";
@@ -61,10 +61,20 @@
   const pauseHere = $derived(snapshot.liveControl?.pauseNow?.activityKey === phaseId ? snapshot.liveControl.pauseNow : undefined);
   const pausing = $derived(pauseHere?.phase === "pausing");
   const paused = $derived(pauseHere?.phase === "paused");
+  // While pausing, the header shows Pausing {activity} beside the phases done, as on the running overview (AC-PAUSE-03).
+  const pausingState = $derived(pausing ? headerState(snapshot, connected, new Date(shownNow)) : undefined);
+  const pausingHeader = $derived(pausingState && /^(Last known: )?Pausing /.test(pausingState.label) ? pausingState : undefined);
 </script>
 
 <main class="page-main detail-page">
-  <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
+  {#if pausingHeader}
+    <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail">
+      <Pill tone="amber-outline" icon={connected ? "spinner" : undefined} spin={connected}>{pausingHeader.label}</Pill>
+      {#each pausingHeader.facts as fact, index (index)}{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}<span class="header-fact">{fact}</span>{/each}
+    </FeatureHeader>
+  {:else}
+    <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
+  {/if}
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId, snapshot)} {now} />{/if}
   <section class="phase">
     <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{paused ? "Paused" : pausing ? "All phases" : waiting ? "Waiting for usage" : stopped ? "Needs you" : "All phases"}</a>
@@ -159,6 +169,7 @@
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(28px, 3.4vw, 36px); line-height: 1.1; color: var(--text); }
   .facts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; color: var(--muted); }
   .dot { font-size: 15px; color: var(--dim); }
+  .header-fact { font-size: 14px; color: var(--muted); }
   .note { margin: 0; font-size: 12.5px; color: var(--dim); line-height: 1.6; text-wrap: pretty; }
   .side { gap: 18px; }
   dl { margin: 0; display: flex; flex-direction: column; gap: 14px; }

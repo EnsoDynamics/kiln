@@ -1159,9 +1159,11 @@ export class Engine {
     const waited = hold.latestActivityAt ? Math.floor((Date.parse(hold.observedAt) - Date.parse(hold.latestActivityAt)) / 1000) : undefined;
     const cancelAvailable = phase === "pausing" && !stopped && !this.commands?.busy;
     const cancelReason = stopped ? "Claude has stopped, so the pause can no longer be cancelled. Press Resume once it’s paused to carry on." : phase === "paused" ? ALREADY_PAUSED : "Kiln is checking, dispatching or reconciling an instruction.";
-    const activity = activityKeyKind(hold.target.activityKey) === "audit" ? label.toLowerCase() : `phase ${hold.target.activityKey}`;
+    // Named as the running header names it: the leaf a split phase is working on, an audit with its round (AC-PAUSE-03).
+    const audit = activityKeyKind(hold.target.activityKey) === "audit";
+    const activityKey = audit ? hold.target.activityKey : this.judgedId(hold.target.activityKey);
     return {
-      phase, activityKey: hold.target.activityKey, label: activity, requestedAt: hold.requestedAt, ...(hold.releasedAt !== undefined ? { releasedAt: hold.releasedAt } : {}),
+      phase, activityKey, label: audit ? label.toLowerCase() : `phase ${activityKey}`, requestedAt: hold.requestedAt, ...(hold.releasedAt !== undefined ? { releasedAt: hold.releasedAt } : {}),
       stopped, running: processRunning ? running : [], ...(background.length ? { background } : {}), ...(lastCommand ? { lastCommand } : {}), ...(lastSaid ? { lastSaid } : {}),
       ...(phase === "pausing" && waited !== undefined && waited >= 30 ? { waitingSeconds: waited } : {}), ...(hold.obstacle ? { obstacle: hold.obstacle } : {}),
       cancel: cancelAvailable ? { available: true } : { available: false, reason: cancelReason }, ...(run && !run.live ? { gateless: true } : {}),

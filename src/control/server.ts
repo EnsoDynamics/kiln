@@ -11,7 +11,7 @@ import { ControlFailure, failed, exitFor, result, errorFact, type Result } from 
 import { NO_CHECK_RUN } from "./commands.js";
 import { markCompletePreview } from "./waiver-facts.js";
 import { ResponseSpool } from "./spool.js";
-import { progressHeading, progressText, type ProgressRow } from "./waiver-facts.js";
+import { progressHeading, progressText, statusPause, type ProgressRow } from "./waiver-facts.js";
 import type { Engine } from "../engine/engine.js";
 import { processStartTime } from "../platform/process-start-time.js";
 
@@ -173,7 +173,7 @@ function withProgress(answer: Result): ResponseSpool {
   if (!rows?.length) return body;
   const output = new ResponseSpool();
   try {
-    output.append(Buffer.from(`${progressText(heading, rows, (answer.live_control as { pauseNow?: { activityKey: string; phase: "pausing" | "paused" } } | null | undefined)?.pauseNow)}\n`));
+    output.append(Buffer.from(`${progressText(heading, rows, statusPause(answer.live_control))}\n`));
     for (const chunk of body.chunks()) output.append(chunk);
     return output;
   } catch (error) { output.close(); throw error; }

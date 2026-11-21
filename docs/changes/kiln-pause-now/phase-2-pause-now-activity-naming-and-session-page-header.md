@@ -1,5 +1,7 @@
 # Phase 2: Name the paused activity as the running header does, and give the session page the Pausing header
 
+**Closed:** 2026-11-20
+
 **Added by delivery audit:** 2026-11-20, after every planned phase closed. It builds what phase 1 left out of the criteria below.
 **Parent PRD:** [Kiln Pause Now](kiln-pause-now-prd.md)
 **Technical design:** [Kiln Pause Now technical design](kiln-pause-now-technical-design.md) — relevant sections: "The Pause Now State" (the projection's `activityKey, label` and the header row), "The Paused Page"

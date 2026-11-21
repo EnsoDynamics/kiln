@@ -71,6 +71,29 @@ describe("the pause panel offers Now and After (AC-PAUSE-01)", () => {
     expect(words).toContain("After delivery audit · round 2 Lets the audit finish. Kiln commits, pushes and runs the completion checks, then waits before starting the next activity. Pause after delivery audit · round 2");
   });
 
+  it("names an audit's round from its row when there is no live target, as for a Codex audit", () => {
+    const snapshot = idle(one => {
+      const audit: PhaseView = { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Round 2", round: 2, continuationIndex: 1, state: "implementing", finishedByPerson: false };
+      one.activities = [...one.phases.map(row => row.id === "2b" ? { ...row, state: "done" as const } : row), audit];
+      one.current = { ...one.current!, phaseId: "audit-da2" };
+      one.feature.currentPhaseId = "audit-da2";
+      delete one.liveControl;
+    });
+    const words = text(running(snapshot));
+    expect(words).toContain("Delivery audit · round 2 stays open.");
+    expect(words).toContain("After delivery audit · round 2 Lets the audit finish.");
+    expect(words).toContain("Pause after delivery audit · round 2");
+  });
+
+  it("names the leaf a split phase is working on, not the launched phase", () => {
+    const words = text(running(idle(snapshot => { snapshot.liveControl!.target = { ...snapshot.liveControl!.target, activityKey: "2" }; })));
+    expect(words).toContain("Phase 2b stays open.");
+    expect(words).toContain("Pause after phase 2b");
+    expect(words).not.toContain("phase 2 ");
+    const pending = text(running(idle(snapshot => { snapshot.liveControl!.target = { ...snapshot.liveControl!.target, activityKey: "2" }; snapshot.liveControl!.label = "Phase 2"; snapshot.pause = { pending: true, active: false }; })));
+    expect(pending).toContain("Will pause after Phase 2b finishes.");
+  });
+
   it("keeps today's unavailable reason and the message-submission guard", () => {
     const html = running(idle(snapshot => Object.assign(snapshot.liveControl!, { available: false, reason: "Pause now is unavailable for Codex sessions." })));
     expect(button(html, "Pause now")).toMatch(/disabled/);
@@ -183,6 +206,25 @@ describe("the session page while pausing and once paused", () => {
     expect(detail(pausingSnapshot(), false)).toMatch(/<span class="pill amber-outline[^"]*">Last known: Pausing<\/span>/);
   });
 
+  it("shows the Pausing {activity} header beside the phases done, last known while disconnected", () => {
+    const html = detail(pausingSnapshot());
+    expect(html).toMatch(/<span class="pill amber-outline[^"]*"><svg[^>]*class="[^"]*spin[^"]*"[\s\S]*?<\/svg>Pausing phase 2b<\/span>/);
+    order(text(html), "Customer returns Pausing phase 2b 2 of 5 phases done", "All phases", "2b Store credit Pausing Phase 2b of 5");
+    const offline = detail(pausingSnapshot(), false);
+    expect(offline).toMatch(/<span class="pill amber-outline[^"]*">Last known: Pausing phase 2b<\/span>/);
+    expect(text(offline)).toContain("Last known: Pausing phase 2b 2 of 5 phases done");
+    expect(text(detail(pausedHoldSnapshot()))).not.toContain("phases done");
+  });
+
+  it("shows the Pausing pill and panel on the leaf's page after a split, with the leaf in the header", () => {
+    const snapshot = pausingSnapshot({ running: [], stopped: true, cancel: { available: false } }, { exited: true });
+    snapshot.liveControl!.target = { ...snapshot.liveControl!.target, activityKey: "2" };
+    const html = detail(snapshot);
+    expect(text(html)).toContain("Pausing phase 2b 2 of 5 phases done");
+    expect(html).toMatch(/<\/svg>Pausing<\/span>/);
+    expect(text(html)).toContain("Pausing — Claude has stopped; Kiln is checking nothing is still running.");
+  });
+
   it("shows the neutral Paused pill and circle, a Paused back link, and no pause panel once paused", () => {
     const html = detail(pausedHoldSnapshot());
     expect(html).toMatch(/<span class="pill strong-outline[^"]*"><svg[\s\S]*?<\/svg>Paused<\/span>/);
@@ -222,6 +264,17 @@ describe("the paused page (AC-PAUSE-05, AC-PAUSE-06)", () => {
     const long = `${"Wiring the store credit ledger into the receipt email and the refund summary page ".repeat(4)}now.`;
     const words = text(held(pausedHoldSnapshot({ lastSaid: long })));
     expect(words).toMatch(/Last thing Claude said: “Wiring the store credit ledger[^”]{80,160}…”/);
+  });
+
+  it("names the leaf a split phase is working on in the header, plan row, eyebrow, Resume and hint", () => {
+    const snapshot = pausedHoldSnapshot();
+    snapshot.liveControl!.target = { ...snapshot.liveControl!.target, activityKey: "2" };
+    snapshot.liveControl!.takeover!.target = snapshot.liveControl!.target;
+    const html = held(snapshot);
+    const words = text(html);
+    order(words, "Paused in phase 2b", "Paused partway · phase 2b of 5", "Resume phase 2b", "If you finished phase 2b there");
+    expect(html).toMatch(/<li data-phase="2b"[^>]*>(?:(?!<\/li>)[\s\S])*?<span class="pill strong-outline[^"]*">Paused<\/span>/);
+    expect(words).not.toMatch(/phase 2 of|Resume phase 2 |finished phase 2 /);
   });
 
   it("names an audit's round in the eyebrow", () => {

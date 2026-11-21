@@ -1,7 +1,7 @@
 import { ResponseSpool, spoolResult, releaseResult } from "./spool.js";
 import { readMessage } from "./input.js";
 import { lookupReceipt, receiptResult, validateInstruction, validBy, type Action } from "./commands.js";
-import { progressHeading, progressText, receiptLines, type ProgressRow } from "./waiver-facts.js";
+import { progressHeading, progressText, receiptLines, statusPause, type ProgressRow } from "./waiver-facts.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { processStartTime } from "../platform/process-start-time.js";
@@ -105,7 +105,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     if (answer.state === "folder_missing") return folderMissingText(progressHeading(answer), answer.folder_missing as FolderMissingFacts);
     const rows = answer.progress as ProgressRow[] | undefined;
     const loops = auditLoopsText(answer.audit_loops as AuditLoopsView | null | undefined, answer.controls as StatusControl[] | undefined);
-    const lead = [rows?.length ? progressText(progressHeading(answer), rows, (answer.live_control as { pauseNow?: { activityKey: string; phase: "pausing" | "paused" } } | null | undefined)?.pauseNow).trimEnd() : undefined, loops].filter(Boolean).join("\n");
+    const lead = [rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control)).trimEnd() : undefined, loops].filter(Boolean).join("\n");
     return lead ? `${lead}\n` : undefined;
   };
   const receiptLead = (answer: Result, record: SavedWork["record"] | undefined, waive = false) => receiptLines(answer, record, waive)?.join("\n");

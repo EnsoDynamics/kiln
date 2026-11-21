@@ -177,6 +177,18 @@ darwin("refuses Cancel once the stop is recorded, prints the paused line once at
   await h.engine.reconcileTakeover();
   expect(pauseNow()?.obstacle).toBeUndefined();
   expect(h.events.filter(e => e.kind === "phase" && e.event === "paused")).toHaveLength(1);
+
+  // After the session split phase 1, the Pause now state names the leaf the running header names, not the launched key (AC-PAUSE-03, AC-PAUSE-05).
+  const [launched, ...rest] = h.engine.record.plan!;
+  const leaf = (id: string, title: string) => ({ id, title, file: `phase-${id}.md`, closed: false, repositories: launched!.repositories });
+  h.engine.record.plan = [{ ...launched!, splitInto: ["1a", "1b"] }, leaf("1a", "Intake form"), leaf("1b", "Intake review"), ...rest];
+  const split = buildSnapshot(h.engine);
+  expect(split.feature.currentPhaseId).toBe("1a");
+  expect(split.liveControl?.pauseNow).toMatchObject({ phase: "paused", activityKey: "1a", label: "phase 1a" });
+  expect(split.liveControl?.pauseNow?.activityKey).toBe(split.feature.currentPhaseId);
+  expect(formatSummaryLine(h.engine, colors)).toContain("paused in phase 1a");
+  // kiln status's progress rows are keyed by the launched activity, and still read paused.
+  expect((await cli(["status"], false)).output).toMatch(/1\s+Return intake\s+paused/);
 }, 120000);
 
 darwin("shows the before-its-next-command row, then restores delivery recovery when a Pause now pressed from it is cancelled (AC-PAUSE-03, AC-PAUSE-04)", async () => {

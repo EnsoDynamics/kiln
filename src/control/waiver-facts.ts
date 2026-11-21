@@ -197,6 +197,17 @@ export function progressHeading(answer: Record<string, unknown>): string {
 }
 
 /**
+ * The Pause now state as `kiln status`'s progress block matches it: the hold's launched key, since
+ * the progress rows are keyed by the activity Kiln launched, while `pauseNow.activityKey` names the
+ * leaf a split phase works on (Kiln Pause Now AC-PAUSE-03).
+ */
+export function statusPause(liveControl: unknown): { activityKey: string; phase: "pausing" | "paused" } | undefined {
+  const live = liveControl as { pauseNow?: { phase: "pausing" | "paused" }; takeover?: { target?: { activityKey?: string } } } | null | undefined;
+  const key = live?.takeover?.target?.activityKey;
+  return live?.pauseNow && key ? { activityKey: key, phase: live.pauseNow.phase } : undefined;
+}
+
+/**
  * The progress block `kiln status` prints first in text mode (the mockup's `kiln status` blocks).
  * An activity under Pause now reads "pausing" or "paused" where it says "needs you"; its JSON state stays `needs_you`.
  */
