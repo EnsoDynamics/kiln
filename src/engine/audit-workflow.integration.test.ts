@@ -266,39 +266,41 @@ describe("automatic completion activities", () => {
       expect(snapshot.feature.state).toBe("needs_you");
       expect(h.engine.record.completedAt).toBeUndefined();
       expect(h.claudeCalls()).toHaveLength(1);
-      expect(snapshot.activities!.find(row => row.audit)?.audit?.remainingAfterDeliveryActions).toBeUndefined();
+      expect(snapshot.delivered).toBeUndefined();
       return;
     }
     expect(snapshot.feature.state, JSON.stringify(h.engine.record.phases)).toBe("complete");
     const remaining = recordedHumanResult ? [] : [action];
     const latest = snapshot.activities!.findLast(row => row.kind === "test_audit")!.audit!;
     expect(latest.pendingActions).toEqual([]);
-    expect(latest.remainingAfterDeliveryActions).toEqual(remaining);
+    // Listed once, last, under For you (Kiln Deliver When Audit Loops Run Out AC-ITEM-03); there is no human-actions card.
+    expect(snapshot.delivered!.forYou).toEqual({ items: [], afterDelivery: remaining });
     const chrome = await launchChrome();
     try {
       const page = await chrome.open(server!.address);
-      const section = `document.querySelector('[aria-labelledby="human-actions-heading"]')`;
+      const section = `document.getElementById('for-you')`;
       await page.waitFor(`document.body.innerText.includes('PR ready for review')`);
       if (recordedHumanResult) {
         expect(await page.evaluate(section)).toBeNull();
         expect(await page.evaluate(`document.body.innerText`)).not.toContain(action);
       } else {
-        expect(await page.evaluate(`${section}.innerText`)).toContain("Kiln has not performed them.");
+        expect(await page.evaluate(`${section}.innerText`)).toContain("For you");
+        expect(await page.evaluate(`document.body.innerText`)).not.toContain("Remaining human actions");
         expect(await page.evaluate(`${section}.querySelectorAll('li').length`)).toBe(1);
         expect(await page.evaluate(`${section}.querySelector('li').innerText`)).toBe(action);
         await page.evaluate(`location.reload()`);
-        await page.waitFor(`document.getElementById('human-actions-heading')`);
+        await page.waitFor(`document.getElementById('for-you')`);
         expect(await page.evaluate(`${section}.querySelector('li').innerText`)).toBe(action);
       }
       expect(page.problems).toEqual([]);
       if (process.env.KILN_SCREENSHOTS && !recordedHumanResult) {
         mkdirSync(process.env.KILN_SCREENSHOTS, { recursive: true });
-        writeFileSync(join(process.env.KILN_SCREENSHOTS, "completion-human-actions.png"), await page.screenshot());
+        writeFileSync(join(process.env.KILN_SCREENSHOTS, "completion-for-you-after-delivery.png"), await page.screenshot());
       }
     } finally { await chrome.close(); }
     const again = h.reopenFromDisk(); await again.agents.refresh();
     expect((await again.decide()).kind).toBe("complete");
-    expect(buildSnapshot(again).activities!.findLast(row => row.kind === "test_audit")!.audit!.remainingAfterDeliveryActions).toEqual(remaining);
+    expect(buildSnapshot(again).delivered!.forYou.afterDelivery).toEqual(remaining);
   });
   it("audits a closed-at-start plan through both gates before final delivery without another Start", async () => {
     const h = await fixture();
@@ -377,7 +379,7 @@ describe("automatic completion activities", () => {
     const rows = buildSnapshot(h.engine).activities!.filter(row => row.kind === "delivery_audit");
     expect(rows[0]).toMatchObject({ state: "done", audit: { outcome: "completion_phases", blockers: [`${decision} Decide it before the next audit.`], personItems: { count: 1, waiting: true } } });
     expect(rows[1]!.state).toBe("needs_you");
-    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (listed by Delivery audit round 1): ${decision} Decide it before the next audit.`);
+    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (other; listed by Delivery audit round 1): ${decision} Decide it before the next audit.`);
   });
   it("carries a test audit's item through its repair to the next delivery audit, which must settle it, and names it in the final pull request (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
     const decision = "AC-PROOF-01's export name differs from the design.";
@@ -386,13 +388,16 @@ describe("automatic completion activities", () => {
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["test_audit", 1], ["delivery_audit", 2], ["test_audit", 2]]);
     const calls = h.claudeCalls(); const audits = calls.filter(c => /^Run (Delivery|Test) audit/.test(c.prompt));
-    expect(audits[2]!.prompt).toContain(`- item-1 (listed by Test audit round 1): ${decision} Decide it before the next audit.`);
+    expect(audits[2]!.prompt).toContain(`- item-1 (other; listed by Test audit round 1): ${decision} Decide it before the next audit.`);
     expect(audits[3]!.prompt).toContain("Items earlier audits left for a person (outstanding):\nNone.");
     const rows = buildSnapshot(h.engine).activities!.filter(row => row.audit);
     expect(rows.find(row => row.kind === "test_audit")!.audit!.personItems).toEqual({ count: 1, waiting: false });
     expect(rows.filter(row => row.kind === "delivery_audit")[1]!.audit!.settledItems).toEqual([`${decision} Listed by Test audit round 1, settled by Delivery audit round 2: A person kept the design's name.`]);
     const pr = calls.at(-1)!.prompt;
-    expect(pr).toContain('under the heading "Settled during the build"');
+    // The block each description opens with (Kiln Deliver When Audit Loops Run Out AC-ITEM-03): nothing is left For you, so only Settled during the build.
+    expect(pr).toContain("Open each pull request's description with the block below, word for word");
+    expect(pr).toContain("## Settled during the build\n\n");
+    expect(pr).not.toContain("## For you");
     expect(pr).toContain(`- ${decision} Listed by Test audit round 1, settled by Delivery audit round 2: A person kept the design's name.`);
   });
   it("continues test-only work in a fresh conversation in the same round and retains both immutable records", { timeout: 120_000 }, async () => {
@@ -459,7 +464,7 @@ describe("automatic completion activities", () => {
       const page=await chrome.open(server!.address);await page.waitFor(`document.body.innerText.includes('Continuation 2')`);
       expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Test audit");
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
-      await page.waitFor(`document.body.innerText.includes('Continuation 2') && document.body.innerText.includes('Pause after this audit')`);
+      await page.waitFor(`document.body.innerText.includes('Continuation 2') && /Pause after test audit · round \\d/.test(document.body.innerText)`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
       writeFileSync(marker,"continue");await h.engine.settled();expect(h.engine.record.completedAt).toBeTruthy();
       await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);await page.waitFor(`document.body.innerText.includes('PR ready for review')`);
@@ -469,7 +474,8 @@ describe("automatic completion activities", () => {
   });
 
   it.each(["open PR", "already merged"])("keeps existing %s evidence behind audits at startup, Check again and Resume", async existing => {
-    const h=await fixture([auditSession({noReport:true}),auditSession(),auditSession()]);
+    // An open pull request gets this run's block from a pull request session before the run completes (Kiln Deliver When Audit Loops Run Out AC-LEFT-01).
+    const h=await fixture([auditSession({noReport:true}),auditSession(),auditSession()],[{actions:[{result:"Edited #7's description."},{exit:0}]}]);
     const branch=h.engine.record.settings.featureBranch;
     if(existing==="open PR")h.setPulls([{repo:"acme/acme-shop",number:7,title:"Existing review",url:"https://github.com/acme/acme-shop/pull/7",headRefName:branch,baseRefName:"develop",isDraft:false,isCrossRepository:false,additions:1,deletions:0,commits:[]}]);
     let integrated="";
@@ -486,7 +492,8 @@ describe("automatic completion activities", () => {
       expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ok:true});await h.engine.settled();
       expect(h.engine.record.completedAt,JSON.stringify(h.engine.record.phases)).toBeTruthy();
       expect(h.engine.record.completionAudits!.activities.map(a=>a.kind)).toEqual(["delivery_audit","test_audit"]);
-      expect(h.claudeCalls()).toHaveLength(3);expect(h.claudeCalls().some(c=>c.prompt.includes("Open one pull request"))).toBe(false);
+      const finals=existing==="open PR"?1:0;
+      expect(h.claudeCalls()).toHaveLength(3+finals);expect(h.claudeCalls().filter(c=>c.prompt.includes("Open one pull request"))).toHaveLength(finals);
       if(existing==="open PR")expect(h.engine.record.pullRequests?.[0]?.number).toBe(7);
     } finally {off();}
   });
@@ -528,13 +535,13 @@ describe("automatic completion activities", () => {
     try {
       await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
       const page = await chrome.open(server!.address);
-      await page.waitFor(`document.body.innerText.includes('Pause after this audit')`);
+      await page.waitFor(`/Pause after (delivery|test) audit · round \\d/.test(document.body.innerText)`);
       const key = auditKey(h.engine.record.completionAudits!.activities[0]!);
       expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Delivery audit");
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
       await page.waitFor(`document.body.innerText.includes('Delivery audit · Round 1')`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
-      await page.evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Pause after this audit')).click()`);
+      await page.evaluate(`[...document.querySelectorAll('button')].find(b=>/^Pause after (delivery|test) audit · round \\d/.test(b.textContent.trim())).click()`);
       await waitFor(() => !!h.engine.record.pause.requestedAt);
       writeFileSync(marker, "continue"); await h.engine.settled();
       expect(h.engine.record.pause.activeSince).toBeTruthy();
@@ -686,11 +693,14 @@ describe("automatic completion activities", () => {
 
   it("automatically reaudits material finalization changes and reuses the existing final pull request", { timeout: 120_000 }, async () => {
     const final = pullRequestSession(); final.actions.unshift({ write: { path: `${directory}/value.mjs`, content: files["value.mjs"] + "// Finalization changed tracked implementation.\n" } }, { commit: "fix(value): retain final source update" }, { push: true });
-    const h = await fixture(undefined, [final]);
+    // The reaudits change this run's Closing audits, so a second pull request session writes the new block into the same pull request (AC-LEFT-01).
+    const h = await fixture(undefined, [final, { actions: [{ result: "Edited #218's description." }, { exit: 0 }] }]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit",1],["test_audit",1],["delivery_audit",2],["test_audit",2]]);
-    expect(h.claudeCalls().filter(c => c.prompt.includes("Open one pull request"))).toHaveLength(1);
+    const finals = h.claudeCalls().filter(c => c.prompt.includes("Open one pull request"));
+    expect(finals).toHaveLength(2);
+    expect(finals[1]!.prompt).toContain("Delivery audit: 2 of 4 loops. Test audit: 2 of 4 loops.");
     expect(h.engine.record.pullRequests).toHaveLength(1);
   });
 

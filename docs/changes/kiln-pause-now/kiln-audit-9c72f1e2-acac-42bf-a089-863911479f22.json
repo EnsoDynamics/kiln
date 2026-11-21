@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "77bc76ad-bd4c-4d31-b6a4-3b6da5caea30",
+  "activityId": "9c72f1e2-acac-42bf-a089-863911479f22",
+  "kind": "test_audit",
+  "outcome": "passed",
+  "summary": "Second fixing chat of the Kiln Pause Now test audit (whole PRD). It ran AC-PAUSE-04's saved red check, which came back red, and fixed every gap saved for AC-PAUSE-02, 03, 05 and 06: Codex and final-delivery withholding at the engine and HTTP route, kiln status naming Pause now in its incompatibility report, an obstacle while pausing, the end-of-audit cancel label, the end of Paused while a relaunch is starting, the uncertain-message pause keeping today's terminal lines, and the paused page's already-complete advance and refused Resume. Each new assertion was seen to fail with its behavior broken, and a red check on AC-PAUSE-02's held deny came back red. Fresh re-graders put all six criteria at Adequate. Only tests changed, so test-audit.md reads Done.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}

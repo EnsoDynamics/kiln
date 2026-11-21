@@ -13,7 +13,7 @@ import { auditCurrentness, repositoryChecks, submitAudit, type AdmissionContext 
 import { AuditStore, hashBytes } from "./storage.js";
 import { captureSnapshot } from "./snapshots.js";
 import type { AuditActivity, AuditKind, AuditReportV2 } from "./contracts.js";
-import { reconstructLedger } from "../engine/loop-ledger.js";
+import { rebuiltLedger } from "../state/audit-loops.js";
 import { auditKey, auditNext, classifyAuditReport, continuablePredecessor, effectiveAudit, phasesBeyondInitial, waiveAudit, waiveUnstartedAudit } from "./workflow.js";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -79,7 +79,7 @@ describe("an audit marked complete counts as its report allows (AC-WAIVE-12)", (
   it.each<Row>([
     ["an accepted delivery report, its own outcome", "delivery_audit", async (f, a) => { f.saveReport(a); expect((await f.submit(a)).disposition).toBe("recorded"); }, { report: "accepted", countedOutcome: "passed" }],
     ["an accepted test report, its own changedImplementation", "test_audit", async (f, a) => { f.change("value.mjs", "export const value = () => 42; // fixed\n"); f.saveReport(a, { changedImplementation: true }); expect((await f.submit(a)).disposition).toBe("recorded"); }, { report: "accepted", countedOutcome: "passed", countedChangedImplementation: true }],
-    ["a valid report that needs a person, counted as passed", "delivery_audit", async (f, a) => { f.saveReport(a, { outcome: "needs_you", needsYou: [{ problem: "Needs a login.", action: "Grant it." }] }); expect((await f.submit(a)).refusal).toBeUndefined(); }, { report: "valid", countedOutcome: "passed" }],
+    ["a valid report that needs a person, counted as passed", "delivery_audit", async (f, a) => { f.saveReport(a, { outcome: "needs_you", needsYou: [{ kind: "blocker", problem: "Needs a login.", action: "Grant it.", waitsOn: "The rest of the audit." }] }); expect((await f.submit(a)).refusal).toBeUndefined(); }, { report: "valid", countedOutcome: "passed" }],
     ["a valid report whose repository check failed, its own outcome", "delivery_audit", async (f, a) => { appendPhase(f, "2"); f.saveReport(a, { outcome: "completion_phases", completionPhases: ["2"] }, false); expect(await f.submit(a)).toMatchObject({ disposition: "unresolved" }); }, { report: "valid", countedOutcome: "completion_phases" }],
     ["a valid test report, changedImplementation from the report", "test_audit", async (f, a) => { f.change("value.mjs", "export const value = () => 42; // fixed\n"); writeFileSync(join(f.root, "dirty.txt"), "x"); f.saveReport(a, { changedImplementation: true }); expect((await f.submit(a)).refusal).toBeUndefined(); }, { report: "valid", countedOutcome: "passed", countedChangedImplementation: true }],
     ["no report submitted", "delivery_audit", async () => {}, { report: "none", countedOutcome: "passed" }],
@@ -163,14 +163,15 @@ describe("an audit marked complete counts as its report allows (AC-WAIVE-12)", (
     expect(await auditNext(f.context)).toBe("continue_test");
 
     const continuation = await f.allocate("test_audit", 2);
-    f.saveReport(continuation, { outcome: "continue_test" });
+    // It names a row it raised (Kiln Deliver When Audit Loops Run Out AC-LAST-01), so the refusal is for making no progress.
+    f.saveReport(continuation, { outcome: "continue_test", raised: ["AC-PROOF-01"] });
     expect((await f.submit(continuation)).refusal?.reason).toContain("made no progress");
     await f.markComplete(continuation);
     expect(continuablePredecessor(f.context)).toBeUndefined();
     expect(await auditNext(f.context)).toBe("final_delivery");
   });
 
-  it("an upgraded run counts a continuation completed at once under a waived readiness problem as no test loop, and one whose session ran as one (Kiln Audit Loop Limits AC-LOOP-03, AC-LOOP-07)", async () => {
+  it("an upgraded run counts each audit run with a session as a loop and never a continuation, completed at once or not (Kiln Deliver When Audit Loops Run Out AC-LAST-02, Upgrade)", async () => {
     const f = await fixture(); const delivery = await f.allocate("delivery_audit");
     f.saveReport(delivery); expect((await f.submit(delivery)).disposition).toBe("recorded"); f.settle(delivery);
     const tests = await f.allocate("test_audit"); tests.sessionIds.push("first-test-session");
@@ -182,10 +183,12 @@ describe("an audit marked complete counts as its report allows (AC-WAIVE-12)", (
     // The continuation Kiln completed at once: allocated without a skill, waived, settled, no session.
     const atOnce = await f.allocate("test_audit", 2); delete atOnce.skill;
     waiveUnstartedAudit(f.stateDirectory, atOnce, randomUUID()); f.settle(atOnce);
-    expect(reconstructLedger(f.context).loops).toEqual([]);
-    // The same continuation with a session that ran is a loop.
+    // An upgraded ledger counts audit runs (Kiln Deliver When Audit Loops Run Out, "Upgrade"): the first test audit,
+    // which has a session, but not the settled delivery audit here, which has none; a continuation is never a loop, with a session or not.
+    const counted = () => rebuiltLedger(f.context.record, undefined, "2026-11-19T00:00:00.000Z").loops.map(loop => [loop.kind, loop.number, loop.activityKey]);
+    expect(counted()).toEqual([["test", 1, auditKey(tests)]]);
     atOnce.sessionIds.push("continuation-session");
-    expect(reconstructLedger(f.context).loops.map(loop => [loop.kind, loop.number, loop.sessionId, loop.observed])).toEqual([["test", 1, "continuation-session", true]]);
+    expect(counted()).toEqual([["test", 1, auditKey(tests)]]);
   });
 
   it("completes at once with no report an audit allocated under a waived readiness problem", async () => {

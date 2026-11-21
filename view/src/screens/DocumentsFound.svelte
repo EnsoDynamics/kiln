@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Documents found (docs/design/mockups/kiln-screen-documents-found.html): what Kiln found
   // beside the PRD (PRD AC-START-04), the PRD's settings, changeable before Start and saved as
@@ -9,8 +10,9 @@
   // repository (multi-repo AC-REPO-03, AC-SPACE-01, AC-PRS-04); a field Start already set up is
   // shown fixed. Either says sessions can add a repository (AC-ADD-01, AC-SPACE-03). Under
   // keep-awake, "Resume after a usage limit", in the waiting screen's words (usage-limit recovery
-  // AC-AUTO-04). Then the Audit loops section, and Effort's help says Claude Code starts at Medium
-  // (Kiln Audit Loop Limits AC-LOOP-01, AC-EFFORT-01; its mockup's screens 0 and 1).
+  // AC-AUTO-04). Then the Audit loops section's two limits (Kiln Deliver When Audit Loops Run Out
+  // AC-CHOICE-01, mockup screen 1), and Effort's help says Claude Code starts at Medium (Kiln Audit
+  // Loop Limits AC-EFFORT-01).
   // Start from (run restart AC-FROM-01 to 05, AC-CURRENT-01, mockup docs/changes/kiln-run-restart/
   // mockups/kiln-run-restart.html): a new feature branch or one that already exists; on an existing
   // branch What Kiln found reads the plan where the first session starts, Feature branch is a list,
@@ -383,7 +385,7 @@
         <span class="awake-text"><span class="awake-label">Resume after a usage limit</span><span class="help">Switch off to finish the phase yourself; Needs you then shows how.</span></span>
       </label>
 
-      <AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} disabled={!connected || documents.starting === true} {now} />
+      <AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} disabled={!connected || documents.starting === true} />
 
       <dl class="fixed">
         <dt>Pushes</dt><dd>After every phase</dd>
@@ -424,7 +426,8 @@
     </div>
 
     <div class="column end">
-      <button type="button" class="start" class:ready={startNow.enabled && !pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
+      <button type="button" class="start" class:ready={startNow.enabled} class:busy={pressing} aria-busy={pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
+      {#if pressing}<BusyStatus text={`Setting up the run and launching ${settings.agent}.`} />{/if}
       {#if closedLine || startNow.note}<span class="help">{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
       {#if documents.startError}<span class="message">{documents.startError}</span>{:else if startReason}<span class="message">{startReason}</span>{/if}
     </div>

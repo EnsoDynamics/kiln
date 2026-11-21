@@ -27,35 +27,51 @@ The report has these fields and nothing else is required:
   "passed" when it found nothing left to build or test;
   "completion_phases" when it added phases to the plan for missing work;
   "continue_test" (test audit only) when it saved remaining test work for another session;
-  "needs_you" when it stopped for a decision, permission or action only a person can give,
-  or when it ended normally but lists anything a person must still decide or do before
-  delivery, such as behavior changed outside the requirements or a human action still waiting.
-  When it added phases or saved test work and also lists something for a person, choose by
-  whether that work depends on the person's answer: if it does not, report completion_phases
-  or continue_test with the items in needsYou, and Kiln builds the work while a person settles
-  them; if it does, or the skill stopped to surface a critical finding, report needs_you.
-  An outstanding item listed again is not by itself a reason for needs_you: an audit that found
-  nothing left to build reports passed and lists each outstanding item still open in needsYou with
-  its id, and the next audit runs while a person settles them. A test audit that changed only tests
-  leads to delivery, so it reports passed only when no outstanding item is left open; otherwise
-  it reports needs_you.
+  "needs_you" when the work this report leaves cannot go on without an item for a person, when
+  a critical finding would be caused or worsened by the step that outcome leads to, or when
+  nothing is left to build and a blocker or business question not marked waived is open before
+  the pull request. Judge it from the kinds the outstanding list below shows and the steps listed
+  after this. Any other item lets the work go on: report the outcome the audit reached and list
+  the item in needsYou, and Kiln reports it with the delivery.
 - "summary": a few plain sentences on what the audit concluded.
 - "completionPhases": the IDs of the phases this audit appended, [] when none.
-- "needsYou": [{"problem","action","criterion"?}] for each thing a person must resolve; when passed,
-  only outstanding items listed again, and [] for a test audit that changed only tests.
-  Add "id" to an entry that lists again an item from the outstanding list below. Add "criterion",
-  the acceptance criterion's ID, when the item is that criterion's test row.
+- "needsYou": [{"kind","problem","action","waitsOn"?,"criterion"?}] for each item a person must
+  see, [] when none. "kind" is one of:
+  "critical_next_step": a critical finding that Kiln's next step would cause or worsen. Kiln
+  stops at once, so the outcome is needs_you;
+  "critical": any other critical finding. Kiln goes on and reports it first;
+  "blocker": access, a resource, a permission or an action that only a person can provide and
+  that work Kiln will still do in this run needs, delivery included. It holds the run;
+  "business_question": a business question whose best answer is below 20%. It holds the run;
+  "test": a test the audit cannot settle on its own: a criterion with no test, a failing test, a
+  high-risk criterion still Weak, a row the audit marked stuck, or, once the test work ends, any
+  row still missing, failing or Weak. Kiln goes on, and one still open at delivery is reported;
+  "other": anything else the skill names for the person, such as behavior changed outside the
+  requirements or a human action that no work Kiln will still do needs. Kiln goes on and reports it.
+  A declared assumption, a request to confirm or review something, and anything the audit can
+  settle itself are never items. A person action the requirements place after delivery goes in
+  afterDeliveryActions, never in needsYou.
+  "problem" is the problem and "action" the action the person takes. "waitsOn" says what waits on
+  the item, required for critical_next_step, blocker and business_question. Add "criterion", the
+  acceptance criterion's ID, when the item is that criterion's test row.
+  To list an item again, give its id, problem and action. Leave out kind and waitsOn to keep the
+  ones shown. Give a new value only when the item itself has changed, such as a blocker that no
+  longer holds anything. An item shown with no kind must be given one.
 - "settled": [{"id","how"}] for each item from the outstanding list below that is now settled,
   saying how; omit or [] when none. Account for every outstanding item exactly once, in needsYou
   with its id when it is still open or in settled; Kiln refuses a report that leaves one out.
 - "changedImplementation" (test audit only): true when you changed anything other than tests
   and audit records, including configuration, dependency manifests or helpers that runtime code
   also uses, so Kiln runs a fresh delivery audit; otherwise false.
+- "raised" (a session of test fixes reporting continue_test): the IDs of the criteria whose rows
+  it raised.
 - "afterDeliveryActions" (optional): person actions the requirements place after Kiln's delivery,
   such as a later production release; these alone do not make the outcome needs_you.
 Report the outcome the skill actually reached. Never write "passed" to finish; if you are stuck,
-write "needs_you" and say what is needed.
-{{loops}}
+write "needs_you" with a blocker item that says what is needed.
+
+{{nextSteps}}
+
 Items earlier audits left for a person (outstanding):
 {{outstanding}}
 

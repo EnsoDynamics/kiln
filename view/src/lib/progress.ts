@@ -6,8 +6,10 @@
 import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
 import type { Effort } from "../../../src/state/records.js";
 import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
-import { clockTime, limitTime, shortDuration, timeSpan, timingAt, timingText } from "./time.js";
+import { ago, clockTime, limitTime, shortDuration, timeSpan, timingAt, timingText } from "./time.js";
 import { activityKeyKind } from "../../../src/state/activity-keys.js";
+import { positionText } from "./audit-loops.js";
+import type { PauseNowView } from "../../../src/live/pause-now.js";
 
 export const PR_ID = "pr";
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
@@ -65,7 +67,7 @@ export function settingsModel(settings: Snapshot["settings"]): string {
   return modelAndEffort(settings.model.displayName, settings.effortLevels?.length === 0 ? undefined : settings.effort);
 }
 
-export type HeaderKind = "implementing" | "interrupted" | "paused" | "needs_you" | "waiting" | "complete";
+export type HeaderKind = "implementing" | "pausing" | "interrupted" | "paused" | "needs_you" | "waiting" | "complete";
 
 /** The header's PRD total line: the whole PRD's running and waiting time, and since when (time totals AC-TOTAL-01). */
 export interface HeaderTotals {
@@ -86,6 +88,9 @@ export interface HeaderState {
  * started, its total line (time totals AC-TOTAL-01). A wait reads Waiting for usage.
  * Disconnected views label it last known without asserting the work stopped (live-session
  * control AC-LIVE-02); the caller passes the last-seen time as `now` there, so the totals hold.
+ * During the closing audits it names the loop from the snapshot's position: a running audit's or
+ * session of test fixes' as the pill, and at a Needs you stop the latest loop beside the stopped
+ * activity (Kiln Deliver When Audit Loops Run Out AC-STOP-05); a phase reads as any phase.
  *
  *   headerState(running, true, now).totals  // { running: "6h 12m", waiting: "1h 47m", since: "since Tue 9:02 AM" }
  */
@@ -115,12 +120,24 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
   const { feature } = snapshot;
   const done = `${feature.phasesDone} of ${feature.phasesTotal} phases done`;
   const current = feature.currentPhaseId ?? snapshot.current?.phaseId;
+  // Pause now reads Pausing, then Paused, never Needs you, while the feature state underneath stays needs_you (Kiln Pause Now, "The Pause Now State").
+  const pauseNow = snapshot.liveControl?.pauseNow;
+  if (pauseNow && (feature.state === "implementing" || feature.state === "needs_you")) {
+    const name = phaseName(pauseNow.activityKey, snapshot);
+    if (pauseNow.phase === "paused" && pauseNow.releasedAt) return { kind: "paused", label: `Paused in ${name}`, facts: [done, `Paused ${clockTime(pauseNow.releasedAt, now, { afterWord: true })}`, ago(pauseNow.releasedAt, now)] };
+    if (!connected) return { kind: "interrupted", label: `Last known: Pausing ${name}`, facts: [done] };
+    return { kind: "pausing", label: `Pausing ${name}`, facts: [done] };
+  }
   switch (feature.state) {
     case "needs_you": {
       const stopped = snapshot.needsYou!;
       const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === stopped.phaseId);
       const which = namedActivity(stopped.phaseId) ? row?.title ?? "Audit" : stopped.phaseId === PR_ID ? "PR" : `Phase ${stopped.phaseId}`;
-      return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`] };
+      const position = snapshot.auditLoops?.position;
+      const stoppedFact = `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`;
+      // An audit's own stop is named by its loop alone; any other stop keeps its name beside the latest loop.
+      if (position) return { kind: "needs_you", label: "Needs you", facts: [...(activityKeyKind(stopped.phaseId) === "audit" ? [] : [`${which} · ${row?.title ?? ""}`]), positionText(position), stoppedFact] };
+      return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, stoppedFact] };
     }
     case "waiting": {
       if (!connected) return { kind: "interrupted", label: `Last known: ${phaseName(current ?? "", snapshot)}`, facts: [done] };
@@ -141,18 +158,45 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
     }
     default:
       if (!connected) return { kind: "interrupted", label: `Last known: ${phaseName(current ?? "", snapshot)}`, facts: [done] };
+      if (snapshot.auditLoops?.position) return { kind: "implementing", label: positionText(snapshot.auditLoops.position), facts: [done] };
       return { kind: "implementing", label: current && namedActivity(current) ? `Running ${phaseName(current, snapshot)}` : `Implementing ${phaseName(current ?? "")}`, facts: [done] };
   }
 }
 
-export type RowState = PhaseView["state"] | "interrupted";
+export type RowState = PhaseView["state"] | "interrupted" | "paused";
 
 /**
  * The interrupted visual tone marks a stale row while disconnected. Its words retain the
- * last-known state rather than claiming the attempt stopped (AC-LIVE-02).
+ * last-known state rather than claiming the attempt stopped (AC-LIVE-02). The activity under
+ * Pause now keeps its running pill while pausing and reads Paused once paused, never Needs you
+ * (Kiln Pause Now AC-PAUSE-05).
  */
-export function rowState(row: PhaseView, connected: boolean): RowState {
+export function rowState(row: PhaseView, connected: boolean, pauseNow?: PauseNowView): RowState {
+  if (pauseNow && row.id === pauseNow.activityKey) return pauseNow.phase === "paused" ? "paused" : connected ? "implementing" : "interrupted";
   return (row.state === "implementing" || row.state === "waiting") && !connected ? "interrupted" : row.state;
+}
+
+/**
+ * The After choice's {next activity} (Kiln Pause Now, "The Pause Now State"): "phase {id}" when
+ * the running activity is a phase and another leaf follows it, otherwise "the next activity".
+ *
+ *   nextActivity(running, "2b")  // "phase 3"
+ */
+export function nextActivity(snapshot: Snapshot, id: string): string {
+  if (namedActivity(id) || id === PR_ID) return "the next activity";
+  const rows = snapshot.activities ?? snapshot.phases;
+  const at = rows.findIndex(row => row.id === id);
+  const next = at === -1 ? undefined : rows.slice(at + 1).find(row => row.state === "planned" && !row.splitInto?.length);
+  return next && !namedActivity(next.id) && next.id !== PR_ID && next.kind !== "preflight" ? `phase ${next.id}` : "the next activity";
+}
+
+/** The last thing the agent said, as the paused card quotes it: whole when short, else cut at a word with an ellipsis. */
+export function shortQuote(text: string, max = 160): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).replace(/[\s,.;:]+$/, "")}…`;
 }
 
 /**
@@ -184,6 +228,8 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
       return `Last known: ${row.state === "waiting" ? "Waiting for usage" : row.kind === "preflight" ? "Checking" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing"}`;
     case "needs_you":
       return "Needs you";
+    case "paused":
+      return "Paused";
     case "waiting":
       return "Waiting for usage";
     case "next":

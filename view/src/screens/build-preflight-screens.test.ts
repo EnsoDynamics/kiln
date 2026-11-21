@@ -6,6 +6,7 @@ process.env.TZ = "America/New_York";
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
+import { PREFLIGHT_LIVE_REASON } from "../../../src/engine/preflight.js";
 import { documentsFoundSnapshot, needsYouMessageSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 import NeedsYou from "./NeedsYou.svelte";
@@ -80,15 +81,26 @@ describe("a running preflight (AC-PREFLIGHT-08)", () => {
   it("names the preflight in the header and offers neither live controls nor a pause, saying why", () => {
     const snapshot = runningWith(preflightRow({ state: "implementing", doneAt: undefined, preflight: {} }));
     snapshot.feature.currentPhaseId = KEY;
-    snapshot.current = { ...snapshot.current!, phaseId: KEY, steps: [] };
+    snapshot.current = { ...snapshot.current!, phaseId: KEY };
     expect(headerState(snapshot, true, new Date(RUNNING_NOW)).label).toBe("Running preflight");
     const page = text(running(snapshot));
-    expect(page).toContain("Live messages, terminal takeover and a pause are unavailable during the preflight.");
+    // The card names it in full, with PF in its circle, never the activity key or a phase's build steps.
+    const card = page.slice(page.indexOf("Now checking"), page.indexOf("Details"));
+    expect(card).toContain("Now checking Preflight check");
+    expect(text(running(snapshot))).not.toContain("Now implementing");
+    expect(page).not.toContain(KEY);
+    expect(page).toContain("PF");
+    expect(page).not.toMatch(/Deliverable review|Test hardening|Refactor pass/);
+    expect(page).toContain(PREFLIGHT_LIVE_REASON);
     expect(page).not.toContain("When should Kiln pause?");
+    expect(page).not.toContain("Stops after the command");
     const detail = text(strip(render(PhaseDetail, { props: { snapshot, phaseId: KEY, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body));
-    expect(detail).toContain("Live messages, terminal takeover and a pause are unavailable during the preflight.");
+    expect(detail).toContain(PREFLIGHT_LIVE_REASON);
     expect(detail).not.toContain("Pause & take over");
+    expect(detail).not.toContain("Stops after the command");
     expect(detail).toContain("Checking");
+    expect(detail).toContain("Preflight check");
+    expect(detail).not.toMatch(/Deliverable review|Test hardening|Refactor pass/);
   });
 });
 

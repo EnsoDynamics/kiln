@@ -26,7 +26,7 @@ it.each([1200, 390])("preserves an exact attempt's draft through navigation and 
     expect(await page.evaluate("document.querySelector('#live-message-timing').textContent")).toBe("Claude reads this at its next opportunity. The current tool may finish first.");
     expect(await page.evaluate("document.querySelector('#live-message-limit').textContent")).toContain("0 / 4,000 UTF-16 code units");
     const body = await page.evaluate<string>("document.body.textContent");
-    expect(body.indexOf("Message Claude")).toBeLessThan(body.indexOf("When should Kiln pause?")); expect(body.indexOf("When should Kiln pause?")).toBeLessThan(body.indexOf("Progress"));
+    expect(body.indexOf("Message Claude")).toBeLessThan(body.indexOf("Stops after the command it is running")); expect(body.indexOf("Stops after the command it is running")).toBeLessThan(body.indexOf("Progress"));
     await page.evaluate(`document.querySelector('#live-message').value=${JSON.stringify(text)}; document.querySelector('#live-message').dispatchEvent(new Event('input',{bubbles:true}))`);
     await page.evaluate(`Array.from(document.querySelectorAll('a')).find(a=>a.textContent.includes('All phases')).click()`);
     await page.waitFor(`document.body.innerText.includes('Control live session')`);
@@ -129,7 +129,7 @@ it("disables Send and takeover throughout a pending HTTP submission and pending 
   try {
     await page.waitFor(`document.querySelector('#live-message')`);
     await page.evaluate(`document.querySelector('#live-message').value='message pending';document.querySelector('#live-message').dispatchEvent(new Event('input',{bubbles:true}));`);
-    const send = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Send message')`; const take = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Pause & take over')`;
+    const send = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Send message')`; const take = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Pause now')`;
     await page.evaluate(`${send}.click()`); await page.waitFor(`document.body.innerText.includes('Submitting')`);
     expect(await page.evaluate(`${send}.disabled && ${take}.disabled`)).toBe(true);
     release();
@@ -162,7 +162,7 @@ it("shows active audit identity, gives a successor an empty draft, and excludes 
     // The earlier phase is historical even while another activity is live.
     await page.evaluate(`history.pushState(null,'','/customer-returns/phase/1');dispatchEvent(new PopStateEvent('popstate'))`);
     await page.waitFor(`!document.querySelector('#live-message')`);
-    expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Pause & take over')`)).toBe(false);
+    expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent==='Pause now')`)).toBe(false);
   } finally { await page.close(); await server.close(); }
 });
 

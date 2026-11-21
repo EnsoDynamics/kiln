@@ -421,7 +421,8 @@ describe("final delivery under a waived plan problem (AC-WAIVE-04, AC-WAIVE-09)"
     // Passing audits submit their reports through the running controller, as audit-workflow's fixture does.
     writeFileSync(join(h.repository, ".gitignore"), ".proof/\n");
     git(h.sandbox, h.repository, "add", "--", ".gitignore"); git(h.sandbox, h.repository, "commit", "-q", "-m", "test(audit): ignore transient requests"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [changingPullRequestSession()], auditSessions: [passingAudit(), passingAudit()] }));
+    // After the fresh audits a second final-delivery session writes the new Closing audits into the same pull request (Kiln Deliver When Audit Loops Run Out AC-LEFT-01).
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [changingPullRequestSession(), { actions: [{ result: "Edited #218's description." }, { exit: 0 }] }], auditSessions: [passingAudit(), passingAudit()] }));
     const controller = await startFixtureController({ engine: h.engine, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
     onTestFinished(async () => { await controller.server.close(); controller.release(); });
     await h.engine.start({ refinementConfirmed: true });
@@ -440,7 +441,7 @@ describe("final delivery under a waived plan problem (AC-WAIVE-04, AC-WAIVE-09)"
     const rounds = h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round, h.engine.record.phases[auditKey(a)]?.doneAt !== undefined]);
     expect(rounds).toEqual([["delivery_audit", 1, true], ["test_audit", 1, true], ["delivery_audit", 2, true], ["test_audit", 2, true]]);
     const kinds = h.claudeCalls().map(call => call.prompt.includes("Pinned CLI:") ? "audit" : "final_delivery");
-    expect(kinds).toEqual(["audit", "audit", "final_delivery", "audit", "audit"]);
+    expect(kinds).toEqual(["audit", "audit", "final_delivery", "audit", "audit", "final_delivery"]);
     expect(readFileSync(join(h.engine.worktreePath, "docs/prds/proof/value.mjs"), "utf8")).toContain("43");
     expect(h.engine.record.completedAt).toEqual(expect.any(String));
     // Final delivery completed with the plan problem waived on the one waiver, never a stale audit counted as current.

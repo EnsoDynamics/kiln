@@ -81,7 +81,7 @@ it.skipIf(process.platform !== "darwin").each([1200, 390])("retains last-known s
     expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(true);
     expect(h.engine.liveTarget()?.attemptId).toBe(run.live!.attemptId);
     expect(await page.evaluate(`document.querySelector('#live-message').value`)).toBe(draft);
-    const buttons = `Array.from(document.querySelectorAll('button')).filter(b=>['Send message','Pause & take over','Pause after this phase'].includes(b.textContent.trim()))`;
+    const buttons = `Array.from(document.querySelectorAll('button')).filter(b=>['Send message','Pause now','Pause after phase 1'].includes(b.textContent.trim()))`;
     expect(await page.evaluate(`${buttons}.length`)).toBe(3);
     expect(await page.evaluate(`${buttons}.every(b=>b.disabled)`)).toBe(true);
     expect(proxy.mutations).toEqual([]);

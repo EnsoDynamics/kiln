@@ -41,10 +41,15 @@ Neither reopens the earlier conversation. Each receipt's `operation.effects.sess
 
 ## Audit loop limits
 
-`kiln settings <PRD-path>` with no flags prints every setting, including the audit loop limits and what Kiln does after the last test audit loop. During a run, `--delivery-audit-loops N`, `--test-audit-loops N` (a whole number of 1 or more) and `--after-last-test-audit-loop deliver|ask` change them, with the command ID and status-token flags above; a change applies from Kiln's next decision whether to start a loop, and raising a limit starts nothing by itself. `kiln status` prints the loop counts on one line, and at a stop where the loops are used up, the stop's heading, the loops that ran, what the audit found and the controls available there; `--json` carries the same as `audit_loops`. Two stop commands answer such a stop, each with the command ID and status-token flags:
+A loop is one run of an audit. Kiln builds whatever each audit finds, and once a kind of audit has used its last loop it runs no more audits of that kind and goes on: from the delivery audit to the test audit, and from the test audit to the pull request. It never stops to ask at a limit.
 
-- `kiln allow-more-loops <PRD-path> --loops N` sets that kind's limit to N, restarts its count and goes on with the next loop.
-- `kiln accept-and-deliver <PRD-path>`, at a test audit loop stop only, accepts what the audit left, in the sentence `audit_loops.stop.acceptSentence` shows, and goes on to deliver.
+`kiln settings <PRD-path>` with no flags prints every setting, including **Max delivery audit loops** and **Max test audit loops** (each 4 by default). During a run, `--delivery-audit-loops N` and `--test-audit-loops N` change them, with the command ID and status-token flags above. A limit is a whole number of 1 or more and never below the audits of that kind already run, the one under way included; a lower value is refused as `invalid_input`, naming the lowest allowed. A change applies from Kiln's next decision whether to run an audit of that kind. Once the pull request session has started, a change applies only to a continuation of the run. `kiln status` prints the audit loop the run is on, such as `Delivery audit loop 2 of 4`, then the loop counts; `--json` carries the same as `audit_loops`.
+
+`kiln allow-more-loops`, `kiln accept-and-deliver` and `kiln settings --after-last-test-audit-loop` were removed; each is refused as `removed_command`.
+
+## New phases after a run finished
+
+On a finished run, `kiln check-for-new-phases <PRD-path>` checks the plan for phases added after it finished, as **Check for new phases** on the finished page does. It takes no command ID or status token, and its result carries the check and any offer to continue, with the offer's proposal ID. `kiln continue-with-phases <PRD-path> --proposal <ID>`, with the command ID and status-token flags above, continues with the phases offered, as **Continue with N phases** does. An offer that still needs **Authorize early merges** is refused, since that stays in the browser.
 
 ## Starting over
 
@@ -54,7 +59,7 @@ It takes the command ID and status-token flags above and nothing else; there is 
 
 ## Live messages and takeover
 
-For a running Claude phase or audit, `kiln message <PRD-path>` sends exact text from `--message-file <path>` or `--message-from-stdin`, preserving outer whitespace. Claude reads it at its next opportunity; the current tool may finish first. `kiln take-over <PRD-path>` holds progression and waits for the next safe stopping point. Both require the same command ID and fresh status-token flags above. Use `kiln handoff` only after status reports safe release; it reads instructions and never opens a terminal.
+For a running Claude phase or audit, `kiln message <PRD-path>` sends exact text from `--message-file <path>` or `--message-from-stdin`, preserving outer whitespace. Claude reads it at its next opportunity; the current tool may finish first. `kiln take-over <PRD-path>` is the browser's **Pause now**: it holds progression and waits for the next safe stopping point. Cancelling a pending pause is a browser control only; a pause started by mistake completes, and `kiln resume` then carries on. Both require the same command ID and fresh status-token flags above. Use `kiln handoff` only after status reports safe release; it reads instructions and never opens a terminal.
 
 `reply` resumes a stopped conversation. `request-pause` lets the entire phase/audit and its completion checks finish first. These remain separate from live messaging and takeover. If delivery is uncertain, inspect the message receipt and conversation, then use `resume`, `verify-and-advance` or, when the conversation can't be reopened, `carry-on` with `--message-reviewed <receipt-id>` for each reviewed uncertain message. Review never resends or confirms provider receipt; only successful explicit hand-back releases the hold. See each command's `--help`.
 

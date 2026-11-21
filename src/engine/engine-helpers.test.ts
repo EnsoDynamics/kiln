@@ -14,6 +14,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 
 const plain = terminalColors({ isTTY: false }, {});
 const plan = readPhasePlan(Object.entries(PHASES).map(([fileName, markdown]) => ({ fileName, markdown })));
+const BLOCK = "## Closing audits\n\nDelivery audit: 1 of 4 loops. Test audit: 1 of 4 loops.";
 
 describe("the terminal's phase lines", () => {
   // The mockup's plan: the longest title is "Returns dashboard", so titles pad to 19.
@@ -106,7 +107,7 @@ describe("the prompts", () => {
 
   it("asks the pull-request session for one ready pull request per repository, each through gh --repo", () => {
     const repository = (name: string, base: string, isPrd = false) => ({ name, github: `acme/${name}`, worktreePath: `/w/${name}`, baseBranch: base, isPrd });
-    const one = pullRequestSessionPrompt({ featureName: "Customer returns", prdFile: "docs/prds/customer-returns/customer-returns-prd.md", branch: "feature/customer-returns", repositories: [repository("acme-shop", "develop", true)] });
+    const one = pullRequestSessionPrompt({ featureName: "Customer returns", prdFile: "docs/prds/customer-returns/customer-returns-prd.md", branch: "feature/customer-returns", repositories: [repository("acme-shop", "develop", true)], deliveryBlock: BLOCK });
     expect(one).toContain("Pass `--repo github.com/<owner>/<name>` to every `gh` command for that repository:\n\n- `acme-shop` (`acme/acme-shop`), worktree `/w/acme-shop`, into `develop`\n\nOpen them ready for review");
     expect(one).not.toContain("links every other pull request");
     expect(one).toContain("You may not merge, deploy anything, or touch any other branch.");
@@ -115,6 +116,7 @@ describe("the prompts", () => {
       prdFile: "product/docs/prds/customer-returns/customer-returns-prd.md",
       branch: "feature/customer-returns",
       repositories: [repository("product", "main", true), repository("returns-api", "develop")],
+      deliveryBlock: BLOCK,
     });
     expect(several).toContain("- `returns-api` (`acme/returns-api`), worktree `/w/returns-api`, into `develop`\n\nEach description names the PRD and links every other pull request opened for it");
     expect(several).toContain("as the technical design gives the order.\n\nOpen them ready for review");
@@ -124,10 +126,25 @@ describe("the prompts", () => {
     const prompt = auditSessionPrompt({ label: "Test audit", skillName: "test-audit", skillPath: "/skills/test-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [{ name: "proof", github: "acme/proof", worktreePath: "/w/proof", baseBranch: "develop", isPrd: true }], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
     expect(prompt).toContain("Follow that skill exactly as it is written");
     for (const field of ['"schemaVersion": 2', '"outcome"', '"summary"', '"completionPhases"', '"needsYou"', '"changedImplementation"', '"afterDeliveryActions"']) expect(prompt).toContain(field);
-    expect(prompt).toContain("or when it ended normally but lists anything a person must still decide or do before delivery");
-    // Items: chosen by whether the added work depends on the answer, and every outstanding one accounted for (AC-NEUTRAL-03).
-    expect(prompt).toContain("choose by whether that work depends on the person's answer: if it does not, report completion_phases or continue_test with the items in needsYou");
-    expect(prompt).toContain("if it does, or the skill stopped to surface a critical finding, report needs_you");
+    // Items: the kinds in the PRD's words, what is never an item, and an outcome that stops only for an item the work cannot go on without (Kiln Deliver When Audit Loops Run Out AC-ITEM-01).
+    expect(prompt).toContain("\"needs_you\" when the work this report leaves cannot go on without an item for a person, when a critical finding would be caused or worsened by the step that outcome leads to, or when nothing is left to build and a blocker or business question not marked waived is open before the pull request.");
+    for (const kind of ['"critical_next_step":', '"critical":', '"blocker":', '"business_question":', '"test":', '"other":', '"raised"', '"waitsOn"']) expect(prompt).toContain(kind);
+    expect(prompt).toContain("A declared assumption, a request to confirm or review something, and anything the audit can settle itself are never items.");
+    // Each kind's definition and its effect on the run, in the table's words, in both audits' prompts (AC-ITEM-01).
+    const definitions = [
+      '"critical_next_step": a critical finding that Kiln\'s next step would cause or worsen. Kiln stops at once, so the outcome is needs_you;',
+      '"critical": any other critical finding. Kiln goes on and reports it first;',
+      '"blocker": access, a resource, a permission or an action that only a person can provide and that work Kiln will still do in this run needs, delivery included. It holds the run;',
+      '"business_question": a business question whose best answer is below 20%. It holds the run;',
+      '"test": a test the audit cannot settle on its own: a criterion with no test, a failing test, a high-risk criterion still Weak, a row the audit marked stuck, or, once the test work ends, any row still missing, failing or Weak. Kiln goes on, and one still open at delivery is reported;',
+      '"other": anything else the skill names for the person, such as behavior changed outside the requirements or a human action that no work Kiln will still do needs. Kiln goes on and reports it.',
+      '"waitsOn" says what waits on the item, required for critical_next_step, blocker and business_question.',
+    ];
+    const deliveryPrompt = auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/skills/delivery-audit/SKILL.md", executionId: "execution", activityId: "activity", round: 1, continuationIndex: 1, reportPath: "docs/prds/proof/kiln-audit-activity.json", prdFile: "docs/prds/proof/proof-prd.md", repositories: [], branch: "feature/proof", cli: "kiln" }).replace(/\s+/g, " ");
+    for (const definition of definitions) { expect(prompt).toContain(definition); expect(deliveryPrompt).toContain(definition); }
+    expect(prompt).toContain("A person action the requirements place after delivery goes in afterDeliveryActions, never in needsYou.");
+    expect(prompt).toContain("To list an item again, give its id, problem and action. Leave out kind and waitsOn to keep the ones shown. Give a new value only when the item itself has changed, such as a blocker that no longer holds anything. An item shown with no kind must be given one.");
+    for (const released of ["or when it ended normally but lists anything", "choose by whether that work depends on the person's answer", "A test audit that changed only tests leads to delivery"]) expect(prompt).not.toContain(released);
     expect(prompt).toContain("Account for every outstanding item exactly once, in needsYou with its id when it is still open or in settled; Kiln refuses a report that leaves one out.");
     expect(prompt).toContain("Items earlier audits left for a person (outstanding): None.");
     const carried = auditSessionPrompt({ label: "Delivery audit", skillName: "delivery-audit", skillPath: "/s", executionId: "e", activityId: "a", round: 2, continuationIndex: 1, reportPath: "r.json", prdFile: "p.md", repositories: [], branch: "b", cli: "kiln", outstanding: "- item-1 (listed by Delivery audit round 1): Decide the names. Amend the PRD." });
@@ -334,7 +351,7 @@ describe("the default settings", () => {
       effort: "medium",
       keepAwake: true,
       resumeAfterUsageLimit: true,
-      auditLoops: { deliveryLimit: 3, testLimit: 3, afterLastTest: "deliver_unless_serious" },
+      auditLoops: { deliveryLimit: 4, testLimit: 4 },
     });
     expect(defaultSettings(paths, { branches: new Map([["trunk", "a"]]), defaultBranch: "trunk" }).baseBranch).toBe("trunk");
     expect(defaultSettings(paths, { branches: new Map([["x", "a"]]), defaultBranch: undefined }).baseBranch).toBe("");

@@ -1,5 +1,6 @@
 import { activityKeyKind } from "../state/activity-keys.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
+import { pausingStatusText } from "../live/pause-now.js";
 import { messageReceiptLabel } from "../live/target.js";
 import { expandHome } from "../engine/worktree-setup.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -26,17 +27,20 @@ import { privateJson, privateBytes, deadlineCheck, safeSelector, type SavedWork 
 import { chooseSession, readHistory, readInspectionSession, newestSession, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
 import { ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
-import { markCompletePreview, progressRows, projectCheck, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
+import { markCompletePreview, progressRows, projectCheck, projectPersonItem, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
 import { checkCounts, effectiveRecordedClosed, type AuditWaiverResult } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 import { statusCompatibility } from "../engine/compatibility-notices.js";
 import { checkFoldersSync, type FolderCheck } from "../engine/folder-check.js";
 import { findExecutable } from "../platform/helper-process.js";
 import { displayPath } from "../engine/worktree-setup.js";
-import { loopSettings, loopsUsed } from "../state/audit-loops.js";
+import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed } from "../state/audit-loops.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
+import { continuationFacts, deliveredFacts } from "./delivered-facts.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "allow-more-loops", "accept-and-deliver"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases", "handoff"];
+/** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
+const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -47,7 +51,7 @@ function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot)
   const task = engine.auditRecoveryTask(selected.phase, cwd);
   const fresh = task ? auditRecoveryPrompt(task, engine.deliveryAuthority())
     : session.kind === "pull_request" ? pullRequestSessionPrompt({ deliveryAuthority: engine.deliveryAuthority(), featureName: engine.paths.featureName, prdFile: engine.pathFrom(cwd, engine.prdFile()), branch: engine.record.settings.featureBranch,
-      repositories: engine.pullRequestRepositories().map(r => ({ name: r.name, github: r.github, worktreePath: expandHome(r.worktreePath), baseBranch: r.baseBranch, isPrd: r.kind === "prd" })) })
+      repositories: engine.pullRequestRepositories().map(r => ({ name: r.name, github: r.github, worktreePath: expandHome(r.worktreePath), baseBranch: r.baseBranch, isPrd: r.kind === "prd" })), deliveryBlock: engine.deliveryBlockNow() })
     : plan ? freshSessionPrompt(engine.phasePromptValues(plan.file, cwd), true) : null;
   const providerFresh = fresh && session.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(fresh, session.codex.launchIntent.skills) : fresh;
   return {
@@ -262,10 +266,12 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   let control: ReturnType<Engine["controlView"]> | undefined;
   try { control = engine ? inspectionReader(engine, deadline).controlView() : undefined; }
   catch { statusErrors.push(errorFact("state_unavailable", "Current controls could not be read; no executable controls are returned.")); }
-  const controls = control ? control.controls.filter(c => c.name !== "message-review").map(c => ({ ...c, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }));
+  const controls: { name: string; available: boolean; reason: string | null; required_inputs: string[]; invocation: string[] | null }[] = control && engine ? [...control.controls.filter(c => c.name !== "message-review"), ...engine.newPhaseControls()].map(c => ({ ...c, required_inputs: requiredInputs(c.name), invocation: ["kiln", c.name, work.canonical] })) : PLANNED_CONTROLS.filter(name => name !== "handoff").map(name => ({ name, available: false, reason: reachable ? "Current controls could not be read." : "Controller is disconnected; no executable controls.", required_inputs: requiredInputs(name), invocation: null }));
   const active = engine?.current?.processRunning ? engine.current.session?.sessionId : undefined;
   const history = readHistory(work, active, deadline);
   try {
+  // `kiln handoff` reads saved sessions itself, so it is listed with its own availability, with or without a controller (AC-BOT-01).
+  controls.push(handoffControl(work, history, engine, active));
   const last = latestActivity({ ...work, record }, history, view, cache?.last_activity, deadline);
   const savedMessage = savedStop && savedStop[1].stop?.kind !== "not_resumable" && !savedStop[1].stop?.interrupted ? modelSession?.runs.at(-1)?.result?.text : undefined;
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
@@ -277,7 +283,9 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const pauseAudit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === pauseKey);
   const pauseLabel = pauseAudit ? `${pauseAudit.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${pauseAudit.round}` : pauseKey && activityKeyKind(pauseKey) === "preflight" ? "Preflight" : pauseKey ? `Phase ${pauseKey}` : "Activity";
   const takeover = view?.liveControl?.takeover;
-  const takeoverStatus = takeover ? takeover.kind === "delivery_recovery" ? "Delivery uncertain. Review the conversation before explicit hand-back." : takeover.state === "released" ? "Paused for terminal takeover." : "Pausing for takeover — finishing the current operation. Wait before opening Claude." : record.pause.activeSince ? `${pauseLabel} finished. Paused before the next activity.` : record.pause.requestedAt ? `Will pause after ${pauseLabel} finishes. Current work continues.` : null;
+  const pauseNow = view?.liveControl?.pauseNow;
+  // Under Pause now: "Pausing — …" with its running commands or processes, or "Paused."; with no projection, a launch from the paused page is starting (Kiln Pause Now, "The Pause Now State").
+  const takeoverStatus = takeover ? takeover.kind === "delivery_recovery" ? "Delivery uncertain. Review the conversation before explicit hand-back." : pauseNow ? pauseNow.phase === "paused" ? "Paused." : pausingStatusText(pauseNow) : "The new session is starting." : record.pause.activeSince ? `${pauseLabel} finished. Paused before the next activity.` : record.pause.requestedAt ? `Will pause after ${pauseLabel} finishes. Current work continues.` : null;
   const pauseStatus = takeover && record.pause.requestedAt && !record.pause.activeSince ? `${takeoverStatus} Will pause after ${pauseLabel} finishes. Current work continues.` : takeoverStatus;
   const retainedInstructions = sessionId ? cache?.handoffs?.[sessionId] : undefined;
   if (savedStop && !stop && !retainedInstructions) statusErrors.push(errorFact("state_unavailable", "Saved inspection stop details are unavailable; readable stop facts are retained, but no matching recovery instructions were saved."));
@@ -324,8 +332,13 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     live_control: view?.liveControl ? { ...view.liveControl, messages: view.liveControl.messages?.map(m => ({ ...m, receipt: messageReceiptLabel(m.delivery) })), state: reachable ? "current" : "stale", ...(reachable ? {} : { available: false, reason: "Controller disconnected; reconnect before acting.", input: { ...view.liveControl.input, available: false, reason: "Controller disconnected; reconnect before sending." } }) } : null,
     compatibility: statusCompatibility(record),
     pause_status: pauseStatus,
-    // Kiln Audit Loop Limits AC-STOP-03: the snapshot's loop settings, counts and loop stop page; read from the record when no snapshot was saved.
+    // The snapshot's loop limits, counts and position (AC-STOP-05); read from the record when no snapshot was saved.
     audit_loops: view?.auditLoops ?? savedAuditLoops(record),
+    // The items for a person at a Needs you stop on an audit, or at the hold stop (AC-ITEM-02).
+    items: view?.items?.map(projectPersonItem) ?? null,
+    // A finished run's loops, For you and pull requests, and the offer to continue the finished page shows (AC-LEFT-02, AC-BOT-02).
+    delivered: view?.delivered ? deliveredFacts(view.delivered, record) : null,
+    continuation: record.completedAt && (view?.continuation?.check ?? record.completedPlanCheck) ? continuationFacts((view?.continuation?.check ?? record.completedPlanCheck)!) : null,
     pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
     progress,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
@@ -337,15 +350,16 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   history.dispose(); return answer;
   } catch (error) { history.dispose(); throw error; }
 }
-/** The audit loop settings and counts from the saved record, for a run with no saved snapshot; no loop stop page without one. */
+/** The audit loop limits and counts from the saved record, for a run with no saved snapshot; no position without one. */
 function savedAuditLoops(record: SavedWork["record"]): AuditLoopsView {
-  const settings = loopSettings(record.settings);
-  return { settings, delivery: { used: loopsUsed(record.auditLoops, "delivery"), limit: settings.deliveryLimit }, test: { used: loopsUsed(record.auditLoops, "test"), limit: settings.testLimit } };
+  const limits = limitsInForce(record);
+  const kind = (one: "delivery" | "test") => ({ used: loopsUsed(record.auditLoops, one), limit: limitOf(limits, one), closed: kindClosed(record, one), floor: limitFloor(record, one) });
+  return { settings: loopSettings(record.settings), delivery: kind("delivery"), test: kind("test"), ...(record.auditLoops?.atPullRequest ? { frozen: { at: record.auditLoops.atPullRequest.at } } : {}) };
 }
-/** `--detail full`'s settings: the runtime preferences and the three audit loop settings. */
+/** `--detail full`'s settings: the runtime preferences and the two audit loop limits. */
 function settingsFacts(record: SavedWork["record"]): Record<string, unknown> {
   const loops = loopSettings(record.settings);
-  return { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, after_last_test_audit_loop: loops.afterLastTest };
+  return { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit };
 }
 /** `kiln status` while a folder is missing (AC-GONE-02): the state, no current activity, no stop, no phase progress. */
 function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folders: FolderCheck, full: boolean): Result {
@@ -359,7 +373,7 @@ function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folder
     state: "folder_missing", folder_missing: folderFacts(folders, work.canonical), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
     progress: [], started_at: record.startedAt ?? null, completion: { completed_at: null, pull_requests: [], merged_branches: [] },
     // Reset is the one control left while a folder is missing (run restart "Availability"), so a running Kiln returns its status token.
-    status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: null }), unsent_replies: [],
+    status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: requiredInputs(name), invocation: null }), unsent_replies: [],
     ...(full ? { plan: record.plan ?? [], settings: settingsFacts(record) } : {}),
   });
 }
@@ -372,6 +386,25 @@ function auditWaiverReader(root: string, stateDirectory: string, deadline: numbe
     const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as AuditWaiverResult;
     return value.kind === "audit_waiver" ? value : undefined;
   };
+}
+/**
+ * `kiln handoff` among the status controls (AC-BOT-01): available when the session it would open
+ * isn't running under Kiln or held by a takeover and its working directory is there. The provider
+ * history read stays with `kiln handoff`, which reports it when it runs.
+ */
+function handoffControl(work: SavedWork, history: History, engine: Engine | undefined, activeId: string | undefined) {
+  const control = (available: boolean, reason: string | null) => ({ name: "handoff", available, reason, required_inputs: requiredInputs("handoff"), invocation: ["kiln", "handoff", work.canonical] });
+  let selected: Conversation | null;
+  try { selected = chooseSession(work, history, undefined, activeId); } catch { return control(false, "Saved sessions could not be read."); }
+  if (!selected) return control(false, "No saved session.");
+  if (activeId === selected.id || engine?.ownsInspectionSession(selected.id)) return control(false, "This conversation is currently running under Kiln; a concurrent manual resume is unavailable.");
+  if (!workingDirectoryAvailable(selected.record.workingDirectory ?? work.record.settings.worktreePath)) return control(false, "The recorded working directory is unavailable.");
+  const provider = selected.record.agentId === "codex" ? selected.record.conversation?.threadId : selected.record.sessionId;
+  if (typeof provider !== "string" || !safeSelector(provider)) return control(false, "Provider conversation identity is unknown.");
+  const hold = engine?.record.liveControl?.takeover ?? work.record.liveControl?.takeover;
+  const liveRun = selected.record.runs.at(-1);
+  if ((hold?.target.sessionId === selected.record.sessionId || !!liveRun?.live && !liveRun.endedAt) && (!engine || hold?.state !== "released")) return control(false, !engine ? "Controller disconnected; reconnect to establish safe terminal release." : hold?.reason ?? "This conversation is still running.");
+  return control(true, null);
 }
 export async function handoffProjection(work: SavedWork, selector: string | undefined, env: NodeJS.ProcessEnv, engine?: Engine): Promise<Result> {
   const folders = failingFolders(engine?.record ?? work.record, engine, Date.now() + 5000);

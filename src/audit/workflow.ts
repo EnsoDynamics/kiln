@@ -48,32 +48,45 @@ export function observeActivity(record: PrdRecord, stateDirectory: string, key: 
 /**
  * Reused by every completion entry point and again after repository finalization. Each audit
  * routes on its effective result, so an audit marked complete counts as its report allows
- * (AC-WAIVE-12) and is measured for currentness from its waiver snapshot.
+ * (AC-WAIVE-12) and is measured for currentness from its waiver snapshot. A closed kind
+ * (Kiln Deliver When Audit Loops Run Out AC-LAST-03) gets no new audit: a closed delivery kind
+ * goes on as if its latest audit had passed and were current, and a closed test kind leads to a
+ * session of test fixes while the latest settled test activity counts `continue_test`, otherwise
+ * to final delivery.
  */
 export async function auditNext(context: AdmissionContext): Promise<AuditKind | "continue_test" | "final_delivery"> {
   const state = context.record.completionAudits;
   if (!state) throw new AuditRefusal("missing_evidence", "Completion audit policy is missing; reopen with a compatible Kiln.");
   if (state.policy === "legacy_complete" && context.record.completedAt) return "final_delivery";
+  const closed = context.closed ?? { delivery: false, test: false };
+  const testAudit = (): "test_audit" | "continue_test" | "final_delivery" => !closed.test ? "test_audit" : latestTestContinues(context) ? "continue_test" : "final_delivery";
   const delivery = state.activities.findLast(a => a.kind === "delivery_audit");
-  if (!delivery) return "delivery_audit";
+  if (!delivery) return closed.delivery ? testAudit() : "delivery_audit";
   const settled = effectiveAudit(context.stateDirectory, delivery);
-  if (!settled || settled.outcome !== "passed" || !context.record.phases[auditKey(delivery)]?.doneAt) return "delivery_audit";
+  if (!closed.delivery && (!settled || settled.outcome !== "passed" || !context.record.phases[auditKey(delivery)]?.doneAt)) return "delivery_audit";
   const tests = state.activities.findLast(a => a.kind === "test_audit" && a.sequence > delivery.sequence);
   const testResult = tests && effectiveAudit(context.stateDirectory, tests);
   const testSettled = !!testResult && !!context.record.phases[auditKey(tests)]?.doneAt;
   // The test audit's own statement decides whether its changes need a fresh delivery audit (AC-NEUTRAL-06):
   // one that says it changed only tests and records is judged from its own snapshot, not the delivery audit's.
   // A test audit marked complete with no usable report counts as having changed only tests (AC-WAIVE-12).
-  if (testSettled && testResult.changedImplementation) return "delivery_audit";
-  // Trusted only when nothing changed between one audit's acceptance and the next one's start, such as a person's edit during a stop.
-  const vouchedTests = testSettled && testResult.changedImplementation !== undefined && untouchedBetweenAudits(context, [delivery, ...state.activities.filter(a => a.kind === "test_audit" && a.sequence > delivery.sequence && hasEffectiveResult(a))]);
-  if (!vouchedTests && !(await auditCurrentness(context, delivery)).deliveryCurrent) return "delivery_audit";
-  if (!tests || !testSettled) return "test_audit";
+  if (!closed.delivery && testSettled && testResult.changedImplementation) return "delivery_audit";
+  if (!closed.delivery) {
+    // Trusted only when nothing changed between one audit's acceptance and the next one's start, such as a person's edit during a stop.
+    const vouchedTests = testSettled && testResult.changedImplementation !== undefined && untouchedBetweenAudits(context, [delivery, ...state.activities.filter(a => a.kind === "test_audit" && a.sequence > delivery.sequence && hasEffectiveResult(a))]);
+    if (!vouchedTests && !(await auditCurrentness(context, delivery)).deliveryCurrent) return "delivery_audit";
+  }
+  if (!tests || !testSettled) return testAudit();
   const current = await auditCurrentness(context, tests);
-  if (!current.deliveryCurrent) return "delivery_audit";
-  if (!current.testsCurrent) return "test_audit";
+  if (!closed.delivery && !current.deliveryCurrent) return "delivery_audit";
+  if (!current.testsCurrent) return testAudit();
   if (testResult.outcome === "continue_test") return "continue_test";
-  return testResult.outcome === "passed" ? "final_delivery" : "test_audit";
+  return testResult.outcome === "passed" ? "final_delivery" : testAudit();
+}
+/** Whether the latest settled test audit counts as `continue_test`, so its saved test work is still to be worked through (AC-LAST-03). */
+export function latestTestContinues(context: Pick<AdmissionContext, "record" | "stateDirectory">): boolean {
+  const latest = context.record.completionAudits?.activities.findLast(a => a.kind === "test_audit" && !!context.record.phases[auditKey(a)]?.doneAt && hasEffectiveResult(a));
+  return !!latest && effectiveAudit(context.stateDirectory, latest)?.countedOutcome === "continue_test";
 }
 /** Whether each audit's checked work is what the next one started from (accepted or waiver snapshot). */
 export function untouchedBetweenAudits(context: AdmissionContext, chain: AuditActivity[]): boolean {

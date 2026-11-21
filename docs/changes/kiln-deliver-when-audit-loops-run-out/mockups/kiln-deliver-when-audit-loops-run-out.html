@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Deliver When Audit Loops Run Out mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0d0c0a;color:#ede8dd;font-family:Inter,sans-serif}
+main{max-width:1300px;margin:0 auto;padding:32px 16px;display:flex;flex-direction:column;gap:40px}
+h2.state{margin:0 0 4px;font-size:18px;font-weight:600}
+.note{margin:0 0 12px;font-size:14px;color:#bdb6a8}
+.screen{overflow-x:auto;border:1px solid rgba(237,232,221,0.18);border-radius:12px}
+.page{box-sizing:border-box;padding:40px 48px;background:#12110e;display:flex;flex-direction:column;gap:24px}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,0.12);border-radius:18px;padding:28px 32px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card.amber{border-color:rgba(230,180,80,0.55)}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:#a49d90}
+.serif{margin:0;font-family:'Instrument Serif',serif;font-weight:400;font-size:38px;line-height:1.1}
+.lead{margin:0;font-size:15.5px;color:#c9c2b5;line-height:1.6}
+.hint{margin:0;font-size:13.5px;color:#a49d90;line-height:1.6}
+.strong{font-size:15px;font-weight:600}
+.status{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;font-size:15.5px;color:#c9c2b5}
+.pill{font-weight:600;padding:9px 18px;border-radius:999px;color:#1a1917}
+.rows{border-top:1px solid rgba(237,232,221,0.12)}
+.row{display:flex;gap:16px;align-items:baseline;padding:12px 0;border-bottom:1px solid rgba(237,232,221,0.12);font-size:15px}
+.row .tag{flex:0 0 66px;font-size:13px;font-weight:600;color:#a49d90}
+.row .dur{margin-left:auto;font-size:13px;color:#a49d90;white-space:nowrap}
+.row.wait{background:rgba(230,180,80,0.09);border-radius:10px;padding:12px;margin:6px -12px 0;border-bottom:none}
+.amber-text{color:#e6b450}
+.quote{margin:0;padding:4px 0 4px 16px;border-left:2px solid rgba(237,232,221,0.3);font-size:15px;color:#c9c2b5;line-height:1.6}
+.opt{display:flex;gap:14px;align-items:flex-start;border:1px solid rgba(237,232,221,0.16);border-radius:16px;padding:18px 20px}
+.opt.on{border-color:#ede8dd}
+.dot{flex:0 0 auto;width:18px;height:18px;margin-top:2px;border-radius:50%;border:2px solid #a49d90;box-sizing:border-box}
+.on>.dot{border:5px solid #d97757;background:#ede8dd}
+.col{display:flex;flex-direction:column;gap:6px}
+.num{display:inline-flex;align-items:center;justify-content:center;width:64px;height:40px;border-radius:10px;border:1px solid rgba(237,232,221,0.3);background:#0d0c0a;font-size:15px}
+.btn{display:inline-flex;align-items:center;height:46px;padding:0 24px;border-radius:999px;font-weight:600;font-size:15px;border:1px solid rgba(237,232,221,0.3)}
+.btn.solid{background:#ede8dd;color:#1a1917;border-color:#ede8dd}
+.split{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:28px;align-items:start}
+.div{padding-top:18px;border-top:1px solid rgba(237,232,221,0.12)}
+pre{margin:0;white-space:pre-wrap;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;background:#0d0c0a;border:1px solid rgba(237,232,221,0.12);border-radius:12px;padding:14px 16px}
+.pp{display:flex;flex-direction:column}
+.pp-head{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:8px;border-bottom:1px solid rgba(237,232,221,0.12)}
+.pp li{display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid rgba(237,232,221,0.12);list-style:none}
+.pp ol{margin:0;padding:0}
+.circ{flex:0 0 40px;height:40px;border-radius:50%;border:1.5px solid #6f8f6a;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:#cfe3c8}
+.circ.run{border-color:#8fb3d9;color:#cfe0f2}.circ.wait{border-color:rgba(237,232,221,0.3);color:#a49d90;font-weight:400}
+.nm{flex:1 1 auto;display:flex;flex-direction:column;gap:2px}.nm .t{font-size:15.5px}.nm .f{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:#8f897e}
+.st{display:flex;align-items:center;gap:12px;font-size:13.5px;color:#a49d90;white-space:nowrap}
+.bdg{padding:6px 14px;border-radius:999px;border:1px solid #6f8f6a;color:#cfe3c8;font-weight:600;font-size:13.5px}
+.bdg.run{border-color:#8fb3d9;color:#cfe0f2}.bdg.wait{border-color:rgba(237,232,221,0.25);color:#a49d90;font-weight:500}
+.loopf{color:#ede8dd;font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<section>
+<h2 class="state">1. Audit loop settings, before Start</h2>
+<p class="note">Two limits, each 4 by default, and nothing to choose about what happens at a limit. Each loop is one run of that audit. The run's settings and kiln settings show the same two during a run. Covers AC-CHOICE-01.</p>
+<div class="screen"><div class="page" style="width: 900px">
+<div class="card">
+<div class="col"><span class="eyebrow">Audit loops</span><p class="lead">After the planned phases close, two audits check the work. Each run of an audit is one loop; Kiln builds or fixes whatever it finds. These set how many loops of each Kiln makes. After the last one, Kiln moves on without auditing again.</p></div>
+<div class="col"><span class="strong">Max delivery audit loops &nbsp;<span class="num">4</span></span><p class="hint">The delivery audit checks that every acceptance criterion is built, and Kiln builds the phases it adds. Each run of the audit is one loop. After the phases from loop 4 are built, Kiln goes on to the test audit.</p></div>
+<div class="col"><span class="strong">Max test audit loops &nbsp;<span class="num">4</span></span><p class="hint">The test audit checks that the tests would notice if a criterion broke, and Kiln builds or fixes what it finds. Each run of the audit is one loop. After the work from loop 4 is done, Kiln opens the pull request, after a delivery audit if one is left.</p></div>
+<p class="hint">Both can be changed while Kiln runs, from the page or the command line.</p>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">2. A run on its last delivery audit loop</h2>
+<p class="note">The Phase Plan as it is today, with each audit as a row carrying its loop. Kiln builds one phase at a time; building a phase is not a loop. Loop 4 was the last delivery audit, so once its phases are built Kiln goes on to the test audit without another delivery audit. Covers AC-STOP-05, AC-LAST-01, AC-LAST-02 and AC-LAST-03.</p>
+<div class="screen"><div class="page" style="width: 960px">
+<div class="status"><span class="pill" style="background: #8fb3d9">Running</span><span>Building <strong style="color: #ede8dd">Phase 10</strong></span><span>·</span><span>Started 9:40 PM</span></div>
+<div class="card">
+<div class="col" style="gap: 10px"><h3 class="serif">Building Phase 10</h3><p class="lead">Delivery audit loop 4 of 4 found three criteria partly built and added Phase 10 and Phase 11. That was the last delivery audit: once both phases are built, Kiln goes on to the test audit.</p></div>
+<div class="pp"><div class="pp-head"><span class="eyebrow">Phase plan</span><span style="font-size:13px;color:#a49d90">13 of 15 done</span></div>
+<ol>
+<li><span class="circ ">6</span><span class="nm"><span class="t">Refunds for a returned item</span><span class="f">phase-6-refunds.md</span></span><span class="st">1h 31m running · pushed 8c21e4f<span class="bdg ">✓ Done</span></span></li>
+<li><span class="circ ">A</span><span class="nm"><span class="t">Delivery audit</span></span><span class="st"><span class="loopf">loop 1 of 4</span>14m · added Phase 7<span class="bdg ">✓ Done</span></span></li>
+<li><span class="circ ">7</span><span class="nm"><span class="t">Return labels for the remaining carriers</span><span class="f">phase-7-return-labels-remaining-carriers.md</span></span><span class="st">1h 52m running · pushed 3f9a1c2<span class="bdg ">✓ Done</span></span></li>
+<li><span class="circ ">A</span><span class="nm"><span class="t">Delivery audit</span></span><span class="st"><span class="loopf">loop 2 of 4</span>11m · added Phase 8<span class="bdg ">✓ Done</span></span></li>
+<li><span class="circ ">8</span><span class="nm"><span class="t">The returns window on the order page</span><span class="f">phase-8-returns-window-order-page.md</span></span><span class="st">39m running · pushed 5d7e210<span class="bdg ">✓ Done</span></span></li>
+<li><span class="circ ">A</span><span class="nm"><span class="t">Delivery audit</span></span><span class="st"><span class="loopf">loop 3 of 4</span>12m · added Phase 9<span class="bdg ">✓ Done</span></span></li>
+<li><span class="circ ">9</span><span class="nm"><span class="t">Partial refunds for a bundle</span><span class="f">phase-9-partial-refunds-bundle.md</span></span><span class="st">1h 05m running · pushed b44e9a7<span class="bdg ">✓ Done</span></span></li>
+<li><span class="circ ">A</span><span class="nm"><span class="t">Delivery audit</span></span><span class="st"><span class="loopf">loop 4 of 4</span>13m · added Phase 10, Phase 11<span class="bdg ">✓ Done</span></span></li>
+<li><span class="circ run">10</span><span class="nm"><span class="t">Refund email shows the restocking fee</span><span class="f">phase-10-refund-email-restocking-fee.md</span></span><span class="st">22m running<span class="bdg run">Running</span></span></li>
+<li><span class="circ wait">11</span><span class="nm"><span class="t">Return reason required on the form</span><span class="f">phase-11-return-reason-required.md</span></span><span class="st"><span class="bdg wait">Waiting</span></span></li>
+<li><span class="circ wait">T</span><span class="nm"><span class="t" style="color:#a49d90">Test audit</span></span><span class="st">up to 4 loops<span class="bdg wait">Waiting</span></span></li>
+</ol></div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">3. The finished page</h2>
+<p class="note">Both audits used all 4 loops. One line says so, with no warning. One test gap the last test audit's fixes could not close is listed under For you, with an item that did not stop the run. Its last line is an action the requirements place after delivery, which For you lists in place of the Remaining human actions card. Covers AC-ITEM-01, AC-LEFT-02, AC-ITEM-03 and TEST-001.</p>
+<div class="screen"><div class="page" style="width: 960px">
+<div class="status"><span class="pill" style="background: #a9c79a">Delivered</span><span>Pull request open</span><span>·</span><span>Finished today 6:12 AM</span></div>
+<div class="card">
+<div class="col" style="gap: 10px"><h3 class="serif">Delivered</h3><p class="lead">Kiln built every phase, ran the closing audits and opened the pull request.</p></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn">Check for new phases</span></div></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; align-items: center; gap: 16px"><span class="strong">Pull request #214 · feature/return-labels → develop</span><span class="btn solid" style="margin-left: auto">Open on GitHub</span></div><p class="hint">Human review is next. Kiln stops at “PR ready” and doesn’t merge.</p></div>
+<div class="col"><span class="eyebrow">Closing audits</span>
+<div class="rows">
+<div class="row"><span>Delivery audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
+<div class="row"><span>Test audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
+</div></div>
+<div class="col"><span class="eyebrow">For you</span>
+<div class="rows">
+<div class="row"><span style="line-height: 1.6"><span class="strong">Test gap:</span> AC-LABEL-05 has no test. The label service has no sandbox, so the test audit could not write one. Have a test written or decide to merge without one.</span></div>
+<div class="row"><span style="line-height: 1.6">The code changed behavior outside the requirements: it emails the return label instead of showing it on screen, and no document says that was decided. Record a change to AC-RETURNS-09 in the PRD.</span></div>
+<div class="row"><span style="line-height: 1.6">After the release, turn on the nightly refund report in production.</span></div>
+</div>
+<p class="hint" style="padding-top: 8px">The pull request says the same.</p></div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">3b. The finished page with a critical finding</h2>
+<p class="note">A critical finding puts For you first, below the state line and above the plan check, the pull request and the loop counts. Covers AC-ITEM-03.</p>
+<div class="screen"><div class="page" style="width: 960px">
+<div class="status"><span class="pill" style="background: #a9c79a">Delivered</span><span>Pull request open</span><span>·</span><span>Finished today 6:12 AM</span></div>
+<div class="card">
+<div class="col"><span class="eyebrow">For you</span>
+<div class="rows">
+<div class="row"><span style="line-height: 1.6"><span class="strong">Critical finding:</span> The refund job retries a failed charge with no limit, so one declined card is charged on every retry. Cap the retries before you merge.</span></div>
+<div class="row"><span style="line-height: 1.6"><span class="strong">Test gap:</span> AC-LABEL-05 has no test. The label service has no sandbox, so the test audit could not write one. Have a test written or decide to merge without one.</span></div>
+</div>
+<p class="hint" style="padding-top: 8px">The pull request says the same.</p></div>
+</div>
+<div class="card">
+<div class="col" style="gap: 10px"><h3 class="serif">Delivered</h3><p class="lead">Kiln built every phase, ran the closing audits and opened the pull request.</p></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; gap: 12px"><span class="btn">Check for new phases</span></div></div>
+<div class="col div" style="gap: 12px"><div style="display: flex; align-items: center; gap: 16px"><span class="strong">Pull request #214 · feature/return-labels → develop</span><span class="btn solid" style="margin-left: auto">Open on GitHub</span></div><p class="hint">Human review is next. Kiln stops at “PR ready” and doesn’t merge.</p></div>
+<div class="col"><span class="eyebrow">Closing audits</span>
+<div class="rows">
+<div class="row"><span>Delivery audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
+<div class="row"><span>Test audit</span><span class="dur" style="font-size: 15px; color: #ede8dd">4 of 4 loops</span></div>
+</div></div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">4. The pull request description</h2>
+<p class="note">For you first when it lists anything, then the loop counts, before the rest of the description. Kiln 1.3.0's line quoting the acceptance sentence is gone. Covers AC-LEFT-01, AC-ITEM-01 and AC-ITEM-03.</p>
+<div class="screen"><div class="page" style="width: 960px">
+<pre>## For you
+- Test gap: AC-LABEL-05 has no test. The label service has no sandbox, so the test audit could not write one. Have a test written or decide to merge without one.
+- The code changed behavior outside the requirements: it emails the return label instead of showing it on screen, and no document says that was decided. Record a change to AC-RETURNS-09 in the PRD.
+- After the release, turn on the nightly refund report in production.
+
+## Closing audits
+Delivery audit: 4 of 4 loops. Test audit: 4 of 4 loops.
+
+## What this delivers
+…</pre>
+</div></div>
+</section>
+<section>
+<h2 class="state">5. A stop for a person says why</h2>
+<p class="note">Any step Kiln runs stops like this when the work cannot go on; here the delivery audit found the blocker. The item gives its kind, the problem, the action and what waits on it, and the status line names the loop. Covers AC-ITEM-01, AC-ITEM-02 and AC-STOP-05.</p>
+<div class="screen"><div class="page" style="width: 900px">
+<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Delivery audit <strong style="color: #ede8dd">loop 1 of 4</strong></span><span>·</span><span>Stopped today 2:04 AM</span></div>
+<div class="card amber">
+<div class="col" style="gap: 10px"><h3 class="serif">Kiln needs you for one thing</h3><p class="lead">The work can’t go on without it. Everything that could proceed is done.</p></div>
+<div class="col"><span class="eyebrow">Listed for you</span>
+<div class="rows">
+<div class="row"><span class="tag" style="flex-basis: 150px">Kind</span><span>Blocker</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">Problem</span><span>The carrier’s sandbox key has expired, and Kiln cannot issue one.</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">What you do</span><span>Issue a new sandbox key and save it where the run reads its keys.</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">What waits on it</span><span>AC-LABEL-02 can’t be checked as built until a label can be requested.</span></div>
+</div></div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">5b. The hold stop before the pull request</h2>
+<p class="note">The same blocker, listed beside the last delivery audit’s phases, holds the run at the pull request step. Before a Check again, the hold stop’s Continue anyway is unusable; there is no Reply or Take over. The status line keeps the latest audit’s position. Covers AC-ITEM-01, AC-ITEM-02 and AC-STOP-05.</p>
+<div class="screen"><div class="page" style="width: 1140px">
+<div class="status"><span class="pill" style="background: #e6b450">Needs you</span><span>Test audit <strong style="color: #ede8dd">loop 4 of 4</strong></span><span>·</span><span>Stopped today 5:48 AM</span></div>
+<div class="split">
+<div class="card amber">
+<div class="col" style="gap: 10px"><h3 class="serif">Kiln needs you for one thing</h3><p class="lead">The pull request can’t open without it. Everything that could proceed is done.</p></div>
+<div class="col"><span class="eyebrow">Listed for you</span>
+<div class="rows">
+<div class="row"><span class="tag" style="flex-basis: 150px">Kind</span><span>Blocker</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">Problem</span><span>The carrier’s sandbox key has expired, and Kiln cannot issue one.</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">What you do</span><span>Issue a new sandbox key and save it where the run reads its keys.</span></div>
+<div class="row"><span class="tag" style="flex-basis: 150px">What waits on it</span><span>AC-LABEL-02 can’t be checked as built until a label can be requested.</span></div>
+</div></div>
+</div>
+<div class="card">
+<span class="eyebrow">Why Kiln stopped</span>
+<div class="rows">
+<div class="row"><span>Nothing holds the run</span><span class="dur amber-text" style="font-size: 15px">No</span></div>
+</div>
+<span class="btn solid" style="justify-content: center">Check again</span>
+<div class="col div" style="gap: 10px"><span class="strong">You’ve provided what’s listed above, and want Kiln to deliver?</span><span class="btn" style="justify-content: center; opacity: 0.45; cursor: not-allowed">Continue anyway</span><p class="hint">Check again first. If a check still fails, this button becomes available.</p></div>
+</div>
+</div>
+</div></div>
+</section>
+<section>
+<h2 class="state">5c. The hold stop after a Check again</h2>
+<p class="note">Check again found nothing that can settle the blocker, so the stop stays and Continue anyway is usable, for when you have provided it yourself. Only pressing it carries on past the blocker; Kiln never does on its own. Covers AC-ITEM-01.</p>
+<div class="screen"><div class="page" style="width: 476px">
+<div class="card">
+<span class="eyebrow">Why Kiln stopped</span>
+<div class="rows">
+<div class="row"><span>Nothing holds the run</span><span class="dur amber-text" style="font-size: 15px">No</span></div>
+</div>
+<span class="btn solid" style="justify-content: center">Check again</span>
+<div class="col div" style="gap: 10px"><span class="strong">You’ve provided what’s listed above, and want Kiln to deliver?</span><p class="hint">Continue anyway. Kiln records each item above as waived, never as settled, and starts the pull request session. The items stay open and are listed under <strong>For you</strong>, each marked Waived.</p><span class="btn" style="justify-content: center">Continue anyway</span></div>
+</div>
+</div></div>
+</section>
+</main>
+</body>
+</html>

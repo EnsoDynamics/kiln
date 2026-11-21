@@ -247,8 +247,11 @@ describe("the pull-request session (AC-RESUME-01, AC-RESUME-02)", () => {
     await h.engine.settled();
     const call = h.claudeCalls()[4]!;
     expect(call.args).toEqual(expect.arrayContaining(["--resume", session.sessionId]));
+    // The resume carries the block Kiln would give now, saved on the session for this run (Kiln Deliver When Audit Loops Run Out AC-LEFT-01).
+    const block = h.engine.latestSession("pr")!.deliveryBlock!;
+    expect(block.run).toBe(1);
     expect(call.prompt).toBe(
-      `${stoppedOpening(session.runs[0]!.endedAt!)} Carry on opening the pull request from where you stopped; check GitHub first, because the pull request may already be open. Everything in the first message still applies.\n\n${REQUIRED_WORK}`,
+      `${stoppedOpening(session.runs[0]!.endedAt!)} Carry on opening the pull request from where you stopped; check GitHub first, because the pull request may already be open. Everything in the first message still applies.\n\nUse this block in place of the one in the first message:\n\n${block.block}\n\n${REQUIRED_WORK}`,
     );
     expect(h.engine.record.completedAt).toBeDefined();
     const completed = buildSnapshot(h.engine);

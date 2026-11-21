@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BusyStatus from "../components/BusyStatus.svelte";
   import { tick } from "svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { sameRecoveryTarget } from "../../../src/engine/phase-recovery.js";
@@ -40,7 +41,8 @@
   const activity = $derived(snapshot.liveControl?.label ?? `Phase ${stop.phaseId}`);
   // Mid-sentence the activity reads as the mockup writes it: "Phase 3" keeps its capital, "delivery audit" and "final delivery" do not.
   const inSentence = $derived(/^Phase /.test(activity) ? activity : activity.charAt(0).toLowerCase() + activity.slice(1));
-  const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending");
+  // A Pause now that has paused stays paused through later observations (Kiln Pause Now, "When Paused begins").
+  const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending" && snapshot.liveControl.pauseNow?.phase !== "paused");
   const heldCarryOn = $derived(!!snapshot.liveControl && !!stop.carryOn);
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
@@ -149,7 +151,7 @@
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
   {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
-  <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : restart?.headline ?? `${activity} needs your input.`}</h1>
+  <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? `Pausing ${inSentence}.` : `Paused in ${inSentence}.` : restart?.headline ?? `${activity} needs your input.`}</h1>
   <p>{restart?.line ?? "Answer here, or talk it through in your terminal."}</p>
   {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
   {#if stop.launchFailure && stop.conversationMessage}
@@ -194,7 +196,7 @@
       <h2>Replies that were not sent</h2>
       <p>These replies were preserved because {inSentence} was already complete. Advancing will leave them unsent.</p>
       {#each savedUnsent as reply (reply.id)}<pre>{reply.text}</pre>{/each}
-      {#if !page.choice}<button class="button solid" disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{/if}
+      {#if !page.choice}<button class="button solid" class:busy={page.pending === "advance"} aria-busy={page.pending === "advance"} disabled={busy} onclick={() => act("advance")}>Verify and advance without sending replies</button>{#if page.pending === "advance"}<BusyStatus text={`Checking ${inSentence} again, then advancing.`} />{/if}{/if}
     </section>
   {/if}
   {#if (pendingTakeover || page.choice) && stop.sessionId && snapshot.liveControl && !(heldCarryOn && !page.choice)}<LiveMessages sessionId={stop.sessionId} {connected} view={snapshot.liveControl} />{/if}
@@ -215,9 +217,10 @@
       <p>The completion checks passed. No conversation was resumed and the plan has not advanced. Advancing checks the evidence again.</p>
       {#if page.draft}<p class="warning">Your reply has not been sent. It is preserved when you return. Advancing proceeds without sending it.</p>{/if}
       <div class="actions">
-        <button class="button solid" disabled={busy} onclick={() => act("advance")}>{page.pending === "advance" ? "Checking…" : (page.draft || savedUnsent.length) ? "Advance without sending reply" : "Advance to the next step"}</button>
+        <button class="button solid" class:busy={page.pending === "advance"} aria-busy={page.pending === "advance"} disabled={busy} onclick={() => act("advance")}>{page.pending === "advance" ? "Checking…" : (page.draft || savedUnsent.length) ? "Advance without sending reply" : "Advance to the next step"}</button>
         <button class="button" disabled={busy} onclick={back}>Back to recovery page</button>
       </div>
+      {#if page.pending === "advance"}<BusyStatus text={`Checking ${inSentence} again, then advancing.`} />{/if}
     </section>
   {:else if stop.case === "could_not_start" && stop.startAgain}
     {@render catchUp()}
@@ -244,7 +247,8 @@
           <label for="phase-reply">Your reply to {agent}</label>
           <textarea id="phase-reply" bind:this={replyField} bind:value={page.draft} rows="4" maxlength="4000" placeholder="Your answer or instructions for the remaining work"></textarea>
           {#if page.unsent && page.draft}<p class="warning">Your reply has not been sent.</p>{/if}
-          <button class="button solid" disabled={resumeBlocked || !page.draft.trim()} onclick={() => act("reply")}>Send reply &amp; resume {inSentence}</button>
+          <button class="button solid" class:busy={page.pending === "reply"} aria-busy={page.pending === "reply"} disabled={resumeBlocked || !page.draft.trim()} onclick={() => act("reply")}>Send reply &amp; resume {inSentence}</button>
+          {#if page.pending === "reply"}<BusyStatus text={`Checking the work, then reopening the ${agent} conversation.`} />{/if}
           <p class="hint">Kiln handles the remaining work, then follows the plan. Routine work continues unattended; an explicit hold or material decision can return control to you.</p>
         {:else}
           <h2>Conversation recovery unavailable</h2>
@@ -265,7 +269,8 @@
         <p class="hint"><strong>Changed the plan?</strong> Ask {agent} to record those decisions in the requirements before you exit. No special handoff phrase is needed.</p>
         {#if stop.resumeOffered}
           <p>Got it back on track? Exit {agent}, then:</p>
-          <button bind:this={resumeButton} class="button solid" disabled={resumeBlocked} onclick={() => act("resume")}>Have Kiln resume {inSentence}</button>
+          <button bind:this={resumeButton} class="button solid" class:busy={page.pending === "resume"} aria-busy={page.pending === "resume"} disabled={resumeBlocked} onclick={() => act("resume")}>Have Kiln resume {inSentence}</button>
+          {#if page.pending === "resume"}<BusyStatus text={`Checking the work, then reopening the ${agent} conversation.`} />{/if}
           <p class="hint">Kiln picks up the same conversation, including your terminal discussion, and finishes {inSentence}.</p>
         {:else}<p>Resume is unavailable. Use the terminal recovery instructions to finish {inSentence}, then check it again below.</p>{/if}
       </section>
@@ -291,7 +296,8 @@
         <span class="eyebrow">Also checked when Kiln stopped</span>
         {@render rows(alsoRows, "Also checked when Kiln stopped")}
       {/if}
-      <div class="actions"><button class="button" disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Check ${inSentence} again`}</button>{#if !stop.rowsAreCompletionChecks && stop.recheckRunsAll}<span class="hint">Check again runs all of {inSentence}’s completion checks.</span>{/if}</div>
+      <div class="actions"><button class="button" class:busy={page.pending === "verify"} aria-busy={page.pending === "verify"} disabled={busy} onclick={() => act("verify")}>{page.pending === "verify" ? "Checking…" : `Check ${inSentence} again`}</button>{#if !stop.rowsAreCompletionChecks && stop.recheckRunsAll}<span class="hint">Check again runs all of {inSentence}’s completion checks.</span>{/if}</div>
+      {#if page.pending === "verify"}<BusyStatus text={`Running ${inSentence}'s completion checks.`} />{/if}
       {#if recovery.checkError}<p class="warning" role="alert">Could not refresh: {recovery.checkError.reason} Earlier results keep their previous check time. Nothing advanced; check {inSentence} again to retry.</p>{/if}
       {#if stillFailing}<p class="feedback" role="status"><strong>{activity} still has {checksWord(counts.failed).replace("check", "failing check")}.</strong>{#if stop.resumeOffered} If the work isn’t finished, have Kiln resume it above.{/if}</p>{/if}
       {#if offer}<MarkComplete {offer} pending={page.pending === "mark"} disabled={busy} changes={page.markChanges} error={page.markError} onmark={mark} />{:else if waiting}<MarkComplete {waiting} />{/if}

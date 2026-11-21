@@ -75,6 +75,8 @@ export function planColumns(plan: { id: string; title: string }[]): PlanColumns 
 export type PhaseLineEvent =
   | { kind: "started" }
   | { kind: "stopped"; viewAddress?: string }
+  /** Pause now completed: in the normal colour, never the amber of what needs the person (PAUSE-009). */
+  | { kind: "paused"; viewAddress?: string }
   | { kind: "interrupted" }
   | { kind: "resumed" }
   | { kind: "waiting"; label: string; resetsAt?: string }
@@ -89,6 +91,7 @@ export type PhaseLineEvent =
  *
  *   10:09  1   Return intake      done · pushed a1c4e09
  *   10:42  2   Store credit       stopped · waiting for you at http://127.0.0.1:4700/customer-returns
+ *   10:42  2   Store credit       paused · at http://127.0.0.1:4700/customer-returns
  */
 export function formatPhaseLine(at: Date, id: string, title: string, event: PhaseLineEvent, columns: PlanColumns, colors: TerminalColors): string {
   const pad = (text: string, width: number) => (text.length + 2 > width ? `${text}  ` : text.padEnd(width));
@@ -98,6 +101,8 @@ export function formatPhaseLine(at: Date, id: string, title: string, event: Phas
       ? colors.red(event.kind)
       : event.kind === "stopped"
         ? colors.amber("stopped") + colors.grey(" · waiting for you") + (event.viewAddress ? colors.grey(" at ") + colors.red(event.viewAddress) : "")
+      : event.kind === "paused"
+        ? "paused" + (event.viewAddress ? colors.grey(" · at ") + colors.red(event.viewAddress) : "")
       : event.kind === "interrupted"
         ? colors.amber("interrupted")
         : event.kind === "waiting"
@@ -189,4 +194,30 @@ export function formatDocumentsFound(featureName: string, found: StartCheckRepor
   // The repository count only when more than one (multi-repo AC-REPO-03).
   if (repositoryCount > 1) documents.push(`${repositoryCount} repositories`);
   return featureName + colors.grey(`  ·  ${documents.join(", ")}  ·  all checks passed`);
+}
+
+/**
+ * A grey line shown only on a terminal while Kiln works quietly, erased before the next line is
+ * written so the output reads the same once the work is done:
+ *
+ *   const status = new TransientStatus(stdout, env);
+ *   status.show("Checking where things stand…");  // shown until clear()
+ *   status.clear();
+ */
+export class TransientStatus {
+  private shown = false;
+  constructor(private readonly stream: { isTTY?: boolean; write(text: string): unknown }, private readonly env: NodeJS.ProcessEnv) {}
+
+  show(text: string): void {
+    if (!this.stream.isTTY) return;
+    this.clear();
+    this.stream.write(terminalColors(this.stream, this.env).grey(text));
+    this.shown = true;
+  }
+
+  clear(): void {
+    if (!this.shown) return;
+    this.stream.write("\r\x1b[2K");
+    this.shown = false;
+  }
 }

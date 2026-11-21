@@ -24,8 +24,8 @@ it.each([
   const options = { port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES };
   let server = await serveViewFixture(options);
   const page = await chrome.open(server.address, { width, height: 1000 });
-  const explanation = "Live messages and terminal takeover are unavailable during final delivery. Live controls support Claude phases and audits.";
-  const forbidden = `document.querySelector('#live-message, #pause-h') || Array.from(document.querySelectorAll('button')).some(b => /Send message|Pause & take over|Pause after/.test(b.textContent))`;
+  const explanation = "Live messages and Pause now are unavailable during final delivery. Live controls support Claude phases and audits.";
+  const forbidden = `document.querySelector('#live-message, #pause-h') || Array.from(document.querySelectorAll('button')).some(b => /Send message|Pause now|Pause after/.test(b.textContent))`;
   try {
     await page.waitFor(`document.body.innerText.includes('Watch live')`);
     expect(await page.evaluate("document.body.innerText")).toContain(explanation);

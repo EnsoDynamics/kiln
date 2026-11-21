@@ -32,6 +32,7 @@ import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage
 import type { StartCheckReport } from "../start-checks.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
+import { closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type CheckRun, type CheckResult, type PrdRecord, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import type { ExecutionSummary } from "./continuation-state.js";
@@ -172,7 +173,7 @@ export interface PhaseView {
   };
   round?: number;
   continuationIndex?: number;
-  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[]; remainingAfterDeliveryActions?: string[];
+  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[];
     /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
     personItems?: { count: number; waiting: boolean };
     /** Items this audit settled, each as "<problem> Listed by <audit>, settled by <audit>: <how>". */
@@ -200,10 +201,8 @@ export interface PhaseView {
   waivers?: WaiverView[];
   /** Warning markers beside its status (AC-WAIVE-04, AC-WAIVE-12). */
   warnings?: { kind: WaiverWarningKind; text: string }[];
-  /** The loops this activity holds, oldest first; the row reads by the latest (Kiln Audit Loop Limits AC-SHOW-01). */
+  /** The loop this audit activity is, with the limit in force (Kiln Deliver When Audit Loops Run Out AC-STOP-05). */
   loops?: import("./loop-view.js").ActivityLoopView[];
-  /** The sentences its latest session's prompt quoted as the person's (AC-TEST-03). */
-  carried?: { sentence: string; source: string }[];
   /** Skipped under a waived plan problem (AC-WAIVE-04): not built, counted as closed. */
   skippedByWaiver?: true;
   details?: SessionIdentityView & {
@@ -283,6 +282,13 @@ export interface Snapshot {
   preflight?: { planned?: { before: string } };
   /** The audit loop settings, counts and, at a loop stop, its page (Kiln Audit Loop Limits). */
   auditLoops?: import("./loop-view.js").AuditLoopsView;
+  /** The items for a person at a Needs you stop on an audit, and at the hold stop (Kiln Deliver When Audit Loops Run Out AC-ITEM-02). */
+  items?: import("./engine.js").PersonItemView[];
+  /**
+   * On a finished run (AC-LEFT-02, AC-ITEM-03): each kind's loops used and limit in force, **For you**
+   * in the order it is listed with each line word for word, and each pull request's address.
+   */
+  delivered?: { loops: import("../state/audit-loops.js").ClosingAudits; forYou: import("../audit/for-you.js").ForYou; pullRequests: { repository: string; number: number; url: string }[] };
   auditHistoryUnavailable?: boolean;
   developmentDelivery?: ReturnType<Engine["deliveryStatus"]>;
   feature: {
@@ -548,6 +554,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...preflightPlanned(engine, state, documents),
     auditLoops: auditLoopsView(engine),
+    ...personItemFields(engine, reads.auditStore),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
     feature: {
       name: engine.paths.featureName,
@@ -691,7 +698,7 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
   const session = current.session;
   const settings = engine.record.settings;
   if (!session) {
-    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: engine.auditActivity(current.phaseKey) ? [] : stepStates([], settings.agentId), repositories: [] };
+    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: engine.auditActivity(current.phaseKey) || isPreflightKey(current.phaseKey) ? [] : stepStates([], settings.agentId), repositories: [] };
   }
   const followUp = session.runs.some((run, index) => run.cause === "person_resume" && (run.note !== undefined || session.runs[index - 1]?.limitRefusal === undefined));
   const steps = sessionSteps(engine, current.phaseKey, session).map(step => followUp && step.state === "current" ? { ...step, state: "observed" as const } : step);
@@ -745,9 +752,9 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const plan = record.plan ?? [];
   const isPr = phaseKey === PR_PHASE_KEY;
   const judged = judgedKeyFor(plan, phaseKey);
-  // A hold for loops gets its one reason row here, never a stored check, so it is never waivable (Kiln Audit Loop Limits, "Loop Stops").
-  const loopHold = !hold && stop.kind === "loop_limit" && stop.loop && stop.loop.reason !== "items_listed" ? stop.loop : undefined;
-  const checks = [...(loopHold ? [{ name: "Audit loop left", passed: false, reason: true as const, facts: [`No ${loopHold.kind} audit loop is left.`] }] : []), ...(phaseRecovery ? retainedStop?.checks ?? [] : stop.checks)].map(check => auditCheckTitle(phaseKey, check));
+  // A loop stop saved by Kiln 1.3.0 shows its one line, never a stored check, so it is never waivable; Check again clears it ("Upgrade").
+  const loopStop = !hold && stop.kind === "loop_limit";
+  const checks = [...(loopStop ? [{ name: "Audit loop limit", passed: false, reason: true as const, facts: [LOOP_STOP_LINE] }] : []), ...(phaseRecovery ? retainedStop?.checks ?? [] : loopStop ? [] : stop.checks)].map(check => auditCheckTitle(phaseKey, check));
   const checkRun = phaseRecovery ? retainedStop?.run : stop.run;
   const bookkeeping = !hold && !phaseRecovery && stop.kind === "done_check" ? bookkeepingStop(record, judged, checks) : undefined;
   const base = {
@@ -792,6 +799,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
               baseBranch: entry.baseBranch,
               isPrd: entry.kind === "prd",
             })),
+            deliveryBlock: engine.deliveryBlockNow(),
           })
         : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran);
 
@@ -848,7 +856,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const messageRun = engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : run;
   const finalMessage = interrupted === undefined && messageRun?.result?.text?.trim() ? messageRun.result.text : undefined;
   // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
-  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released");
+  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released" || record.liveControl.takeover.kind !== "delivery_recovery" && record.liveControl.takeover.releasedAt !== undefined);
+  // A held Pause now keeps its command from the release on, whatever later readings find (Kiln Pause Now, "The Paused Page").
   const resumeFolder = engine.workingDirectoryOf(recovery!);
   return {
     ...base,
@@ -1363,6 +1372,8 @@ function observedDeliveryActivity(engine: Engine, session: SessionRecord, output
 }
 
 function sessionSteps(engine: Engine, key: string, session: SessionRecord): StepView[] {
+  // A preflight session runs build-preflight alone: it has none of a phase's build steps.
+  if (isPreflightKey(key)) return [];
   const audit = engine.auditActivity(key);
   if (!audit) return stepStates(session.steps, session.agentId);
   return [
@@ -1416,18 +1427,17 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       const repositories = snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [];
       if (report?.schemaVersion === 2) {
         row.audit = { outcome: report.outcome, summary: report.summary, checks, criteria: [], repositories, blockers: report.needsYou.map(item => `${item.problem} ${item.action}`), pendingActions: [] };
-        if (report.outcome === "passed" && accepted && facts?.doneAt) row.audit.remainingAfterDeliveryActions = report.afterDeliveryActions ?? [];
-        if (accepted && report.needsYou.length) {
-          // Until a later audit's report is accepted, every item this one listed is still outstanding;
-          // an audit marked complete in between settles nothing, so the items are still waiting.
-          row.audit.personItems = { count: report.needsYou.length, waiting: !audits.some(other => other.sequence > audit.sequence && other.acceptedResult) };
+        // An audit marked complete with a valid report counts as accepted (AC-ITEM-01), unless Kiln 1.3.0 marked it.
+        const counted = accepted || (waivedResult?.reportBytes !== undefined && !audit.itemsUnread);
+        if (counted && report.needsYou.length) {
+          // Until a later audit has an effective result read for items, every item this one listed is still outstanding.
+          row.audit.personItems = { count: report.needsYou.length, waiting: !audits.some(other => other.sequence > audit.sequence && (other.waivedResult && !other.itemsUnread ? store.read<AuditWaiverResult>(other.waivedResult).reportBytes !== undefined : !!other.acceptedResult)) };
         }
         const settledHere = ledger?.settled.filter(item => item.settledByActivityId === audit.activityId) ?? [];
         if (settledHere.length) row.audit.settledItems = settledLines(settledHere).split("\n").map(line => line.slice(2));
       } else {
         // A version-1 result keeps its history: criteria, findings, blockers and human actions.
         row.audit = { ...optional("outcome", report?.outcome), checks, criteria: report?.criteria.map(c => ({ key: c.criterionKey, status: c.deliveryStatus ?? (c.testAssessment && "grade" in c.testAssessment ? c.testAssessment.grade : c.testAssessment?.status) ?? "unresolved", findings: c.findings.map(f => f.missing) })) ?? [], repositories, blockers: report?.blockers.map(b => `${b.problem} ${b.requiredAction}`) ?? [], pendingActions: report?.pendingHumanActions.map(a => a.action) ?? [] };
-        if (report?.outcome === "passed" && accepted && facts?.doneAt) row.audit.remainingAfterDeliveryActions = report.pendingHumanActions.filter(action => action.beyondDelivery && !action.result).map(action => action.action);
       }
     } catch (error) { if (inspectionStore) throw error; row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
     Object.assign(row, waivedFacts(engine, activity.key, row.state === "done", waivedResult));
@@ -1506,12 +1516,10 @@ function preflightPlanned(engine: Engine, state: FeatureState, documents?: Docum
   return { preflight: { planned: { before: next.key ?? "end" } } };
 }
 
-/** An activity row's loops and the sentences its latest session carried (Kiln Audit Loop Limits AC-SHOW-01, AC-TEST-03). */
-function loopFacts(engine: Engine, key: string): Pick<PhaseView, "loops" | "carried"> {
+/** The loop an audit row is, with the limit in force (Kiln Deliver When Audit Loops Run Out AC-STOP-05); phase rows and sessions of test fixes carry none. */
+function loopFacts(engine: Engine, key: string): Pick<PhaseView, "loops"> {
   const loops = activityLoops(engine, key);
-  // Every session the activity holds that carried a sentence, oldest first, each sentence once (AC-TEST-03).
-  const carried = (engine.record.phases[key]?.sessionIds ?? []).flatMap(id => engine.sessionRecord(key, id)?.carried ?? []).filter((one, index, all) => all.findIndex(other => other.sentence === one.sentence && other.source === one.source) === index);
-  return { ...(loops ? { loops } : {}), ...(carried?.length ? { carried } : {}) };
+  return loops ? { loops } : {};
 }
 
 /** "Phase 3", "Final delivery" or "Delivery audit": an activity's name in a sentence. */
@@ -1574,4 +1582,13 @@ function waivedFacts(engine: Engine, key: string, done: boolean, waivedResult?: 
     ...(warnings.length ? { warnings } : {}),
     ...(facts?.skippedByWaiver && !done ? { skippedByWaiver: true as const } : {}),
   };
+}
+
+/** The items at a stop and, on a finished run, **For you**; left out when the audit history cannot be read. */
+function personItemFields(engine: Engine, store?: Pick<AuditStore, "read">): Pick<Snapshot, "items" | "delivered"> {
+  try {
+    const items = engine.stopItems(store); const forYou = engine.deliveredForYou(store);
+    const delivered = forYou && { loops: closingAudits(engine.record), forYou, pullRequests: (engine.record.pullRequests ?? []).map(pull => ({ repository: pull.repository, number: pull.number, url: pull.url })) };
+    return { ...(items?.length ? { items } : {}), ...(delivered ? { delivered } : {}) };
+  } catch (error) { if (store) throw error; return {}; }
 }

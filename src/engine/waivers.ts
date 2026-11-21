@@ -95,6 +95,10 @@ export interface AuditWaiverResult {
 
 export const PLAN_CHECK = "Phase plan reads";
 export const READINESS_CHECK = "Completion audit readiness";
+/** The hold stop's one row (Kiln Deliver When Audit Loops Run Out, "The hold stop"): one `other` item per holding item, keyed by its ledger id. */
+export const HOLD_CHECK = "Nothing holds the run";
+/** The pull request check's last row (Kiln Deliver When Audit Loops Run Out AC-LEFT-01): each open pull request's description carries this run's block. Added after waivers are applied, so no waiver matches it on a check. */
+export const DESCRIPTION_CHECK = "Pull request description";
 /** Checks whose one item is their joined failure text, matched under either check (AC-WAIVE-09). */
 export const KNOWN_PROBLEM_CHECKS: readonly string[] = [PLAN_CHECK, READINESS_CHECK];
 /** Checks that can stop an activity before it runs; their item key also names the stopped activity. */
@@ -282,6 +286,8 @@ export interface PreviewWording {
   continueInOrder: boolean;
   /** The phase has built nothing: no commits and no uncommitted changes (run restart AC-CASE-03). */
   builtNothing?: boolean;
+  /** At the hold stop: what Continue anyway leads to (Kiln Deliver When Audit Loops Run Out, "The hold stop"). */
+  hold?: "pull_request_session" | "complete";
 }
 
 /**
@@ -294,7 +300,11 @@ export function previewSentence(wording: PreviewWording): string[] {
   const n = wording.failingChecks; const them = n === 1 ? "it" : "them";
   const lines: string[] = [];
   if (wording.noReport) lines.push("No audit report. Kiln couldn’t read a report from this audit, so it can’t tell what the audit found.");
-  if (wording.continueInOrder) {
+  if (wording.hold) {
+    lines.push(wording.hold === "complete"
+      ? "Continue anyway. Kiln records each item above as waived, never as settled, and completes the run, because the work is already delivered. The items stay open and are listed under For you, each marked Waived."
+      : "Continue anyway. Kiln records each item above as waived, never as settled, and starts the pull request session. The items stay open and are listed under For you, each marked Waived.");
+  } else if (wording.continueInOrder) {
     lines.push(`Continue anyway. Kiln records the problem above as waived, never as passed, and follows its normal order. Each step it reaches this way shows a warning.`);
   } else {
     if (wording.builtNothing) lines.push(`${wording.activity} has built nothing: no commits and no uncommitted changes.`);
@@ -318,13 +328,15 @@ export type MarkCompleteOffer = {
   /** Every unmet item the waiver would save. */
   items: WaivedItem[];
   failingChecks: number;
-  nextActivity: { kind: "phase" | "audit" | "final_delivery" | "complete" | "loop_stop"; key: string; title: string } | null;
+  nextActivity: { kind: "phase" | "audit" | "final_delivery" | "complete"; key: string; title: string } | null;
   resultingLabel: string;
   /** The sentence above the button, one paragraph per entry (AC-WAIVE-03). */
   sentence: string[];
   noReport: boolean;
   /** The phase has built nothing, so the sentence says so (run restart AC-CASE-03). */
   builtNothing?: true;
+  /** At the hold stop: what Continue anyway leads to. */
+  hold?: "pull_request_session" | "complete";
 } | {
   offered: false;
   reason: string;

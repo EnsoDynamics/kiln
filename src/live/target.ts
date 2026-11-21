@@ -17,6 +17,10 @@ export interface TakeoverHold {
   history?: import("../engine/reopen-check.js").ReopenCheck;
   /** The carry-on ownership check's obstacle while `history` is set, or absent when it passes. */
   carryOnObstacle?: string;
+  /** Pause now (Kiln Pause Now, "When Paused begins"): first observed release, or the attempt ended with a conversation that can't be reopened. Never cleared while the hold lasts. */
+  releasedAt?: string;
+  /** Anything other than ordinary waiting, from the latest reconciliation reading (Kiln Pause Now, "The Pause Now State"). */
+  obstacle?: { code: string; reason: string };
 }
 export interface LiveView {
   target: LiveTarget; label: string; observedAt: string; available: boolean; reason: string;
@@ -24,6 +28,7 @@ export interface LiveView {
   messages?: MessageSummary[];
   reviewRequired?: string[];
   takeover?: TakeoverHold;
+  pauseNow?: import("./pause-now.js").PauseNowView;
 }
 
 export function canonicalLiveTarget(target: LiveTarget): LiveTarget {

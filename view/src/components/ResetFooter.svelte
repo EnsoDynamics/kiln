@@ -3,6 +3,7 @@
   // mockups/kiln-run-restart.html, "Reset, the confirmation"): the line at the very bottom of every
   // screen of a started PRD, and the confirmation it opens in place, which lists what Kiln forgets
   // and what stays and says the reset can't be undone. Cancel closes it and changes nothing.
+  import BusyStatus from "./BusyStatus.svelte";
   import type { ResetPreview } from "../../../src/engine/reset.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { reset, resetPreview, type PageConfig } from "../lib/api.js";
@@ -63,9 +64,10 @@
         <span class="undo">This can't be undone.</span>
         <div class="buttons">
           <button type="button" class="button solid" onclick={close}>Cancel</button>
-          <button type="button" class="button confirm-reset" disabled={!preview || pressing || !connected || !control.available} onclick={confirm}>{pressing ? "Resetting…" : "Reset Kiln for this PRD"}</button>
+          <button type="button" class="button confirm-reset" class:busy={pressing} aria-busy={pressing} disabled={!preview || pressing || !connected || !control.available} onclick={confirm}>{pressing ? "Resetting…" : "Reset Kiln for this PRD"}</button>
         </div>
       </div>
+      {#if pressing}<BusyStatus text="Stopping Kiln and clearing this PRD's run." />{/if}
     </section>
   {/if}
 </footer>

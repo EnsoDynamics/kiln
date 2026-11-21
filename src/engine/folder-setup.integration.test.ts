@@ -48,10 +48,10 @@ async function landedThenStopped(): Promise<Harness> {
   return h;
 }
 
-/** A delivery loop already counted under an Allow, which a Start on Folder missing either restarts or keeps (Kiln Audit Loop Limits AC-LOOP-04). */
+/** A delivery loop already counted, which a Start on Folder missing either restarts or keeps (Kiln Audit Loop Limits AC-LOOP-04). */
 function seedLoops(h: Harness) {
   const at = h.engine.record.startedAt!;
-  h.engine.record.auditLoops = { epochs: [{ kind: "delivery", at, cause: "start", loopsBefore: 0 }, { kind: "test", at, cause: "start", loopsBefore: 0 }, { kind: "delivery", at, cause: "allowed", limit: 2, heldAuditKey: "seeded", loopsBefore: 0 }], loops: [{ kind: "delivery", number: 1, limitAtStart: 2, last: false, startedAt: at, sourceAuditId: "seeded-audit", activityKeys: ["2b"] }], acceptances: [], itemsListedStops: [] };
+  h.engine.record.auditLoops = { epochs: [{ kind: "delivery", at, cause: "start", loopsBefore: 0 }, { kind: "test", at, cause: "start", loopsBefore: 0 }], loops: [{ kind: "delivery", number: 1, startedAt: at, activityKey: "audit-seeded" }] };
   return structuredClone(h.engine.record.auditLoops);
 }
 
@@ -97,7 +97,8 @@ describe("Start from the base branch (AC-SETUP-02, AC-SETUP-03, AC-SETUP-04)", (
     expect(record.settings.keepAwake).toBe(false);
     expect(record.branchStem).toBe("feature/customer-returns");
     // A new run: both loop counts start at zero, at the setup's start (AC-LOOP-04).
-    expect(record.auditLoops).toEqual({ epochs: [{ kind: "delivery", at: record.startedAt, cause: "start", loopsBefore: 0 }, { kind: "test", at: record.startedAt, cause: "start", loopsBefore: 0 }], loops: [], acceptances: [], itemsListedStops: [] });
+    // The count starts again at zero; the run then completes, which holds its limits.
+    expect(record.auditLoops).toMatchObject({ epochs: [{ kind: "delivery", at: record.startedAt, cause: "start", loopsBefore: 0 }, { kind: "test", at: record.startedAt, cause: "start", loopsBefore: 0 }], loops: [] });
     expect(record.repositories[0]).toMatchObject({ baseCommit, worktreePath: panel.fields.worktreePath });
     // The new branch starts at the base commit the page showed; the run's earlier branch is kept, locally and on origin (AC-SAFE-03).
     expect(git(h.sandbox, h.repository, "merge-base", baseCommit, "feature/customer-returns-2").trim()).toBe(baseCommit);
@@ -1620,7 +1621,7 @@ const heldBy = (h: Harness, key = "2b") => {
   const session = h.engine.latestSession(key)!;
   const target = { executionId: h.engine.record.executionId!, activityId: key, activityKey: key, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: session.runs.at(-1)!.control?.attemptId ?? createHash("sha256").update(`${h.engine.record.executionId}:${session.sessionId}:${session.runs.length - 1}`).digest("hex") };
   const at = new Date().toISOString();
-  return { version: 1 as const, revision: 1, takeover: { target, operationId: "take-over", instructionId: "take-over", requestedAt: at, state: "released" as const, observedAt: at, reason: "Paused for terminal takeover." } };
+  return { version: 1 as const, revision: 1, takeover: { target, operationId: "take-over", instructionId: "take-over", requestedAt: at, releasedAt: at, state: "released" as const, observedAt: at, reason: "Paused." } };
 };
 const lines = (panel: SetupPanel) => panel.preview.lets.map(row => text(row.parts));
 

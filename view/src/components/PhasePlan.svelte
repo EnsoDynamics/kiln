@@ -2,12 +2,12 @@
   // The phase plan: every phase in plan order, all at one level, with its number, file name,
   // title word for word and state, and a Details section for each phase that has run (PRD
   // AC-WATCH-01, AC-LOOK-03). The pull-request session is its last row once every leaf is
-  // closed (AC-PR-05). A row that is part of an audit loop says which (loop 2 of 3, or last loop),
-  // a row whose session carried the person's words says which, and its Details list each loop and
-  // quote each sentence (Kiln Audit Loop Limits AC-SHOW-01, AC-TEST-03). For a multi-repository PRD a Done row counts the repositories it pushed to,
+  // closed (AC-PR-05). An audit row that is a loop says which (loop 2 of 4), with no mark for the
+  // last loop; phase rows and sessions of test fixes carry none (Kiln Deliver When Audit Loops Run
+  // Out AC-STOP-05). For a multi-repository PRD a Done row counts the repositories it pushed to,
   // its Details list them, and the pull-request row counts the pull requests (multi-repo AC-PRS-03).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
-  import { carriedLabel, loopDetailRows, rowLoopLabel } from "../lib/audit-loops.js";
+  import { rowLoopLabel } from "../lib/audit-loops.js";
   import { detailRows, openedLabel, preflightPill, rowFacts, rowPill, rowState, withPlannedPreflight, type RowState } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
@@ -31,6 +31,8 @@
     implementing: { circle: "implementing", pill: "red", icon: "spinner" },
     interrupted: { circle: "amber", pill: "amber-outline" },
     needs_you: { circle: "amber", pill: "amber", icon: "warning" },
+    // Paused by Pause now (Kiln Pause Now AC-PAUSE-05): the neutral outline, as mockup frame 3 draws it.
+    paused: { circle: "next", pill: "strong-outline" },
     waiting: { circle: "next", pill: "strong-outline", icon: "clock" },
     next: { circle: "next", pill: "strong-outline" },
     planned: { circle: "planned", pill: "dashed" },
@@ -41,19 +43,19 @@
   <div class="head"><h2 id="plan-h" class="eyebrow">Phase plan</h2><span class="count">{snapshot.feature.phasesDone} of {snapshot.feature.phasesTotal} done</span></div>
   <ol>
     {#each rows as row (row.id)}
-      {@const state = rowState(row, connected)}
+      {@const state = rowState(row, connected, snapshot.liveControl?.pauseNow)}
       {@const pill = preflightPill(row)}
       {@const look = pill?.warning ? { circle: "amber" as const, pill: "amber-outline" as const, icon: "warning" as const } : LOOKS[state]}
       {@const facts = rowFacts(row, state, now)}
       {@const accessible = Boolean(row.details) || snapshot.current?.phaseId === row.id || ((snapshot.needsYou?.sessionId || snapshot.waiting?.sessionId) && (snapshot.needsYou?.phaseId === row.id || snapshot.waiting?.phaseId === row.id))}
       {@const link = phasePath(config.base, row.id)}
       {@const loopLabel = rowLoopLabel(row)}
-      {@const details = [...(row.details ? detailRows(row.details, new Date(now)) : []), ...loopDetailRows(row, new Date(now))]}
+      {@const details = row.details ? detailRows(row.details, new Date(now)) : []}
       <li data-phase={row.id}>
         {#snippet title()}{#if accessible}<a class="title phase-link" href={link} onclick={(event) => routedClick(event, router, link)}>{row.title}<span aria-hidden="true"></span></a>{:else}<span class="title" class:quiet={state === "planned"}>{row.title}</span>{/if}{/snippet}
         <div class="row">
           <PhaseCircle id={circleId(row)} tone={look.circle} />
-          <span class="names">{#if row.attended !== undefined}<span class="title-line">{@render title()}<NeedsYouThere text={row.attended} /></span>{:else}{@render title()}{/if}{#if row.file}<span class="file mono">{row.file}</span>{/if}{#each row.carried ?? [] as carried, index (index)}<span class="carried">{carriedLabel(carried)}</span>{/each}</span>
+          <span class="names">{#if row.attended !== undefined}<span class="title-line">{@render title()}<NeedsYouThere text={row.attended} /></span>{:else}{@render title()}{/if}{#if row.file}<span class="file mono">{row.file}</span>{/if}</span>
           <span class="state">
             {#if loopLabel}<span class="facts loop">{loopLabel}</span>{/if}
             {#if facts}<span class="facts">{facts}</span>{/if}
@@ -88,7 +90,6 @@
   .state { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
   .restart-review .state { max-width: 100%; }
   .restart-review .facts { white-space: normal; overflow-wrap: anywhere; }
-  .carried { font-size: 12.5px; color: var(--muted); }
   .facts.loop { color: var(--muted); }
   .facts { font-size: 13px; color: var(--dim); white-space: nowrap; }
   .found { margin: 0 0 0 44px; font-size: 13.5px; color: var(--muted); overflow-wrap: anywhere; }

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, installPreflightSkill, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { formatTerminalEvent } from "../kiln-command.js";
-import { readPrdRecord } from "../state/records.js";
+import { readPrdRecord, SCHEMA_VERSION } from "../state/records.js";
 import { isPreflightKey } from "../state/activity-keys.js";
 import { PREFLIGHT_PAUSE_REASON, PREFLIGHT_STOP_REASON, preflightSettled } from "./preflight.js";
 import { buildSnapshot, documentsFound } from "./snapshot.js";
@@ -101,11 +101,13 @@ describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01
     expect(h.engine.pause()).toMatchObject({ ok: false, reason: PREFLIGHT_PAUSE_REASON });
     expect(h.engine.controlView().controls.find(one => one.name === "request-pause")).toMatchObject({ available: false, reason: PREFLIGHT_PAUSE_REASON });
     expect(h.engine.liveView()).toBeUndefined();
-    // By command too, Message Claude and Pause & take over are refused, saying why, once no instruction is in flight (AC-PREFLIGHT-08).
+    // By command too, Message Claude and Pause now are refused, saying why, once no instruction is in flight (AC-PREFLIGHT-08).
     await waitFor(() => !h.engine.commands.busy);
-    for (const name of ["message", "take-over"]) expect(h.engine.controlView().controls.find(one => one.name === name)).toMatchObject({ available: false, reason: expect.stringMatching(/^Live messages, terminal takeover and a pause are unavailable during the preflight\./) });
+    for (const name of ["message", "take-over"]) expect(h.engine.controlView().controls.find(one => one.name === name)).toMatchObject({ available: false, reason: expect.stringMatching(/^Live messages, Pause now and a pause after the activity are unavailable during the preflight\./) });
     expect(h.engine.resetControl().reason).not.toMatch(/Pause after the current/);
     expect(buildSnapshot(h.engine).feature.currentPhaseId).toMatch(/^preflight-/);
+    // A preflight runs build-preflight alone, so it shows none of a phase's build steps.
+    expect(buildSnapshot(h.engine).current?.steps).toEqual([]);
     writeFileSync(releasePath, "");
     await h.engine.settled();
     expect(h.engine.record.completedAt).toBeDefined();
@@ -182,7 +184,7 @@ describe("items stop the run at Needs you (AC-PREFLIGHT-03)", () => {
     expect(prompts(h).filter(isPreflightPrompt)).toHaveLength(1);
     expect(prompts(h)[1]).toContain("phase-1-return-intake.md");
     expect(preflightRows(h.engine)[0]).toMatchObject({ state: "done", waivedChecks: 1, preflight: { outcome: "items" } });
-    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(23);
+    expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("Check Preflight again starts a fresh session under the same activity and reads its report as it read the first", async () => {

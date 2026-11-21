@@ -93,6 +93,8 @@ Show each exact uncertain message, its receipt, output link and observation time
 
 ## Safe Checkpoint and Release
 
+Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Stop and Cancel (a pending takeover hold can be withdrawn before its stop).
+
 ### Provider gate
 
 For newly launched Claude phase/audit attempts, bind the validated CLI/configuration profile recorded by attempt control and supply a per-attempt hook configuration through CLI launch settings without rewriting user/project hook files. Live-input profile eligibility follows §Literal input and admission; checkpoint/release capability is evaluated separately. It names the packaged Node executable/helper through exec-form argv, binds execution/attempt identity, and composes with existing hooks/permissions. It never emits an allow decision that overrides another restriction. Do not expose private state tokens in argv, prompt text or logs.
@@ -190,6 +192,8 @@ A replayed instruction may return 200 with its original outcome. An accepted ope
 Errors use `{ ok: false, code, reason, instructionId?, observedAt, remedy }`: `400 invalid_request`, `413 input_too_large`, `403 forbidden`, `404 receipt_not_found`, `409 stale_target | instruction_conflict | busy | input_unavailable | takeover_pending | terminal_in_use | message_review_required | unsent_reply_acknowledgement_required`, `503 ownership_unknown | checkpoint_unavailable | history_unavailable | check_unavailable | state_unavailable`. Admission failure before durable intent means no effect; an uncertain post-admission response identifies the receipt and retains the hold. Unknown target/state/schema always refuses, never defaults to current work.
 
 ### Snapshot and browser
+
+Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Pause Now State (the pause panel's heading, choices and narrow-screen order, and the requested and completed takeover wording, for a hold that is not delivery recovery).
 
 Add `liveControl` with target, activity label/round/provider, observed time, input state/reason, action availability, latest receipt summaries/unresolved IDs, takeover progress/reason, terminal readiness/observation, and independently requested deferred pause. Full texts/history are paged rather than copied into every SSE update. Capability projection is provider-specific and cannot infer live safety from a historical schema upgrade or the presence of a writable input pipe. Preserve the normal phase/activity/session facts. Disconnected views label last-known observation times and disable all mutations.
 

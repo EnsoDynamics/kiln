@@ -777,23 +777,25 @@ describe("the pull request", () => {
     expect(h.engine.record.phases.pr).toMatchObject({ finishedByPerson: true });
   });
 
-  it("completes with no pull-request session when one is already open, ignoring a fork's of the same branch name", async () => {
+  // A pull request already open no longer completes the run on its own: a pull request session writes this run's block into its description first (Kiln Deliver When Audit Loops Run Out AC-LEFT-01).
+  it("runs a pull-request session for one already open, then completes on it, ignoring a fork's of the same branch name", async () => {
     harness = await createHarness({ sessions: [landingSession("a"), landingSession("b"), landingSession("c")] });
     const h = harness;
     const pull = { title: "x", url: "u", headRefName: "feature/customer-returns", baseRefName: "develop", additions: 1, deletions: 0, commits: [] };
     h.setPulls([{ ...pull, number: 5, isDraft: false, isCrossRepository: true }]);
     const release = join(h.sandbox.root, "release");
     // Open our own pull request while the last phase is working.
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession("a"), landingSession("b"), { actions: [{ waitForFile: release }, ...landingSession("c").actions] }] }));
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession("a"), landingSession("b"), { actions: [{ waitForFile: release }, ...landingSession("c").actions] }, { actions: [{ result: "Edited #6's description." }, { exit: 0 }] }] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => h.claudeCalls().length === 3);
     h.setPulls([{ ...pull, number: 5, isDraft: false, isCrossRepository: true }, { ...pull, number: 6, isDraft: false, isCrossRepository: false }]);
     writeFileSync(release, "");
     await h.engine.settled();
-    expect(h.claudeCalls()).toHaveLength(3);
-    expect(h.engine.record.pullRequests?.[0]?.number).toBe(6);
+    expect(h.claudeCalls()).toHaveLength(4);
+    expect(h.claudeCalls()[3]!.prompt).toContain("Where a pull request is already open, edit its description (`gh pr edit`)");
+    expect(h.engine.record.pullRequests?.map(pull => pull.number)).toEqual([6]);
+    expect(phaseEvents(h)).toContain("PR started");
     expect(phaseEvents(h).at(-1)).toBe("PR opened #6");
-    expect(phaseEvents(h)).not.toContain("PR started");
   });
 
   it("offers no pause while the pull-request session works (AC-PR-05)", async () => {
@@ -1049,11 +1051,12 @@ describe("kiln run on a feature underway", () => {
     expect(engine.record.phases["2b"]!.sessionIds).toEqual([sessionId]);
   });
 
-  it("re-runs the pull-request check after a pause kiln run made active, so a pull request opened meanwhile completes the feature", async () => {
+  // A pull request opened meanwhile is no longer complete on its own: a pull request session writes this run's block into it (Kiln Deliver When Audit Loops Run Out AC-LEFT-01).
+  it("re-runs the pull-request check after a pause kiln run made active, so a pull request opened meanwhile gets a session that completes the feature on it", async () => {
     harness = await createHarness({ sessions: [] });
     const h = harness;
     const release = join(h.sandbox.root, "release");
-    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession("a"), landingSession("b"), { actions: [{ waitForFile: release }, ...landingSession("c").actions] }] }));
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landingSession("a"), landingSession("b"), { actions: [{ waitForFile: release }, ...landingSession("c").actions] }, { actions: [{ result: "Edited #12's description." }, { exit: 0 }] }] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => h.claudeCalls().length === 3);
     h.engine.pause();
@@ -1068,8 +1071,9 @@ describe("kiln run on a feature underway", () => {
     await engine.agents.refresh();
     expect(await engine.start()).toEqual({ ok: true });
     await engine.settled();
-    expect(engine.record.pullRequests?.[0]?.number).toBe(12);
-    expect(h.claudeCalls()).toHaveLength(3);
+    expect(engine.record.pullRequests?.map(pull => pull.number)).toEqual([12]);
+    expect(h.claudeCalls()).toHaveLength(4);
+    expect(h.claudeCalls()[3]!.prompt).toContain("Where a pull request is already open, edit its description (`gh pr edit`)");
   });
 
   it("finishes an interrupted setup on the next kiln run from the recorded base commit", async () => {

@@ -36,7 +36,7 @@
   {/if}
   {#if snapshot.current}<CurrentPhase {snapshot} {connected} now={shownNow} />{/if}
   {#if snapshot.current && isPr}
-    <section class="card"><p>Live messages and terminal takeover are unavailable during final delivery. Live controls support Claude phases and audits.</p></section>
+    <section class="card"><p>Live messages and Pause now are unavailable during final delivery. Live controls support Claude phases and audits.</p></section>
   {:else if snapshot.current && isPreflight}
     <section class="card"><p>{PREFLIGHT_LIVE_REASON}</p></section>
   {/if}

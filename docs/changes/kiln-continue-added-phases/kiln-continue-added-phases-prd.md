@@ -83,6 +83,7 @@ Kiln must use the revised requirements and current code. An old merged branch or
   - Replaces in part: AC-PERMIT-05 in [Kiln Development Deployments](../kiln-development-deployments/kiln-development-deployments-prd.md) (the existing target-grant action is also available before accepting a completed-feature continuation; its scope, disclosure and separate resume/continue behavior remain).
 - [x] **AC-CONTINUE-05 — Additional work finishes through normal audits and delivery.** Once accepted, Kiln advances through eligible remaining phases and any completion phases its normal audits add, without requiring a new continuation click between them. Whole-PRD audit and final delivery evidence must cover the revised requirements and work. Earlier successful audits or merged PRs cannot satisfy completion for the new work. A new delivery is recorded alongside earlier deliveries when the current work meets the existing completion rules.
   - Superseded in part by: AC-DELIV-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (completion phases audits add after a continuation are built only while a delivery audit loop is left).
+  - Superseded in part by: AC-LAST-03 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (in a continuation, the work of a kind's last loop is not audited again).
 
 ## Readiness examples
 

@@ -14,6 +14,9 @@ import { reservePortRange } from "../test-support/os-ports.js";
 import { formatDecisionLine } from "../underway-output.js";
 import { terminalColors } from "../terminal-output.js";
 import { writePrdRecord } from "../state/records.js";
+import { statusProjection } from "../control/projection.js";
+import { readWork } from "../control/private-state.js";
+import { stateRoot } from "../state/state-files.js";
 let h: Harness;
 let server: LocalServer | undefined;
 afterEach(async () => { await server?.close(); server = undefined; await h?.cleanup(); });
@@ -53,6 +56,10 @@ it("checks restart, HTTP and repeated reads without work; persists history and j
   const response = await fetch(`${new URL(server.address).origin}/api/continuation/check`, { method: "POST", headers: { Origin: new URL(server.address).origin, "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json" }, body: "{}" });
   expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ check: { status: "available", result: { added: [{ id: "9" }] } } });
   expect(buildSnapshot(h.engine).continuation?.check?.result?.source.revision).toBe(git(h.sandbox, h.repository, "rev-parse", "HEAD").trim());
+  // kiln status reports the same offer, with the proposal ID continue-with-phases takes (Kiln Deliver When Audit Loops Run Out AC-BOT-02).
+  const offered = h.engine.record.completedPlanCheck!;
+  const status = statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine) as unknown as { continuation: unknown };
+  expect(status.continuation).toEqual({ check: { status: "available", attemptedAt: offered.attemptedAt, lastSuccessfulAt: offered.lastSuccessfulAt ?? null, errors: [] }, proposal: { id: offered.result!.proposal!.id, readiness: offered.result!.proposal!.readiness, phases: [{ id: "9", title: "Lending" }], problems: offered.result!.proposal!.problems } });
   expect(h.claudeCalls()).toEqual([]);
   expect(h.kilnGitCalls().some(call => /^(checkout|switch|reset|worktree add|merge|push)(?: |$)/.test(call))).toBe(false);
   expect(h.reopenFromDisk().record.completedPlanCheck?.status).toBe("available");

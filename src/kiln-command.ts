@@ -35,7 +35,7 @@ import { newPrdRecord } from "./state/new-record.js";
 import { takeInstanceLock, viewAddress, PORT_RANGE } from "./state/instance-lock.js";
 import { NewerSchemaError, readPrdRecord, writePrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
-import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatResetLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, type TerminalColors } from "./terminal-output.js";
+import { TransientStatus, formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatResetLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, type TerminalColors } from "./terminal-output.js";
 import { formatCompletedPlanCheck, formatDecisionLine, formatFolderMissing, formatSummaryLine } from "./underway-output.js";
 import { terminalWaivers, type AuditWaiverReader } from "./control/waiver-facts.js";
 import { AuditStore } from "./audit/storage.js";
@@ -79,6 +79,8 @@ class StopControl {
   engine: Engine | undefined;
   /** The local server, closed once the engine's stop is done and before the lock is released. */
   server: LocalServer | undefined;
+  /** The grey line saying what Kiln is busy with at startup, erased before anything else is printed. */
+  readonly status: TransientStatus;
   /** What a stop prints when no engine is running yet. */
   fallback: StopReport = { text: "Kiln stopped.", grey: "Nothing was started." };
   cause: (typeof STOP_SIGNALS)[number] | undefined;
@@ -89,6 +91,7 @@ class StopControl {
   private readonly listeners = new Map<NodeJS.Signals, () => void>();
 
   constructor(private readonly context: CommandContext) {
+    this.status = new TransientStatus(context.stdout, context.env);
     for (const signal of STOP_SIGNALS) {
       const listener = () => this.onSignal(signal);
       this.listeners.set(signal, listener);
@@ -126,6 +129,7 @@ class StopControl {
   /** Removes the handlers, then prints the stop's line, after the instance lock is released. */
   finish(): void {
     for (const [signal, listener] of this.listeners) this.context.signals?.off(signal, listener);
+    this.status.clear();
     if (!this.report || this.cause === "SIGHUP") return;
     const colors = terminalColors(this.context.stdout, this.context.env);
     this.context.stdout.write(`${this.report.text}${this.report.grey ? ` ${colors.grey(this.report.grey)}` : ""}\n`);
@@ -218,6 +222,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     const work = record?.startedAt === undefined ? notStarted(run, record) : underway(run, record);
     return await Promise.race([work, stop.done]);
   } finally {
+    stop.status.clear();
     stop.engine?.close();
     await stop.server?.close();
     lock.release();
@@ -355,9 +360,14 @@ async function fillNamedBases(git: { git: string; env: NodeJS.ProcessEnv }, reco
 /** Nothing more is printed once a stop begins; its own line comes last. */
 function terminalWriter(run: KilnRun): (line: string) => void {
   return (line) => {
-    if (!run.stop.stopping) run.context.stdout.write(`${line}\n`);
+    if (run.stop.stopping) return;
+    run.stop.status.clear();
+    run.context.stdout.write(`${line}\n`);
   };
 }
+
+/** Shown on a terminal while `kiln run` checks things before its first lines (erased once they print). */
+const STARTUP_STATUS = "Checking where things stand…";
 
 /** npm asked once per `kiln` process, however many times it serves the view (newer version notice, AC-NEWER-01). */
 let newerVersionCheck: Promise<string | undefined> | undefined;
@@ -387,12 +397,14 @@ async function serveAndOpen(run: KilnRun, engine: Engine, documents?: Parameters
 async function notStarted(run: KilnRun, record: PrdRecord | undefined, startError?: string): Promise<number> {
   const { location, tools, context, stop } = run;
   const errColors = terminalColors(context.stderr, context.env);
+  stop.status.show(STARTUP_STATUS);
   const report = await runStartChecks(location, tools, context.env);
   // On Windows a Ctrl+C ends the checks' git and gh calls too, possibly before Kiln's handler
   // runs; a moment's wait lets the stop be seen before a failure is reported.
   if (!startChecksPassed(report) && process.platform === "win32") await new Promise((resolve) => setTimeout(resolve, WINDOWS_CTRL_C_GRACE_MS));
   if (stop.stopping) return stop.done;
   if (!startChecksPassed(report)) {
+    stop.status.clear();
     context.stderr.write(`${formatStartFailure(location.featureName, location.prdDirectoryFromRoot, report, errColors)}\n`);
     return EXIT_START_CHECKS_FAILED;
   }
@@ -436,6 +448,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
   const colors = terminalColors(context.stdout, context.env);
   const write = terminalWriter(run);
   const engine = makeEngine(run, record, write);
+  stop.status.show(STARTUP_STATUS);
   {
     const prepared = await engine.prepare();
     if (stop.stopping) return await stop.done;
@@ -452,10 +465,13 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
     const { address, opening } = await serveAndOpen(run, engine);
     if (engine.folderMissing) write(formatFolderMissing(engine.folderMissing, opening.kind === "opened" ? address : undefined, colors));
     if (opening.kind !== "opened") write(formatOpenedLine(address, opening, colors, true));
+    stop.status.clear();
     engine.startupFinished();
     return stop.done;
   }
   write(formatSummaryLine(engine, colors));
+  // Judging a stopped or interrupted phase reruns its checks, which can take a while; say so.
+  stop.status.show(STARTUP_STATUS);
   const decision = await engine.decide({ review: !run.resumeImmediately, resume: run.resumeImmediately });
   if (stop.stopping) return await stop.done;
   const { address, opening } = await serveAndOpen(run, engine);
@@ -465,6 +481,7 @@ async function underway(run: KilnRun, record: PrdRecord): Promise<number> {
   if (decision.kind === "folder_missing" && missing) write(formatFolderMissing(missing, openedAddress, colors));
   else write(formatDecisionLine(decision, engine, colors, openedAddress));
   if (opening.kind !== "opened") write(formatOpenedLine(address, opening, colors, true));
+  stop.status.clear();
   engine.startupFinished();
   // Default restarts stay at review; --resume permits eligible continuation after serving.
   await engine.continue();

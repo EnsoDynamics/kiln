@@ -22,6 +22,12 @@ export function auditResultCheck(activity: Pick<AuditActivity, "reportPath">, re
 export interface AdmissionContext {
   record: PrdRecord; stateDirectory: string; git: GitContext; signal: AbortSignal;
   developmentChecks?(): CheckResult[];
+  /**
+   * Whether each audit kind's loops have reached its limit in force (Kiln Deliver When Audit Loops
+   * Run Out, "Routing After the Last Loop"); `auditNext` allocates no new audit of a closed kind.
+   * Absent: neither is closed.
+   */
+  closed?: { delivery: boolean; test: boolean };
   /** While a waived plan problem stops the plan from reading, the phases Normal Order uses; snapshots read them (waivers AC-WAIVE-04). */
   planPhases?: import("../plan/phase-plan.js").PlannedPhase[];
 }
@@ -136,7 +142,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     const current = await captureSnapshot({ ...context, activity, now: new Date().toISOString() });
     activity.snapshots.push(store.put(current)); snapshotId = current.id;
     const outstanding = personItems(context.stateDirectory, context.record.completionAudits!.activities, activity.sequence, store).outstanding;
-    const validated = validateReport(raw, { record: context.record, activity, initial: store.read<WorkSnapshot>(activity.snapshots[0]!), current, outstanding });
+    const validated = validateReport(raw, { record: context.record, activity, initial: store.read<WorkSnapshot>(activity.snapshots[0]!), current, outstanding, waivers: context.record.waivers ?? [] });
     checks.push({ name: RESULT_CHECK, passed: true, facts: [`Outcome ${validated.report.outcome}: ${validated.report.summary}`.slice(0, 600)] });
     checks.push(...await repositoryChecks(context));
     checks.push(...context.developmentChecks?.() ?? []);

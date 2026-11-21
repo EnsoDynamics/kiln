@@ -1,6 +1,6 @@
 import { consumedUuids } from "../live/target.js";
 import { LiveOwnedProcesses } from "../live/owned-processes.js";
-import { observeGate, withGate, unsettled } from "../live/gate.js";
+import { observeGate, recordStop, withGate, unsettled } from "../live/gate.js";
 import type { BillingSummary } from "../billing/inspection.js";
 // Starts one headless Claude Code session and supervises it: the launch flags, the prompt on
 // stdin, every event saved as received, output lines and progress steps derived from them,
@@ -296,6 +296,8 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
       // a hook that never reported one must not keep a finished session open.
       if ((gate.held ? unsettled(gate).length === 0 : accounted) && !writing) {
         gate.sealed = true;
+        // Sealing input under a hold is the stop when nothing earlier acted on it (Kiln Pause Now, "The Stop and Cancel").
+        recordStop(gate, "seal", now().toISOString());
         child.stdin!.end();
       }
     });
