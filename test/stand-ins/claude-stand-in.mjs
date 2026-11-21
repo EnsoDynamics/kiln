@@ -273,6 +273,12 @@ if (session.noInit) {
   await exitAfterFlush(1);
 }
 
+// A launch held before it reports init, as a slow `claude --resume` is: `{ "beforeInit": { "touch": path, "waitForFile": path } }`.
+if (session.beforeInit) {
+  writeFileSync(session.beforeInit.touch, "");
+  while (!existsSync(session.beforeInit.waitForFile)) await new Promise(resolve => setTimeout(resolve, 25));
+}
+
 // A resumed session's prompt names its phase doc as "Carry on with `…`" and no branch: the
 // session already knows its branch, so the stand-in reads the one checked out.
 const phaseDoc = /implement `([^`]+)`/.exec(prompt)?.[1] ?? /Carry on with `([^`]+)`/.exec(prompt)?.[1];

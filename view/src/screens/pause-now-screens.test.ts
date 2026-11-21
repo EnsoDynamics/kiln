@@ -147,6 +147,20 @@ describe("the pausing state says what it is waiting for (AC-PAUSE-03)", () => {
     order(words, "Cancel pause and keep going", "Will pause after Phase 2b finishes. Cancel end-of-phase pause");
     expect(words).not.toContain("Pause after phase 2b");
   });
+
+  it("keeps a pending end-of-audit pause visible below, with its audit cancel (AC-PAUSE-03)", () => {
+    const snapshot = pausingSnapshot({ activityKey: "audit-da2", label: "delivery audit · round 2" });
+    const audit: PhaseView = { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Round 2", round: 2, continuationIndex: 1, state: "implementing", finishedByPerson: false };
+    snapshot.activities = [...snapshot.phases.map(row => row.id === "2b" ? { ...row, state: "done" as const } : row), audit];
+    snapshot.current = { ...snapshot.current!, phaseId: "audit-da2" };
+    snapshot.feature.currentPhaseId = "audit-da2";
+    snapshot.liveControl!.target = { ...snapshot.liveControl!.target, activityKey: "audit-da2" };
+    snapshot.liveControl!.label = "Delivery audit · Round 2";
+    snapshot.pause = { pending: true, active: false };
+    const words = text(running(snapshot));
+    order(words, "Cancel pause and keep going", "Will pause after Delivery audit · Round 2 finishes. Cancel end-of-audit pause");
+    expect(words).not.toContain("Cancel end-of-phase pause");
+  });
 });
 
 describe("Cancel until the stop (AC-PAUSE-04)", () => {

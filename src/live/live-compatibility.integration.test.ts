@@ -15,6 +15,8 @@ import { createHarness, landingSession, waitFor, type Harness, type ScenarioSess
 import { buildSnapshot } from "../engine/snapshot.js";
 import { canonicalLiveTarget, type LiveTarget } from "./target.js";
 import { readGate } from "./gate.js";
+import { pausingRow, type PausingRow } from "./pause-now.js";
+import type { PauseNowView } from "./pause-now.js";
 import type { Receipt } from "../control/commands.js";
 import { git } from "../test-support/git-repositories.js";
 import { isProcessLive } from "../platform/process-start-time.js";
@@ -141,8 +143,11 @@ for (const mutation of ["no-tool-use-id", "no-post-tool-use-id"] as const) {
     const admitted = () => { const live = h!.engine.latestSession("1")?.runs.at(-1)?.live; return !!live && Object.values(readGate(live.gateDirectory).operations).some(o => o.name === "Bash"); };
     await waitFor(() => inFlight ? admitted() : existsSync(file("one-ready")));
     const reasons: string[] = []; const releasedBeforeExit: boolean[] = [];
+    // The Pause now state while pausing, each time it carries an obstacle (Kiln Pause Now AC-PAUSE-03).
+    const obstacles: { view: PauseNowView; row: PausingRow }[] = [];
     h!.engine.onChange(() => {
       const reason = h!.engine.liveView()?.reason; if (reason) reasons.push(reason);
+      const view = h!.engine.liveView()?.pauseNow; if (view?.phase === "pausing" && view.obstacle) obstacles.push({ view, row: pausingRow(view) });
       if (h!.engine.record.liveControl?.takeover.state === "released") releasedBeforeExit.push(!h!.engine.latestSession("1")!.runs.at(-1)!.endedAt);
     });
     await idle();
@@ -160,6 +165,8 @@ for (const mutation of ["no-tool-use-id", "no-post-tool-use-id"] as const) {
     expect(h!.engine.record.compatibility).toEqual([expect.objectContaining({ feature: "takeover", agentVersion: "2.1.320" })]);
     expect(reasons.some(reason => reason.includes("The safe checkpoint can't be used, so Kiln is waiting for this attempt and its processes to end."))).toBe(true);
     expect(releasedBeforeExit).not.toContain(true);
+    // An unrecognised hook contract under the hold is an obstacle while pausing: the row gives way to the obstacle, with no lid sentence.
+    expect(obstacles[0], JSON.stringify(obstacles[0])).toMatchObject({ view: { phase: "pausing", obstacle: { code: "control_unavailable", reason: `Pause now unavailable with Claude Code 2.1.320: ${mutation === "no-tool-use-id" ? "PreToolUse" : "PostToolUse"} hook input had no tool_use_id. The safe checkpoint can't be used, so Kiln is waiting for this attempt and its processes to end.` } }, row: { kind: "obstacle", lid: false } });
     const pre = hookCalls().filter(call => call.event === "PreToolUse");
     if (inFlight) {
       // The tool admitted before the hold finished; the batch checkpoint ended the turn, so no new tool was attempted.

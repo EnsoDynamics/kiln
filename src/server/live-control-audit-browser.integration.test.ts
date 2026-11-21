@@ -167,3 +167,62 @@ it.each([1200, 390])("lays the paused page's columns out with the kept panels, h
     expect(page.problems, JSON.stringify(page.problems)).toEqual([]);
   } finally { await page.close(); await server.close(); }
 });
+
+// AC-PAUSE-06: from Resume's already-complete answer, Advance that still finds failing checks hands the
+// page to today's recovery rules: the checks, Check again and Mark complete, not back to the paused page.
+it("takes Resume's already-complete advance to the checks, Check again and Mark complete when the advance still stops", async () => {
+  const { pausedHoldSnapshot } = await import("../test-support/sample-snapshots.js");
+  const snapshot = pausedHoldSnapshot();
+  const stop = snapshot.needsYou!;
+  const target = stop.phaseRecovery!.target;
+  const failing = "No Closed line in phase-2b-store-credit.md";
+  Object.assign(stop, {
+    checks: [{ name: "Phase doc closed", passed: false, facts: [failing] }], counts: { passed: 0, waived: 0, failed: 1 }, checkedAt: "2026-10-17T15:46:00Z", rowsAreCompletionChecks: true,
+    markComplete: {
+      offered: true, label: "Mark Phase 2b complete", heading: "Phase 2b is done, and Kiln’s check is wrong?", continueInOrder: false, checkRunId: "run-2b-recheck",
+      items: [{ check: "Phase doc closed", kind: "other", subject: failing, text: failing, against: "documents:8638ec13" }],
+      failingChecks: 1, nextActivity: { kind: "complete", key: "complete", title: "Complete" }, resultingLabel: "Complete · 1 check waived", noReport: false,
+      sentence: ["Mark it complete. Kiln skips the 1 failing check above, records it as waived, never as passed, and moves to Complete."],
+    },
+  });
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async command => command.startsWith("POST /api/resume") ? { status: 200, body: { ok: true, outcome: "already_complete", target } } : command.startsWith("POST /api/check-again") ? { status: 200, body: { ok: true, outcome: "still_stopped", target } } : command === "GET /api/live/messages" ? { status: 200, body: { ok: true, receipts: [] } } : null });
+  const page = await chrome.open(server.address, { width: 1200, height: 1400 });
+  const button = (label: string) => `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()===${JSON.stringify(label)})`;
+  try {
+    await page.waitFor(`${button("Resume phase 2b")} && !${button("Resume phase 2b")}.disabled`);
+    await page.evaluate(`${button("Resume phase 2b")}.click()`);
+    await page.waitFor(`!!${button("Advance to the next step")}`);
+    await page.evaluate(`${button("Advance to the next step")}.click()`);
+    await page.waitFor(`document.body.innerText.includes('still has 1 failing check')`);
+    const advance = server.commands.filter(c => c.startsWith("POST /api/check-again")).map(c => JSON.parse(c.slice(c.indexOf("{"))) as { intent?: string });
+    expect(advance.map(one => one.intent)).toEqual(["advance"]);
+    // The recovery page's checks section, not the paused page: the failing row, Check again and a usable Mark complete.
+    expect(await page.evaluate("!!document.querySelector('.paused-card')")).toBe(false);
+    const main = await page.evaluate<string>("document.querySelector('main').innerText");
+    expect(main).toContain("Phase doc closed"); expect(main).toContain(failing);
+    expect(await page.evaluate(`!!${button("Check Phase 2b again")} && !${button("Check Phase 2b again")}.disabled`)).toBe(true);
+    expect(await page.evaluate(`!!${button("Mark Phase 2b complete")} && !${button("Mark Phase 2b complete")}.disabled`)).toBe(true);
+    expect(page.problems, JSON.stringify(page.problems)).toEqual([]);
+  } finally { await page.close(); await server.close(); }
+});
+
+// AC-PAUSE-06: a refused Resume shows its reason beside Resume and keeps the note, unsent, on the paused page.
+it("shows a refused Resume's reason beside Resume and keeps the note unsent", async () => {
+  const { pausedHoldSnapshot } = await import("../test-support/sample-snapshots.js");
+  const reason = "Exit Claude in your terminal before handing this conversation back to Kiln.";
+  const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: pausedHoldSnapshot(), respond: async command => command.startsWith("POST /api/resume") ? { status: 409, body: { ok: false, code: "terminal_in_use", reason } } : null });
+  const page = await chrome.open(server.address, { width: 1200, height: 1100 });
+  try {
+    const resume = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Resume phase 2b')`;
+    await page.waitFor(`${resume} && !${resume}.disabled`);
+    await page.evaluate(`(() => { const box = document.querySelector('#paused-note'); box.value = 'Use the new receipt template.'; box.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await page.evaluate(`${resume}.click()`);
+    await page.waitFor(`document.body.innerText.includes(${JSON.stringify(reason)})`);
+    // The reason sits beside Resume in the carry-on column, and the note is kept with its unsent warning.
+    expect(await page.evaluate<string>(`${resume}.parentElement.innerText`)).toContain(reason);
+    const column = await page.evaluate<string>(`document.querySelector('section[aria-label="Let Kiln carry on"]').innerText`);
+    expect(column).toContain("Your note has not been sent.");
+    expect(await page.evaluate("document.querySelector('#paused-note').value")).toBe("Use the new receipt template.");
+    expect(await page.evaluate("!!document.querySelector('.paused-card')")).toBe(true);
+  } finally { await page.close(); await server.close(); }
+});

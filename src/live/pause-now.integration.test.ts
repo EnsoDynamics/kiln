@@ -23,11 +23,11 @@ let h: Harness; let hosted: Awaited<ReturnType<typeof startFixtureController>> |
 afterEach(async () => { hosted?.release(); await hosted?.server.close(); hosted = undefined; await h?.cleanup(); });
 
 /** Starts Kiln on one scripted Claude session (and a second for a Resume), with its controller. */
-async function start(actions: Record<string, unknown>[]) {
+async function start(actions: Record<string, unknown>[], resumed: Record<string, unknown> = { actions: [{ result: "Continued the same activity." }] }) {
   h = await createHarness({ sessions: [] });
   h.env.KILN_STANDIN_VERSION = "2.1.311";
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: actions.map(a => JSON.parse(JSON.stringify(a).replaceAll("$SANDBOX", h.sandbox.root))) }, { actions: [{ result: "Continued the same activity." }] }] }));
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: actions.map(a => JSON.parse(JSON.stringify(a).replaceAll("$SANDBOX", h.sandbox.root))) }, JSON.parse(JSON.stringify(resumed).replaceAll("$SANDBOX", h.sandbox.root))] }));
   await h.engine.start({ refinementConfirmed: true });
   hosted = await startFixtureController({ engine: h.engine, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
   origin = `http://127.0.0.1:${hosted.port}`;
@@ -331,3 +331,35 @@ darwin("records the real deny and seal stops and refuses Cancel after each, and 
   // After the attempt ended, Cancel stays refused.
   expect((await post("live/cancel-take-over", { instructionId: "late-seal-cancel", target, takeoverInstructionId: "seal-pause" })).body).toMatchObject({ code: "already_paused" });
 }, 180000);
+
+darwin("ends the Paused state once Resume's launch is starting, before the new attempt runs (AC-PAUSE-05)", async () => {
+  await start([{ runUntil: { command: "npm test -- src/refunds", file: "$SANDBOX/release" } }, { result: "" }], { beforeInit: { touch: "$SANDBOX/relaunched", waitForFile: "$SANDBOX/relaunch-release" }, actions: [{ result: "Continued the same activity." }] });
+  await waitFor(() => !!h.engine.latestSession("1")?.runs.at(-1)?.live && Object.values(gateOf().operations).some(o => o.label?.input === "npm test -- src/refunds"));
+  await pressPauseNow("pause");
+  writeFileSync(file("release"), "done");
+  await h.engine.settled();
+  await waitForPaused();
+  const colors = terminalColors({ isTTY: false }, {});
+  expect(formatSummaryLine(h.engine, colors)).toContain("paused in phase 1");
+  expect(buildSnapshot(h.engine).liveControl?.pauseNow?.phase).toBe("paused");
+
+  // Resume's answer waits for the launch to report in, so it is read after the launch is let go.
+  const resuming = post("resume", { target: buildSnapshot(h.engine).needsYou!.phaseRecovery!.target });
+  resuming.catch(() => undefined); // A failed assertion leaves the launch held; the read below still sees any rejection.
+  await waitFor(() => existsSync(file("relaunched")), 30000);
+  // The new attempt is starting under the saved hold, before it reports in: no Pause now state on any surface, and the header isn't paused.
+  expect(h.engine.record.liveControl).toBeDefined();
+  expect(h.engine.liveView()?.pauseNow).toBeUndefined();
+  const snapshot = buildSnapshot(h.engine);
+  expect(snapshot.liveControl?.pauseNow).toBeUndefined();
+  expect(snapshot.feature.state).not.toBe("needs_you");
+  expect(snapshot.liveControl?.input?.reason).toBe("The new session is starting.");
+  const status = await cli(["status"]);
+  expect(status.body.pause_status).not.toBe("Paused.");
+  expect((status.body.live_control as { pauseNow?: unknown }).pauseNow).toBeUndefined();
+  writeFileSync(file("relaunch-release"), "done");
+  const resumed = await resuming;
+  expect(resumed.body, JSON.stringify(resumed.body)).toMatchObject({ ok: true, outcome: "resume_requested" });
+  await h.engine.settled();
+  expect(h.engine.record.liveControl).toBeUndefined();
+}, 120000);

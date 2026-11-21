@@ -10,6 +10,8 @@ import { boundPort, reservePort } from "../test-support/os-ports.js";
 import { readGate } from "./gate.js";
 import { readReceipts, type Receipt } from "../control/commands.js";
 import { buildSnapshot } from "../engine/snapshot.js";
+import { formatDecisionLine, formatSummaryLine } from "../underway-output.js";
+import { terminalColors } from "../terminal-output.js";
 let h: Harness; let server: LocalServer | undefined; let origin: string;
 afterEach(async () => { vi.restoreAllMocks(); await server?.close(); server = undefined; await h?.cleanup(); });
 async function setup(actions: object[]) {
@@ -68,6 +70,13 @@ it.skipIf(process.platform !== "darwin")("holds uncertain delivery through resta
   await h.engine.settled();
   await waitFor(async () => { await h.engine.reconcileTakeover(); return h.engine.record.liveControl?.takeover.state === "released"; });
   expect(receipt("uncertain").message?.delivery).toBe("uncertain");
+  // A pause for an uncertain message keeps today's terminal lines, not Pause now's Paused ones (Kiln Pause Now AC-PAUSE-05).
+  const colors = terminalColors({ isTTY: false }, {});
+  expect(formatSummaryLine(h.engine, colors)).toContain("needs you");
+  expect(formatSummaryLine(h.engine, colors)).not.toMatch(/paused in|pausing in/);
+  expect(formatDecisionLine({ kind: "needs_you", phaseKey: "1", again: true }, h.engine, colors)).toContain("Phase 1 still needs you.");
+  expect(h.engine.liveView()?.pauseNow).toBeUndefined();
+  expect(h.events.filter(e => e.kind === "phase" && e.event === "paused")).toEqual([]);
   expect((await post("live/message", { instructionId: "uncertain", target, text: "  inspect this exact instruction\n" })).status).toBe(202);
   expect(inputs()).toHaveLength(1);
   const stop = buildSnapshot(h.engine).needsYou!;
