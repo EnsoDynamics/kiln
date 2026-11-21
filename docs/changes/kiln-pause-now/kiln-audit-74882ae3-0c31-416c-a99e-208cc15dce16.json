@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "77bc76ad-bd4c-4d31-b6a4-3b6da5caea30",
+  "activityId": "74882ae3-0c31-416c-a99e-208cc15dce16",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Test audit of Kiln Pause Now (whole PRD). AC-PAUSE-01 is Adequate and two red checks on it failed as they should. AC-PAUSE-02 to AC-PAUSE-06 are Weak, none high risk: mostly the PRD's exact wording is asserted only through imported constants or not at all, plus a few untested parts (the paused page's already-complete Resume answer and launch restrictions, the engine's gate-less derivation, the 30-second waiting-line limit). No test fails and nothing is unbuilt. Five rows is more than this audit chat fixes, so the work is saved in test-audit.md for a fixing chat.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}
