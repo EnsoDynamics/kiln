@@ -289,7 +289,7 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 <section class="card">
 <h2 class="serif" style="margin: 0; font-size: 32px; line-height: 1.1">No new phases found</h2>
 <div style="display: flex; align-items: center; gap: 14px"><button type="button" class="btn outline">Check for new phases</button><span class="hint">Last checked Dec 12 at 9:40 AM.</span></div>
-<p class="note" style="border-style: dashed">Shown only when the main checkout is on another branch or Kiln can’t find it: “The main checkout is on feature/gift-cards, so Kiln read the plan from origin/develop only.” or “Kiln couldn’t find the main checkout, so it read the plan from origin/develop only.”</p>
+<p class="note" style="border-style: dashed">Shown only when the main checkout is on another branch: “The main checkout is on feature/gift-cards, so Kiln read the plan from origin/develop only.” When Kiln can’t find the main checkout at the path it was started from, there is no answer: the panel reads Could not check for new phases, with “Kiln could not find the main checkout at ~/devel/acme-shop: nothing is there. Put it back at that path, then check for new phases again.”</p>
 <p class="note" style="border-style: dashed">Shown only when this PRD’s documents have edits that aren’t committed in the main checkout: “phase-5-return-labels.md has edits in your main checkout that aren’t committed. Kiln didn’t read them.”</p>
 </section>
 

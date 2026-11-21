@@ -33,7 +33,7 @@
 
 This widens the draft, which offered the merge only when there was a single pull request.
 
-**When the stated order is missing or wrong**: Kiln does not check the order. A pull request whose description names no order can merge at any point. A wrong order is followed as written. If GitHub refuses a merge, or its required checks never pass, the session stops at Needs you and leaves the later ones open. If nothing catches it, the pull requests merge in the wrong order, just as they would if the person merged them by hand from the same descriptions.
+**What a missing or wrong stated order exposes you to**: Kiln does not check the order, as Kiln Multi-Repo Delivery already settles (AC-PRS-02 there). A pull request whose description names no order can merge at any point, and a wrong order is followed as written. If GitHub refuses a merge, or its required checks never pass, the session stops at Needs you and leaves the later ones open. If nothing catches it, the pull requests merge in the wrong order, just as they would if the person merged them by hand from the same descriptions.
 
 **Evidence**:
 - What was asked: "I rarely ever merge anything myself anymore … I'm not handling that myself" (Doug, 2026-11-21). Of work across several repositories where one piece must go first: "just because that has to happen doesn't necessarily mean it has to stop for you", since Kiln "exists so that we can minimize stopping points as much as possible and it can autonomously carry the entire thing through" (Doug, 2026-11-15, said of merges in the middle of a run, not of final pull requests).
@@ -41,7 +41,7 @@ This widens the draft, which offered the merge only when there was a single pull
 - Against: the example given was one pull request (#20), and one press merges into several repositories' base branches.
 - Rare either way: **2 of 16** Kiln runs recorded on this machine had more than one repository.
 
-**If they choose otherwise**: A delivery with several pull requests keeps today's page: each pull request has Open on GitHub, the page says the pull requests state which to merge first, and the person merges them. Only a delivery with one open pull request gets the button.
+**If they choose otherwise**: The offer gets one more condition, **exactly one open pull request**. A delivery with several pull requests keeps today's card: **Open on GitHub** for each, a note on the order to merge them in, and the person merges them. The "Merge order: N of M" line in each description then only feeds that note.
 
 **Confirm or Correct**:
 - [ ] Correct — one button merges the whole delivery, in the stated order
@@ -60,15 +60,16 @@ This widens the draft, which offered the merge only when there was a single pull
 
 **Assumption**: **Yes: while the merge session runs, its output can be watched, but it cannot be messaged, paused or taken over.** If it stops without merging, the usual Needs you page offers a reply to the same session and the command that opens it in a terminal.
 
-**This narrows the mockup aligned on at 16:07 UTC on 2026-11-21**, which showed Pause now and takeover on the running merge. The question covers the merge session only. The session that pushes newly planned phases before Continue builds them is watch only too, since pausing or taking it over part-way through combining could leave the person's main checkout mid-merge.
+**This narrows the mockup aligned on at 16:07 UTC on 2026-11-21**, which showed Pause now and takeover on the running merge.
 
 **Evidence**:
 - **The merge is handed off whole**: "I would kind of just close Kiln and say, 'Hey, go merge PR number 20 and solve anything that's needed.'" and "I'm not handling that myself." (Doug, 2026-11-21). Of replying to a running audit: "maybe we just don't have this at all… it would have to be more like it comes to a full stopping point." (Doug, 2026-11-14).
 - **A running merge can already be stopped safely**: **Ctrl+C** in Kiln's terminal stops the merge session within about 30 seconds and keeps the session and its unpushed work; the next `kiln run` resumes that same session. A pull request is **never left half-merged**, since GitHub merges each in one step.
+- **Kiln already has watch-only stretches**: Kiln Pause Now made Pause now unavailable **during the preflight and final delivery, and for Codex sessions** (AC-PAUSE-02 and Out of Scope there).
 - **What the other answers would cost**: letting the running merge be **messaged is a small change**, since every session shares Kiln's message box and this one is only left out of it. **Pause now and takeover are new work**: Kiln has no way yet to hand a merge session back after either.
 - **Against**: of phases and audits, "I also do want the ability to pause and take over the session … we don't want to lose that" (Doug, 2026-11-19); a merge waiting on checks or working through conflicts can run for minutes, and a merge into develop is harder to undo than a phase's commits.
 
-**If they choose otherwise**: The running merge session's page shows the message box and Pause now as a running phase does, and takeover in a terminal; a paused one gets the Paused page. Pause after this activity, which lets a session finish and then waits before the next one, is not offered, since nothing follows the merge.
+**If they choose otherwise**: The running merge session gets live controls like a running phase. Its page shows the **message box**. **Pause now** (for Claude Code merge sessions only, never offered for Codex) and **takeover** in a terminal need a way to hand the merge back that the design does not have yet, and a paused merge gets the Paused page. Pause after this activity, which lets a session finish and then waits before the next one, is not offered, since nothing follows the merge.
 
 **Confirm or Correct**:
 - [ ] Correct — watch only while it runs; stop it with Ctrl+C; reply or take it over once it stops
@@ -82,23 +83,21 @@ This widens the draft, which offered the merge only when there was a single pull
 
 ---
 
-## Decided by the Project Team
+## Plan Assumptions
 
-> Business decisions, not technical ones, that the team made because each follows from what stakeholders have said or from the entries above, or is easy to change later. The stakeholder review shows them in an optional closing section.
+### PLAN-001. Say nothing when a finished phase's document is edited later? — ⏳ PENDING (Reopened 2026-11-21 against the 2026-11-21 ruling)
 
-### PLAN-001. Say nothing when a finished phase's document is edited later?
+**Assumption**: **Yes: Kiln says nothing about later edits to a finished phase's document.** It never rebuilds a finished phase or offers it again, and it no longer compares a finished phase's text with what it finished. Kiln is being built this way.
 
-**Assumption**: **Yes: Kiln says nothing about later edits to a finished phase's document.** It never rebuilds a finished phase or offers it again, and it no longer compares a finished phase's text with what it finished.
-
-**This reverses the one quiet line accepted on 2026-11-21** for "that rare case". It is not rare: across Kiln's own repository and two others Kiln has run on, **59 of 327** finished phase documents were edited after closing, and **none added work** for a finished phase to do (56 were record-keeping; 3 recorded a later ruling in place: two relaxed a gate, one restated a criterion whose change the same commit had already built). The line would show on nearly **1 in 5** finished phases with nothing on the page able to act on it, the "friction around dotting i's and crossing t's on the paperwork" Doug objected to that day.
+**What was ruled, and what we learned since**: On **2026-11-21** Doug accepted **one quiet line** on the page for "that rare case", on the expectation that such edits are rare. They are not: across Kiln's own repository and two others Kiln has run on, **59 of 327** finished phase documents were edited after closing, and **none added work** for a finished phase to do (56 were record-keeping; 3 recorded a later ruling in place: two relaxed a gate, one restated a criterion whose change the same commit had already built). The line would show on nearly **1 in 5** finished phases with nothing on the page able to act on it, the "friction around dotting i's and crossing t's on the paperwork" Doug objected to that day.
 
 **Example**: Phase 6 of Kiln Live Session Control was closed in commit `32264c1`. On 2026-10-27, commit `b774f87` rewrote its closing notes to record its publication. With the line, Kiln would report "Phase 6's document was edited after Kiln finished it."
 
-**If they choose otherwise**: When Kiln looks for new phases on a finished PRD, the page adds one line for each finished phase whose document changed after Kiln finished it, saying Kiln does not rebuild finished phases and that changing that work takes a new phase.
+**If they choose otherwise**: Kiln keeps a copy of each finished phase's document as it finished and compares it every time it checks for new phases. The offer panel gains **one line for each edited finished phase**, saying Kiln does not rebuild finished phases and that changing that work takes a new phase.
 
 **Confirm or Correct**:
 - [ ] Correct — say nothing
-- [ ] Wrong — keep the one line, record-keeping edits included
+- [ ] Wrong — keep the original ruling: one line for each edited finished phase, record-keeping edits included
 
 **Confidence**: 80% | **Impact**: 🟢 LOW
 
@@ -106,33 +105,14 @@ This widens the draft, which offered the merge only when there was a single pull
 
 ---
 
-### AUDIT-001. Title the sessions that fix a test audit's findings "Fixing tests", numbered from session 1?
-
-**Assumption**: **Yes: such a row reads "Fixing tests" with "From test audit loop 2 · session 1" beneath it**, the words the status line already uses while that session runs ("Fixing tests from test audit loop 2 of 4", approved on 2026-11-19 with Kiln Deliver When Audit Loops Run Out). Sessions count from 1 within each loop. An audit's row reads "Delivery audit" or "Test audit" with "Loop 2 of 4" beneath it, as Doug ruled on 2026-11-19 ("loop n of however many are the max"), and "Round" and "Continuation" disappear.
-
-This replaces "Test fixes", the title in the mockup aligned on 2026-11-21, so the row and the status line say the same thing.
-
-**Example**: Today's rows "Test audit · Round 1", "Test audit · Round 1 · Continuation 2" and "Test audit · Round 1 · Continuation 3" become "Test audit · Loop 1 of 4", "Fixing tests · From test audit loop 1 · session 1" and "Fixing tests · From test audit loop 1 · session 2".
-
-**If they choose otherwise**: The rows say "Test fixes", or the wording given, and differ from the status line's.
-
-**Confirm or Correct**:
-- [ ] Correct — "Fixing tests", "From test audit loop 1 · session 1"
-- [ ] Wrong — title them "Test fixes"
-- [ ] Wrong — different wording: _______________
-
-**Confidence**: 80% | **Impact**: 🟢 LOW
-
-**Researched**: 2026-11-21, three passes; Doug's messages in the drafting chat and earlier Kiln chats; the audit-loop requirements and their records; the audit skills; Kiln's row-label code. The last pass found nothing further.
-
----
-
 ## Validated Assumptions
 
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
+| PLAN-001 | When a finished phase's document is edited after Kiln finished it, the page shows one quiet line saying so | Answered 2026-11-21 | Doug accepted one quiet line for "that rare case" in the drafting chat. Reopened 2026-11-21, see body |
 | PLAN-002 | An unfinished phase beneath a finished phase is offered like any other added phase; the finished phase stays finished, even one that had no phases beneath it when it was finished | Written up 2026-11-21 | One sensible answer: the method treats a phase without a Closed line as unfinished and keeps finished work done. PRD AC-BACK-01 |
 | AUDIT-001 (part) | A loop is one run of an audit; sessions fixing its findings are not loops and do not count against the limit; an audit row says loop n of the limit, never "last loop" | Answered 2026-11-21 | Doug, 2026-11-19, reviewing the Kiln Deliver When Audit Loops Run Out review package: "when you're building phase eight, that's not a loop. The only thing that's a loop is when it does the delivery audit again or if it does the test audit again… And we don't need to say last loop either… it should say, you know, loop n of however many are the max." AC-LAST-02 there. PRD AC-AUDIT-01 follows it |
+| AUDIT-001 | A session fixing a test audit's findings is titled "Fixing tests" with "From test audit loop n · session k" beneath, k counted from 1 within the loop | Answered 2026-11-21 | Follows from the status-line wording approved 2026-11-19 in Kiln Deliver When Audit Loops Run Out ("Fixing tests from test audit loop 2 of 4"); "Test fixes" was the team's draft mockup wording, not a stakeholder's; numbering from 1 is the only sensible count. PRD AC-AUDIT-01; design §Closing-Audit Names |
 | SCOPE-002 | A bot can merge the delivery with `kiln merge`, and `kiln continue-with-phases` pushes this PRD's documents first, as the buttons do | Written up 2026-11-21 | Follows from Doug's rule that a bot can do what a person can click: "you'd be talking to your bot to do the merging anyway, right?" (2026-11-01); "there is no human only thing in here either… the same option needs to be exposed to the CLI interface so that bots can do it as well." (2026-11-02); "make sure that any of the options that you can click on these screens are command line options" (2026-11-18); of a bot resetting a run, "Let's allow the bot to do it and… clearly mention the risk/downside in the help text, but allow it." (2026-11-12). He folded the push into Continue on 2026-11-21. Kiln Bot Control's exclusion of merging was never put to him. PRD AC-BOT-01 |
 | MERGE-001 (part) | Continue's push session can be watched, but not messaged, paused or taken over while it runs | Written up 2026-11-21 | One sensible answer: pausing or taking it over part-way through combining could leave the person's main checkout mid-merge. PRD AC-MERGE-05 |
 | MERGE-002 | The merge session never goes around branch protection: a missing required review, or a required check that still fails or never reports, stops it unmerged at Needs you, saying which | Written up 2026-11-21 | One sensible answer: Kiln Development Deployments AC-DEV-02, reviewed by Doug on 2026-10-30, says Kiln's permission "does not bypass branch protection, waive required human review, authorize force pushes" and "a missing required approval or unresolved blocker returns to Needs you"; the README says "Required checks and reviews still apply." PRD AC-MERGE-03 |
