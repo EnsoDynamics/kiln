@@ -4,6 +4,7 @@ Ideas for future Kiln features. Each idea has a separate note with context for w
 
 | Idea | What it adds | Detail |
 |---|---|---|
+| Find a PRD's repositories wherever they are checked out | Name repositories by remote address and find each checkout by searching outward from the PRD's repository, so a PRD can span repositories kept under different folders. | [Feature note](roadmap/kiln-find-repositories-anywhere-idea.md) |
 | Run a whole PRD roadmap | Carry a sequence of PRDs through their own audits and final delivery without a manual handoff between PRDs. | [Feature note](roadmap/kiln-whole-prd-roadmap-execution-idea.md) |
 | Run independent phases in parallel | Run independent phases at the same time, with separate workspaces and safe integration. | [Feature note](roadmap/kiln-parallel-phase-execution-idea.md) |
 | Computer-use preflight and Codex desktop handoff | Identify phases needing desktop apps and hand them to Codex desktop. | [Feature note](roadmap/kiln-desktop-computer-use-handoff-idea.md) |
