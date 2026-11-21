@@ -17,7 +17,7 @@ Everything here is Kiln's. No Enso Method skill changes (principles 1 and 2): a 
 **Posture: Preserve** for everything this design does not name; **removed** for the finished-run comparisons below, which this PRD retires.
 
 - Reused: the engine loop and its session launch, resume and settle path with their gates; the control journal and its receipts; the Needs you page; the GitHub read that proves an early merge (the merged time, the merge commit, and the base containing it); the completed baseline, the Git-object plan reader, external-completion accounting, the readiness evaluator, the proposal, the acceptance and activation; the loop ledger; the way a reset ends the run from a page action.
-- Changed: what counts as a finished run that the loop leaves alone (§After-Delivery Activities); the finished-run check (§The Plan Check); what proves a finished phase's work is in the base (§Readiness); which repositories the folder check covers; the four places that build an audit's name.
+- Changed: what counts as a finished run that the loop leaves alone (§After-Delivery Activities); the finished-run check (§The Plan Check); what proves a finished phase's work is in the base (§Readiness); how the early-merge evaluator treats a merged review pull request on a finished run (§The Merge Session); every place that builds an audit's name.
 - Removed, for a finished run only: deciding "waiting to merge" from commit ancestry and the PRD folder's tree; the completed-scope comparison, the `source_conflict` problem, the list of documents that differ between copies and the `unresolved_earlier_work` class; reading the main checkout's files from disk; the "Waiting for the delivery to merge" panel and the "Plan needs reconciliation" heading, header and terminal sentence.
 - Kept: plan reconciliation of a run still in progress, including its "Plan needs reconciliation" notice, which is not rendered on a finished run. The pull request session still may not merge. Early merges keep their own grants, evidence and `kiln delivery` interface, which the merge session is not given.
 
@@ -57,15 +57,22 @@ Both sessions are activities of the finished execution, keyed and typed so nothi
 
 **While open.** The run is not currently complete, so the loop serves it. `completedAt`, the pull request facts, the delivered summary and the phases-done count do not change, and the open activity is the loop's next activity ahead of anything else. The plan reader, the done check, the pull request check, the audits, the preflight and the completion step never run for these keys. Each activity is settled only by its own reading, and the run counts as complete again when the activity closes.
 
-**Gates.** The session starts through the ordinary launch path, so it uses the run's agent, model and effort and passes the same gates as any session: the folder check, agent readiness, billing (an approval can be given again while the activity is open), keep-awake, and a usage-limit refusal that becomes a wait and then a resume. The folder check covers the run's worktrees while a merge activity is open, since a finished run is otherwise not checked. For a push activity it requires the main checkout to exist, to be on the base branch and to be at the commit the offer was read from.
+**Gates.** The session starts through the ordinary launch path, so it uses the run's agent, model and effort and passes the same gates as any session: agent readiness, billing (an approval can be given again while the activity is open), keep-awake, and a usage-limit refusal that becomes a wait and then a resume. The folder check and its Folder missing page stay off for a finished run, because that page's Start sets up a fresh execution. Each activity checks its own folder instead, at the press and before every launch or resume:
+
+| Activity | Its folder is ready when | When it is not |
+|---|---|---|
+| Merge | Each pull request still to merge has its run worktree, on the feature branch, with no uncommitted work, at or ahead of the pull request's head | The press, or Resume at the stop, is refused naming the repository and folder; Check again still reads GitHub, so a merge finished on GitHub by hand is still shown |
+| Push the plan | The main checkout exists and is on the base branch; at the press its tip is the commit the offer was read from, and on a resume its tip descends from that commit | The press, or Resume, is refused saying which |
+
+A Codex push session is launched with the main checkout as its one writable root; network access is already granted to every Codex session.
 
 **No live controls.** As for the pull request session, no live attempt is created, and messages, takeover, Pause after this activity and Pause now are unavailable with the reason the page prints (for the merge session, MERGE-001).
 
-**Ending.** When the session ends, the engine takes the activity's reading. Done closes the activity. Not done after a usage-limit refusal is a wait. Otherwise it is a Needs you stop carrying the session's last message word for word and one check row per pull request (or one for the plan).
+**Ending.** When the session ends, the engine takes the activity's reading. Done closes the activity. Not done after a usage-limit refusal is a wait. Otherwise it is a Needs you stop carrying the session's last message word for word and one check row per pull request (or one for the plan). A stop, wait or close of either activity leaves the early-merge ledger's completion result as it was, so closing the activity returns the run to complete without evaluating delivery again.
 
 **At the stop.** Only `reply`, `resume` and `check-again` are offered, with Exit Kiln. Each first repeats the reading; when the work is done the activity closes without resuming, with the receipt outcome `already_done`. `carry-on`, `start-again`, `verify-and-advance`, Mark complete and the fresh-session prompt are never offered for these keys, because nothing starts a second merge or push session. When the conversation cannot be reopened, the stop says so and leaves two ways on: finish the work outside Kiln, then Check again.
 
-**Ctrl+C and restart.** Ctrl+C interrupts the session as it does any other. The next `kiln run` takes the reading first, closes the activity when the work is done, and otherwise resumes the same session through the existing interrupted-session recovery, restart review included.
+**Ctrl+C and restart.** Ctrl+C interrupts the session as it does any other. The next `kiln run` takes the reading first, closes the activity when the work is done, and otherwise resumes the same session through the existing interrupted-session recovery, restart review included. An open activity is handled before anything else `kiln run` does for a finished run, including the early-merge delivery evaluation.
 
 **Once per delivery.** An execution has at most one merge activity. Once it exists, Merge with {agent} is never offered again for that execution. A push activity belongs to one Continue press.
 
@@ -81,7 +88,9 @@ One engine operation reads each of the delivery's pull requests from GitHub and 
 
 A `merged` reading is final and is not read again. A read that fails keeps the previous reading, records the failure and its time, and never infers a state. While a pull request's state is unknown, the merge is not offered and the card says GitHub could not be read.
 
-The reading also parses the merge order line from each description (§Prompts) into a position, where one is given.
+The reading also parses the merge order line from each description (§Prompts) into a position, where one is given. The note names that order when every description has the line. When none has it, the note says the session follows any order the descriptions state, which covers pull requests opened before this change, whose order is in prose.
+
+`gh` runs from each repository's main checkout, never from a run worktree, which a person may remove once the work has merged. One reading runs at a time; an occasion that arrives while one is in flight waits for its result instead of starting another.
 
 **Occasions.** `kiln run` on a finished run, before the terminal's line; opening or reloading the page; Check now, Check for new phases and `kiln check-for-new-phases`; the Merge press, before the activity opens; the end of a merge session; and Check again or Resume at its stop. There is no timer.
 
@@ -109,6 +118,7 @@ The reading also parses the merge order line from each description (§Prompts) i
 - Merge the base branch into the feature branch; never rebase, amend or force-push.
 - Merge with `gh pr merge --match-head-commit`, pinned to the head it pushed, by the first of merge commit, squash or rebase that the repository allows. Never use an administrator override, and never delete the branch.
 - Wait for a pull request's required checks for at most 30 minutes after its last push. A check still failing after its fixes, or not reported by then, ends the session there.
+- Read each description before merging, and follow any merge order it states, whether as the `Merge order` line or in prose. Kiln does not check the order.
 - A session that cannot merge a pull request ends without merging the ones after it. Its last message names what is outstanding: a conflict to decide, a missing required review, or a required check failing or never reported.
 - A session that merged everything ends with a short summary of what it did, which the page shows word for word.
 
@@ -116,7 +126,7 @@ Merge commit first keeps the delivered commits in the base's history where the r
 
 A resumed session gets `resume-carry-on-merge.txt`, the same rules with the current delivery reading.
 
-**Under early merges.** A run with early merges allowed delivers its remaining review pull requests the same way: they are the delivery's pull requests, and the merge session uses this prompt, not the early-merge authority block. When such a finished run is reopened, the delivery evaluator counts a repository whose review pull request Kiln has confirmed merged as delivered.
+**Under early merges.** A run with early merges allowed delivers its remaining review pull requests the same way: they are the delivery's pull requests, and the merge session uses this prompt, not the early-merge authority block. `kiln run` on such a finished run evaluates delivery again, and today that evaluation requires an open review pull request holding the feature head, so a review pull request that has merged, by the merge session or by the person, would turn the merged run into a Needs you stop. On a finished run the evaluator therefore counts a repository as delivered when the delivery reading shows its review pull request `merged` and the merged head contains the feature head the run recorded, whoever merged it.
 
 **The statement of what Kiln may do** (AC-MERGE-08) gains one allowed line wherever it is built: before Start, in the folder setup panel, and in the settings while Kiln works. The wording is mockup state 8's: the allowed list adds "Merge the delivery's pull requests only when you press Merge with {agent} on the finished page", and the line that forbids drops "merge" and reads "Never deploy or touch other branches". Where early merges are allowed, the early-merge lines stay and the merge line is added. The README's sentence about what Kiln does by default changes the same way.
 
@@ -295,11 +305,9 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Sta
 
 Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Pull Requests (the merge order line in each description) and §Screens (AC-SHOW-01) (the pull request card).
 
-Replaces in part: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §One authority statement everywhere (the statement names the merge on the finished page), §One evaluator at every transition (a review pull request Kiln confirmed merged counts as delivered) and §Display Contract (the Merged header).
+Replaces in part: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §One authority statement everywhere (the statement names the merge on the finished page), §One evaluator at every transition (on a finished run, a review pull request GitHub shows merged counts as delivered, whoever merged it) and §Display Contract (the Merged header).
 
 Replaces in part: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Evaluate, then act (a merge or push stop takes its own reading first and never offers a fresh session).
-
-Replaces in part: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Folder Check (a finished run is checked while a merge activity is open).
 
 Replaces in part: `docs/changes/kiln-build-preflight/kiln-build-preflight-technical-design.md`, §When the Preflight Is Due (when Continue pushes the plan first, the push session runs before the preflight).
 
@@ -325,7 +333,7 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 | AC-MERGE-02 | The Merge Session | One press opens one activity; a second press, a stale tab and a replayed command start nothing more; a continuation's execution has no merge permission; no setting or grant changes |
 | AC-MERGE-03 | The Merge Session; Prompts | The prompt carries both columns and the fixed points; a real session with each agent merges a conflicting pull request on the disposable repository after its required check passes, and stops unmerged when the check fails or a review is required; with two pull requests it stops at the first it cannot merge |
 | AC-MERGE-04 | The Delivery Reading | Merged only from GitHub, for a merge commit, a squash and a rebase; a session that says it merged when GitHub disagrees stops; a pull request the person merged shows merged with no summary at the next reading; the summary is the session's final message word for word |
-| AC-MERGE-05 | After-Delivery Activities | Each activity runs with the run's agent, model and effort, has its row in its place and is not counted in phases done; no message box, pause or takeover, with the reason shown; a billing hold, a usage-limit wait and its resume, and Ctrl+C with the next `kiln run` resuming the same session |
+| AC-MERGE-05 | After-Delivery Activities | Each activity runs with the run's agent, model and effort, has its row in its place and is not counted in phases done; no message box, pause or takeover, with the reason shown; a billing hold, a usage-limit wait and its resume, and Ctrl+C with the next `kiln run` resuming the same session; a removed worktree or a moved main checkout refuses the press and Resume with its reason; on an early-merge run, a merge stop, its close and the next `kiln run` after the review pull request merged (by the session and by hand) leave the run complete |
 | AC-MERGE-06 | After-Delivery Activities | A stop shows the last message, Resume, Send and resume, the terminal command and Check again, and no Merge, Continue, carry-on, start-again or fresh prompt; Check again and Resume close the activity without resuming when the work is already done |
 | AC-MERGE-08 | The Merge Session | The statement before Start, in the folder setup panel and in the settings, with early merges off and on, in one repository and several |
 | AC-WAIT-01 | The Plan Check, step 1 | The reported case: the base gains a commit to a linked document outside the PRD folder while the main checkout stays behind, and again with the checkout brought up to date; both report waiting only. Waiting ends on a merge by any method, by Kiln or the person; a delivery with no pull request in the PRD's repository never waits; a closed pull request waits until Check now |
@@ -342,7 +350,5 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 
 ## Open Questions
 
-- **Folder missing on a finished run.** This design has the folder check cover a finished run while a merge activity is open, so a removed worktree shows Folder missing (the PRD relies on Missing Worktree Recovery AC-GONE-01 and AC-GONE-02 here). Whether that page's set-up-again path works unchanged on a record that is already complete has not been read in the code.
-- **Early-merge runs after the final merge.** A finished run with early merges allowed re-evaluates delivery at `kiln run`. The design states that a review pull request Kiln confirmed merged counts as delivered. How today's evaluator treats one the person merged by hand has not been verified, and may already be a defect.
-- **Codex and the merge.** The real-session proof must show that a Codex merge session can reach GitHub to merge under its sandbox, as its early merges do.
+- **No main checkout to read the remote base through.** AC-BACK-03 reads the remote base when the main checkout is not found, but every remote read today (`ls-remote`, `fetch`, the Git-object plan reader) runs inside the main checkout, and a run worktree's Git directory lives inside it too. What must be true: either a not-found checkout still leaves a local repository Kiln may fetch into, or the check fails saying the checkout could not be found. Check how `mainCheckoutPath` can be missing while the record survives, and whether a failed check meets the criterion.
 - **SCOPE-001 and MERGE-001** are open with stakeholders. If SCOPE-001 is answered the other way, the offer adds one condition, exactly one open pull request. If MERGE-001 is answered the other way, the merge activity stops being excluded from live controls, and Pause now and takeover need a hand-back the design does not have.
