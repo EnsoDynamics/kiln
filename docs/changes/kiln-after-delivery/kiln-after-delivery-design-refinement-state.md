@@ -5,7 +5,7 @@ Branch: feature/kiln-merge-with-agent (worktree .worktrees/kiln-merge-with-agent
 Existing code posture: Preserve, except the finished-run comparisons the design removes (source: TD §Existing Code)
 Code baseline: this branch forked from develop at c41c7af; Kiln Pause Now (PR #20, merged) is on origin/develop only — read it with `git show origin/develop:<path>` / `git grep <pattern> origin/develop`
 PRD words: at start 3871 · growth baseline 3871
-Last updated: 2026-11-21 (pass 3 checkpoint)
+Last updated: 2026-11-21 (pass 4 checkpoint)
 
 ## Documents
 | Document | Path |
@@ -21,6 +21,7 @@ Last updated: 2026-11-21 (pass 3 checkpoint)
 | 1 | 16 (13 discovery + 2 conflict + Q1) | 12 | 11 | 0 | 5 (Q5 + untaken Q3, Q12–Q14) | 0 | 0 |
 | 2 | 6 (+3 conformance carried as Q17–Q19) | 12 | 11 | 0 | 2 (Q21 at 88%; untaken Q25) | 0 | 0 |
 | 3 | 4 (3 discovery + Q31 sibling; +2 conformance carried as Q26–Q27) | 9 (Q21, Q25–Q31) | 9 | 0 | 0 | 0 | 0 |
+| 4 | 2 (+1 conformance carried as Q32) | 3 (Q32–Q34) | 3 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -57,8 +58,12 @@ Last updated: 2026-11-21 (pass 3 checkpoint)
 | Q29 | 3 | Ctrl+C or Exit between push Done and the automatic acceptance: next kiln run finishes the acceptance, or a second press? Exit availability in that window (F2) | Technical | MEDIUM | 70 → 90 | Resolved | TD §After-Delivery Activities, §Push Session, §Exit Kiln, §Interfaces, §Display Contract, §Data Models, §Verification |
 | Q30 | 3 | Plan Check step 4 claims "a branch updated on GitHub before merging" keeps Continue available; Update with rebase then hand merge does not (rebased head lacks phase revisions) — narrow claim and wording (F3) | Technical | MEDIUM | 75 → 90 | Resolved | TD §The Plan Check step 4, §Verification |
 | Q31 | 3 | Early-merge evaluator on a finished run counts a repository delivered only when "the merged head contains the feature head the run recorded" — after Update with rebase + hand merge this lands on Needs you; same treatment as Q30 (a review PR reading `merged` counts)? (Q30 sibling) | Technical | MEDIUM | 80 → 90 | Resolved | TD §The Merge Session, §The Delivery Reading, §Verification |
-| Q32 | 3 | Waiting header for a merge/push usage wait and the interrupted row's "Interrupted · Resume to carry on" exist only in the design; mockup (the wording reference) has no state for them — add dashed notes to the mockup or state the wording in the Display Contract (conformance) | Technical | LOW | ? → ? | Pending | — |
+| Q32 | 3 | Waiting header for a merge/push usage wait and the interrupted row's "Interrupted · Resume to carry on" exist only in the design; mockup (the wording reference) has no state for them — add dashed notes to the mockup or state the wording in the Display Contract (conformance) | Technical | LOW | 95 → 95 | Resolved | mockup state 2 dashed notes |
+| Q33 | 4 | Carried-finished set: derived from the current baseline would include this execution's own finished phases (each plan read rebuilds completions), skipping their delivery checks and hiding a mid-run reopen — restrict to completions with no waiverId and no phase facts in this execution (G1) | Technical | HIGH | 80 → 90 | Resolved | TD §The Plan Check step 3, §Data Models, §Verification |
+| Q34 | 4 | `followsPush` dropped by "a later check", but accept and grant run their own checks — carry it forward; only a person-asked check drops it (G2) | Technical | MEDIUM | 75 → 90 | Resolved | TD §Data Models, §Interfaces, §Verification |
 ## Question notes
+
+
 
 
 
@@ -97,12 +102,14 @@ Dropped: Q1 evidence shows `kiln run` resolves the checkout from the path it is 
 
 ## Conflict check
 Pass 1: 2026-11-21 · 35 earlier criteria changed (21 already had Replaces lines) · 11 Replaces lines to write (+1 optional: AC-TEST-03) · 4 parentheticals to correct · 2 raised as questions (Q2, Q3). Folded: 14 Replaces lines added (12 items, incl. optional AC-TEST-03), 4 corrected; TD §Changes to Earlier Designs +2 lines.
-Changed after pass 1: AC-BACK-03 (Q1 narrowing), AC-MERGE-06 (Q5 PRD fix), AC-MERGE-03, AC-MERGE-07 (Q7), AC-EXIT-01 (Q8), AC-BACK-05 (Q10), AC-BACK-01 (Q17), AC-MERGE-08 (Q3), AC-MERGE-07 (Q18), AC-BACK-05 and AC-MERGE-06 (Q26), AC-WAIT-02, AC-EXIT-01, AC-MERGE-05, AC-MERGE-07 (Q21)
+Changed after pass 1 (also PRD Out of Scope line, final conformance): AC-BACK-03 (Q1 narrowing), AC-MERGE-06 (Q5 PRD fix), AC-MERGE-03, AC-MERGE-07 (Q7), AC-EXIT-01 (Q8), AC-BACK-05 (Q10), AC-BACK-01 (Q17), AC-MERGE-08 (Q3), AC-MERGE-07 (Q18), AC-BACK-05 and AC-MERGE-06 (Q26), AC-WAIT-02, AC-EXIT-01, AC-MERGE-05, AC-MERGE-07 (Q21)
 
 ## Register re-sort
 Pass 1: 2026-11-21 · 4 open entries · 0 moved to design · 0 written up · 1 settled by lookup (AUDIT-001 → Validated, Answered) · 0 moved to technical · 0 raised as questions · 3 stay business (SCOPE-001, MERGE-001 above; PLAN-001 moved above the line — departs from the accepted one-line notice). Folded: AUDIT-001 move; MERGE-001 three fixes (drop duplicated push-session sentences, restore Pause Now AC-PAUSE-02 watch-only precedent, 'otherwise' line = Claude Code merge sessions only); PLAN-001 to above the line + design Open Questions line; header link names PLAN-001.
 
 ## Noticed, out of scope
+- completedScopeProblems (plan-reconciliation.ts:291-296) checks found.closed only, so a carried waived phase with no Closed line may be flagged during a run (predates this design)
+- Build note: the automatic acceptance must supply a current status token to submitInternal
 - Repositories with a merge queue: `gh pr merge` queues, session ends with it open → stop; later Check again closes without a summary
 - A GitHub read failing at a successful merge session's end turns it into a stop; Check again closes it with no summary
 - A pull request retargeted on GitHub and merged into a different base fits none of the reading's rows
@@ -125,4 +132,4 @@ Pass 1: 2026-11-21 · 4 open entries · 0 moved to design · 0 written up · 1 s
 |---|---|---|
 
 ## Next action
-Pass 3 complete and committed. Pass 4: discovery; backlog Q32.
+Pass 4 committed (its conformance served as Phase 7 final conformance). Phase 7: conflict re-check (Changed after pass 1) + final verification running in parallel.

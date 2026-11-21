@@ -185,4 +185,4 @@ Every control this change adds to the page has a command, as Kiln's other contro
 - Watching GitHub in the background for a merge. A pull request merged outside Kiln is found at Kiln's next check.
 - Deploying, or watching CI or a deployment, after the merge.
 - Removing the feature branch or the worktree after the merge.
-- How Kiln reconciles the plan of a run still in progress when control returns from a manual session. That behavior is unchanged.
+- How Kiln reconciles the plan of a run still in progress when control returns from a manual session. That behavior is unchanged, except that a build Continue started never reopens a phase finished before it began (AC-BACK-01).

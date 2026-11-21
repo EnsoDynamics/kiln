@@ -135,7 +135,7 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </section>
 <section>
 <h2>2. The merge session is running</h2>
-<p class="about">Covers AC-MERGE-03 and AC-MERGE-05.</p>
+<p class="about">Covers AC-MERGE-03 and AC-MERGE-05. The dashed notes show the same session after Ctrl+C and while it waits for usage.</p>
 <div class="screen">
 <div style="width: 1280px; min-height: 980px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box">
 <header style="display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
@@ -161,6 +161,8 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <a href="#" class="btn outline">Open on GitHub</a>
 </div>
 <p style="margin: 0; max-width: 780px; font-size: 13.5px; color: #8c8577">Like the pull request session, the merge session can’t be messaged, paused or taken over while it runs. It waits for #218’s required checks before merging. If it stops before merging, Kiln shows Needs you with its last message. Kiln shows Merged once GitHub shows #218 merged into develop.</p>
+<p class="note" style="border-style: dashed">Shown instead at the next <span class="mono" style="font-size: 12.5px">kiln run</span> after Ctrl+C, whether the session was running or waiting for usage: the page stays this finished page, the Merge row reads “Interrupted”, this card shows Resume where it shows the session, the header reads “Merging” with “Interrupted · Resume to carry on”, and Exit Kiln is enabled. For Continue’s push session, the Push the plan row reads “Interrupted” and the header “Pushing the plan”.</p>
+<p class="note" style="border-style: dashed">Shown instead while the session waits for usage: the existing Waiting screen, its header “Waiting for usage”, naming the activity as its row does (Merge, or Push the plan), with Exit Kiln added.</p>
 </section>
 <div style="display: flex; gap: 28px; align-items: flex-start">
 <section style="flex: 1 1 0; display: flex; flex-direction: column; gap: 6px">
