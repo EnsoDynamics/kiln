@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "77bc76ad-bd4c-4d31-b6a4-3b6da5caea30",
+  "activityId": "7e89e4d5-8c09-4625-935c-f5488a46a5ae",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Fixing chat of the Kiln Pause Now test audit (whole PRD). It fixed every gap the audit saved for AC-PAUSE-02 to AC-PAUSE-06: the reworded Pause now reasons, the lid sentence, the 30-second limit, the late-cancel message, the gate-less card, the paused line printed at the release, and the paused page's layout, kept panels, launch restriction and already-complete Resume. Each new assertion was seen to fail with its behavior broken. A fresh re-grade confirmed those parts covered, put AC-PAUSE-04 at Adequate with one red check left to run, and named new uncovered parts that keep AC-PAUSE-02, 03, 05 and 06 Weak (Codex and final-delivery withholding at the engine, kiln status's incompatibility report, an obstacle while pausing, the audit cancel label, the end of Paused at relaunch, uncertain-message lines, and the advance choice's Check again and Mark complete). That work is saved in test-audit.md for the next fixing chat. No implementation changed.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}

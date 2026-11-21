@@ -13,7 +13,7 @@
     agent: string; activity: string; work: NeedsYou["work"]; reopen: ReopenCheck; control: NonNullable<NeedsYou["carryOn"]>;
     draft?: string; pending: boolean; checking: boolean; disabled: boolean; reason?: string | undefined; onpress: () => void; oncheck: () => void;
   } = $props();
-  const ends = $derived(control.endsHold === "takeover" ? " Starting it ends the takeover pause." : control.endsHold === "message" ? " Starting it ends the hold on that message." : "");
+  const ends = $derived(control.endsHold === "takeover" ? " Starting it ends the pause." : control.endsHold === "message" ? " Starting it ends the hold on that message." : "");
 </script>
 
 <section class="card carry" aria-label="Reply here and let Kiln carry on">

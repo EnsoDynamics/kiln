@@ -114,6 +114,7 @@ With nothing to decide at a limit, the loop stop and its controls go away, and t
 
   - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (the header's current audit activity also names the loop and where it stands)
   - Replaces in part: AC-WATCH-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (at a Needs you stop during the closing audits, the header keeps the loop position)
+  - Superseded in part by: AC-PAUSE-03 and AC-PAUSE-05 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the header while an audit is pausing or paused under Pause now).
 
 ### A Bot Can Do the Same
 

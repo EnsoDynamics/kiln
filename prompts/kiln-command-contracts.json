@@ -1603,7 +1603,7 @@
         "take-over"
       ],
       "group": "live",
-      "purpose": "Pause & take over at the next safe stopping point: finish the current operation, then stop before starting more work. The phase/audit can remain unfinished.",
+      "purpose": "Pause now, at the next safe stopping point: finish the current operation, then stop before starting more work. The phase/audit can remain unfinished; once paused, resume it or continue the conversation in a terminal.",
       "side_effect": "change",
       "implemented": true,
       "availability": "Available on a compatible live controller; status reports current eligibility.",
@@ -1638,7 +1638,7 @@
         "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
         "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
         "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
-        "Acceptance immediately holds progression but is not terminal readiness. Wait before opening Claude until kiln handoff reports reconciled release and readable saved history. No cancelling interrupt or automatic terminal launch.",
+        "Acceptance immediately holds progression but is not terminal readiness. Open Claude only once kiln handoff reports reconciled release and readable saved history. No interrupt or automatic terminal launch. Cancelling a pending Pause now is a browser control only; from the command line, let the pause complete, then resume.",
         "request-pause lets the whole phase/audit, commits, pushes and required checks finish. cancel-pause only cancels that independent end-of-activity pause. reply resumes stopped work; message sends to a running attempt."
       ],
       "result_fields": {
@@ -1665,7 +1665,7 @@
         "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
         "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
         "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID.",
-        "operation.effects.takeover": "not_requested | requested | checkpoint_pending | released | unknown; status.live_control.takeover holds latest release progress/reason."
+        "operation.effects.takeover": "not_requested | requested | checkpoint_pending | released | withdrawn | unknown (withdrawn: a browser Cancel pause withdrew it before its stop); status.live_control.takeover holds latest release progress/reason."
       },
       "errors": [
         "invalid_input",

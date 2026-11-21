@@ -19,7 +19,7 @@ const lines = noticeLines({ compatibility: [
 const panel = `[...document.querySelectorAll('.command-notice')].find(notice => notice.querySelector('strong')?.textContent === 'Agent compatibility')`;
 
 it("shows each compatibility notice on every screen without a dismiss, and removes the panel when the record drops it", async () => {
-  expect(lines).toEqual(["Codex command evidence unavailable with Codex 0.167.0: exec_command parameter environment_id is not recognised, so that command has no receipt", "Pause & take over unavailable with Claude Code 2.1.320: hook input has no tool_use_id"]);
+  expect(lines).toEqual(["Codex command evidence unavailable with Codex 0.167.0: exec_command parameter environment_id is not recognised, so that command has no receipt", "Pause now unavailable with Claude Code 2.1.320: hook input has no tool_use_id"]);
   const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: runningSnapshot() });
   const page = await chrome.open(server.address, { width: 360 });
   try {

@@ -1,5 +1,7 @@
 # Phase 1: Pause now, its pausing state, Cancel and the Paused page
 
+**Closed:** 2026-11-20
+
 **Parent PRD:** [Kiln Pause Now](kiln-pause-now-prd.md)
 **Technical design:** [Kiln Pause Now technical design](kiln-pause-now-technical-design.md) — all sections: "Design Decisions", "The Stop and Cancel", "The Pause Now State", "The Paused Page", "Interfaces", "Wording", "Verification"
 

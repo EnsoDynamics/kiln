@@ -9,6 +9,7 @@ import { documentsFoundSnapshot, needsYouMessageSnapshot } from "../test-support
 import { serveViewFixture, type ViewFixtureServer } from "../test-support/view-fixture-server.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { waitFor } from "../test-support/engine-harness.js";
+import { ALREADY_PAUSED } from "../live/pause-now.js";
 
 let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
@@ -162,19 +163,21 @@ describe.each([1200, 390])("at %ipx wide", width => {
     }
   });
 
-  it("draws a held page whose conversation can't be reopened: today's headline and pause panel, the carry-on card that ends the pause, and no wait text", async () => {
+  it("draws a paused Pause now page whose conversation can't be reopened: the Paused header, the carry-on card that ends the pause, and no wait text or pause panel", async () => {
     const snapshot = stopped({ resumeOffered: false, reopen: { state: "unavailable", reason: "missing" }, carryOn: { available: true, endsHold: "takeover" }, work: { repositories: [{ name: "acme-shop", commits: [{ sha: "a1b2c3d", subject: "x" }, { sha: "d4e5f6a", subject: "y" }], uncommittedFiles: 3 }], builtNothing: false } }, false, ["resumeCommand"]);
     const target = { executionId: "execution", activityId: "act", activityKey: "2b", sessionId: snapshot.needsYou!.sessionId!, providerSessionId: snapshot.needsYou!.sessionId!, attemptId: "attempt" };
     snapshot.needsYou!.phaseRecovery!.target.live = target;
-    snapshot.liveControl = { target, label: "Phase 2b", observedAt: "2026-10-17T15:52:00Z", available: false, reason: "Kiln can't reopen the saved conversation history.", messages: [], reviewRequired: [], takeover: { target, operationId: "op", instructionId: "take", requestedAt: "2026-10-17T15:50:00Z", state: "pending", observedAt: "2026-10-17T15:52:00Z", reason: "Kiln can't reopen the saved conversation history.", history: { state: "unavailable", reason: "missing" } } };
+    snapshot.liveControl = { target, label: "Phase 2b", observedAt: "2026-10-17T15:52:00Z", available: false, reason: "Kiln can't reopen the saved conversation history.", messages: [], reviewRequired: [], takeover: { target, operationId: "op", instructionId: "take", requestedAt: "2026-10-17T15:50:00Z", releasedAt: "2026-10-17T15:51:00Z", state: "pending", observedAt: "2026-10-17T15:52:00Z", reason: "Kiln can't reopen the saved conversation history.", history: { state: "unavailable", reason: "missing" } },
+      // The engine sets releasedAt when it finds the conversation can't be reopened, so the hold reads as paused (Kiln Pause Now, "The Paused Page").
+      pauseNow: { phase: "paused", activityKey: "2b", label: "phase 2b", requestedAt: "2026-10-17T15:50:00Z", releasedAt: "2026-10-17T15:51:00Z", stopped: true, running: [], cancel: { available: false, reason: ALREADY_PAUSED } } };
     const { server, page } = await open(snapshot, width);
     try {
       await words(page, "Reply here and let Kiln carry on");
       const body = await text(page);
-      expect(body).toContain("Pausing for takeover — finishing the current operation.");
-      expect(body).toMatch(/when should kiln pause\?/i);
+      expect(body).toContain("Paused in phase 2b");
+      expect(body).not.toMatch(/Pausing|Pause now|takeover/);
       expect(body).toContain("Exit Claude Code first if it is open on this conversation.");
-      expect(body).toContain("picks up from there. Starting it ends the takeover pause.");
+      expect(body).toContain("picks up from there. Starting it ends the pause.");
       expect(body).toContain("2 commits · 3 uncommitted files");
       expect(body).toContain("Claude Code has no saved conversation for this session.");
       expect(await whyDrawn(page)).toEqual({ ...WHY, command: null });
@@ -190,11 +193,13 @@ describe.each([1200, 390])("at %ipx wide", width => {
     const snapshot = stopped({ resumeOffered: false, reopen: { state: "unavailable", reason: "missing" }, carryOn: { available: true, endsHold: "takeover" } }, false, ["resumeCommand"]);
     const target = { executionId: "execution", activityId: "act", activityKey: "2b", sessionId: snapshot.needsYou!.sessionId!, providerSessionId: snapshot.needsYou!.sessionId!, attemptId: "attempt" };
     snapshot.needsYou!.phaseRecovery!.target.live = target;
-    snapshot.liveControl = { target, label: "Phase 2b", observedAt: "2026-10-17T15:52:00Z", available: false, reason: "Kiln can't reopen the saved conversation history.", messages: [], reviewRequired: [], takeover: { target, operationId: "op", instructionId: "take", requestedAt: "2026-10-17T15:50:00Z", state: "pending", observedAt: "2026-10-17T15:52:00Z", reason: "Kiln can't reopen the saved conversation history.", history: { state: "unavailable", reason: "missing" } } };
+    snapshot.liveControl = { target, label: "Phase 2b", observedAt: "2026-10-17T15:52:00Z", available: false, reason: "Kiln can't reopen the saved conversation history.", messages: [], reviewRequired: [], takeover: { target, operationId: "op", instructionId: "take", requestedAt: "2026-10-17T15:50:00Z", releasedAt: "2026-10-17T15:51:00Z", state: "pending", observedAt: "2026-10-17T15:52:00Z", reason: "Kiln can't reopen the saved conversation history.", history: { state: "unavailable", reason: "missing" } },
+      pauseNow: { phase: "paused", activityKey: "2b", label: "phase 2b", requestedAt: "2026-10-17T15:50:00Z", releasedAt: "2026-10-17T15:51:00Z", stopped: true, running: [], cancel: { available: false, reason: ALREADY_PAUSED } } };
     const { server, page } = await open(snapshot, width, "already_complete");
     try {
       await words(page, "Reply here and let Kiln carry on");
       await page.evaluate(`(() => { const input = document.querySelector('#carry-reply'); input.value = 'Carry on.'; input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      // The already-complete choice hands the paused page over to the recovery page's advance flow.
       await click(page, "Send reply & continue Phase 2b");
       // The hold stays pending with its history, yet the choice shows in place of the wait text, and its advance is sent.
       await words(page, "Phase 2b is already complete.");

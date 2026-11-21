@@ -390,7 +390,20 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       const receipt = engine.commands.lookup(body.instructionId).operation as Receipt;
       if (receipt.state !== "completed") return c.json({ ok: false, code: receipt.outcome ?? "state_unavailable", reason: receipt.reason, receipt }, receipt.state === "failed" ? 409 : 503);
       return c.json({ ok: true, receipt, takeover: engine.liveView()?.takeover }, 202);
-    } catch { return c.json({ ok: false, code: "state_unavailable", reason: "Takeover admission could not be durably established. Inspect this instruction before retrying." }, 503); }
+    } catch { return c.json({ ok: false, code: "state_unavailable", reason: "Pause now could not be durably established. Inspect this instruction before retrying." }, 503); }
+  });
+  // Cancel pause and keep going (Kiln Pause Now, "Interfaces"): browser only, admitted on the exact live target.
+  app.post("/api/live/cancel-take-over", async c => {
+    const body = await liveBody(c);
+    if (!body || Object.keys(body).sort().join() !== "instructionId,takeoverInstructionId,target" || typeof body.instructionId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.instructionId) || typeof body.takeoverInstructionId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.takeoverInstructionId) || !validLiveTarget(body.target)) return c.json({ ok: false, code: "invalid_request", reason: "Supply instructionId, takeoverInstructionId and the exact live target.", observedAt: new Date().toISOString(), remedy: "Refresh the current session." }, 400);
+    try {
+      const answer = engine.commands.submitInternal({ command_id: body.instructionId, execution_id: body.target.executionId, status_token: JSON.stringify(canonicalLiveTarget(body.target)), action: "cancel-take-over", inputs: { target: body.target, takeover_instruction_id: body.takeoverInstructionId } }, false);
+      if (!answer.ok) return c.json({ ok: false, code: answer.errors[0]?.code, reason: answer.errors[0]?.message }, 409);
+      await engine.commands.settled();
+      const receipt = engine.commands.lookup(body.instructionId).operation as Receipt;
+      if (receipt.state !== "completed") return c.json({ ok: false, code: receipt.outcome ?? "state_unavailable", reason: receipt.reason, receipt }, receipt.state === "failed" ? 409 : 503);
+      return c.json({ ok: true, receipt, outcome: "takeover_withdrawn" }, 202);
+    } catch { return c.json({ ok: false, code: "state_unavailable", reason: "The cancel could not be durably recorded. Inspect this instruction before retrying." }, 503); }
   });
   app.get("/api/live/instructions/:instructionId", c => {
     try { return c.json({ ok: true, receipt: engine.commands.lookup(c.req.param("instructionId")).operation }); }
@@ -399,7 +412,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.post("/api/live/reconcile", async c => {
     const body = await liveBody(c); const hold = engine.record.liveControl?.takeover;
     if (!body || Object.keys(body).sort().join() !== "instructionId,target" || !validLiveTarget(body.target) || typeof body.instructionId !== "string") return c.json({ ok: false, code: "invalid_request", reason: "Supply the held instruction and target." }, 400);
-    if (!hold || hold.instructionId !== body.instructionId || !sameLiveTarget(hold.target, body.target)) return c.json({ ok: false, code: "stale_target", reason: "This takeover no longer owns the current activity." }, 409);
+    if (!hold || hold.instructionId !== body.instructionId || !sameLiveTarget(hold.target, body.target)) return c.json({ ok: false, code: "stale_target", reason: "This pause no longer owns the current activity." }, 409);
     await engine.reconcileTakeover();
     return c.json({ ok: true, takeover: engine.liveView()?.takeover });
   });

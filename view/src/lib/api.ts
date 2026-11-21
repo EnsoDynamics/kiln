@@ -103,16 +103,27 @@ export const verifyPhase = (config: PageConfig, target: PhaseRecoveryTarget, int
  */
 export const markComplete = (config: PageConfig, body: { checkRunId: string; target?: import("../../../src/live/target.js").LiveTarget; withoutSendingReply?: true }) => send(config, "POST", "/api/mark-complete", body);
 
-/** Keep one instruction identity across uncertain HTTP retries of a takeover. */
-const takeoverIds = new Map<string, string>();
-export function takeOver(config: PageConfig, target: import("../../../src/live/target.js").LiveTarget): Promise<CommandAnswer> {
-  const key = JSON.stringify(target); const instructionId = takeoverIds.get(key) ?? crypto.randomUUID();
-  takeoverIds.set(key, instructionId);
-  return send(config, "POST", "/api/live/take-over", { instructionId, target }).then(answer => {
-    if (!answer.ok && !answer.uncertain) takeoverIds.delete(key);
-    return answer;
-  });
+/**
+ * Pause now (`take-over`) and Cancel pause and keep going (`cancel-take-over`): one instruction
+ * identity kept only while the answer is uncertain (no response, or a 5xx), so a retry replays it,
+ * and forgotten after a definite answer, so a Pause now pressed after a Cancel is a new
+ * instruction (Kiln Pause Now, "Design Decisions").
+ *
+ *   await cancelTakeOver(config, live.target, live.takeover!.instructionId)
+ *   // { ok: true, receipt, outcome: "takeover_withdrawn" }, or { ok: false, reason: "Kiln had already paused. …" }
+ */
+const liveInstructionIds = new Map<string, string>();
+async function sendLiveInstruction(config: PageConfig, path: string, key: string, body: Record<string, unknown>): Promise<CommandAnswer> {
+  const instructionId = liveInstructionIds.get(key) ?? crypto.randomUUID();
+  liveInstructionIds.set(key, instructionId);
+  const answer = await send(config, "POST", path, { instructionId, ...body });
+  if (answer.ok || !answer.uncertain) liveInstructionIds.delete(key);
+  return answer;
 }
+export const takeOver = (config: PageConfig, target: import("../../../src/live/target.js").LiveTarget): Promise<CommandAnswer> =>
+  sendLiveInstruction(config, "/api/live/take-over", JSON.stringify(["take-over", target]), { target });
+export const cancelTakeOver = (config: PageConfig, target: import("../../../src/live/target.js").LiveTarget, takeoverInstructionId: string): Promise<CommandAnswer> =>
+  sendLiveInstruction(config, "/api/live/cancel-take-over", JSON.stringify(["cancel-take-over", target, takeoverInstructionId]), { target, takeoverInstructionId });
 
 const handBackIds = new Map<string, string>();
 async function sendHandBack(config: PageConfig, target: PhaseRecoveryTarget, action: "resume" | "verify" | "advance", note?: string, bringUpToDate = false): Promise<CommandAnswer> {

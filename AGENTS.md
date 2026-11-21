@@ -41,12 +41,15 @@ Unreleased section, before choosing the version:
 
 - **Patch** (`1.0.0` → `1.0.1`): compatible fixes and small improvements that do
   not add public functionality. Run `npm run release:prepare`.
-- **Minor** (`1.0.0` → `1.1.0`): new functionality that preserves existing CLI,
-  configuration, saved-data and other supported public behavior. Run
-  `npm run release:prepare -- minor`.
-- **Major** (`1.0.0` → `2.0.0`): incompatible changes to supported public behavior.
-  Explain the breaking change and migration impact before running
-  `npm run release:prepare -- major`. Do not release a breaking change as a patch.
+- **Minor** (`1.0.0` → `1.1.0`): new functionality, including changes and
+  removals that a run started fresh on the new version never trips over: a
+  removed command or flag that refuses with a message saying what to use
+  instead, or saved data that is migrated when it loads. Run
+  `npm run release:prepare -- minor`. Do not release such a change as a patch.
+- **Major** (`1.0.0` → `2.0.0`): only when Doug decides a release brings enough
+  major new functionality to merit it. Never choose major on your own. When a
+  change would break someone starting a fresh run on an existing install, such
+  as saved data the new version cannot read, raise it with Doug instead.
 
 Honor an explicit version choice from Doug. Otherwise choose the appropriate
 increment from the actual changes and state the choice and reason. Patch numbers

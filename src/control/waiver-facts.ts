@@ -196,15 +196,29 @@ export function progressHeading(answer: Record<string, unknown>): string {
   return [prd?.name, ((answer.repositories ?? []) as string[]).join(", "), prd?.directory].filter(Boolean).join(" · ");
 }
 
-/** The progress block `kiln status` prints first in text mode (the mockup's `kiln status` blocks). */
-export function progressText(heading: string, rows: readonly ProgressRow[]): string {
+/**
+ * The Pause now state as `kiln status`'s progress block matches it: the hold's launched key, since
+ * the progress rows are keyed by the activity Kiln launched, while `pauseNow.activityKey` names the
+ * leaf a split phase works on (Kiln Pause Now AC-PAUSE-03).
+ */
+export function statusPause(liveControl: unknown): { activityKey: string; phase: "pausing" | "paused" } | undefined {
+  const live = liveControl as { pauseNow?: { phase: "pausing" | "paused" }; takeover?: { target?: { activityKey?: string } } } | null | undefined;
+  const key = live?.takeover?.target?.activityKey;
+  return live?.pauseNow && key ? { activityKey: key, phase: live.pauseNow.phase } : undefined;
+}
+
+/**
+ * The progress block `kiln status` prints first in text mode (the mockup's `kiln status` blocks).
+ * An activity under Pause now reads "pausing" or "paused" where it says "needs you"; its JSON state stays `needs_you`.
+ */
+export function progressText(heading: string, rows: readonly ProgressRow[], pauseNow?: { activityKey: string; phase: "pausing" | "paused" }): string {
   const labelWidth = Math.max(0, ...rows.map(r => r.label.length)) + 3;
   const titleWidth = rows.some(r => r.title) ? Math.max(...rows.map(r => r.title.length)) + 3 : 0;
   const indent = " ".repeat(labelWidth + titleWidth);
   const lines = [heading];
   for (const row of rows) {
     const suffix = row.state === "complete" ? waiverSuffix(row) : undefined;
-    lines.push(`${row.label.padEnd(labelWidth)}${titleWidth ? row.title.padEnd(titleWidth) : ""}${STATE_WORDS[row.state]}${suffix ? ` ${suffix}` : ""}`.trimEnd());
+    lines.push(`${row.label.padEnd(labelWidth)}${titleWidth ? row.title.padEnd(titleWidth) : ""}${pauseNow?.activityKey === row.key && row.state === "needs_you" ? pauseNow.phase : STATE_WORDS[row.state]}${suffix ? ` ${suffix}` : ""}`.trimEnd());
     lines.push(...waiverDetailLines(row, indent));
   }
   return `${lines.join("\n")}\n`;

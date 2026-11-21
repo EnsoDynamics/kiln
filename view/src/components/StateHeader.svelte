@@ -12,6 +12,8 @@
   const state = $derived(headerState(snapshot, connected, new Date(now)));
   const LOOKS: Record<HeaderKind, { tone: PillTone; icon?: IconName }> = {
     implementing: { tone: "red", icon: "spinner" },
+    // Pause now before the release (Kiln Pause Now AC-PAUSE-03): amber outline, with the progress arc.
+    pausing: { tone: "amber-outline", icon: "spinner" },
     interrupted: { tone: "amber-outline" },
     paused: { tone: "strong-outline", icon: "pause" },
     needs_you: { tone: "amber", icon: "warning" },
@@ -23,7 +25,7 @@
 </script>
 
 <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
-  <Pill tone={look.tone} icon={look.icon} spin={state.kind === "implementing"} large>{snapshot.continuation?.acceptance?.state === "preparing" ? "Preparing additional work" : snapshot.continuation?.acceptance?.state === "blocked" ? "Preparation needs attention" : snapshot.feature.state === "complete" && snapshot.continuation?.check && !["unchanged", "awaiting_merge"].includes(snapshot.continuation.check.status) ? snapshot.continuation.check.status === "checking" ? "Checking for new phases" : snapshot.continuation.check.status === "failed" ? "Could not check for new phases" : snapshot.continuation.check.result?.added.length ? "New phases found" : "Plan needs reconciliation" : state.label}</Pill>
+  <Pill tone={look.tone} icon={look.icon} spin={state.kind === "implementing" || state.kind === "pausing"} large>{snapshot.continuation?.acceptance?.state === "preparing" ? "Preparing additional work" : snapshot.continuation?.acceptance?.state === "blocked" ? "Preparation needs attention" : snapshot.feature.state === "complete" && snapshot.continuation?.check && !["unchanged", "awaiting_merge"].includes(snapshot.continuation.check.status) ? snapshot.continuation.check.status === "checking" ? "Checking for new phases" : snapshot.continuation.check.status === "failed" ? "Could not check for new phases" : snapshot.continuation.check.result?.added.length ? "New phases found" : "Plan needs reconciliation" : state.label}</Pill>
   {#each state.facts as fact, index (index)}{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}<span class="fact">{fact}</span>{/each}
   {#if state.totals}
     <p class="totals"><span class="label">PRD total</span><span><b>{state.totals.running}</b> running</span><span class="dot" aria-hidden="true">·</span><span><b>{state.totals.waiting}</b> waiting</span><span class="dot" aria-hidden="true">·</span><span class="since">{state.totals.since}</span></p>

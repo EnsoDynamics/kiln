@@ -16,6 +16,14 @@ const helper = fileURLToPath(new URL("../../dist/live/checkpoint-hook.js", impor
 const fixtures = new URL("../../test/fixtures/live-control/", import.meta.url);
 const versions = readdirSync(fixtures).map(name => /^claude-(.+)-hook-contract\.json$/.exec(name)?.[1]).filter((version): version is string => !!version);
 interface HookCall { input: Record<string, unknown>; status: number; answer: Record<string, unknown> | null }
+const checkpoint = readFileSync(new URL("../../prompts/takeover-checkpoint.txt", import.meta.url), "utf8").trim();
+function withCurrentCheckpoint(answer: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!answer) return answer;
+  const specific = answer.hookSpecificOutput as Record<string, unknown> | undefined;
+  if (specific?.permissionDecision === "deny") return { ...answer, hookSpecificOutput: { ...specific, permissionDecisionReason: checkpoint } };
+  if (answer.continue === false) return { ...answer, stopReason: checkpoint };
+  return answer;
+}
 const holds = (call: HookCall) => (call.answer?.hookSpecificOutput as { permissionDecision?: string } | undefined)?.permissionDecision === "deny" || call.answer?.continue === false;
 
 it("has the minimum's recorded hook contract and one from a newer Claude Code", () => {
@@ -34,7 +42,8 @@ it.each(versions)("answers every hook input recorded on Claude Code %s as the li
       if (holds(call) && !readGate(root).held) await withGate(root, state => { state.held = { operationId: "proof", instructionId: "proof", requestedAt: new Date().toISOString() }; });
       const answer = spawnSync(process.execPath, [helper, root], { input: JSON.stringify(call.input), encoding: "utf8", timeout: 10000 });
       expect(answer.status, answer.stderr).toBe(call.status);
-      expect(answer.stdout.trim() ? JSON.parse(answer.stdout) : null).toEqual(call.answer);
+      // The deny and stop reasons are compared against the current checkpoint text, not the text in the recorded fixtures, which are not hand-edited (Kiln Pause Now, "Verification").
+      expect(answer.stdout.trim() ? JSON.parse(answer.stdout) : null).toEqual(withCurrentCheckpoint(call.answer));
     }
     const gate = readGate(root);
     expect(gate.contract).toBeUndefined();

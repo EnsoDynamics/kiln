@@ -41,7 +41,8 @@
   const activity = $derived(snapshot.liveControl?.label ?? `Phase ${stop.phaseId}`);
   // Mid-sentence the activity reads as the mockup writes it: "Phase 3" keeps its capital, "delivery audit" and "final delivery" do not.
   const inSentence = $derived(/^Phase /.test(activity) ? activity : activity.charAt(0).toLowerCase() + activity.slice(1));
-  const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending");
+  // A Pause now that has paused stays paused through later observations (Kiln Pause Now, "When Paused begins").
+  const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending" && snapshot.liveControl.pauseNow?.phase !== "paused");
   const heldCarryOn = $derived(!!snapshot.liveControl && !!stop.carryOn);
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
   const agent = $derived(stop.agent ?? snapshot.settings.agent);
@@ -150,7 +151,7 @@
 <main class="page-main roomy handoff">
   <StateHeader {snapshot} {connected} {now} />
   {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
-  <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? "Pausing for takeover — finishing the current operation." : "Paused for terminal takeover." : restart?.headline ?? `${activity} needs your input.`}</h1>
+  <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? `Pausing ${inSentence}.` : `Paused in ${inSentence}.` : restart?.headline ?? `${activity} needs your input.`}</h1>
   <p>{restart?.line ?? "Answer here, or talk it through in your terminal."}</p>
   {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
   {#if stop.launchFailure && stop.conversationMessage}

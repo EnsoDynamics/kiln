@@ -497,7 +497,8 @@ const SCREENS: {
       "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
       "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
       "Settings for this PRD Model and effort changes apply from the next phase; phase 2b keeps what it started with. Model and effort Opus 5.5 · high effort Claude Code · Agent fixed for this PRD. Change Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On Resume after a usage limit Switch off to finish the phase yourself; Needs you then shows how. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
-      "When should Kiln pause? Take over this session At the next safe stopping point. Finish the current operation, then stop before starting more work.",
+      "Pause Now Stops after the command it is running, usually within seconds. Phase 2b stays open. Then either press Resume when you’re ready, or take the conversation over in your terminal. The paused page gives you the command. Pause now",
+      "After phase 2b Lets the phase finish. Kiln commits, pushes and runs the completion checks, then waits before starting phase 3. Pause after phase 2b",
       "Kiln Connected Kiln is running in your terminal. Keep it open: Ctrl+C there interrupts the current phase, and kiln run picks up where it left off.",
     ],
   },
@@ -808,7 +809,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       expect(lost).toContain(flat("Kiln Disconnected The browser cannot reach Kiln. Work may still be running. Controls come back after reconnecting."));
       expect(await largestText(page)).toBe("Customer returns");
       // Panels that are only a control or live data are hidden; controls that inform are disabled in place.
-      expect(lost).not.toContain(flat("When should Kiln pause?"));
+      expect(lost).not.toContain(flat("Pause Now Stops after the command it is running"));
       expect(lost).not.toContain(flat("Claude account"));
       expect(lost).not.toContain(flat("Control live session"));
       expect(await page.evaluate<boolean[]>(`[...document.querySelectorAll("button")].filter((b) => ["Change"].includes(b.textContent.trim())).map((b) => b.disabled)`)).toEqual([true]);
@@ -818,7 +819,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       await page.waitFor(`document.body.innerText.includes("Connected to Kiln")`, 20_000);
       const back = await words(page);
       expect(back).toContain(flat("Implementing phase 2b"));
-      expect(back).toContain(flat("When should Kiln pause?"));
+      expect(back).toContain(flat("Pause Now Stops after the command it is running"));
       expect(back).not.toContain(flat("Connection to Kiln lost"));
     } finally {
       await page.close();
@@ -886,7 +887,7 @@ describe("a Kiln that stops and comes back (AC-VIEW-04, AC-VIEW-07)", () => {
       expect(text).toContain(flat("23 passed in 4.81s"));
       expect(await page.evaluate<boolean>(`document.body.innerText.includes("LIVE")`)).toBe(false);
       expect(text).not.toContain(flat("Load earlier"));
-      expect(await page.evaluate<boolean[]>(`[...document.querySelectorAll("button")].filter(b=>b.textContent.includes("Pause after this phase") || b.textContent.includes("Pause & take over")).map(b=>b.disabled)`)).toEqual([true, true]);
+      expect(await page.evaluate<boolean[]>(`[...document.querySelectorAll("button")].filter(b=>b.textContent.includes("Pause after phase 2b") || b.textContent.includes("Pause now")).map(b=>b.disabled)`)).toEqual([true, true]);
       expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/phase/2b");
     } finally {
       await page.close();
@@ -1145,7 +1146,7 @@ describe("live output and the phase route", () => {
       expect(text).toContain(flat("Progress Read from the session’s tool calls and Git Build implement-from-requirements skill started 10:58 skill call Deliverable review deliverable-review skill started 11:44 skill call"));
       expect(text).toContain(flat("Session Session ID 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04 Model and effort Opus 5.5 · high effort Started 10:58 AM · 54 min Commits None for this phase."));
       expect(await page.evaluate<boolean>(`document.body.innerText.includes("LIVE")`)).toBe(false);
-      expect(text).not.toContain(flat("Pause after this phase"));
+      expect(text).not.toContain(flat("Pause after phase 2b"));
       expect(text).not.toContain(flat("its reviewer subagent is working"));
       // The stopped step keeps the current-step drawing, without the spinner.
       expect(await page.evaluate<number>(`document.querySelectorAll(".progress .spin").length`)).toBe(0);
@@ -1209,8 +1210,8 @@ describe("live output and the phase route", () => {
   it("sends the deferred pause and its separately named cancellation (AC-LIVE-04)", async () => {
     const { server, page } = await openScreen(runningSnapshot());
     try {
-      await page.waitFor(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Pause after this phase"))`);
-      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Pause after this phase")).click()`);
+      await page.waitFor(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Pause after phase 2b"))`);
+      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Pause after phase 2b")).click()`);
       await waitUntil(() => server.commands.length === 1);
       const pending = runningSnapshot();
       pending.pause = { pending: true, active: false };
@@ -1428,11 +1429,11 @@ describe("the controls, in a real browser", () => {
     }
   });
 
-  it("sends Pause after this phase from the live Phase detail too (AC-VIEW-02)", async () => {
+  it("sends Pause after phase 2b from the live Phase detail too (AC-VIEW-02)", async () => {
     const { server, page } = await openScreen(runningSnapshot(), "/phase/2b");
     try {
-      await page.waitFor(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Pause after this phase"))`);
-      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Pause after this phase")).click()`);
+      await page.waitFor(`[...document.querySelectorAll("button")].some((b) => b.textContent.includes("Pause after phase 2b"))`);
+      await page.evaluate(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Pause after phase 2b")).click()`);
       await waitUntil(() => server.commands.length === 1);
       expect(server.commands).toEqual(["POST /api/pause"]);
     } finally {

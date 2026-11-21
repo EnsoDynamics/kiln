@@ -212,7 +212,8 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
         expect(body, fixture.name).not.toContain("Paused for terminal takeover.");
         expect(body).toContain("Why the earlier conversation can't be reopened"); expect(body).toContain("Start a fresh session in your terminal");
         expect(body).not.toContain("Wait before opening Claude");
-        if (recovery === "takeover") expect(body).toContain("Pausing for takeover — finishing the current operation.");
+        // A Pause now whose conversation can't be reopened shows the carry-on cards under the Paused header (AC-PAUSE-06).
+        if (recovery === "takeover") expect(body).toContain("Paused in ");
         expect(await page.evaluate(`Boolean(${button("Copy resume command")})`)).toBe(false);
         expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>/^(Have Kiln resume |Check .* again)/.test(b.textContent.trim())&&!b.disabled)`)).toBe(false);
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
@@ -241,38 +242,51 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       for (const bytes of [legacy, originalHistory + '{"type":']) { writeFileSync(historyFile, bytes); await released(); expect(h.engine.record.liveControl?.takeover.state).toBe("released"); }
       expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(calls);
       page = await chrome.open(server.address, { width: 390, height: 1100 });
-      await page.waitFor(`${button(`Check ${inSentence(label)} again`)} && !${button(`Check ${inSentence(label)} again`)}.disabled`);
-      expect(await page.evaluate(`Boolean(${button("Copy resume command")})`)).toBe(true);
-      // Observe the real Verify response rather than impose a separate 20-second
-      // polling deadline on the full report/currentness/ownership evaluation.
-      await page.evaluate(`(() => {
-        const original = window.fetch.bind(window); let finish;
-        const observation = window.__historyVerifyObservation = {clickAt: Date.now()};
-        window.__historyVerifyDone = new Promise(resolve => { finish = resolve; });
-        window.fetch = async (...args) => {
-          const observing = String(args[0]).includes('/api/check-again');
-          if (observing) {
-            observation.requestedAt = Date.now();
-            const body = JSON.parse(args[1].body);
-            observation.commandId = body.instructionId ?? args[1].headers['X-Kiln-Command-Id'];
-          }
-          try {
-            const response = await original(...args);
+      if (recovery === "takeover") {
+        // Pause now's paused page: Resume and the command, and no Check again or checks (AC-PAUSE-06, PAUSE-004).
+        const resume = `Array.from(document.querySelectorAll('button')).find(b=>/^Resume /.test(b.textContent.trim()))`;
+        await page.waitFor(`${resume} && !${resume}.disabled`);
+        expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Copy')`)).toBe(true);
+        expect(await page.evaluate(`Boolean(${button(`Check ${inSentence(label)} again`)})`)).toBe(false);
+        await page.close(); page = undefined;
+        // The explicit return, through the unchanged Verify route.
+        proofStage = `awaiting Verify, after ${Date.now() - testStarted} ms of assertions`;
+        const answer = await post("check-again", { target: h.engine.phaseRecoveryTarget(), intent: "verify" });
+        expect(answer.body, JSON.stringify(answer.body)).toMatchObject({ ok: true, outcome: "advanced" });
+      } else {
+        await page.waitFor(`${button(`Check ${inSentence(label)} again`)} && !${button(`Check ${inSentence(label)} again`)}.disabled`);
+        expect(await page.evaluate(`Boolean(${button("Copy resume command")})`)).toBe(true);
+        // Observe the real Verify response rather than impose a separate 20-second
+        // polling deadline on the full report/currentness/ownership evaluation.
+        await page.evaluate(`(() => {
+          const original = window.fetch.bind(window); let finish;
+          const observation = window.__historyVerifyObservation = {clickAt: Date.now()};
+          window.__historyVerifyDone = new Promise(resolve => { finish = resolve; });
+          window.fetch = async (...args) => {
+            const observing = String(args[0]).includes('/api/check-again');
             if (observing) {
-              observation.respondedAt = Date.now(); observation.status = response.status;
-              const body = await response.clone().json(); finish({status: response.status, body});
+              observation.requestedAt = Date.now();
+              const body = JSON.parse(args[1].body);
+              observation.commandId = body.instructionId ?? args[1].headers['X-Kiln-Command-Id'];
             }
-            return response;
-          } catch (error) {
-            if (observing) { observation.error = String(error); finish({error: String(error)}); }
-            throw error;
-          }
-        };
-      })()`);
-      proofStage = `awaiting the browser Verify response, clicked after ${Date.now() - testStarted} ms of assertions`;
-      await page.evaluate(`${button(`Check ${inSentence(label)} again`)}.click()`);
-      const answer = await page.evaluate<{ status: number; body: { ok: boolean; outcome?: string } }>("window.__historyVerifyDone");
-      expect(answer).toMatchObject({ status: 200, body: { ok: true, outcome: "advanced" } });
+            try {
+              const response = await original(...args);
+              if (observing) {
+                observation.respondedAt = Date.now(); observation.status = response.status;
+                const body = await response.clone().json(); finish({status: response.status, body});
+              }
+              return response;
+            } catch (error) {
+              if (observing) { observation.error = String(error); finish({error: String(error)}); }
+              throw error;
+            }
+          };
+        })()`);
+        proofStage = `awaiting the browser Verify response, clicked after ${Date.now() - testStarted} ms of assertions`;
+        await page.evaluate(`${button(`Check ${inSentence(label)} again`)}.click()`);
+        const answer = await page.evaluate<{ status: number; body: { ok: boolean; outcome?: string } }>("window.__historyVerifyDone");
+        expect(answer).toMatchObject({ status: 200, body: { ok: true, outcome: "advanced" } });
+      }
       expect(h.engine.record.phases[target.activityKey]!.doneAt).toBeDefined();
       proofStage = "settling the explicit browser return";
       await h.engine.settled();
@@ -383,7 +397,11 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
     }, 120000);
     if (kind === "phase" && recovery === "takeover") it("keeps today's wait text until the attempt ends, keeps carry-on unavailable while its work may still run, and Check again clears the card once the history is back (run restart AC-CARRY-06, AC-CARRY-02)", async () => {
       // The attempt hasn't ended: the hold keeps today's wait text, though the history is gone, and carry-on isn't offered.
+      // Let any reading already in flight land first, so none past the exit check can record the history after the mock.
+      await reconcile();
       const running = vi.spyOn(ownership, "requireExited").mockRejectedValue(new ownership.OwnershipError("takeover_pending", "Waiting for the paused attempt to exit."));
+      // The fixture's hold has already released; "Paused" is never undone (Kiln Pause Now, "When Paused begins"), so stand for a hold that hasn't released yet.
+      delete h.engine.record.liveControl!.takeover.releasedAt;
       rmSync(historyFile);
       // A once-a-second reconciliation already past the exit check when the attempt was marked running can still land after this one; wait for the hold to settle.
       await waitFor(async () => { await reconcile(); return h.engine.record.liveControl!.takeover.reason === "Waiting for the paused attempt to exit."; }, 10000);
@@ -391,9 +409,11 @@ describe.skipIf(process.platform !== "darwin").each(["phase", "delivery_audit", 
       expect(h.engine.record.liveControl!.takeover.history).toBeUndefined();
       expect(buildSnapshot(h.engine).needsYou?.carryOn).toBeUndefined();
       page = await chrome.open(server!.address, { width: 1200, height: 1100 });
-      await page.waitFor(`document.body.innerText.includes('Wait before opening Claude')`);
+      // Still pausing: the pausing panel, never the hold's reason, a terminal command or a wait warning (AC-PAUSE-03).
+      await page.waitFor(`document.body.innerText.includes('Pausing — Claude has stopped; Kiln is checking nothing is still running.')`);
       let body = await page.evaluate<string>("document.body.innerText");
-      expect(body).toContain("Waiting for the paused attempt to exit.");
+      expect(body).not.toContain("Wait before opening Claude");
+      expect(body).not.toContain("claude --resume");
       expect(body).not.toContain("Reply here and let Kiln carry on");
       await page.close(); page = undefined;
       const waiting = await cli(["status"]);

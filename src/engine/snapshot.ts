@@ -698,7 +698,7 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
   const session = current.session;
   const settings = engine.record.settings;
   if (!session) {
-    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: engine.auditActivity(current.phaseKey) ? [] : stepStates([], settings.agentId), repositories: [] };
+    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: engine.auditActivity(current.phaseKey) || isPreflightKey(current.phaseKey) ? [] : stepStates([], settings.agentId), repositories: [] };
   }
   const followUp = session.runs.some((run, index) => run.cause === "person_resume" && (run.note !== undefined || session.runs[index - 1]?.limitRefusal === undefined));
   const steps = sessionSteps(engine, current.phaseKey, session).map(step => followUp && step.state === "current" ? { ...step, state: "observed" as const } : step);
@@ -856,7 +856,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const messageRun = engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : run;
   const finalMessage = interrupted === undefined && messageRun?.result?.text?.trim() ? messageRun.result.text : undefined;
   // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
-  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released");
+  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released" || record.liveControl.takeover.kind !== "delivery_recovery" && record.liveControl.takeover.releasedAt !== undefined);
+  // A held Pause now keeps its command from the release on, whatever later readings find (Kiln Pause Now, "The Paused Page").
   const resumeFolder = engine.workingDirectoryOf(recovery!);
   return {
     ...base,
@@ -1371,6 +1372,8 @@ function observedDeliveryActivity(engine: Engine, session: SessionRecord, output
 }
 
 function sessionSteps(engine: Engine, key: string, session: SessionRecord): StepView[] {
+  // A preflight session runs build-preflight alone: it has none of a phase's build steps.
+  if (isPreflightKey(key)) return [];
   const audit = engine.auditActivity(key);
   if (!audit) return stepStates(session.steps, session.agentId);
   return [

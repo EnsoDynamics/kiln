@@ -14,7 +14,7 @@ process.stdout.write(`Live proof on Claude Code ${claudeProofVersion()}\n`);
 
 for (const [script, mode] of [
   ['live-messages.mjs', 'text'], ['live-messages.mjs', 'tool'],
-  ...['foreground', 'failed', 'background', 'agent', 'background-agent'].map(mode => ['live-takeover.mjs', mode]),
+  ...['foreground', 'failed', 'background', 'agent', 'background-agent', 'cancel'].map(mode => ['live-takeover.mjs', mode]),
   ['phase-handoff-provider-proof.mjs', 'claude_code'],
 ]) {
   test(`${script} ${mode}`, { timeout: 300000 }, () => {
