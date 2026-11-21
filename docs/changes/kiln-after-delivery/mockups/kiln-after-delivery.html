@@ -41,7 +41,7 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <main class="states">
 <section>
 <h2>1. Finished: the pull request card offers the merge, and the Kiln panel offers Exit</h2>
-<p class="about">The finished page while the pull request is open. The line about new phases replaces the separate &quot;Waiting for the delivery to merge&quot; panel. Covers AC-MERGE-01, AC-MERGE-02, AC-WAIT-01, AC-WAIT-02 and AC-EXIT-01.</p>
+<p class="about">The finished page while the pull request is open. The line about new phases replaces the separate &quot;Waiting for the delivery to merge&quot; panel. Covers AC-MERGE-01, AC-MERGE-02, AC-MERGE-04, AC-MERGE-07, AC-WAIT-01, AC-WAIT-02 and AC-EXIT-01. The second screen is the same card for a delivery with a pull request in each of two repositories (SCOPE-001); the third, for one whose first pull request has already merged; the fourth, for one whose first pull request was closed without merging.</p>
 <div class="screen">
 <div style="width: 1280px; min-height: 980px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box">
 <header style="display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
@@ -62,8 +62,8 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <button type="button" class="btn clay"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="3.5" r="1.6"></circle><circle cx="4" cy="12.5" r="1.6"></circle><circle cx="12" cy="8" r="1.6"></circle><path d="M4 5.1v5.8M5.4 4.4c3 .6 5 1.6 5.4 2.2"></path></svg>Merge with Claude Code</button>
 <a href="#" class="btn outline"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 3H3v10h10V9.5M9.5 3H13v3.5M13 3L7.5 8.5"></path></svg>Open on GitHub</a>
 </div>
-<p style="margin: 0; max-width: 780px; font-size: 13.5px; color: #8c8577">Merge with Claude Code starts one more session in this PRD’s worktree. It brings develop into the branch, resolves the conflicts, runs the tests, pushes, and merges #218 into develop. To review it yourself first, open it on GitHub.</p>
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12); font-size: 13.5px; color: #bdb6a8"><span>New phases: Kiln can’t check until #218 is in develop. It checks by itself as soon as the merge lands.</span><a href="#" style="font-weight: 600">Merged it yourself? Check now</a></div>
+<p style="margin: 0; max-width: 780px; font-size: 13.5px; color: #8c8577">Merge with Claude Code starts one more session in this PRD’s worktree. It brings develop into the branch, resolves the conflicts, runs the tests, pushes, waits for the required checks and merges #218 into develop. Merging into develop may start its CI or deployment. To review it yourself first, open it on GitHub.</p>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12); font-size: 13.5px; color: #bdb6a8"><span>New phases: Kiln can check for them once #218 has merged into develop. It checks as soon as it confirms the merge.</span><a href="#" style="font-weight: 600">Merged it yourself? Check now</a></div>
 </section>
 <div style="display: flex; gap: 28px; align-items: flex-start">
 <section style="flex: 1 1 0; display: flex; flex-direction: column; gap: 6px">
@@ -78,6 +78,58 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </section>
 </div>
 </main>
+</div>
+</div>
+<p class="about" style="margin-top: 16px">A delivery with two pull requests: the pull request card only; the rest of the page is as above.</p>
+<div class="screen">
+<div style="width: 1280px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box; padding: 32px 80px">
+<section style="background: #1b1a16; border: 1px solid rgba(156,196,154,.45); border-radius: 18px; padding: 34px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: center; gap: 14px; color: #9cc49a"><span class="mono" style="font-size: 14px">2 pull requests</span><span style="color: #8c8577">·</span><span class="mono" style="font-size: 13px; color: #bdb6a8">feature/customer-returns</span></div>
+<h2 class="serif" style="margin: 0; font-size: 38px; line-height: 1.1">One in each repository that changed</h2>
+<div style="display: flex; flex-direction: column; border-top: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; align-items: center; gap: 20px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)"><span style="flex: 0 0 150px; display: flex; flex-direction: column"><span class="mono" style="font-size: 14px">acme-api</span><span class="mono" style="font-size: 12.5px; color: #8c8577">#57 · merges first</span></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px">Customer returns: refund routing endpoint</span><span style="font-size: 13px; color: #8c8577"><span class="mono" style="font-size: 12.5px">feature/customer-returns → develop</span> · 6 commits · +612 −40</span></span><a href="#" class="btn outline" style="min-height: 36px; padding: 0 14px; font-size: 13px">Open on GitHub</a></div>
+<div style="display: flex; align-items: center; gap: 20px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)"><span style="flex: 0 0 150px; display: flex; flex-direction: column"><span class="mono" style="font-size: 14px">acme-shop</span><span class="mono" style="font-size: 12.5px; color: #8c8577">#218</span></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px">Customer returns: intake, dashboard and restock</span><span style="font-size: 13px; color: #8c8577"><span class="mono" style="font-size: 12.5px">feature/customer-returns → develop</span> · 11 commits · +1,572 −272 · <span style="color: #e6b65c">Conflicts with develop</span></span></span><a href="#" class="btn outline" style="min-height: 36px; padding: 0 14px; font-size: 13px">Open on GitHub</a></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+<button type="button" class="btn clay"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="3.5" r="1.6"></circle><circle cx="4" cy="12.5" r="1.6"></circle><circle cx="12" cy="8" r="1.6"></circle><path d="M4 5.1v5.8M5.4 4.4c3 .6 5 1.6 5.4 2.2"></path></svg>Merge with Claude Code</button>
+</div>
+<p style="margin: 0; max-width: 780px; font-size: 13.5px; color: #8c8577">Merge with Claude Code starts one more session in this PRD’s workspace. It merges acme-api #57 first and then acme-shop #218, the order the pull requests state, bringing develop into each branch, resolving the conflicts, running the tests and waiting for the required checks before each merge. If one can’t be merged, it stops there and leaves the other open. Each merge into develop may start that repository’s CI or deployment.</p>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12); font-size: 13.5px; color: #bdb6a8"><span>New phases: Kiln can check for them once #218 has merged into develop. It checks as soon as it confirms the merge.</span><a href="#" style="font-weight: 600">Merged it yourself? Check now</a></div>
+</section>
+</div>
+</div>
+<p class="about" style="margin-top: 16px">The same delivery after acme-api #57 was merged on GitHub: the pull request card only.</p>
+<div class="screen">
+<div style="width: 1280px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box; padding: 32px 80px">
+<section style="background: #1b1a16; border: 1px solid rgba(156,196,154,.45); border-radius: 18px; padding: 34px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: center; gap: 14px; color: #9cc49a"><span class="mono" style="font-size: 14px">2 pull requests</span><span style="color: #8c8577">·</span><span class="mono" style="font-size: 13px; color: #bdb6a8">feature/customer-returns</span></div>
+<h2 class="serif" style="margin: 0; font-size: 38px; line-height: 1.1">One in each repository that changed</h2>
+<div style="display: flex; flex-direction: column; border-top: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; align-items: center; gap: 20px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)"><span style="flex: 0 0 150px; display: flex; flex-direction: column"><span class="mono" style="font-size: 14px">acme-api</span><span class="mono" style="font-size: 12.5px; color: #8c8577">#57 · merges first</span></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px">Customer returns: refund routing endpoint</span><span style="font-size: 13px; color: #8c8577"><span class="mono" style="font-size: 12.5px">feature/customer-returns → develop</span> · <span style="color: #9cc49a">Already merged into develop</span></span></span><a href="#" class="btn outline" style="min-height: 36px; padding: 0 14px; font-size: 13px">Open on GitHub</a></div>
+<div style="display: flex; align-items: center; gap: 20px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)"><span style="flex: 0 0 150px; display: flex; flex-direction: column"><span class="mono" style="font-size: 14px">acme-shop</span><span class="mono" style="font-size: 12.5px; color: #8c8577">#218</span></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px">Customer returns: intake, dashboard and restock</span><span style="font-size: 13px; color: #8c8577"><span class="mono" style="font-size: 12.5px">feature/customer-returns → develop</span> · 11 commits · +1,572 −272 · <span style="color: #e6b65c">Conflicts with develop</span></span></span><a href="#" class="btn outline" style="min-height: 36px; padding: 0 14px; font-size: 13px">Open on GitHub</a></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+<button type="button" class="btn clay"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="4" cy="3.5" r="1.6"></circle><circle cx="4" cy="12.5" r="1.6"></circle><circle cx="12" cy="8" r="1.6"></circle><path d="M4 5.1v5.8M5.4 4.4c3 .6 5 1.6 5.4 2.2"></path></svg>Merge with Claude Code</button>
+</div>
+<p style="margin: 0; max-width: 780px; font-size: 13.5px; color: #8c8577">acme-api #57 is already merged, so Merge with Claude Code merges only acme-shop #218. It starts one more session in this PRD’s workspace, which brings develop into the branch, resolves the conflicts, runs the tests and waits for the required checks before merging. Merging into develop may start its CI or deployment.</p>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12); font-size: 13.5px; color: #bdb6a8"><span>New phases: Kiln can check for them once #218 has merged into develop. It checks as soon as it confirms the merge.</span><a href="#" style="font-weight: 600">Merged it yourself? Check now</a></div>
+</section>
+</div>
+</div>
+<p class="about" style="margin-top: 16px">The same delivery after acme-api #57 was closed without merging: the pull request card only.</p>
+<div class="screen">
+<div style="width: 1280px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box; padding: 32px 80px">
+<section style="background: #1b1a16; border: 1px solid rgba(237,232,221,.24); border-radius: 18px; padding: 34px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: center; gap: 14px; color: #bdb6a8"><span class="mono" style="font-size: 14px">2 pull requests</span><span style="color: #8c8577">·</span><span class="mono" style="font-size: 13px; color: #bdb6a8">feature/customer-returns</span></div>
+<h2 class="serif" style="margin: 0; font-size: 38px; line-height: 1.1">One in each repository that changed</h2>
+<div style="display: flex; flex-direction: column; border-top: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; align-items: center; gap: 20px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)"><span style="flex: 0 0 150px; display: flex; flex-direction: column"><span class="mono" style="font-size: 14px">acme-api</span><span class="mono" style="font-size: 12.5px; color: #8c8577">#57 · merges first</span></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px">Customer returns: refund routing endpoint</span><span style="font-size: 13px; color: #8c8577"><span class="mono" style="font-size: 12.5px">feature/customer-returns → develop</span> · <span style="color: #e6b65c">Closed without merging</span></span></span><a href="#" class="btn outline" style="min-height: 36px; padding: 0 14px; font-size: 13px">Open on GitHub</a></div>
+<div style="display: flex; align-items: center; gap: 20px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)"><span style="flex: 0 0 150px; display: flex; flex-direction: column"><span class="mono" style="font-size: 14px">acme-shop</span><span class="mono" style="font-size: 12.5px; color: #8c8577">#218</span></span><span style="flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 15px">Customer returns: intake, dashboard and restock</span><span style="font-size: 13px; color: #8c8577"><span class="mono" style="font-size: 12.5px">feature/customer-returns → develop</span> · 11 commits · +1,572 −272 · Open · <span style="color: #e6b65c">Conflicts with develop</span></span></span><a href="#" class="btn outline" style="min-height: 36px; padding: 0 14px; font-size: 13px">Open on GitHub</a></div>
+</div>
+<p style="margin: 0; max-width: 780px; font-size: 13.5px; color: #bdb6a8">acme-api #57 was closed without merging, so Kiln doesn’t offer to merge this delivery. Reopen #57 on GitHub and the merge comes back, or merge acme-shop #218 there yourself.</p>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12); font-size: 13.5px; color: #bdb6a8"><span>New phases: Kiln can check for them once #218 has merged into develop.</span><a href="#" style="font-weight: 600">Merged it yourself? Check now</a></div>
+<p class="note" style="border-style: dashed">Shown instead when the closed one is #218, the pull request in this PRD’s repository: the link reads “Check now”.</p>
+</section>
 </div>
 </div>
 </section>
@@ -108,12 +160,16 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <a href="#" class="btn solid">Watch the session</a>
 <a href="#" class="btn outline">Open on GitHub</a>
 </div>
-<p style="margin: 0; max-width: 780px; font-size: 13.5px; color: #8c8577">Like the pull request session, the merge session can’t be paused or messaged while it runs. If it stops before merging, Kiln shows Needs you with its last message. Kiln shows Merged once GitHub confirms #218 is in develop.</p>
+<p style="margin: 0; max-width: 780px; font-size: 13.5px; color: #8c8577">Like the pull request session, the merge session can’t be messaged, paused or taken over while it runs. It waits for #218’s required checks before merging. If it stops before merging, Kiln shows Needs you with its last message. Kiln shows Merged once GitHub shows #218 merged into develop.</p>
 </section>
 <div style="display: flex; gap: 28px; align-items: flex-start">
 <section style="flex: 1 1 0; display: flex; flex-direction: column; gap: 6px">
 <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577"><span>Phase plan</span><span style="letter-spacing: 0; text-transform: none; font-weight: 400; font-size: 13px">5 of 5 done</span></div>
-<div style="border-top: 1px solid rgba(237,232,221,.12); padding: 16px 0; color: #8c8577; font-size: 14px">Phases 1 to 4 and the final pull request, all Done (unchanged from today’s page).</div>
+<div style="border-top: 1px solid rgba(237,232,221,.12)">
+<div style="padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12); color: #8c8577; font-size: 14px">Phases 1 to 4 and the closing audits, all Done (unchanged from today’s page).</div>
+<div class="row"><span class="num mono">PR</span><span class="name"><b>Final pull request</b><span>Opened #218</span></span><span class="time">9m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono" style="background: rgba(226,105,79,.14); border-color: rgba(226,105,79,.5); color: #f0866e">M</span><span class="name"><b>Merge</b><span>Claude Code · Opus 5.5 · merging #218 into develop</span></span><span class="time">6m so far</span><span class="pill run">Running</span></div>
+</div>
 </section>
 <section style="flex: 0 0 340px; background: #1b1a16; border: 1px solid rgba(237,232,221,.12); border-radius: 18px; padding: 26px; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box">
 <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577">Kiln</h2>
@@ -128,7 +184,7 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </section>
 <section>
 <h2>3. Merged</h2>
-<p class="about">Kiln has confirmed the merge on GitHub and checked for new phases. Covers AC-MERGE-04, AC-WAIT-03 and AC-EXIT-01.</p>
+<p class="about">Kiln has confirmed the merge on GitHub and checked for new phases. Covers AC-MERGE-04, AC-MERGE-05, AC-WAIT-03 and AC-EXIT-01.</p>
 <div class="screen">
 <div style="width: 1280px; min-height: 980px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box">
 <header style="display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
@@ -159,7 +215,11 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <div style="display: flex; gap: 28px; align-items: flex-start">
 <section style="flex: 1 1 0; display: flex; flex-direction: column; gap: 6px">
 <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577"><span>Phase plan</span><span style="letter-spacing: 0; text-transform: none; font-weight: 400; font-size: 13px">5 of 5 done</span></div>
-<div style="border-top: 1px solid rgba(237,232,221,.12); padding: 16px 0; color: #8c8577; font-size: 14px">Phases 1 to 4 and the final pull request, all Done (unchanged from today’s page).</div>
+<div style="border-top: 1px solid rgba(237,232,221,.12)">
+<div style="padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12); color: #8c8577; font-size: 14px">Phases 1 to 4 and the closing audits, all Done (unchanged from today’s page).</div>
+<div class="row"><span class="num mono">PR</span><span class="name"><b>Final pull request</b><span>Opened #218</span></span><span class="time">9m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono">M</span><span class="name"><b>Merge</b><span>Claude Code · Opus 5.5 · merged #218 into develop</span></span><span class="time">17m</span><span class="pill done">Done</span></div>
+</div>
 </section>
 <section style="flex: 0 0 340px; background: #1b1a16; border: 1px solid rgba(237,232,221,.12); border-radius: 18px; padding: 26px; display: flex; flex-direction: column; gap: 14px; box-sizing: border-box">
 <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577">Kiln</h2>
@@ -174,7 +234,7 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 </section>
 <section>
 <h2>4. The merge session stopped before merging</h2>
-<p class="about">The existing Needs you page, for the merge session. Covers AC-MERGE-06.</p>
+<p class="about">The existing Needs you page, for the merge session. Continue’s push session stops on the same page; the dashed note shows what it says. Covers AC-MERGE-06, AC-BACK-05 and AC-EXIT-01.</p>
 <div class="screen">
 <div style="width: 1280px; min-height: 1100px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box">
 <header style="display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
@@ -191,6 +251,7 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <span class="eyebrow" style="color: #e6b65c">The merge session stopped before merging · its last message</span>
 <p style="margin: 0; font-size: 15px; color: #ede8dd">The conflict in src/returns/refund-router.ts needs a decision from you. develop now routes store credit through the new ledger, and this branch routes it to the old balance table. Which should win? I left the merge uncommitted in the worktree and did not push.</p>
 <p class="hint">Pull request #218 is unchanged on GitHub. <a href="#">Open on GitHub</a></p>
+<p class="note" style="border-style: dashed">Shown instead when Continue’s push session stops, for example: “develop on this machine holds another commit that would be pushed along, <span class="mono" style="font-size: 12.5px">c93e1b4</span> “wip: gift card copy”. Nothing was pushed. Reply to push it too, and the session pushes it with the plan.”</p>
 </section>
 
 <section class="card">
@@ -198,7 +259,7 @@ main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
 <span style="font-size: 17px; font-weight: 600">Reply and continue in Kiln</span>
 <label style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 13.5px; color: #bdb6a8">Your reply to Claude Code <span style="color: #8c8577">Optional</span></span>
 <textarea rows="3" style="background: #12110e; color: #ede8dd; border: 1px solid rgba(237,232,221,.24); border-radius: 12px; padding: 12px 14px; font: 14.5px/1.5 Inter, sans-serif; resize: vertical">Use the new ledger from develop. Drop the old balance table code.</textarea></label>
-<p class="hint">Your reply goes to the same Claude Code session, with its full history. It picks up the merge where it stopped, then runs the tests, pushes and merges #218.</p>
+<p class="hint">Your reply goes to the same Claude Code session, with its full history. It picks up the merge where it stopped, then runs the tests, pushes, waits for the required checks and merges #218.</p>
 <div style="display: flex; align-items: center; gap: 14px"><button type="button" class="btn solid">Send and resume</button><span class="hint">Close the session first if you opened it in a terminal.</span></div>
 </section>
 
@@ -217,7 +278,7 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 </section>
 <section>
 <h2>5. Coming back to a finished, merged PRD</h2>
-<p class="about">The two answers of the check for new phases. Dashed notes appear only in the case each one names. Covers AC-BACK-01 to AC-BACK-05.</p>
+<p class="about">The two answers Kiln gives when it looks for new phases. Dashed notes appear only in the case each one names. The last screen is B after Continue when the documents were not pushed: the push session runs first. Covers AC-BACK-01, AC-BACK-03 to AC-BACK-05, AC-MERGE-05 and AC-BOT-02.</p>
 <div class="screen">
 <div style="width: 1280px; min-height: 1000px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box">
 <main style="max-width: 1120px; margin: 0 auto; padding: 44px 32px 56px; display: flex; flex-direction: column; gap: 18px">
@@ -227,9 +288,9 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 <span class="variant mono">A · nothing was added (the usual answer, and what you see right after a merge)</span>
 <section class="card">
 <h2 class="serif" style="margin: 0; font-size: 32px; line-height: 1.1">No new phases found</h2>
-<div style="display: flex; align-items: center; gap: 14px"><button type="button" class="btn outline">Check for new phases</button><span class="hint">Last checked 3:19 PM.</span></div>
-<p class="note" style="border-style: dashed">Shown only when a finished phase’s document was edited later: “Phase 2’s document was edited after Kiln finished it. Kiln doesn’t rebuild finished phases. To change that work, add a new phase.”</p>
-<p class="note" style="border-style: dashed">Shown only when the main checkout is on another branch: “The main checkout is on feature/gift-cards, so Kiln read the plan from origin/develop only.”</p>
+<div style="display: flex; align-items: center; gap: 14px"><button type="button" class="btn outline">Check for new phases</button><span class="hint">Last checked Dec 12 at 9:40 AM.</span></div>
+<p class="note" style="border-style: dashed">Shown only when the main checkout is on another branch or Kiln can’t find it: “The main checkout is on feature/gift-cards, so Kiln read the plan from origin/develop only.” or “Kiln couldn’t find the main checkout, so it read the plan from origin/develop only.”</p>
+<p class="note" style="border-style: dashed">Shown only when this PRD’s documents have edits that aren’t committed in the main checkout: “phase-5-return-labels.md has edits in your main checkout that aren’t committed. Kiln didn’t read them.”</p>
 </section>
 
 <span class="variant mono">B · a later session planned more phases for this PRD, for example after stakeholder feedback</span>
@@ -239,11 +300,25 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 <p style="margin: 0; font-size: 13.5px; color: #bdb6a8">Added on Nov 24 at 2:10 PM, in commit <span class="mono" style="font-size: 12.5px">a41c0d2</span> “docs(customer returns): add return label phases after stakeholder feedback”. Phases 1 to 4 stay as delivered in pull request #218.</p>
 <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px"><button type="button" class="btn solid">Continue with 2 phases</button><button type="button" class="btn outline">Not now</button></div>
 <p class="note">Continue builds only these two phases, on a new branch from develop, and ends with a new pull request.</p>
-<p class="note" style="border-style: dashed">Shown only when the phase documents aren’t on GitHub’s develop yet: “These documents are on this machine’s develop but not pushed. Continue pushes them first.”</p>
+<p class="note" style="border-style: dashed">Shown only when the phase documents aren’t on GitHub’s develop yet: “These documents are committed on this machine’s develop but not pushed. Continue pushes them first.”</p>
 </section>
 
 <span class="variant mono">The same in the terminal (kiln status), for B</span>
-<pre class="mono" style="margin: 0; padding: 16px 20px; background: #0c0b09; border: 1px solid rgba(237,232,221,.12); border-radius: 12px; font-size: 13px; line-height: 1.6; color: #bdb6a8; white-space: pre-wrap">2 phases were added to this PRD after Kiln finished it: 5, 6. Run kiln continue-with-phases to build them.</pre>
+<pre class="mono" style="margin: 0; padding: 16px 20px; background: #0c0b09; border: 1px solid rgba(237,232,221,.12); border-radius: 12px; font-size: 13px; line-height: 1.6; color: #bdb6a8; white-space: pre-wrap">2 phases were added to this PRD after Kiln finished it: 5, 6, in commit a41c0d2 on origin/develop (Nov 24, 2:10 PM). Run kiln continue-with-phases to build them.</pre>
+
+<span class="variant mono">B after Continue, when the documents were committed on this machine’s develop and not pushed</span>
+<section class="card">
+<div style="display: flex; align-items: center; gap: 14px"><span style="display: inline-flex; align-items: center; gap: 7px; padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; background: rgba(226,105,79,.14); color: #f0866e; border: 1px solid rgba(226,105,79,.5)"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 2a6 6 0 1 1-6 6"></path></svg>Pushing the plan</span><span style="font-size: 14px; color: #bdb6a8">5 of 7 phases done</span></div>
+<div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577"><span>Phase plan</span><span style="letter-spacing: 0; text-transform: none; font-weight: 400; font-size: 13px">5 of 7 done</span></div>
+<div style="border-top: 1px solid rgba(237,232,221,.12)">
+<div style="padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12); color: #8c8577; font-size: 14px">Earlier delivery: phases 1 to 4, the closing audits, the final pull request and Merge, all Done.</div>
+<div class="row"><span class="num mono" style="background: rgba(226,105,79,.14); border-color: rgba(226,105,79,.5); color: #f0866e">P</span><span class="name"><b>Push the plan</b><span>Claude Code · Opus 5.5 · pushing commit a41c0d2 to develop from <span class="mono" style="font-size: 12.5px">~/devel/acme-shop</span></span></span><span class="time">1m so far</span><span class="pill run">Running</span></div>
+<div class="row"><span class="num mono" style="background: transparent; border-color: rgba(237,232,221,.24); color: #8c8577">5</span><span class="name"><b>Return labels</b><span>Planned after delivery</span></span><span class="pill" style="color: #8c8577; border: 1px solid rgba(237,232,221,.24)">Waiting</span></div>
+<div class="row"><span class="num mono" style="background: transparent; border-color: rgba(237,232,221,.24); color: #8c8577">6</span><span class="name"><b>Carrier pickup scheduling</b><span>Planned after delivery</span></span><span class="pill" style="color: #8c8577; border: 1px solid rgba(237,232,221,.24)">Waiting</span></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px"><a href="#" class="btn solid">Watch the session</a></div>
+<p class="hint">Like the pull request session, the push session can’t be messaged, paused or taken over while it runs. Once develop holds the documents, the build starts. If the push session stops, Kiln shows Needs you with its last message.</p>
+</section>
 </main>
 </div>
 </div>
@@ -257,10 +332,10 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 <div style="border-top: 1px solid rgba(237,232,221,.12); margin-top: 6px">
 <div class="row"><span class="num mono">DA</span><span class="name"><b>Delivery audit</b><span>Loop 1 of 4 · every criterion is built</span></span><span class="time">22m</span><span class="pill done">Done</span></div>
 <div class="row"><span class="num mono">TA</span><span class="name"><b>Test audit</b><span>Loop 1 of 4 · found 5 gaps in the tests and saved them</span></span><span class="time">31m</span><span class="pill done">Done</span></div>
-<div class="row"><span class="num mono">TF</span><span class="name"><b>Test fixes</b><span>From test audit loop 1 · session 1 · closed 3 of the 5 gaps</span></span><span class="time">44m</span><span class="pill done">Done</span></div>
-<div class="row"><span class="num mono" style="background: rgba(226,105,79,.14); border-color: rgba(226,105,79,.5); color: #f0866e">TF</span><span class="name"><b>Test fixes</b><span>From test audit loop 1 · session 2 · working on the 2 gaps left</span></span><span class="time">12m so far</span><span class="pill run">Running</span></div>
+<div class="row"><span class="num mono">FT</span><span class="name"><b>Fixing tests</b><span>From test audit loop 1 · session 1 · closed 3 of the 5 gaps</span></span><span class="time">44m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono" style="background: rgba(226,105,79,.14); border-color: rgba(226,105,79,.5); color: #f0866e">FT</span><span class="name"><b>Fixing tests</b><span>From test audit loop 1 · session 2 · working on the 2 gaps left</span></span><span class="time">12m so far</span><span class="pill run">Running</span></div>
 </div>
-<p style="margin: 22px 0 0; max-width: 900px; font-size: 13.5px; color: #8c8577">Today the last three rows are all titled “Test audit” and read “Round 1”, “Round 1 · Continuation 2” and “Round 1 · Continuation 3”. A loop is one run of an audit. Sessions of test fixes are the work on that loop’s findings and are not loops, so this run has used one test audit loop.</p>
+<p style="margin: 22px 0 0; max-width: 900px; font-size: 13.5px; color: #8c8577">One test audit loop and the two sessions fixing what it found. Today these three rows are all titled “Test audit” and read “Round 1”, “Round 1 · Continuation 2” and “Round 1 · Continuation 3”.</p>
 </div>
 </div>
 </section>
@@ -277,6 +352,31 @@ claude --resume 7c1e9f2a-4b6d-4e1a-9c3f-2d8b5a6e1f04</pre><button type="button" 
 </section>
 <span class="mono" style="font-size: 12.5px; color: #8c8577">The terminal’s last line</span>
 <pre class="mono" style="margin: 0; padding: 16px 20px; background: #0c0b09; border: 1px solid rgba(237,232,221,.12); border-radius: 12px; font-size: 13px; line-height: 1.6; color: #bdb6a8; white-space: pre-wrap">Kiln exited from the page. Run kiln run docs/prds/customer-returns to open it again.</pre>
+</div>
+</div>
+</section>
+<section>
+<h2>8. What Kiln may do, before Start and in the settings</h2>
+<p class="about">The statement of what Kiln may do now names the merge. A run in one repository states nothing about merging in its settings. Covers AC-MERGE-08.</p>
+<div class="screen">
+<div style="width: 1280px; background: #12110e; color: #ede8dd; font-family: Inter, sans-serif; font-size: 15px; line-height: 1.55; box-sizing: border-box; padding: 40px 80px; display: flex; gap: 28px; align-items: flex-start">
+<section class="card" style="flex: 1 1 0">
+<span class="eyebrow">Before you start · a run in one repository</span>
+<span style="font-size: 13px; font-weight: 600; color: #bdb6a8">Starting lets Kiln</span>
+<ul class="phases" style="gap: 10px">
+<li style="display: flex; gap: 10px"><span style="color: #9cc49a">✓</span><span>Commit and push to <span class="mono" style="font-size: 13px">feature/customer-returns</span></span></li>
+<li style="display: flex; gap: 10px"><span style="color: #9cc49a">✓</span><span>Open one pull request into <span class="mono" style="font-size: 13px">develop</span> once every phase closes</span></li>
+<li style="display: flex; gap: 10px"><span style="color: #9cc49a">✓</span><span>Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page</span></li>
+<li style="display: flex; gap: 10px"><span style="color: #8c8577">✕</span><span>Never deploy or touch other branches</span></li>
+</ul>
+<p class="note" style="border-style: dashed">When early merges are allowed, the list shows its early-merges lines instead, and the merge line stays.</p>
+</section>
+<section class="card" style="flex: 1 1 0">
+<span class="eyebrow">Settings while Kiln works · a run in several repositories</span>
+<span style="font-size: 13px; font-weight: 600; color: #bdb6a8">In each repository</span>
+<p style="margin: 0; font-size: 14.5px; color: #ede8dd">Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page, and never deploys or touches other branches.</p>
+<p class="note" style="border-style: dashed">Shown instead when early merges are allowed: “Required early merges may reach approved repository branches. Remaining work stays open for review, and Kiln merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page.”</p>
+</section>
 </div>
 </div>
 </section>

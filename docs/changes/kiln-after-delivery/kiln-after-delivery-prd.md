@@ -2,13 +2,15 @@
 
 **Source:** Doug's request, 2026-11-21: a finished run's pull request had merge conflicts and no way to hand them to the agent, Kiln could only be closed with Ctrl+C, and a second finished run showed "Plan needs reconciliation" when nothing about its plan had changed.
 
+**Roadmap:** [Kiln roadmap](../../kiln-roadmap.md). Develops the [Merge the final PR idea](../../roadmap/kiln-final-pull-request-merge-idea.md).
+
 **Assumptions:** [Kiln After Delivery assumptions](kiln-after-delivery-assumptions.md)
 
 **Review alongside:** [Mockup](mockups/kiln-after-delivery.html)
 
 ## Summary
 
-Make the end of a Kiln run something a person can finish from the page. When every phase is done and the pull request is open, the person can press **Merge with Claude Code** (or Codex) and Kiln starts one more session that brings the base branch in, resolves any conflicts, runs the project's checks and merges the pull request. When there is nothing left to do, **Exit Kiln** closes Kiln without Ctrl+C.
+Make the end of a Kiln run something a person can finish from the page. When every phase is done and the pull request is open (one per repository, when the work spans several), the person can press **Merge with Claude Code** (or Codex) and Kiln starts one more session that brings the base branch in, resolves any conflicts, runs the project's checks, waits for GitHub's required checks and merges. Whenever no session is running on a finished run, **Exit Kiln** closes Kiln without Ctrl+C.
 
 The same page stops raising a false alarm. A finished run whose pull request has not merged yet is shown as waiting to merge, once, and never as a changed plan. When a person comes back to a finished PRD later, Kiln gives one of two answers: no new phases, or phases that were planned afterwards and one **Continue** button to build them.
 
@@ -21,7 +23,7 @@ Kiln stops at "PR ready for review" and leaves the merge to the person. In pract
 Three smaller problems sit on the same page:
 
 - **No way out.** Kiln stays in its terminal after the pull request is ready, and after it merges. The only exit is Ctrl+C.
-- **A false alarm.** The finished page checks whether phases were added to the PRD. While the pull request is still open, the base branch does not hold the run's version of the plan yet. If unrelated work has landed on the base branch in the meantime, or the person's own checkout is behind, Kiln reports "Plan needs reconciliation" with a list of problems, none of them true.
+- **A false alarm.** The finished page checks whether phases were added to the PRD. While the delivery is still unmerged, the base branch does not hold the run's version of the plan yet. If unrelated work has landed on the base branch in the meantime, or the person's own checkout is behind, Kiln reports "Plan needs reconciliation" with a list of problems, none of them true.
 - **A block nobody can act on.** Even when the plan really was edited after Kiln finished, the page asks the person to reconcile requirement documents before Kiln will go on. The offer to continue already lists the exact phases it would run and waits for a click, which is the safeguard that matters.
 
 The audit rows are a separate small confusion in the same list of activity: three rows all titled "Test audit", told apart only by "Round 1" and "Continuation 2", read as three audits.
@@ -30,72 +32,99 @@ The audit rows are a separate small confusion in the same list of activity: thre
 
 ### Have the Agent Merge the Pull Request
 
-When the work is done and reviewed, the person can ask Kiln to merge it. Kiln starts one more agent session for that, and merges nothing unless the person asks.
+When the work is done, the person can ask Kiln to merge it. Kiln starts one more agent session for that, and merges the finished work only when the person asks.
 
-- [ ] **AC-MERGE-01 — The finished page offers the merge.** When a finished run has exactly one open pull request for its delivery, the pull request card shows **Merge with {agent}** beside **Open on GitHub**, naming the agent chosen for the run, with one sentence saying what pressing it does. When GitHub reports that the pull request conflicts with its base branch, the card says so. A delivery with more than one open pull request keeps today's page, with no merge offered (SCOPE-001).
-  - Replaces in part: AC-PR-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the Complete screen's pull request card gains the merge action, the conflict line and the waiting line of AC-WAIT-02; the rest of the screen remains)
-- [ ] **AC-MERGE-02 — Pressing it is the permission, for that pull request only.** One press authorizes one merge of the shown pull request into its base branch. Nothing is remembered for other pull requests, other PRDs or a later run. Before starting a session Kiln checks GitHub: a pull request already merged is shown as Merged with no session started, and one closed without merging is shown as closed with no merge offered. Documents found says that Kiln merges only when the person presses Merge after the pull request is ready.
-  - Replaces in part: AC-PR-03 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Kiln merges the pull request when the person presses Merge; it still never merges on its own, waits on CI to merge, or deploys)
-  - Replaces in part: AC-START-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (merging is allowed only on that press)
-- [ ] **AC-MERGE-03 — The merge session does the merge and nothing wider.** The session runs in the run's worktree with the run's agent, model and effort. Its instructions say what it may and may not do, as the table says.
+- [ ] **AC-MERGE-01 — The finished page offers the merge.** When AC-MERGE-07 offers the merge, the pull request card shows one **Merge with {agent}** button for the whole delivery beside **Open on GitHub**, naming the agent chosen for the run, with a short note saying what pressing it does, including that the merge may start the base branch's CI or deployment; with more than one pull request, the note names any merge order the pull requests state (SCOPE-001). When GitHub reports that a pull request conflicts with its base branch, the card says so beside it.
+  - Replaces in part: AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the card gains what AC-MERGE-01, AC-MERGE-04, AC-MERGE-07 and AC-WAIT-02 add; the header reads **Merged** where it said "Already merged" (AC-WAIT-03), and the final plan row stays Done with the Merge row after it (AC-MERGE-05); the rest remains)
+- [ ] **AC-MERGE-02 — Pressing it is the permission, for that delivery only.** One press of Merge with {agent} authorizes the merge session to merge the delivery's open pull requests, each into its base branch, in the order their descriptions state (SCOPE-001). Nothing is remembered for other pull requests, other PRDs or a later run.
+  - Replaces in part: AC-PR-03 in `docs/prds/kiln-v1/kiln-v1-prd.md` (on that press the merge session merges the delivery's pull requests; otherwise Kiln still merges and deploys only as AC-DEV-01 in Kiln Development Deployments allows)
+  - Replaces in part: AC-PRS-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (on that press the merge session follows the merge order the descriptions state; Kiln still does not check that order)
+- [ ] **AC-MERGE-07 — Kiln reads each pull request's state from GitHub first.** Before offering the merge and again before starting the session, Kiln reads each of the delivery's pull requests from GitHub, and the card offers what the table says.
+
+  | On GitHub | The pull request card |
+  |---|---|
+  | Every pull request open | Merge with {agent}, for all of them |
+  | Some merged, the rest open | The merged ones as merged (AC-MERGE-04); Merge with {agent} merges only the rest |
+  | Every pull request merged | Merged (AC-MERGE-04); no session starts |
+  | Any closed without merging | Shown as closed; no merge offered; a line says reopening it on GitHub brings the merge back, or the others can be merged there |
+
+  Kiln never reopens or replaces a closed pull request. While one is closed, the header stays **PR ready for review** unless a check finds new phases (AC-OFFER-01 in Kiln Continue Added Phases).
+
+- [ ] **AC-MERGE-08 — Kiln's statement of what it may do names the merge.** Where Kiln states what it is allowed to do, before Start and in the settings while it works, it says it merges the delivery's pull requests only when the person presses Merge with {agent} on the finished page, beside any early merges the person allowed.
+  - Replaces in part: AC-PRS-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (merging stays forbidden except on that press; the rest remains)
+  - Replaces in part: AC-PERMIT-02 and AC-DISPLAY-01 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (where early merges are allowed, the statement also names that press; the rest remains)
+- [ ] **AC-MERGE-03 — The merge session does the merge and nothing wider.** The merge session's instructions say what it may and may not do, as the table says. When it cannot merge a pull request, it ends there without merging the ones after it, and its last message names what is outstanding: a conflict to decide, a missing required review, or a required check failing or never reported (AC-MERGE-06).
 
   | The session may | The session may not |
   |---|---|
-  | Merge the base branch into the feature branch and resolve the conflicts | Rebase or force-push |
-  | Run the project's own checks and fix what the merge broke | Merge while a required check or review has not passed, or go around branch protection |
-  | Push the feature branch | Push or change any other branch |
-  | Merge the shown pull request into its base branch | Merge any other pull request, delete the branch or the worktree, or deploy |
+  | Merge the base branch into each feature branch and resolve the conflicts | Rewrite a feature branch's history or force-push |
+  | Run the project's own checks, push the feature branches and wait for each pull request's required checks | Push to any branch but the delivery's feature branches |
+  | Fix failures caused by the merge or by the delivery's own work, and push again | Merge while a required review or check has not passed, wait without end on a required check, or go around branch protection by an override or a change to the branch protection settings |
+  | Merge the delivery's pull requests (AC-MERGE-02), by a merge method the repository allows | Merge any other pull request, delete a branch or worktree, or deploy |
 
-- [ ] **AC-MERGE-04 — Kiln confirms the merge from GitHub.** The run is shown as Merged only when GitHub shows the pull request merged into its base branch, never on the session's word. The header then says **Merged**, and the card shows when it merged, the merge commit and the merge session's closing summary, word for word. A pull request the person merged themselves is shown the same way, without a summary, at Kiln's next check of the run.
-- [ ] **AC-MERGE-05 — The merge session is handled as one more activity.** It appears in the phase plan as a row titled **Merge** after the final pull request row, with its time, model and session details as any row has, and its output can be watched as any session's can. While it runs the header says **Merging pull request #N**. As with the pull request session, it offers no message box, pause or takeover while it runs, and the page says so (MERGE-001). The run's billing limits, usage-limit recovery and Ctrl+C handling apply to it as to any session.
-  - Replaces in part: AC-PR-05 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the merge session is one more row after the pull-request session's)
-- [ ] **AC-MERGE-06 — A merge session that stops is a Needs you stop.** When the session ends and the pull request is not merged, Kiln shows the existing Needs you page for it: the session's last message word for word, **Reply and continue in Kiln** to the same session, the command that opens that session in a terminal, and **Check again**. Check again and Resume look at GitHub first and show Merged when the pull request has merged. Kiln never starts a second merge session on its own.
+- [ ] **AC-MERGE-04 — Kiln confirms the merge from GitHub.** The run is shown as Merged only when GitHub shows each of the delivery's pull requests merged into its base branch, never on the session's word. The card then shows when each pull request merged, its merge commit and the merge session's closing summary, word for word; AC-WAIT-03 says what the header shows. Until then, any that have merged are shown as the Complete screen shows already-merged work today. A pull request the person merged themselves is shown the same way, without a summary, at Kiln's next check of the run.
+- [ ] **AC-MERGE-05 — The merge and push sessions are each one more activity.** The merge session (AC-MERGE-03) and Continue's push session (AC-BACK-05) each run with the run's agent, model and effort, and each has a phase-plan row like any other; like the final pull request row, neither is counted among the phases done. Their output can be watched, but, as with the pull request session, neither offers a message box, pause or takeover while it runs, and the page says so (for the merge session, MERGE-001). The run's billing limits, usage-limit recovery and Ctrl+C handling apply to both. They differ only as the table says.
+
+  | | The merge session | The push session |
+  |---|---|---|
+  | Runs in | Where the run's sessions ran | The person's main checkout |
+  | Its row | **Merge**, after the final pull request row | **Push the plan**, before the first added phase |
+  | The header while it runs | **Merging** | **Pushing the plan** |
+
+  - Replaces in part: AC-PR-05 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the pull-request session's row is no longer the last: the Merge row follows it)
+- [ ] **AC-MERGE-06 — A merge or push session that stops is a Needs you stop.** When the merge session (AC-MERGE-03) or Continue's push session (AC-BACK-05) ends without finishing, Kiln shows the existing Needs you page for it: the session's last message word for word, **Reply and continue in Kiln** with **Resume** (or **Send and resume** with a reply) to the same session, the command that opens that session in a terminal, and **Check again**. Kiln never starts a fresh merge or push session, so the stop offers neither Merge with {agent} nor Continue. Check again and Resume first look at whether the work is already done, and then do as the table says without resuming.
+
+  | Stopped session | Kiln looks at | When the work is done |
+  |---|---|---|
+  | The merge session | GitHub | Kiln shows Merged (AC-MERGE-04) |
+  | The push session | The remote base branch | Kiln starts the build as Continue does |
 
 ### Say Once That the Delivery Is Waiting to Merge
 
-Until the pull request merges, the base branch does not hold the run's plan. That is the normal state of a finished run, not a problem with the plan.
+Until the pull request in this PRD's repository merges, the base branch does not hold the run's plan. That is the normal state of a finished run, not a problem with the plan.
 
-- [ ] **AC-WAIT-01 — An unmerged delivery is never reported as a changed plan.** When a finished run's delivered commits are not in the base branch, and the base branch's copy of this PRD's folder is the same as when the feature branch left it, the check for new phases reports that the delivery is waiting to merge. This holds whatever else has changed on the base branch since, including documents outside the folder that this PRD links to, and whether or not the person's main checkout is behind. The check reports no plan problem in that state.
-- [ ] **AC-WAIT-02 — The waiting state is said once, in the pull request card.** While the delivery is waiting to merge, the page shows no separate panel for the check. The pull request card carries one line saying Kiln can check for new phases only once the pull request is in the base branch, with **Merged it yourself? Check now**. The header keeps **PR ready for review**, and the terminal gives the same sentence.
-- [ ] **AC-WAIT-03 — Kiln checks for new phases as soon as it confirms a merge.** When Kiln confirms the merge (AC-MERGE-04), it runs the check for new phases without being asked and shows the answer on the page, beside **Exit Kiln**.
+- [ ] **AC-WAIT-01 — An unmerged delivery is never reported as a changed plan.** While the delivery waits to merge, the check for new phases reports only that it is waiting, whatever has changed on the base branch since the feature branch left it and whether or not the person's main checkout is behind. The delivery waits from the end of the run until GitHub shows the run's pull request in this PRD's repository merged into the base branch, by any merge method and whoever merged it (AC-MERGE-04), or, while that pull request is closed, until the person presses Check now (AC-WAIT-02). A delivery that opened no pull request there, because its work was already in the base branch, never waits. Separately, Kiln runs the check unasked once it confirms every pull request of the delivery merged (AC-WAIT-03).
+- [ ] **AC-WAIT-02 — The waiting state is said once, in the pull request card.** While the delivery is waiting to merge, the page shows no separate panel for the check. The pull request card carries one line saying Kiln can check for new phases once the pull request in this PRD's repository has merged, with **Merged it yourself? Check now**, which reads **Check now** while that pull request is closed. While the delivery waits, the header keeps **PR ready for review** unless a merge session is running or has stopped (AC-MERGE-05, AC-MERGE-06), and the terminal gives the card's sentence.
+- [ ] **AC-WAIT-03 — Kiln checks for new phases as soon as it confirms a merge.** When Kiln confirms the merge (AC-MERGE-04), it runs the check for new phases without being asked and shows what it found on the page, beside **Exit Kiln**. The header then says **Merged**, or **New phases found** (AC-OFFER-01 in Kiln Continue Added Phases) when the check found some.
   - Replaces in part: AC-FIND-01 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (the check also runs when Kiln confirms a merge; its other occasions remain)
 
 ### Give a Finished PRD Two Answers When Kiln Looks for More Work
 
 After a PRD ships, a later session may plan more phases for it, for example after stakeholder feedback. When the person runs Kiln on that PRD again, the page says either that nothing was added, or which phases were added and how to build them. It no longer asks the person to reconcile documents.
 
-- [ ] **AC-BACK-01 — Finished phases stay finished, and nothing asks for reconciliation.** A phase the run completed is never offered again, rebuilt or reported as a problem, whatever later happened to its document. For a finished run, neither the header, the page nor the terminal shows "Plan needs reconciliation", an internal problem code or a list of differing documents. Every unfinished phase in the plan is counted and offered by the existing counting rules, including one that descends from a finished phase (PLAN-002).
+- [ ] **AC-BACK-01 — Finished phases stay finished, and nothing asks for reconciliation.** A phase the run completed stays finished whatever later happened to its document: Kiln never offers it again, rebuilds it, reports it as a problem or mentions the change (PLAN-001). Every unfinished phase, one neither completed by the run nor marked closed in its document, is counted and offered as added work wherever it sits, including beneath a finished phase that had no phases beneath it when it finished; split parents, numbering gaps and renamed documents still never add to the count. For a finished run, neither the header, the page nor the terminal shows "Plan needs reconciliation", an internal problem code or a list of differing documents.
   - Replaces: AC-CONTINUE-03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md`
-  - Replaces in part: AC-FIND-03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (changes to earlier phases are no longer shown as unresolved; the counting rules remain)
+  - Replaces in part: AC-FIND-03 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (changes to earlier phases are no longer shown as unresolved, and a finished phase that later gains phases beneath it is no longer refused; the rest of its counting remains)
   - Replaces in part: AC-FIND-04 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (copies of the plan that differ are not a failed check; AC-BACK-03 says which copy is read. Unreadable or invalid plans and failed repository checks remain as they are)
-- [ ] **AC-BACK-02 — An edited finished phase gets one line.** When a finished phase's document was edited after the run completed it, the answer carries one line naming the phase and saying Kiln does not rebuild finished phases and that changing that work takes a new phase (PLAN-001).
-- [ ] **AC-BACK-03 — Kiln reads the plan from one named place.** Kiln reads this PRD's plan as the table says, and only from these two places. It never reads another feature branch or another worktree.
+- **AC-BACK-02 — retired; what Kiln says about an edited finished phase is now in AC-BACK-01.**
+- [ ] **AC-BACK-03 — Kiln reads the plan from one named place.** Kiln reads this PRD's plan as the table says, never from another feature branch or worktree. Uncommitted edits in the main checkout are never read, committed, stashed, changed or pushed, whatever a reply to a session says; when some are to this PRD's documents, the page names those documents and says Kiln did not read them.
 
   | The person's main checkout of the repository is | Kiln reads the plan from |
   |---|---|
-  | On the base branch with no changes of its own to this PRD's documents, level with or behind the remote | The remote base branch |
-  | On the base branch with commits or saved edits to this PRD's documents that the remote base branch lacks | The main checkout, and the offer says they are not pushed (AC-BACK-05) |
-  | On any other branch | The remote base branch only, and the page names the branch the checkout is on and says it was not read |
+  | On the base branch, with committed unfinished phases (AC-BACK-01) that the remote base branch lacks | The main checkout's committed copy; phases only the remote base branch holds are found once Continue pushes the plan (AC-BACK-05) |
+  | On the base branch otherwise, whatever commits it is ahead or behind by | The remote base branch |
+  | On any other branch, or not found | The remote base branch only, and the page says why the checkout was not read: the branch it is on, or that Kiln could not find it |
 
   - Replaces in part: AC-FIND-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (which source is read is decided by this table; differing sources no longer withhold continuation as a conflict)
-- [ ] **AC-BACK-04 — The offer says what was added, where from, and what Continue does.** When unfinished phases are found, the panel is headed with their count and the words "added to this PRD after Kiln finished it". It lists each phase as planned and not built, says where they came from (the commit that added them with its date and message, or that they are on this machine's base branch and not pushed), and says Continue builds only those phases on a new branch from the base branch and ends with a new pull request. The existing readiness results and their controls stay on the panel and still decide whether Continue is available.
+- [ ] **AC-BACK-04 — The offer says what was added, where from, and what Continue does.** When unfinished phases are found, the panel is headed with their count and the words "added to this PRD after Kiln finished it". It lists each phase as planned and not built, says where they came from (the commit that added them with its date and message, or that they are committed on this machine's base branch and not pushed), and says Continue builds only those phases on a new branch from the base branch and ends with a new pull request. The existing readiness results and their controls stay on the panel and still decide whether Continue is available.
   - Replaces in part: AC-OFFER-01 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (the panel's heading, the planned-not-built marking and the line saying where the phases came from; the header and the rest remain)
-- [ ] **AC-BACK-05 — Continue gets the plan into the base branch first.** When the plan was read from the main checkout, pressing Continue first starts a session in that checkout that commits, where needed, and pushes this PRD's documents to the base branch. Kiln then checks again and starts the build as Continue does today, with no second press. The push session stops at Needs you, with nothing built, in each case the table lists. It never force-pushes and never commits a file that is not one of this PRD's documents.
+- [ ] **AC-BACK-05 — Continue gets the plan into the base branch first.** When the plan was read from the main checkout (AC-BACK-03), pressing Continue first starts a push session (AC-MERGE-05) that pushes the commits to this PRD's documents to the base branch, combining them itself with whatever the remote base branch has gained since. Kiln then checks again and starts the build as Continue does today, with no second press unless AC-OFFER-03 in Kiln Continue Added Phases calls for a fresh choice. The session never force-pushes. In each case the table lists, it pushes nothing, builds nothing and stops at Needs you (AC-MERGE-06); a reply to the same session can tell it to push the other commits too, or how to combine the documents.
 
   | The push session stops when | The page says |
   |---|---|
   | The local base branch holds other commits that would be pushed along | Which commits, and that nothing was pushed |
   | The push is refused, by branch protection or a repository hook | The refusal, word for word |
-  | The remote base branch has changes to the same documents that it cannot combine cleanly | Which documents |
+  | The remote base branch changed the same documents in a way that needs a decision | Which documents, and what needs deciding |
 
-  - Replaces in part: AC-CONTINUE-06 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (the person no longer has to commit and push the revised documents before Continue; the build still starts from the base branch holding them)
+  - Replaces in part: AC-PREFLIGHT-01 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (when Continue must push the plan first, the push session runs before the preflight; the rest remains)
+  - Replaces in part: AC-CONTINUE-06 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (the person no longer has to push the committed documents before Continue; the build still starts from the base branch holding them)
   - Replaces in part: AC-CONTINUE-08 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (Continue also authorizes pushing this PRD's documents to the base branch, and the panel says so before the press)
 
 ### Exit Kiln From the Page
 
-When nothing is running and nothing is left to do, the person can close Kiln where they are looking.
+Whenever no session is running on a finished run, the person can close Kiln where they are looking.
 
-- [ ] **AC-EXIT-01 — The finished page offers Exit Kiln.** On a finished run's page, the Kiln panel shows **Exit Kiln** with a line saying it stops Kiln in its terminal and leaves the pull request and worktree. Once the run is Merged, Exit Kiln is the main button of the pull request card. It is also offered at a merge session's Needs you stop. While a session is running it is unavailable and says why.
+- [ ] **AC-EXIT-01 — The finished page offers Exit Kiln.** A finished run's page shows one **Exit Kiln**: in the Kiln panel; once the run is Merged, as the pull request card's main button instead; and at a stop of AC-MERGE-06, on the Needs you page. A line beside it says it stops Kiln in its terminal and leaves the pull requests and worktrees. It is offered whenever no session is running; while a session runs it is unavailable and says why.
 - [ ] **AC-EXIT-02 — Exit ends Kiln cleanly and says how to come back.** Pressing Exit Kiln ends the Kiln process with a success status, leaves no agent process behind, and changes no pull request, branch, worktree or saved record. The terminal's last line says Kiln was exited from the page and gives the command that opens the PRD again. The page says Kiln has exited, when, that it no longer updates, and the same command.
   - Replaces in part: AC-KEEP-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Kiln also ends when the person presses Exit Kiln on a finished run's page)
 
@@ -109,22 +138,32 @@ A person reading the list of activity should be able to tell an audit from the s
   |---|---|---|
   | A delivery audit | Delivery audit | Loop _n_ of _limit_ |
   | A test audit | Test audit | Loop _n_ of _limit_ |
-  | A session fixing what a test audit saved | Test fixes | From test audit loop _n_ · session _k_ |
+  | A session fixing what a test audit saved | Fixing tests | From test audit loop _n_ · session _k_, where _k_ counts that loop's sessions of test fixes from 1 |
+  | A phase an audit added | Its phase title, as today | No loop number |
 
-  - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (sessions of test fixes are titled Test fixes, and repeat audits are told apart by loop number, not round)
-  - Replaces in part: AC-SHOW-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (audit rows carry the loop number and limit; a session of test fixes names the loop it works from and is not numbered as a loop)
+  - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (sessions of test fixes are titled Fixing tests, and repeat audits are told apart by loop number, not round)
+  - Replaces in part: AC-SHOW-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (only audit rows carry a loop number and the limit, never **last loop**, and a session of test fixes names the loop it works from)
 
 ### A Bot Can Do the Same
 
 Every control this change adds to the page has a command, as Kiln's other controls do.
 
-- [ ] **AC-BOT-01 — The new controls have commands, and status shows the new states.** `kiln merge <PRD-path>` does what Merge with {agent} does and `kiln exit <PRD-path>` does what Exit Kiln does, each with the existing targeting and retry protection. `kiln continue-with-phases` pushes the plan first exactly as the button does (AC-BACK-05). `kiln status` lists both new commands among the controls, with whether each is available and why not, and reports in text and JSON everything these screens show: waiting to merge, merging, merged, a stopped merge session, the two answers of the check for new phases with where the phases came from, and the audit names of AC-AUDIT-01.
-  - Replaces in part: AC-ACT-01 and AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (two more commands join the controls for a run already started)
+- [ ] **AC-BOT-01 — The new controls have commands.** Each control in the table can be used from the command line with the existing targeting and retry protection, and `kiln status` lists each among the controls with whether it is available and why not.
+
+  | On the page | From the command line |
+  |---|---|
+  | Merge with {agent} (AC-MERGE-01) | `kiln merge <PRD-path>`, whose help says what the button's note says |
+  | Exit Kiln (AC-EXIT-01) | `kiln exit <PRD-path>` |
+  | Continue, pushing the plan first (AC-BACK-05) | `kiln continue-with-phases`, which pushes first as the button does |
+  | Check now in the pull request card (AC-WAIT-02) | `kiln check-for-new-phases`, which does what Check now does |
+
+  - Replaces in part: AC-ACT-01 and AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (two more commands join the controls for a run already started, and `kiln merge` merges work, which that PRD left out of the command line)
+  - Replaces in part: AC-BOT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the command that continues with the offered phases also pushes this PRD's documents first, as Continue does, and `kiln check-for-new-phases` does what the card's Check now does)
+- [ ] **AC-BOT-02 — `kiln status` shows the new states.** `kiln status` reports in text and JSON everything these screens show: waiting to merge, merging, merged, pushing the plan, a stopped merge or push session, the two answers Kiln gives when it looks for new phases with where the phases came from, and the audit names of AC-AUDIT-01.
 
 ## Out of Scope
 
-- Merging a delivery that has more than one open pull request (SCOPE-001).
-- A message box, Pause now or takeover while the merge session runs (MERGE-001). A stopped merge session can still be replied to, resumed or opened in a terminal.
+- A message box, Pause now or takeover while the merge or push session runs (for the merge session, MERGE-001). A stopped one can still be replied to, resumed or opened in a terminal.
 - Exit Kiln on the pages of a run still in progress. Ctrl+C remains the way to stop a running, paused or stopped build.
 - Kiln exiting on its own after a merge.
 - Watching GitHub in the background for a merge. A pull request merged outside Kiln is found at Kiln's next check.
