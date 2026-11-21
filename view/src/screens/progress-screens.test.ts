@@ -201,7 +201,9 @@ describe("Running during the pull-request session (AC-PR-05)", () => {
     expect(words).toContain("Model and effort changes apply from the next phase; the pull-request session keeps what it started with.");
     expect(words).toContain("Close to the limit. Weekly");
     expect(words).toContain("Ctrl+C there interrupts the pull-request session");
-    expect(words).not.toContain("Pause");
+    // The final-delivery note names Pause now (Kiln Pause Now AC-PAUSE-02); no pause panel is offered.
+    expect(words).toContain("Live messages and Pause now are unavailable during final delivery.");
+    for (const absent of ["Pause after", "Stops after the command"]) expect(words).not.toContain(absent);
     expect(words).not.toContain("Deliverable review");
   });
 });
@@ -320,7 +322,7 @@ describe("Phase detail", () => {
     snapshot.phases.push({ id: "pr", title: "Final pull request", file: "pull request session", state: "implementing", sessionStartedAt: "2026-10-17T15:40:00Z", finishedByPerson: false });
     const words = detail(snapshot);
     expect(words).toContain("Final pull request");
-    for (const absent of ["Pause", "Deliverable review", "Test hardening", "Refactor pass"]) expect(words, absent).not.toContain(absent);
+    for (const absent of ["Pause after", "Stops after the command", "Deliverable review", "Test hardening", "Refactor pass"]) expect(words, absent).not.toContain(absent);
   });
 });
 

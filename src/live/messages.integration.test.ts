@@ -10,6 +10,8 @@ import { boundPort, reservePort } from "../test-support/os-ports.js";
 import { readGate } from "./gate.js";
 import { readReceipts, type Receipt } from "../control/commands.js";
 import { buildSnapshot } from "../engine/snapshot.js";
+import { formatDecisionLine, formatSummaryLine } from "../underway-output.js";
+import { terminalColors } from "../terminal-output.js";
 let h: Harness; let server: LocalServer | undefined; let origin: string;
 afterEach(async () => { vi.restoreAllMocks(); await server?.close(); server = undefined; await h?.cleanup(); });
 async function setup(actions: object[]) {
@@ -68,6 +70,13 @@ it.skipIf(process.platform !== "darwin")("holds uncertain delivery through resta
   await h.engine.settled();
   await waitFor(async () => { await h.engine.reconcileTakeover(); return h.engine.record.liveControl?.takeover.state === "released"; });
   expect(receipt("uncertain").message?.delivery).toBe("uncertain");
+  // A pause for an uncertain message keeps today's terminal lines, not Pause now's Paused ones (Kiln Pause Now AC-PAUSE-05).
+  const colors = terminalColors({ isTTY: false }, {});
+  expect(formatSummaryLine(h.engine, colors)).toContain("needs you");
+  expect(formatSummaryLine(h.engine, colors)).not.toMatch(/paused in|pausing in/);
+  expect(formatDecisionLine({ kind: "needs_you", phaseKey: "1", again: true }, h.engine, colors)).toContain("Phase 1 still needs you.");
+  expect(h.engine.liveView()?.pauseNow).toBeUndefined();
+  expect(h.events.filter(e => e.kind === "phase" && e.event === "paused")).toEqual([]);
   expect((await post("live/message", { instructionId: "uncertain", target, text: "  inspect this exact instruction\n" })).status).toBe(202);
   expect(inputs()).toHaveLength(1);
   const stop = buildSnapshot(h.engine).needsYou!;
@@ -141,26 +150,33 @@ it.skipIf(process.platform !== "darwin").each(["intent", "write_started", "write
     await waitFor(() => existsSync(killedAt), 15000); controller.kill("SIGKILL"); await exited; await request;
     h.engine = h.reopenFromDisk(); await h.engine.prepare();
     const r = receipt(`crash-${boundary}`);
-    if (boundary === "intent") expect(r.message?.delivery).toBe("not_sent");
+    if (boundary === "intent") {
+      expect(r.message?.delivery).toBe("not_sent");
+      // A recovered attempt with no hold names Pause now in why it waits (Kiln Pause Now AC-PAUSE-02).
+      await h.engine.decide();
+      expect(h.engine.liveView()?.reason).toBe("Input connection lost. Pause now waits for this session to end on its own; no forced interruption.");
+    }
     else if (boundary === "evidence") expect(r.message?.resultAt).toBeDefined();
     else { expect(r.message?.delivery).toBe("uncertain"); expect(h.engine.record.liveControl).toBeDefined(); }
     expect(await isProcessLive(run.pid!, run.processStartTime)).toBe(!boundary.endsWith("review")); expect(h.claudeCalls()).toHaveLength(1);
     if (boundary === "write_completed") {
       await h.engine.decide();
       expect(h.engine.liveView()).toMatchObject({ available: true, input: { available: false } });
-      expect(h.engine.liveView()?.input?.reason).toContain("Input connection lost");
+      // The recovered attempt's reasons name Pause now (Kiln Pause Now AC-PAUSE-02).
+      expect(h.engine.liveView()?.input?.reason).toBe("Input connection lost. Your unsent draft is retained; use Pause now to recover.");
       expect(h.engine.controlView().controls.find(c => c.name === "verify-and-advance")).toMatchObject({ available: false, reason: expect.any(String) });
       const { launchChrome } = await import("../test-support/headless-chrome.js");
       const browser = await launchChrome();
       server = await startLocalServer({ engine: h.engine, port, folderName: "customer-returns", featureName: "Restarted uncertain input", token: h.engine.record.token });
       const page = await browser.open(`${server.address}/phase/1`, { width: 390, height: 1100 });
       try {
-        const take = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Pause & take over')`;
+        const take = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Pause now')`;
         await page.waitFor(`${take} && !${take}.disabled`);
         expect(await page.evaluate("document.body.innerText")).toContain("Input connection lost");
         expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='Send message').disabled`)).toBe(true);
         await page.evaluate(`${take}.click()`);
-        await page.waitFor(`document.body.innerText.includes('Pausing for takeover — finishing the current operation')`);
+        // The pause panel turns to its pausing wording with Cancel, and Pause now is no longer offered (Kiln Pause Now AC-PAUSE-03).
+        await page.waitFor(`/^Pausing — /.test(document.querySelector('.pausing .title')?.textContent ?? '') && Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Cancel pause and keep going') && !${take}`);
         writeFileSync("/tmp/kiln-phase8-restarted-uncertain-390.png", await page.screenshot());
         expect(page.problems).toEqual([]);
       } finally { await page.close(); await browser.close(); await server.close(); server = undefined; }

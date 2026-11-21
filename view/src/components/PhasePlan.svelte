@@ -31,6 +31,8 @@
     implementing: { circle: "implementing", pill: "red", icon: "spinner" },
     interrupted: { circle: "amber", pill: "amber-outline" },
     needs_you: { circle: "amber", pill: "amber", icon: "warning" },
+    // Paused by Pause now (Kiln Pause Now AC-PAUSE-05): the neutral outline, as mockup frame 3 draws it.
+    paused: { circle: "next", pill: "strong-outline" },
     waiting: { circle: "next", pill: "strong-outline", icon: "clock" },
     next: { circle: "next", pill: "strong-outline" },
     planned: { circle: "planned", pill: "dashed" },
@@ -41,7 +43,7 @@
   <div class="head"><h2 id="plan-h" class="eyebrow">Phase plan</h2><span class="count">{snapshot.feature.phasesDone} of {snapshot.feature.phasesTotal} done</span></div>
   <ol>
     {#each rows as row (row.id)}
-      {@const state = rowState(row, connected)}
+      {@const state = rowState(row, connected, snapshot.liveControl?.pauseNow)}
       {@const pill = preflightPill(row)}
       {@const look = pill?.warning ? { circle: "amber" as const, pill: "amber-outline" as const, icon: "warning" as const } : LOOKS[state]}
       {@const facts = rowFacts(row, state, now)}

@@ -204,11 +204,16 @@ it.skipIf(process.platform !== "darwin")("replays durable completion evidence af
 
 it.skipIf(process.platform !== "darwin")("refuses unreadable registry ownership and preserves the hold until recovery succeeds", async () => {
   const { release, target } = await setup(); await post("live/take-over", { instructionId: "ownership-error", target });
-  writeFileSync(release, "done"); await h.engine.settled();
+  writeFileSync(release, "done"); await h.engine.settled(); await waitForRelease();
   const registry = join(h.env.CLAUDE_CONFIG_DIR!, "sessions", "broken.json");
   writeFileSync(registry, "{"); await h.engine.reconcileTakeover();
-  expect(h.engine.record.liveControl!.takeover.state).toBe("pending");
-  expect(buildSnapshot(h.engine).needsYou!.resumeCommand).toBeUndefined();
+  const hold = h.engine.record.liveControl!.takeover;
+  expect(hold.state).toBe("pending");
+  // Unreadable ownership after the release is an obstacle on the paused page; the Pause now stays paused and keeps its command (Kiln Pause Now, "When Paused begins").
+  expect(hold.obstacle).toMatchObject({ code: "ownership_unknown" });
+  expect(hold.releasedAt).toBeDefined();
+  expect(buildSnapshot(h.engine).needsYou!.resumeCommand).toContain(target.sessionId);
+  expect(h.engine.liveView()?.pauseNow).toMatchObject({ phase: "paused", obstacle: { code: "ownership_unknown" } });
   expect(h.claudeCalls()).toHaveLength(1);
   const { unlinkSync } = await import("node:fs"); unlinkSync(registry);
   await waitForRelease(); expect(h.engine.record.liveControl!.takeover.state).toBe("released");
@@ -284,17 +289,31 @@ it.skipIf(process.platform !== "darwin")("offers takeover on a newer Claude Code
   const { release, target } = await setup("stand-in");
   // Version comparison: an unreadable version turns live control off with a notice per feature (AC-AGENT-04).
   const detail = "its --version output is not a version Kiln recognises";
-  expect(h.engine.liveView()).toMatchObject({ available: false, reason: `Pause & take over unavailable with Claude Code unrecognised: ${detail}.`, input: { available: false, reason: `Message Claude unavailable with Claude Code unrecognised: ${detail}.` } });
+  expect(h.engine.liveView()).toMatchObject({ available: false, reason: `Pause now unavailable with Claude Code unrecognised: ${detail}.`, input: { available: false, reason: `Message Claude unavailable with Claude Code unrecognised: ${detail}.` } });
   expect(h.engine.latestSession("1")!.runs.at(-1)!.live).toBeUndefined();
   const attemptId = h.engine.latestSession("1")!.runs.at(-1)!.control!.attemptId;
   expect(h.engine.record.compatibility).toEqual([
     expect.objectContaining({ feature: "live_messages", agentId: "claude_code", agentVersion: "unrecognised", detail, attemptId }),
     expect.objectContaining({ feature: "takeover", agentId: "claude_code", agentVersion: "unrecognised", detail, attemptId }),
   ]);
-  expect(buildSnapshot(h.engine).compatibility).toEqual([`Message Claude unavailable with Claude Code unrecognised: ${detail}`, `Pause & take over unavailable with Claude Code unrecognised: ${detail}`]);
+  expect(buildSnapshot(h.engine).compatibility).toEqual([`Message Claude unavailable with Claude Code unrecognised: ${detail}`, `Pause now unavailable with Claude Code unrecognised: ${detail}`]);
   expect((await post("live/take-over", { instructionId: "unsupported", target })).status).toBe(409);
   expect(h.engine.record.liveControl).toBeUndefined();
   writeFileSync(release, "done"); await h.engine.settled();
+});
+
+// Kiln Pause Now AC-PAUSE-02: the withheld reasons name Pause now.
+it.skipIf(process.platform !== "darwin")("names Pause now when withholding it off macOS with no version notice, and once no live Claude target remains", async () => {
+  const { release } = await setup();
+  expect(h.engine.record.compatibility).toBeUndefined();
+  // Live control needs macOS: the same attempt seen from another platform is withheld with the reason naming Pause now.
+  const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { ...platform, value: "linux" });
+  try { expect(h.engine.liveView()).toMatchObject({ available: false, reason: "Pause now needs a supported Claude Code on macOS. Pause after the current activity remains available." }); }
+  finally { Object.defineProperty(process, "platform", platform); }
+  writeFileSync(release, "done"); await h.engine.settled();
+  expect(h.engine.liveTarget()).toBeUndefined();
+  expect(h.engine.controlView().controls.find(c => c.name === "take-over")).toMatchObject({ available: false, reason: "Pause now needs an active supported Claude phase or audit." });
 });
 
 it.skipIf(process.platform !== "darwin")("keeps an accepted takeover through actual controller death while the old operation remains running", async () => {
@@ -357,7 +376,7 @@ it.skipIf(process.platform !== "darwin")("explains a known finished exact takeov
     const response = versioned ? await post("control/v1/commands", { command_id: id, execution_id: target.executionId, status_token: h.engine.controlView().token, action: "take_over", inputs: { target } }) : await post("live/take-over", { instructionId: id, target });
     expect(response.status).toBe(409);
     const receipt = h.engine.commands.lookup(id).operation;
-    expect(receipt).toMatchObject({ state: "refused", reason: "The targeted activity finished before takeover was accepted. Its successor was not paused." });
+    expect(receipt).toMatchObject({ state: "refused", reason: "The targeted activity finished before Pause now was accepted. Its successor was not paused." });
   }
   await post("live/take-over", { instructionId: "unknown-finished", target: { ...target, activityId: "unknown" } });
   expect(h.engine.commands.lookup("unknown-finished").operation).toMatchObject({ state: "refused", reason: "The observed execution or control state changed. Refresh status." });

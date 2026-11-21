@@ -464,7 +464,7 @@ describe("automatic completion activities", () => {
       const page=await chrome.open(server!.address);await page.waitFor(`document.body.innerText.includes('Continuation 2')`);
       expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Test audit");
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
-      await page.waitFor(`document.body.innerText.includes('Continuation 2') && document.body.innerText.includes('Pause after this audit')`);
+      await page.waitFor(`document.body.innerText.includes('Continuation 2') && /Pause after test audit · round \\d/.test(document.body.innerText)`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
       writeFileSync(marker,"continue");await h.engine.settled();expect(h.engine.record.completedAt).toBeTruthy();
       await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);await page.waitFor(`document.body.innerText.includes('PR ready for review')`);
@@ -535,13 +535,13 @@ describe("automatic completion activities", () => {
     try {
       await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
       const page = await chrome.open(server!.address);
-      await page.waitFor(`document.body.innerText.includes('Pause after this audit')`);
+      await page.waitFor(`/Pause after (delivery|test) audit · round \\d/.test(document.body.innerText)`);
       const key = auditKey(h.engine.record.completionAudits!.activities[0]!);
       expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Delivery audit");
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
       await page.waitFor(`document.body.innerText.includes('Delivery audit · Round 1')`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
-      await page.evaluate(`[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Pause after this audit')).click()`);
+      await page.evaluate(`[...document.querySelectorAll('button')].find(b=>/^Pause after (delivery|test) audit · round \\d/.test(b.textContent.trim())).click()`);
       await waitFor(() => !!h.engine.record.pause.requestedAt);
       writeFileSync(marker, "continue"); await h.engine.settled();
       expect(h.engine.record.pause.activeSince).toBeTruthy();

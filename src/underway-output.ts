@@ -27,6 +27,9 @@ export function whereItStands(engine: Engine): string {
   if (record.completedAt && record.developmentAuthorization?.enabled) return "previously complete; current delivery is being reconciled";
   const waiting = engine.waitingPhaseKey();
   if (waiting !== undefined) return `${phaseName(engine.judgedId(waiting), engine)} is waiting for usage`;
+  // Pause now reads as pausing or paused, never needs you (Kiln Pause Now AC-PAUSE-03, AC-PAUSE-05).
+  const pause = engine.pauseNowPhase();
+  if (pause) return `${pause.phase === "paused" ? "paused in" : "pausing in"} ${phaseName(engine.judgedId(pause.key), engine)}`;
   const stopped = engine.stoppedPhaseKey();
   if (stopped !== undefined) return `${phaseName(engine.judgedId(stopped), engine)} needs you`;
   for (const [key, facts] of Object.entries(record.phases)) {
@@ -73,7 +76,11 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       break;
     case "needs_you": {
       const judged = engine.judgedId(decision.phaseKey);
-      text = `${capitalized(phaseName(judged, engine))} ${decision.again ? "still needs you" : "needs you"}.`;
+      const pause = engine.pauseNowPhase();
+      const activity = phaseName(judged, engine);
+      text = pause?.key === decision.phaseKey
+        ? pause.phase === "paused" ? `Paused in ${activity}. Press Resume ${activity} to go on.` : `${capitalized(activity)} is pausing. Kiln finishes the pause on its own.`
+        : `${capitalized(activity)} ${decision.again ? "still needs you" : "needs you"}.`;
       break;
     }
     case "plan_stop":

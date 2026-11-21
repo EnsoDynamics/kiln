@@ -12,6 +12,12 @@ section to the new version.
 
 ### Added
 
+- **Pause now** and **Pause after {activity}** replace **Pause & take over**. Pause now stops
+  after the command the session is running, never interrupting it, and Cancel undoes it until
+  that stop. While Kiln is pausing, the page says what it is waiting for and that you can close
+  the lid. Once stopped, a calm **Paused** page offers both ways on, side by side: **Resume**,
+  which carries on in the same conversation, or the command to take that conversation over in
+  your terminal. Pause after lets the current phase or audit finish first.
 - `kiln check-for-new-phases` checks a finished run for new phases, as the finished page's
   **Check for new phases** button does, and `kiln continue-with-phases` continues the run with
   the phases it offers. `kiln status` shows the offer, with its phases, whether it is ready and

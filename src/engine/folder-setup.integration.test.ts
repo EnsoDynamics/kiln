@@ -1621,7 +1621,7 @@ const heldBy = (h: Harness, key = "2b") => {
   const session = h.engine.latestSession(key)!;
   const target = { executionId: h.engine.record.executionId!, activityId: key, activityKey: key, sessionId: session.sessionId, providerSessionId: session.sessionId, attemptId: session.runs.at(-1)!.control?.attemptId ?? createHash("sha256").update(`${h.engine.record.executionId}:${session.sessionId}:${session.runs.length - 1}`).digest("hex") };
   const at = new Date().toISOString();
-  return { version: 1 as const, revision: 1, takeover: { target, operationId: "take-over", instructionId: "take-over", requestedAt: at, state: "released" as const, observedAt: at, reason: "Paused for terminal takeover." } };
+  return { version: 1 as const, revision: 1, takeover: { target, operationId: "take-over", instructionId: "take-over", requestedAt: at, releasedAt: at, state: "released" as const, observedAt: at, reason: "Paused." } };
 };
 const lines = (panel: SetupPanel) => panel.preview.lets.map(row => text(row.parts));
 

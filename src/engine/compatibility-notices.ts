@@ -4,7 +4,7 @@
 // unless that use writes its own (technical design, Compatibility notices row).
 import { AGENT_NAMES, type CompatibilityNotice, type CompatibilityFeature, type LiveContract, type LiveRunFacts, type PrdRecord, type SessionRecord } from "../state/records.js";
 
-const featureNames: Record<CompatibilityFeature, string> = { live_messages: "Message Claude", takeover: "Pause & take over", codex_history: "Codex command evidence" };
+const featureNames: Record<CompatibilityFeature, string> = { live_messages: "Message Claude", takeover: "Pause now", codex_history: "Codex command evidence" };
 
 /** `<feature> unavailable with <agent> <version>: <detail>` */
 export const noticeText = (notice: CompatibilityNotice): string =>
@@ -60,7 +60,7 @@ export function applyCodexHistoryReadings(record: PrdRecord, readings: { session
 
 /**
  * At the launch of a Claude attempt eligible for live control, which is a use of Message Claude
- * and Pause & take over: a notice naming this Claude Code version starts that contract
+ * and Pause now: a notice naming this Claude Code version starts that contract
  * unrecognised; one naming another version is dropped and the contract starts unproven.
  */
 export function liveContractAtLaunch(record: PrdRecord, feature: "live_messages" | "takeover", agentVersion: string): { contract: LiveContract; changed: boolean } {
@@ -74,6 +74,6 @@ export function liveNoticeReason(record: PrdRecord, feature: "live_messages" | "
   return notice ? `${noticeText(notice)}.` : undefined;
 }
 
-/** A Message Claude or Pause & take over notice for a live Claude attempt, naming its Claude Code version. */
+/** A Message Claude or Pause now notice for a live Claude attempt, naming its Claude Code version. */
 export const liveNotice = (live: Pick<LiveRunFacts, "agentVersion" | "attemptId">, feature: "live_messages" | "takeover", detail: string, observedAt: string): CompatibilityNotice =>
   ({ feature, agentId: "claude_code", agentVersion: live.agentVersion ?? "unrecognised", detail, attemptId: live.attemptId, observedAt });

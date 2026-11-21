@@ -1,5 +1,6 @@
 import { activityKeyKind } from "../state/activity-keys.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
+import { pausingStatusText } from "../live/pause-now.js";
 import { messageReceiptLabel } from "../live/target.js";
 import { expandHome } from "../engine/worktree-setup.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -282,7 +283,9 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const pauseAudit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === pauseKey);
   const pauseLabel = pauseAudit ? `${pauseAudit.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${pauseAudit.round}` : pauseKey && activityKeyKind(pauseKey) === "preflight" ? "Preflight" : pauseKey ? `Phase ${pauseKey}` : "Activity";
   const takeover = view?.liveControl?.takeover;
-  const takeoverStatus = takeover ? takeover.kind === "delivery_recovery" ? "Delivery uncertain. Review the conversation before explicit hand-back." : takeover.state === "released" ? "Paused for terminal takeover." : "Pausing for takeover — finishing the current operation. Wait before opening Claude." : record.pause.activeSince ? `${pauseLabel} finished. Paused before the next activity.` : record.pause.requestedAt ? `Will pause after ${pauseLabel} finishes. Current work continues.` : null;
+  const pauseNow = view?.liveControl?.pauseNow;
+  // Under Pause now: "Pausing — …" with its running commands or processes, or "Paused."; with no projection, a launch from the paused page is starting (Kiln Pause Now, "The Pause Now State").
+  const takeoverStatus = takeover ? takeover.kind === "delivery_recovery" ? "Delivery uncertain. Review the conversation before explicit hand-back." : pauseNow ? pauseNow.phase === "paused" ? "Paused." : pausingStatusText(pauseNow) : "The new session is starting." : record.pause.activeSince ? `${pauseLabel} finished. Paused before the next activity.` : record.pause.requestedAt ? `Will pause after ${pauseLabel} finishes. Current work continues.` : null;
   const pauseStatus = takeover && record.pause.requestedAt && !record.pause.activeSince ? `${takeoverStatus} Will pause after ${pauseLabel} finishes. Current work continues.` : takeoverStatus;
   const retainedInstructions = sessionId ? cache?.handoffs?.[sessionId] : undefined;
   if (savedStop && !stop && !retainedInstructions) statusErrors.push(errorFact("state_unavailable", "Saved inspection stop details are unavailable; readable stop facts are retained, but no matching recovery instructions were saved."));

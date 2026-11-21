@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "77bc76ad-bd4c-4d31-b6a4-3b6da5caea30",
+  "activityId": "1384229d-11a6-4f9f-a42a-12c33cd7d5a8",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "Repair delivery audit of Kiln Pause Now (whole PRD) after phase 2. All six criteria, AC-PAUSE-01 to AC-PAUSE-06, are implemented: Pause now and the pausing and paused states now name the leaf a split phase works on and an audit with its round, and the session page shows the Pausing {activity} header beside the phases done. One round of fresh assessors confirmed no gap, so nothing is left to build and the test audit follows.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": []
+}

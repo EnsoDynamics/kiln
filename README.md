@@ -30,7 +30,7 @@ Kiln is optional. Everything it does, a person can do by hand with the same skil
 | [Enso Method](https://github.com/EnsoDynamics/enso-method#get-started) skills | Installed in that agent |
 | Platform | macOS is validated. Linux and Windows are best effort; please [open an issue](https://github.com/EnsoDynamics/kiln/issues) if something breaks. |
 
-Kiln accepts every version at or above these minimums and checks them before it starts work. If a newer Claude Code or Codex changes what **Message Claude**, **Pause & take over** or Codex command evidence relies on, that feature turns off with a compatibility notice in the browser view and `kiln status`, and the rest of the run carries on. Billing details Kiln doesn't recognise show the neutral **Claude Code settings** summary instead ([Billing](#billing)). Codex details and limits are in [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
+Kiln accepts every version at or above these minimums and checks them before it starts work. If a newer Claude Code or Codex changes what **Message Claude**, **Pause now** or Codex command evidence relies on, that feature turns off with a compatibility notice in the browser view and `kiln status`, and the rest of the run carries on. Billing details Kiln doesn't recognise show the neutral **Claude Code settings** summary instead ([Billing](#billing)). Codex details and limits are in [Codex prerequisites and validation limits](docs/release/kiln-codex-macos-validation.md).
 
 ## Install
 
@@ -160,7 +160,7 @@ A few things worth knowing:
 - **Several repositories.** When a PRD spans repositories, each gets its own worktree, feature branch and pull request.
 - **Pause.** **Pause after this phase** lets the current phase finish, commit and push, then starts nothing new until you press Start.
 - **Watch live.** Follow each tool call and message as it happens, with the session's model, effort and commits, and your account's usage beside it.
-- **Message or take over.** On macOS with Claude Code 2.1.311 or later, **Message Claude** sends the running session a note it reads at its next opportunity, and **Pause & take over** stops it at the next safe point so you can carry on in that conversation yourself. Kiln asks Claude Code to take each message as plain text but can't guarantee how every version handles it. If Kiln stops recognising what a newer Claude Code sends back, that control turns off with a compatibility notice and the phase carries on.
+- **Message or pause now.** On macOS with Claude Code 2.1.311 or later, **Message Claude** sends the running session a note it reads at its next opportunity, and **Pause now** stops it after the command it is running. Until it stops you can cancel the pause; once paused, press **Resume** or open the same conversation in your terminal and carry on yourself. Kiln asks Claude Code to take each message as plain text but can't guarantee how every version handles it. If Kiln stops recognising what a newer Claude Code sends back, that control turns off with a compatibility notice and the phase carries on.
 
 Completion checks use the assigned worktrees' Git state and the audit and delivery receipts. Other checkouts and worktrees can change normally while Kiln runs.
 

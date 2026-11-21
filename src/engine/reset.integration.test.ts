@@ -26,9 +26,9 @@ it("is unavailable while a session works, saying how to stop it, refused as a co
     await waitFor(() => h!.engine.current?.processRunning === true);
     // While the launch is being dispatched no pause is offered either; the page then offers Pause after.
     await waitFor(() => !!h!.engine.controlView().controls.find(control => control.name === "request-pause")?.available);
-    // Pause & take over is named only where it is offered; Pause after is offered here.
+    // Pause now is named only where it is offered; Pause after is offered here.
     const live = h.engine.liveView();
-    const takeOver = "Reset isn't available while a session is working. Stop it now with Pause & take over above, or pause after the current phase or audit and reset once it ends.";
+    const takeOver = "Reset isn't available while a session is working. Stop it now with Pause now above, or pause after the current phase or audit and reset once it ends.";
     const pauseAfter = "Reset isn't available while a session is working. Pause after the current phase or audit and reset once it ends.";
     for (const [available, reason] of [[true, takeOver], [false, pauseAfter]] as const) {
       const offered = vi.spyOn(h.engine, "liveView").mockReturnValue({ ...(live ?? {}), available } as NonNullable<typeof live>);

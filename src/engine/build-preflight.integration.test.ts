@@ -101,9 +101,9 @@ describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01
     expect(h.engine.pause()).toMatchObject({ ok: false, reason: PREFLIGHT_PAUSE_REASON });
     expect(h.engine.controlView().controls.find(one => one.name === "request-pause")).toMatchObject({ available: false, reason: PREFLIGHT_PAUSE_REASON });
     expect(h.engine.liveView()).toBeUndefined();
-    // By command too, Message Claude and Pause & take over are refused, saying why, once no instruction is in flight (AC-PREFLIGHT-08).
+    // By command too, Message Claude and Pause now are refused, saying why, once no instruction is in flight (AC-PREFLIGHT-08).
     await waitFor(() => !h.engine.commands.busy);
-    for (const name of ["message", "take-over"]) expect(h.engine.controlView().controls.find(one => one.name === name)).toMatchObject({ available: false, reason: expect.stringMatching(/^Live messages, terminal takeover and a pause are unavailable during the preflight\./) });
+    for (const name of ["message", "take-over"]) expect(h.engine.controlView().controls.find(one => one.name === name)).toMatchObject({ available: false, reason: expect.stringMatching(/^Live messages, Pause now and a pause after the activity are unavailable during the preflight\./) });
     expect(h.engine.resetControl().reason).not.toMatch(/Pause after the current/);
     expect(buildSnapshot(h.engine).feature.currentPhaseId).toMatch(/^preflight-/);
     writeFileSync(releasePath, "");

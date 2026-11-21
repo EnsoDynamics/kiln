@@ -114,8 +114,9 @@ it.skipIf(process.platform !== "darwin")("uses one admission authority for brows
   h.engine.record.pause.requestedAt = new Date().toISOString();
   const handoff = await cli(["handoff", path()]); expect(handoff.body.data).toMatchObject({ resumable: false, resume_command: null, resume_argv: null, fresh_session_instructions: null });
   const pendingStatus = await status();
-  expect(pendingStatus.pause_status).toContain("Pausing for takeover");
-  expect(pendingStatus.pause_status).toContain("Will pause after Phase 1 finishes. Current work continues.");
+  // While pausing, kiln status gives the pause panel's row title (Kiln Pause Now, "The Pause Now State"), never the old wait text.
+  expect(pendingStatus.pause_status).toMatch(/^Pausing — .+ Will pause after Phase 1 finishes\. Current work continues\.$/);
+  expect(pendingStatus.pause_status).not.toContain("Wait before opening Claude");
   expect((pendingStatus.controls as { name: string; available: boolean; reason: string }[]).find(c => c.name === "verify-and-advance")).toMatchObject({ available: false, reason: expect.any(String) });
   expect((await cli(["status", path()], undefined, false)).text).toContain("Will pause after Phase 1 finishes. Current work continues.");
   expect((await cli([...args("message", "after-takeover"), "--message-from-stdin"], Buffer.from("not sent"))).code).toBe(3);
@@ -123,7 +124,12 @@ it.skipIf(process.platform !== "darwin")("uses one admission authority for brows
   await release();
   const ready = await cli(["handoff", path()]); expect(ready.code, ready.text).toBe(0);
   expect(ready.body.data).toMatchObject({ resumable: true, resume_argv: ["claude", "--resume", target.providerSessionId], terminal_readiness: { ready: true } });
-  expect((await status()).pause_status).toBe("Paused for terminal takeover. Will pause after Phase 1 finishes. Current work continues.");
+  const pausedStatus = await status();
+  expect(pausedStatus.pause_status).toBe("Paused. Will pause after Phase 1 finishes. Current work continues.");
+  // The progress block reads "paused" where it said "needs you", while the JSON state stays needs_you (Kiln Pause Now, "The Pause Now State").
+  expect((pausedStatus.progress as { key: string; state: string }[]).find(row => row.key === "1")).toMatchObject({ state: "needs_you" });
+  const pausedText = (await cli(["status", path()], undefined, false)).text;
+  expect(pausedText).toMatch(/^Phase 1 .* paused$/m); expect(pausedText).not.toMatch(/^Phase 1 .* needs you$/m);
   expect(h.engine.record.pause.requestedAt).toBeDefined(); expect(h.engine.record.phases["1"]!.doneAt).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(1);
 });
 
@@ -244,7 +250,7 @@ describe.skipIf(process.platform !== "darwin").each([
   }
   h.engine.record.pause.requestedAt = new Date().toISOString(); await h.engine.reconcileTakeover();
   const label = `${kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${audit.round}`;
-  expect((await status()).pause_status).toBe(`Paused for terminal takeover. Will pause after ${label} finishes. Current work continues.`);
+  expect((await status()).pause_status).toBe(`Paused. Will pause after ${label} finishes. Current work continues.`);
   expect((await cli(["status", path()], undefined, false)).text).toContain(`Will pause after ${label} finishes. Current work continues.`);
   const returned = await cli(args(action, "audit-return")); expect(returned.code, returned.text).toBe(0); await h.engine.commands.settled(); await h.engine.settled();
   expect(receipt("audit-return").state, JSON.stringify(receipt("audit-return"))).toBe("completed");

@@ -9,10 +9,17 @@ import { consumedUuids } from "./target.js";
 import type { LiveTarget } from "./target.js";
 
 export interface GateState {
-  version: 1 | 2; target: LiveTarget; held?: { operationId: string; instructionId: string; requestedAt: string };
+  version: 1 | 2; target: LiveTarget;
+  /** `inFlight`: the operation IDs admitted and unsettled when the hold was accepted (Kiln Pause Now, "lastCommand"). */
+  held?: { operationId: string; instructionId: string; requestedAt: string; inFlight?: string[] };
   inputs?: Record<string, { terminal: boolean }>; sealed?: boolean;
   observedAt: string; checkpoint?: string; obstacle?: string;
-  operations: Record<string, { name: string; agentId?: string; parentId?: string; admittedAt: string; hookSettled?: boolean; settled?: boolean; response?: unknown; resultSeen?: boolean }>;
+  /** The stop (Kiln Pause Now, "The Stop and Cancel"): written once, by the first response that acts on the hold. Bound to the hold's operation ID. */
+  stop?: { at: string; by: "deny" | "yield" | "seal"; operationId: string };
+  /** Set on a `result` for the target conversation, cleared by a later `assistant` event or newly admitted input. */
+  turnEndedAt?: string;
+  /** `label`: the tool and its main input at admission, for display only. `backgrounded`: its tool result arrived while a task it started was unsettled. */
+  operations: Record<string, { name: string; agentId?: string; parentId?: string; admittedAt: string; hookSettled?: boolean; settled?: boolean; response?: unknown; resultSeen?: boolean; label?: { tool: string; input?: string }; backgrounded?: boolean }>;
   tasks: Record<string, { toolId?: string; settled: boolean; ambient?: boolean }>;
   tracked: { pid: number; startTime: string }[];
   /** Observed descendant PIDs awaiting identity or conclusive disappearance. */
@@ -97,6 +104,10 @@ export async function withGate<T>(directory: string, update: (state: GateState) 
     else { unlinkSync(ownerFile); rmdirSync(lock); syncDirectory(directory); }
   }
 }
+/** Records the stop the first time a response acts on the hold; later responses leave it as written. */
+export function recordStop(state: GateState, by: "deny" | "yield" | "seal", at: string): void {
+  if (state.held && !state.stop) state.stop = { at, by, operationId: state.held.operationId };
+}
 /** An operation's tool result settles it; an Agent or Task only once its agent has ended. */
 export function settleByResult(state: GateState, id: string, response: { status?: string; agentId?: string } | undefined): void {
   const operation = state.operations[id]!;
@@ -118,7 +129,12 @@ export function unsettled(state: GateState): string[] {
 export async function observeGate(directory: string, event: Record<string, unknown>, observedAt: string | undefined): Promise<void> {
   await withGate(directory, state => {
     if (observedAt && Date.parse(observedAt) > Date.parse(state.observedAt)) state.observedAt = observedAt;
-    if (event.type === "result" && event.session_id === state.target.providerSessionId) for (const uuid of consumedUuids(event)) if (state.inputs?.[uuid]) state.inputs[uuid].terminal = true;
+    if (event.type === "result" && event.session_id === state.target.providerSessionId) {
+      for (const uuid of consumedUuids(event)) if (state.inputs?.[uuid]) state.inputs[uuid].terminal = true;
+      state.turnEndedAt = observedAt ?? state.observedAt;
+    }
+    // Any later assistant event, including a turn Claude starts on its own (a background task's completion notice), clears it.
+    if (event.type === "assistant") delete state.turnEndedAt;
     // Ambient housekeeping/live-update watchers are explicitly not activity.
     // Preserve terminal settlement and use snapshots to track ambient changes;
     // snapshots and task-start bookends may arrive in either order.
@@ -149,6 +165,9 @@ export async function observeGate(directory: string, event: Record<string, unkno
       const operation = state.operations[block.tool_use_id];
       if (operation) {
         const response = event.tool_use_result as { status?: string; agentId?: string } | undefined;
+        // A tool result that arrives while a non-ambient task the call started is unsettled: the
+        // "running in background" result of a background Bash. Agent and Task wait for their subagent.
+        if (!operation.backgrounded && operation.name !== "Agent" && operation.name !== "Task" && Object.values(state.tasks).some(t => t.toolId === block.tool_use_id && !t.settled && !t.ambient)) operation.backgrounded = true;
         // Kept for the case where the hook contract turns out unrecognised after this result arrived.
         if (!operation.hookSettled) { operation.resultSeen = true; if (response) operation.response ??= response; }
         // Once the hook contract is unrecognised, the hook may never settle an operation it
