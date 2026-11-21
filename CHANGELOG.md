@@ -10,6 +10,8 @@ section to the new version.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-21
+
 ### Added
 
 - **Pause now** and **Pause after {activity}** replace **Pause & take over**. Pause now stops
