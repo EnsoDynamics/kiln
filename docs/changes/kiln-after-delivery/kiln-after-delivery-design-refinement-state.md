@@ -1,11 +1,11 @@
 # Design Refinement State — Kiln After Delivery
 
-Started: 2026-11-21   Current pass: 3   Status: In progress
+Started: 2026-11-21   Current pass: 4   Status: In progress
 Branch: feature/kiln-merge-with-agent (worktree .worktrees/kiln-merge-with-agent/kiln; commit, never push)
 Existing code posture: Preserve, except the finished-run comparisons the design removes (source: TD §Existing Code)
 Code baseline: this branch forked from develop at c41c7af; Kiln Pause Now (PR #20, merged) is on origin/develop only — read it with `git show origin/develop:<path>` / `git grep <pattern> origin/develop`
 PRD words: at start 3871 · growth baseline 3871
-Last updated: 2026-11-21 (pass 2 checkpoint)
+Last updated: 2026-11-21 (pass 3 checkpoint)
 
 ## Documents
 | Document | Path |
@@ -20,6 +20,7 @@ Last updated: 2026-11-21 (pass 2 checkpoint)
 |---|---|---|---|---|---|---|---|
 | 1 | 16 (13 discovery + 2 conflict + Q1) | 12 | 11 | 0 | 5 (Q5 + untaken Q3, Q12–Q14) | 0 | 0 |
 | 2 | 6 (+3 conformance carried as Q17–Q19) | 12 | 11 | 0 | 2 (Q21 at 88%; untaken Q25) | 0 | 0 |
+| 3 | 4 (3 discovery + Q31 sibling; +2 conformance carried as Q26–Q27) | 9 (Q21, Q25–Q31) | 9 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -45,17 +46,28 @@ Last updated: 2026-11-21 (pass 2 checkpoint)
 | Q18 | 1 | Card/stop wording once a merge activity exists and a PR is closed: AC-MERGE-07's "reopening it on GitHub brings the merge back" vs Resume (conformance) | Technical | LOW | ? → 90 | Resolved | PRD AC-MERGE-07; TD §Display Contract, §Verification; mockup state 4 |
 | Q19 | 1 | AC-BACK-03 "Not found" parenthetical "(moved or removed while Kiln was open)" narrower than design? (conformance) | Technical | LOW | ? → 95 | Dropped | — |
 | Q20 | 2 | Completion record: judge finished execution's phase keys against the execution's recorded plan, not today's plan (else finished 3 that gained 3a marks 3a finished) (E1) | Technical | HIGH | 88 → 97 | Resolved | TD §The Plan Check step 3, §Verification |
-| Q21 | 2 | After Ctrl+C, kiln run resumes an open merge/push activity via restart review: what does the page show (finished page Interrupted row + Resume vs Paused overview), Exit placement (E2) | Technical | MEDIUM | 60 → 88 | Deferred | — |
+| Q21 | 2 | After Ctrl+C, kiln run resumes an open merge/push activity via restart review: what does the page show (finished page Interrupted row + Resume vs Paused overview), Exit placement (E2) | Technical | MEDIUM | 60 → 92 | Resolved | TD §After-Delivery Activities, §Display Contract, §Interfaces, §Exit Kiln, §Changes to Earlier Designs, §Verification; PRD AC-WAIT-02, AC-MERGE-05, AC-MERGE-07, AC-EXIT-01 |
 | Q22 | 2 | Readiness "merged PR head contains the phase commit" needs the PR head locally (Update branch + squash, fresh clone) — use GitHub compare API or fetch refs/pull/N/head (E3) | Technical | MEDIUM | 75 → 90 | Resolved | TD §The Delivery Reading, §The Plan Check step 4, §Verification |
 | Q23 | 2 | Merge press "head at or ahead of PR head" when PR head not local (after Update branch): fetch first, then compare; behind refused (E4) | Technical | MEDIUM | 75 → 90 | Resolved | TD Gates table, §Merge Session, §Delivery Reading, §Verification |
 | Q24 | 2 | Resume / Send and resume at a merge stop when the fresh GitHub reading fails: resume on last saved reading, note in prompt (E5) | Technical | LOW | 70 → 90 | Resolved | TD §After-Delivery Activities, §Delivery Reading, §Push Session Done, §Verification |
-| Q25 | 2 | Fresh execution carrying a finished phase whose Closed line was removed: separate carried-finished set shown as done, never waived (E6) | Technical | LOW | 80 → 80 | Deferred | — |
-| Q26 | 2 | PRD AC-MERGE-06/AC-BACK-05 say push Done "starts the build unless AC-OFFER-03 calls for a fresh choice"; design also allows a blocked offer or No new phases found (e.g. local base reset) — PRD precision (conformance) | Technical | LOW | ? → ? | Pending | — |
-| Q27 | 2 | Mockup state 8 says a one-repository run states nothing about merging in settings; §Verification tests the settings statement "in one repository and several" — reconcile (conformance) | Technical | LOW | ? → ? | Pending | — |
+| Q25 | 2 | Fresh execution carrying a finished phase whose Closed line was removed: separate carried-finished set shown as done, never waived (E6) | Technical | MEDIUM (was LOW: phase would be rebuilt) | 80 → 92 | Resolved | TD §The Plan Check step 3, §Data Models, §Verification |
+| Q26 | 2 | PRD AC-MERGE-06/AC-BACK-05 say push Done "starts the build unless AC-OFFER-03 calls for a fresh choice"; design also allows a blocked offer or No new phases found (e.g. local base reset) — PRD precision (conformance) | Technical | LOW | ? → 90 | Resolved | PRD AC-BACK-05, AC-MERGE-06; TD Push Session Done, §Verification |
+| Q27 | 2 | Mockup state 8 says a one-repository run states nothing about merging in settings; §Verification tests the settings statement "in one repository and several" — reconcile (conformance) | Technical | LOW | ? → 95 | Resolved | TD §The Merge Session, §Verification |
+| Q28 | 3 | Push activity keyed `plan-push` with one record slot, but several pushes can occur (carried into execution 2; second press after a hand push) — per-operation key, which push activation moves, closed push rows (F1) | Technical | HIGH | 70 → 90 | Resolved | TD §After-Delivery Activities, §Push Session, §Data Models, §Interfaces, §Verification |
+| Q29 | 3 | Ctrl+C or Exit between push Done and the automatic acceptance: next kiln run finishes the acceptance, or a second press? Exit availability in that window (F2) | Technical | MEDIUM | 70 → 90 | Resolved | TD §After-Delivery Activities, §Push Session, §Exit Kiln, §Interfaces, §Display Contract, §Data Models, §Verification |
+| Q30 | 3 | Plan Check step 4 claims "a branch updated on GitHub before merging" keeps Continue available; Update with rebase then hand merge does not (rebased head lacks phase revisions) — narrow claim and wording (F3) | Technical | MEDIUM | 75 → 90 | Resolved | TD §The Plan Check step 4, §Verification |
+| Q31 | 3 | Early-merge evaluator on a finished run counts a repository delivered only when "the merged head contains the feature head the run recorded" — after Update with rebase + hand merge this lands on Needs you; same treatment as Q30 (a review PR reading `merged` counts)? (Q30 sibling) | Technical | MEDIUM | 80 → 90 | Resolved | TD §The Merge Session, §The Delivery Reading, §Verification |
+| Q32 | 3 | Waiting header for a merge/push usage wait and the interrupted row's "Interrupted · Resume to carry on" exist only in the design; mockup (the wording reference) has no state for them — add dashed notes to the mockup or state the wording in the Display Contract (conformance) | Technical | LOW | ? → ? | Pending | — |
 ## Question notes
 
-### Q21
-Proposed answer (88%, deferred to pass 3): keep the restart review's mechanics (Kiln v1 AC-CLI-01; in-memory hold set by every kiln run; start/`kiln continue` release it, engine.ts 1686-1700, local-server.ts 490; resume() refused during review, engine.ts 2394; --resume skips) but render on the finished page, never the Paused overview (open activity turns currentlyComplete off → snapshot.ts ~529 state paused → Paused screen with no card and no Exit, breaking AC-EXIT-01; Pause Now added a separate PausedHold rather than reuse). Draft §After-Delivery Activities replacing "Ctrl+C and restart": "Ctrl+C interrupts the session as it does any other. The next `kiln run` takes the reading first and closes the activity when the work is done. Otherwise it holds the same session at the restart review (Kiln v1 AC-CLI-01): nothing launches, resumes or waits until Resume. The page stays the finished page, never the Paused overview. The activity's row reads **Interrupted**, and the pull request card shows **Resume** where it shows the running session. Resume, and `kiln continue` while the review shows, release the review: they take the reading again and then resume the session or restart its usage wait. `kiln run <path> --resume` skips the review. None of these marks a preflight while an after-delivery activity is open. An open activity is handled before anything else `kiln run` does for a finished run, including the early-merge delivery evaluation." Display Contract header row: "| The merge (push) session is running, waiting for usage, or interrupted and held for Resume | **Merging** (**Pushing the plan**); when interrupted, the fact reads "Interrupted · Resume to carry on" |". Screens append: "At the restart review the finished page shows the activity's row as Interrupted, the card's Resume, and Exit Kiln enabled in the Kiln panel. No other screen is added." Interfaces: merge.state/planPush.state gain `interrupted`; kiln status prints "merging, interrupted", lists `continue`. Exit availability adds "an after-delivery activity held at the restart review". Verification: Ctrl+C mid-merge then kiln run → finished page Interrupted + Resume, header Merging, Exit enabled; Resume or kiln continue resumes same session, no preflight on a run that has none (markResumePreflight engine.ts 4589; snapshot.ts 1505); merge done on GitHub closes at kiln run without review. PRD: AC-WAIT-02 "unless a merge session is running or has stopped" → "unless a merge session is under way (running, waiting for usage or interrupted) or has stopped"; optional AC-MERGE-05 sentence. Side note: routing rule — a finished run shows the finished page in every state except a stop (usage wait included). Conformance pass 2 adds: AC-WAIT-02 must cover the usage wait (header Merging). Remaining doubt: whether the routing rule (finished page during a usage wait) matches the design's existing wait handling and the Waiting screen.
+
+
+
+
+
+
+
+
 
 
 
@@ -85,12 +97,18 @@ Dropped: Q1 evidence shows `kiln run` resolves the checkout from the path it is 
 
 ## Conflict check
 Pass 1: 2026-11-21 · 35 earlier criteria changed (21 already had Replaces lines) · 11 Replaces lines to write (+1 optional: AC-TEST-03) · 4 parentheticals to correct · 2 raised as questions (Q2, Q3). Folded: 14 Replaces lines added (12 items, incl. optional AC-TEST-03), 4 corrected; TD §Changes to Earlier Designs +2 lines.
-Changed after pass 1: AC-BACK-03 (Q1 narrowing), AC-MERGE-06 (Q5 PRD fix), AC-MERGE-03, AC-MERGE-07 (Q7), AC-EXIT-01 (Q8), AC-BACK-05 (Q10), AC-BACK-01 (Q17), AC-MERGE-08 (Q3), AC-MERGE-07 (Q18)
+Changed after pass 1: AC-BACK-03 (Q1 narrowing), AC-MERGE-06 (Q5 PRD fix), AC-MERGE-03, AC-MERGE-07 (Q7), AC-EXIT-01 (Q8), AC-BACK-05 (Q10), AC-BACK-01 (Q17), AC-MERGE-08 (Q3), AC-MERGE-07 (Q18), AC-BACK-05 and AC-MERGE-06 (Q26), AC-WAIT-02, AC-EXIT-01, AC-MERGE-05, AC-MERGE-07 (Q21)
 
 ## Register re-sort
 Pass 1: 2026-11-21 · 4 open entries · 0 moved to design · 0 written up · 1 settled by lookup (AUDIT-001 → Validated, Answered) · 0 moved to technical · 0 raised as questions · 3 stay business (SCOPE-001, MERGE-001 above; PLAN-001 moved above the line — departs from the accepted one-line notice). Folded: AUDIT-001 move; MERGE-001 three fixes (drop duplicated push-session sentences, restore Pause Now AC-PAUSE-02 watch-only precedent, 'otherwise' line = Claude Code merge sessions only); PLAN-001 to above the line + design Open Questions line; header link names PLAN-001.
 
 ## Noticed, out of scope
+- Repositories with a merge queue: `gh pr merge` queues, session ends with it open → stop; later Check again closes without a summary
+- A GitHub read failing at a successful merge session's end turns it into a stop; Check again closes it with no summary
+- A pull request retargeted on GitHub and merged into a different base fits none of the reading's rows
+- Mixed descriptions where only some carry the "Merge order" line (hand edits only): the note's wording is unspecified
+- A Merge press with a removed run worktree is always refused; the refusal could name `git worktree add`
+- Build note: Exit ends through the ordinary stop path with code 0, but a reset ends via stop.end() (kiln-command.ts:106,312) skipping engine.stop(); signal codes 130/129/143; InterruptCause (records.ts:398) lacks an exit value — engine.stop needs an exit cause, a report line and code 0
 - Legacy records without a retained baseline still go through completedBaseline (completed-plan-discovery.ts:63-81), failing when a finished phase's document changed before the run ended (legacy only, as today)
 - Build note: the page-load check request lives in CompletedPlanCheck.svelte onMount; AC-WAIT-02 hides that panel while waiting, so the mount request must move to the finished page
 - Build note: status token fingerprint includes control reasons (engine.ts:665); keep per-reading failure text/times out of the merge control's reason, as Pause Now did
@@ -107,4 +125,4 @@ Pass 1: 2026-11-21 · 4 open entries · 0 moved to design · 0 written up · 1 s
 |---|---|---|
 
 ## Next action
-Pass 2 complete and committed. Pass 3: discovery; backlog first: Q21 (deferred, notes), Q25, Q26, Q27.
+Pass 3 complete and committed. Pass 4: discovery; backlog Q32.
