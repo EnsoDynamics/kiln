@@ -1,11 +1,11 @@
 # Design Refinement State — Kiln After Delivery
 
-Started: 2026-11-21   Current pass: 4   Status: In progress
+Started: 2026-11-21   Current pass: 5 (Phase 7)   Status: In progress
 Branch: feature/kiln-merge-with-agent (worktree .worktrees/kiln-merge-with-agent/kiln; commit, never push)
 Existing code posture: Preserve, except the finished-run comparisons the design removes (source: TD §Existing Code)
 Code baseline: this branch forked from develop at c41c7af; Kiln Pause Now (PR #20, merged) is on origin/develop only — read it with `git show origin/develop:<path>` / `git grep <pattern> origin/develop`
 PRD words: at start 3871 · growth baseline 3871
-Last updated: 2026-11-21 (pass 4 checkpoint)
+Last updated: 2026-11-21 (pass 5 checkpoint)
 
 ## Documents
 | Document | Path |
@@ -22,6 +22,7 @@ Last updated: 2026-11-21 (pass 4 checkpoint)
 | 2 | 6 (+3 conformance carried as Q17–Q19) | 12 | 11 | 0 | 2 (Q21 at 88%; untaken Q25) | 0 | 0 |
 | 3 | 4 (3 discovery + Q31 sibling; +2 conformance carried as Q26–Q27) | 9 (Q21, Q25–Q31) | 9 | 0 | 0 | 0 | 0 |
 | 4 | 2 (+1 conformance carried as Q32) | 3 (Q32–Q34) | 3 | 0 | 0 | 0 | 0 |
+| 5 (from final verification + conflict re-check) | 4 | 4 (Q35–Q38) | 4 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -61,7 +62,15 @@ Last updated: 2026-11-21 (pass 4 checkpoint)
 | Q32 | 3 | Waiting header for a merge/push usage wait and the interrupted row's "Interrupted · Resume to carry on" exist only in the design; mockup (the wording reference) has no state for them — add dashed notes to the mockup or state the wording in the Display Contract (conformance) | Technical | LOW | 95 → 95 | Resolved | mockup state 2 dashed notes |
 | Q33 | 4 | Carried-finished set: derived from the current baseline would include this execution's own finished phases (each plan read rebuilds completions), skipping their delivery checks and hiding a mid-run reopen — restrict to completions with no waiverId and no phase facts in this execution (G1) | Technical | HIGH | 80 → 90 | Resolved | TD §The Plan Check step 3, §Data Models, §Verification |
 | Q34 | 4 | `followsPush` dropped by "a later check", but accept and grant run their own checks — carry it forward; only a person-asked check drops it (G2) | Technical | MEDIUM | 75 → 90 | Resolved | TD §Data Models, §Interfaces, §Verification |
+| Q35 | 5 | Push session's billing read, agent readiness and Codex launch check use the run's session folder (engine.ts:1475, 6178, 6295 develop) — often removed after merge, and lacks the main checkout's gitignored .claude/settings.local.json; use the main checkout while a push activity is open (final verification H1) | Technical | HIGH | 90 → 90 | Resolved | TD §After-Delivery Activities, §Verification |
+| Q36 | 5 | A delivery reading taken while the merge session is still running (page reload) could close the activity — only settle at session end / stop actions / restart / resume after wait; running readings update card only (final verification H2) | Technical | MEDIUM | 85 → 90 | Resolved | TD §After-Delivery Activities, §The Delivery Reading, §Verification |
+| Q37 | 5 | Conflict: AC-TOTAL-02/03 (Kiln PRD Time Totals) list counted sessions (not merge/push) and fix totals once Complete — does a merge/push session's running time (and waiting) count in the PRD total, or does the total stay fixed? (conflict re-check) | Technical (settled by AC-TOTAL-02/03 + ruling TOTAL-001) | MEDIUM | ? → 95 | Resolved | TD §After-Delivery Activities, §Data Models, §Changes to Earlier Designs, §Verification; PRD AC-MERGE-05 Replaces |
+| Q38 | 5 | Conflict: AC-RESET-02 (Kiln Run Restart) reset line while a session runs points at Pause now / pause after the phase, which merge/push sessions don't offer — what does it say then? (conflict re-check) | Technical | LOW | ? → 90 | Resolved | TD §After-Delivery Activities, §Changes to Earlier Designs, §Verification |
 ## Question notes
+
+
+
+
 
 
 
@@ -102,12 +111,17 @@ Dropped: Q1 evidence shows `kiln run` resolves the checkout from the path it is 
 
 ## Conflict check
 Pass 1: 2026-11-21 · 35 earlier criteria changed (21 already had Replaces lines) · 11 Replaces lines to write (+1 optional: AC-TEST-03) · 4 parentheticals to correct · 2 raised as questions (Q2, Q3). Folded: 14 Replaces lines added (12 items, incl. optional AC-TEST-03), 4 corrected; TD §Changes to Earlier Designs +2 lines.
-Changed after pass 1 (also PRD Out of Scope line, final conformance): AC-BACK-03 (Q1 narrowing), AC-MERGE-06 (Q5 PRD fix), AC-MERGE-03, AC-MERGE-07 (Q7), AC-EXIT-01 (Q8), AC-BACK-05 (Q10), AC-BACK-01 (Q17), AC-MERGE-08 (Q3), AC-MERGE-07 (Q18), AC-BACK-05 and AC-MERGE-06 (Q26), AC-WAIT-02, AC-EXIT-01, AC-MERGE-05, AC-MERGE-07 (Q21)
+Changed after pass 1 (also PRD Out of Scope line, final conformance): AC-BACK-03 (Q1 narrowing), AC-MERGE-06 (Q5 PRD fix), AC-MERGE-03, AC-MERGE-07 (Q7), AC-EXIT-01 (Q8), AC-BACK-05 (Q10), AC-BACK-01 (Q17), AC-MERGE-08 (Q3), AC-MERGE-07 (Q18), AC-BACK-05 and AC-MERGE-06 (Q26), AC-WAIT-02, AC-EXIT-01, AC-MERGE-05, AC-MERGE-07 (Q21); completion re-check: AC-BACK-04, AC-MERGE-02 (Replaces), AC-MERGE-05 (Q37)
+
+Completion re-check: 2026-11-21 · 11 items (10 criteria + Out of Scope line) · 5 Replaces lines to add, 1 to correct (+1 optional) · 2 raised (Q37, Q38). Folded: 5 added (AC-RUN-01, AC-WORK-02, AC-CONTINUE-09, AC-AUTO-01, AC-AUTO-03), AC-MERGE-02 now cites AC-WORK-01 and AC-WORK-02, AC-BACK-04 says Continue pushes them first; TD usage-limit entry names §The Wait.
 
 ## Register re-sort
 Pass 1: 2026-11-21 · 4 open entries · 0 moved to design · 0 written up · 1 settled by lookup (AUDIT-001 → Validated, Answered) · 0 moved to technical · 0 raised as questions · 3 stay business (SCOPE-001, MERGE-001 above; PLAN-001 moved above the line — departs from the accepted one-line notice). Folded: AUDIT-001 move; MERGE-001 three fixes (drop duplicated push-session sentences, restore Pause Now AC-PAUSE-02 watch-only precedent, 'otherwise' line = Claude Code merge sessions only); PLAN-001 to above the line + design Open Questions line; header link names PLAN-001.
 
 ## Noticed, out of scope
+- newAcceptance archives the finished execution (continuation-setup.ts:24) before the save writing the push's closedAt, so the archived record shows that push still accepting (harmless unless history reads it)
+- newPhaseControls gives "The run isn't finished" as the reason check-for-new-phases is unavailable while an after-delivery activity is open (wording only)
+- Build note: while a push is accepting the run is not currently complete; the check and acceptance guards (engine.ts:3531, 3310) must let the automatic re-check and acceptance through
 - completedScopeProblems (plan-reconciliation.ts:291-296) checks found.closed only, so a carried waived phase with no Closed line may be flagged during a run (predates this design)
 - Build note: the automatic acceptance must supply a current status token to submitInternal
 - Repositories with a merge queue: `gh pr merge` queues, session ends with it open → stop; later Check again closes without a summary
@@ -132,4 +146,4 @@ Pass 1: 2026-11-21 · 4 open entries · 0 moved to design · 0 written up · 1 s
 |---|---|---|
 
 ## Next action
-Pass 4 committed (its conformance served as Phase 7 final conformance). Phase 7: conflict re-check (Changed after pass 1) + final verification running in parallel.
+Pass 5 committed. Phase 7 again: final verification + conflict re-check of AC-MERGE-05 (new AC-TOTAL Replaces line) and AC-BACK-04 running.
