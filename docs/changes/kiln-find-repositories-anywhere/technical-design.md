@@ -19,7 +19,7 @@ The key decisions:
 **Posture: Preserve** (the default; nobody named one). Kiln 1.4.0 is released and PRDs are underway on it.
 
 - **Reused as is:** the four checks a folder name gets beside the PRD's repository, with their words; the GitHub origin reader; worktree and branch setup; the branch, worktree-path and base checks an added repository gets; the plan stop and its Check again; the control journal, receipts and status tokens; the state root.
-- **Reused and extended:** the plan reader (what a name can be), the start checks and the start-from-a-branch preview (how a name becomes a checkout), adding a repository, the snapshot, the session prompts, the terminal's lines, `kiln status`; and every other reader of a plan's names, which today compares them with entries' names or finds them beside the PRD's repository: the plan reconciliation's completed-phase scope, a continuation's readiness check, the Folder missing page's setup panel and the accounting of external completion evidence ([Names](#names-ac-name-01-ac-name-02), "Where names are compared").
+- **Reused and extended:** the plan reader (what a name can be), the start checks and the start-from-a-branch preview (how a name becomes a checkout), adding a repository, the snapshot, the session prompts, the terminal's lines, `kiln status`; and every other reader of a plan's names ([Names](#names-ac-name-01-ac-name-02), "Where names are compared").
 - **Behavior to keep that the code alone wouldn't say:**
   - A repository entry's `name` already keys each phase's commits, the chosen bases and the pull requests in records on disk, and is the worktree folder's name. It keeps both jobs.
   - A folder name is matched against the parent folder's listing, case included, never by asking whether the path exists.
@@ -211,7 +211,7 @@ A billing hold is a Needs you stop of its phase. With a retained stop, it shows 
 
 A request that now resolves without a question is dropped without a word. The answer's checks, messages and terminal line are those before Start.
 
-The resumed session isn't told either. It resumes its own conversation, which holds Kiln's refusal, and its prompt tells it how to ask, so a request it makes again finds the remembered answer. The stop tells the person "The session can ask for it again once the phase resumes."; a reply they send with Resume reaches the session first.
+The resumed session isn't told either. It resumes its own conversation, which holds Kiln's refusal, and its prompt tells it how to ask, so a request it makes again finds the remembered answer. The stop tells the person so, as [Screens](#screens-ac-see-03) gives; a reply they send with Resume reaches the session first.
 
 ### The command
 
@@ -299,7 +299,7 @@ Snapshot (changed and added fields only):
               checkouts: [ { folder, remote, pickable, remembered? } ], fieldError? }
        (repository: the address path, as the plan or the session's request writes it)
   documents.plan.phases[]: { …, repositories: [ label ] }
-  documents.checks: "Repositories found on this computer" passed, or "<n> repository to locate" not passed,
+  documents.checks: the passed checks §Asking Before Start gives,
                     in place of "Named repositories found beside <PRD's repository>"
   settings: { …, startBlockedBy?: string }          (the reason under Start while a row asks)
   needsYou: { …, locate?: [ Question ] }
@@ -315,7 +315,7 @@ Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, �
 - `kiln run`: the summary and the line under it as [Asking Before Start](#asking-before-start-ac-ask-01-ac-ask-02-ac-see-01-ac-see-02) gives; the `Located` line; the line for a candidate Git couldn't read, as [The search](#the-search-ac-find-01-ac-find-02-ac-find-05) gives; the lines for a forgotten answer; the new plan problems; repositories shown by label in every line.
 - `kiln add-repository <repository>`: as above. Its usage text and help entry name the address path.
 - `kiln locate-repository`: as above, listed with the routine controls in help and in the command contracts.
-- `kiln status`: a stop's questions and the command, as [`kiln status --json`](#kiln-status---json) gives.
+- `kiln status`: as [The command](#the-command) gives.
 
 ### `kiln status --json`
 
@@ -384,7 +384,7 @@ The skill gains no mention of Kiln, and the rule helps a person running a phase 
 
 ## Integration Points
 
-- **Git:** `rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir --show-superproject-working-tree` and `remote get-url origin` in each candidate and in a folder given as an answer. Both are reads, and `worktree add` stays the only change Kiln makes.
+- **Git:** the `rev-parse` read [The search](#the-search-ac-find-01-ac-find-02-ac-find-05) gives and `remote get-url origin` in each candidate and in a folder given as an answer. Both are reads, and `worktree add` stays the only change Kiln makes.
 - **The file system:** folder listings within the search's reach; the store under the state root.
 - **GitHub:** unchanged.
 - **The Enso Method:** the line `phase-split` writes.

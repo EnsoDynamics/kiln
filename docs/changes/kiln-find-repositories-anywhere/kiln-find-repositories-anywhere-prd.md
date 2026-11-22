@@ -136,12 +136,12 @@ The Enso Method's `phase-split` skill writes the line Kiln reads. It writes each
 - **A setting, or a file, that says where repositories are kept.** Kiln works it out, and remembers only the answers to the questions it asks.
 - **Starting Kiln from a folder above the repositories.** `kiln run` is still pointed into the PRD's repository.
 - **A link as a way round.** Kiln still refuses a link where a folder name is expected, and the search never follows one.
-- **Searching by folder name.** A repository named by folder name is looked for only beside the PRD's repository.
+- **Searching by folder name.** A repository named by folder name is looked for only as AC-FIND-04 says.
 - **Cloning.** Kiln works only with repositories already checked out on this computer.
 - **Choosing another checkout when the search finds exactly one.** Kiln uses it and shows its folder (AC-SEE-01). **Change** is offered only for an answer Kiln remembered (AC-ASK-05).
 - **A repository's own checkout moved or deleted after Kiln set it up.** Its checkout is fixed for the PRD (AC-ASK-05). Recovering a PRD whose checkout is gone is left out, as [Kiln missing-worktree recovery](../kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md) leaves out a run whose shared checkout is missing.
 - **Delivering to a host other than GitHub.** The names aren't tied to GitHub, and this change adds no new assumption that the host is GitHub. Kiln already opens pull requests only on GitHub, and applies that same rule sooner: a found checkout on another host is never used (AC-FIND-03), and a name that gives another host is a plan problem when the plan is read (AC-NAME-01). How to match addresses on a host whose SSH and HTTPS addresses carry different paths waits until Kiln delivers to that host.
-- **Rewriting phase documents already written.** Lines that hold folder names stay as they are, and keep working where the repositories are beside the PRD's repository.
+- **Rewriting phase documents already written.** Lines that hold folder names stay as they are, and keep working as AC-FIND-04 says.
 - **How a technical design names repositories.** `phase-split` turns whatever the design says into address paths.
 - **The order the two repositories are released in.** A Kiln from before this change reads `acme-labs/admin` as a broken plan, so Kiln's release has to come before the Enso Method's. That goes to the technical design's Delivery section, "After the build".
 
