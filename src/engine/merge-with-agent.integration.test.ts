@@ -6,7 +6,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { createBareOrigin, createRepository, git } from "../test-support/git-repositories.js";
@@ -17,6 +18,8 @@ import { afterDeliveryText } from "../control/delivered-facts.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot } from "../state/state-files.js";
 import { MERGE_KEY } from "../state/activity-keys.js";
+import { selectedChoice } from "../state/records.js";
+import type { Engine } from "./engine.js";
 import type { Receipt } from "../control/commands.js";
 import { startLocalServer } from "../server/local-server.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
@@ -76,6 +79,10 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     expect(status().controls.find(one => one.name === "merge")).toMatchObject({ available: true, reason: null });
     expect(afterDeliveryText(status().after_delivery, false)).toMatch(/^Merge with the agent: Merge with Claude Code starts one more session/);
     const phasesDone = page.feature.phasesDone;
+    // The run's effort changed after the build: the merge session takes the run's model and effort as they are now (AC-MERGE-05).
+    const choice = selectedChoice(h!.engine.record.settings);
+    const effort = h!.engine.modelEntry(choice.model)!.supportedEffortLevels.find(level => level !== choice.effort)!;
+    const changed = await h!.engine.changeSettings({ effort, agentId: h!.engine.record.settings.agentId, selectionGeneration: h!.engine.agents.state.generation } as Parameters<Engine["changeSettings"]>[0]); expect(changed, JSON.stringify(changed)).toMatchObject({ ok: true });
 
     const receipt = await control("merge", { via: "command_line" });
     expect(receipt).toMatchObject({ state: "completed", outcome: "merge_started" });
@@ -92,7 +99,9 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     // Both columns of AC-MERGE-03's table, as written, and the rule for a pull request it cannot merge.
     for (const line of ["Merge the base branch into each feature branch and resolve the conflicts.", "Run the project's own checks, push the feature branches and wait for each pull request's required checks.", "Fix failures caused by the merge or by the delivery's own work, and push again.", "Merge the delivery's pull requests listed above, by a merge method the repository allows.", "Rewrite a feature branch's history or force-push.", "Push to any branch but the delivery's feature branches.", "Merge while a required review or check has not passed, wait without end on a required check, or go around branch protection by an override or a change to the branch protection settings.", "Merge any other pull request, delete a branch or worktree, or deploy.", "If you cannot merge a pull request, end without merging the ones after it. Your last message names what is outstanding: a conflict to decide, a missing required review, a required check failing or never reported, or a pull request closed on GitHub.", "Merge them in that order. Read each description before you merge it and follow any merge order it states", "Never reopen, recreate or replace a pull request.", "abort the unfinished merge (`git merge --abort`)"]) expect(prompt).toContain(line);
     expect(mergeCalls()[0]!.cwd).toBe(h!.engine.worktreePath);
-    expect(h!.engine.latestSession(MERGE_KEY)).toMatchObject({ kind: "merge", model: h!.engine.latestSession("1")!.model });
+    expect(h!.engine.latestSession(MERGE_KEY)).toMatchObject({ kind: "merge", model: h!.engine.latestSession("1")!.model, effort });
+    const launch = mergeCalls()[0]!.args;
+    expect(launch.slice(launch.indexOf("--model"), launch.indexOf("--model") + 4)).toEqual(["--model", choice.model, "--effort", effort]);
 
     // Merged only from GitHub, with the merge commit and the final message word for word (AC-MERGE-04).
     const merge = h!.engine.record.afterDelivery!.merge!;
@@ -110,7 +119,10 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     expect(h!.events.some(event => event.kind === "merge" && event.event === "merged")).toBe(true);
     // Once per delivery: the press is never offered again, and a second command starts nothing (AC-MERGE-02).
     expect(controlOf("merge")).toMatchObject({ available: false, reason: "A merge session was already started for this delivery." });
-    expect(afterDeliveryText(status().after_delivery, false)).toContain(`The merge session's summary: ${SUMMARY}`);
+    // kiln status says Merged in text and JSON, with the merge time and commit GitHub shows, and the summary (AC-BOT-02).
+    const mergedAt = h!.engine.record.afterDelivery!.pullRequests[0]!.mergedAt!;
+    expect(afterDeliveryText(status().after_delivery, false)).toBe(`Merged: #218 at ${mergedAt} (merge ${featureHead().slice(0, 7)})\nThe merge session's summary: ${SUMMARY}`);
+    expect(status().after_delivery).toMatchObject({ waiting: false, pullRequests: [{ repository: "acme-shop", number: 218, state: "merged", mergedAt, mergeCommit: featureHead() }], merge: { state: "done", summary: SUMMARY } });
     // Nothing is remembered as a setting or a grant.
     expect(JSON.stringify(h!.engine.record.settings)).not.toContain("merge");
     expect(h!.engine.record.developmentAuthorization).toEqual(authorization);
@@ -128,6 +140,9 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     expect(running.feature.state).toBe("complete");
     expect(running.afterDelivery?.merge?.state).toBe("running");
     expect(running.phases.at(-1)).toMatchObject({ id: MERGE_KEY, state: "implementing" });
+    // The Merge row names the running session, so the card's Watch the session opens its live output (AC-MERGE-05).
+    expect(running.phases.at(-1)!.details?.sessionId).toBe(h!.engine.latestSession(MERGE_KEY)!.sessionId);
+    expect(running.afterDelivery?.merge?.sessionId).toBe(h!.engine.latestSession(MERGE_KEY)!.sessionId);
     expect(status().after_delivery).toMatchObject({ merge: { state: "running" } });
     expect(afterDeliveryText(status().after_delivery, false)).toBe("Merging: the merge session is running.");
     // No message box, pause or takeover, and the reason says so (AC-MERGE-05's part for a running session).
@@ -175,6 +190,18 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     expect(h!.engine.record.completedPlanCheck?.result?.added.map(phase => phase.id)).toEqual(["5"]);
     expect(buildSnapshot(h!.engine).afterDelivery?.merge?.state).toBe("done");
     expect(mergeCalls()).toHaveLength(1);
+  });
+
+  it("kiln status, the built command, says in text and JSON that a stopped merge session needs you, with no Kiln running (AC-BOT-02)", async () => {
+    await finished([stopping("A required review is missing on #218.")]);
+    await control("merge");
+    expect(h!.engine.stoppedPhaseKey()).toBe(MERGE_KEY);
+    await h!.engine.stop("sigterm");
+    const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "cli.js");
+    const env = { ...h!.env, PATH: [join(h!.sandbox.root, "bin"), h!.env.PATH ?? ""].join(delimiter) };
+    const run = (json: boolean) => { const child = spawnSync(process.execPath, [cli, "status", join(h!.repository, "docs/prds", FOLDER), ...(json ? ["--json"] : [])], { cwd: h!.sandbox.root, env, encoding: "utf8" }); expect(child.stdout, `${child.status} ${child.stderr}`).not.toBe(""); return child.stdout; };
+    expect(run(false).split("\n")).toContain("Merging: the merge session stopped before merging; it needs you.");
+    expect(JSON.parse(run(true)).after_delivery).toMatchObject({ waiting: true, pullRequests: [{ number: 218, state: "open" }], merge: { state: "stopped", pullRequests: [{ repository: "acme-shop", number: 218 }] } });
   });
 
   it("resumes the same session with the reply after reading GitHub, and saves the resumed run's summary, not the stop's message (AC-MERGE-06, AC-MERGE-04)", async () => {

@@ -297,7 +297,10 @@ it("does not establish legacy scope from today's checkout when completion eviden
 });
 
 it("checks page mount, reload and button through the real browser while preserving history and no-launch", async () => {
-  await fixture(); add(); publish();
+  await fixture(); add();
+  // The commit that adds the phase has a known date, so the origin line's date and commit are pinned (AC-BACK-04).
+  h.sandbox.env.GIT_COMMITTER_DATE = "2026-10-05T12:07:00Z"; publish(); delete h.sandbox.env.GIT_COMMITTER_DATE;
+  const added = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
   const { launchChrome } = await import("../test-support/headless-chrome.js");
   server = await startLocalServer({ engine: h.engine, port: 0, folderName: folder, featureName: "Comet library", token: h.engine.record.token });
   const chrome = await launchChrome();
@@ -310,7 +313,7 @@ it("checks page mount, reload and button through the real browser while preservi
         await page.waitFor(`${panelText}.includes('planned, not built') && !${panelText}.includes('Checking')`);
         const panel = await page.evaluate<string>(panelText);
         expect(panel).toContain("Phase 9 · Lending · planned, not built");
-        expect(panel).toMatch(/Added on [A-Z][a-z]{2} \d+ at \d+:\d{2} [AP]M, in commit [0-9a-f]{7} “test\(comet\): extend plan”\./);
+        expect(panel).toMatch(new RegExp(`Added on Oct 5 at \\d+:07 [AP]M, in commit ${added.slice(0, 7)} “test\\(comet\\): extend plan”\\.`));
         expect(panel).toContain("Continue builds only this phase, on a new branch from develop, and ends with a new pull request.");
         expect(await page.evaluate("document.body.innerText")).not.toContain("Plan needs reconciliation");
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
@@ -544,6 +547,20 @@ it("counts a confirmed merge as the finished phases' work in the base, by any me
   const missing = await h.engine.checkCompletedPlan();
   expect(missing).toMatchObject({ status: "blocked" });
   expect(missing.result?.problems.join(" ")).toContain("merge commit 0000000 of acme-shop's pull request is not in origin/develop");
+});
+it("ends the wait on a rebase merge, whose copies of the delivery's commits are new commits on the base (AC-WAIT-01)", async () => {
+  await deliveredOnOpenBranch();
+  writeFileSync(join(h.repository, directory, "phase-9-lending.md"), newPhase); publish();
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "awaiting_merge" });
+  // A rebase merge: the base gains a copy of the phase's commit with a new identity, never the commit itself.
+  const delivered = git(h.sandbox, h.repository, "rev-parse", "feature/comet-library").trim();
+  h.sandbox.env.GIT_COMMITTER_DATE = new Date(Date.now() + 1000).toISOString(); git(h.sandbox, h.repository, "cherry-pick", delivered); delete h.sandbox.env.GIT_COMMITTER_DATE;
+  const rebased = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+  expect(rebased).not.toBe(delivered);
+  git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  git(h.sandbox, h.repository, "push", "-q", "origin", "--delete", "feature/comet-library"); git(h.sandbox, h.repository, "branch", "-q", "-D", "feature/comet-library");
+  pullRequest("merged", rebased);
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", errors: [], result: { added: [{ id: "9" }], problems: [] } });
 });
 it("says once, in the pull request card, that the delivery waits to merge, with Check now, in the real browser (AC-WAIT-02)", async () => {
   await deliveredOnOpenBranch();

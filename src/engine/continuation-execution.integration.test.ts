@@ -51,6 +51,31 @@ it("accepts once from current bases, archives earlier completion and starts a fr
   expect(h.engine.record.continuation?.executions).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(1);
 });
 
+it("withholds Exit Kiln while Continue sets up its build, saying why, and refuses a press made anyway (Kiln After Delivery AC-EXIT-01)", async () => {
+  await fixture();
+  const reason = "Kiln is setting up the build Continue started. Exit Kiln returns once it has started.";
+  expect(h.engine.exitControl()).toEqual({ available: true });
+  let seen: { control: ReturnType<Engine["exitControl"]>; listed: unknown; press: { ok: boolean; errors?: { message: string }[] } } | undefined;
+  const off = h.engine.onChange(() => {
+    if (!h.engine.settingUp || seen) return;
+    const control = h.engine.exitControl(); const listed = h.engine.controlView().controls.find(one => one.name === "exit");
+    seen = { control, listed, press: { ok: true } };
+    seen.press = h.engine.commands.submit({ command_id: "exit-during-setup", execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "exit", inputs: { via: "command_line" } }) as { ok: boolean; errors?: { message: string }[] };
+  });
+  const check = await h.engine.checkCompletedPlan();
+  const answer = await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "continue-exit"));
+  expect(answer.ok, JSON.stringify(answer)).toBe(true);
+  await h.engine.settled(); off();
+  expect(seen).toBeDefined();
+  expect(seen!.control).toEqual({ available: false, reason });
+  expect(seen!.listed).toMatchObject({ available: false, reason });
+  expect(seen!.press.ok).toBe(false);
+  expect(seen!.press.errors?.[0]).toMatchObject({ message: reason });
+  // Nothing ended: the build Continue started runs its first phase.
+  expect(h.engine.exitControl().reason).not.toBe("Kiln is exiting.");
+  expect(h.engine.record.phases["9"]?.sessionIds).toHaveLength(1);
+});
+
 it("carries no merge permission into the execution Continue starts: the earlier merge stays with its own delivery (Kiln After Delivery AC-MERGE-02)", async () => {
   await fixture();
   // The finished execution's merge, pressed and done, as its record keeps it.

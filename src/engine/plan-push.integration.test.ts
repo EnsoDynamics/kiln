@@ -10,7 +10,7 @@ import { createHarness, waitFor, type Harness, type ScenarioSession } from "../t
 import { git } from "../test-support/git-repositories.js";
 import { observePlan, retainBaseline } from "./plan-reconciliation.js";
 import { recordedPlan } from "./plan-reading.js";
-import { writePrdRecord, type PrdRecord } from "../state/records.js";
+import { selectedChoice, writePrdRecord, type PrdRecord } from "../state/records.js";
 import { recordedPullRequest } from "../test-support/recorded-pull-requests.js";
 import { buildSnapshot } from "./snapshot.js";
 import { statusProjection } from "../control/projection.js";
@@ -119,8 +119,13 @@ async function kilnRun(): Promise<Awaited<ReturnType<Engine["decide"]>>> {
 
 describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MERGE-05, AC-MERGE-06, AC-BOT-01, AC-BOT-02)", () => {
   it("one press pushes from the main checkout, checks again and starts the build with no second press", async () => {
-    await finished([pushing(), building]);
+    // The push session takes a measurable time, so its share of the PRD's totals can be seen (AC-MERGE-05).
+    await finished([pushing([{ sleepFor: 1_500 }]), building]);
     writeFileSync(join(h!.repository, "scratch.txt"), "uncommitted, not Kiln's\n");
+    // The run's effort changed after the build: the push session takes the run's agent, model and effort as they are now (AC-MERGE-05).
+    const choice = selectedChoice(h!.engine.record.settings);
+    const effort = h!.engine.modelEntry(choice.model)!.supportedEffortLevels.find(level => level !== choice.effort)!;
+    const changed = await h!.engine.changeSettings({ effort, agentId: h!.engine.record.settings.agentId, selectionGeneration: h!.engine.agents.state.generation } as Parameters<Engine["changeSettings"]>[0]); expect(changed, JSON.stringify(changed)).toMatchObject({ ok: true });
     const proposal = await offer();
     expect(proposal.commits).toEqual([{ sha: localHead(), subject: "docs(comet): add lending", onlyDocuments: true }]);
     const finishedExecution = h!.engine.record.executionId!;
@@ -137,6 +142,7 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     const call = pushCalls()[0]!;
     expect(call.cwd).toBe(h!.repository);
     expect(call.args).not.toContain("--add-dir");
+    expect(call.args.slice(call.args.indexOf("--model"), call.args.indexOf("--model") + 4)).toEqual(["--model", choice.model, "--effort", effort]);
     for (const line of ["Work only in the main checkout", `- ${tip.slice(0, 7)} docs(comet): add lending`, "push nothing and end there", "Push with a plain `git push origin develop`. Never force-push.", "Never stash, commit, change or discard uncommitted work", "abort the merge (`git merge --abort`)", "No reply permits a forced push or touching uncommitted work.", "end there, naming the documents and what needs deciding.", "If the push is refused, by branch protection or a repository hook, end there with the refusal word for word.", "If a commit above touches anything but this PRD's documents, push nothing and end there. Your last message names those commits, with their subjects, and says nothing was pushed."]) expect(call.prompt).toContain(line);
     expect(remoteHead()).toBe(tip);
     expect(readFileSync(join(h!.repository, "scratch.txt"), "utf8")).toBe("uncommitted, not Kiln's\n");
@@ -160,6 +166,13 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     const push = archived.afterDelivery!.planPushes![0]!;
     expect(push).toMatchObject({ operationId: key.replace("plan-push-", ""), doneAt: expect.any(String), closedAt: expect.any(String), offered: [{ id: "9", phaseScopeDigest: expect.any(String) }] });
     expect(archived.phases[key]!.sessionIds).toHaveLength(1);
+    const pushSession = h!.engine.sessionRecord(key, archived.phases[key]!.sessionIds[0]!)!;
+    expect(pushSession).toMatchObject({ agentId: "claude_code", kind: "plan_push", model: choice.model, effort });
+    // The finished execution's running time, carried into the PRD's totals, counts the push session: phase 1 ran no session of its own (AC-MERGE-05, time totals AC-TOTAL-02).
+    const pushRun = pushSession.runs[0]!;
+    const summary = h!.engine.record.continuation!.executions.find(row => row.executionId === finishedExecution)!;
+    expect(summary.runningMs).toBeGreaterThanOrEqual(Date.parse(pushRun.endedAt!) - Date.parse(pushRun.startedAt));
+    expect(summary.runningMs).toBeGreaterThanOrEqual(1_500);
   });
 
   it("shows the push on the finished page while it runs, with no live controls, and kiln status says so", async () => {
@@ -174,6 +187,12 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(page.feature.state).toBe("complete");
     expect(page.afterDelivery?.planPush).toMatchObject({ key, state: "running", proposalId: proposal.id });
     expect(page.phases.at(-1)).toMatchObject({ id: key, kind: "plan_push", title: "Push the plan", state: "implementing" });
+    // The row names the running session, so the card's Watch the session opens its live output (AC-MERGE-05).
+    const session = h!.engine.latestSession(key)!;
+    expect(page.phases.at(-1)!.details?.sessionId).toBe(session.sessionId);
+    expect(page.afterDelivery?.planPush?.sessionId).toBe(session.sessionId);
+    // The header reads Pushing the plan while it runs (AC-MERGE-05's table).
+    expect(headerState(page, true, new Date())).toMatchObject({ kind: "implementing", label: "Pushing the plan" });
     // Like the pull request session: no message, pause or takeover, and the page says why (AC-MERGE-05).
     const controls = h!.engine.controlView().controls;
     for (const name of ["message", "take-over", "request-pause"]) expect(controls.find(one => one.name === name)).toMatchObject({ available: false, reason: "Like the pull request session, the push session can’t be messaged, paused or taken over while it runs." });
@@ -444,6 +463,31 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(await control("resume")).toMatchObject({ state: "completed", outcome: "already_done" });
     await buildStarted(finishedExecution);
     expect(h!.claudeCalls().filter(call => call.args.includes("--resume"))).toEqual([]);
+  });
+
+  it("holds the push session's launch for billing at Needs you, pushing nothing, then launches it metered once billing is approved and Check again is pressed (AC-MERGE-05)", async () => {
+    await finished([pushing(), building]);
+    const proposal = await offer();
+    const finishedExecution = h!.engine.record.executionId!;
+    const before = remoteHead();
+    // The launch environment changed after the run finished: the run's billing limits hold the push session's launch.
+    h!.env.ANTHROPIC_API_KEY = "push-billing-canary";
+    await h!.engine.refreshBilling();
+    const key = ((await pressContinue(proposal.id)) as { planPush: string }).planPush;
+    await h!.engine.settled();
+    expect(h!.engine.record.billing?.hold).toMatchObject({ phaseKey: key, action: "launch" });
+    expect(pushCalls()).toEqual([]);
+    expect(remoteHead()).toBe(before);
+    const page = buildSnapshot(h!.engine);
+    expect(page.feature.state).toBe("needs_you");
+    expect(page.afterDelivery!.planPush!.state).toBe("stopped");
+    expect(afterDeliveryText(status().after_delivery, false)).toBe("Pushing the plan: the push session stopped before pushing the plan; it needs you.");
+
+    await h!.engine.billingCommand("approval", { executionId: h!.engine.record.executionId, selectionGeneration: h!.engine.record.settings.selectionGeneration ?? 0, readingId: h!.engine.billing.view.next!.readingId, approved: true });
+    await control("check-again");
+    await waitFor(() => pushCalls().length === 1 && remoteHead() !== before, 30_000);
+    expect(h!.engine.sessionRecord(key, h!.engine.historicalExecution(finishedExecution)!.record.phases[key]!.sessionIds[0]!)!.runs[0]!.billing).toMatchObject({ route: "metered", approved: true });
+    expect(remoteHead()).toBe(localHead());
   });
 
   it("holds a push interrupted by Ctrl+C on the finished page until Resume, which carries on the same session and starts the build", async () => {

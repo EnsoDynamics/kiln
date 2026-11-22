@@ -11,6 +11,8 @@ import Waiting from "./Waiting.svelte";
 import Complete from "./Complete.svelte";
 import NeedsYou from "./NeedsYou.svelte";
 import StateHeader from "../components/StateHeader.svelte";
+import PhaseDetail from "./PhaseDetail.svelte";
+import type { PhaseView } from "../../../src/engine/snapshot.js";
 
 const text = (markup: string) => markup.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
 const NOTE = "Merge with Claude Code starts one more session in this PRD’s worktree. It brings develop into the branch, resolves any conflicts, runs the tests, pushes, waits for the required checks and merges #218 into develop. Merging into develop may start its CI or deployment. To review it yourself first, open it on GitHub.";
@@ -116,6 +118,49 @@ describe("the merge session's waits and restart hold (AC-MERGE-05)", () => {
   });
 });
 
+// Watching the merge and push sessions (AC-MERGE-05): the finished page links to the running session, whose page
+// shows its live output with no message box or pause, and says why; the header reads Merging or Pushing the plan.
+describe("watching a running merge or push session (AC-MERGE-05)", () => {
+  const details = (sessionId: string): PhaseView["details"] => ({ agentId: "claude_code", agent: "Claude Code", from: "2026-10-17T19:02:00Z", model: "Opus 5.5", effort: "high", worktree: "~/w", branch: "develop", sessionId });
+  const detail = (snapshot: Snapshot, phaseId: string) => text(render(PhaseDetail, { props: { snapshot, phaseId, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
+  const watch = (markup: string) => /<a class="button solid" href="([^"]+)"[^>]*>Watch the session<\/a>/.exec(markup)?.[1];
+  const MERGE_LIVE = "Like the pull request session, the merge session can’t be messaged, paused or taken over while it runs.";
+  const PUSH_LIVE = "Like the pull request session, the push session can’t be messaged, paused or taken over while it runs.";
+
+  it("links the running merge session from the card to its page, which shows its live output and no message box or pause", () => {
+    const snapshot = finished({ merge: { state: "running", sessionId: "merge-session-1", startedAt: "2026-10-17T19:02:00Z", pullRequests: [{ repository: "acme-shop", number: 218 }], folder: "~/w" } });
+    snapshot.phases = [...snapshot.phases, { id: "merge", kind: "merge", title: "Merge", file: "Claude Code · Opus 5.5 · merging #218 into develop", state: "implementing", finishedByPerson: false, details: details("merge-session-1") }];
+    const markup = render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body;
+    expect(watch(markup)).toBe("/customer-returns/phase/merge");
+    expect(text(markup)).toContain("Merge session Claude Code · Opus 5.5");
+    const words = detail(snapshot, "merge");
+    expect(words).toContain("Session output LIVE");
+    expect(words).toContain(MERGE_LIVE);
+    expect(words).not.toContain("Pause now");
+    expect(words).not.toContain("Send");
+    expect(header(snapshot)).toContain("Merging");
+  });
+
+  it("shows the running push session on the finished page with its reason and a link to its page, which shows its live output; the header reads Pushing the plan", () => {
+    const key = "plan-push-7f3a";
+    const snapshot = finished({ waiting: false, offer: { kind: "all_merged", available: false }, planPush: { key, state: "running", sessionId: "push-session-1", proposalId: "p".repeat(64) } }, [{ repository: "acme-shop", number: 218, state: "merged", mergedAt: "2026-10-17T19:19:00Z", mergeCommit: "8e41c0d9aa", readAt: "2026-10-17T19:20:00Z" }]);
+    snapshot.continuation = undefined;
+    snapshot.phases = [...snapshot.phases, { id: key, kind: "plan_push", title: "Push the plan", file: "Claude Code · Opus 5.5 · pushing 1 commit to develop", state: "implementing", finishedByPerson: false, details: details("push-session-1") }];
+    const markup = render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body;
+    expect(watch(markup)).toBe(`/customer-returns/phase/${key}`);
+    const page = text(markup);
+    expect(page).toContain("Push the plan Claude Code · Opus 5.5 · pushing 1 commit to develop Watch the session");
+    expect(page).toContain(`${PUSH_LIVE} Once develop holds the documents, the build starts. If the push session stops, Kiln shows Needs you with its last message.`);
+    const words = detail(snapshot, key);
+    expect(words).toContain("Session output LIVE");
+    expect(words).toContain(PUSH_LIVE);
+    expect(words).not.toContain("Pause now");
+    expect(words).not.toContain("Send");
+    expect(header(snapshot)).toContain("Pushing the plan");
+    expect(header(snapshot)).not.toContain("Merged");
+  });
+});
+
 // Phase 5 of Kiln After Delivery (the display gaps the delivery audit found): the check's answer beside
 // Exit Kiln once merged (AC-WAIT-03, mockup state 3) and the header while a pull request is closed (AC-MERGE-07).
 describe("the check's answer and the header after delivery", () => {
@@ -140,6 +185,11 @@ describe("the check's answer and the header after delivery", () => {
     expect(panel).toBeGreaterThan(exit);
     expect(markup.slice(card, markup.indexOf("Phase plan"))).toContain("No new phases found");
     expect(markup).toMatch(/class="plan-check[^"]*in-card/);
+    // With the check's answer "unchanged" present, the header reads Merged, not New phases found (AC-WAIT-03).
+    const top = header(merged(check("unchanged")));
+    expect(top).toContain("Merged");
+    expect(top).not.toContain("New phases");
+    expect(top).not.toContain("PR ready for review");
     // The page's clock decides the date: none for a check made today, the date for an earlier one.
     const at = (now: number) => text(render(Complete, { props: { snapshot: merged(check("unchanged")), connected: true, now, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body);
     const time = new Date("2026-10-17T19:20:00Z").toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });

@@ -128,4 +128,13 @@ describe("each audit row carries its loop label (AC-STOP-05)", () => {
   it("names the loop on the audit's own page", () => {
     expect(text(detail(closingAuditsSnapshot(), "audit-da3"))).toContain("Loop 3 of 4");
   });
+  it("names a session of test fixes on its own page and an audit at Needs you by what it does, never by round or continuation (Kiln After Delivery AC-AUDIT-01)", () => {
+    const fixing = text(detail(closingAuditsSnapshot(), "audit-ta1-2"));
+    expect(fixing).toContain("Fixing tests");
+    expect(fixing).toContain("From test audit loop 1 · session 1");
+    expect(fixing).not.toMatch(/Round|Continuation/);
+    const stop = text(needsYou(storedLoopStopSnapshot()));
+    expect(stop).toContain("Test audit");
+    expect(stop).not.toMatch(/Round|Continuation/);
+  });
 });
