@@ -51,7 +51,7 @@
     {#each view.repositories as repository, index (repository.name)}
       {@const state = folderState(repository)}
       <div class:next={index > 0}>
-        <div class="between"><span class="small muted upper">{multi ? `${repository.name} · saved folder` : "The run’s saved folder"}</span><span class="state {state.tone}">{state.text}</span></div>
+        <div class="between"><span class="small muted upper">{multi ? `${snapshot.repositories.find((row) => row.name === repository.name)?.label ?? repository.name} · saved folder` : "The run’s saved folder"}</span><span class="state {state.tone}">{state.text}</span></div>
         <p class="path">{repository.savedFolder}</p>
         <p class="small muted">{@render parts(folderLine(repository))}</p>
       </div>

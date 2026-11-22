@@ -16,6 +16,7 @@ import { judgedPhase } from "./plan-reading.js";
 import { PLAN_LIMIT, PlanCapacityError, completedPhaseScopeUnchanged, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { expandHome } from "./worktree-setup.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
+import { reachedName, reachRecordNames, type NamedRepositoryRow, type PlanReach } from "./plan-repositories.js";
 import type { ContinuationInputObservation } from "./continuation-authority.js";
 
 export type LeafClassification = "carried_completed" | "new_unfinished" | "externally_verified" | "externally_unverified" | "unresolved_earlier_work";
@@ -75,6 +76,16 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
   const prdName = record.repository.name;
   const leaves: AccountedLeaf[] = [];
   const bases = new Map<string, { path: string; branch: string; revision: string }>();
+  // Names reach their repository first, so the evidence, the scope and the revisions share Kiln's name (find repositories anywhere "Names").
+  let reach: Map<string, PlanReach> | undefined;
+  const reachedRows = new Map<string, NamedRepositoryRow>();
+  const kilnName = (written: string): { name: string } | { problem: string; unavailable?: true } => {
+    const reached = reach?.get(written);
+    if (reached === undefined) return { name: written };
+    const result = reachedName(written, prdName, reached);
+    if ("row" in result && result.row) reachedRows.set(result.name, result.row);
+    return result;
+  };
   for (const phase of leavesOf(candidate.plan)) {
     const old = baseline.active.plan.phases.find(p => p.id === phase.id);
     const row: AccountedLeaf = { id: phase.id, title: phase.title, file: posix.join(record.prdDirectory, phase.fileName), classification: "new_unfinished", problems: [], repositories: [] };
@@ -96,8 +107,14 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
     row.classification = "externally_unverified";
     const owners = Object.entries(record.phases).filter(([id, facts]) => facts.sessionIds.length && judgedPhase(candidate.plan.phases, id)?.id === phase.id);
     const owner = owners[0];
-    const names = [...new Set([prdName, ...candidate.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories)])];
-    let references = extracted.references.filter(ref => ref.phaseId === phase.id);
+    reach ??= await reachRecordNames(git, record, shared, candidate.plan.phases);
+    const names = [prdName];
+    for (const written of candidate.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories)) {
+      const reached = kilnName(written);
+      if ("problem" in reached) { if (reached.unavailable) throw new Error(`source_unavailable: ${reached.problem} Restore repository access, then check again.`); row.problems.push(`Phase ${phase.id}: ${reached.problem}`); continue; }
+      if (!names.includes(reached.name)) names.push(reached.name);
+    }
+    let references = extracted.references.filter(ref => ref.phaseId === phase.id).map(ref => { const reached = kilnName(ref.repository); return "name" in reached ? { ...ref, repository: reached.name } : ref; });
     if (owner) {
       row.provenance = "retained_kiln";
       if (owners.length !== 1 || !owner[1].doneAt) {
@@ -120,7 +137,8 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       }
       let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(entry => entry.name === name);
       if (!repo) {
-        const found = await findRepository(git, repositoriesParent(shared), name, phase.fileName);
+        const reachedRow = reachedRows.get(name);
+        const found = reachedRow?.found ? { ok: true as const, repository: reachedRow.found } : await findRepository(git, repositoriesParent(shared), name, phase.fileName);
         if (!found.ok) { if (found.unavailable) throw new Error(`source_unavailable: ${found.problem} Restore repository access, then check again.`); row.problems.push(`Phase ${phase.id}: ${found.problem}`); continue; }
         const baseBranch = record.settings.bases[name];
         if (!baseBranch) { row.problems.push(`Phase ${phase.id}: configure the delivery base for ${name} before its completion can be verified.`); continue; }

@@ -9,7 +9,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, posix } from "node:path";
 import { AuditRefusal } from "../audit/contracts.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
-import { leavesOf, namedRepositories, planStartProblems, readPhasePlan, type PhasePlan } from "../plan/phase-plan.js";
+import { leavesOf, planStartProblems, readPhasePlan, type PhasePlan } from "../plan/phase-plan.js";
+import type { NamedRepositoryRow } from "./plan-repositories.js";
 import { runHelper } from "../platform/helper-process.js";
 import type { RepositoryEntry, RepositoryKind } from "../state/records.js";
 import { readGitPlan } from "./completed-plan-sources.js";
@@ -20,6 +21,8 @@ import { comparable, defaultBaseBranch, displayPath, expandHome, halfMadeMessage
 /** One of the PRD's repositories as the branch list and preview see it. */
 export interface StartRepository {
   name: string;
+  /** Its short name, when `name` is the whole-path form (find repositories anywhere AC-FOLDER-01). */
+  shortName?: string;
   kind: RepositoryKind;
   mainCheckoutPath: string;
   github: string;
@@ -205,6 +208,10 @@ export interface StartPreview {
   workspaceFolder?: string;
   /** The message under Feature branch while Start is unavailable. */
   fieldError?: string;
+  /** Repositories the start commit's plan names that Documents found asks about (find repositories anywhere AC-ASK-01). */
+  asking?: NamedRepositoryRow[];
+  /** Every repository the start commit's plan names, found or asked about, with how each was found. */
+  named?: NamedRepositoryRow[];
   previewId: string;
 }
 
@@ -217,8 +224,8 @@ export interface PreviewInput {
   bringUpToDate: boolean;
   /** Today's repositories, the PRD's first. */
   repositories: StartRepository[];
-  /** Finds a repository the start commit's plan names beside the PRD's repository. */
-  find: (name: string, namedIn: string) => Promise<{ ok: true; repository: { name: string; mainCheckoutPath: string; github: string } } | { ok: false; problem: string }>;
+  /** Reaches the start commit's plan's names as the start checks do (find repositories anywhere "Names"). */
+  resolve: (phases: PhasePlan["phases"]) => Promise<{ named: NamedRepositoryRow[]; problems: string[] }>;
   /** The base a repository found from the start commit's plan uses. */
   baseOf: (name: string) => string;
   others: OtherPrdBranch[];
@@ -353,17 +360,23 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
   }
   // Which repositories (AC-FROM-05): those an earlier Start set up, the PRD's, and those the start commit's plan names.
   const selection: StartRepository[] = [...input.repositories.filter(repository => repository.kind !== "named" || repository.setUp)];
+  const asking: NamedRepositoryRow[] = [];
+  let named: NamedRepositoryRow[] = [];
   if (plan && plan.problems.length === 0) {
-    for (const name of namedRepositories(plan.phases, prd.name)) {
+    const resolved = await input.resolve(plan.phases);
+    named = resolved.named;
+    problems.push(...resolved.problems.map(message => ({ message })));
+    for (const row of resolved.named) {
+      const name = row.name;
       if (selection.some(repository => repository.name === name)) continue;
       const today = input.repositories.find(repository => repository.name === name);
       if (today) { selection.push(today); continue; }
-      const found = await input.find(name, plan.phases.find(phase => phase.repositories.includes(name))!.fileName);
-      if (!found.ok) { problems.push({ message: found.problem }); continue; }
+      // A repository Kiln would ask about is asked about on its row, as the checkout's plan's are (find repositories anywhere "Asking Before Start").
+      if (!row.found) { asking.push(row); continue; }
       // A repository only the start commit's plan names starts from v1's base rule unless the person chose one (AC-FROM-05).
-      const foundRefs = await readRepositoryRefs(git, found.repository.mainCheckoutPath);
+      const foundRefs = await readRepositoryRefs(git, row.found.mainCheckoutPath);
       refs.set(name, foundRefs);
-      const repository: StartRepository = { ...found.repository, kind: "named", baseBranch: input.baseOf(name) || (foundRefs.origin ? defaultBaseBranch(foundRefs.origin) : "") };
+      const repository: StartRepository = { name, ...(row.found.shortName === undefined ? {} : { shortName: row.found.shortName }), mainCheckoutPath: row.found.mainCheckoutPath, github: row.found.github, kind: "named", baseBranch: input.baseOf(name) || (foundRefs.origin ? defaultBaseBranch(foundRefs.origin) : "") };
       selection.push(repository);
       await classify(repository);
     }
@@ -390,7 +403,7 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
     from: "existing", branch, bringUpToDate: input.bringUpToDate, repositories,
     ...(catchUp ? { catchUp } : {}), ...(planSource ? { planSource } : {}), ...(documents ? { documents } : {}), ...(plan ? { plan } : {}),
     closedCount, ...(closedCount > 0 && open ? { startAt: { id: open.id, title: open.title } } : {}),
-    ...(workspaceFolder ? { workspaceFolder } : {}), ...(problems.length ? { fieldError: problems[0]!.repository && multi ? `In ${problems[0]!.repository}: ${problems[0]!.message}` : problems[0]!.message } : {}),
+    ...(workspaceFolder ? { workspaceFolder } : {}), ...(asking.length ? { asking } : {}), ...(named.length ? { named } : {}), ...(problems.length ? { fieldError: problems[0]!.repository && multi ? `In ${problems[0]!.repository}: ${problems[0]!.message}` : problems[0]!.message } : {}),
   };
   return { ...preview, previewId: digestPreview(preview) };
 }

@@ -10,6 +10,26 @@ section to the new version.
 
 ## [Unreleased]
 
+### Added
+
+- A phase document's `**Repositories:**` line can name a repository by the path in its remote
+  address, such as `acme-labs/admin`, which is the same on every computer. Kiln finds that
+  repository's checkout by its `origin`, beside the PRD's repository or in the folders above it
+  up to your home folder, without asking the system for access to Desktop, Documents, Downloads
+  or other guarded folders. Lines that use folder names keep working as before.
+- When Kiln can't find a checkout, or finds more than one, Documents found asks where it is or
+  which to use, and Kiln remembers the answer on this computer for every PRD that names that
+  repository. **Change** on the row asks again. The terminal says how many repositories need
+  locating, and Start waits until each is answered.
+- Two repositories with the same name under different organizations get separate worktree
+  folders and are shown by their whole path, such as `acme/admin` and `acme-labs/admin`.
+
+### Changed
+
+- Documents found shows each repository's address path and the folder its checkout is in, and
+  its passed check reads "Repositories found on this computer". A full remote address or a
+  path on one computer on a `**Repositories:**` line is now refused with the name to use.
+
 ### Fixed
 
 - When a restarted run's setup can't be finished and Kiln returns to Documents found, Ctrl+C

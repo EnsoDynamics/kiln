@@ -26,7 +26,8 @@
   import CodeText from "../components/CodeText.svelte";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
-  import { changeSettings, start, type PageConfig } from "../lib/api.js";
+  import { changeRepositoryLocation, changeSettings, locateRepository, start, type PageConfig } from "../lib/api.js";
+  import RepositoryQuestion from "../components/RepositoryQuestion.svelte";
   import {
     accountLines,
     adoptedWorktreeHelp,
@@ -45,7 +46,7 @@
     prdLine,
     startState,
   } from "../lib/documents-found.js";
-  import { addedLabel } from "../lib/progress.js";
+  import { addedLabel, countWord } from "../lib/progress.js";
   import AuditLoopSettings from "../components/AuditLoopSettings.svelte";
   import { shownLoopSettings } from "../lib/audit-loops.js";
 
@@ -86,6 +87,26 @@
   let pressing = $state(false);
   let startReason = $state<string | undefined>(undefined);
   const startNow = $derived(startState(snapshot, refined, connected));
+  // While a row asks, the status line says what to tell Kiln first (find repositories anywhere "Asking Before Start").
+  const asking = $derived(snapshot.repositories.filter((row) => row.question !== undefined));
+  const lead = $derived(asking.length === 0
+    ? "Review what Kiln found and how it will deliver, then start."
+    : asking.length > 1
+      ? `Tell Kiln where ${countWord(asking.length)} repositories are, then review and start.`
+      : asking[0]!.question!.kind === "which" ? "Tell Kiln which checkout to use, then review and start." : "Tell Kiln where one repository is, then review and start.");
+
+  /** An answer to a row's question, through POST /api/repository-location (AC-ASK-03). */
+  async function answer(row: RepositoryRow, folder: string): Promise<{ ok: boolean; reason?: string }> {
+    const result = await locateRepository(config, row.question!.repository, folder);
+    return result.ok ? { ok: true } : { ok: false, reason: result.reason };
+  }
+
+  /** Change: the row asks again, its remembered answer standing until another is accepted (AC-ASK-05). */
+  async function change(row: RepositoryRow) {
+    startReason = undefined;
+    const result = await changeRepositoryLocation(config, row.addressPath);
+    if (!result.ok) startReason = result.reason;
+  }
 
   // Text fields keep what the person types; the saved value comes back with the next snapshot.
   // A folder is shown with its trailing slash, as the mockup draws it; Kiln reads it either way.
@@ -147,7 +168,7 @@
 <main>
   <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name}>
     <span class="pill">Not started</span>
-    <span class="lead">Review what Kiln found and how it will deliver, then start.</span>
+    <span class="lead">{lead}</span>
   </FeatureHeader>
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
 
@@ -230,9 +251,13 @@
       <div class="checks">
         {#each documents.checks as passed (passed.name)}
           {@const named = passed.name.split(` ${repositoryName}`)}
-          {#if !passed.passed}
+          {#if passed.locate}
+            <span class="locate"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 4.8v3.8M8 11.2v.2"></path></svg><span>{passed.name}</span></span>
+          {:else if !passed.passed}
             <!-- A start check that failed on a page a reset built, in kiln run's words (run restart AC-RESET-04). -->
             <span class="failed"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--amber)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg>{passed.text ?? passed.name}</span>
+          {:else if passed.name === "Repositories found on this computer"}
+            <span class="passed">{@render check(12)}<span>{passed.name}</span></span>
           {:else if multi && named.length === 2 && (named[1] === "" || named[1]!.startsWith(" "))}
             <span class="passed">{@render check(12)}<span>{named[0]} <span class="mono check-name">{repositoryName}</span>{named[1]}</span></span>
           {:else}
@@ -271,7 +296,7 @@
           {/if}
           {#if settings.fieldErrors.workspaceFolder}<span class="message">{settings.fieldErrors.workspaceFolder}</span>{/if}
           {#if existing && startFrom?.workspaceFolder}
-            <span class="help">The branch's worktrees are in this folder, so Kiln works here: {startFrom.repositories.filter((repository) => repository.worktree).map((repository) => `${repository.name} with ${repository.worktree!.uncommittedFiles === undefined ? "an unknown number of" : repository.worktree!.uncommittedFiles === 0 ? "no" : repository.worktree!.uncommittedFiles} uncommitted ${repository.worktree!.uncommittedFiles === 1 ? "file" : "files"}`).join(", ")}. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+            <span class="help">The branch's worktrees are in this folder, so Kiln works here: {startFrom.repositories.filter((repository) => repository.worktree).map((repository) => `${snapshot.repositories.find((row) => row.name === repository.name)?.label ?? repository.name} with ${repository.worktree!.uncommittedFiles === undefined ? "an unknown number of" : repository.worktree!.uncommittedFiles === 0 ? "no" : repository.worktree!.uncommittedFiles} uncommitted ${repository.worktree!.uncommittedFiles === 1 ? "file" : "files"}`).join(", ")}. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
           {:else}
             <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
           {/if}
@@ -291,12 +316,22 @@
           <ul aria-labelledby="repos-h" class="repos">
             {#each snapshot.repositories as row (row.name)}
               <li>
-                <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.name}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}{#if existing && startRepository(row.name)?.hasBranch}<span class="tag">PR into</span>{/if}</span>
-                <select id="base-{row.name}" class="mono" value={row.baseBranch} disabled={fixedLocked || row.fixed} onchange={(event) => chooseBase(row, event.currentTarget.value)}>
-                  {#if row.baseBranch === ""}<option value=""></option>{/if}
-                  {#each rowChoices(row) as base (base)}<option value={base}>{base}</option>{/each}
-                </select>
+                <div class="repo-line">
+                  <span class="repo-text">
+                    <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.label}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}{#if existing && startRepository(row.name)?.hasBranch}<span class="tag">PR into</span>{/if}{#if row.located === "answer" && !row.question}<span class="told">You told Kiln where this is · <button type="button" class="change" disabled={fixedLocked} onclick={() => change(row)}>Change</button></span>{/if}</span>
+                    <span class="where"><span class="mono">{row.addressPath}</span>{#if row.checkoutFolder}<span class="dot">{" · "}</span><span class="mono">{row.checkoutFolder}</span>{/if}</span>
+                  </span>
+                  {#if row.question}
+                    <select id="base-{row.name}" class="mono" disabled><option value="">—</option></select>
+                  {:else}
+                    <select id="base-{row.name}" class="mono" value={row.baseBranch} disabled={fixedLocked || row.fixed} onchange={(event) => chooseBase(row, event.currentTarget.value)}>
+                      {#if row.baseBranch === ""}<option value=""></option>{/if}
+                      {#each rowChoices(row) as base (base)}<option value={base}>{base}</option>{/each}
+                    </select>
+                  {/if}
+                </div>
                 {#if row.fieldErrors.baseBranch}<span class="message row-message">{row.fieldErrors.baseBranch}</span>{/if}
+                {#if row.question}{#key row.question.kind + row.question.checkouts.length + (row.question.field ?? "")}<RepositoryQuestion question={row.question} disabled={fixedLocked} onanswer={(folder) => answer(row, folder)} />{/key}{/if}
               </li>
             {/each}
           </ul>
@@ -413,7 +448,7 @@
         {#if multi}
           {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code nowrap">{settings.featureBranch}</span> up to date with each repository’s base where offered, as ticked above</span></li>{/if}
           <li>{@render check(14, true)}<span>In each repository, commit and push to <span class="mono code nowrap">{settings.featureBranch}</span></span></li>
-          {#if existing}{#each startFrom?.repositories.filter((repository) => repository.pullRequest) ?? [] as repository (repository.name)}<li>{@render check(14, true)}<span>{#if repository.pullRequest && "number" in repository.pullRequest}In <span class="mono code">{repository.name}</span>, use its open pull request <a href={repository.pullRequest.url}>#{repository.pullRequest.number}</a>{:else}In <span class="mono code">{repository.name}</span>: {repository.pullRequest && "unknown" in repository.pullRequest ? repository.pullRequest.unknown : ""}{/if}</span></li>{/each}{/if}
+          {#if existing}{#each startFrom?.repositories.filter((repository) => repository.pullRequest) ?? [] as repository (repository.name)}<li>{@render check(14, true)}<span>{#if repository.pullRequest && "number" in repository.pullRequest}In <span class="mono code">{snapshot.repositories.find((row) => row.name === repository.name)?.label ?? repository.name}</span>, use its open pull request <a href={repository.pullRequest.url}>#{repository.pullRequest.number}</a>{:else}In <span class="mono code">{snapshot.repositories.find((row) => row.name === repository.name)?.label ?? repository.name}</span>: {repository.pullRequest && "unknown" in repository.pullRequest ? repository.pullRequest.unknown : ""}{/if}</span></li>{/each}{/if}
           <li>{@render check(14, true)}<span>{settings.developmentDeployments?.enabled ? "Early merges may happen on approved repository branches; remaining work stays open for review" : "In each repository, open one pull request into its base branch once every phase closes"}</span></li>
         {:else}
           {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code">{settings.featureBranch}</span> up to date with <span class="mono code">{offer.repositories[0]!.base}</span>, as ticked above</span></li>{/if}
@@ -529,7 +564,16 @@
   .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px; }
   .repos-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
   .repos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
-  .repos li { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .repos li { display: flex; flex-direction: column; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .repo-line { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center; }
+  .repo-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .where { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+  .where .mono { font-size: 12px; }
+  .dot { color: var(--dim); }
+  .told { font-size: 12px; color: var(--dim); white-space: nowrap; }
+  .change { padding: 0; border: 0; background: none; font: inherit; line-height: normal; color: var(--red); text-decoration: underline; cursor: pointer; }
+  .change:disabled { cursor: not-allowed; opacity: 0.6; }
+  .checks .locate { display: inline-flex; align-items: center; gap: 6px; color: var(--amber); }
   .repo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
   .repo-name { font-size: 13px; font-weight: 400; color: var(--text); overflow-wrap: anywhere; }
   .repos select { height: 36px; padding: 0 8px; border-radius: 8px; }

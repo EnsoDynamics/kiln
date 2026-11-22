@@ -18,6 +18,7 @@ const authorityDigest = (value: unknown) => createHash("sha256").update(JSON.str
 import { readPendingAuthority, pendingForProposal, type ContinuationInputObservation } from "./continuation-authority.js";
 import { mergeTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
+import { reachedName, reachRecordNames, recordedName, type PlanReach } from "./plan-repositories.js";
 import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
 
 export interface ReadinessPrerequisite { phaseId: string; status: "integrated_verified" | "preparation_available" | "blocked" | "unknown"; evidence: string[]; recovery?: string }
@@ -49,10 +50,18 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
   const first = leavesOf(candidate.plan).find(phase => added.some(row => row.id === phase.id));
   const prerequisites: ReadinessPrerequisite[] = [];
   const names = added.length ? [...new Set([record.repository.name, ...candidate.plan.phases.flatMap(phase => phase.repositories)])] : [];
-  for (const name of names) {
+  // Each name reaches its repository first, and the reader works with Kiln's name for it (find repositories anywhere "Names").
+  const reach = names.length ? await reachRecordNames(git, record, shared, candidate.plan.phases) : new Map<string, PlanReach>();
+  const seen = new Set<string>();
+  for (const written of names) {
+    const reached = reachedName(written, record.repository.name, reach.get(written));
+    if ("problem" in reached) { if (reached.unavailable) throw new Error(`source_unavailable: ${reached.problem} Restore repository access, then check again.`); problems.push(reached.problem); continue; }
+    const name = reached.name;
+    if (seen.has(name)) continue;
+    seen.add(name);
     let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(one => one.name === name);
     if (!repo) {
-      const found = await findRepository(git, repositoriesParent(shared), name, first?.fileName ?? "current plan");
+      const found = reached.row?.found ? { ok: true as const, repository: reached.row.found } : await findRepository(git, repositoriesParent(shared), name, first?.fileName ?? "current plan");
       if (!found.ok) { if (found.unavailable) throw new Error(`source_unavailable: ${found.problem} Restore repository access, then check again.`); problems.push(found.problem); continue; }
       const origin = await originBranches(git, found.repository.mainCheckoutPath);
       if (!origin.ok) throw new Error(`source_unavailable: Could not read ${name}'s delivery bases: ${origin.error}. Restore repository access, then check for new phases again.`);
@@ -74,7 +83,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const integrationProblems: string[] = [];
     if (row.classification === "carried_completed" && added.length) {
       const receipt = baseline.completions[row.id];
-      const affected = [...new Set([record.repository.name, ...(receipt?.scopeRepositories ?? phaseRepositories(baseline.active, row.id))])];
+      const affected = [...new Set([record.repository.name, ...(receipt?.scopeRepositories ?? phaseRepositories(baseline.active, row.id)).map(name => recordedName(record, name))])];
       for (const name of affected) {
         const repo = repositories.find(repo => repo.name === name);
         const revision = receipt?.repositories?.[name]?.revision ?? (name === record.repository.name ? receipt?.revision : undefined);
@@ -104,7 +113,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
       prerequisites.push({ phaseId: row.id, status: "integrated_verified", evidence: row.repositories.map(repo => `${repo.identity}@${repo.revision} in ${repo.baseRevision}`) }); continue;
     }
     const bindings = preparation.filter(binding => preparesPhase(binding, row.id));
-    const requiredNames = [...new Set([record.repository.name, ...(row.classification === "carried_completed" ? baseline.completions[row.id]?.scopeRepositories ?? phaseRepositories(baseline.active, row.id) : phaseRepositories(candidate, row.id))])];
+    const requiredNames = [...new Set([record.repository.name, ...(row.classification === "carried_completed" ? baseline.completions[row.id]?.scopeRepositories ?? phaseRepositories(baseline.active, row.id) : phaseRepositories(candidate, row.id)).map(name => recordedName(record, name))])];
     // Preparation cannot substitute for a missing retained provider receipt or changed old scope.
     const eligible = (row.classification === "externally_unverified" && row.provenance === "not_applicable" || row.classification === "carried_completed") && first && preparesPhase({ prerequisites: dependencyIds(first.dependenciesText) }, row.id) && requiredNames.every(name => bindings.some(binding => binding.repository === name && binding.valid));
     if (eligible && !extracted.extractedProblems.length) prerequisites.push({ phaseId: row.id, status: "preparation_available", evidence: bindings.map(binding => `${binding.repositoryIdentity}@${binding.sourceRevision}; authorization ${binding.authorization}`) });

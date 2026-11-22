@@ -158,7 +158,12 @@ import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit,
 import { observeGitPlan } from "./completed-plan-sources.js";
 import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, observeActivePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource, type UnfollowedLink } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
-import { findRepository, repositoriesParent, type FoundRepository } from "./repositories.js";
+import { repositoriesParent, type FoundRepository } from "./repositories.js";
+import { planNames, recordedName, recordLabelSet, resolvePlanRepositories, type NamedRepositoryRow } from "./plan-repositories.js";
+import { checkAnswer, questionSentence, resolveNames, searchedSentence } from "./repository-finding.js";
+import { giveNames, labelAmong, shortNameOf, type Labelled } from "./repository-labels.js";
+import { readRepositoryName, sameAddressPath } from "../plan/repository-names.js";
+import { rememberLocation } from "../state/repository-locations.js";
 import {
   addEntryWorktree,
   baseBranchChoices,
@@ -204,6 +209,8 @@ export type TerminalEvent =
       /** Set on the build preflight's lines, printed as an audit titled Preflight with id PF (build preflight "Display Contract"). */
       preflight?: { outcome?: "ready" | "no_report"; reason?: string } }
   | { kind: "prd_started"; at: Date; branch: string; baseBranch: string; repositoryCount: number }
+  /** A line about finding a repository: an answer accepted, a remembered answer forgotten, a candidate Git couldn't read (find repositories anywhere). */
+  | { kind: "repository_line"; at: Date; text: string; rest?: string }
   | {
       kind: "phase";
       at: Date;
@@ -275,8 +282,10 @@ export interface EngineOptions {
   claude?: ClaudeInfoSource;
   /** The plan the start checks read in the checkout, recorded when Start is pressed (not started only). */
   startPlan?: PhasePlan;
-  /** The named repositories the start checks found beside the PRD's repository (not started only). */
+  /** The named repositories the start checks found, beside the PRD's repository or by their origin (not started only). */
   namedRepositories?: FoundRepository[];
+  /** Every named repository in plan order, found or asked about (not started only; find repositories anywhere AC-ASK-01). */
+  named?: NamedRepositoryRow[];
   /**
    * Put first on each session's PATH, so `kiln add-repository` reaches this Kiln: the directory
    * of the `kiln` the person ran, on macOS and Linux (multi-repo technical design, "The command").
@@ -340,6 +349,8 @@ export type DoneFirst = { phaseId: string; byPerson: boolean };
 
 export interface RepositoryCommits {
   name: string;
+  /** What it is shown by (find repositories anywhere AC-FOLDER-02), set in the snapshot. */
+  label?: string;
   commits: { sha: string; subject: string }[];
 }
 
@@ -1588,7 +1599,7 @@ export class Engine {
     // With an existing branch chosen, the repositories are those Start will set up (run restart "Which repositories").
     const preview = this.startPreview;
     if (record.startedAt === undefined && preview?.from === "existing" && this.startChoice.from === "existing") {
-      return preview.repositories.map(repository => { const entry = record.repositories.find(one => one.name === repository.name); return { name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, ...(entry ? { entry } : {}) }; });
+      return preview.repositories.map(repository => { const entry = record.repositories.find(one => one.name === repository.name); return { name: repository.name, ...(repository.shortName === undefined ? {} : { shortName: repository.shortName }), kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, ...(entry ? { entry } : {}) }; });
     }
     return this.checkoutRepositories;
   }
@@ -1600,18 +1611,15 @@ export class Engine {
       return record.repositories.filter((entry) => entry.setupCompletedAt !== undefined || entry.baseCommit !== undefined).map((entry) => ({ ...entry, entry }));
     }
     const list: PlannedRepository[] = record.repositories.filter((entry) => entry.setupCompletedAt !== undefined).map((entry) => ({ ...entry, entry }));
-    const add = (name: string, kind: "prd" | "named", mainCheckoutPath: string, github: string) => {
+    const add = (name: string, kind: "prd" | "named", mainCheckoutPath: string, github: string, shortName?: string) => {
       if (list.some((candidate) => candidate.name === name)) return;
       const entry = record.repositories.find((candidate) => candidate.name === name);
-      list.push({ name, kind, mainCheckoutPath, github, ...(entry ? { entry } : {}) });
+      list.push({ name, kind, mainCheckoutPath, github, ...(shortName === undefined ? {} : { shortName }), ...(entry ? { entry } : {}) });
     };
     add(this.paths.repositoryName, "prd", this.paths.mainCheckoutPath, record.repository.github);
-    const named = this.options.namedRepositories ?? [];
-    const planNames = this.options.startPlan ? namedRepositories(this.options.startPlan.phases, this.paths.repositoryName) : named.map((repository) => repository.name);
-    for (const name of planNames) {
-      const found = named.find((repository) => repository.name === name);
-      if (found) add(found.name, "named", found.mainCheckoutPath, found.github);
-    }
+    // The named repositories found, in plan order; one asked about has no checkout yet (AC-ASK-01).
+    const found = this.options.named ? this.options.named.flatMap((row) => (row.found ? [row.found] : [])) : this.options.namedRepositories ?? [];
+    for (const repository of found) add(repository.name, "named", repository.mainCheckoutPath, repository.github, repository.shortName);
     // The PRD's repository is listed first.
     list.sort((a, b) => (a.kind === "prd" ? -1 : b.kind === "prd" ? 1 : 0));
     return list;
@@ -1619,9 +1627,35 @@ export class Engine {
 
   /** More than one repository: from the plan before Start, from the set-up repositories after (multi-repo AC-SPACE-03). */
   get multiRepository(): boolean {
-    if (this.record.startedAt === undefined && this.record.setupCompletedAt === undefined) return this.plannedRepositories.length > 1;
+    if (this.record.startedAt === undefined && this.record.setupCompletedAt === undefined) return this.plannedRepositories.length + this.locatingRepositories.length > 1;
     // An entry left holding only Kiln's branch, which the plan no longer names, isn't one of them.
     return this.record.repositories.filter((entry) => entry.setupCompletedAt !== undefined || (entry.kind !== "added" && entry.baseCommit !== undefined)).length > 1;
+  }
+
+  /** The named repositories Documents found asks about, in plan order (AC-ASK-01); none once Start is pressed. */
+  get locatingRepositories(): NamedRepositoryRow[] {
+    if (this.record.startedAt !== undefined) return [];
+    // With an existing branch chosen, the start commit's plan gives the repositories (run restart "Which repositories").
+    if (this.startPreview?.from === "existing" && this.startChoice.from === "existing") return this.startPreview.asking ?? [];
+    return (this.options.named ?? []).filter((row) => row.question !== undefined);
+  }
+
+  /** Every named repository before Start, in plan order: found, or asked about (find repositories anywhere "Snapshot"). */
+  get namedRows(): NamedRepositoryRow[] {
+    // With an existing branch chosen, the start commit's plan gives them (run restart "Which repositories").
+    if (this.record.startedAt === undefined && this.startPreview?.from === "existing" && this.startChoice.from === "existing") return this.startPreview.named ?? [];
+    return this.options.named ?? [];
+  }
+
+  /** Why Start is unavailable while a row asks (find repositories anywhere "Asking Before Start"). */
+  get startBlockedBy(): string | undefined {
+    // A named repository Kiln couldn't check holds Start, named on the page as a failed check.
+    if (this.record.startedAt === undefined && this.repositoryProblems.length > 0) return "Fix what failed, then reload.";
+    const asking = this.locatingRepositories;
+    if (asking.length === 0) return undefined;
+    if (asking.length > 1) return `Tell Kiln where ${asking.length} repositories are to start.`;
+    const question = asking[0]!.question!;
+    return question.kind === "which" ? `Tell Kiln which checkout of ${question.repository} to use to start.` : `Tell Kiln where ${question.repository} is to start.`;
   }
 
   /** The workspace folder and feature branch are fixed once any repository is set up. */
@@ -1711,6 +1745,7 @@ export class Engine {
     if (body.refinementConfirmed !== true) return { ok: false, status: 400, reason: "Confirm the documents have been through requirements refinement first." };
     // A page a reset built keeps Start unavailable while a start check fails (run restart AC-RESET-04).
     if (this.resetDocuments()?.checksFailed) return refuse("Fix what failed, then reload.");
+    if (this.startBlockedBy) return refuse(this.startBlockedBy);
     if (this.baseCheck === "checking") return refuse(`Kiln is checking ${record.settings.baseBranch || "the base branch"} on origin.`);
     const modelError = this.currentFieldErrors.model;
     if (modelError !== undefined) return { ok: false, status: 409, reason: modelError, fieldErrors: { model: modelError } };
@@ -1720,6 +1755,12 @@ export class Engine {
     this.changed();
     let repositoryCount: number;
     try {
+      // The names are reached again at Start; a row that asks holds it (find repositories anywhere AC-ASK-01).
+      if (!(this.startPreview?.from === "existing" && this.startChoice.from === "existing") && planNames(this.options.startPlan?.phases ?? [], this.paths.repositoryName).length > 0) {
+        await this.resolveNamesNow();
+        if (this.startBlockedBy) return refuse(this.startBlockedBy);
+        if (this.repositoryProblems.length > 0) return refuse(this.repositoryProblems.join(" "));
+      }
       if (record.settings.agentId === "claude_code") {
         try { await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true); }
         catch { return refuse("Start could not be saved: billing state could not be saved. No AI work was authorized."); }
@@ -1732,7 +1773,7 @@ export class Engine {
       if (body.previewId !== undefined && preview && body.previewId !== preview.previewId) return { ok: false, status: 409, code: "start_changed", reason: "What Start would do has changed. Review the refreshed page, then press Start again." };
       const existing = preview?.from === "existing";
       const repositories: PlannedRepository[] = existing
-        ? preview!.repositories.map(repository => { const entry = record.repositories.find(one => one.name === repository.name); return { name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, ...(entry ? { entry } : {}) }; })
+        ? preview!.repositories.map(repository => { const entry = record.repositories.find(one => one.name === repository.name); return { name: repository.name, ...(repository.shortName === undefined ? {} : { shortName: repository.shortName }), kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, ...(entry ? { entry } : {}) }; })
         : this.plannedRepositories;
       const pending = repositories.filter((repository) => repository.entry?.setupCompletedAt === undefined);
       if (Object.keys(fields.errors).length > 0 || Object.keys(fields.baseErrors).length > 0 || pending.some((repository) => fields.startCommits[repository.name] === undefined)) {
@@ -1755,6 +1796,8 @@ export class Engine {
         const entry: RepositoryEntry = repository.entry ?? { name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, baseBranch: "", worktreePath: "" };
         if (entry.setupCompletedAt === undefined) {
           entry.kind = repository.kind;
+          // The name is given once; a whole-path form keeps its short name beside it (AC-FOLDER-01).
+          if (repository.shortName !== undefined && repository.shortName !== entry.name) entry.shortName = repository.shortName;
           entry.mainCheckoutPath = repository.mainCheckoutPath;
           entry.github = repository.github;
           const read = existing ? preview!.repositories.find(one => one.name === repository.name) : undefined;
@@ -2636,15 +2679,17 @@ export class Engine {
    * An engine built by a reset reruns the start-check step before Start, on each event-stream
    * connection, and replaces its report, PRD tree, plan and named repositories (Start checks on the page).
    */
-  async rerunStartChecks(): Promise<void> {
-    if (!this.options.startChecks || this.record.startedAt !== undefined || this.settingUp) return;
+  async rerunStartChecks(): Promise<boolean> {
+    if (!this.options.startChecks || this.record.startedAt !== undefined || this.settingUp) return false;
     const checks = await this.options.startChecks();
+    for (const line of checks.report.lines) this.repositoryLine(line);
     this.resetStart = checks;
     if (checks.prdTree === undefined) delete this.options.prdTree; else this.options.prdTree = checks.prdTree;
     if (checks.report.plan === undefined) delete this.options.startPlan; else this.options.startPlan = checks.report.plan;
     this.options.namedRepositories = checks.report.repositories;
     if (checks.report.plan) this.plan = checks.report.plan;
-    this.changed();
+    this.setNamedRows(checks.report.named);
+    return true;
   }
 
   async startAgain(): Promise<CommandResult> {
@@ -3457,7 +3502,7 @@ export class Engine {
       // a phase/provider receipt. The immutable baseline binds source and accepted base.
       for (const [id, completion] of Object.entries(completions)) {
         if (!acceptance.proposal.prerequisites.some(row => row.phaseId === id && row.status === "integrated_verified")) continue;
-        const names = [...new Set([this.record.repository.name, ...(completion.scopeRepositories ?? phaseRepositories(candidate.active, id))])];
+        const names = [...new Set([this.record.repository.name, ...(completion.scopeRepositories ?? phaseRepositories(candidate.active, id)).map(name => recordedName(this.record, name))])];
         completion.repositories = { ...completion.repositories };
         for (const name of names) {
           const repo = acceptance.proposal.repositories.find(repo => repo.name === name);
@@ -7170,6 +7215,134 @@ export class Engine {
    * The base check, before Start, whenever a view connects to the event stream, unless a check
    * or setup is already running (technical design, "Worktree and Branch Setup").
    */
+  /** What the search and the remembered answers said in this `kiln run`, each once. */
+  readonly repositoryLinesSaid = new Set<string>();
+  /** Address paths whose remembered answer Change is asking about again, lower-cased (AC-ASK-05). */
+  private readonly changingLocations = new Set<string>();
+  /** A refused answer's message, beside its row's field, by lower-cased address path (AC-ASK-03). */
+  private readonly locationErrors = new Map<string, string>();
+  /** Problems the latest resolution before Start found: a remembered folder Kiln couldn't check, a folder name gone. */
+  repositoryProblems: string[] = [];
+  private resolveRun = 0;
+
+  /** One line about finding a repository, in the terminal. */
+  private repositoryLine(text: string, rest?: string): void {
+    this.emit({ kind: "repository_line", at: this.now(), text, ...(rest === undefined ? {} : { rest }) });
+  }
+
+  /**
+   * Before Start, reaches the plan's names again: when a view connects, at Start and after an
+   * answer or a Change (find repositories anywhere "Finding a Checkout"). A view connecting puts
+   * a row being changed back to its remembered answer (`resetChanges`).
+   */
+  async resolveRepositoriesBeforeStart(resetChanges = false): Promise<void> {
+    if (this.record.startedAt !== undefined || this.settingUp || !this.options.startPlan) return;
+    // A view connecting asks again from the store: a row being changed returns to its answer, and a refused answer's message goes.
+    if (resetChanges) { this.changingLocations.clear(); this.locationErrors.clear(); }
+    await this.resolveNamesNow();
+  }
+
+  /** Reaches the start plan's names; at Start too, while setup holds the page. */
+  private async resolveNamesNow(): Promise<void> {
+    if (!this.options.startPlan) return;
+    const run = ++this.resolveRun;
+    const result = await resolvePlanRepositories({
+      git: this.git,
+      env: this.options.env,
+      prd: { name: this.paths.repositoryName, mainCheckoutPath: this.paths.mainCheckoutPath, github: this.record.repository.github },
+      entries: this.record.repositories,
+      phases: this.options.startPlan.phases,
+      say: (line) => this.repositoryLine(line),
+      said: this.repositoryLinesSaid,
+      changing: [...this.changingLocations],
+    });
+    if (run !== this.resolveRun) return;
+    this.setNamedRows(result.named, result.problems);
+  }
+
+  /** The named rows the start checks or a resolution gave, with any field message a refused answer left. */
+  setNamedRows(named: NamedRepositoryRow[], problems: string[] = []): void {
+    for (const row of named) {
+      const error = row.question ? this.locationErrors.get(row.question.repository.toLowerCase()) : undefined;
+      if (row.question && error !== undefined) row.question.fieldError = error;
+    }
+    this.options.named = named;
+    this.options.namedRepositories = named.flatMap((row) => (row.found ? [row.found] : []));
+    this.repositoryProblems = problems;
+    this.changed();
+  }
+
+  /**
+   * `POST /api/repository-location` before Start: the answer to a row's question (AC-ASK-03,
+   * AC-ASK-04). An accepted folder is remembered on this computer and the names are reached again.
+   *
+   *   await engine.locateRepository("acme-labs/storefront", "/Volumes/work/storefront")
+   *   // { ok: true, repository: "acme-labs/storefront", folder: "/Volumes/work/storefront" }
+   */
+  async locateRepository(repository: string, folder: string): Promise<{ ok: true; repository: string; folder: string } | { ok: false; status: 409 | 422; reason: string }> {
+    if (this.record.startedAt !== undefined || this.settingUp) return { ok: false, status: 409, reason: `No stop is asking where ${repository} is.` };
+    const row = this.locatingRepositories.find((one) => sameAddressPath(one.question!.repository, repository));
+    if (!row) return { ok: false, status: 409, reason: `Documents found isn’t asking where ${repository} is.` };
+    const question = row.question!;
+    const key = question.repository.toLowerCase();
+    const check = await checkAnswer(this.git, folder, question.repository);
+    if (!check.ok) {
+      const reason = "message" in check ? check.message : `Couldn't read ${folder}'s checkout: ${check.unavailable}`;
+      this.locationErrors.set(key, reason);
+      question.fieldError = reason;
+      this.changed();
+      return { ok: false, status: 422, reason };
+    }
+    rememberLocation(this.options.env, question.repository, check.folder, this.now());
+    this.locationErrors.delete(key);
+    this.changingLocations.delete(key);
+    this.repositoryLine(`Located ${question.repository}`, ` at ${displayPath(check.folder)}. Kiln will remember that on this computer.`);
+    await this.resolveRepositoriesBeforeStart();
+    if (this.startPreview?.from === "existing") await this.refreshStartPreview();
+    this.checkBase();
+    return { ok: true, repository: question.repository, folder: check.folder };
+  }
+
+  /** `POST /api/repository-location/change`: puts a row whose checkout came from a remembered answer back to asking, before Start (AC-ASK-05). */
+  async changeRepositoryLocation(repository: string): Promise<CommandResult> {
+    if (this.record.startedAt !== undefined || this.settingUp) return refuse("A repository's checkout is fixed once Start is pressed.");
+    const row = this.namedRows.find((one) => one.found?.located === "answer" && sameAddressPath(one.addressPath, repository));
+    if (!row) return refuse(`Kiln isn’t using a remembered answer for ${repository}.`);
+    this.changingLocations.add(row.addressPath.toLowerCase());
+    await this.resolveRepositoriesBeforeStart();
+    if (this.startPreview?.from === "existing") await this.refreshStartPreview();
+    return { ok: true };
+  }
+
+  /**
+   * The PRD's repositories, for a label (AC-FOLDER-02): every entry, the PRD's repository, and
+   * every repository the plan as it stands names, each counted once; one asked about counts by
+   * the plan's name for it.
+   */
+  labelSet(): (Labelled & { name?: string })[] {
+    const set: (Labelled & { name?: string })[] = [];
+    const add = (one: Labelled & { name?: string }) => {
+      if (set.some((other) => (one.name !== undefined && other.name === one.name) || sameAddressPath(other.addressPath, one.addressPath))) return;
+      set.push(one);
+    };
+    add({ name: this.paths.repositoryName, shortName: this.paths.repositoryName, addressPath: this.record.repository.github });
+    for (const entry of this.record.repositories) add({ name: entry.name, shortName: shortNameOf(entry), addressPath: entry.github });
+    if (this.record.startedAt === undefined) {
+      for (const row of this.namedRows) add({ name: row.name, shortName: row.found?.shortName ?? row.shortName, addressPath: row.addressPath });
+      return set;
+    }
+    return recordLabelSet(this.record, this.plan?.phases ?? []);
+  }
+
+  /** The label a repository is shown by, given Kiln's name for it (or a name as the plan writes it). */
+  labelOf(name: string): string {
+    const set = this.labelSet();
+    const one = set.find((repository) => repository.name === name)
+      ?? (() => { const read = readRepositoryName(name); return read.kind === "folder" ? set.find((repository) => repository.shortName === name) : undefined; })()
+      ?? (() => { const read = readRepositoryName(name); return read.kind === "path" ? set.find((repository) => sameAddressPath(repository.addressPath, read.addressPath)) : undefined; })();
+    return one ? labelAmong(one, set) : name;
+  }
+
   checkBase(): void {
     if (this.record.startedAt !== undefined || this.settingUp || this.fieldChecksRunning > 0 || this.stopping) return;
     void this.runFieldChecks(true);
@@ -7334,7 +7507,7 @@ export class Engine {
       preview = await existingBranchPreview({
         git: this.git, gh: this.options.tools.gh, env: this.options.env, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
         branch: this.record.settings.featureBranch, bringUpToDate: choice.bringUpToDate, repositories, refs, others,
-        find: (name, namedIn) => findRepository(this.git, this.parentFolder, name, namedIn),
+        resolve: (phases) => resolvePlanRepositories({ git: this.git, env: this.options.env, prd: { name: this.paths.repositoryName, mainCheckoutPath: this.paths.mainCheckoutPath, github: this.record.repository.github }, entries: this.record.repositories, phases, say: (line) => this.repositoryLine(line), said: this.repositoryLinesSaid, changing: [...this.changingLocations] }),
         baseOf: name => this.record.settings.bases[name] ?? "",
       });
     } else preview = newBranchPreview(branch, repositories, refs.get(prd.name)!.origin?.branches.get(prd.baseBranch), this.options.startPlan);
@@ -7601,7 +7774,10 @@ export class Engine {
     if (!this.isUnderway || this.currentlyComplete || phaseKey === undefined || phaseKey === PR_PHASE_KEY || this.stopping) return Promise.resolve(refused);
     const underway = this.additionsUnderway.get(name);
     if (underway) return underway;
-    const addition = this.additionChain.then(() => this.addOne(name, phaseKey));
+    const addition = this.additionChain.then(async () => {
+      const reached = await this.reachForAddition(name, phaseKey);
+      return "result" in reached ? reached.result : this.addOne(reached.name, phaseKey, reached.found);
+    });
     this.additionsUnderway.set(name, addition);
     this.additionChain = addition.then(
       () => this.additionsUnderway.delete(name),
@@ -7615,9 +7791,12 @@ export class Engine {
     const names = namedRepositories(
       plan.phases.filter((phase) => phase.id === leaf.id || isAncestorOf(phase.id, leaf.id)),
       this.paths.repositoryName,
-    ).filter((name) => !this.setUpRepositories.some((entry) => entry.name === name));
+    );
     for (const name of names) {
-      const addition = this.additionChain.then(() => this.addOne(name, leaf.id));
+      const addition = this.additionChain.then(async () => {
+        const reached = await this.reachForAddition(name, leaf.id);
+        return "result" in reached ? reached.result : this.addOne(reached.name, leaf.id, reached.found);
+      });
       this.additionChain = addition.catch(() => undefined);
       const result = await addition;
       if (this.stopping) return { ok: true };
@@ -7626,7 +7805,46 @@ export class Engine {
     return { ok: true };
   }
 
-  private async addOne(name: string, phaseKey: string): Promise<AddRepositoryResult> {
+  /**
+   * Reaches a name for an addition as the plan's names are reached (find repositories anywhere
+   * "Names"): an entry Kiln recorded keeps its checkout; a repository found gets its name, given
+   * once against the entries; a question fails as a repository not found does (Phase 2 asks at the stop).
+   */
+  private async reachForAddition(written: string, phaseKey: string): Promise<{ name: string; found?: FoundRepository } | { result: AddRepositoryResult }> {
+    const refuse422 = (reason: string) => ({ result: { ok: false as const, status: 422 as const, reason } });
+    const read = readRepositoryName(written);
+    if (read.kind === "problem") return refuse422(read.problem());
+    const { record } = this;
+    const resolution = await resolveNames({
+      git: this.git,
+      env: this.options.env,
+      prd: { name: this.paths.repositoryName, mainCheckoutPath: this.paths.mainCheckoutPath, github: record.repository.github },
+      entries: record.repositories,
+      names: [{ name: written, namedIn: phaseKey }],
+      say: (line) => this.repositoryLine(line),
+      said: this.repositoryLinesSaid,
+    });
+    if (resolution.problems.length > 0) {
+      // A folder name keeps today's wording, without a phase file.
+      const problem = resolution.problems[0]!;
+      return refuse422(read.kind === "folder" ? problem.replace(`${phaseKey} names ${written}, which`, `${written}`) : problem);
+    }
+    const entryName = resolution.entries[0];
+    if (entryName !== undefined) return { name: entryName };
+    const repository = resolution.repositories[0];
+    // The PRD's own repository, by a name that reaches it: already in the workspace.
+    if (!repository) {
+      const prd = record.repositories.find((entry) => entry.kind === "prd");
+      return prd ? { result: { ok: true, name: prd.name, worktreePath: expandHome(prd.worktreePath), branch: record.settings.featureBranch, baseBranch: prd.baseBranch, added: false } } : refuse422(`${written} is the PRD's own repository.`);
+    }
+    if (repository.question) return refuse422(`${questionSentence(repository.question)} ${searchedSentence(repository.question)}`);
+    const given = giveNames(record.repositories, [{ shortName: repository.shortName, addressPath: repository.addressPath }]);
+    if (!given.ok) return refuse422(given.problem);
+    const name = given.names[0]!;
+    return { name, found: { ...repository.found!, name, ...(name !== repository.shortName ? { shortName: repository.shortName } : {}) } };
+  }
+
+  private async addOne(name: string, phaseKey: string, reached?: FoundRepository): Promise<AddRepositoryResult> {
     const { record } = this;
     const branch = record.settings.featureBranch;
     const answer = (entry: RepositoryEntry, added: boolean): AddRepositoryResult => ({
@@ -7642,9 +7860,9 @@ export class Engine {
     const existing = record.repositories.find((entry) => entry.name === name);
     if (existing?.setupCompletedAt !== undefined) return answer(existing, false);
 
-    // Check 1: found beside the PRD's repository, as the start checks find a named one.
-    const found = await findRepository(this.git, this.parentFolder, name);
-    if (!found.ok) return refuse422(found.problem);
+    // Check 1: reached as the start checks reach a named one; an entry's checkout is its own, never searched for again.
+    const found = { repository: reached ?? (existing ? { name, mainCheckoutPath: existing.mainCheckoutPath, github: existing.github } : undefined) };
+    if (!found.repository) return refuse422(`${name} isn’t one of the PRD's repositories.`);
     const worktreePath = join(this.workspaceFolder, name);
 
     // An unfinished entry: what Git has at its worktree path decides first.
@@ -7709,7 +7927,7 @@ export class Engine {
         const fetched = await fetchIfMissing(this.git, found.repository.mainCheckoutPath, baseBranch, baseCommit);
         if (fetched) return refuse422(fetched);
       }
-      entry = existing ?? { name, kind: "added", mainCheckoutPath: found.repository.mainCheckoutPath, github: found.repository.github, baseBranch, worktreePath };
+      entry = existing ?? { name, kind: "added", mainCheckoutPath: found.repository.mainCheckoutPath, github: found.repository.github, ...(found.repository.shortName === undefined ? {} : { shortName: found.repository.shortName }), baseBranch, worktreePath };
       Object.assign(entry, {
         kind: "added",
         mainCheckoutPath: found.repository.mainCheckoutPath,
@@ -8147,7 +8365,7 @@ export class Engine {
         }
         if (completions[phase.id]) continue;
         if (this.record.preparation?.stage !== "implementation" && this.record.preparation?.bindings.some(binding => preparesPhase(binding, phase.id))) continue;
-        const affectedNames = namedRepositories(active.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)), this.paths.repositoryName);
+        const affectedNames = [...new Set(namedRepositories(active.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)), this.paths.repositoryName).map(name => recordedName(this.record, name)))].filter(name => name !== this.paths.repositoryName);
         const missing = affectedNames.filter(name => !this.setUpRepositories.some(entry => entry.name === name));
         if (missing.length) throw new Error(`Externally closed Phase ${phase.id} needs completion evidence in repositories not set up: ${missing.join(", ")}. Reconcile their workspace and published work before returning control.`);
         // On a start from an existing branch, the first plan read accepts a leaf Closed at the PRD
@@ -8262,7 +8480,7 @@ export class Engine {
 
   private emit(event: TerminalEvent): void {
     // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
-    if (!this.quiet || event.kind === "repository_added" || event.kind === "plan_updated" || event.kind === "folder_missing") this.options.onTerminal?.(event);
+    if (!this.quiet || event.kind === "repository_added" || event.kind === "repository_line" || event.kind === "plan_updated" || event.kind === "folder_missing") this.options.onTerminal?.(event);
   }
 }
 

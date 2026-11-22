@@ -135,7 +135,7 @@
             <div class="groups">
               {#each grouped as repository (repository.name)}
                 <div class="group">
-                  <div class="repo"><span class="mono repo-name">{repository.name}</span>{#if repository.addedInPhase !== undefined}<span class="tag">{addedLabel(repository.addedInPhase)}</span>{/if}</div>
+                  <div class="repo"><span class="mono repo-name">{repository.label ?? repository.name}</span>{#if repository.addedInPhase !== undefined}<span class="tag">{addedLabel(repository.addedInPhase)}</span>{/if}</div>
                   {@render list(repository.commits)}
                 </div>
               {/each}

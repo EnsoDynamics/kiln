@@ -55,7 +55,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       ...settings,
     },
     repositories: [
-      { name: "acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop", "main"], baseCheck: "ok", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: false, fieldErrors: {} },
+      { name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: "~/devel/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop", "main"], baseCheck: "ok", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: false, fieldErrors: {} },
     ],
     models: [
       { value: "opus", displayName: "Opus 5.5" },
@@ -141,7 +141,7 @@ function underwaySettings(): Snapshot["settings"] {
 }
 
 /** The PRD's one repository once Kiln has set it up. */
-const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", kind: "prd", baseBranch: "develop", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: true, fieldErrors: {} }];
+const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: "~/devel/acme-shop", kind: "prd", baseBranch: "develop", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: true, fieldErrors: {} }];
 
 const ACCOUNT: NonNullable<Snapshot["account"]> = {
   email: "alex@acme-shop.dev",
@@ -339,7 +339,7 @@ const WORKSPACE = "~/devel/acme/.worktrees/customer-returns";
 const MULTI_FEATURE = { ...FEATURE, repositoryName: "product", multiRepository: true };
 
 function multiRow(name: string, kind: RepositoryRow["kind"], baseBranch: string, extra: Partial<RepositoryRow> = {}): RepositoryRow {
-  return { name, kind, baseBranch, worktreePath: `${WORKSPACE}/${name}`, fixed: true, fieldErrors: {}, ...extra };
+  return { name, label: name, addressPath: `acme/${name}`, checkoutFolder: `~/devel/acme/${name}`, kind, baseBranch, worktreePath: `${WORKSPACE}/${name}`, fixed: true, fieldErrors: {}, ...extra };
 }
 
 /** Documents found for the PRD across three repositories (kiln-screen-documents-found-repositories.html). */
@@ -356,7 +356,7 @@ export function documentsFoundRepositoriesSnapshot(): Snapshot {
       checks: [
         { name: "Every phase cites its criteria", passed: true },
         { name: "Dependencies point backward", passed: true },
-        { name: "Named repositories found beside product", passed: true },
+        { name: "Repositories found on this computer", passed: true },
         { name: "Working tree of product is clean", passed: true },
       ],
     },
@@ -364,6 +364,40 @@ export function documentsFoundRepositoriesSnapshot(): Snapshot {
       multiRow("product", "prd", "main", { baseBranches: ["main"], baseCheck: "ok", fixed: false }),
       multiRow("returns-api", "named", "develop", { baseBranches: ["develop", "main"], baseCheck: "ok", fixed: false }),
       multiRow("storefront", "named", "develop", { baseBranches: ["develop", "main"], baseCheck: "ok", fixed: false }),
+    ],
+  };
+}
+
+// ---- The find repositories anywhere mockup's sample data (fictional): product at ~/code/acme/product,
+// returns-api beside it, storefront under acme-labs (docs/changes/kiln-find-repositories-anywhere/mockups/).
+
+/**
+ * Documents found in the mockup's states: 1 every repository found, 2 asks where storefront is,
+ * 3 asks which of two checkouts, 4 after the answer, with Change.
+ */
+export function findRepositoriesSnapshot(state: 1 | 2 | 3 | 4): Snapshot {
+  const base = documentsFoundRepositoriesSnapshot();
+  const row = (name: string, addressPath: string, folder: string | undefined, kind: RepositoryRow["kind"], baseBranch: string, extra: Partial<RepositoryRow> = {}): RepositoryRow =>
+    ({ name, label: name, addressPath, ...(folder ? { checkoutFolder: folder } : {}), kind, baseBranch, baseBranches: baseBranch ? [baseBranch, "main"].filter((one, index, all) => all.indexOf(one) === index) : [], baseCheck: "ok", worktreePath: `~/code/acme/.worktrees/customer-returns/${name}`, fixed: false, fieldErrors: {}, ...extra });
+  const question = state === 2
+    ? { kind: "where" as const, repository: "acme-labs/storefront", label: "storefront", searchedFrom: "~/code/acme", checkouts: [], found: 0 }
+    : { kind: "which" as const, repository: "acme-labs/storefront", label: "storefront", searchedFrom: "~/code/acme", found: 2, checkouts: [
+      { folder: "~/code/acme-labs/storefront", remote: "git@github.com:acme-labs/storefront.git", pickable: true },
+      { folder: "~/code/archive/storefront", remote: "git@github.com:acme-labs/storefront.git", pickable: true },
+    ] };
+  const asking = state === 2 || state === 3;
+  const storefront = asking
+    ? row("storefront", "acme-labs/storefront", undefined, "named", "", { baseBranches: [], fixed: true, question })
+    : row("storefront", "acme-labs/storefront", state === 4 ? "/Volumes/work/storefront" : "~/code/acme-labs/storefront", "named", "develop", { located: state === 4 ? "answer" : "search" });
+  const documents = base.documents!;
+  return {
+    ...base,
+    settings: { ...base.settings, workspaceFolder: "~/code/acme/.worktrees/customer-returns", ...(asking ? { startBlockedBy: state === 2 ? "Tell Kiln where acme-labs/storefront is to start." : "Tell Kiln which checkout of acme-labs/storefront to use to start." } : {}) },
+    documents: { ...documents, checks: documents.checks.map((check) => (check.name === "Repositories found on this computer" && asking ? { name: "1 repository to locate", passed: true, locate: true as const } : check)) },
+    repositories: [
+      row("product", "acme/product", "~/code/acme/product", "prd", "main", { baseBranches: ["main"] }),
+      row("returns-api", "acme/returns-api", "~/code/acme/returns-api", "named", "develop", { located: "beside" }),
+      storefront,
     ],
   };
 }

@@ -37,6 +37,7 @@ import { displayPath } from "../engine/worktree-setup.js";
 import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed } from "../state/audit-loops.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
 import { continuationFacts, deliveredFacts } from "./delivered-facts.js";
+import { repositoryDetails } from "../engine/plan-repositories.js";
 
 export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases", "handoff"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
@@ -231,8 +232,11 @@ function failingFolders(record: SavedWork["record"], engine: Engine | undefined,
   const check = checkFoldersSync(git, env, record, deadline);
   return check.passed ? undefined : check;
 }
-function folderFacts(check: FolderCheck, canonical: string): Record<string, unknown> {
-  return { checked_at: check.checkedAt, repositories: check.repositories.map(r => ({ name: r.name, saved_folder: displayPath(r.savedFolder), state: r.state, holds: r.holds ?? null, unknown: r.unknown ?? null })),
+function folderFacts(check: FolderCheck, canonical: string, record: SavedWork["record"]): Record<string, unknown> {
+  // Labels and address paths beside the names (find repositories anywhere "kiln status --json").
+  const details = repositoryDetails(record);
+  const labelled = (name: string) => { const one = details.find(detail => detail.name === name); return { label: one?.label ?? name, address_path: one?.address_path ?? null }; };
+  return { checked_at: check.checkedAt, repositories: check.repositories.map(r => ({ name: r.name, ...labelled(r.name), saved_folder: displayPath(r.savedFolder), state: r.state, holds: r.holds ?? null, unknown: r.unknown ?? null })),
     set_up_again: { description: "Open the run with kiln run to see what Kiln still knows and set it up again.", argv: ["kiln", "run", canonical] } };
 }
 export function statusProjection(work: SavedWork, engine?: Engine, full = false, deadline = Date.now() + 5000): Result {
@@ -323,6 +327,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const activityFacts = (activity: Record<string, unknown> | null | undefined) => activity && { ...activity, ...waived(keyOf(activity)) };
   const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
+    repository_details: repositoryDetails(record),
     controller: reachable ? "reachable" : "stopped", working_sessions: active ? 1 : 0, facts: { state: reachable ? "current" : "stale", observed_at: reachable ? new Date().toISOString() : cache?.observed_at ?? work.observedAt, reason: reachable ? null : "Controller disconnected; only last-known facts are available." },
     state, phases: { completed: view?.feature.phasesDone ?? leaves.filter(p => effectiveRecordedClosed(record, p)).length, total: view?.feature.phasesTotal ?? leaves.length },
     activity: activityFacts((view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? savedActivity) as Record<string, unknown>),
@@ -369,8 +374,9 @@ function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folder
   const reset = control?.controls.find(one => one.name === "reset");
   return result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
+    repository_details: repositoryDetails(record),
     controller: reachable ? "reachable" : "stopped", working_sessions: engine?.current?.processRunning ? 1 : 0, facts: { state: "current", observed_at: folders.checkedAt, reason: null },
-    state: "folder_missing", folder_missing: folderFacts(folders, work.canonical), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
+    state: "folder_missing", folder_missing: folderFacts(folders, work.canonical, record), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
     progress: [], started_at: record.startedAt ?? null, completion: { completed_at: null, pull_requests: [], merged_branches: [] },
     // Reset is the one control left while a folder is missing (run restart "Availability"), so a running Kiln returns its status token.
     status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: requiredInputs(name), invocation: null }), unsent_replies: [],
@@ -412,7 +418,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     // No resume command, continuation prompt or fresh-session instructions from a folder that is gone (AC-GONE-01).
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
       session_id: null, provider_session_id: null, agent: engine?.record.settings.agentId ?? work.record.settings.agentId, phase_key: null, working_directory: null,
-      resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical),
+      resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical, engine?.record ?? work.record),
       provider_history: { state: "unavailable", observed_at: null, reason: "This run’s folder is missing." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null, fresh_session_instructions: null,
     } });

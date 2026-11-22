@@ -14,6 +14,7 @@ import { observeGitPlan } from "./completed-plan-sources.js";
 import { ancestry, inBaseBranch, type FolderMissingView, type RepositoryRead } from "./folder-facts.js";
 import { worktreeAt } from "./folder-check.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
+import { reachedName, reachRecordNames } from "./plan-repositories.js";
 import type { PlanSource } from "./plan-reconciliation.js";
 import { baseBranchChoices, checkWorkspaceFolder, checkWorkspaceFolderPlacement, checkWorktreePath, comparable, defaultBaseBranch, displayPath, expandHome, isWithin, joinNames, realPathOfNearestAncestor } from "./worktree-setup.js";
 import { stillOwnArtifacts, type FolderSetupStart } from "./folder-setup-start.js";
@@ -284,13 +285,25 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     catch { return { unavailable: `the plan on ${prdBase}`, known: false }; }
   }
   baseCommits[prdRead.name] = prdTip;
-  const names = [...new Set([prdRead.name, ...plan.plan.phases.flatMap(phase => phase.repositories)])];
+  const written = [...new Set([prdRead.name, ...plan.plan.phases.flatMap(phase => phase.repositories)])];
+  // Each name reaches its repository first; the panel works with Kiln's name for it (find repositories anywhere "Names").
+  const reach = await reachRecordNames(git, record, expandHome(record.repository.mainCheckoutPath), plan.plan.phases);
+  const names: string[] = [];
   const set: SetRepository[] = [];
-  for (const name of names) {
+  for (const one of written) {
+    const reached = reachedName(one, prdRead.name, reach.get(one));
+    if ("problem" in reached) {
+      if (reached.unavailable) return { unavailable: reached.problem, known: false };
+      set.push({ name: one, kind: "named", mainCheckoutPath: "", github: "", baseBranch: "", problem: reached.problem }); names.push(one); continue;
+    }
+    const name = reached.name;
+    if (names.includes(name)) continue;
+    names.push(name);
     const entry = record.repositories.find(candidate => candidate.name === name && candidate.setupCompletedAt !== undefined);
     if (name === prdRead.name) { set.push({ name, kind: "prd", mainCheckoutPath: expandHome(prdRead.entry.mainCheckoutPath), github: prdRead.entry.github, baseBranch: prdBase, origin: prdOrigin.value, entry: prdRead.entry }); continue; }
     let found: { mainCheckoutPath: string; github: string } | undefined = entry ? { mainCheckoutPath: expandHome(entry.mainCheckoutPath), github: entry.github } : undefined;
     let problem: string | undefined;
+    if (!found && "row" in reached && reached.row?.found) found = { mainCheckoutPath: reached.row.found.mainCheckoutPath, github: reached.row.found.github };
     if (!found) {
       const lookup = await findRepository(git, repositoriesParent(expandHome(record.repository.mainCheckoutPath)), name, "The plan on the base branch");
       if (!lookup.ok) { if (lookup.unavailable) return { unavailable: lookup.problem, known: false }; problem = lookup.problem; }

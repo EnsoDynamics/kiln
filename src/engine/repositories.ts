@@ -9,10 +9,13 @@ import { runGit, gitError, type GitContext } from "./git-reads.js";
 import { displayPath } from "./worktree-setup.js";
 
 export interface FoundRepository {
+  /** Kiln's name for it: the record key and the worktree folder's name. */
   name: string;
   mainCheckoutPath: string;
   /** `<owner>/<name>`. */
   github: string;
+  /** Its short name, when it differs from `name`: the name is then the whole-path form (find repositories anywhere AC-FOLDER-01). */
+  shortName?: string;
 }
 
 export type RepositoryLookup = { ok: true; repository: FoundRepository } | { ok: false; problem: string; unavailable?: true };

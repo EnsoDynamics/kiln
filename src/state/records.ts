@@ -23,7 +23,7 @@ import { assertPreflightState } from "../engine/preflight.js";
 import { preflightKey } from "./activity-keys.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -280,7 +280,13 @@ export interface CreatedBranch {
  * `setupCompletedAt`; before that it holds what a setup under way, or a failed one, left.
  */
 export interface RepositoryEntry {
+  /** Kiln's name for it: the record key and its worktree folder's name, fixed once written. */
   name: string;
+  /**
+   * Its short name, kept only when it differs from `name`, which is then the whole-path form
+   * (find repositories anywhere AC-FOLDER-01, schema 25).
+   */
+  shortName?: string;
   kind: RepositoryKind;
   mainCheckoutPath: string;
   /** `<owner>/<name>`. */
@@ -626,7 +632,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);

@@ -155,16 +155,22 @@ export function formatStartedLine(at: Date, branch: string, baseBranch: string, 
  * for a feature underway, whose ● line above says what Kiln does next: the lines here then only
  * say where the view is, with no Start to press.
  */
-export function formatOpenedLine(address: string, opening: BrowserOpening, colors: TerminalColors, decisionAbove = false): string {
+export function formatOpenedLine(address: string, opening: BrowserOpening, colors: TerminalColors, decisionAbove = false, locating: string[] = []): string {
   const pressStart = (joiner: string) => (decisionAbove ? "" : `${joiner} press Start`);
+  // While a repository needs locating, the line says to tell Kiln where it is first (find repositories anywhere AC-SEE-02).
+  const review = locating.length === 0
+    ? ". Review it there and press Start."
+    : locating.length === 1
+      ? `. Tell Kiln where ${locating[0]} is there, then review it and press Start.`
+      : `. Tell Kiln where ${locating.length} repositories are there, then review it and press Start.`;
   const viewAt = (rest: string) => `${colors.red("●")} Kiln’s view is at ${colors.red(address)}${colors.grey(rest)}`;
   let lines: string[];
   switch (opening.kind) {
     case "opened":
-      lines = decisionAbove ? [] : [`${colors.red("●")} Opened ${colors.red(address)}${colors.grey(". Review it there and press Start.")}`];
+      lines = decisionAbove ? [] : [`${colors.red("●")} Opened ${colors.red(address)}${colors.grey(review)}`];
       break;
     case "failed":
-      lines = [...(decisionAbove ? [] : [viewAt(". Review it there and press Start.")]), `${colors.amber("✗")} Couldn’t open the browser: ${opening.reason}. Open ${address} yourself.`];
+      lines = [...(decisionAbove ? [] : [viewAt(review)]), `${colors.amber("✗")} Couldn’t open the browser: ${opening.reason}. Open ${address} yourself.`];
       break;
     case "no_opener":
       lines = [viewAt(`. Open it in your browser${pressStart(" and")}.`)];
@@ -183,17 +189,28 @@ export function formatOpenedLine(address: string, opening: BrowserOpening, color
 }
 
 /**
+ * A line about finding a repository, in the Started line's form (find repositories anywhere AC-SEE-02):
+ *
+ *    9:14  Located acme-labs/storefront at /Volumes/work/storefront. Kiln will remember that on this computer.
+ */
+export function formatRepositoryLine(at: Date, text: string, colors: TerminalColors, rest = ""): string {
+  return `${colors.grey(`${terminalTime(at)}  `)}${text}${rest === "" ? "" : colors.grey(rest)}`;
+}
+
+/**
  * The first line for a feature not started, as drawn:
  *
  *   Customer returns  ·  PRD, technical design, assumptions, 6 phase docs  ·  all checks passed
  */
-export function formatDocumentsFound(featureName: string, found: StartCheckReport["found"], colors: TerminalColors, repositoryCount = 1): string {
+export function formatDocumentsFound(featureName: string, found: StartCheckReport["found"], colors: TerminalColors, repositoryCount = 1, locatingCount = 0): string {
   const documents = ["PRD", "technical design"];
   if (found.assumptionsFile) documents.push("assumptions");
   documents.push(`${found.phaseDocCount} ${found.phaseDocCount === 1 ? "phase doc" : "phase docs"}`);
   // The repository count only when more than one (multi-repo AC-REPO-03).
   if (repositoryCount > 1) documents.push(`${repositoryCount} repositories`);
-  return featureName + colors.grey(`  ·  ${documents.join(", ")}  ·  all checks passed`);
+  // While a repository needs locating, that count replaces "all checks passed" (find repositories anywhere AC-SEE-02).
+  const outcome = locatingCount === 0 ? "all checks passed" : `${locatingCount} ${locatingCount === 1 ? "repository" : "repositories"} to locate`;
+  return featureName + colors.grey(`  ·  ${documents.join(", ")}  ·  `) + (locatingCount === 0 ? colors.grey(outcome) : colors.amber(outcome));
 }
 
 /**

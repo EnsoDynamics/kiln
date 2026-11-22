@@ -28,6 +28,7 @@ import { openBrowser, type BrowserOpening } from "./platform/open-browser.js";
 import type { PhasePlan } from "./plan/phase-plan.js";
 import { runAddRepository } from "./add-repository-command.js";
 import type { FoundRepository } from "./engine/repositories.js";
+import type { NamedRepositoryRow } from "./engine/plan-repositories.js";
 import { featureNameFor, resolvePrdPath, type PrdLocation } from "./prd-location.js";
 import { startLocalServer, type LocalServer } from "./server/local-server.js";
 import { runStartChecks, startChecksPassed } from "./start-checks.js";
@@ -35,7 +36,7 @@ import { newPrdRecord } from "./state/new-record.js";
 import { takeInstanceLock, viewAddress, PORT_RANGE } from "./state/instance-lock.js";
 import { NewerSchemaError, readPrdRecord, writePrdRecord, type InterruptCause, type PrdRecord } from "./state/records.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
-import { TransientStatus, formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatResetLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, type TerminalColors } from "./terminal-output.js";
+import { TransientStatus, formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatRepositoryLine, formatResetLine, formatStartedLine, formatStartFailure, planColumns, terminalColors, type TerminalColors } from "./terminal-output.js";
 import { formatCompletedPlanCheck, formatDecisionLine, formatFolderMissing, formatSummaryLine } from "./underway-output.js";
 import { terminalWaivers, type AuditWaiverReader } from "./control/waiver-facts.js";
 import { AuditStore } from "./audit/storage.js";
@@ -201,7 +202,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   }
 
   const stop = new StopControl(context);
-  const run: KilnRun = { location, tools, context, stop, stateDirectory, port: lock.port, resumeImmediately };
+  const run: KilnRun = { location, tools, context, stop, stateDirectory, port: lock.port, resumeImmediately, repositoryLinesSaid: new Set() };
   try {
     let record: PrdRecord | undefined;
     try {
@@ -238,6 +239,8 @@ interface KilnRun {
   stop: StopControl;
   stateDirectory: string;
   port: number;
+  /** What the search and the remembered answers said in this `kiln run`, each once (find repositories anywhere). */
+  repositoryLinesSaid: Set<string>;
 }
 
 /** An engine over the PRD's record, with keep-awake for the sessions it runs. */
@@ -245,7 +248,7 @@ function makeEngine(
   run: KilnRun,
   record: PrdRecord,
   write: (line: string) => void,
-  start?: { prdTree: string | undefined; plan: PhasePlan | undefined; repositories: FoundRepository[] },
+  start?: { prdTree: string | undefined; plan: PhasePlan | undefined; repositories: FoundRepository[]; named?: NamedRepositoryRow[] },
   startChecks?: () => Promise<ResetStartChecks>,
 ): Engine {
   const { location, tools, context } = run;
@@ -270,11 +273,13 @@ function makeEngine(
     ...(start?.prdTree === undefined ? {} : { prdTree: start.prdTree }),
     ...(start?.plan === undefined ? {} : { startPlan: start.plan }),
     ...(start === undefined ? {} : { namedRepositories: start.repositories }),
+    ...(start?.named === undefined ? {} : { named: start.named }),
     ...kilnBinDirectory(context.env),
     onTerminal: (event) => {
       // Startup already prints the retained check in its ordinary decision line.
       if (event.kind === "completed_plan_checked" && !run.stop.server) return;
       if (event.kind === "folder_missing") event = { ...event, ...(run.stop.server ? { address: run.stop.server.address } : {}) };
+      event = labelledEvent(event, (name) => engine.labelOf(name));
       write(formatTerminalEvent(event, engine.record, colors, (id) => new AuditStore(run.stateDirectory).read<AuditWaiverResult>(id), address) + (event.kind === "completed_plan_checked" ? ` Review ${run.stop.server!.address}` : ""));
     },
     keepAwake,
@@ -295,6 +300,14 @@ function makeEngine(
   engine.onChange(readHistoryOnce);
   queueMicrotask(readHistoryOnce);
   return engine;
+}
+
+/** A terminal event with each repository shown by its label, not Kiln's name for it (find repositories anywhere AC-FOLDER-02). */
+export function labelledEvent(event: TerminalEvent, label: (name: string) => string): TerminalEvent {
+  if (event.kind === "repository_added") return { ...event, name: label(event.name) };
+  if (event.kind === "phase" && event.pushes) return { ...event, pushes: event.pushes.map((push) => ({ ...push, name: label(push.name) })) };
+  if (event.kind === "pull_request" && event.opened) return { ...event, opened: event.opened.map((pull) => ({ ...pull, repository: label(pull.repository) })) };
+  return event;
 }
 
 /** How long a failed reset's answer has to reach the page before the run closes the server and exits. */
@@ -333,7 +346,7 @@ async function resetEngine(run: KilnRun): Promise<Engine> {
   const git = { git: tools.git, env: context.env };
   const startChecks = async (): Promise<ResetStartChecks> => {
     // gh is looked up on the PATH again, so installing it clears "gh isn't on the PATH." on reload.
-    const report = await runStartChecks(location, { ...tools, gh: findExecutable("gh", context.env) }, context.env);
+    const report = await runStartChecks(location, { ...tools, gh: findExecutable("gh", context.env) }, context.env, undefined, { entries: readPrdRecord(run.stateDirectory)?.repositories ?? [], said: run.repositoryLinesSaid });
     return { report, prdTree: await prdTreeAtHead(git, location.checkoutRoot, location.prdDirectoryFromRoot) };
   };
   const checks = await startChecks();
@@ -342,7 +355,7 @@ async function resetEngine(run: KilnRun): Promise<Engine> {
   if (checks.report.github) record.repository.github = checks.report.github;
   await fillNamedBases(git, record, checks.report.repositories);
   writePrdRecord(run.stateDirectory, record);
-  const engine = makeEngine(run, record, terminalWriter(run), { prdTree: checks.prdTree, plan: checks.report.plan, repositories: checks.report.repositories }, startChecks);
+  const engine = makeEngine(run, record, terminalWriter(run), { prdTree: checks.prdTree, plan: checks.report.plan, repositories: checks.report.repositories, named: checks.report.named }, startChecks);
   engine.resetStart = checks;
   return engine;
 }
@@ -398,7 +411,7 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   const { location, tools, context, stop } = run;
   const errColors = terminalColors(context.stderr, context.env);
   stop.status.show(STARTUP_STATUS);
-  const report = await runStartChecks(location, tools, context.env);
+  const report = await runStartChecks(location, tools, context.env, undefined, { entries: record?.repositories ?? [], said: run.repositoryLinesSaid });
   // On Windows a Ctrl+C ends the checks' git and gh calls too, possibly before Kiln's handler
   // runs; a moment's wait lets the stop be seen before a failure is reported.
   if (!startChecksPassed(report) && process.platform === "win32") await new Promise((resolve) => setTimeout(resolve, WINDOWS_CTRL_C_GRACE_MS));
@@ -431,13 +444,16 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   writePrdRecord(run.stateDirectory, record);
 
   const write = terminalWriter(run);
-  const engine = makeEngine(run, record, write, { prdTree, plan: report.plan, repositories: report.repositories });
+  const engine = makeEngine(run, record, write, { prdTree, plan: report.plan, repositories: report.repositories, named: report.named });
+  for (const text of run.repositoryLinesSaid) engine.repositoryLinesSaid.add(text);
   if (startError !== undefined) engine.startError = startError;
-  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, { ...report.found, repositories: report.repositories }, location.repositoryName);
+  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, { ...report.found, repositories: report.repositories, namedCount: report.named.length }, location.repositoryName);
   const outColors = terminalColors(context.stdout, context.env);
-  write(formatDocumentsFound(location.featureName, report.found, outColors, engine.plannedRepositories.length));
+  for (const text of report.lines) write(formatRepositoryLine(new Date(), text, outColors));
+  const locating = engine.locatingRepositories.map((row) => row.question!.repository);
+  write(formatDocumentsFound(location.featureName, report.found, outColors, engine.plannedRepositories.length + locating.length, locating.length));
   const { address, opening } = await serveAndOpen(run, engine, documents);
-  write(formatOpenedLine(address, opening, outColors));
+  write(formatOpenedLine(address, opening, outColors, false, locating));
   // Kiln lives in its terminal until Ctrl+C or a closed terminal (AC-KEEP-01); Start comes from the view.
   return stop.done;
 }
@@ -579,6 +595,8 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
       );
     case "message":
       return `${colors.amber("✗")} ${event.text}`;
+    case "repository_line":
+      return formatRepositoryLine(event.at, event.text, colors, event.rest);
   }
 }
 

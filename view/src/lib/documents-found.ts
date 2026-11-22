@@ -158,6 +158,8 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (documents?.starting) return { enabled: false, note: multi ? "Setting up the worktrees…" : "Setting up the worktree…" };
   // On a page a reset built, a failed start check holds Start until a reload finds them all passing (run restart AC-RESET-04).
   if (documents?.checksFailed) return { enabled: false, note: "Fix what failed, then reload." };
+  // A row that asks where its repository is holds Start, and says which (find repositories anywhere AC-ASK-01).
+  if (settings.startBlockedBy) return { enabled: false, note: settings.startBlockedBy };
   if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
   if (snapshot.billing?.pending) return { enabled: false, note: snapshot.settings.agentId === "codex" ? "Checking Codex information…" : "Checking Claude settings…" };

@@ -370,7 +370,7 @@ describe("the progress screens across repositories (multi-repo AC-PRS-03, AC-PRS
     const page = running(runningRepositoriesSnapshot());
     const words = text(page);
     expect(words).toContain(
-      "Workspace folder ~/devel/acme/.worktrees/ customer-returns/ 4 repositories, one added in phase 2b Feature branch feature/customer-returns Repositories Branch from, and PR into product PRD’s repository main returns-api develop storefront develop notifications added in phase 2b main The same for every phase Workspace folder, feature branch, and one PR in each repository into its base, set before the first phase.",
+      "Workspace folder ~/devel/acme/.worktrees/ customer-returns/ 4 repositories, one added in phase 2b Feature branch feature/customer-returns Repositories Branch from, and PR into product PRD’s repository acme/product · ~/devel/acme/product main returns-api acme/returns-api · ~/devel/acme/returns-api develop storefront acme/storefront · ~/devel/acme/storefront develop notifications added in phase 2b acme/notifications · ~/devel/acme/notifications main The same for every phase Workspace folder, feature branch, and one PR in each repository into its base, set before the first phase.",
     );
     // What Kiln may do in each repository, those added later included (multi-repo AC-PRS-04).
     expect(words).toContain(

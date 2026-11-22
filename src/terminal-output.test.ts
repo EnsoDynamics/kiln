@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatTerminalEvent } from "./kiln-command.js";
 import type { PrdRecord } from "./state/records.js";
-import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, resetClock, terminalColors, TransientStatus } from "./terminal-output.js";
+import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatRepositoryLine, formatStartedLine, formatStartFailure, resetClock, terminalColors, TransientStatus } from "./terminal-output.js";
 
 const plain = terminalColors({ isTTY: false }, {});
 
@@ -263,5 +263,36 @@ describe("TransientStatus", () => {
     status.show("Checking where things stand…");
     status.clear();
     expect(out.written).toEqual([]);
+  });
+});
+
+describe("the terminal when a repository needs locating (find repositories anywhere AC-SEE-02, mockup state 5)", () => {
+  const found = { designFile: "technical-design.md", assumptionsFile: "assumptions.md", phaseDocCount: 6 };
+  it("counts the repositories to locate in place of all checks passed, in amber", () => {
+    expect(formatDocumentsFound("Customer returns", found, plain, 3, 1)).toBe("Customer returns  ·  PRD, technical design, assumptions, 6 phase docs, 3 repositories  ·  1 repository to locate");
+    expect(formatDocumentsFound("Customer returns", found, plain, 4, 2)).toBe("Customer returns  ·  PRD, technical design, assumptions, 6 phase docs, 4 repositories  ·  2 repositories to locate");
+    const colored = terminalColors({ isTTY: true }, {});
+    expect(formatDocumentsFound("Customer returns", found, colored, 3, 1)).toContain(colored.amber("1 repository to locate"));
+  });
+
+  it("says under it to tell Kiln where the repository is in the browser", () => {
+    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, plain, false, ["acme-labs/storefront"]).split("\n")[0]).toBe("● Opened http://127.0.0.1:4700/customer-returns. Tell Kiln where acme-labs/storefront is there, then review it and press Start.");
+    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, plain, false, ["a/b", "c/d"]).split("\n")[0]).toBe("● Opened http://127.0.0.1:4700/customer-returns. Tell Kiln where 2 repositories are there, then review it and press Start.");
+  });
+
+  it("prints one line when an answer is accepted, the rest of it grey", () => {
+    const at = new Date(2026, 10, 22, 9, 14);
+    expect(formatRepositoryLine(at, "Located acme-labs/storefront", plain, " at /Volumes/work/storefront. Kiln will remember that on this computer.")).toBe(" 9:14  Located acme-labs/storefront at /Volumes/work/storefront. Kiln will remember that on this computer.");
+  });
+});
+
+describe("terminal lines show a repository by its label (find repositories anywhere AC-FOLDER-02)", () => {
+  it("relabels an addition, a phase's pushes and opened pull requests", async () => {
+    const { labelledEvent } = await import("./kiln-command.js");
+    const label = (name: string) => (name === "acme-labs+admin" ? "acme-labs/admin" : name);
+    const at = new Date(2026, 10, 22, 9, 17);
+    expect(labelledEvent({ kind: "repository_added", at, phaseId: "2", title: "T", name: "acme-labs+admin" }, label)).toMatchObject({ name: "acme-labs/admin" });
+    expect(labelledEvent({ kind: "phase", at, phaseId: "2", title: "T", event: "done", pushes: [{ name: "acme-labs+admin", sha: "abc" }, { name: "product", sha: "def" }] }, label)).toMatchObject({ pushes: [{ name: "acme-labs/admin", sha: "abc" }, { name: "product", sha: "def" }] });
+    expect(labelledEvent({ kind: "pull_request", at, event: "opened", opened: [{ repository: "acme-labs+admin", number: 9 }] }, label)).toMatchObject({ opened: [{ repository: "acme-labs/admin", number: 9 }] });
   });
 });

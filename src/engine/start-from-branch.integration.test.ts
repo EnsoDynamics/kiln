@@ -14,6 +14,7 @@ import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import type { Engine } from "./engine.js";
 import { buildSnapshot, documentsFound } from "./snapshot.js";
 import { existingBranchPreview, readCatchUp, stoppedCatchUpOffer } from "./start-from.js";
+import { resolvePlanRepositories } from "./plan-repositories.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import * as ownership from "../live/ownership.js";
 
@@ -296,7 +297,7 @@ describe("one catch-up offer for repositories with different bases (AC-CURRENT-0
         { name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" },
         { name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "main" },
       ],
-      find: async () => ({ ok: false, problem: "not looked up" }), baseOf: () => "", others: [],
+      resolve: async () => ({ named: [], problems: [] }), baseOf: () => "", others: [],
     });
     expect(preview.catchUp).toEqual({ repositories: [
       { name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 },
@@ -308,6 +309,32 @@ describe("one catch-up offer for repositories with different bases (AC-CURRENT-0
       await readCatchUp(context, { name: "acme-api", mainCheckoutPath: api, baseBranch: "main" }, BRANCH),
     ];
     expect(stoppedCatchUpOffer(readings, BRANCH)).toEqual(preview.catchUp);
+  });
+});
+
+describe("a repository the start commit's plan names that Kiln can't place (find repositories anywhere \"Asking Before Start\")", () => {
+  it("is asked about on its row, not a problem under Feature branch", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    // The branch's plan names a repository by an address path nothing on this computer has.
+    git(h.sandbox, h.repository, "checkout", "-q", "-b", BRANCH);
+    const file = join(h.repository, DIRECTORY, "phase-3-returns-dashboard.md");
+    const [title, ...rest] = readFileSync(file, "utf8").split("\n");
+    writeFileSync(file, [title, "", "**Repositories:** acme-labs/storefront", ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "name storefront");
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const context = { git: h.tools.git, env: h.env };
+    const preview = await existingBranchPreview({
+      git: context, gh: h.tools.gh, env: h.env, prdDirectoryFromRoot: DIRECTORY, branch: BRANCH, bringUpToDate: false,
+      repositories: [{ name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" }],
+      // The engine's own resolution, its search kept to the sandbox.
+      resolve: (phases) => resolvePlanRepositories({ git: context, env: h.env, home: h.sandbox.root, prd: { name: "acme-shop", mainCheckoutPath: h.repository, github: "acme/acme-shop" }, entries: [], phases }),
+      baseOf: () => "", others: [],
+    });
+    expect(preview.asking?.map((row) => [row.name, row.question?.kind, row.question?.repository])).toEqual([["storefront", "where", "acme-labs/storefront"]]);
+    expect(preview.fieldError).toBeUndefined();
+    expect(preview.repositories.map((one) => one.name)).toEqual(["acme-shop"]);
   });
 });
 
@@ -328,7 +355,7 @@ describe("a repository that has an unavailable branch (AC-FROM-05, several repos
         { name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" },
         { name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "develop" },
       ],
-      find: async () => ({ ok: false, problem: "not looked up" }), baseOf: () => "", others: [],
+      resolve: async () => ({ named: [], problems: [] }), baseOf: () => "", others: [],
     });
     expect(preview.fieldError).toMatch(/^In acme-api: Its local copy is behind or diverged from origin's/);
     expect(preview.repositories.map(one => ({ name: one.name, hasBranch: one.hasBranch }))).toEqual([{ name: "acme-shop", hasBranch: false }, { name: "acme-api", hasBranch: true }]);

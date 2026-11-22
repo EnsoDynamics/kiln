@@ -91,7 +91,7 @@
     {/if}
     {#if saved.enabled}
       <div class="merge-targets">
-        {#each snapshot.repositories as row (row.name)}
+        {#each snapshot.repositories.filter((one) => !one.question) as row (row.name)}
           {@const candidate = saved.targets.find(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch)}
           {#if !legacyChoices || candidate}
             <EarlyMergeTarget name={row.name} repository={row.github} branch={row.baseBranch} mode="summary" disabled={!connected || saving || !!snapshot.documents?.starting} legacyEnvironment={saved.targets.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch).map(one => one.target.environment).filter(Boolean).join(", ") || undefined} />

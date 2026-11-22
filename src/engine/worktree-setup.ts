@@ -70,6 +70,8 @@ export type FieldErrors = Partial<Record<"workspaceFolder" | "worktreePath" | "f
 /** One of the PRD's repositories as the field checks and setup see it, the PRD's repository first. */
 export interface PlannedRepository {
   name: string;
+  /** Its short name, when `name` is the whole-path form (find repositories anywhere AC-FOLDER-01). */
+  shortName?: string;
   kind: RepositoryKind;
   mainCheckoutPath: string;
   github: string;

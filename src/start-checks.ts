@@ -7,8 +7,10 @@ import { readLinkedDocuments, type UnfollowedLink } from "./engine/plan-reconcil
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseGithubOrigin } from "./github-origin.js";
-import { findRepository, repositoriesParent, type FoundRepository } from "./engine/repositories.js";
-import { namedRepositories, readPhasePlan, planStartProblems, type PhasePlan } from "./plan/phase-plan.js";
+import type { FoundRepository } from "./engine/repositories.js";
+import { resolvePlanRepositories, type NamedRepositoryRow } from "./engine/plan-repositories.js";
+import { readPhasePlan, planStartProblems, type PhasePlan } from "./plan/phase-plan.js";
+import type { RepositoryEntry } from "./state/records.js";
 import { displayPath } from "./engine/worktree-setup.js";
 import { isPhaseFileName } from "./plan/phase-ids.js";
 import { runHelper } from "./platform/helper-process.js";
@@ -36,8 +38,12 @@ export interface StartCheckReport {
   plan: PhasePlan | undefined;
   /** `<owner>/<name>` on GitHub, parsed from origin's URL, when it is there. */
   github?: string;
-  /** The named repositories found beside the PRD's repository, in plan order. */
+  /** The named repositories found, beside the PRD's repository or by their origin, in plan order. */
   repositories: FoundRepository[];
+  /** Every named repository in plan order, found or asked about (find repositories anywhere AC-ASK-01). */
+  named: NamedRepositoryRow[];
+  /** Lines for the terminal the search and the remembered answers gave. */
+  lines: string[];
   /**
    * The uncommitted-files problem, also in `problems`, kept apart so a page built by a reset can let
    * it give way for a selection that adopts this checkout (run restart "A reset run from the adopted worktree").
@@ -68,6 +74,7 @@ function uncommittedChangesProblem(checkoutRoot: string, changed: string[]): str
   return `The checkout ${displayPath(checkoutRoot)} has uncommitted changes in ${changed.length} ${changed.length === 1 ? "file" : "files"}: ${list}.`;
 }
 
+/** A question about where a repository is never fails the start checks (AC-ASK-01). */
 export function startChecksPassed(report: StartCheckReport): boolean {
   return report.missingDocuments.length === 0 && report.problems.length === 0;
 }
@@ -76,7 +83,7 @@ export function startChecksPassed(report: StartCheckReport): boolean {
  * Runs every start check, in the checkout the path is in, and reports all failures together
  * so the person can fix them in one pass.
  */
-export async function runStartChecks(location: PrdLocation, tools: Tools, env: NodeJS.ProcessEnv, nodeVersion = process.versions.node): Promise<StartCheckReport> {
+export async function runStartChecks(location: PrdLocation, tools: Tools, env: NodeJS.ProcessEnv, nodeVersion = process.versions.node, repositoryContext: { entries?: RepositoryEntry[]; said?: Set<string>; changing?: string[] } = {}): Promise<StartCheckReport> {
   const fileNames = readdirSync(location.prdDirectory);
   const phaseFileNames = fileNames.filter(isPhaseFileName);
 
@@ -114,18 +121,8 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     if (plan.problems.length === 0) problems.push(...planStartProblems(plan, location.prdDirectoryFromRoot));
   }
 
-  const named = plan && plan.problems.length === 0 ? namedRepositories(plan.phases, location.repositoryName) : [];
-  const parent = repositoriesParent(location.mainCheckoutPath);
-  const gitContext = { git: tools.git, env };
-  const lookups = await Promise.all(
-    named.map((name) => findRepository(gitContext, parent, name, plan!.phases.find((phase) => phase.repositories.includes(name))!.fileName)),
-  );
-  const repositories: FoundRepository[] = [];
-  for (const lookup of lookups) {
-    if (lookup.ok) repositories.push(lookup.repository);
-    else problems.push(lookup.problem);
-  }
-
+  // The named repositories' problems keep their place in the list, after the plan's.
+  const repositoryProblemsAt = problems.length;
   const [gitVersion, status, originUrl, ghAuth] = await Promise.all([
     runHelper(tools.git, ["--version"], { cwd: location.checkoutRoot, env }),
     runHelper(tools.git, ["status", "--porcelain", "--untracked-files=all"], { cwd: location.checkoutRoot, env }),
@@ -156,6 +153,23 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   if (originUrl.exitCode !== 0) problems.push("The checkout has no origin remote.");
   else if (!github) problems.push(`origin isn't on GitHub: ${originUrl.stdout.trim()}`);
 
+  // The named repositories, once the PRD's own address path is known (find repositories anywhere "Names").
+  const lines: string[] = [];
+  const resolved = plan && plan.problems.length === 0
+    ? await resolvePlanRepositories({
+      git: { git: tools.git, env },
+      env,
+      prd: { name: location.repositoryName, mainCheckoutPath: location.mainCheckoutPath, github: github ? `${github.owner}/${github.name}` : "" },
+      entries: repositoryContext.entries ?? [],
+      phases: plan.phases,
+      say: (line) => lines.push(line),
+      ...(repositoryContext.said ? { said: repositoryContext.said } : {}),
+      ...(repositoryContext.changing ? { changing: repositoryContext.changing } : {}),
+    })
+    : { named: [], problems: [] };
+  problems.splice(repositoryProblemsAt, 0, ...resolved.problems);
+  const repositories = resolved.named.flatMap((row) => (row.found ? [row.found] : []));
+
   // Only once every other check passed: Documents found lists the links Kiln won't follow, and a
   // required one it can't follow is a problem here as it would be at the first plan read (AC-LINK-02, 04).
   let unfollowedLinks: UnfollowedLink[] = [];
@@ -171,6 +185,8 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     plan,
     ...(github ? { github: `${github.owner}/${github.name}` } : {}),
     repositories,
+    named: resolved.named,
+    lines,
     ...(uncommitted ? { uncommitted } : {}),
   };
 }

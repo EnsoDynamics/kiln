@@ -15,3 +15,12 @@ The search, the remembered-answer store, the checks an answer gets, Documents fo
 
 ## Phase dependencies
 1 (name resolution, the search, the remembered-answer store and the checks an answer gets, labels, schema 25)
+
+## Carried forward from Phase 1
+
+Phase 1 left these places answering "fails as not found" where this phase asks or leaves the repository out:
+
+- `Engine.reachForAddition` (`src/engine/engine.ts`) refuses a name whose finding ends in a question with the question's first two sentences. Additions before a phase and `kiln add-repository` both go through it, and it already accepts address paths; the command's usage text (`src/add-repository-command.ts`) still says `<folder name>`.
+- `reachedName` (`src/engine/plan-repositories.ts`) turns a question into a problem for continuation readiness, the Folder missing panel's setup and completed-plan accounting. "A continuation and a base-branch start" replaces that with leaving the repository out, apart from its exceptions.
+- A completed phase's recorded scope keeps names as written; its readers map them with `recordedName` (technical design, "Names"). The skipped phase's address-path key this phase adds is read the same way.
+- The question block is `view/src/components/RepositoryQuestion.svelte`, fed by `questionView` in `src/engine/snapshot.ts`; the stops reuse both. `Question` and the search are in `src/engine/repository-finding.ts` and `src/engine/repository-search.ts`.

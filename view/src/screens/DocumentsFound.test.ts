@@ -3,7 +3,7 @@
 
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
-import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot, findRepositoriesSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 
 const config = { token: "t", base: "/customer-returns" };
@@ -118,7 +118,7 @@ describe("Documents found across repositories (multi-repo AC-REPO-03, AC-SPACE-0
   it("names each phase's repositories, and the checks that name the PRD's repository", () => {
     const words = text(html(documentsFoundRepositoriesSnapshot()));
     expect(words).toContain("2 Refund routing split into 2a and 2b returns-api 2a Card refunds returns-api 2b Store credit returns-api · storefront 3 Returns dashboard storefront");
-    expect(words).toContain("Every phase cites its criteria Dependencies point backward Named repositories found beside product Working tree of product is clean");
+    expect(words).toContain("Every phase cites its criteria Dependencies point backward Repositories found on this computer Working tree of product is clean");
   });
 
   it("asks for the workspace folder, one feature branch, and a base for each repository, the PRD's marked", () => {
@@ -128,7 +128,7 @@ describe("Documents found across repositories (multi-repo AC-REPO-03, AC-SPACE-0
     expect(page).toMatch(/<select id="base-product"[^>]*>[\s\S]*?<option value="main"[^>]*>main<\/option><\/select>/);
     expect(page).toMatch(/<select id="base-returns-api"[^>]*>[\s\S]*?<option value="develop"[^>]*>develop<\/option><option value="main"[^>]*>main<\/option><\/select>/);
     const words = text(page);
-    expect(words).toContain("Feature branch Used in every repository. Repositories Branch from, and PR into product PRD’s repository main returns-api develop main storefront develop main");
+    expect(words).toContain("Feature branch Used in every repository. Repositories Branch from, and PR into product PRD’s repository acme/product · ~/devel/acme/product main returns-api acme/returns-api · ~/devel/acme/returns-api develop main storefront acme/storefront · ~/devel/acme/storefront develop main");
     expect(words).toContain(`${sessionsAdd} Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks.`);
     expect(words).toContain("Ends at One PR in each repository that changed, ready for review. Kiln won’t merge.");
     expect(words).toContain(
@@ -142,7 +142,7 @@ describe("Documents found across repositories (multi-repo AC-REPO-03, AC-SPACE-0
     snapshot.repositories[2] = { ...snapshot.repositories[2]!, fieldErrors: { baseBranch: "Couldn’t reach origin: timed out" } };
     const page = html(snapshot);
     expect(page).toMatch(/<input id="workspace"[^>]*\/?>\s*<span class="message[^"]*">That folder is inside a checkout of returns-api\. Choose one outside it\.<\/span>/);
-    expect(page).toMatch(/<select id="base-storefront"[\s\S]*?<\/select>\s*<span class="message row-message[^"]*">Couldn’t reach origin: timed out<\/span>/);
+    expect(page).toMatch(/<select id="base-storefront"[\s\S]*?<\/select>(?:\s*<!---->)*\s*<\/div>\s*<span class="message row-message[^"]*">Couldn’t reach origin: timed out<\/span>/);
   });
 
   it("shows what a partly failed Start set up as fixed, and leaves a repository not yet set up editable", () => {
@@ -159,5 +159,72 @@ describe("Documents found across repositories (multi-repo AC-REPO-03, AC-SPACE-0
     expect(words).toContain(`Branch from, and PR into develop main ${sessionsAdd} Agent`);
     expect(words).not.toContain("CLAUDE.md");
     expect(words).not.toContain("Workspace folder");
+  });
+});
+
+describe("Documents found finding repositories anywhere (docs/changes/kiln-find-repositories-anywhere/mockups/kiln-find-repositories-anywhere.html, states 1 to 4)", () => {
+  const words = (state: 1 | 2 | 3 | 4) => text(html(findRepositoriesSnapshot(state)));
+
+  it("state 1: each row shows its address path and the folder its checkout is in, and the check reads Repositories found on this computer (AC-SEE-01)", () => {
+    const page = words(1);
+    expect(page).toContain("Review what Kiln found and how it will deliver, then start.");
+    expect(page).toContain("Dependencies point backward Repositories found on this computer Working tree of product is clean");
+    expect(page).toContain("product PRD’s repository acme/product · ~/code/acme/product main returns-api acme/returns-api · ~/code/acme/returns-api develop main storefront acme-labs/storefront · ~/code/acme-labs/storefront develop main");
+    expect(page).not.toContain("You told Kiln where this is");
+    expect(page).toContain("Confirm refinement to start.");
+  });
+
+  it("state 2: the row asks where the repository is, with the field and its button, and Start says why it waits (AC-ASK-01, AC-ASK-03)", () => {
+    const page = html(findRepositoriesSnapshot(2));
+    const shown = text(page);
+    expect(shown).toContain("Tell Kiln where one repository is, then review and start.");
+    expect(shown).toContain("Dependencies point backward 1 repository to locate Working tree of product is clean");
+    expect(shown).toContain("storefront acme-labs/storefront — Kiln couldn’t find a checkout of acme-labs/storefront . It searched outward from ~/code/acme/ , never above your home folder. Where is it on this computer? Use this folder Kiln remembers this on this computer only. Nothing is written to any repository.");
+    expect(shown).toContain("Tell Kiln where acme-labs/storefront is to start.");
+    expect(page).toMatch(/<span class="locate[^"]*"><svg[^>]*stroke="var\(--amber\)"/);
+    expect(page).toMatch(/<select id="base-storefront"[^>]*disabled/);
+  });
+
+  it("state 2's field message and a checkout Kiln can't deliver to, listed and not pickable (AC-ASK-03, AC-FIND-03)", () => {
+    const snapshot = findRepositoriesSnapshot(2);
+    snapshot.repositories[2] = { ...snapshot.repositories[2]!, question: { ...snapshot.repositories[2]!.question!, fieldError: "That folder isn’t a Git checkout.", checkouts: [{ folder: "~/code/mirrors/storefront", remote: "git@git.example.com:acme-labs/storefront.git", pickable: false }], found: 1 } };
+    const page = html(snapshot);
+    expect(text(page)).toContain("Kiln couldn’t find a checkout of acme-labs/storefront that it can deliver to. It searched outward from ~/code/acme/ , never above your home folder. ~/code/mirrors/storefront git@git.example.com:acme-labs/storefront.git Not on GitHub. Kiln delivers only to GitHub. Where is it on this computer?");
+    expect(page).toMatch(/<span class="message[^"]*">That folder isn’t a Git checkout\.<\/span>/);
+    expect(page).toMatch(/<div class="option unpickable[^"]*">/);
+  });
+
+  it("state 3: the row asks which checkout to use, lists both with their remote addresses, and picks neither (AC-ASK-02)", () => {
+    const page = html(findRepositoriesSnapshot(3));
+    const shown = text(page);
+    expect(shown).toContain("Tell Kiln which checkout to use, then review and start.");
+    expect(shown).toContain("Kiln found two checkouts of acme-labs/storefront . Which should it use? ~/code/acme-labs/storefront git@github.com:acme-labs/storefront.git ~/code/archive/storefront git@github.com:acme-labs/storefront.git Another folder Kiln remembers this on this computer only. Nothing is written to any repository. Use this checkout");
+    expect(shown).toContain("Tell Kiln which checkout of acme-labs/storefront to use to start.");
+    expect(page.match(/type="radio" name="checkout-acme-labs\/storefront"/g)).toHaveLength(3);
+    expect(page).not.toMatch(/type="radio"[^>]*checked/);
+    expect(page).toMatch(/<button type="button" class="use[^"]*" disabled[^>]*>Use this checkout<\/button>/);
+  });
+
+  it("state 4: the row shows the folder the person gave, says so, and offers Change (AC-ASK-05)", () => {
+    const page = html(findRepositoriesSnapshot(4));
+    const shown = text(page);
+    expect(shown).toContain("storefront You told Kiln where this is · Change acme-labs/storefront · /Volumes/work/storefront develop");
+    expect(shown).toContain("Repositories found on this computer");
+    expect(page).toMatch(/<button type="button" class="change[^"]*"[^>]*>Change<\/button>/);
+  });
+});
+
+describe("two repositories with one short name (find repositories anywhere AC-FOLDER-02)", () => {
+  it("shows each by its label, never Kiln's whole-path name for it, on the rows and the plan", () => {
+    const snapshot = findRepositoriesSnapshot(1);
+    snapshot.repositories = snapshot.repositories.map((row) => (row.name === "storefront" ? { ...row, name: "acme-labs+storefront", label: "acme-labs/storefront" } : row));
+    snapshot.documents = { ...snapshot.documents!, plan: { ...snapshot.documents!.plan!, phases: snapshot.documents!.plan!.phases.map((phase) => ({ ...phase, repositories: phase.repositories.map((name) => (name === "storefront" ? "acme-labs/storefront" : name)) })) } };
+    const page = html(snapshot);
+    const shown = text(page);
+    expect(shown).toContain("acme-labs/storefront acme-labs/storefront · ~/code/acme-labs/storefront");
+    expect(shown).toContain("3 Returns dashboard acme-labs/storefront");
+    expect(shown).not.toContain("acme-labs+storefront");
+    // The base is still chosen under Kiln's name for it.
+    expect(page).toMatch(/<select id="base-acme-labs\+storefront"/);
   });
 });

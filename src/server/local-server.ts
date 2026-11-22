@@ -310,7 +310,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       const heartbeat = setInterval(() => void stream.writeSSE({ event: "heartbeat", data: new Date().toISOString() }), options.heartbeatMs ?? HEARTBEAT_MS);
       const closed = new Promise<void>((resolve) => stream.onAbort(resolve));
       // An engine a reset built reruns the start checks first, before the field checks (run restart AC-RESET-04).
-      await engine.rerunStartChecks().catch(() => undefined);
+      // Otherwise the plan's names are reached again, so a checkout cloned since, or an answer given in another Kiln, is found (find repositories anywhere "Finding a Checkout").
+      const rechecked = await engine.rerunStartChecks().catch(() => false);
+      if (!rechecked) await engine.resolveRepositoriesBeforeStart(true).catch(() => undefined);
       // Each page load or reconnect asks origin again, before Start (Worktree and Branch Setup).
       engine.checkBase();
       // ...and an unfinished run's folders again; the result is published through this stream (AC-GONE-01).
@@ -504,6 +506,25 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
     if (body.previewId !== undefined && typeof body.previewId !== "string") return refuse(c, 400, "previewId must be text.");
     const result = await engine.start({ ...(body.refinementConfirmed === true ? { refinementConfirmed: true } : {}), ...(typeof body.previewId === "string" ? { previewId: body.previewId } : {}) });
+    return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
+  });
+
+  // Where a repository is, before Start (find repositories anywhere AC-ASK-03, "HTTP"): a setup
+  // request, as /api/settings is. `repository` is the question's address path, in any spelling.
+  app.post("/api/repository-location", async (c) => {
+    const body = await jsonBody(c);
+    if (typeof body?.repository !== "string" || body.repository.trim() === "" || typeof body.folder !== "string") return refuse(c, 400, "The body must be { \"repository\": \"<address path>\", \"folder\": \"<folder>\" }.");
+    if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+    const result = await engine.locateRepository(body.repository.trim(), body.folder);
+    if (!result.ok) return c.json({ ok: false, reason: result.reason }, result.status);
+    return c.json({ repository: result.repository, folder: result.folder });
+  });
+
+  app.post("/api/repository-location/change", async (c) => {
+    const body = await jsonBody(c);
+    if (typeof body?.repository !== "string" || body.repository.trim() === "") return refuse(c, 400, "The body must be { \"repository\": \"<address path>\" }.");
+    if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+    const result = await engine.changeRepositoryLocation(body.repository.trim());
     return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
   });
 

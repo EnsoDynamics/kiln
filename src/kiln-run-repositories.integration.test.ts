@@ -208,7 +208,7 @@ describe("kiln run on a PRD across repositories", () => {
     expect(snapshot.documents!.checks.map((check) => check.name)).toEqual([
       "Every phase cites its criteria",
       "Dependencies point backward",
-      "Named repositories found beside product",
+      "Repositories found on this computer",
       "Working tree of product is clean",
     ]);
     // AC-SPACE-01: the workspace folder beside the PRD's repository, and the feature branch, by default.
@@ -343,7 +343,8 @@ describe("kiln run on a PRD across repositories", () => {
     const kiln = startKiln(f);
     expect(await kiln.done).toBe(1);
     expect(kiln.lines()).toContain("    phase-1-return-intake.md has a Repositories line that names no repository.");
-    expect(kiln.lines()).toContain("    phase-3-returns-dashboard.md names ../storefront on its Repositories line, which isn't a folder name.");
+    // A path on one computer is not a name (find repositories anywhere AC-NAME-01).
+    expect(kiln.lines()).toContain("    phase-3-returns-dashboard.md names ../storefront, a path on one computer. Name the repository by the path in its remote address, <owner>/<repository>.");
   });
 
   it("keeps what a Start that failed partway set up, fixes the workspace and branch, and finishes only what is missing on the next Start", async () => {

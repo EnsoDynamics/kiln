@@ -8,6 +8,7 @@
  *   deliveredFacts(view.delivered, record)
  *   // { loops: { delivery: { used: 4, limit: 4 }, … }, forYou: { items: [{ id, kind, words, line, … }], afterDelivery: [] }, pullRequests: [{ repository, number, url }] }
  */
+import { repositoryDetails } from "../engine/plan-repositories.js";
 import { auditLabel } from "../audit/workflow.js";
 import { waivedTagText } from "../audit/for-you.js";
 import { closingAuditsText, type ClosingAudits } from "../state/audit-loops.js";
@@ -25,7 +26,9 @@ function activityName(record: Pick<PrdRecord, "completionAudits">, key: string):
 }
 
 /** A finished run's facts in `kiln status` JSON. */
-export function deliveredFacts(delivered: NonNullable<Snapshot["delivered"]>, record: Pick<PrdRecord, "completionAudits">): Record<string, unknown> {
+export function deliveredFacts(delivered: NonNullable<Snapshot["delivered"]>, record: Pick<PrdRecord, "completionAudits"> & Partial<Pick<PrdRecord, "repository" | "repositories" | "plan">>): Record<string, unknown> {
+  // Each pull request's repository stays its name and gains its label (find repositories anywhere "kiln status --json").
+  const details = record.repository && record.repositories ? repositoryDetails({ repository: record.repository, repositories: record.repositories, ...(record.plan ? { plan: record.plan } : {}) }) : [];
   return {
     loops: delivered.loops,
     forYou: {
@@ -35,7 +38,7 @@ export function deliveredFacts(delivered: NonNullable<Snapshot["delivered"]>, re
       })),
       afterDelivery: delivered.forYou.afterDelivery,
     },
-    pullRequests: delivered.pullRequests,
+    pullRequests: delivered.pullRequests.map(pull => ({ ...pull, label: details.find(detail => detail.name === pull.repository)?.label ?? pull.repository })),
   };
 }
 
@@ -48,13 +51,13 @@ export function continuationFacts(check: CompletedPlanCheck): Record<string, unk
   };
 }
 
-interface DeliveredJson { loops: ClosingAudits; forYou: { items: { kind: string | null; line: string; waived_tag?: string }[]; afterDelivery: string[] }; pullRequests: { repository: string; number: number; url: string }[] }
+interface DeliveredJson { loops: ClosingAudits; forYou: { items: { kind: string | null; line: string; waived_tag?: string }[]; afterDelivery: string[] }; pullRequests: { repository: string; label?: string; number: number; url: string }[] }
 
 /** `kiln status` text for a finished run: the loop line and each pull request, with **For you** first when it lists a critical finding. */
 export function deliveredText(delivered: DeliveredJson | null | undefined, multiRepository: boolean): string | undefined {
   if (!delivered) return undefined;
   const loops = `Closing audits: ${closingAuditsText(delivered.loops)}`;
-  const pulls = delivered.pullRequests.map(pull => `Pull request${multiRepository ? ` (${pull.repository})` : ""}: ${pull.url}`);
+  const pulls = delivered.pullRequests.map(pull => `Pull request${multiRepository ? ` (${pull.label ?? pull.repository})` : ""}: ${pull.url}`);
   const lines = [...delivered.forYou.items.map(item => `  - ${item.line}${item.waived_tag ? ` (Waived: ${item.waived_tag})` : ""}`), ...delivered.forYou.afterDelivery.map(action => `  - ${action}`)];
   const forYou = lines.length ? ["For you:", ...lines].join("\n") : undefined;
   const critical = delivered.forYou.items.some(item => item.kind === "critical_next_step" || item.kind === "critical");

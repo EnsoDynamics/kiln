@@ -1,5 +1,7 @@
 # Phase 1: Find each repository by its address, and ask before Start
 
+**Closed:** 2026-11-22
+
 **Parent PRD:** docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md
 **Technical design:** docs/changes/kiln-find-repositories-anywhere/technical-design.md — relevant sections: "Names", "Finding a Checkout" ("The search"), "Asking Before Start" ("The answer"), "Worktree Folders and Labels", "Interfaces" (the two location routes before Start, "Snapshot", "Command line" for `kiln run`, `repository_details` and labels in "`kiln status --json`"), "Data Models", "Screens" (the settings while Kiln works), "Testing Approach"
 **Model tier:** standard

@@ -157,7 +157,8 @@ describe("the engine from Start to the pull request", () => {
     expect(snapshot.phases.find((phase) => phase.id === "2a")?.details).toBeUndefined();
     expect(snapshot.phases[0]!.details).toMatchObject({ model: "Opus 5.5", effort: "medium", branch: "feature/customer-returns", commitCount: 1 });
     // AC-PR-04, AC-PR-05: the Complete screen's pull request, from the record, and the pull-request session's own row.
-    expect(snapshot.pullRequests).toEqual(record.pullRequests);
+    // Each with its label (find repositories anywhere AC-FOLDER-02).
+    expect(snapshot.pullRequests).toEqual(record.pullRequests!.map((pull) => ({ ...pull, label: pull.repository })));
     expect(snapshot.pullRequests?.[0]).toMatchObject({ repository: "acme-shop", number: 218, url: expect.stringMatching(/\/pull\/218$/), head: "feature/customer-returns", base: "develop" });
     const prRow = snapshot.phases.at(-1)!;
     expect(prRow).toMatchObject({ id: "pr", title: "Final pull request", file: "pull request session", state: "done" });
@@ -327,7 +328,7 @@ describe("a phase that doesn't land", () => {
     // Full session output identifies the stopped session, with the phase's commits read from Git (AC-WATCH-06, AC-WATCH-10).
     expect(snapshot.needsYou).toMatchObject({ sessionId: session.sessionId, model: session.modelDisplayName, effort: "medium", sessionStartedAt: session.runs[0]!.startedAt });
     const head = git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim();
-    expect(snapshot.needsYou!.repositories).toEqual([{ name: "acme-shop", commits: [{ sha: head, subject: "feat: intake" }] }]);
+    expect(snapshot.needsYou!.repositories).toEqual([{ name: "acme-shop", label: "acme-shop", commits: [{ sha: head, subject: "feat: intake" }] }]);
     // The stopped row's Details, drawn on the Disconnected layout, has the same commits (AC-WATCH-01).
     expect(snapshot.phases.find((phase) => phase.id === "1")?.details).toMatchObject({ commitCount: 1, latestCommit: head });
     // A fresh session starts in the worktree (UI-007): the path needs no quoting here, and isn't under the home folder.
