@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "executionId": "ae01ea9e-0f42-4945-a00d-2b01e33377c0",
+  "activityId": "e77248bf-9958-4410-97a9-de29a69be400",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The first test audit of the whole PRD graded all 20 criteria. AC-MERGE-08 and AC-WAIT-02 are Adequate, and red checks confirmed their tests fail when the behavior breaks. The other 18 are Weak, none Missing and no mapped test failing: each has one or more required parts no test pins, most often the push session's side of Continue, several pull requests in one delivery, retries of the new commands, and parts of kiln status. The map and the ordered fix list, high-risk criteria first, are in docs/changes/kiln-after-delivery/test-audit.md. The test fixes are left for sessions of test fixes. AC-BACK-01's quiet line is still unbuilt while PLAN-001 is unanswered.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "AC-BACK-01 still requires one quiet line when a finished phase's document is edited later. The build left the line out on purpose, because PLAN-001 reopened your 2026-11-21 ruling and proposes saying nothing. The code therefore departs from a criterion that records your ruling.",
+      "action": "Answer PLAN-001 in kiln-after-delivery-assumptions.md. Confirming silence means amending AC-BACK-01 to drop the line. Keeping your original ruling means adding a phase to build the line."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-MERGE-03",
+      "problem": "AC-MERGE-03 is high risk and still Weak. No test in the project's test runs proves that the real merge session stops at the first pull request it cannot merge, or that it never merges past a required review or check. Only its instructions are tested. The provider proof that shows the real behavior makes paid model calls and no test command runs it. Sessions of test fixes can add a scripted test of Kiln's side, but not of the agent's.",
+      "action": "Either have the merge provider proof run in a gated test command, or accept AC-MERGE-03's agent-behavior parts once the scripted test is in."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": false
+}
