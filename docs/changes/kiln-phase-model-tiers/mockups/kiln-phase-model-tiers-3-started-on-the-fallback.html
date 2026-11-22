@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Phase Model Tiers mockup: 3. A phase that started on the fallback</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.circle{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;box-sizing:border-box;border:1px dashed rgba(237,232,221,.24);color:#8c8577}
+.circle.done{border:1px solid rgba(156,196,154,.45);background:rgba(156,196,154,.09);color:#9cc49a;font-weight:600}
+.circle.now{border:1px solid #e2694f;background:#e2694f;color:#12110e;font-weight:600}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.strong{border-color:rgba(237,232,221,.4);color:#ede8dd;font-weight:500}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;border:1px solid transparent}
+.pill.done{background:rgba(156,196,154,.09);color:#9cc49a;border-color:rgba(156,196,154,.45)}
+.pill.now{background:#e2694f;color:#12110e;border-color:#e2694f}
+.pill.planned{border-style:dashed;border-color:rgba(237,232,221,.24);color:#8c8577}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.info{display:inline-flex;align-items:center;justify-content:center;width:44px;height:28px;margin:-4px -12px;border:0;background:transparent;color:#bdb6a8;cursor:pointer}
+.model{font-size:13.5px;color:#bdb6a8}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:16px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.title{font-size:16px;font-weight:500}
+.file{font-size:12.5px;color:#8c8577}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.facts{font-size:13px;color:#8c8577;white-space:nowrap}
+.bar{height:6px;border-radius:999px;background:rgba(237,232,221,.12)}
+</style>
+<style>
+.mock-note{margin:0;padding:14px 32px;background:#0d0c0a;border-bottom:1px solid rgba(237,232,221,.18);font-size:14px;color:#bdb6a8;line-height:1.5}
+.mock-note strong{color:#ede8dd;font-weight:600}
+</style>
+</head>
+<body>
+<p class="mock-note"><strong>3. A phase that started on the fallback.</strong> The fallback is on at 95%, and phase 5 began while Claude's weekly limit read 97%. Phase 3's Standard explanation is open. Covers AC-FALLBACK-02, AC-FALLBACK-03 and AC-AGENTS-03.</p>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">Customer returns</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span class="pill now" style="padding: 8px 16px; font-size: 14px">Implementing phase 5</span><span style="color: #bdb6a8">4 of 5 phases done</span></div>
+</div>
+
+<section style="border: 1px solid rgba(226,105,79,.55); border-radius: 18px; background: #0d0c0a; padding: 28px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 24px">
+<div style="display: flex; align-items: center; gap: 16px; min-width: 0"><span class="circle now mono">5</span><div style="display: flex; flex-direction: column; gap: 2px"><span class="eyebrow">Now implementing · phase 5 of 5</span><span style="font-size: 20px; font-weight: 600">Returns report</span></div></div>
+<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 14px; color: #bdb6a8"><span>Codex · GPT-6.2-Sol · high effort</span><span>Not rated, runs as standard · started 3:41 PM · 12 min</span></div>
+</div>
+<div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(237,232,221,.18)">
+<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#bdb6a8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto; margin-top: 2px"><path d="M2.5 5.5h9l-2.5-2.5M13.5 10.5h-9l2.5 2.5"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 500">This phase started on the fallback</span><span style="font-size: 13.5px; color: #bdb6a8; line-height: 1.5">Claude's weekly limit was at 97% when the phase began, above your 95% threshold. The first choice was Claude Code · Opus 5.5 · medium. The phase finishes on Codex.</span></div>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+<section aria-labelledby="plan-h" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px"><h2 id="plan-h" class="eyebrow">Phase plan</h2><span style="font-size: 13px; color: #8c8577">4 of 5 done</span></div>
+<ol style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li class="row" style="position: relative">
+<span class="circle done mono">3</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Store credit</span><span class="tag">Standard<button type="button" class="info" aria-label="What standard means" aria-expanded="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-3-store-credit.md</span><span class="model">Ran on Claude Code · Opus 5.5 · medium</span></span>
+<span class="right"><span class="facts">1h 6m · pushed 77c0e1a</span><span class="pill done">Done</span></span>
+<div role="tooltip" style="position: absolute; left: 50px; top: 46px; z-index: 2; width: 360px; max-width: calc(100% - 50px); box-sizing: border-box; padding: 14px 16px; border-radius: 12px; background: #0d0c0a; border: 1px solid rgba(237,232,221,.24); box-shadow: 0 12px 32px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600">A standard phase</span>
+<span style="font-size: 13px; color: #bdb6a8; line-height: 1.5">Each phase document rates how capable a model its build needs: demanding, standard or mechanical. Standard is the usual rating. Kiln fills in the model set for it in Model defaults.</span>
+<span style="font-size: 12.5px; color: #8c8577">From the phase document's Model tier line.</span>
+</div>
+</li>
+
+<li class="row">
+<span class="circle done mono">4</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Return labels for three more carriers</span><span class="tag">Mechanical<button type="button" class="info" aria-label="Why this phase is mechanical"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-4-more-carrier-labels.md</span><span class="model">Ran on Claude Code · Sonnet 5.5 · high</span></span>
+<span class="right"><span class="facts">38m · pushed e4b29f0</span><span class="pill done">Done</span></span>
+</li>
+
+<li class="row">
+<span class="circle now mono">5</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Returns report</span><span class="tag" style="border-style: dashed">Not rated<button type="button" class="info" aria-label="What not rated means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-5-returns-report.md</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="model">Running on Codex · GPT-6.2-Sol · high</span><span class="tag strong">Fallback</span></span></span>
+<span class="right"><span class="facts">12m</span><span class="pill now">Implementing</span></span>
+</li>
+
+<li class="row">
+<span class="circle mono">DA</span>
+<span class="names"><span class="title" style="color: #bdb6a8">Delivery audit</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px"><span class="model">Will run on Claude Code · Opus 5.5 · medium</span><button type="button" class="btn">Change</button></span><span style="font-size: 12.5px; color: #8c8577">Or on Codex · GPT-6.2-Sol · high, if Claude is still at or above 95% when it starts.</span></span>
+<span class="right"><span class="pill planned">Planned</span></span>
+</li>
+
+<li class="row" style="border-bottom: 0">
+<span class="circle mono">TA</span>
+<span class="names"><span class="title" style="color: #bdb6a8">Test audit</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px"><span class="model">Will run on Claude Code · Opus 5.5 · medium</span><button type="button" class="btn">Change</button></span></span>
+<span class="right"><span class="pill planned">Planned</span></span>
+</li>
+</ol>
+</section>
+
+<div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+
+<section class="card" aria-labelledby="c-h" style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 2px"><h2 id="c-h" class="eyebrow">Claude account</h2><span style="font-size: 15px">alex@example.com</span><span style="font-size: 13px; color: #8c8577">Max plan · usage updated 1 min ago</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 14px; border-top: 1px solid rgba(237,232,221,.12)"><div style="display: flex; justify-content: space-between"><span>5-hour window</span><span style="font-weight: 600">22%</span></div><div class="bar"><div style="width: 22%; height: 6px; border-radius: 999px; background: #ede8dd"></div></div><span style="font-size: 13px; color: #8c8577">Resets in 3h 40m</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="display: flex; justify-content: space-between"><span>Weekly</span><span style="font-weight: 600; color: #e6b450">97%</span></div><div class="bar"><div style="width: 97%; height: 6px; border-radius: 999px; background: #e6b450"></div></div><span style="font-size: 13px; color: #8c8577">Resets in 2d 5h · above your 95% threshold</span></div>
+</section>
+
+<section class="card" aria-labelledby="g-h" style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 2px"><h2 id="g-h" class="eyebrow">ChatGPT account · in use now</h2><span style="font-size: 15px">alex@example.com</span><span style="font-size: 13px; color: #8c8577">Pro plan · usage updated 1 min ago</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 14px; border-top: 1px solid rgba(237,232,221,.12)"><div style="display: flex; justify-content: space-between"><span>5-hour window</span><span style="font-weight: 600">9%</span></div><div class="bar"><div style="width: 9%; height: 6px; border-radius: 999px; background: #ede8dd"></div></div><span style="font-size: 13px; color: #8c8577">Resets in 4h 48m</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="display: flex; justify-content: space-between"><span>Weekly</span><span style="font-weight: 600">14%</span></div><div class="bar"><div style="width: 14%; height: 6px; border-radius: 999px; background: #ede8dd"></div></div><span style="font-size: 13px; color: #8c8577">Resets in 5d</span></div>
+</section>
+
+</div>
+</div>
+</main>
+</div>
+</body>
+</html>
