@@ -54,7 +54,7 @@ describe("the command contracts", () => {
   it("put each command in the group its task belongs to", () => {
     const expected: Record<string, string> = {
       run: "start", status: "start",
-      reply: "answer", resume: "answer", "carry-on": "answer", "start-again": "answer", "verify-and-advance": "answer", "check-again": "answer", "waive-and-advance": "answer", "check-for-new-phases": "answer", "continue-with-phases": "answer", merge: "answer",
+      reply: "answer", resume: "answer", "carry-on": "answer", "start-again": "answer", "verify-and-advance": "answer", "check-again": "answer", "waive-and-advance": "answer", "check-for-new-phases": "answer", "continue-with-phases": "answer", merge: "answer", exit: "answer",
       message: "live", "take-over": "live", "request-pause": "live", "cancel-pause": "live", continue: "live",
       logs: "inspect", handoff: "inspect", account: "inspect", settings: "inspect", "command-status": "inspect",
       reset: "reset",
@@ -88,7 +88,7 @@ describe("the commands that start a stopped phase's session (run restart AC-CARR
   it("lists carry-on and start-again after resume under Answer a stopped phase, wrapping the group onto a second line", () => {
     const answer = commandContracts.filter(c => c.group === "answer").map(c => c.path.join(" "));
     expect(answer.slice(0, 4)).toEqual(["reply", "resume", "carry-on", "start-again"]);
-    expect(text).toContain("Answer a stopped phase\n  reply, resume, carry-on, start-again, verify-and-advance, check-again,\n  waive-and-advance, check-for-new-phases, continue-with-phases, merge\n");
+    expect(text).toContain("Answer a stopped phase\n  reply, resume, carry-on, start-again, verify-and-advance, check-again,\n  waive-and-advance, check-for-new-phases, continue-with-phases, merge, exit\n");
   });
 
   it("wraps names after the last comma that fits, with the two-space indent", () => {

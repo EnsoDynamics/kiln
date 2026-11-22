@@ -219,6 +219,8 @@ Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Progress and Detail Contract (Complete lists post-delivery human actions under **For you**).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Closing-Audit Names (audit rows are titled Delivery audit, Test audit or Fixing tests, with a loop line, never a round or continuation number).
+
 Expose a unified `activities` projection in the snapshot, retaining `phases` for plan details/counts. Rows include activity identity, kind, display label, round/continuation, state, timing, session details, result summary and checks. Started rows follow monotonic execution sequence; pending plan leaves follow them in plan order. Added completion phases appear after the audit that added them. Split parents keep their existing relationships and details, without counting audits as phases.
 
 Use the existing row styling and click-to-detail interaction for **Delivery audit** and **Test audit**, with “Round 2” and “Continuation 2” secondary labels when needed. Do not prefix them with “Phase.” Keep implementation steps for implementation rows; audit detail shows observed assessment/remediation/recording activity without inventing Build, Test hardening or Refactor completions. Report findings, affected criteria, checked repositories/revisions and blocked actions are available in the same detail panel as output. Terminal events carry identical labels/order and stop facts.

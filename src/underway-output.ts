@@ -72,7 +72,7 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
   const titled = (key: string) => `${phaseName(key)}, ${engine.titleOf(key)}`;
   let text: string;
   switch (decision.kind) {
-    case "start_audit": text = `Starting ${decision.label.toLowerCase()}, round ${decision.round}.`; break;
+    case "start_audit": text = `Starting ${decision.name}.`; break;
     case "start_phase":
       text = `Starting ${titled(decision.phaseId)}.`;
       break;

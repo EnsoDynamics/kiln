@@ -22,6 +22,7 @@
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import Icon from "../components/Icon.svelte";
   import KilnPanel from "../components/KilnPanel.svelte";
+  import ExitKiln from "../components/ExitKiln.svelte";
   import PhasePlan from "../components/PhasePlan.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import { deliveryGroups, deliveryTime } from "../lib/delivery-history.js";
@@ -64,6 +65,8 @@
   const mergeActivity = $derived(after?.merge);
   const mergeOpen = $derived(!!mergeActivity && mergeActivity.state !== "done");
   const allMerged = $derived(!!after && pullRequests.length > 0 && pullRequests.every(pull => readingOf(pull)?.state === "merged"));
+  // Merged: Exit Kiln is the pull request card's main button (Kiln After Delivery AC-EXIT-01, mockup state 3).
+  const exitInCard = $derived(allMerged && !!snapshot.exit);
   const readingOf = (pull: { repository: string; number: number }) => after?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number);
   const ordinal = (n: number) => ["first", "second", "third", "fourth", "fifth"][n - 1] ?? `${n}th`;
   const mergeRow = $derived((snapshot.activities ?? snapshot.phases).find(row => row.kind === "merge"));
@@ -124,6 +127,7 @@
     {#if mergeActivity?.summary}
       <div class="merge-summary"><h3 class="eyebrow">The merge session’s summary</h3><p class="summary-text">{mergeActivity.summary}</p></div>
     {/if}
+    <div class="open"><ExitKiln {snapshot} {connected} main line={`Nothing is left for Kiln to do on this PRD. Exiting stops Kiln in its terminal; the ${pullRequests.length > 1 ? "worktrees stay" : "worktree stays"} until you remove ${pullRequests.length > 1 ? "them" : "it"}.`} />{#if url}<a class="button" href={url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>{/if}</div>
   {:else if after?.offer.note}
     <div class="open">
       <button class="button solid" type="button" disabled={!connected || !config || merging || !after.offer.available} title={after.offer.available ? undefined : after.offer.reason} onclick={pressMergeButton}>{merging ? "Starting…" : `Merge with ${snapshot.settings.agent}`}</button>
@@ -204,7 +208,7 @@
       <div class="size"><span>{commitCount(pr)}</span><span class="dot" aria-hidden="true">·</span><span>+{number(pr.additions)} −{number(pr.deletions)}</span>{#if readingOf(pr)?.state === "merged" || readingOf(pr)?.state === "closed" || readingOf(pr)?.conflicts}<span class="dot" aria-hidden="true">·</span>{@render pullFacts(pr)}{/if}</div>
       {#if after}
         {@render mergePart(pr.url)}
-        {#if !after.offer.note || mergeOpen}<div class="open"><a class="button" class:solid={!mergeOpen} href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a></div>{/if}
+        {#if (!after.offer.note || mergeOpen) && !exitInCard}<div class="open"><a class="button" class:solid={!mergeOpen} href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a></div>{/if}
       {:else}
         <div class="open">
           <a class="button solid" href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>
@@ -285,7 +289,10 @@
           {/if}
         </dl>
       </section>
-      <KilnPanel {connected} text={snapshot.developmentDelivery?.authorization.enabled || mergedBranches.length ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the workspace and recorded delivery results stay." : multi ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay." : "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay."} />
+      <KilnPanel {connected} text={snapshot.developmentDelivery?.authorization.enabled || mergedBranches.length ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the workspace and recorded delivery results stay." : multi ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay." : "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay."}>
+        <!-- Once Merged, Exit Kiln is the pull request card's main button instead (Kiln After Delivery AC-EXIT-01). -->
+        {#if exitInCard}<p class="note">Exit Kiln is in the merge card. Ctrl+C in the terminal does the same.</p>{:else}<ExitKiln {snapshot} {connected} />{/if}
+      </KilnPanel>
     </div>
   </div>
 </main>

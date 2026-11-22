@@ -35,9 +35,11 @@ if (args[0] === "pr" && args[1] === "list") {
 }
 // `gh pr view <n> --repo github.com/<owner>/<name> --json <fields>`: the pull request's answer from
 // the state's "views", keyed "<owner>/<name>#<n>", or an open answer for one in "pulls", in the shape recorded from GitHub
-// (test/fixtures/gh/pr-view-states-recorded-2026-11-21.json); { "error": "…" } fails the call.
+// (test/fixtures/gh/pr-view-states-recorded-2026-11-21.json); { "error": "…" } fails the call, and "viewDelayMs" delays the answer.
 if (args[0] === "pr" && args[1] === "view") {
   const state = statePath && existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {};
+  // "viewDelayMs" holds the answer that long, so a test can act while a reading is in flight.
+  if (state.viewDelayMs) await new Promise((resolve) => setTimeout(resolve, state.viewDelayMs));
   if (state.fail) { process.stderr.write(`${state.fail}\n`); process.exit(1); }
   const key = `${option("--repo")?.replace(/^github\.com\//, "")}#${args[2]}`;
   // A pull request a stand-in session opened, with no recorded answer set, reads as GitHub shows a new one: open.

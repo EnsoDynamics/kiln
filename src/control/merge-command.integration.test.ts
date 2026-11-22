@@ -86,3 +86,28 @@ it("sends merge from the command line, lists it in kiln status, and refuses a co
     expect(older.posted).toEqual([]);
   } finally { await older.close(); }
 });
+
+it("sends exit from the command line, lists it in kiln status, and refuses a controller without after_delivery (Kiln After Delivery AC-BOT-01)", async () => {
+  await stopped();
+  // A run still at Needs you: kiln status lists exit, unavailable, with its reason (AC-EXIT-01).
+  const status = await cli(["status", target(), "--json"]);
+  expect(status.code, status.stdout).toBe(0);
+  expect((status.json().controls as { name: string }[]).find(one => one.name === "exit")).toMatchObject({ available: false, reason: "Exit Kiln is offered once every phase is done. Ctrl+C stops Kiln now.", invocation: ["kiln", "exit", target()] });
+  const help = await cli(["exit", "--help"]);
+  expect(help.code).toBe(0);
+  expect(help.stdout).toContain("kiln exit <PRD-path> [options]");
+  await server!.close(); server = undefined;
+  const safety = (id: string) => ["--only-if-status-matches", `${h.engine.record.executionId}:token`, "--command-id", id, "--json"];
+  const current = await standIn(["status", "commands", "command_status", "after_delivery"]);
+  try {
+    expect((await cli(["exit", target(), ...safety("exit-1")])).code).toBe(0);
+    expect(current.posted).toEqual([{ command_id: "exit-1", execution_id: h.engine.record.executionId, status_token: `${h.engine.record.executionId}:token`, action: "exit", inputs: { via: "command_line" } }]);
+  } finally { await current.close(); }
+  const older = await standIn(["status", "commands", "command_status", "reset", "loop_limits_move_on"]);
+  try {
+    const answer = await cli(["exit", target(), ...safety("exit-old")]);
+    expect(answer.code).toBe(4);
+    expect(answer.json().errors).toEqual([expect.objectContaining({ code: "instance_incompatible", message: "This controller does not support exit. Restart it with updated Kiln." })]);
+    expect(older.posted).toEqual([]);
+  } finally { await older.close(); }
+});

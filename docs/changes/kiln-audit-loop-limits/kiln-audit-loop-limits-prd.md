@@ -100,6 +100,7 @@ The last session of test fixes, and any test audit after it, is told no more loo
   - Superseded in part by: AC-ITEM-03 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (once no test loop is left, only an item that stops or holds the run under AC-ITEM-01 stops it)
 - [ ] **AC-TEST-03 — The last loop is shown, never hidden.** The last test audit loop's row and detail say it was the last, and those of each session whose prompt quoted the default's sentence (AC-TEST-01) or an Accept sentence (AC-STOP-02) say which sentence it carried. The pull request session gets a line saying the same, with the latest such session's summary, to include word for word, as for settled items.
   - Superseded in part by: AC-LEFT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (its line is replaced by the loop counts)
+  - Superseded in part by: AC-AUDIT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the last test audit loop's row and detail show Loop _n_ of _n_, with no separate mark saying it was the last; the rest remains)
 
 ### Decide at the Stop
 
@@ -152,6 +153,7 @@ A person looking at a run should see how close it is to a limit without opening 
 
 - [ ] **AC-SHOW-01 — Each loop's row says which loop it is.** In the run's list of activity, a phase or test audit session that is part of a loop shows its number and the limit, such as **loop 2 of 3**, and the last one allowed shows **last loop**.
   - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (completion-phase and test audit rows that are part of a loop also show its number and the limit, or **last loop**)
+  - Superseded in part by: AC-AUDIT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (only audit rows carry a loop number and the limit, never **last loop**, and a session of test fixes names the loop it works from)
 
 ### Start Claude Code at Medium Effort
 

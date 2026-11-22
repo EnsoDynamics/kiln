@@ -1,5 +1,7 @@
 # Phase 4: Exit Kiln and closing-audit names
 
+**Closed:** 2026-11-22
+
 **Parent PRD:** [Kiln After Delivery](kiln-after-delivery-prd.md)
 **Technical design:** [Kiln After Delivery technical design](kiln-after-delivery-technical-design.md) — relevant sections: "Exit Kiln", "Closing-Audit Names", "Interfaces" (`kiln exit`), "Display Contract"
 

@@ -1,4 +1,5 @@
 import { activityKeyKind } from "../state/activity-keys.js";
+import { auditSentenceStart, recordedAuditName } from "../audit/audit-names.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
 import { pausingStatusText } from "../live/pause-now.js";
 import { messageReceiptLabel } from "../live/target.js";
@@ -38,7 +39,7 @@ import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed
 import type { AuditLoopsView } from "../engine/loop-view.js";
 import { afterDeliveryFacts, continuationFacts, deliveredFacts } from "./delivered-facts.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "merge", "check-for-new-phases", "continue-with-phases", "handoff"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
 const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
@@ -276,12 +277,12 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const savedMessage = savedStop && savedStop[1].stop?.kind !== "not_resumable" && !savedStop[1].stop?.interrupted ? modelSession?.runs.at(-1)?.result?.text : undefined;
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
   const preflight = phase !== null && activityKeyKind(phase) === "preflight";
-  const savedActivity = { phase_id: audit || preflight ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === null ? null : activityKeyKind(phase) === "phase" ? "implementation" : activityKeyKind(phase)), title: audit ? audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit" : preflight ? "Preflight" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
+  const savedActivity = { phase_id: audit || preflight ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === null ? null : activityKeyKind(phase) === "phase" ? "implementation" : activityKeyKind(phase)), title: audit ? recordedAuditName(record, audit).title : preflight ? "Preflight" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
   const completedKey = record.activities?.findLast(a => record.phases[a.key]?.doneAt)?.key;
   // A pending request carried through a Folder missing base-branch start names its phase (missing worktree recovery, "The Folder Check").
   const pauseKey = record.pause.activeSince ? completedKey : record.pause.requestedFor ?? view?.liveControl?.target.activityKey ?? phase;
   const pauseAudit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === pauseKey);
-  const pauseLabel = pauseAudit ? `${pauseAudit.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${pauseAudit.round}` : pauseKey && activityKeyKind(pauseKey) === "preflight" ? "Preflight" : pauseKey ? `Phase ${pauseKey}` : "Activity";
+  const pauseLabel = pauseAudit ? auditSentenceStart(recordedAuditName(record, pauseAudit)) : pauseKey && activityKeyKind(pauseKey) === "preflight" ? "Preflight" : pauseKey ? `Phase ${pauseKey}` : "Activity";
   const takeover = view?.liveControl?.takeover;
   const pauseNow = view?.liveControl?.pauseNow;
   // Under Pause now: "Pausing — …" with its running commands or processes, or "Paused."; with no projection, a launch from the paused page is starting (Kiln Pause Now, "The Pause Now State").

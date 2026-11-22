@@ -9,6 +9,7 @@
   // person, so it is styled as Paused is. It is the screen alone, as Needs you is: no plan or
   // Claude account panel, no Check again, terminal hand-back or pause (AC-LIMIT-04).
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
+  import ExitKiln from "../components/ExitKiln.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import Icon from "../components/Icon.svelte";
@@ -136,6 +137,8 @@
       </aside>
     </div>
   </div>
+  <!-- A merge or push session waiting for usage on a finished run also offers Exit Kiln (Kiln After Delivery AC-EXIT-01). -->
+  {#if snapshot.exit}<section class="exit-row" aria-label="Exit Kiln"><ExitKiln {snapshot} connected={connection?.connected ?? false} /></section>{/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
   <BillingPanel {snapshot} />
 </main>

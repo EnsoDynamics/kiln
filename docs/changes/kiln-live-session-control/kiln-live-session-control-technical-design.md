@@ -195,7 +195,7 @@ Errors use `{ ok: false, code, reason, instructionId?, observedAt, remedy }`: `4
 
 Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Pause Now State (the pause panel's heading, choices and narrow-screen order, and the requested and completed takeover wording, for a hold that is not delivery recovery).
 
-Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "No live controls" (the merge session, like final delivery, offers no message, pause or takeover and says why).
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "No live controls" (the merge session, like final delivery, offers no message, pause or takeover and says why), and §Closing-Audit Names (an audit's label in the live-control and pause labels).
 
 Add `liveControl` with target, activity label/round/provider, observed time, input state/reason, action availability, latest receipt summaries/unresolved IDs, takeover progress/reason, terminal readiness/observation, and independently requested deferred pause. Full texts/history are paged rather than copied into every SSE update. Capability projection is provider-specific and cannot infer live safety from a historical schema upgrade or the presence of a writable input pipe. Preserve the normal phase/activity/session facts. Disconnected views label last-known observation times and disable all mutations.
 

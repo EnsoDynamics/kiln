@@ -197,3 +197,5 @@ export async function newerVersion(config: PageConfig): Promise<string | undefin
   }
 }
 export const merge = (config: PageConfig) => send(config, "POST", "/api/merge");
+/** Exit Kiln on a finished run (Kiln After Delivery AC-EXIT-02): answered once its receipt settles; the page then hears `exited`. */
+export const exitKiln = (config: PageConfig) => send(config, "POST", "/api/exit");

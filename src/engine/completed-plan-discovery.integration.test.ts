@@ -571,7 +571,8 @@ it("shows on the page the checkout on another branch, uncommitted documents, an 
       for (let attempt = 0; attempt < 5 && !h.engine.record.afterDelivery?.planPushes?.length; attempt++) {
         await page.waitFor("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Continue with 1 phase') && !b.disabled)");
         await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.includes('Continue with 1 phase')).click()");
-        await waitFor(() => !!h.engine.record.afterDelivery?.planPushes?.length || !h.engine.checking, 10_000).catch(() => undefined);
+        // A press made while the offer is re-read is refused and pressed again; an accepted one opens the push within seconds.
+        await waitFor(() => !!h.engine.record.afterDelivery?.planPushes?.length, 10_000).catch(() => undefined);
       }
       await page.waitFor("document.body.innerText.includes('The push session stopped before pushing the plan.') && document.body.innerText.includes('Nothing Kiln can see was pushed to origin/develop.')");
       expect(h.engine.record.continuation?.acceptances ?? []).toEqual([]);

@@ -8,7 +8,7 @@
  *   deliveredFacts(view.delivered, record)
  *   // { loops: { delivery: { used: 4, limit: 4 }, … }, forYou: { items: [{ id, kind, words, line, … }], afterDelivery: [] }, pullRequests: [{ repository, number, url }] }
  */
-import { auditLabel } from "../audit/workflow.js";
+import { recordedAuditName } from "../audit/audit-names.js";
 import { waivedTagText } from "../audit/for-you.js";
 import { closingAuditsText, type ClosingAudits } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type PrdRecord } from "../state/records.js";
@@ -21,13 +21,13 @@ import type { Snapshot } from "../engine/snapshot.js";
 import { projectRef } from "./waiver-facts.js";
 
 /** "Final delivery", "Delivery audit", "Phase 3": the activity a Waived tag names. */
-function activityName(record: Pick<PrdRecord, "completionAudits">, key: string): string {
+function activityName(record: Pick<PrdRecord, "completionAudits" | "auditLoops" | "settings">, key: string): string {
   const audit = record.completionAudits?.activities.find(one => `audit-${one.activityId}` === key);
-  return key === PR_PHASE_KEY ? "Final delivery" : audit ? auditLabel(audit.kind) : isPreflightKey(key) ? PREFLIGHT_TITLE : `Phase ${key}`;
+  return key === PR_PHASE_KEY ? "Final delivery" : audit ? recordedAuditName(record, audit).title : isPreflightKey(key) ? PREFLIGHT_TITLE : `Phase ${key}`;
 }
 
 /** A finished run's facts in `kiln status` JSON. */
-export function deliveredFacts(delivered: NonNullable<Snapshot["delivered"]>, record: Pick<PrdRecord, "completionAudits">): Record<string, unknown> {
+export function deliveredFacts(delivered: NonNullable<Snapshot["delivered"]>, record: Pick<PrdRecord, "completionAudits" | "auditLoops" | "settings">): Record<string, unknown> {
   return {
     loops: delivered.loops,
     forYou: {

@@ -19,15 +19,14 @@ import { closingAuditsText, type ClosingAudits } from "../state/audit-loops.js";
 export interface ForYouItem extends PersonItem { line: string; words: string | null; waiver?: WaiverRef }
 export interface ForYou { items: ForYouItem[]; afterDelivery: string[] }
 
-export function forYou(stateDirectory: string, record: Pick<PrdRecord, "completionAudits" | "waivers">, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): ForYou {
-  const activities = record.completionAudits?.activities ?? [];
-  const ledger = personItems(stateDirectory, activities, Infinity, store);
+export function forYou(stateDirectory: string, record: Pick<PrdRecord, "completionAudits" | "waivers" | "auditLoops" | "settings">, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): ForYou {
+  const ledger = personItems(stateDirectory, record, Infinity, store);
   const items = ledger.outstanding.map(item => {
     const waiver = itemWaiver(item, record.waivers);
     return { ...item, line: itemLine(item), words: kindWords(item.kind), ...(waiver ? { waiver } : {}) };
   });
   const critical = (item: ForYouItem) => item.kind === "critical_next_step" || item.kind === "critical";
-  return { items: [...items.filter(critical), ...items.filter(item => !critical(item))], afterDelivery: afterDeliveryActions(stateDirectory, activities, store) };
+  return { items: [...items.filter(critical), ...items.filter(item => !critical(item))], afterDelivery: afterDeliveryActions(stateDirectory, record.completionAudits?.activities ?? [], store) };
 }
 
 /**

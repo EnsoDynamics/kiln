@@ -244,7 +244,7 @@ describe("a waived item holds nothing again; a new one stops the run on its own 
     expect(git(current.sandbox, current.engine.worktreePath, "log", "--format=%s", `${headAtWaiver}..HEAD`)).toContain("feat: the phase");
     expect(pullRequests(current)).toEqual([]);
     const resent = prompts(current).filter(prompt => prompt.startsWith("Run Delivery audit")).at(-1)!;
-    expect(resent).toMatch(/- item-1 \(blocker; listed by Delivery audit round 1; waits on: [^)]*\): .* \(waived at final delivery: settle it if it is done, otherwise list it again by its id; it holds nothing and is never a reason for `needs_you`\. A need it does not name is a new entry with no id\.\)/);
+    expect(resent).toMatch(/- item-1 \(blocker; listed by Delivery audit loop 1; waits on: [^)]*\): .* \(waived at final delivery: settle it if it is done, otherwise list it again by its id; it holds nothing and is never a reason for `needs_you`\. A need it does not name is a new entry with no id\.\)/);
     // The second arrival stops on the new item alone; the earlier one keeps its Waived tag though relisted as a business question.
     expect(current.engine.stoppedPhaseKey()).toBe("pr");
     expect(current.engine.record.completedAt).toBeUndefined();
@@ -320,7 +320,7 @@ describe("an audit marked complete with a valid report waives the items it liste
     expect(current.engine.record.completedAt, JSON.stringify(current.engine.record.phases)).toBeTruthy();
     // The test audit's prompt marked the item waived and relisting it by id kept it covered: no hold stop.
     const testPrompt = prompts(current).find(prompt => prompt.startsWith("Run Test audit"))!;
-    expect(testPrompt).toContain(`- item-1 (blocker; listed by Delivery audit round 1; waits on: ${blocker.waitsOn}): ${blocker.problem} ${blocker.action} (waived when Delivery audit round 1 was marked complete: settle it if it is done, otherwise list it again by its id; it holds nothing and is never a reason for \`needs_you\`. A need it does not name is a new entry with no id.)`);
+    expect(testPrompt).toContain(`- item-1 (blocker; listed by Delivery audit loop 1; waits on: ${blocker.waitsOn}): ${blocker.problem} ${blocker.action} (waived when Delivery audit loop 1 was marked complete: settle it if it is done, otherwise list it again by its id; it holds nothing and is never a reason for \`needs_you\`. A need it does not name is a new entry with no id.)`);
     expect(current.engine.record.phases.pr?.stop).toBeUndefined();
     const waiver = current.engine.record.waivers!.find(one => one.activityKey === deliveryKey)!;
     expect(buildSnapshot(current.engine).delivered!.forYou.items).toMatchObject([{ id: "item-1", kind: "blocker", waiver: { waiverId: waiver.waiverId, activityKey: deliveryKey } }]);

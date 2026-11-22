@@ -1,6 +1,8 @@
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Automatic routing with real Git, packaged CLI/HTTP, persisted state and scripted provider
 // transcripts. Both actual providers are separately exercised by the installed-package proof.
+import { formatDecisionLine } from "../underway-output.js";
+import { terminalColors } from "../terminal-output.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auditAdmission from "../audit/admission.js";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -369,18 +371,18 @@ describe("automatic completion activities", () => {
     expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["delivery_audit", 2], ["delivery_audit", 3], ["test_audit", 1]]);
     expect(buildSnapshot(h.engine).activities!.map(a => a.title)).toEqual(["Return value", "Delivery audit", "Repair value", "First repair", "Second repair", "Delivery audit", "Repair value", "Delivery audit", "Test audit", "Final pull request"]);
     expect(readFileSync(join(h.engine.worktreePath, directory, "phase-1-value.md"), "utf8")).toBe(files["phase-1-value.md"]);
-    expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.label} round ${e.round}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit round 1","Phase 2","Phase 2b","Delivery audit round 2","Phase 3","Delivery audit round 3","Test audit round 1"]);
+    expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.title} · ${e.line}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit · Loop 1 of 4","Phase 2","Phase 2b","Delivery audit · Loop 2 of 4","Phase 3","Delivery audit · Loop 3 of 4","Test audit · Loop 1 of 4"]);
   // Eight real process sessions plus Git/audit handoffs have a whole-workflow budget.
   });
   it("builds an added phase while a person settles what the audit listed, then hands the item to the next audit (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
     const decision = "AC-PROOF-01 names a file the design kept.";
     const h = await fixture([auditSession({ gap: true, decision }), auditSession({ blocked: true, relist: true })], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
-    expect(h.events.flatMap(e => e.kind === "audit" && e.event === "started" ? [`${e.label} round ${e.round}`] : e.kind === "phase" && e.event === "started" ? [`Phase ${e.phaseId}`] : [])).toEqual(["Delivery audit round 1", "Phase 2", "Delivery audit round 2"]);
+    expect(h.events.flatMap(e => e.kind === "audit" && e.event === "started" ? [`${e.title} · ${e.line}`] : e.kind === "phase" && e.event === "started" ? [`Phase ${e.phaseId}`] : [])).toEqual(["Delivery audit · Loop 1 of 4", "Phase 2", "Delivery audit · Loop 2 of 4"]);
     const rows = buildSnapshot(h.engine).activities!.filter(row => row.kind === "delivery_audit");
     expect(rows[0]).toMatchObject({ state: "done", audit: { outcome: "completion_phases", blockers: [`${decision} Decide it before the next audit.`], personItems: { count: 1, waiting: true } } });
     expect(rows[1]!.state).toBe("needs_you");
-    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (other; listed by Delivery audit round 1): ${decision} Decide it before the next audit.`);
+    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (other; listed by Delivery audit loop 1): ${decision} Decide it before the next audit.`);
   });
   it("carries a test audit's item through its repair to the next delivery audit, which must settle it, and names it in the final pull request (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
     const decision = "AC-PROOF-01's export name differs from the design.";
@@ -389,17 +391,17 @@ describe("automatic completion activities", () => {
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["test_audit", 1], ["delivery_audit", 2], ["test_audit", 2]]);
     const calls = h.claudeCalls(); const audits = calls.filter(c => /^Run (Delivery|Test) audit/.test(c.prompt));
-    expect(audits[2]!.prompt).toContain(`- item-1 (other; listed by Test audit round 1): ${decision} Decide it before the next audit.`);
+    expect(audits[2]!.prompt).toContain(`- item-1 (other; listed by Test audit loop 1): ${decision} Decide it before the next audit.`);
     expect(audits[3]!.prompt).toContain("Items earlier audits left for a person (outstanding):\nNone.");
     const rows = buildSnapshot(h.engine).activities!.filter(row => row.audit);
     expect(rows.find(row => row.kind === "test_audit")!.audit!.personItems).toEqual({ count: 1, waiting: false });
-    expect(rows.filter(row => row.kind === "delivery_audit")[1]!.audit!.settledItems).toEqual([`${decision} Listed by Test audit round 1, settled by Delivery audit round 2: A person kept the design's name.`]);
+    expect(rows.filter(row => row.kind === "delivery_audit")[1]!.audit!.settledItems).toEqual([`${decision} Listed by Test audit loop 1, settled by Delivery audit loop 2: A person kept the design's name.`]);
     const pr = calls.at(-1)!.prompt;
     // The block each description opens with (Kiln Deliver When Audit Loops Run Out AC-ITEM-03): nothing is left For you, so only Settled during the build.
     expect(pr).toContain("Open each pull request's description with the block below, word for word");
     expect(pr).toContain("## Settled during the build\n\n");
     expect(pr).not.toContain("## For you");
-    expect(pr).toContain(`- ${decision} Listed by Test audit round 1, settled by Delivery audit round 2: A person kept the design's name.`);
+    expect(pr).toContain(`- ${decision} Listed by Test audit loop 1, settled by Delivery audit loop 2: A person kept the design's name.`);
   });
   it("continues test-only work in a fresh conversation in the same round and retains both immutable records", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);
@@ -410,8 +412,8 @@ describe("automatic completion activities", () => {
     expect(new Set(activities.flatMap(a => a.sessionIds)).size).toBe(3);
     expect(activities.every(a => a.acceptedResult && h.engine.record.phases[auditKey(a)]?.doneAt)).toBe(true);
     expect(h.claudeCalls()[2]!.prompt).toContain('Test work remains for another session.');
-    expect(buildSnapshot(h.engine).activities!.filter(a => a.kind === "test_audit").map(a => a.file)).toEqual(["Round 1", "Round 1 · Continuation 2"]);
-    expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ continuationIndex: 2 });
+    expect(buildSnapshot(h.engine).activities!.filter(a => a.kind === "test_audit").map(a => [a.title, a.file])).toEqual([["Test audit", "Loop 1 of 4"], ["Fixing tests", "From test audit loop 1 · session 1"]]);
+    expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ title: "Fixing tests", line: "From test audit loop 1 · session 1" });
     const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
     expect(h.claudeCalls()).toHaveLength(4);
   // Four sessions include full test-audit red/restore evidence and real Git work.
@@ -462,10 +464,10 @@ describe("automatic completion activities", () => {
       await h.engine.start({refinementConfirmed:true});await waitFor(()=>existsSync(marker), 60_000);
       const activity=h.engine.record.completionAudits!.activities.at(-1)!;const key=auditKey(activity);
       expect(activity).toMatchObject({round:1,continuationIndex:2});
-      const page=await chrome.open(server!.address);await page.waitFor(`document.body.innerText.includes('Continuation 2')`);
-      expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Test audit");
+      const page=await chrome.open(server!.address);await page.waitFor(`document.body.innerText.includes('From test audit loop 1 · session 1')`);
+      expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toMatch(/^FT\nFixing tests\nFrom test audit loop 1 · session 1/);
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
-      await page.waitFor(`document.body.innerText.includes('Continuation 2') && /Pause after test audit · round \\d/.test(document.body.innerText)`);
+      await page.waitFor(`document.body.innerText.includes('From test audit loop 1 · session 1') && /Pause after fixing tests from test audit loop \\d, session \\d/.test(document.body.innerText)`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
       writeFileSync(marker,"continue");await h.engine.settled();expect(h.engine.record.completedAt).toBeTruthy();
       await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);await page.waitFor(`document.body.innerText.includes('PR ready for review')`);
@@ -536,13 +538,13 @@ describe("automatic completion activities", () => {
     try {
       await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
       const page = await chrome.open(server!.address);
-      await page.waitFor(`/Pause after (delivery|test) audit · round \\d/.test(document.body.innerText)`);
+      await page.waitFor(`/Pause after (delivery|test) audit loop \\d/.test(document.body.innerText)`);
       const key = auditKey(h.engine.record.completionAudits!.activities[0]!);
       expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Delivery audit");
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
-      await page.waitFor(`document.body.innerText.includes('Delivery audit · Round 1')`);
+      await page.waitFor(`document.body.innerText.includes('Loop 1 of 4')`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
-      await page.evaluate(`[...document.querySelectorAll('button')].find(b=>/^Pause after (delivery|test) audit · round \\d/.test(b.textContent.trim())).click()`);
+      await page.evaluate(`[...document.querySelectorAll('button')].find(b=>/^Pause after (delivery|test) audit loop \\d/.test(b.textContent.trim())).click()`);
       await waitFor(() => !!h.engine.record.pause.requestedAt);
       writeFileSync(marker, "continue"); await h.engine.settled();
       expect(h.engine.record.pause.activeSince).toBeTruthy();
@@ -594,6 +596,8 @@ describe("automatic completion activities", () => {
     server = await startLocalServer({ engine: again, port, folderName: "proof", featureName: "Audit value", token: again.record.token });
     const decision = await again.decide();
     expect(decision.kind).toBe("start_audit");
+    // The terminal's restart line names the audit by its loop, never its round (Kiln After Delivery AC-AUDIT-01).
+    expect(formatDecisionLine(decision, again, terminalColors({}, {}))).toMatch(/Starting (delivery|test) audit loop 1\./);
     expect(again.record.completionAudits!.activities[0]!.sessionIds).toEqual(original.sessionIds);
     expect(again.record.completionAudits!.activities[0]!.acceptedResult).toBeTruthy();
     await again.continue(); expect(again.record.completedAt).toBeTruthy();

@@ -1,14 +1,14 @@
 // What the screens say about the audit loops (Kiln Deliver When Audit Loops Run Out technical
 // design, "Settings" and "The Status Line"; mockup docs/changes/kiln-deliver-when-audit-loops-run-out/
 // mockups/kiln-deliver-when-audit-loops-run-out.html): the two limits' help text, worked out from
-// the numbers shown (AC-CHOICE-01, AC-CHOICE-02), an audit row's loop label and the status line's
+// the numbers shown (AC-CHOICE-01, AC-CHOICE-02) and the status line's
 // position (AC-STOP-05). Nothing marks a last loop; the numbers show it.
 //
 //   loopSettingsHelp({ deliveryLimit: 4, testLimit: 4 }).delivery
 //   // "The delivery audit checks that every acceptance criterion is built, … After the phases from loop 4 are built, Kiln goes on to the test audit."
 //   positionText({ audit: "test", loop: 2, limit: 4, fixing: true })   // "Fixing tests from test audit loop 2 of 4"
 
-import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
+import type { Snapshot } from "../../../src/engine/snapshot.js";
 import type { LoopPosition } from "../../../src/engine/loop-view.js";
 import { defaultLoopSettings, type AuditLoopSettings } from "../../../src/state/audit-loops.js";
 
@@ -72,12 +72,6 @@ export function refusalShown(answer: { reason: string; fieldErrors?: Record<stri
 
 /** Once the pull request session has started, a change is saved for a continuation only (AC-CHOICE-02). */
 export const FROZEN_LINE = "The pull request session has started, so a change applies only to a continuation of this run.";
-
-/** An audit row's loop: "loop 2 of 4" (AC-STOP-05); phase rows and sessions of test fixes carry none. */
-export function rowLoopLabel(row: Pick<PhaseView, "loops">): string | undefined {
-  const latest = row.loops?.at(-1);
-  return latest ? `loop ${latest.number} of ${latest.limit}` : undefined;
-}
 
 /** "Delivery audit loop 2 of 4", "Fixing tests from test audit loop 2 of 4", as `kiln status` says it (AC-STOP-05). */
 export function positionText(position: LoopPosition): string {

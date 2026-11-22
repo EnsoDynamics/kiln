@@ -1,11 +1,12 @@
 import type { PhaseRecoveryView } from "./phase-recovery.js";
+import { auditName, auditNameFacts, recordedAuditName } from "../audit/audit-names.js";
 import type { ReopenCheck } from "./reopen-check.js";
 import { lastRecordedRun, launchFailure, type LaunchFailure, type WorkRead } from "./stopped-phase.js";
 import { runLastOutputAt } from "../session/claude-session.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
 import { RESULT_CHECK } from "../audit/admission.js";
-import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
+import { activityHistory, acceptedAudit } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { personItems, settledLines } from "../audit/person-items.js";
 import type { WorkSnapshot } from "../audit/contracts.js";
@@ -177,8 +178,11 @@ export interface PhaseView {
     /** Why a no_report preflight launched no session for its last attempt. */
     reason?: string;
   };
+  /** Identifiers only; a person reads the title and line (Kiln After Delivery AC-AUDIT-01). */
   round?: number;
   continuationIndex?: number;
+  /** A session of test fixes: the test audit loop that started its chain and its place in that chain, from 1. */
+  fixing?: { loop?: number; session: number };
   audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[];
     /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
     personItems?: { count: number; waiting: boolean };
@@ -309,6 +313,8 @@ export interface Snapshot {
   liveControl?: import("../live/target.js").LiveView;
   /** A finished run's delivery as GitHub last showed it (Kiln After Delivery "Interfaces"). */
   afterDelivery?: AfterDeliveryView;
+  /** Exit Kiln on a finished run (Kiln After Delivery AC-EXIT-01): offered, or unavailable with why, and the command that opens the PRD again. */
+  exit?: { available: boolean; reason?: string; command: string };
   continuation?: { preparation?: ReturnType<Engine["preparationStatus"]>; acceptance?: ReturnType<Engine["continuationAcceptance"]>; executions?: Omit<import("./continuation-state.js").ExecutionSummary, "archiveId">[]; check?: import("./completed-plan-discovery.js").CompletedPlanCheck; handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
   controlToken?: string;
   unsentReplies?: { id: string; text: string }[];
@@ -592,6 +598,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...(record.planReconciliation?.check?.status === "failed" && !record.completedAt ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
     ...(record.completedAt && record.afterDelivery ? { afterDelivery: afterDeliveryView(engine) } : {}),
+    ...(engine.finished ? { exit: { ...engine.exitControl(), command: engine.reopenCommand } } : {}),
     activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...preflightPlanned(engine, state, documents),
     auditLoops: auditLoopsView(engine),
@@ -1582,7 +1589,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
   const started = new Set<string>();
   const audits = record.completionAudits?.activities ?? [];
   let ledger: ReturnType<typeof personItems> | undefined;
-  try { ledger = personItems(engine.stateDirectory, audits, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
+  try { ledger = personItems(engine.stateDirectory, record, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
   for (const activity of activityHistory(record, engine.stateDirectory)) {
     if (activity.kind === "implementation" || activity.kind === "final_delivery" || activity.kind === "merge" || activity.kind === "plan_push") {
       const parent = phases.find(r => r.id === activity.key && r.state === "split");
@@ -1597,8 +1604,10 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       continue;
     }
     const audit = engine.auditActivity(activity.key)!;
+    // Each audit row is named for what it does (Kiln After Delivery AC-AUDIT-01).
+    const nameFacts = auditNameFacts(record, audit); const name = auditName(nameFacts);
     const facts = record.phases[activity.key]; const session = engine.latestSession(activity.key);
-    const row: PhaseView = { id: activity.key, activityId: activity.activityId, kind: audit.kind, title: auditLabel(audit.kind), file: `Round ${audit.round}${audit.continuationIndex > 1 ? ` · Continuation ${audit.continuationIndex}` : ""}`, round: audit.round, continuationIndex: audit.continuationIndex, state: facts?.stop ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing", finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt) };
+    const row: PhaseView = { id: activity.key, activityId: activity.activityId, kind: audit.kind, title: name.title, file: name.line ?? "", ...(nameFacts.fixing ? { fixing: nameFacts.fixing } : {}), round: audit.round, continuationIndex: audit.continuationIndex, state: facts?.stop ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing", finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt) };
     if (session) {
       const first = facts?.sessionIds[0] ? engine.sessionRecord(activity.key, facts.sessionIds[0]) : undefined;
       const from = first?.runs[0]?.startedAt;
@@ -1720,7 +1729,7 @@ function activityName(engine: Engine, key: string): string {
   if (key === PR_PHASE_KEY) return "Final delivery";
   if (isPreflightKey(key)) return PREFLIGHT_TITLE;
   const audit = key.startsWith("audit-") ? engine.auditActivity(key) : undefined;
-  if (audit) return auditLabel(audit.kind);
+  if (audit) return recordedAuditName(engine.record, audit).title;
   return `Phase ${judgedKeyFor(engine.record.plan ?? [], key)}`;
 }
 

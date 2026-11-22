@@ -163,6 +163,8 @@ When the row fails, at the routing decision or in the engine loop the pull reque
 
 ## The Status Line (AC-STOP-05)
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Closing-Audit Names (a session of test fixes names its loop and session on its row).
+
 During the closing audits the status line names what is running, from a `position` the snapshot derives from the current or stopped activity and the ledger:
 
 | The activity | `position` | Status line |

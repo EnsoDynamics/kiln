@@ -353,6 +353,7 @@ Phases within one PRD run one at a time, but a person can have several PRDs movi
 Working through a PRD can take many hours, but each phase is its own session, so an interruption costs at most the phase in progress, and usually not even that. Kiln runs in the terminal it was started from; it doesn't install a background service. In exchange, any interruption is cheap: `kiln run` picks the work back up where it was.
 
 - [ ] **AC-KEEP-01 — Kiln lives in its terminal.** `kiln run` stays in the foreground of its terminal, including after the pull request is ready, until the person interrupts it with Ctrl+C or by closing the terminal. Kiln installs no background or system service. Closing the browser has no effect on Kiln.
+  - Superseded in part by: AC-EXIT-02 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (Kiln also ends when the person presses Exit Kiln on a finished run's page)
 - [ ] **AC-KEEP-02 — Ctrl+C is a controlled interruption.** On Ctrl+C, Kiln ends the current session's turn so the session stays resumable, records which phase and session were interrupted, and exits leaving no Claude Code process behind.
   - Superseded in part by: AC-RECOVER-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex interruption stops tracked processes and discloses detached-process limits).
 - [ ] **AC-KEEP-03 — Interrupted work is never thrown away.** Changed and new files, partly written tests and uncommitted work in an interrupted phase stay exactly as they were. Kiln never starts a fresh session on top of them on its own.

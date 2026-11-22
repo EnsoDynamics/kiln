@@ -178,6 +178,8 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     const controls = h!.engine.controlView().controls;
     for (const name of ["message", "take-over", "request-pause"]) expect(controls.find(one => one.name === name)).toMatchObject({ available: false, reason: "Like the pull request session, the push session can’t be messaged, paused or taken over while it runs." });
     expect(controls.find(one => one.name === "reset")?.reason).toBe("A session is still running. Reset becomes available when it ends.");
+    // Exit Kiln waits for the session to end (Kiln After Delivery AC-EXIT-01).
+    expect(controls.find(one => one.name === "exit")).toMatchObject({ available: false, reason: "Exit Kiln returns once the session ends, or once Kiln has started it. Ctrl+C still stops everything, the session included." });
     expect(afterDeliveryText(status().after_delivery, false)).toBe("Pushing the plan: the push session is running.");
     expect(h!.engine.newPhaseControls().find(one => one.name === "continue-with-phases")).toMatchObject({ available: false });
     writeFileSync(gate, "");
@@ -202,6 +204,8 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     const page = buildSnapshot(h!.engine);
     expect(page.feature.state).toBe("needs_you");
     expect(page.needsYou).toMatchObject({ phaseId: key, kind: "plan_push_check", finalMessage: message });
+    // A push stop on a finished run offers Exit Kiln too (Kiln After Delivery AC-EXIT-01).
+    expect(page.exit).toMatchObject({ available: true });
     expect(page.needsYou?.checks).toEqual([expect.objectContaining({ name: "origin/develop", passed: false })]);
     expect(h!.engine.markCompleteOffer()).toMatchObject({ offered: false });
     expect(h!.engine.carryOnControl().offered).toBe(false);
@@ -256,6 +260,8 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(check).toMatchObject({ status: "available", result: { source: { kind: "remote_base" }, added: [{ id: "9" }, { id: "10" }], followsPush: key } });
     expect(h!.engine.record.afterDelivery!.planPushes![0]).toMatchObject({ doneAt: expect.any(String), closedAt: expect.any(String), refreshedScope: check.result!.proposal!.scopeDigest });
     expect(buildSnapshot(h!.engine).feature.state).toBe("complete");
+    // The re-check showed an offer that does not match, so Exit Kiln is offered again (Kiln After Delivery AC-EXIT-01).
+    expect(h!.engine.controlView().controls.find(one => one.name === "exit")).toMatchObject({ available: true });
     // A person's acceptance of the refreshed offer carries the push, so the build shows its row.
     const accepted = await pressContinue(check.result!.proposal!.id, "continue-2");
     expect(accepted).toMatchObject({ ok: true });
@@ -296,6 +302,8 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     const engine = h!.reopenFromDisk();
     const decision = await engine.decide({ review: true });
     expect(decision).toEqual({ kind: "plan_push_accepting" });
+    // While the push is past Done and its check may start the build, Exit Kiln is unavailable (Kiln After Delivery AC-EXIT-01).
+    expect(engine.controlView().controls.find(one => one.name === "exit")).toMatchObject({ available: false, reason: "Kiln is checking for new phases after pushing the plan. Exit Kiln returns once Kiln has started the build or shown what it found." });
     expect(formatDecisionLine(decision, engine, terminalColors({}, {}))).toContain("The plan is pushed. Checking for new phases again before starting the build.");
     await engine.continue();
     await buildStarted(finishedExecution);
@@ -316,6 +324,8 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(page.waiting).toMatchObject({ phaseId: key });
     expect(headerState(page, true, new Date())).toMatchObject({ label: "Waiting for usage", facts: expect.arrayContaining(["Push the plan"]) });
     expect(afterDeliveryText(status().after_delivery, false)).toBe("Pushing the plan: the push session is waiting for usage.");
+    // The Waiting screen of a push session's wait offers Exit Kiln (Kiln After Delivery AC-EXIT-01).
+    expect(page.exit).toMatchObject({ available: true });
     git(h!.sandbox, h!.repository, "push", "-q", "origin", "develop");
     expect(await control("resume")).toMatchObject({ state: "completed", outcome: "already_done" });
     await buildStarted(finishedExecution);
@@ -339,6 +349,8 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(page.afterDelivery!.planPush!.state).toBe("interrupted");
     expect(page.phases.at(-1)).toMatchObject({ id: key, interrupted: true });
     expect(headerState(page, true, new Date())).toMatchObject({ label: "Pushing the plan", facts: expect.arrayContaining(["Interrupted · Resume to carry on"]) });
+    // Held at the restart review, the push session runs nothing, so Exit Kiln is offered (Kiln After Delivery AC-EXIT-01).
+    expect(page.exit).toMatchObject({ available: true });
     expect(h!.engine.record.preflight?.due).toBeUndefined();
     expect(h!.claudeCalls().filter(call => call.args.includes("--resume"))).toEqual([]);
 

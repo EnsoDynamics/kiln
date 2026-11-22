@@ -136,6 +136,9 @@ describe("Ctrl+C and the next kiln run (AC-MERGE-05)", () => {
     expect(page.afterDelivery!.merge!.state).toBe("interrupted");
     expect(page.phases.at(-1)).toMatchObject({ id: MERGE_KEY, interrupted: true });
     expect(header()).toMatchObject({ label: "Merging", facts: expect.arrayContaining(["Interrupted · Resume to carry on"]) });
+    // Held at the restart review, no session runs, so Exit Kiln is offered (Kiln After Delivery AC-EXIT-01).
+    expect(controlOf("exit")).toMatchObject({ available: true });
+    expect(page.exit).toMatchObject({ available: true });
     // Nothing resumes until Resume, and no preflight is marked on a run that has none.
     expect(resumes()).toEqual([]);
     expect(h!.engine.record.preflight?.due).toBeUndefined();
@@ -300,6 +303,8 @@ describe("waits and holds (AC-MERGE-05)", () => {
     expect(buildSnapshot(h!.engine).feature.state).toBe("needs_you");
     expect(buildSnapshot(h!.engine).afterDelivery!.merge!.state).toBe("stopped");
     expect(afterDeliveryText(status().after_delivery, false)).toBe("Merging: the merge session stopped before merging; it needs you.");
+    // No session runs at a billing hold, so Exit Kiln is offered (Kiln After Delivery AC-EXIT-01).
+    expect(controlOf("exit")).toMatchObject({ available: true });
     expect(await control("check-again")).toMatchObject({ state: "completed" });
     expect((h!.engine.record.billing!.hold!.checks ?? []).map(check => check.name)).toEqual(["acme-shop #218", "Billing approval"]);
     mergeByHand();

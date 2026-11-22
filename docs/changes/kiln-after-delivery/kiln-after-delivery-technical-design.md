@@ -274,6 +274,8 @@ afterDelivery?:                    — on a finished run
                pullRequests: { repository, number }[], folder }
   planPush?: { key, state: "running" | "stopped" | "waiting" | "interrupted" | "accepting" | "done", sessionId?, proposalId }
                                    — the latest push
+exit?: { available, reason?, command }
+                                   — on a finished run: Exit Kiln's availability (§Exit Kiln) and the command that opens the PRD again
 continuation.check.result          — gains:
   source: { kind: "remote_base" | "main_checkout", branch, revision }
   notRead?: { reason: "other_branch", branch }

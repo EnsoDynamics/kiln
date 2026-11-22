@@ -9,9 +9,16 @@ import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
 import { ago, clockTime, limitTime, shortDuration, timeSpan, timingAt, timingText } from "./time.js";
 import { activityKeyKind } from "../../../src/state/activity-keys.js";
 import { positionText } from "./audit-loops.js";
+import { auditName, type AuditName } from "../../../src/audit/audit-names.js";
 import type { PauseNowView } from "../../../src/live/pause-now.js";
 
 export const PR_ID = "pr";
+
+/** An audit row's name, its title, line and sentence, from the facts the row carries (Kiln After Delivery AC-AUDIT-01). */
+export function rowAuditName(row: Pick<PhaseView, "kind" | "loops" | "fixing">): AuditName {
+  const loop = row.loops?.at(-1);
+  return auditName({ kind: row.kind === "delivery_audit" ? "delivery_audit" : "test_audit", ...(loop ? { loop: { number: loop.number, limit: loop.limit } } : {}), ...(row.fixing ? { fixing: row.fixing } : {}) });
+}
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
 
 /** An audit's, the preflight's or the merge's key: a row named by its title, never "phase <id>" (one shared key classifier). */
