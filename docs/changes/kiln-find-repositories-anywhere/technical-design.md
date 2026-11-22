@@ -371,7 +371,9 @@ The drawn states are built from the mockup's HTML, field messages and comments i
 
 A short-name clash isn't drawn. Its rows follow state 1 with the address path as the label.
 
-## The Enso Method's `phase-split` (AC-SPLIT-01, AC-SPLIT-02)
+## The Enso Method's `phase-split`
+
+This change is made and reviewed by hand, outside the phase plan, on an Enso Method branch held unmerged until step 2 of [Delivery](#delivery). No Kiln run changes the Enso Method. It replaces the PRD's retired AC-SPLIT-01 and AC-SPLIT-02.
 
 The skill's rule for the `**Repositories:**` line, its phase document templates and its example change together:
 
@@ -401,7 +403,7 @@ As the designs before it: real temporary Git repositories with local bare reposi
 - **Folders and labels:** a clash at Start, a clash from a later addition, a clash with the PRD's repository, a clash with a later phase's repository not yet set up, a whole-path form an entry already has refusing the addition, a base chosen before Start dropped when a plan edit changes the repository's name, and the label changing on earlier phases' rows; a session's request whose short name matches a PRD repository's, labelled by its address path while that repository's label stays; `bases` and `/api/repositories` still taking names while a label differs.
 - **Underway PRDs:** a schema 24 record from each state reads as 25 and renders as before.
 - **The view:** the eight drawn states rendered from fixture snapshots and compared, as earlier changes do.
-- **`phase-split`:** a one-prompt run of the skill over a sample design that puts work in two repositories, read for the line's form.
+- **`phase-split`, by hand:** a one-prompt run of the skill over a sample design that puts work in two repositories, read for the line's form.
 - **Not tried on Windows:** the search's rules there (junctions, `AppData`, drive roots, device changes) are built from this design and unit tests over Windows-form paths.
 
 ## Delivery
@@ -422,7 +424,6 @@ As the designs before it: real temporary Git repositories with local bare reposi
 | AC-SESSION-01 | A session's request; HTTP |
 | AC-FOLDER-01, AC-FOLDER-02 | Design Decisions; Worktree Folders and Labels; Snapshot; `kiln status --json` |
 | AC-SEE-01, AC-SEE-02, AC-SEE-04, AC-SEE-05 | Asking Before Start; The answer; The stops that ask; Snapshot; Command line; Screens |
-| AC-SPLIT-01, AC-SPLIT-02 | The Enso Method's `phase-split` |
 
 ## Open Questions
 

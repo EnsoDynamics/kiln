@@ -14,7 +14,7 @@ Kiln can deliver a PRD across several repositories only when every one of them i
 
 This change lets a phase document name a repository by the path in its remote address, such as `acme-labs/admin`, which is the same on every computer. Kiln finds that repository's checkout by its `origin`: beside the PRD's repository first, then in the folders above it. When Kiln can't find a checkout, or finds more than one, it asks the person once and remembers the answer on that computer. Phase documents that name a repository by folder name keep working as they do today.
 
-The change spans two repositories. Kiln reads the names and finds the checkouts. The Enso Method's `phase-split` skill, which writes the line that names a phase's repositories, writes the path in each repository's remote address instead of a folder name.
+The change spans two repositories. Kiln reads the names and finds the checkouts. The Enso Method's `phase-split` skill, which writes the line that names a phase's repositories, writes the path in each repository's remote address instead of a folder name. That skill change is made and reviewed by hand, outside the phase plan, and published only after Kiln's release.
 
 ## Business Context
 
@@ -46,7 +46,7 @@ A phase document names each repository by the path in its remote address, so the
   | Name on the line | Kiln reads it as |
   |---|---|
   | Two or more parts joined by `/`: `acme-labs/admin` | The repository whose remote address has that path, on any host |
-  | A host, a colon, then the path, as `phase-split` writes it (AC-SPLIT-02): `git.example.com:platform/billing` | That path, found as AC-FIND-01 finds a path. Kiln delivers only to GitHub (AC-FIND-03), so a host other than `github.com` is a plan problem that names the phase file and the host |
+  | A host, a colon, then the path, as `phase-split` writes it: `git.example.com:platform/billing` | That path, found as AC-FIND-01 finds a path. Kiln delivers only to GitHub (AC-FIND-03), so a host other than `github.com` is a plan problem that names the phase file and the host |
   | One part: `storefront` | The folder of that name beside the PRD's repository, as before this change (AC-FIND-04) |
   | A full remote address: `git@github.com:acme-labs/admin.git` | Not a name. A plan problem that names the phase file and the address path to use |
   | A path on one computer: it starts with `/`, `~`, `.` or a drive letter, or holds a `\` | Not a name. A plan problem that names the phase file and says to name the repository by its address path |
@@ -131,8 +131,10 @@ Before Start, the person can see which repository each name means and which chec
 
 The Enso Method's `phase-split` skill writes the line Kiln reads. It writes each repository's name in a form that is the same on every computer, so a plan written on one computer runs on another, by hand or in Kiln.
 
-- [ ] **AC-SPLIT-01 — `phase-split` names each repository by its address path.** The skill tells the writer to name every repository on a phase document's `**Repositories:**` line by its address path, the PRD's repository included when the phase changes code in it. That holds when the repository is checked out beside the PRD's repository too. It never writes a folder name or a path on one computer. The writer reads the address from the repository's checkout, or from an address the PRD or technical design writes out; when neither gives it, the writer writes its best-supported address and declares it as a technical assumption, never presenting a guess as fact. The skill's rule, its phase document templates and its example all show that form.
-- [ ] **AC-SPLIT-02 — The host is written only when the path can't tell two repositories apart.** When two of the PRD's repositories have the same address path on different hosts, the skill tells the writer to write each as the host's real name, a colon, then the path: `git.example.com:platform/billing`. The host is never an alias from one computer's SSH setup. In every other case the line holds the path alone.
+That skill change is made and reviewed by hand, outside this PRD's phase plan, so no Kiln run changes the Enso Method. The technical design's "The Enso Method's `phase-split`" says what it changes, and its "Delivery" section says when it is published.
+
+- **AC-SPLIT-01 — retired 2026-11-22.** The `phase-split` change it described is made by hand outside the phase plan (technical design, "The Enso Method's `phase-split`").
+- **AC-SPLIT-02 — retired 2026-11-22.** As AC-SPLIT-01.
 
 ## Out of Scope
 
