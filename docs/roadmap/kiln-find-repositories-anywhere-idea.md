@@ -2,6 +2,8 @@
 
 **Roadmap:** [Kiln roadmap](../kiln-roadmap.md).
 
+**PRD:** [Kiln Find Repositories Anywhere](../changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md), which settles the questions under "Left for the PRD" below, except how far the search goes, whether it passes over hidden folders, and the form of a worktree folder's name, which it leaves to the technical design.
+
 Today Kiln finds a repository that a phase document names only as the folder of that name beside the PRD's repository, and it refuses a link there ([multi-repo delivery](../changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md), AC-REPO-02 and assumption REPO-001). A PRD whose repositories sit under different parent folders can't start. A common layout keeps each hosting organization's repositories in a folder of their own (`~/code/acme/product`, `~/code/acme-labs/admin`), and a PRD that spans two of them fails the start checks on every machine.
 
 This idea replaces that rule. It also changes the Enso Method: `phase-split` writes the `**Repositories:**` line, and today it tells the writer to use folder names.
