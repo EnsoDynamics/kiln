@@ -5,10 +5,10 @@
 // state, as `gh pr merge` would; Kiln decides Merged only from its own reading of GitHub.
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
-import { git } from "../test-support/git-repositories.js";
+import { createBareOrigin, createRepository, git } from "../test-support/git-repositories.js";
 import { recordedPullRequest } from "../test-support/recorded-pull-requests.js";
 import { buildSnapshot } from "./snapshot.js";
 import { statusProjection } from "../control/projection.js";
@@ -288,6 +288,15 @@ describe("what the card offers (AC-MERGE-07) and the press's own checks", () => 
     expect(mergeCalls()).toEqual([]);
   });
 
+  it("refuses the press when GitHub can't be read at the press, though the page last read it open", async () => {
+    await finished([merging()]);
+    expect(controlOf("merge").available).toBe(true);
+    h!.setPullRequestViews({ [KEY]: { error: "HTTP 502: Bad Gateway" } });
+    expect(await control("merge")).toMatchObject({ state: "failed", reason: expect.stringContaining("GitHub could not be read, so Kiln doesn’t offer the merge.") });
+    expect(h!.engine.record.afterDelivery!.merge).toBeUndefined();
+    expect(mergeCalls()).toEqual([]);
+  });
+
   it("says GitHub could not be read, and why, beside the closed line when one pull request is closed and another can't be read", async () => {
     await finished([]);
     // A second pull request of the delivery, in a repository Kiln has no record of, so its read fails.
@@ -308,6 +317,8 @@ describe("what the card offers (AC-MERGE-07) and the press's own checks", () => 
     mergeByHand();
     expect(await control("merge")).toMatchObject({ state: "completed", outcome: "already_merged" });
     expect(mergeCalls()).toEqual([]);
+    // The merge time and commit are GitHub's, saved as read (AC-MERGE-04).
+    expect(h!.engine.record.afterDelivery!.pullRequests[0]).toMatchObject({ state: "merged", mergeCommit: featureHead(), mergedAt: recordedPullRequest("merged", { number: 218, base: "develop" }).mergedAt });
     expect(h!.engine.record.afterDelivery!.merge).toBeUndefined();
     await waitFor(() => h!.engine.record.completedPlanCheck?.status === "unchanged");
     expect(buildSnapshot(h!.engine).afterDelivery!.offer).toMatchObject({ kind: "all_merged", available: false });
@@ -336,5 +347,89 @@ describe("what the card offers (AC-MERGE-07) and the press's own checks", () => 
     git(h!.sandbox, worktree, "reset", "-q", "--hard", head);
     expect(await control("merge")).toMatchObject({ state: "completed", outcome: "merge_started" });
     expect(h!.engine.record.afterDelivery!.merge!.pressHeads).toEqual([{ repository: "acme-shop", sha: head }]);
+  });
+});
+
+describe("a delivery of two pull requests (AC-MERGE-01, AC-MERGE-02, AC-MERGE-04, AC-MERGE-07)", () => {
+  const API_KEY = "acme/acme-api#57";
+  let apiWorktree = "";
+  /** A second repository of the run, acme-api, set up with its own worktree on the feature branch and pull request #57 open into develop. */
+  function withApi(): void {
+    const origin = createBareOrigin(h!.sandbox, "acme-api");
+    const api = createRepository(h!.sandbox, "acme-api", origin);
+    git(h!.sandbox, api, "push", "-q", "origin", "develop");
+    // Its GitHub origin, served by the local bare origin, as useGithubOrigin gives acme-shop.
+    git(h!.sandbox, api, "config", `url.${origin}.insteadOf`, "https://github.com/acme/acme-api.git");
+    git(h!.sandbox, api, "remote", "set-url", "origin", "https://github.com/acme/acme-api.git");
+    // Beside acme-shop's worktree, in the run's workspace.
+    apiWorktree = join(dirname(h!.engine.worktreePath), "acme-api");
+    git(h!.sandbox, api, "worktree", "add", "-q", "-b", "feature/customer-returns", apiWorktree);
+    writeFileSync(join(apiWorktree, "returns-api.txt"), "api\n");
+    git(h!.sandbox, apiWorktree, "add", "returns-api.txt"); git(h!.sandbox, apiWorktree, "commit", "-qm", "feat: returns api");
+    git(h!.sandbox, apiWorktree, "push", "-q", "origin", "feature/customer-returns");
+    h!.engine.record.repositories.push({ name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "develop", worktreePath: apiWorktree, setupCompletedAt: new Date().toISOString() });
+    h!.engine.record.pullRequests = [...h!.engine.record.pullRequests!, { ...h!.engine.record.pullRequests![0]!, repository: "acme-api", number: 57, url: "https://github.com/acme/acme-api/pull/57" }];
+  }
+  const apiHead = () => git(h!.sandbox, apiWorktree, "rev-parse", "HEAD").trim();
+  const views = (shop: { state: "open" | "merged"; body?: string }, api: { state: "open" | "merged"; body?: string }) => h!.setPullRequestViews({
+    [KEY]: recordedPullRequest(shop.state, { number: 218, base: "develop", url: "https://github.com/acme/acme-shop/pull/218", head: featureHead(), ...(shop.state === "merged" ? { mergeCommit: featureHead() } : {}), ...(shop.body ? { body: shop.body } : {}) }),
+    [API_KEY]: recordedPullRequest(api.state, { number: 57, base: "develop", url: "https://github.com/acme/acme-api/pull/57", head: apiHead(), ...(api.state === "merged" ? { mergeCommit: apiHead() } : {}), ...(api.body ? { body: api.body } : {}) }),
+  });
+  // With two repositories the session runs in the workspace, the folder holding both worktrees.
+  const mergeIn = (folder: string, key: string) => ({ bash: `git -C ${folder} push -q origin HEAD:develop && node "${MARK_MERGED}" ${key} "$(git -C ${folder} rev-parse HEAD)"` });
+  const mergeApi = mergeIn("acme-api", API_KEY);
+  const mergeShop = mergeIn("acme-shop", KEY);
+
+  it("gives the session the open pull requests in the order their descriptions state, not the recorded order, and shows Merged only once both are merged", async () => {
+    await finished([{ actions: [mergeApi, mergeShop, { result: "Merged acme-api #57, then acme-shop #218." }, { exit: 0 }] }]);
+    withApi();
+    // Recorded order is acme-shop then acme-api; the descriptions reverse it.
+    views({ state: "open", body: "Merge order: 2 of 2" }, { state: "open", body: "Merge order: 1 of 2" });
+    expect((await h!.engine.checkCompletedPlan()).status).toBe("awaiting_merge");
+    const offer = buildSnapshot(h!.engine).afterDelivery!.offer;
+    // One press for the whole delivery, whose note names both in the stated order (AC-MERGE-01).
+    expect(offer).toMatchObject({ kind: "offered", available: true });
+    expect(offer.note).toBe("Merge with Claude Code starts one more session in this PRD’s workspace. It merges acme-api #57 first and then acme-shop #218, the order the pull requests state, bringing develop into each branch, resolving any conflicts, running the tests and waiting for the required checks before each merge. If one can’t be merged, it stops there and leaves the other open. Each merge into develop may start that repository’s CI or deployment.");
+    expect(await control("merge")).toMatchObject({ state: "completed", outcome: "merge_started" });
+    await h!.engine.settled();
+    expect(mergeCalls()).toHaveLength(1);
+    const prompt = mergeCalls()[0]!.prompt;
+    const first = prompt.indexOf("1. `acme-api` #57 (`acme/acme-api`): `feature/customer-returns` into `develop`");
+    const second = prompt.indexOf("2. `acme-shop` #218 (`acme/acme-shop`): `feature/customer-returns` into `develop`");
+    expect(first).toBeGreaterThan(-1);
+    expect(second).toBeGreaterThan(first);
+    expect(h!.engine.record.afterDelivery!.merge!.pullRequests).toEqual([{ repository: "acme-api", number: 57 }, { repository: "acme-shop", number: 218 }]);
+    expect(h!.engine.record.afterDelivery!.merge!.pressHeads).toEqual([{ repository: "acme-api", sha: apiHead() }, { repository: "acme-shop", sha: featureHead() }]);
+    // Merged from GitHub's reading of both, each with its own merge commit (AC-MERGE-04).
+    expect(h!.engine.record.afterDelivery!.merge!.closedAt).toBeDefined();
+    expect(h!.engine.record.afterDelivery!.pullRequests.map(row => [row.repository, row.state, row.mergeCommit])).toEqual([["acme-shop", "merged", featureHead()], ["acme-api", "merged", apiHead()]]);
+    expect(buildSnapshot(h!.engine).phases.at(-1)!.file).toMatch(/merged acme-api #57 and acme-shop #218 into develop$/);
+  });
+
+  it("merges only the one still open when the other is already merged, shows the merged one beside the press, and is not Merged while one is open", async () => {
+    await finished([{ actions: [mergeShop, { result: SUMMARY }, { exit: 0 }] }]);
+    withApi();
+    // acme-api #57 merged on GitHub by hand before the press.
+    git(h!.sandbox, apiWorktree, "push", "-q", "origin", "HEAD:develop");
+    views({ state: "open" }, { state: "merged" });
+    expect((await h!.engine.checkCompletedPlan()).status).toBe("awaiting_merge");
+    const card = buildSnapshot(h!.engine).afterDelivery!;
+    expect(card.pullRequests.find(row => row.repository === "acme-api")).toMatchObject({ number: 57, state: "merged", mergeCommit: apiHead() });
+    expect(card.pullRequests.find(row => row.repository === "acme-shop")).toMatchObject({ number: 218, state: "open" });
+    expect(card.offer).toMatchObject({ kind: "offered", available: true });
+    expect(card.offer.note).toBe("acme-api #57 is already merged, so Merge with Claude Code merges only acme-shop #218. It starts one more session in this PRD’s workspace. It brings develop into the branch, resolves any conflicts, runs the tests, pushes, waits for the required checks and merges acme-shop #218 into develop. Merging into develop may start its CI or deployment.");
+    // One merged and one open is not Merged.
+    expect(h!.engine.currentlyComplete).toBe(true);
+    expect(card.merge).toBeUndefined();
+    expect(await control("merge")).toMatchObject({ state: "completed", outcome: "merge_started" });
+    await h!.engine.settled();
+    // The permission covers only the open one: the activity and the prompt hold acme-shop #218 alone (AC-MERGE-02).
+    expect(h!.engine.record.afterDelivery!.merge!.pullRequests).toEqual([{ repository: "acme-shop", number: 218 }]);
+    expect(h!.engine.record.afterDelivery!.merge!.pressHeads).toEqual([{ repository: "acme-shop", sha: featureHead() }]);
+    const prompt = mergeCalls()[0]!.prompt;
+    expect(prompt).toContain("1. `acme-shop` #218 (`acme/acme-shop`)");
+    expect(prompt).not.toContain("#57");
+    expect(h!.engine.record.afterDelivery!.merge!.closedAt).toBeDefined();
+    expect(buildSnapshot(h!.engine).afterDelivery!.merge).toMatchObject({ state: "done", pullRequests: [{ repository: "acme-shop", number: 218 }] });
   });
 });

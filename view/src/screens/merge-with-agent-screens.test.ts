@@ -196,3 +196,66 @@ describe("the check's answer and the header after delivery", () => {
     expect(header(merged(check("failed")))).toContain("Could not check for new phases");
   });
 });
+
+// Test audit of Kiln After Delivery: a delivery of two pull requests, one merged and one open; another
+// agent's press; the header while a closed reading meets a merge activity; a hand merge with no summary.
+describe("a delivery of several pull requests and the merge's other faces (AC-MERGE-01, AC-MERGE-04, AC-MERGE-07)", () => {
+  const PARTLY = "acme-api #57 is already merged, so Merge with Claude Code merges only acme-shop #218. It starts one more session in this PRD’s workspace. It brings develop into the branch, resolves any conflicts, runs the tests, pushes, waits for the required checks and merges acme-shop #218 into develop. Merging into develop may start its CI or deployment.";
+  const MERGED_AT = "2026-10-17T19:18:00Z";
+  function twoPulls(after: Partial<AfterDeliveryView>, api: AfterDeliveryView["pullRequests"][number], shop: AfterDeliveryView["pullRequests"][number]): Snapshot {
+    const snapshot = finished(after, [shop, api]);
+    const one = snapshot.pullRequests![0]!;
+    snapshot.feature.multiRepository = true;
+    snapshot.pullRequests = [one, { ...one, repository: "acme-api", number: 57, url: "https://github.com/acme/acme-api/pull/57" }];
+    return snapshot;
+  }
+  const apiMerged = { repository: "acme-api", number: 57, state: "merged" as const, mergedAt: MERGED_AT, mergeCommit: "77aa00001234", readAt: "2026-10-17T19:20:00Z" };
+  const shopOpen = { repository: "acme-shop", number: 218, state: "open" as const, readAt: "2026-10-17T19:20:00Z" };
+
+  it("shows the merged one with its merge time and commit beside one Merge press for the rest, and the header is not Merged while one is open", () => {
+    const snapshot = twoPulls({ offer: { kind: "offered", available: true, note: PARTLY } }, apiMerged, shopOpen);
+    const markup = render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body;
+    const words = text(markup);
+    const time = new Date(MERGED_AT).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    expect(words).toContain(`Merged into develop at ${time} · merge 77aa000`);
+    // Only the merged one has a merge line.
+    expect(words.match(/Merged into develop/g)).toHaveLength(1);
+    expect(markup.match(/>Merge with Claude Code</g)).toHaveLength(1);
+    expect(words).toContain(PARTLY);
+    expect(header(snapshot)).not.toContain("Merged");
+    expect(header(snapshot)).toContain("PR ready for review");
+    // Once both read merged, the header reads Merged.
+    const both = twoPulls({ waiting: false, offer: { kind: "all_merged", available: false } }, apiMerged, { ...shopOpen, state: "merged", mergedAt: "2026-10-17T19:19:00Z", mergeCommit: "8e41c0d9aa" });
+    expect(header(both)).toContain("Merged");
+  });
+
+  it("names the run's agent on the press: Merge with Codex", () => {
+    const snapshot = finished({ offer: { kind: "offered", available: true, note: NOTE.replace("Merge with Claude Code", "Merge with Codex") } });
+    snapshot.settings = { ...snapshot.settings, agent: "Codex" };
+    const markup = render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body;
+    expect(markup).toContain(">Merge with Codex</button>");
+    expect(markup).not.toContain("Merge with Claude Code");
+  });
+
+  it("reads Merging while a merge runs and Needs you once it stopped, even with a pull request read closed", () => {
+    const closed = [{ repository: "acme-shop", number: 218, state: "closed" as const, readAt: "2026-10-17T19:00:00Z" }];
+    const running = finished({ waiting: false, offer: { kind: "closed", available: false }, merge: { state: "running", startedAt: "2026-10-17T19:02:00Z", pullRequests: [{ repository: "acme-shop", number: 218 }], folder: "~/w" } }, closed);
+    expect(header(running)).toContain("Merging");
+    expect(header(running)).not.toContain("PR ready for review");
+    const stopped = needsYouMessageSnapshot();
+    stopped.needsYou = { ...stopped.needsYou!, phaseId: "merge", kind: "merge_check", resumeOffered: true, checks: [{ name: "acme-shop #218", passed: false, facts: ["acme-shop #218 was closed on GitHub without merging. Reopen it there, then press Resume."] }], counts: { passed: 0, waived: 0, failed: 1 } };
+    stopped.afterDelivery = { pullRequests: closed, waiting: false, offer: { kind: "closed", available: false }, merge: { state: "stopped", pullRequests: [{ repository: "acme-shop", number: 218 }], folder: "~/w" } };
+    stopped.pullRequests = completeSnapshot().pullRequests;
+    expect(header(stopped)).toContain("Needs you Merging pull request #218 into develop · Stopped");
+  });
+
+  it("shows Merged from a hand merge with no summary section", () => {
+    const snapshot = finished({ waiting: false, offer: { kind: "all_merged", available: false }, merge: { state: "done", pullRequests: [{ repository: "acme-shop", number: 218 }], folder: "~/w" } }, [{ repository: "acme-shop", number: 218, state: "merged", mergedAt: "2026-10-17T19:19:00Z", mergeCommit: "8e41c0d9aa", readAt: "2026-10-17T19:20:00Z" }]);
+    snapshot.continuation = undefined;
+    const words = page(snapshot);
+    expect(words).toContain("Merged into develop at");
+    expect(words).toContain("merge 8e41c0d");
+    expect(words).not.toContain("The merge session’s summary");
+    expect(header(snapshot)).toContain("Merged");
+  });
+});

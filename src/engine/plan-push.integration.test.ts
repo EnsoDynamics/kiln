@@ -379,7 +379,8 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     await finished([stopping("Waiting for you."), stopping("Waiting again.")]);
     const proposal = await offer();
     // kiln continue-with-phases submits the journal's continuation acceptance from the command line (control/server.ts).
-    const answer = h!.engine.commands.submitInternal({ command_id: "cli-continue", execution_id: h!.engine.record.executionId!, status_token: h!.engine.controlView().token, action: "continuation-accept", inputs: { proposal_id: proposal.id, via: "command_line" } });
+    const retryToken = h!.engine.controlView().token;
+    const answer = h!.engine.commands.submitInternal({ command_id: "cli-continue", execution_id: h!.engine.record.executionId!, status_token: retryToken, action: "continuation-accept", inputs: { proposal_id: proposal.id, via: "command_line" } });
     expect(answer.ok).toBe(true);
     await h!.engine.commands.settled();
     expect(h!.engine.commands.lookup("cli-continue").operation).toMatchObject({ state: "completed", outcome: "plan_push_started" });
@@ -387,6 +388,13 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(first.via).toBe("command_line");
     const firstKey = planPushKey(first.operationId);
     await waitFor(() => h!.engine.stoppedPhaseKey() === firstKey);
+    // A retried kiln continue-with-phases sends the same command id: the saved receipt, no second push or session (AC-BOT-01).
+    const retried = h!.engine.commands.submitInternal({ command_id: "cli-continue", execution_id: h!.engine.record.executionId!, status_token: retryToken, action: "continuation-accept", inputs: { proposal_id: proposal.id, via: "command_line" } });
+    expect(retried.ok, JSON.stringify(retried)).toBe(true);
+    await h!.engine.commands.settled();
+    expect(h!.engine.commands.lookup("cli-continue").operation).toMatchObject({ state: "completed", outcome: "plan_push_started" });
+    expect(h!.engine.record.afterDelivery!.planPushes).toHaveLength(1);
+    expect(h!.engine.record.phases[firstKey]!.sessionIds).toHaveLength(1);
     // The person withdraws the plan by resetting the local base: Check again finds the push Done, and the check that follows finds nothing to build.
     git(h!.sandbox, h!.repository, "reset", "-q", "--hard", remoteHead());
     expect(await control("check-again")).toMatchObject({ outcome: "already_done" });

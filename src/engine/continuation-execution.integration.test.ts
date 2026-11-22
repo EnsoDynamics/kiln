@@ -51,6 +51,26 @@ it("accepts once from current bases, archives earlier completion and starts a fr
   expect(h.engine.record.continuation?.executions).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(1);
 });
 
+it("carries no merge permission into the execution Continue starts: the earlier merge stays with its own delivery (Kiln After Delivery AC-MERGE-02)", async () => {
+  await fixture();
+  // The finished execution's merge, pressed and done, as its record keeps it.
+  const pressed = { operationId: "earlier-merge-press", requestedAt: "2026-10-02T10:00:00Z", via: "browser" as const, pullRequests: (h.engine.record.pullRequests ?? []).map(({ repository, number }) => ({ repository, number })), pressHeads: [], doneAt: "2026-10-02T10:20:00Z", closedAt: "2026-10-02T10:20:00Z" };
+  h.engine.record.afterDelivery = { ...(h.engine.record.afterDelivery ?? { pullRequests: [] }), merge: pressed };
+  writePrdRecord(h.stateDirectory, h.engine.record);
+  const oldId = h.engine.record.executionId!;
+  expect(h.engine.mergeControl().reason).toBe("A merge session was already started for this delivery.");
+  const check = await h.engine.checkCompletedPlan();
+  expect((await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "continue-after-merge"))).ok).toBe(true);
+  await h.engine.settled();
+  expect(h.engine.record.executionId).not.toBe(oldId);
+  // The new execution holds no merge activity and no press; its own finished delivery will be offered afresh.
+  expect(h.engine.record.afterDelivery?.merge).toBeUndefined();
+  expect(readPrdRecord(h.stateDirectory)!.afterDelivery?.merge).toBeUndefined();
+  expect(h.engine.mergeControl().reason).not.toBe("A merge session was already started for this delivery.");
+  expect(JSON.stringify(h.engine.record.settings)).not.toContain("merge");
+  expect(h.engine.historicalExecution(oldId)!.record.afterDelivery!.merge).toEqual(pressed);
+});
+
 it("keeps a phase finished before Continue closed in the build Continue started, while its own phases still get their checks (Kiln After Delivery AC-BACK-01)", async () => {
   await fixture();
   const { landingSession } = await import("../test-support/engine-harness.js");

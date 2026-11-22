@@ -164,7 +164,8 @@ const keepRecord = (type, message) => {
   if (session?.noTranscript || !sessionId) return;
   const path = transcriptPath();
   mkdirSync(dirname(path), { recursive: true });
-  appendFileSync(path, `${JSON.stringify({ type, sessionId, timestamp: new Date().toISOString(), cwd: process.cwd(), message })}\n`);
+  // Owner-only, as Claude Code writes it: a looser umask must not make Kiln read the history as unsafe.
+  appendFileSync(path, `${JSON.stringify({ type, sessionId, timestamp: new Date().toISOString(), cwd: process.cwd(), message })}\n`, { mode: 0o600 });
 };
 // Launched with --settings, the stand-in runs each hook command Kiln gave it, as Claude Code
 // does: PreToolUse before a tool runs (a deny, or exit 2, and the tool doesn't run), PostToolUse

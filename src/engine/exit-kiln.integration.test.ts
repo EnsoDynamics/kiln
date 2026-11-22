@@ -70,7 +70,7 @@ const RUNNING_REASON = "Exit Kiln returns once the session ends, or once Kiln ha
 
 /** Presses Exit, and checks what AC-EXIT-02 promises: the receipt, the pages told, the run's end, nothing else written. */
 async function pressExit(via: "browser" | "command_line" = "browser"): Promise<void> {
-  const before = { record: savedRecord(), git: gitState() };
+  const before = { record: savedRecord(), git: gitState(), gh: h!.ghCalls().length };
   const told: ExitNotice[] = []; h!.engine.onExited(exit => told.push(exit));
   expect(await control("exit", { via })).toMatchObject({ state: "completed", outcome: "exited" });
   expect(told).toEqual([{ at: expect.any(String), via, command: "kiln run docs/prds/customer-returns" }]);
@@ -79,6 +79,9 @@ async function pressExit(via: "browser" | "command_line" = "browser"): Promise<v
   expect(reports[0]).toEqual({ text: `Kiln exited from ${via === "browser" ? "the page" : "the command line"}.`, grey: "Run kiln run docs/prds/customer-returns to open it again." });
   expect(savedRecord()).toBe(before.record);
   expect(gitState()).toBe(before.git);
+  // No pull request is changed on GitHub: no gh call that writes to one after the press.
+  expect(h!.ghCalls().slice(before.gh).filter(call => call[0] === "pr" && ["merge", "close", "edit", "ready", "comment", "reopen", "create"].includes(call[1]!))).toEqual([]);
+  expect(h!.ghCalls().slice(before.gh).filter(call => call[0] === "api" && call.some(arg => /^(-X|--method)$/.test(arg)))).toEqual([]);
   expect(h!.engine.current?.processRunning ?? false).toBe(false);
 }
 
@@ -89,6 +92,26 @@ describe("Exit Kiln on the finished page (AC-EXIT-01, AC-EXIT-02)", () => {
     expect(buildSnapshot(h!.engine).exit).toEqual({ available: true, command: "kiln run docs/prds/customer-returns" });
     expect(status().controls.find(one => one.name === "exit")).toMatchObject({ available: true, invocation: ["kiln", "exit", expect.any(String)] });
     await pressExit();
+  });
+
+  it("replays the same exit command once, with no second exit (AC-BOT-01 retry protection)", async () => {
+    await finished([]);
+    const told: ExitNotice[] = []; h!.engine.onExited(exit => told.push(exit));
+    const submit = () => h!.engine.commands.submit({ command_id: "kiln-exit-retry", execution_id: h!.engine.record.executionId!, status_token: h!.engine.controlView().token, action: "exit", inputs: { via: "command_line" } });
+    const token = h!.engine.controlView().token;
+    expect(submit().ok).toBe(true);
+    await h!.engine.commands.settled(); await h!.engine.settled();
+    expect(h!.engine.commands.lookup("kiln-exit-retry").operation).toMatchObject({ state: "completed", outcome: "exited" });
+    // The same command id again, as a retried `kiln exit` sends it: the saved receipt, no second exit.
+    const again = h!.engine.commands.submit({ command_id: "kiln-exit-retry", execution_id: h!.engine.record.executionId!, status_token: token, action: "exit", inputs: { via: "command_line" } });
+    expect(again.ok, JSON.stringify(again)).toBe(true);
+    await h!.engine.commands.settled();
+    expect(h!.engine.commands.lookup("kiln-exit-retry").operation).toMatchObject({ state: "completed", outcome: "exited" });
+    await waitFor(() => reports.length > 0);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(told).toHaveLength(1);
+    expect(exits).toHaveLength(1);
+    expect(reports).toHaveLength(1);
   });
 
   it("is unavailable, saying why, while the merge session runs, and offered again at its Needs you stop", async () => {
