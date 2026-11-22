@@ -10,6 +10,11 @@ section to the new version.
 
 ## [Unreleased]
 
+### Fixed
+
+- When a restarted run's setup can't be finished and Kiln returns to Documents found, Ctrl+C
+  no longer leaves that setup's `claude` account and skill reads running after Kiln exits.
+
 ## [1.4.0] - 2026-11-21
 
 ### Added

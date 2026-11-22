@@ -3205,9 +3205,15 @@ export class Engine {
     if (process.platform !== "win32" && !(await gone(this.options.killGraceMs ?? KILL_GRACE_MS))) endProcessTree(pid, "SIGKILL");
   }
 
-  /** Releases keep-awake and stops reading sleep; for when Kiln exits. */
+  /**
+   * Releases keep-awake, stops reading sleep and ends every helper call still running; for when
+   * Kiln exits, or drops this engine for another (a Start whose setup couldn't finish). A closed
+   * engine starts no helper and leaves none running, so a later Ctrl+C has none left to end.
+   * A live Codex session listens on the same signal and is interrupted; a Claude session isn't.
+   */
   close(): void {
     this.closed = true;
+    this.abort.abort();
     if (this.takeoverTimer) clearInterval(this.takeoverTimer);
     if (this.recoveredTimer) clearInterval(this.recoveredTimer);
     this.offClaude?.();

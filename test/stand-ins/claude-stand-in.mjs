@@ -76,13 +76,13 @@ const abandoned = () => !existsSync(scenarioPath) || process.ppid !== launcher &
 delete process.env.GIT_TRACE2_EVENT;
 
 // Kiln's helper calls, which aren't sessions and take no scenario: the account, `/usage` and
-// the Agent SDK's model list. Each is logged with its working directory to
+// the Agent SDK's model list. Each is logged with its working directory and process id to
 // <scenario>.helpers.jsonl. KILN_STANDIN_ACCOUNT names a JSON file to print for
 // `auth status --json`; KILN_STANDIN_MODELS one holding { "models": [ … ] } or { "fail": "…" }.
 // Without them, the account is signed in on a Max plan and the usage and models are proof
 // gate 1's recordings.
 const fixtures = fileURLToPath(new URL("../fixtures/proof-gate-1/", import.meta.url));
-const logHelper = (kind) => scenarioPath && appendFileSync(`${scenarioPath}.helpers.jsonl`, `${JSON.stringify({ kind, args, cwd: process.cwd() })}\n`);
+const logHelper = (kind) => scenarioPath && appendFileSync(`${scenarioPath}.helpers.jsonl`, `${JSON.stringify({ kind, args, cwd: process.cwd(), pid: process.pid })}\n`);
 const isSession = args.includes("--session-id") || args.includes("--resume");
 if (args[0] === "auth" && args[1] === "status") {
   logHelper("account");

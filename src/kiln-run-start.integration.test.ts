@@ -450,18 +450,32 @@ describe("kiln run on a feature not started", () => {
     const entry = { name: "acme-shop", kind: "prd", mainCheckoutPath: record.repository.mainCheckoutPath, github: record.repository.github, baseBranch: "develop", worktreePath: record.settings.worktreePath, baseCommit: "0".repeat(40) };
     writeFileSync(recordPath, JSON.stringify({ ...record, startedAt: "2026-10-17T13:00:00.000Z", refinementConfirmedAt: "2026-10-17T13:00:00.000Z", repositories: [entry] }));
 
-    const again = startKiln(f);
-    const address = await again.address;
-    await waitFor(() => again.lines().some((line) => line.startsWith("● Opened")));
-    expect(again.lines()[0]).toMatch(/^✗ Couldn’t set up the worktree: /);
-    expect(again.lines()[1]).toBe("Customer returns  ·  PRD, technical design, assumptions, 5 phase docs  ·  all checks passed");
-    const { token } = await tokenFromPage(address);
-    const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
-    expect(snapshot.feature.state).toBe("not_started");
-    expect(snapshot.documents!.startError).toMatch(/^Couldn’t set up the worktree: /);
-    expect(readPrdRecord(stateDirectoryOf(f))!.startedAt).toBeUndefined();
-    again.signals.emit("SIGINT");
-    expect(await again.done).toBe(130);
+    // Every account read is held open, so one that Kiln's stop didn't end would still be running after it.
+    const gate = join(f.sandbox.root, "auth-gate");
+    f.env.KILN_STANDIN_AUTH_WAIT = gate;
+    f.env.KILN_STANDIN_AUTH_AFTER_WAIT = gate;
+    try {
+      const again = startKiln(f);
+      const address = await again.address;
+      await waitFor(() => again.lines().some((line) => line.startsWith("● Opened")));
+      expect(again.lines()[0]).toMatch(/^✗ Couldn’t set up the worktree: /);
+      expect(again.lines()[1]).toBe("Customer returns  ·  PRD, technical design, assumptions, 5 phase docs  ·  all checks passed");
+      const { token } = await tokenFromPage(address);
+      const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
+      expect(snapshot.feature.state).toBe("not_started");
+      expect(snapshot.documents!.startError).toMatch(/^Couldn’t set up the worktree: /);
+      expect(readPrdRecord(stateDirectoryOf(f))!.startedAt).toBeUndefined();
+      again.signals.emit("SIGINT");
+      expect(await again.done).toBe(130);
+      // AC-KEEP-02: the setup that couldn't finish left no claude helper behind, either.
+      const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+      const helpers = () => readJsonLines<{ kind: string; cwd: string; pid: number }>(`${f.scenarioPath}.helpers.jsonl`);
+      await waitFor(() => helpers().every((call) => !alive(call.pid)), 5_000).catch(() => {
+        throw new Error(`Helpers still running after Kiln stopped:\n${helpers().filter((call) => alive(call.pid)).map((call) => `${call.kind} in ${call.cwd}`).join("\n")}`);
+      });
+    } finally {
+      writeFileSync(gate, "");
+    }
   });
 
   it("serves each PRD its own view at its own address, and a PRD keeps its address the next time", async () => {

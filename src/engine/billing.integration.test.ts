@@ -243,6 +243,32 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(h.engine.record.phases["2b"]!.stop?.kind).toBe("selection");
   });
 
+  it("ends a billing inspection's helper when the engine is closed without a stop", async () => {
+    // kiln run closes an engine whose setup couldn't finish and serves another; Ctrl+C then stops only the new one.
+    h = await createHarness({ sessions: [] }); await ready();
+    // The stand-in holds its first account read on one variable and every later one on the other.
+    const gate = join(h.sandbox.root, "auth-gate"); h.env.KILN_STANDIN_AUTH_WAIT = gate; h.env.KILN_STANDIN_AUTH_AFTER_WAIT = gate;
+    const log = `${h.scenarioPath}.helpers.jsonl`;
+    const helpers = () => readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line) as { kind: string; cwd: string; pid: number });
+    const earlier = helpers().length;
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    try {
+      const engine = h.reopenFromDisk();
+      // The new engine's inspection reads the account in the launch folder, and the gate holds that read open.
+      const inspecting = () => helpers().slice(earlier).find(call => call.kind === "account" && call.cwd === h!.repository);
+      await waitFor(() => inspecting() !== undefined);
+      const { pid } = inspecting()!;
+      expect(alive(pid)).toBe(true);
+      engine.close();
+      // The held read ends, and so does every other helper the closed engine had started.
+      await waitFor(() => !alive(pid) && helpers().slice(earlier).every(call => !alive(call.pid)), 5_000);
+      // Once its inspection has settled, the closed engine has started nothing further.
+      const started = helpers().length;
+      await engine.refreshBilling().catch(() => undefined);
+      expect(helpers()).toHaveLength(started);
+    } finally { writeFileSync(gate, ""); }
+  });
+
   it.each(["stale", "mismatched", "unattributed", "missing"])("omits %s overflow without blocking subscription access or hiding usage rows", async kind => {
     const claude = new ScriptedClaude(() => new Date());
     const overflow = { enabled: true, observedAt: new Date(Date.now() - (kind === "stale" ? 6 * 60_000 : 0)).toISOString(), ...(kind === "unattributed" ? {} : { email: kind === "mismatched" ? "other@example.test" : "alex@acme-shop.dev", orgId: "org-alex" }) };
