@@ -1,6 +1,6 @@
 # Technical Design: Kiln Find Repositories Anywhere
 
-**PRD:** [Kiln Find Repositories Anywhere](kiln-find-repositories-anywhere-prd.md) · **Assumptions:** [assumptions](kiln-find-repositories-anywhere-assumptions.md) · **Screens:** [mockup](mockups/kiln-find-repositories-anywhere.html), the copy of record for the eight states drawn · **Changes:** [Kiln multi-repo delivery technical design](../kiln-multi-repo-delivery/technical-design.md) and [Kiln bot control technical design](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md)
+**PRD:** [Kiln Find Repositories Anywhere](kiln-find-repositories-anywhere-prd.md) · **Assumptions:** [assumptions](kiln-find-repositories-anywhere-assumptions.md) · **Screens:** [mockup](mockups/kiln-find-repositories-anywhere.html), the copy of record for the eight states drawn · **Changes:** [Kiln multi-repo delivery technical design](../kiln-multi-repo-delivery/technical-design.md), [Kiln bot control technical design](../../prds/kiln-bot-control/kiln-bot-control-technical-design.md), [Kiln continue added phases technical design](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md), [Kiln missing-worktree recovery technical design](../kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md), [Kiln run restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md) and [Kiln completion waivers technical design](../kiln-completion-waivers/kiln-completion-waivers-technical-design.md)
 
 ## Overview
 
@@ -55,12 +55,12 @@ The line, where it sits, how it is split and which documents are read are unchan
 | The item | Read as | Plan problem |
 |---|---|---|
 | Holds `://`, or `@` before a `:` | A full remote address | `<phase file> names <item>, a full remote address. Name the repository by the path in it, <address path>.` |
-| Starts with `/`, `~` or `.`, or with one letter and a `:`, or holds a `\` | A path on one computer | `<phase file> names <item>, a path on one computer. Name the repository by the path in its remote address, such as <the PRD's repository's address path>.` |
+| Starts with `/`, `~` or `.`, or with one letter and a `:`, or holds a `\` | A path on one computer | `<phase file> names <item>, a path on one computer. Name the repository by the path in its remote address, <owner>/<repository>.` |
 | `<host>:<path>`, the host two or more characters with no `/` | That address path, when the host is `github.com` in any case | Any other host: `<phase file> names <item>. Kiln delivers only to GitHub, so it can’t deliver a repository on <host>.` |
 | Two or more parts joined by `/` | That address path, on any host | An empty part is a plan problem, in today's empty-name words |
 | One part | A folder name, as today | Today's |
 
-The example after "such as" is the PRD's repository's own address path: it is always known, it is a real example of the form, and it costs no read of a folder the document names. Each plan entry keeps the names as written.
+The path-on-one-computer problem gives the form `<owner>/<repository>`, not an example, so the plan reader stays a reading of the documents alone and the problem never offers some other repository's path as the name to use. Kiln delivers only to GitHub, whose address paths always have two parts, so the form fits every name Kiln delivers. Each plan entry keeps the names as written.
 
 **Which repository a name reaches.** In this order, before Start and after it:
 
@@ -72,6 +72,8 @@ The example after "such as" is the PRD's repository's own address path: it is al
 
 The named repositories keep first-mention plan order, each counted once.
 
+A name with `github.com:` in front reaches the same address path as the path alone and is found the same way, since only a checkout on GitHub can be used either way. The host narrows nothing.
+
 **Where names are compared.** A name as written is never compared with an entry's `name`, a base's key or another plan's name. Each reader reaches the repository first, as above, and works with its `name`: the start checks and additions, the completed-phase scope a receipt records (`scopeRepositories`) and the scope comparison between two readings of a plan, a continuation's readiness check, the Folder missing page's setup panel, and the repositories that external completion evidence names. So a phase document re-spelled from `admin` to `acme-labs/admin` keeps a completed phase's scope unchanged, and a receipt's scope and its per-repository revisions share one key. Only the recorded plan's per-phase `repositories` keep the names as written.
 
 ## Finding a Checkout (AC-FIND-01 to AC-FIND-04)
@@ -80,7 +82,7 @@ Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, �
 
 A repository named by folder name is found, checked and reported exactly as before. For an address path:
 
-1. **A remembered answer.** When the store holds one, Kiln runs the checks an answer gets ([The answer](#the-answer-ac-ask-03-ac-ask-04-ac-ask-05)). A pass uses that folder. A failed check deletes the answer and carries on. A check Kiln couldn't run (Git failing for another reason, or timing out) deletes nothing and is reported as today's unreadable checkout is: a start problem before Start, a refusal to the session or a stop's fact after it.
+1. **A remembered answer.** When the store holds one, Kiln runs the checks an answer gets ([The answer](#the-answer-ac-ask-03-ac-ask-04-ac-ask-05)). A pass uses that folder. A failed check deletes the answer and carries on. The terminal prints `<time>  Kiln no longer remembers <address path> at <folder>. <the failed check’s message>` once, since the answer is gone. Documents found and the stop show nothing new. A check Kiln couldn't run (Git failing for another reason, or timing out) deletes nothing and is reported as today's unreadable checkout is: a start problem before Start, a refusal to the session or a stop's fact after it.
 2. **The search.** Kiln looks the address path up among the checkouts the search listed.
 3. **The result.** Exactly one checkout, and its `origin` is on GitHub by today's check: Kiln uses it. Anything else is a question:
 
@@ -105,21 +107,23 @@ The first two say where Kiln searched. A question never fails the start checks. 
 - A folder on a different device from its parent, which covers removable and network volumes and backup disks.
 - A folder the operating system guards, in the table below.
 - A folder Kiln can't list.
-- A folder holding a `.git` entry is never entered. When that entry is a folder, it is a candidate; when it is a file, it is a worktree or a submodule and is passed over. A bare repository has no `.git` entry and is never a candidate.
+- A folder holding a `.git` entry is never entered. A `.git` folder makes it a candidate. A `.git` file whose `gitdir:` line points into a `worktrees` folder (`<…>/worktrees/<name>`) is a worktree and is passed over without running Git. Any other `.git` file, such as a clone made with `--separate-git-dir`, makes it a candidate. The search never reaches a submodule, which sits inside its parent's checkout. A bare repository has no `.git` entry and is never a candidate.
 
 **Guarded folders (PRD, Depends On).** Named directly in the home folder, compared without case:
 
 | System | Passed over | Why |
 |---|---|---|
-| macOS | `Desktop`, `Documents`, `Downloads` | The system asks before a program reads each |
-| macOS | `Library` | Holds iCloud Drive, other cloud storage, other applications' data, Mail and Messages, each guarded |
+| macOS | `Desktop`, `Documents`, `Downloads` | The system asks before a program lists or reads each; listing the folder alone asks. With iCloud's Desktop and Documents turned on they keep these names |
+| macOS | `Library` | Holds iCloud Drive and other cloud storage, each asking; other applications' containers, which ask for data from other apps; and Mail, Messages and Safari data, refused without Full Disk Access |
 | macOS | `Pictures`, `Music`, `Movies` | Hold the Photos, Music and TV libraries; the Photos library is guarded, and the other two are passed over with it |
-| Windows | `AppData` | No prompt: Windows asks nothing when a desktop program reads a profile folder. Passed over as `Library`'s counterpart |
-| Linux | None | No prompt exists for a program run from a terminal |
+| Windows | `AppData` | No prompt: Windows asks nothing when a desktop program reads a profile folder. Passed over as `Library`'s counterpart. Controlled Folder Access stops changes, not reads; OneDrive's backup of Desktop, Documents and Pictures moves them under OneDrive, which asks nothing |
+| Linux | None | No prompt exists for a program run from a terminal. A sandboxed terminal gets a refusal, not a question, which "a folder Kiln can't list" covers |
 
-The macOS rows come from Apple's privacy documentation and published accounts of it, read 2026-11-22, not from a trial with permissions reset; [Testing Approach](#testing-approach) gives the check the build makes. A PRD whose repository is itself inside a guarded folder (`~/Documents/GitHub/product`) still has that folder searched, as a root.
+Other rules keep the search away from guarded places too. The `.` rule passes over the Trash, which is refused without Full Disk Access. The link rule passes over a cloud folder's shortcut in the home folder, since the cloud files themselves live under `Library`. The device rule passes over removable and network volumes and backup disks, each guarded. `Public`, `Applications` and `Sites` are not guarded. For a program run from a terminal, or from a terminal inside an editor, macOS asks on behalf of the terminal or the editor.
 
-**Reading candidates.** Each candidate is confirmed as its own checkout by today's check (Git's top level is the folder itself), and its `origin` is read by Git, at most eight at a time, each under the helper timeout. A candidate with no `origin` is left out. One Git can't read for another reason, or that times out, is left out too, and the terminal prints one line naming its folder and Git's error, so a checkout missed that way is never missed silently. From each `origin` Kiln takes the host and the address path: the part after the host, without a leading `/`, a trailing `/` or a trailing `.git`, for the URL forms and the `host:path` form alike. An `origin` that is a path on the computer has no address path.
+The macOS rows are confirmed by one walk under these rules on macOS 26 (three roots, about 2,100 folders, under half a second) with the system log's privacy subsystem read afterwards: it logged no request. The log records a request even when an earlier grant hides the prompt, so the check needs no permission reset. Beyond that walk the rows rest on Apple's privacy documentation and published accounts of it, read 2026-11-22. Untried: macOS 15, and a cloud folder kept as a real folder in the home folder rather than a link. [Testing Approach](#testing-approach) gives the check the build makes. A PRD whose repository is itself inside a guarded folder (`~/Documents/GitHub/product`) still has that folder searched, as a root.
+
+**Reading candidates.** Each candidate is confirmed as its repository's own checkout by one Git read, `git rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir --show-superproject-working-tree`: Git's top level is the folder itself, its Git directory is its common directory, and it has no superproject. That read replaces today's `--show-toplevel` read in the same spawn, so the cost per candidate doesn't change. The superproject check also catches an older-style submodule that holds a real `.git` folder. Its `origin` is read by Git, at most eight candidates at a time, each under the helper timeout. A candidate with no `origin` is left out. One Git can't read for another reason, or that times out, is left out too, and the terminal prints `<time>  Kiln couldn’t read <folder> while searching for checkouts (<Git’s error>).`, at most once per `kiln run` for the same folder and error, however many searches meet it, so a checkout missed that way is never missed silently. A timeout is Git's error here (`timed out after 120 seconds`). From each `origin` Kiln takes the host and the address path: the part after the host, without a leading `/`, a trailing `/` or a trailing `.git`, for the URL forms and the `host:path` form alike. An `origin` that is a path on the computer has no address path.
 
 No count or time limit is set beyond these. A count-only walk of one home folder under these rules read 244 folders in 0.08 seconds.
 
@@ -129,7 +133,7 @@ No count or time limit is set beyond these. A count-only walk of one home folder
 
 Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Settings before Start (a repository's row can ask, and shows its address path and checkout); §Command line (the summary line)
 
-The start checks return, for each named repository, either its checkout or its question. When any other check fails, the terminal reports those failures as today and says nothing about questions. Otherwise Kiln opens Documents found.
+The start checks return, for each named repository, either its checkout or its question. When any other check fails, Kiln reports those failures as today, in the terminal or, after a reset, on Documents found, and says nothing about questions. Otherwise Kiln opens Documents found.
 
 - **Each row** shows the repository's label, its address path as its `origin` spells it and its own checkout's folder, as mockup state 1 draws. A row that asks shows the address path as the plan writes it, no folder and no base, and the question under it (states 2 and 3). A row whose checkout came from a remembered answer says so and offers **Change** (state 4).
 - **The passed checks** read "Repositories found on this computer", or, while any row asks, the unpassed "<n> repository to locate" ("<n> repositories to locate").
@@ -152,9 +156,15 @@ An answer is a folder: typed, or the folder of a listed checkout. Either gets th
 | Its `origin` has the named path | `That checkout’s origin is <its address path>, not <named path>.`; `That checkout has no origin remote.` |
 | On GitHub | `That checkout’s origin, <url>, isn’t on GitHub. Kiln delivers only to GitHub.` |
 
-A repository's own checkout is told by its `.git` entry, as the search tells it, before Git runs: no `.git` entry (a bare repository included) is not a checkout, and a `.git` file is a worktree or a submodule. Today's check that Git's top level is the folder itself doesn't tell a worktree apart, since a worktree is its own top level.
+A folder with no `.git` entry, a bare repository included, is not a checkout, and that is told before Git runs. Otherwise the search's Git read ([The search](#the-search-ac-find-01-ac-find-02-ac-find-05)) decides, and the first mismatch gives the message:
+
+- Git's top level is another folder: `That folder is inside the checkout <top level>…`
+- Its Git directory differs from its common directory: `That folder is a worktree of <main checkout>…`. The main checkout is the common directory's parent when the common directory is a `.git` folder, and the common directory itself otherwise.
+- It has a superproject: `That folder is a submodule of <its parent's checkout>…`
 
 On a pass Kiln writes the answer to the store, resolves the row again, prints `<time>  Located <address path> at <folder>. Kiln will remember that on this computer.` and sends a snapshot. On a failure nothing is written.
+
+Another running Kiln reads the answer only the next time it looks for its repositories, so a Documents found page already open in it keeps asking until it is reloaded. If the person answers there too, that answer replaces the one remembered.
 
 **Change** asks again without forgetting. The row runs the search and shows the "Which should it use?" question, listing the checkouts found and the remembered folder, so picking the remembered folder again keeps it. The remembered answer stands until another is accepted. Once Kiln has set a repository up for a PRD, its entry holds its checkout and that PRD never reads the store for it again, so a later Change reaches only repositories set up after it.
 
@@ -183,9 +193,11 @@ Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, �
 | Stop | What it gains |
 |---|---|
 | The plan stop before a phase whose named repository ends in a question | Its Phase plan reads fact reads `<phase file> names <address path>, and Kiln couldn’t find a checkout of it` (`…and Kiln found <n> checkouts of it`). The page shows the question as mockup state 8 draws. An accepted answer is stored, then the stop is checked as Check again checks it, which adds the repository and starts the phase. Check again with no answer searches again |
-| Any Needs you stop of a phase holding a recorded request | The same question, above what the stop already shows, once per request that still ends in a question when the stop is opened or checked. An accepted answer is stored and the request dropped. Nothing else about the stop changes, and none of its controls waits on the question |
+| Any Needs you stop of a phase holding a recorded request | The same question, below the stop's first card and above the ways to resolve it, once per request that still ends in a question when the stop is opened or checked. An accepted answer is stored and the request dropped. Nothing else about the stop changes, and none of its controls waits on the question |
 
 A request that now resolves without a question is dropped without a word. The answer's checks, messages and terminal line are those before Start.
+
+The resumed session isn't told either. It resumes its own conversation, which holds Kiln's refusal, and its prompt tells it how to ask, so a request it makes again finds the remembered answer. The stop tells the person "The session can ask for it again once the phase resumes."; a reply they send with Resume reaches the session first.
 
 ### The command
 
@@ -200,16 +212,25 @@ It follows the bot-control grammar, result object, exits and receipts. Picking a
 - **Eligibility.** Accepted only while a stop open on a running Kiln asks about that repository. Before Start it is refused with `<feature> hasn’t started. Tell Kiln where <address path> is on Documents found, in the browser.` With no such stop: `No stop is asking where <address path> is.`
 - **Canonical input.** The address path, lower-cased, and the folder as given.
 - **Outcomes.** `located` (stored; the stop stays); `located_phase_starting` (stored, the plan stop's check passed, the phase is starting); `located_still_stopped` (stored, and the plan stop's check still fails, with its facts); `folder_not_accepted` (refused, with the failed check's message; nothing stored). The receipt's plan effect is `advanced` only for `located_phase_starting`; its session effect is always `not_started`.
-- **`kiln status`.** A stop that asks lists, per repository, the address path, where Kiln searched or the checkouts found (folder, remote address, whether it can be picked), and the command with whether it is available and a `next_argv`. The text form is mockup state 7's.
+- **`kiln status`.** A stop that asks lists each repository's question and the command, as [`kiln status --json`](#kiln-status---json) gives. The text form is mockup state 7's.
 - **The status token** changes when a question opens or closes, so an answer aimed at a stop that no longer asks is refused as stale.
 
 The page's **Use this folder** and **Use this checkout** at a stop submit the same action through the journal with the page's command id.
+
+### A continuation and a base-branch start
+
+Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Readiness and Planned Preparation (the repositories a ready proposal binds, when one named by address path ends in a question)
+Replaces in part: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Setup Panel ("Repositories for a base-branch start", when one named by address path ends in a question)
+
+A continuation and a base-branch start on the Folder missing page each set up a fresh execution for a PRD that has started, so neither asks where a repository is (AC-ASK-07). Each reaches the plan's names as [Names](#names-ac-name-01-ac-name-02) gives. A repository named by its address path whose finding ends in a question is not set up there, is not listed, and is not a problem. Kiln adds it before the phase that names it, as it adds any repository a phase names that the workspace doesn't have, and the stop before that phase asks if finding still ends in a question. An answer remembered on this computer by then is used without a stop.
+
+The exception is a repository the continuation's preparation reads (Kiln Continue Added Phases, AC-CONTINUE-07), since preparation is checked before Continue. It stays a problem: the question's first sentence, then what clears it on Check again, which is a checkout where the search reaches, only one checkout of it there, or an origin on GitHub. A repository named by folder name that isn't found beside the PRD's repository stays a problem on both pages, as today (AC-FIND-04).
 
 ## Worktree Folders and Labels (AC-FOLDER-01, AC-FOLDER-02)
 
 Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Design Decisions ("How a repository is identified"; "Workspace folder", the worktree's folder name)
 
-A repository's **short name** is its folder name when the plan reaches it by folder name, or it is the PRD's repository; otherwise the last part of its address path. Short names are compared without case, since two folders that differ only in case can't share a workspace on macOS or Windows.
+A repository's **short name** is its folder name when the plan reaches it by folder name, or it is the PRD's repository; otherwise the last part of its address path. Short names are compared without case, since two folders that differ only in case can't share a workspace on macOS or Windows. A PRD's repository in folder `shop` whose address path is `acme/storefront` has the short name `shop`, so `other/storefront` beside it keeps `storefront`; `other/shop` instead takes `other+shop`, and the two are labelled `acme/storefront` and `other/shop`.
 
 **The name, given once.** When an entry is first written, at Start for the whole list or at an addition for one:
 
@@ -219,7 +240,7 @@ A repository's **short name** is its folder name when the plan reaches it by fol
 
 The worktree is `<workspace folder>/<name>`, as today, and neither changes afterwards. Before Start the names are worked out from the plan as it stands, so the bases chosen on Documents found, kept by name, are dropped for a repository whose name a plan edit changes; its row then shows the default base.
 
-**The label, worked out each time.** A repository's label is its short name while no other of the PRD's repositories has that short name, and its address path while one does. Every screen, terminal line, `kiln status` line and prompt shows the label; the plan's rows show each phase's repositories by label. Keys in the record and in request bodies stay names.
+**The label, worked out each time.** A repository's label is its short name while no other of the PRD's repositories has that short name, and its address path while one does. Every screen, terminal line, `kiln status` line and prompt shows the label; the plan's rows show each phase's repositories by label. Keys in the record and in request bodies stay names, and `kiln status --json` keeps names in its existing fields and carries labels beside them.
 
 ## Interfaces
 
@@ -261,10 +282,25 @@ The view draws all of it from the snapshot and decides nothing.
 
 Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Command line
 
-- `kiln run`: the summary and the line under it as [Asking Before Start](#asking-before-start-ac-ask-01-ac-ask-02-ac-see-01-ac-see-02) gives; the `Located` line; the new plan problems; repositories shown by label in every line.
+- `kiln run`: the summary and the line under it as [Asking Before Start](#asking-before-start-ac-ask-01-ac-ask-02-ac-see-01-ac-see-02) gives; the `Located` line; the line for a candidate Git couldn't read, as [The search](#the-search-ac-find-01-ac-find-02-ac-find-05) gives; the lines for a forgotten answer; the new plan problems; repositories shown by label in every line.
 - `kiln add-repository <repository>`: as above. Its usage text and help entry name the address path.
 - `kiln locate-repository`: as above, listed with the routine controls in help and in the command contracts.
-- `kiln status`: a stop's questions and the command, as above.
+- `kiln status`: a stop's questions and the command, as [`kiln status --json`](#kiln-status---json) gives.
+
+### `kiln status --json`
+
+Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Status, Conversations and Handoff (labels beside names, a stop's questions, the `locate-repository` control); §Version compatibility (the feature `locate_repository`, `protocol_minor` 3)
+
+It keeps `schema_version: "1"`. Every change is a new optional field, which compatible readers already tolerate, and no existing field changes meaning: wherever a repository appears today, it stays its name. The client prints the text form from the same result, so the labels travel in the JSON.
+
+- `repositories`: unchanged, an array of names.
+- `repository_details`: new, one `{ name, label, address_path }` per entry of `repositories`, in the same order. The text form shows labels through it.
+- A folder check's `repositories[]`: gain `label` and `address_path` beside `name`.
+- `delivered.pullRequests[]`: `repository` stays the name and gains `label`. `completion.pull_requests`, `merged_branches` and a waived item's `subject` stay names.
+- `stop.locate[]`: projected, never the snapshot's field passed through: `kind` (`where` | `which`), `address_path`, `label`, `searched_from`, `searched_to` (null when the search reached the home folder), `checkouts[]` of `{ folder, remote, pickable, remembered }` with a `next_argv` on each pickable one, and `available`, `reason`, `next_argv`, `next_command`, where `next_argv` is `["kiln","locate-repository",<PRD>,<address path>,"<folder>","--only-if-status-matches",<token>,"--command-id","<new-command-id>"]`.
+- `controls[]` gains a `locate-repository` entry; the capabilities handshake adds the feature `locate_repository` and `protocol_minor` 3.
+
+Fields the contract adds are snake_case. `locate-repository` takes the address path, never a name or a label.
 
 ## Data Models
 
@@ -282,17 +318,19 @@ PrdRecord (schema 25; fields not shown are unchanged):
 ```
 
 - **Migration from schema 24:** none of content. Every existing entry was named by folder, so its `name` is its short name and its `github` is its address path.
-- **The store.** `folder` is the checkout's real path; `answeredAt` is UTC. A file is written whole and renamed into place, as every state file is. A file Kiln can't parse, or whose `schemaVersion` is newer, is a failed remembered answer: Kiln searches and, if it then asks, an accepted answer replaces the file.
+- **The store.** `folder` is the checkout's real path; `answeredAt` is UTC. A file is written whole and renamed into place, as every state file is. A file Kiln can't parse is deleted, and the terminal prints `<time>  Kiln no longer remembers <address path>: it couldn’t read its record (<parse error>).` A file whose `schemaVersion` is newer was written by a newer Kiln and is left in place unused: Kiln searches, and once per `kiln run` the terminal prints `<time>  Kiln can’t use what a newer Kiln remembers about <address path>. Update Kiln to use it.` An answer accepted afterwards replaces it.
 - **Not recorded:** how a set-up repository was found. Its entry holds the checkout, and "You told Kiln where this is" is shown only where Change can act, before Start.
 
 ## Screens (AC-SEE-03)
 
-Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Screens (the repository rows, the stop for a repository Kiln can't add)
+Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Screens (the repository rows, the stop for a repository Kiln can't add); §Design Decisions ("One-repository PRD", whose Needs you pages gain the question)
+Replaces in part: `docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md`, §A Stopped Phase's Facts (a stopped phase's page gains the question below its first card)
+Replaces in part: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Display Contract (the hand-back page and the standard Needs you page gain the question below their first card)
 
 The drawn states are built from the mockup's HTML, field messages and comments included. The two screens the PRD names but the mockup doesn't draw:
 
 - **The settings while Kiln works:** each row as Documents found's found row, with label, address path and checkout folder, every field fixed, no remark and no Change.
-- **Any other Needs you stop that asks:** the drawn stop's question block, from its first sentence to "Kiln remembers this on this computer only. Nothing is written to any repository.", above what the stop already shows. The sentence about adding the repository and starting the phase is left out; in its place: "The session can ask for it again once the phase resumes."
+- **Any other Needs you stop that asks:** the drawn stop's question block, from its first sentence to "Kiln remembers this on this computer only. Nothing is written to any repository.", below the stop's first card and above the ways to resolve the stop, where the catch-up offer sits (Kiln run restart, §Catching a Branch Up). The sentence about adding the repository and starting the phase is left out; in its place: "The session can ask for it again once the phase resumes."
 
 A short-name clash isn't drawn. Its rows follow state 1 with the address path as the label.
 
@@ -301,7 +339,7 @@ A short-name clash isn't drawn. Its rows follow state 1 with the address path as
 The skill's rule for the `**Repositories:**` line, its phase document templates and its example change together:
 
 - **The rule.** Each repository is named by its address path, the PRD's repository included when the phase changes code in it, whether or not its checkout is beside the PRD's repository. Never a folder name, never a path on one computer. The rest of the rule stays: when the line is written, what a split record keeps, why tools read it.
-- **Where the writer gets it.** From the checkout: the path in `git remote get-url origin`, after the host and without `.git`. When the technical design names a repository some other way, the writer reads the checkout instead of guessing.
+- **Where the writer gets it.** From the repository's checkout: the path in `git remote get-url origin`, after the host and without `.git`. With no checkout at hand, from an address the PRD or the technical design writes out (a remote address, a GitHub link or `owner/repo`). A name worked out from a folder name or from the design's wording is never written as fact. When neither source gives the address, the writer puts its best-supported address on the line and records it in the PRD's assumptions register as a technical assumption: it names the phase, says no checkout or written address was available, and says reading the checkout's `origin` settles it. The split carries on without stopping. The skill adds no search of its own.
 - **The host.** Written only when two of the PRD's repositories have one address path on different hosts, as `<host>:<path>`, with the host's real name. When a checkout's `origin` uses an SSH alias, the writer takes the real name from the SSH configuration (`ssh -G <alias>`).
 - **The templates and example** show `acme/returns-api, acme-labs/storefront` in place of folder names.
 
@@ -309,7 +347,7 @@ The skill gains no mention of Kiln, and the rule helps a person running a phase 
 
 ## Integration Points
 
-- **Git:** `rev-parse --show-toplevel` and `remote get-url origin` in each candidate and in a folder given as an answer. Both are reads, and `worktree add` stays the only change Kiln makes.
+- **Git:** `rev-parse --path-format=absolute --show-toplevel --git-dir --git-common-dir --show-superproject-working-tree` and `remote get-url origin` in each candidate and in a folder given as an answer. Both are reads, and `worktree add` stays the only change Kiln makes.
 - **The file system:** folder listings within the search's reach; the store under the state root.
 - **GitHub:** unchanged.
 - **The Enso Method:** the line `phase-split` writes.
@@ -319,10 +357,10 @@ The skill gains no mention of Kiln, and the rule helps a person running a phase 
 As the designs before it: real temporary Git repositories with local bare repositories as `origin`, a temporary home folder, and the stand-in session.
 
 - **Names:** each row of the table, both spellings of one address path, a folder name and an address path for one repository, two folder names for one repository, a name reaching the PRD's repository; a completed phase's document re-spelled from folder name to address path keeping its scope; an interrupted addition finishing in its recorded checkout.
-- **The search:** each layout in AC-FIND-01's table; a checkout at level four found and at level five not; a worktree, a submodule, a bare repository and a clone inside another checkout, each with a matching `origin`, not found; a link not followed; a hidden folder passed over; a rewritten `origin` URL matched; two checkouts, one beside, asked about.
-- **No permission prompt (AC-FIND-05):** a temporary home holding every guarded folder name, each with a matching checkout: none is found, and the walk's record of folders listed holds nothing under them. On macOS, one run of the real search against the real home folder with the system log's privacy subsystem read afterwards, showing no access request during the search. If that log can't be read, the write-up says the list's completeness rests on documentation.
-- **Asking before Start:** each answer check's message; an accepted answer used by a second PRD without asking; a remembered folder that later fails, forgotten and searched for again; Change keeping and replacing an answer; Start refused while a row asks; another start check failing alongside a question.
-- **After Start:** a session's request ending in each question; the request shown on that phase's next stop and dropped once answered; the plan stop's answer adding the repository and starting the phase; Check again after a clone appears; `kiln locate-repository` at each eligibility and outcome, replayed by command id, and refused as stale.
+- **The search:** each layout in AC-FIND-01's table; a checkout at level four found and at level five not; a clone made with `--separate-git-dir` found; a worktree, a submodule, an older-style submodule holding a `.git` folder, a bare repository and a clone inside another checkout, each with a matching `origin`, not found; a link not followed; a hidden folder passed over; a candidate Git can't read left out, with its terminal line once per run; a rewritten `origin` URL matched; two checkouts, one beside, asked about.
+- **No permission prompt (AC-FIND-05):** a temporary home holding every guarded folder name, each with a matching checkout: none is found, and the walk's record of folders listed holds nothing under them. On macOS, one run of the real search against the real home folder with the system log's privacy subsystem read a few seconds afterwards, once the log has flushed, showing no access request during the search from any folder-guarding service whose accessing process is the search's own. The write-up says whether the terminal holds Full Disk Access, since the check is proven with per-folder grants only. If that log can't be read, the write-up says the list's completeness rests on documentation.
+- **Asking before Start:** each answer check's message; an accepted answer used by a second PRD without asking; a remembered folder that later fails, forgotten and searched for again; a store file that can't be parsed, deleted with its line; a newer one left in place with its line once per run; Change keeping and replacing an answer; Start refused while a row asks; another start check failing alongside a question.
+- **After Start:** a session's request ending in each question; the request shown on that phase's next stop, below its first card, and dropped once answered; the plan stop's answer adding the repository and starting the phase; Check again after a clone appears; `kiln locate-repository` at each eligibility and outcome, replayed by command id, and refused as stale; `kiln status --json` with a stop's `locate[]`, the `locate-repository` control and labels beside names, its existing fields unchanged; a continuation and a base-branch start leaving out a repository that asks, then asked about at the stop before its phase; a repository the continuation's preparation reads staying a problem until Check again finds it.
 - **Folders and labels:** a clash at Start, a clash from a later addition, a clash with the PRD's repository, and the label changing on earlier phases' rows.
 - **Underway PRDs:** a schema 24 record from each state reads as 25 and renders as before.
 - **The view:** the eight drawn states rendered from fixture snapshots and compared, as earlier changes do.
@@ -343,16 +381,12 @@ As the designs before it: real temporary Git repositories with local bare reposi
 | AC-NAME-01, AC-NAME-02 | Names |
 | AC-FIND-01 to AC-FIND-05 | Finding a Checkout; The search |
 | AC-ASK-01 to AC-ASK-05 | Asking Before Start; The answer; Data Models |
-| AC-ASK-06, AC-ASK-07 | After Start; Interfaces |
-| AC-SESSION-01 | A session's request |
-| AC-FOLDER-01, AC-FOLDER-02 | Worktree Folders and Labels |
-| AC-SEE-01 to AC-SEE-03 | Asking Before Start; Snapshot; Command line; Screens |
+| AC-ASK-06, AC-ASK-07 | After Start; A continuation and a base-branch start; Interfaces; `kiln status --json` |
+| AC-SESSION-01 | A session's request; HTTP |
+| AC-FOLDER-01, AC-FOLDER-02 | Worktree Folders and Labels; Snapshot; `kiln status --json` |
+| AC-SEE-01 to AC-SEE-03 | Asking Before Start; The stops that ask; Snapshot; Command line; Screens |
 | AC-SPLIT-01, AC-SPLIT-02 | The Enso Method's `phase-split` |
 
 ## Open Questions
 
-- **The PRD's repository's short name.** The PRD defines a short name as the last part of the address path, or the folder name when the plan names the repository by folder name. This design keeps the PRD's repository's folder name in every case, and keeps it when another repository shares it, where AC-FOLDER-01 read to the letter gives both the whole-path form. The refinement should confirm the reading or have the PRD say it.
-- **AC-ASK-07's second case and the stop pages other changes define.** It adds a question to stops that Kiln run restart (AC-CASE-01) and Kiln needs-you handoff lay out, and the PRD carries no `Replaces in part:` line for them. The refinement's conflict check should look at both.
-- **The macOS guarded-folder list** is from documentation. The build's log check either confirms it or names what to add.
-- **A continuation's readiness check and the Folder missing setup panel when a name ends in a question.** Both find repositories a plan names that the record doesn't hold, and today list a folder name not found beside the PRD's repository as a problem. AC-ASK-07 limits asking after Start to a phase's Needs you stops, but the Folder missing panel is "a deliberate setup like a first Start". The refinement should settle, from the PRD and the two changes that own these pages, whether each lists the question as a problem (answered at the stop before the phase that names the repository) or asks it on the page.
-- **The example in the path-on-one-computer problem.** Mockup state 6 shows `such as acme-labs/storefront`, the named folder's own repository, where this design gives the PRD's repository's address path. If the drawing's reading is meant, Kiln has to read the named folder's `origin`, and a path that isn't a readable checkout needs its own wording.
+None.

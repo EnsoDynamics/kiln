@@ -29,39 +29,7 @@ The decisions made on 2026-11-21 are in the PRD as requirements and are not aske
 
 ## Decided by the Project Team
 
-> The team has made each call below and is building on it, because it is our reading of the decisions of 2026-11-21 or of earlier rulings, or is easy to change after release. None waits on an answer. Each is still the business's to correct: tick Wrong and say what instead.
-
-### ASK-003. When a session asks for a repository Kiln can't find, does Kiln ask you about it if that phase later stops at Needs you?
-
-**Assumption**: Yes: Kiln **keeps the session's refused request with its phase**. If that phase later **stops at Needs you for any reason**, the stop also asks where the repository is, with Documents found's question and words (PRD AC-ASK-07). The answer is remembered on this computer, so the session's next request **succeeds once the phase resumes**. The phase **never stops for the request alone**: the session is told, and carries on or ends as it judges (AC-SESSION-01).
-
-**If the phase finishes without a stop, nobody is asked.** The session closed its phase without the repository, and the phase passed Kiln's done check. Whatever it wanted the repository for is **left undone**. Kiln catches that only when it is part of an acceptance criterion: once every planned phase is closed, the delivery audit finds the criterion unbuilt and adds a phase for it, whose stop asks if that phase names the repository. Otherwise Kiln doesn't flag it.
-
-**If they choose otherwise**:
-- **Never ask**: the stop shows only what it shows today. You can read the session's words about the repository, but have **no place to tell Kiln** where it is. You clone it where the search reaches, or name it in a later phase document, whose stop asks.
-- **Pause at once**: the phase stops at Needs you with the question as soon as the request fails, so a run left overnight **waits there until morning**. A phase can never close without the repository unnoticed.
-
-**Example**: You leave a run overnight. In phase 3, Returns dashboard, the session runs `kiln add-repository acme-labs/ledger` at 1:40 AM. Its only checkout is at `/Volumes/work/ledger`, outside the search, so Kiln tells the session it couldn't find it. The session can't finish without it and ends at 2:15 AM with a question.
-- As proposed: in the morning, "Phase 3 needs your input." shows, above the session's question and the reply box, "Kiln couldn't find a checkout of acme-labs/ledger. It searched outward from ~/code/acme/, never above your home folder." and a folder field. You give `/Volumes/work/ledger`, reply and resume, and the session's next request adds it.
-- Never ask: the same page shows the session's question and the reply box only.
-- Pause at once: at 1:40 AM phase 3 stops at Needs you with that question and folder field, and the run waits there until morning.
-
-**Evidence**:
-- Your decision of 2026-11-21: "When the search finds nothing, Kiln asks once." A session's request runs the same search, and this asks at a stop the run reaches anyway, adding no pause.
-- **For never asking**: the same decision says "The start checks ask the person", and lists only start-check screens to draw. If it meant the start checks only, never asking is the answer.
-- Rare: in 186 recorded sessions on one computer, none asked for a repository with `kiln add-repository`. Either answer costs little.
-
-**Confirm or Correct**:
-- [ ] Correct — ask at the phase's next Needs you stop, if it reaches one; never stop the phase for the request
-- [ ] Wrong — never ask; the session is told and nobody else is
-- [ ] Wrong — stop the phase at Needs you as soon as a session asks for a repository Kiln can't find
-- [ ] Wrong — different approach: _______________
-
-**Researched**: 2026-11-21, second pass; the 2026-11-21 decision, multi-repo delivery's PRD and register, the Needs you criteria of every other Kiln change, Kiln's plan stop and Check again, Build Preflight and handoff rulings, the session prompts, how a refused request is handled today, run restart's and handoff's stop pages, every Kiln assumptions register, Kiln's recorded sessions on one computer. One avenue is left: whether a delivery audit's completion phase would name the repository, so that its stop asks under either answer.
-
-**Confidence**: 70% | **Impact**: 🟡 MEDIUM
-
----
+> The team has made the call below and is building on it, because it is our reading of the decisions of 2026-11-21. It waits on no answer. It is still the business's to correct: tick Wrong and say what instead.
 
 ### ASK-004. When one checkout sits beside the PRD's repository and another is farther out, does Kiln still ask which to use?
 
@@ -76,6 +44,7 @@ The decisions made on 2026-11-21 are in the PRD as requirements and are not aske
 **Evidence**:
 - **For asking**: your decision of 2026-11-21: "When it finds two checkouts of one repository it asks instead of guessing." It names no distance.
 - **For using the one beside**: the same decision says Kiln looks "beside it first, as today", and before this change a checkout beside the PRD's repository is used without a question.
+  - Under the proposed answer the search covers the whole limit every time, so the decision's "beside it first, then outward one parent folder at a time" no longer orders anything; the alternative gives that clause a meaning.
 - **What asking costs**: one question per computer, on Documents found. Until it is answered, a session's request for that repository mid-phase is refused (AC-SESSION-01), and a phase that comes to name it after Start, through a plan edit or a split, stops at Needs you (AC-ASK-07), so an unattended run waits where under the alternative it would go on. Plans that name a repository by folder name never search (AC-FIND-04), so they keep working under both answers.
 - **What a wrong silent pick costs**: little, and the case is rare (one such pair among 302 checkouts on one computer). Both checkouts have the same `origin`, and the feature branch starts from the base branch there, so the same code is built; only the worktree belongs to the old clone.
 
@@ -87,35 +56,6 @@ The decisions made on 2026-11-21 are in the PRD as requirements and are not aske
 **Researched**: 2026-11-21, second pass; the 2026-11-21 decision, multi-repo delivery's PRD and register, Kiln's earlier rulings on asking and guessing, Kiln's start checks, a count of the checkouts on one computer, how Git, Node and Cargo choose among matches. A third pass has nothing new to look for: the answer turns on what the 2026-11-21 decision meant.
 
 **Confidence**: 65% | **Impact**: 🟢 LOW
-
----
-
-### ASK-002. When can you change the folder Kiln remembers for a repository?
-
-**Assumption**: Only before Start. On Documents found, a repository whose checkout came from a remembered answer **says so and offers Change**, which asks again and **updates the answer remembered on this computer**. Once Kiln has set a repository up for a PRD, **its checkout is fixed for that PRD**, as its base branch is. A changed answer reaches only repositories set up after it, in that PRD or any other. After Start, the only way to move a PRD to another clone is **Reset Kiln for this PRD**, which leaves the remembered answer alone.
-
-**If they choose otherwise**:
-- **Never**: there is no Change. A remembered answer stays until its folder no longer holds that repository, so to point Kiln elsewhere you move or delete the folder it remembers, and it asks again (AC-ASK-04).
-- **After Start too**: the settings page while Kiln works offers Change as well. Picking another clone mid-run makes a new worktree of the feature branch there from what is pushed to `origin`. Earlier phases' work is pushed, so it carries over; anything the current phase hasn't pushed stays in the old clone's worktree.
-
-**Example**: Last week you told Kiln that `acme-labs/storefront` is at `/Volumes/work/storefront`. Since then you cloned it again at `~/code/acme-labs/storefront`. Today a new PRD's Documents found still reads "You told Kiln where this is · Change" on that row (mockup section 4).
-- As proposed: before Start, Change lets you give `~/code/acme-labs/storefront` instead. After Start, the row has no Change.
-- Never: the row has no Change. To use the new clone, you first move or delete `/Volumes/work/storefront`.
-- After Start too: during phase 3 of 6, you pick `~/code/acme-labs/storefront` on the settings page, and phase 4 runs in a new worktree there, with phases 1 to 3's pushed commits.
-
-**Evidence**:
-- The base branch and the workspace folder work the same way: chosen on Documents found, fixed once Kiln sets them up.
-- This is Kiln's **first remembered choice that spans PRDs**. On 2026-10-30 you had a remembered early-merge permission removed and kept it "scoped to the current PRD"; Change keeps this one easy to undo.
-
-**Confirm or Correct**:
-- [ ] Correct — only before Start, on Documents found; fixed for a PRD once set up
-- [ ] Wrong — never: no Change; the answer stays until its folder no longer holds that repository
-- [ ] Wrong — also after Start, moving the PRD to a new worktree in the other clone
-- [ ] Wrong — different approach: _______________
-
-**Researched**: 2026-11-21; the 2026-11-21 decision, multi-repo delivery's PRD, design and register, missing-worktree recovery and run restart, Kiln's saved-worktree checks, the development-deployments rulings, GitHub Desktop.
-
-**Confidence**: 85% | **Impact**: 🟢 LOW
 
 ---
 
@@ -133,3 +73,5 @@ The decisions made on 2026-11-21 are in the PRD as requirements and are not aske
 | NAME-001 | A phase names a repository by its address path alone; the host goes in front only when two of the PRD's repositories share a path on different hosts | Written up 2026-11-21 | One sensible answer given the 2026-11-21 decisions: naming isn't tied to one host, and nothing about one computer goes in a committed document, while a host read from a checkout can be one computer's SSH alias (`git@github-work:acme-labs/admin.git`). Always writing the host lost on both counts. When a path alone matches checkouts on two hosts on one computer, Kiln asks which (AC-ASK-02). PRD AC-NAME-01, AC-SPLIT-02. |
 | NAME-001 (part) | How a name with its host in front is written | Written up 2026-11-21 | PRD AC-SPLIT-02, since the method owns the line it writes; Kiln reads it (AC-NAME-01). The host's real name, a colon, then the path: `git.example.com:platform/billing`, the way Git itself puts a host before a path; no address path holds a colon. A slash, `git.example.com/platform/billing`, as Go's tools and GitHub's `gh` write it, tells a host from a group by the dot in its first part, and GitLab allows a dot in a group or user name (`backend.services`, GitLab's documentation on allowed path characters, read 2026-11-21), so a slash could not always be told from a path. |
 | ASK-003 (part) | The stop before a phase asks where a repository is on the page, with Documents found's question and words | Written up 2026-11-21 | One sensible answer given the owner's rulings: Needs you asks "with the same wording and disclosure as setup" (2026-10-26), and recovering a missing folder is "a deliberate setup like a first Start", in the first-Start words (2026-11-06). A stop that showed only a command could not be answered from the page. PRD AC-ASK-07, its command AC-ASK-06. |
+| ASK-003 | When a session asks for a repository Kiln can't find, the phase's next Needs you stop, if it reaches one, also asks where it is; the phase never stops for the request alone | Written up 2026-11-22 | One sensible answer: the question goes on a Needs you stop the run makes anyway, so it adds no pause, and without it the person has no place on the stop to tell Kiln where the repository is. Stopping the phase as soon as a session's request fails is ruled out by multi-repo delivery's AC-ADD-01 ("the phase doesn't stop"), which rests on that change's REPO-002; whether a session's request should ever stop a phase is REPO-002's question, not this one. A phase that finishes without a stop asks nobody; a delivery audit catches what the repository was wanted for only when it is part of an acceptance criterion. PRD AC-ASK-07 (second case), AC-SESSION-01. |
+| ASK-002 | A remembered folder can be changed only before Start, on Documents found; once Kiln sets a repository up for a PRD, its checkout is fixed for that PRD | Written up 2026-11-22 | One sensible answer, following the pattern the base branch and workspace folder already follow: chosen on Documents found, fixed once Kiln sets the repository up. Change before Start keeps Kiln's first remembered choice that spans PRDs easy to undo, in line with the owner's 2026-10-30 ruling that kept a remembered permission scoped to one PRD. "Never" would force moving or deleting a folder just to change an answer; after Start, Reset Kiln for this PRD already moves a PRD to another clone. PRD AC-ASK-05. |
