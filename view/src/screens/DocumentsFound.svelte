@@ -46,7 +46,7 @@
     prdLine,
     startState,
   } from "../lib/documents-found.js";
-  import { addedLabel, countWord } from "../lib/progress.js";
+  import { addedLabel, countWord, repositoryLabel } from "../lib/progress.js";
   import AuditLoopSettings from "../components/AuditLoopSettings.svelte";
   import { shownLoopSettings } from "../lib/audit-loops.js";
 
@@ -296,7 +296,7 @@
           {/if}
           {#if settings.fieldErrors.workspaceFolder}<span class="message">{settings.fieldErrors.workspaceFolder}</span>{/if}
           {#if existing && startFrom?.workspaceFolder}
-            <span class="help">The branch's worktrees are in this folder, so Kiln works here: {startFrom.repositories.filter((repository) => repository.worktree).map((repository) => `${snapshot.repositories.find((row) => row.name === repository.name)?.label ?? repository.name} with ${repository.worktree!.uncommittedFiles === undefined ? "an unknown number of" : repository.worktree!.uncommittedFiles === 0 ? "no" : repository.worktree!.uncommittedFiles} uncommitted ${repository.worktree!.uncommittedFiles === 1 ? "file" : "files"}`).join(", ")}. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+            <span class="help">The branch's worktrees are in this folder, so Kiln works here: {startFrom.repositories.filter((repository) => repository.worktree).map((repository) => `${repositoryLabel(snapshot, repository.name)} with ${repository.worktree!.uncommittedFiles === undefined ? "an unknown number of" : repository.worktree!.uncommittedFiles === 0 ? "no" : repository.worktree!.uncommittedFiles} uncommitted ${repository.worktree!.uncommittedFiles === 1 ? "file" : "files"}`).join(", ")}. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
           {:else}
             <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
           {/if}
@@ -448,7 +448,7 @@
         {#if multi}
           {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code nowrap">{settings.featureBranch}</span> up to date with each repository’s base where offered, as ticked above</span></li>{/if}
           <li>{@render check(14, true)}<span>In each repository, commit and push to <span class="mono code nowrap">{settings.featureBranch}</span></span></li>
-          {#if existing}{#each startFrom?.repositories.filter((repository) => repository.pullRequest) ?? [] as repository (repository.name)}<li>{@render check(14, true)}<span>{#if repository.pullRequest && "number" in repository.pullRequest}In <span class="mono code">{snapshot.repositories.find((row) => row.name === repository.name)?.label ?? repository.name}</span>, use its open pull request <a href={repository.pullRequest.url}>#{repository.pullRequest.number}</a>{:else}In <span class="mono code">{snapshot.repositories.find((row) => row.name === repository.name)?.label ?? repository.name}</span>: {repository.pullRequest && "unknown" in repository.pullRequest ? repository.pullRequest.unknown : ""}{/if}</span></li>{/each}{/if}
+          {#if existing}{#each startFrom?.repositories.filter((repository) => repository.pullRequest) ?? [] as repository (repository.name)}<li>{@render check(14, true)}<span>{#if repository.pullRequest && "number" in repository.pullRequest}In <span class="mono code">{repositoryLabel(snapshot, repository.name)}</span>, use its open pull request <a href={repository.pullRequest.url}>#{repository.pullRequest.number}</a>{:else}In <span class="mono code">{repositoryLabel(snapshot, repository.name)}</span>: {repository.pullRequest && "unknown" in repository.pullRequest ? repository.pullRequest.unknown : ""}{/if}</span></li>{/each}{/if}
           <li>{@render check(14, true)}<span>{settings.developmentDeployments?.enabled ? "Early merges may happen on approved repository branches; remaining work stays open for review" : "In each repository, open one pull request into its base branch once every phase closes"}</span></li>
         {:else}
           {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code">{settings.featureBranch}</span> up to date with <span class="mono code">{offer.repositories[0]!.base}</span>, as ticked above</span></li>{/if}

@@ -329,6 +329,11 @@ export function commitsByRepository(snapshot: Snapshot, repositories: { name: st
   });
 }
 
+/** What a repository is shown by: its label, once another of the PRD's repositories shares its short name (find repositories anywhere AC-FOLDER-02). */
+export function repositoryLabel(snapshot: Snapshot, name: string): string {
+  return snapshot.repositories.find((row) => row.name === name)?.label ?? name;
+}
+
 /** "added in phase 2b" (multi-repo AC-ADD-03). */
 export function addedLabel(phaseId: string): string {
   return `added in phase ${phaseId}`;

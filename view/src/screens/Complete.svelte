@@ -18,7 +18,7 @@
   import PhasePlan from "../components/PhasePlan.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import { deliveryGroups, deliveryTime } from "../lib/delivery-history.js";
-  import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
+  import { addedLabel, folderShown, repositoriesLine, repositoryLabel } from "../lib/progress.js";
 
   let { snapshot, connected, now, lastSeenAt, config }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined; config?: import("../lib/api.js").PageConfig } = $props();
   const multi = $derived(snapshot.feature.multiRepository);
@@ -32,8 +32,7 @@
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
   const number = (value: number) => value.toLocaleString("en-US");
   const commitCount = (pullRequest: PullRequestFacts) => `${pullRequest.commits >= 100 ? "100+" : number(pullRequest.commits)} ${pullRequest.commits === 1 ? "commit" : "commits"}`;
-  /** What a repository is shown by: its label, once another of the PRD's repositories shares its short name (find repositories anywhere AC-FOLDER-02). */
-  const labelOf = (repository: string) => snapshot.repositories.find((row) => row.name === repository)?.label ?? repository;
+  const labelOf = (repository: string) => repositoryLabel(snapshot, repository);
   const tagFor = (repository: string) => {
     if (repository === snapshot.feature.repositoryName) return "PRD’s repository";
     const added = snapshot.repositories.find((row) => row.name === repository)?.addedInPhase;
