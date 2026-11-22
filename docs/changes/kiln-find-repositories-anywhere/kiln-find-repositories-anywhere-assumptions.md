@@ -23,6 +23,8 @@
 
 **Document Purpose**: This document lists the assumptions we're making to proceed with [Kiln Find Repositories Anywhere](kiln-find-repositories-anywhere-prd.md). We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong. Every numbered entry is a business assumption.
 
+**Technical details** are documented in the [Technical Design Document](technical-design.md).
+
 The decisions made on 2026-11-21 are in the PRD as requirements and are not asked again here: a repository is named by the path in its remote address, Kiln matches a checkout by its `origin`, no setting says where repositories are kept, Kiln asks once and remembers on one computer, when it finds two checkouts of one repository it asks, and plans that use folder names keep working. ASK-004 checks our reading of one of them.
 
 ---
@@ -53,7 +55,7 @@ The decisions made on 2026-11-21 are in the PRD as requirements and are not aske
 - [ ] Wrong — use the one beside, as before this change; ask only when none is beside
 - [ ] Wrong — different approach: _______________
 
-**Researched**: 2026-11-21, second pass; the 2026-11-21 decision, multi-repo delivery's PRD and register, Kiln's earlier rulings on asking and guessing, Kiln's start checks, a count of the checkouts on one computer, how Git, Node and Cargo choose among matches. A third pass has nothing new to look for: the answer turns on what the 2026-11-21 decision meant.
+**Researched**: 2026-11-21; second pass: the 2026-11-21 decision, multi-repo delivery's PRD and register, Kiln's earlier rulings on asking and guessing, Kiln's start checks, a count of the checkouts on one computer, how Git, Node and Cargo choose among matches. A third pass has nothing new to look for: the answer turns on what the 2026-11-21 decision meant.
 
 **Confidence**: 65% | **Impact**: 🟢 LOW
 
