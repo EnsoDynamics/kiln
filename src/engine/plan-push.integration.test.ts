@@ -137,7 +137,7 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     const call = pushCalls()[0]!;
     expect(call.cwd).toBe(h!.repository);
     expect(call.args).not.toContain("--add-dir");
-    for (const line of ["Work only in the main checkout", `- ${tip.slice(0, 7)} docs(comet): add lending`, "push nothing and end there", "Push with a plain `git push origin develop`. Never force-push.", "Never stash, commit, change or discard uncommitted work", "abort the merge (`git merge --abort`)", "No reply permits a forced push or touching uncommitted work."]) expect(call.prompt).toContain(line);
+    for (const line of ["Work only in the main checkout", `- ${tip.slice(0, 7)} docs(comet): add lending`, "push nothing and end there", "Push with a plain `git push origin develop`. Never force-push.", "Never stash, commit, change or discard uncommitted work", "abort the merge (`git merge --abort`)", "No reply permits a forced push or touching uncommitted work.", "end there, naming the documents and what needs deciding.", "If the push is refused, by branch protection or a repository hook, end there with the refusal word for word.", "If a commit above touches anything but this PRD's documents, push nothing and end there. Your last message names those commits, with their subjects, and says nothing was pushed."]) expect(call.prompt).toContain(line);
     expect(remoteHead()).toBe(tip);
     expect(readFileSync(join(h!.repository, "scratch.txt"), "utf8")).toBe("uncommitted, not Kiln's\n");
 
@@ -190,6 +190,10 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     const message = "develop on this machine holds another commit that would be pushed along, c93e1b4 “wip: gift card copy”. Nothing was pushed. Reply to push it too, and the session pushes it with the plan.";
     await finished([stopping(message), pushing(), building]);
     writeFileSync(join(h!.repository, "gift-cards.txt"), "copy\n"); git(h!.sandbox, h!.repository, "add", "gift-cards.txt"); git(h!.sandbox, h!.repository, "commit", "-qm", "wip: gift card copy");
+    // An uncommitted edit to this PRD's own document, made before the press (AC-BACK-03).
+    const prdDocument = join(h!.repository, directory, "comet-prd.md");
+    const edited = `${readFileSync(prdDocument, "utf8")}\n- [ ] **AC-COMET-02** Draft, not committed.\n`;
+    writeFileSync(prdDocument, edited);
     const proposal = await offer();
     expect(proposal.commits?.map(commit => commit.onlyDocuments)).toEqual([true, false]);
     const before = remoteHead();
@@ -226,9 +230,84 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     // The resume went to the same session with the reply first and the push session's carry-on (AC-MERGE-06).
     const resumed = h!.claudeCalls().find(call => call.prompt.includes("Carry on pushing this PRD's documents"))!;
     expect(resumed.prompt).toContain("Push it too.");
+    // Whatever the reply says, the resumed session is told again that the first message's rules on force-pushing and uncommitted work still apply, and the uncommitted edit is untouched (AC-BACK-03).
+    expect(resumed.prompt).toContain("Everything in the first message still applies");
+    expect(resumed.prompt).toContain("never force-push, never stash, commit, change or discard uncommitted work");
+    expect(readFileSync(prdDocument, "utf8")).toBe(edited);
+    expect(git(h!.sandbox, h!.repository, "status", "--porcelain", "--", join(directory, "comet-prd.md")).trim()).toBe(`M ${directory}/comet-prd.md`);
     expect(resumed.args).toContain("--resume"); expect(resumed.args).toContain(stopped.sessionId);
     expect(resumed.cwd).toBe(h!.repository);
     expect(remoteHead()).toBe(git(h!.sandbox, h!.repository, "rev-parse", "develop").trim());
+  });
+
+  it("stops at Needs you with the refusal word for word when origin's hook refuses the push, origin unchanged (AC-BACK-05)", async () => {
+    const refusal = "remote: develop is protected: pushes need a reviewed pull request";
+    // The push session pushes for real and the origin's pre-receive hook refuses; its last message quotes the refusal.
+    await finished([{ actions: [{ bash: "git push -q origin develop" }, { result: `The push was refused: ${refusal}. Nothing was pushed.` }, { exit: 0 }] }]);
+    writeFileSync(join(h!.origin, "hooks", "pre-receive"), `#!/bin/sh\necho "develop is protected: pushes need a reviewed pull request" >&2\nexit 1\n`, { mode: 0o755 });
+    const proposal = await offer();
+    const before = remoteHead();
+    const key = ((await pressContinue(proposal.id)) as { planPush: string }).planPush;
+    await waitFor(() => h!.engine.stoppedPhaseKey() === key);
+    expect(remoteHead()).toBe(before);
+    expect(localHead()).not.toBe(before);
+    const page = buildSnapshot(h!.engine);
+    expect(page.feature.state).toBe("needs_you");
+    expect(page.needsYou).toMatchObject({ phaseId: key, kind: "plan_push_check", finalMessage: `The push was refused: ${refusal}. Nothing was pushed.` });
+    expect(h!.engine.record.continuation?.acceptances ?? []).toEqual([]);
+    expect(buildCalls()).toEqual([]);
+  });
+
+  it("shows the offer with the readiness results that keep Continue unavailable when origin gained a blocking change, starting nothing (AC-BACK-05)", async () => {
+    const gate = join(tmpdir(), `kiln-push-gate-${process.pid}-${Date.now()}`);
+    await finished([pushing([{ waitForFile: gate }, { bash: "git pull -q --no-rebase --no-edit origin develop" }])]);
+    const proposal = await offer();
+    expect(proposal.readiness).toBe("ready");
+    const finishedExecution = h!.engine.record.executionId!;
+    await pressContinue(proposal.id);
+    await waitFor(() => pushCalls().length === 1);
+    // While the push session works, someone pushes phase 10, which names a repository this machine doesn't have.
+    const elsewhere = join(h!.sandbox.root, "elsewhere");
+    git(h!.sandbox, h!.sandbox.root, "clone", "-q", "-b", "develop", h!.origin, elsewhere);
+    writeFileSync(join(elsewhere, directory, "phase-10-reservations.md"), reservations.replace("## Acceptance criteria covered", "**Repositories:** lending-api\n\n## Acceptance criteria covered"));
+    git(h!.sandbox, elsewhere, "add", "-A"); git(h!.sandbox, elsewhere, "commit", "-qm", "docs(comet): add reservations"); git(h!.sandbox, elsewhere, "push", "-q", "origin", "develop");
+    writeFileSync(gate, "");
+    await waitFor(() => !!h!.engine.record.afterDelivery?.planPushes?.[0]?.closedAt);
+    await h!.engine.settled();
+    expect(h!.engine.record.executionId).toBe(finishedExecution);
+    expect(h!.engine.record.continuation?.acceptances ?? []).toEqual([]);
+    const check = h!.engine.record.completedPlanCheck!;
+    expect(check).toMatchObject({ status: "blocked", result: { source: { kind: "remote_base" }, added: [{ id: "9" }, { id: "10" }] } });
+    expect(check.result?.proposal?.readiness).toBe("blocked");
+    expect(check.result?.proposal?.problems).toEqual([expect.stringContaining("names lending-api, which isn’t in ")]);
+    expect(h!.engine.newPhaseControls().find(one => one.name === "continue-with-phases")).toMatchObject({ available: false, reason: expect.stringContaining("The offer to continue isn't ready: ") });
+    expect(buildCalls()).toEqual([]);
+    expect(buildSnapshot(h!.engine).feature.state).toBe("complete");
+  });
+
+  it("shows what could not be checked when the check after the push fails, starting nothing (AC-BACK-05)", async () => {
+    const gate = join(tmpdir(), `kiln-push-gate-${process.pid}-${Date.now()}`);
+    await finished([pushing([{ waitForFile: gate }, { bash: "git pull -q --no-rebase --no-edit origin develop" }])]);
+    const proposal = await offer();
+    const finishedExecution = h!.engine.record.executionId!;
+    await pressContinue(proposal.id);
+    await waitFor(() => pushCalls().length === 1);
+    // While the push session works, someone pushes a phase document no plan lists, so the plan after the push can't be read.
+    const elsewhere = join(h!.sandbox.root, "elsewhere");
+    git(h!.sandbox, h!.sandbox.root, "clone", "-q", "-b", "develop", h!.origin, elsewhere);
+    writeFileSync(join(elsewhere, directory, "phase-1a-catalog-fixes.md"), "# Phase 1a: Catalog fixes\n\n## Acceptance criteria covered\nAC-COMET-01\n");
+    git(h!.sandbox, elsewhere, "add", "-A"); git(h!.sandbox, elsewhere, "commit", "-qm", "docs(comet): add catalog fixes"); git(h!.sandbox, elsewhere, "push", "-q", "origin", "develop");
+    writeFileSync(gate, "");
+    await waitFor(() => !!h!.engine.record.afterDelivery?.planPushes?.[0]?.closedAt);
+    await h!.engine.settled();
+    expect(remoteHead()).toBe(localHead());
+    expect(h!.engine.record.afterDelivery!.planPushes![0]!.doneAt).toEqual(expect.any(String));
+    expect(h!.engine.record.executionId).toBe(finishedExecution);
+    expect(h!.engine.record.continuation?.acceptances ?? []).toEqual([]);
+    expect(h!.engine.record.completedPlanCheck).toMatchObject({ status: "failed", errors: ["phase-1a-catalog-fixes.md is phase 1a, but phase-1-catalog.md doesn't list it under ## Split into."] });
+    expect(h!.engine.newPhaseControls().find(one => one.name === "continue-with-phases")?.available).toBe(false);
+    expect(buildCalls()).toEqual([]);
+    expect(buildSnapshot(h!.engine).feature.state).toBe("complete");
   });
 
   it("is Done when the person pushes by hand during a stop: Check again starts the build without resuming", async () => {

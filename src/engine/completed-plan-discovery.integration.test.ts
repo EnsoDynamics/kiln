@@ -135,8 +135,31 @@ it("reads the main checkout's committed plan only when it holds unfinished phase
   expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { source: { kind: "remote_base", revision: tip }, added: [{ id: "9" }] } });
   expect(h.claudeCalls()).toEqual([]);
 });
+it("reads the remote base for a diverged main checkout, and finds phases only the remote base holds once they are pushed (AC-BACK-03)", async () => {
+  await fixture();
+  // Someone else pushes to develop from a second clone; this machine's develop holds a different, non-document commit.
+  const elsewhere = join(h.sandbox.root, "elsewhere");
+  git(h.sandbox, h.sandbox.root, "clone", "-q", "-b", "develop", h.origin, elsewhere);
+  writeFileSync(join(elsewhere, "remote.txt"), "remote\n"); git(h.sandbox, elsewhere, "add", "-A"); git(h.sandbox, elsewhere, "commit", "-qm", "chore: remote note"); git(h.sandbox, elsewhere, "push", "-q", "origin", "develop");
+  const remoteTip = git(h.sandbox, elsewhere, "rev-parse", "HEAD").trim();
+  writeFileSync(join(h.repository, "notes.txt"), "local\n"); git(h.sandbox, h.repository, "add", "notes.txt"); git(h.sandbox, h.repository, "commit", "-qm", "chore: local note");
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "unchanged", result: { source: { kind: "remote_base", branch: "develop", revision: remoteTip }, added: [] } });
+  // Phase 10 reaches origin from the second clone; this machine then commits phase 9 without pulling.
+  writeFileSync(join(elsewhere, directory, "phase-10-reservations.md"), "# Phase 10: Reservations\n\n## Acceptance criteria covered\nAC-COMET-01\n\n## Phase dependencies\n1.\n");
+  git(h.sandbox, elsewhere, "add", "-A"); git(h.sandbox, elsewhere, "commit", "-qm", "docs(comet): add reservations"); git(h.sandbox, elsewhere, "push", "-q", "origin", "develop");
+  add(); git(h.sandbox, h.repository, "add", directory); git(h.sandbox, h.repository, "commit", "-qm", "docs(comet): add lending");
+  const tip = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+  const check = await h.engine.checkCompletedPlan();
+  // The main checkout's committed copy is read: phase 9 alone, phase 10 waits for Continue's push.
+  expect(check).toMatchObject({ status: "available", result: { source: { kind: "main_checkout", branch: "develop", revision: tip } } });
+  expect(check.result!.added.map(p => p.id)).toEqual(["9"]);
+  expect(h.claudeCalls()).toEqual([]);
+});
 it("fails the check when the main checkout is not at its path, and reads a fresh clone of the same repository there (AC-BACK-03)", async () => {
   await fixture(); add(); publish();
+  // An offer that Continue could build, before the checkout moves.
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { added: [{ id: "9" }] } });
+  expect(h.engine.newPhaseControls().find(control => control.name === "continue-with-phases")?.available).toBe(true);
   const moved = join(h.sandbox.root, "moved-checkout");
   renameSync(h.repository, moved);
   const nothing = await h.engine.checkCompletedPlan();
@@ -161,6 +184,8 @@ it("fails the check when the main checkout is not at its path, and reads a fresh
   git(h.sandbox, h.repository, "config", `url.${h.origin}.insteadOf`, "https://github.com/acme/acme-shop.git");
   git(h.sandbox, h.repository, "remote", "set-url", "origin", "https://github.com/acme/acme-shop.git");
   expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { added: [{ id: "9" }] } });
+  // Continue is available again once the checkout is back and the check succeeded.
+  expect(h.engine.newPhaseControls().find(control => control.name === "continue-with-phases")?.available).toBe(true);
   expect(h.claudeCalls()).toEqual([]);
 });
 it("preserves an earlier successful result after invalid plans and a checkout whose origin changed", async () => {

@@ -468,6 +468,40 @@ describe("a delivery of two pull requests (AC-MERGE-01, AC-MERGE-02, AC-MERGE-04
     expect(buildSnapshot(h!.engine).phases.at(-1)!.file).toMatch(/merged acme-api #57 and acme-shop #218 into develop$/);
   });
 
+  it("stops at the first pull request the session cannot merge: the one after stays open, the last message is shown word for word, never Merged, and the resume keeps the first message's limits (AC-MERGE-03)", async () => {
+    const message = "Merged acme-shop #218. acme-api #57 is not merged: its required check unit-tests is failing after my fix, so I stopped there.";
+    await finished([{ actions: [mergeShop, { result: message }, { exit: 0 }] }, stopping("Still failing.")]);
+    withApi();
+    views({ state: "open", body: "Merge order: 1 of 2" }, { state: "open", body: "Merge order: 2 of 2" });
+    expect((await h!.engine.checkCompletedPlan()).status).toBe("awaiting_merge");
+    const apiBase = git(h!.sandbox, h!.engine.record.repositories.find(row => row.name === "acme-api")!.mainCheckoutPath, "ls-remote", "origin", "refs/heads/develop").split("\t")[0];
+    expect(await control("merge")).toMatchObject({ state: "completed", outcome: "merge_started" });
+    await h!.engine.settled();
+    // The session merged #218 and ended at #57; GitHub still shows #57 open, so Kiln stops at Needs you.
+    expect(h!.engine.stoppedPhaseKey()).toBe(MERGE_KEY);
+    const stop = buildSnapshot(h!.engine).needsYou!;
+    expect(stop).toMatchObject({ phaseId: MERGE_KEY, kind: "merge_check", finalMessage: message, resumeOffered: true });
+    expect(stop.checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: "acme-api #57", passed: false })]));
+    // Never Merged on the session's word: no close, no summary, the card's merge stopped, #57 open and its base unmoved.
+    expect(h!.engine.record.afterDelivery!.merge!.closedAt).toBeUndefined();
+    expect(h!.engine.record.afterDelivery!.merge!.summary).toBeUndefined();
+    const card = buildSnapshot(h!.engine).afterDelivery!;
+    expect(card.merge?.state).toBe("stopped");
+    expect(card.pullRequests.map(row => [row.repository, row.state])).toEqual([["acme-shop", "merged"], ["acme-api", "open"]]);
+    expect(git(h!.sandbox, h!.engine.record.repositories.find(row => row.name === "acme-api")!.mainCheckoutPath, "ls-remote", "origin", "refs/heads/develop").split("\t")[0]).toBe(apiBase);
+    // A reply resumes the same session, which is told again that the first message's limits still apply, with no --admin.
+    expect(await control("reply", { message: "Merge #57 anyway." })).toMatchObject({ state: "completed" });
+    await h!.engine.settled();
+    const resumed = h!.claudeCalls().at(-1)!;
+    expect(resumed.prompt).toContain("Merge #57 anyway.");
+    expect(resumed.prompt).toContain("Everything in the first message still applies: the same order, what you may and may not do");
+    expect(resumed.prompt).toContain("`gh pr merge --match-head-commit` with no `--admin` and no branch deleted");
+    // Only #57 is left to merge in the resume's list.
+    expect(resumed.prompt).toContain("`acme-api` #57");
+    expect(h!.engine.stoppedPhaseKey()).toBe(MERGE_KEY);
+    expect(h!.engine.record.afterDelivery!.merge!.closedAt).toBeUndefined();
+  });
+
   it("merges only the one still open when the other is already merged, shows the merged one beside the press, and is not Merged while one is open", async () => {
     await finished([{ actions: [mergeShop, { result: SUMMARY }, { exit: 0 }] }]);
     withApi();
