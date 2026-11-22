@@ -866,3 +866,45 @@ describe("which branches get no catch-up offer, and which buttons and commands c
     delete h.engine.record.liveControl;
   });
 });
+
+describe("a branch whose PRD retired a criterion into the ones that replaced it (AC-FROM-02; the requirement manifest's identity rule)", () => {
+  it("reads the plan there, and names the line to change when a title claims two criteria", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const documents = checkoutDocuments(h);
+    const prd = `${DIRECTORY}/customer-returns-prd.md`;
+    const amendOnBranch = (from: string, to: string) => {
+      const text = readFileSync(join(h.repository, prd), "utf8");
+      expect(text).toContain(from);
+      writeFileSync(join(h.repository, prd), text.replace(from, to));
+      git(h.sandbox, h.repository, "commit", "-q", "-am", "docs: amend the criteria");
+      git(h.sandbox, h.repository, "push", "-q", "-u", "origin", BRANCH);
+      const tip = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+      git(h.sandbox, h.repository, "switch", "-q", "develop");
+      return tip;
+    };
+
+    // The retirement note as phase-split writes it: its title names the two criteria that replaced it.
+    git(h.sandbox, h.repository, "switch", "-q", "-c", BRANCH);
+    const split = amendOnBranch("- [ ] **AC-RET-05 — retired.** Merged into AC-RET-01.", [
+      "- **AC-RET-05 — retired, split into AC-RET-06 and AC-RET-07.**",
+      "- [ ] **AC-RET-06 — Told by email.** The customer is told by email.",
+      "- [ ] **AC-RET-07 — Told in the app.** The customer is told in the app.",
+    ].join("\n"));
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: false })).toEqual({ ok: true });
+    expect(h.engine.startPreview!.fieldError).toBeUndefined();
+    expect(h.engine.startPreview!.planSource).toEqual({ kind: "branch", branch: BRANCH, sha: split });
+    let snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.documents!.start).toMatchObject({ from: "existing", planSource: { kind: "branch", branch: BRANCH, sha: split } });
+    expect(snapshot.settings.fieldErrors.featureBranch).toBeUndefined();
+
+    // A title that opens on two labels is still refused, and the page says which line and what to change.
+    git(h.sandbox, h.repository, "switch", "-q", BRANCH);
+    const joined = amendOnBranch("**AC-RET-06 — Told by email.**", "**AC-RET-06 and AC-RET-08 — Told by email.**");
+    await h.engine.changeStart({ from: "existing", bringUpToDate: false });
+    const line = readFileSync(join(h.repository, prd), "utf8").split("\n").findIndex(text => text.includes("AC-RET-05")) + 2;
+    expect(h.engine.startPreview!.fieldError).toBe(`Kiln can't read the PRD's acceptance criteria on ${BRANCH} at ${joined.slice(0, 7)}: The bold title at ${prd}:${line} holds more than one criterion label (AC-RET-06, AC-RET-08), so Kiln can't tell which criterion it is. Open the title with that criterion's own label and its title text, and give each criterion its own list item.`);
+    snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
+  });
+});

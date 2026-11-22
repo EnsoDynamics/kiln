@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, posix } from "node:path";
+import { AuditRefusal } from "../audit/contracts.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { leavesOf, namedRepositories, planStartProblems, readPhasePlan, type PhasePlan } from "../plan/phase-plan.js";
 import { runHelper } from "../platform/helper-process.js";
@@ -344,7 +345,9 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
         const planProblems = [...plan.problems, ...(plan.problems.length === 0 ? planStartProblems(plan, directory) : [])];
         if (planProblems.length) problems.push({ message: `The phase plan at ${shortSha(planSource.sha)} on ${planSource.branch} doesn't pass its checks: ${planProblems.join(" ")}` });
       } catch (error) {
-        problems.push({ message: `${planSource.branch} at ${shortSha(planSource.sha)} doesn't have this PRD's documents: ${(error as Error).message}` });
+        // A PRD that is there but can't be read says so, with the line to change, instead of reading as missing documents.
+        const where = `${planSource.branch} at ${shortSha(planSource.sha)}`;
+        problems.push({ message: error instanceof AuditRefusal ? `Kiln can't read the PRD's acceptance criteria on ${where}: ${error.message}` : `${where} doesn't have this PRD's documents: ${(error as Error).message}` });
       }
     }
   }

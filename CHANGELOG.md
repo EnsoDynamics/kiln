@@ -14,6 +14,11 @@ section to the new version.
 
 - When a restarted run's setup can't be finished and Kiln returns to Documents found, Ctrl+C
   no longer leaves that setup's `claude` account and skill reads running after Kiln exits.
+- Kiln no longer refuses a PRD whose retired criterion names the criteria that replaced it,
+  such as `AC-X-03 — retired, split into AC-X-09 and AC-X-10`. Starting from a branch with
+  such a PRD failed with "doesn't have this PRD's documents", and its audits could not start.
+  When Kiln can't read a PRD's acceptance criteria, Documents found now says that and why,
+  instead of saying the documents are missing.
 
 ## [1.4.0] - 2026-11-21
 

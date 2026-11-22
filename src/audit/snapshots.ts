@@ -31,6 +31,26 @@ export async function gitText(git: GitContext, repo: RepositoryEntry, args: stri
   return result.stdout;
 }
 
+const CRITERION_LABEL = /\bAC-[A-Z0-9]+-\d+\b/g;
+/**
+ * A criterion's identity is the label that opens its bold title, when title text follows it
+ * before any other label; labels later in the title are then references to other criteria, as
+ * in a retirement note. A title with one label anywhere takes it, and one with none is
+ * identified by the title itself. Undefined when the title holds several labels any other way.
+ *
+ *   criterionIdentity("AC-X-03 — retired, split into AC-X-09 and AC-X-10") // "AC-X-03"
+ *   criterionIdentity("AC-X-01 and AC-X-02 — Both channels")               // undefined
+ */
+export function criterionIdentity(title: string): string | undefined {
+  const labels = [...title.matchAll(CRITERION_LABEL)];
+  if (labels.length <= 1) return labels[0]?.[0] ?? title;
+  const [first, second] = labels as [RegExpMatchArray, RegExpMatchArray];
+  if (first.index !== 0) return undefined;
+  // Nothing but punctuation and joining words before the next label: the title claims both.
+  const titleText = title.slice(first[0].length, second.index).replace(/\b(?:and|or|to|through|thru)\b/gi, "").replace(/[^\p{L}\p{N}]/gu, "");
+  return titleText ? first[0] : undefined;
+}
+
 /** Preserve nested requirements verbatim; identity belongs to a document, never a global label. */
 export function requirementManifest(repository: string, path: string, blob: string, content: string): RequirementManifest {
   const lines = markdownLines(content); const criteria: CriterionSource[] = []; const keys = new Set<string>();
@@ -50,9 +70,10 @@ export function requirementManifest(repository: string, path: string, blob: stri
     const match = /^[-*] (?:\[[ xX]\] )?\*\*([^*]+)\*\*/.exec(line.text);
     if (match) {
       finish(index); const title = match[1]!.trim();
-      const labels = title.match(/\bAC-[A-Z0-9]+-\d+\b/g) ?? [];
-      requireAudit(labels.length <= 1 && title.length, `Ambiguous criterion at ${path}:${index + 1}`);
-      current = { start: index, title, label: labels[0] ?? title };
+      requireAudit(title.length, `Ambiguous criterion at ${path}:${index + 1}`);
+      const label = criterionIdentity(title);
+      if (!label) throw new AuditRefusal("invalid_report", `The bold title at ${path}:${index + 1} holds more than one criterion label (${(title.match(CRITERION_LABEL) ?? []).join(", ")}), so Kiln can't tell which criterion it is. Open the title with that criterion's own label and its title text, and give each criterion its own list item.`);
+      current = { start: index, title, label };
     } else if (/^[-*] \[[ xX]\]/.test(line.text)) throw new AuditRefusal("invalid_report", `Criterion needs an unambiguous bold title at ${path}:${index + 1}`);
   }); finish(lines.length);
   requireAudit(criteria.length > 0, `No acceptance criteria found in ${path}.`);
