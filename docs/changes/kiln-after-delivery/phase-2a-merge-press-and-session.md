@@ -1,5 +1,7 @@
 # Phase 2a: The merge press, the merge session and Merged
 
+**Closed:** 2026-11-22
+
 **Parent PRD:** [Kiln After Delivery](kiln-after-delivery-prd.md)
 **Technical design:** [Kiln After Delivery technical design](kiln-after-delivery-technical-design.md) — relevant sections: "After-Delivery Activities" (Opening, While open, No live controls, Ending, At the stop, Keys), "The Delivery Reading", "The Merge Session" (apart from "Under early merges"), "Interfaces" (`kiln merge`, `after_delivery`), "Display Contract", "Data Models and Upgrade" (`merge`), "Prompts"
 
@@ -17,10 +19,10 @@ Of AC-MERGE-05, what Phase 2b builds: usage-limit waits, Ctrl+C and the restart 
 
 ## Phase-specific notes
 - The status token's fingerprint includes control reasons (`engine.ts`, near line 665 before the develop merge). Keep per-reading failure text and times out of the merge control's reason, as Pause Now did.
-- The real merge session with each agent runs against the temporary GitHub test repository (the design's "Delivery"). Neither Phase 1 nor 2a could create it: see "Pending human actions".
+- The real merge session with each agent runs against the temporary GitHub test repository (the design's "Delivery"). It was created on 2026-11-22: see "Real merge sessions".
 
-## Pending human actions
-- **Allow the temporary GitHub test repository, then run the real merge sessions.** Built and verified against scripted sessions and GitHub's recorded answers: every criterion of this phase but AC-MERGE-03's named proof, a real merge session with Claude Code and with Codex that merges a conflicting pull request on the temporary repository after its required check passes, fast-forwards after GitHub's Update branch, and stops unmerged when the check fails, a review is required, or the first of two pull requests can't merge. On 2026-11-22 this machine's agent permission settings again refused `gh repo create EnsoDynamics/kiln-proof-after-delivery-temp-20261121 --public …` as unauthorized. Doug: allow that command for this build (or create the repository as the design's "Delivery" describes), then a session runs those proofs and writes this phase's Closed line. Everything else in this phase is built, tested and committed.
+## Real merge sessions
+Run on 2026-11-22 against the temporary repository with each agent: [Kiln After Delivery merge proof results](kiln-after-delivery-merge-proof-results.md).
 
 ## Carried forward from Phase 1
 - **The delivery reading is built** (`src/engine/delivery-reading.ts`); since 2a, the merge activity's own occasions take a fresh reading (`readDeliveryNow(…, fresh)`).
