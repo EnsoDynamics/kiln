@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-find-repositories-anywhere
 
-Started: 2026-11-22   Current pass: 3   Status: In progress
+Started: 2026-11-22   Current pass: 4   Status: In progress
 Branch: prd/kiln-find-repositories-anywhere
 Existing code posture: Preserve (source: user; the design's Existing Code says the same)
 PRD words: at start 3644 · growth baseline 3644
@@ -19,6 +19,7 @@ Last updated: 2026-11-22
 |---|---|---|---|---|---|---|---|
 | 1 | 13 (5 design Open Questions + 8 discovery; 5 repeats) + 1 from conformance | 14 | 14 | 0 | 0 | 0 | 0 |
 | 2 | 4 (4 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
+| 3 | 5 (4 repeats) + 4 from pass 2 conformance + 1 copy gap | 10 | 10 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -41,10 +42,16 @@ Last updated: 2026-11-22
 | Q16 | 2 | What `repository` carries in `POST /api/repository-location` and `/change`: address path or name? | Technical | LOW | 88 → 95 | Resolved | TD §Worktree Folders and Labels, §HTTP, §Snapshot |
 | Q17 | 2 | Change's question when the remembered folder isn't among the checkouts found, or is the only one listed (count, singular) | Technical | LOW | 80 → 90 | Resolved | TD §The answer (Change), §Finding a Checkout (number rule), §Asking Before Start (status line) |
 | Q18 | 2 | A search root that is itself a checkout: candidate, and are its entries searched? | Technical | LOW | 75 → 90 | Resolved | TD §The search, Testing |
-| Q19 | 3 | (conformance) One page shows a count as a word where the page writes it and digits where the server does: accept or send words? | Technical | LOW | 80 → | Pending | — |
-| Q20 | 3 | (conformance) Change can ask about one found checkout; only the plural "Kiln found <n> checkouts" is defined | Technical | LOW | 90 → | Pending | — |
-| Q21 | 3 | (conformance) "The stop in Kiln now asks where it is." doesn't fit a request that ended in the "which checkout" question | Technical | LOW | 90 → | Pending | — |
-| Q22 | 3 | (conformance) Labels paragraph says `/api/repositories`' `name` "stays a name"; the HTTP table says it takes every name form | Technical | LOW | 90 → | Pending | — |
+| Q19 | 3 | (conformance) One page shows a count as a word where the page writes it and digits where the server does: accept or send words? | Technical | LOW | 80 → 95 | Resolved | TD §Finding a Checkout (number rule) |
+| Q20 | 3 | (conformance) Change can ask about one found checkout; only the plural "Kiln found <n> checkouts" is defined | Technical | LOW | 90 → 95 | Resolved | TD §The answer (Change) |
+| Q21 | 3 | (conformance) "The stop in Kiln now asks where it is." doesn't fit a request that ended in the "which checkout" question | Technical | LOW | 90 → 95 | Resolved | TD §A session's request |
+| Q22 | 3 | (conformance) Labels paragraph says `/api/repositories`' `name` "stays a name"; the HTTP table says it takes every name form | Technical | LOW | 90 → 95 | Resolved | TD §Worktree Folders and Labels |
+| Q23 | 3 | External completion evidence accounting when a phase names a repository by address path that would end in a question | Technical | MEDIUM | 75 → 95 | Resolved | TD §A continuation and a base-branch start, Testing; PRD AC-ASK-07 |
+| Q24 | 3 | `kiln status` text for a stop that asks: the "which" form, a non-plan stop, the Controls line | Technical | LOW | 70 → 90 | Resolved | TD §The command (text form); mockup state 7 (canvas artboard 7 pending, see Blockers) |
+| Q25 | 3 | After Start, which repositories count as "the PRD's repositories" for the label clash | Technical | LOW | 80 → 95 | Resolved | TD §Worktree Folders and Labels, Testing |
+| Q26 | 3 | Under Change, is the remembered folder pickable, and how does the person back out | Technical | LOW | 80 → 90 | Resolved | TD §The answer, §Finding a Checkout |
+| Q27 | 3 | Does "a folder is met once" let an outer root's walk cut an inner root's depth | Technical | LOW | 85 → 98 | Resolved | TD §The search, Testing |
+| Q28 | 3 | The plan stop's Phase plan reads fact when the checkouts found aren't on GitHub has no wording | Technical | LOW | 90 → 95 | Resolved | TD §The stops that ask |
 
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
 
@@ -108,6 +115,17 @@ Answer (95%): both location routes take the address path as `repository` (`Quest
 
 Conformance pass 2: Testing Approach's search bullet now covers a root holding `.git` found as a candidate; four items raised as Q19–Q22.
 
+### Q23
+Answer (95%): the accounting runs only for a finished PRD's continuation check (engine.ts:3330-3331,3393,3436,3528-3533); only a closed, new, outside-Kiln leaf naming a repository not in the record reaches findRepository (completed-plan-accounting.ts:85-98,115-127). A repository that would ask stays a problem on that phase (`Phase <id>: ` + the question's first sentence + what clears it on Check again); leaving it out would verify the leaf falsely. A repository in the record never asks; a remembered answer is used. Fold: TD §A continuation and a base-branch start; PRD AC-ASK-07's exception sentence widened to cover a repository the continuation reads to verify earlier work; Testing line.
+
+### Q27
+Answer (98%): replace "A folder is met once, however many roots reach it." with: an outer root's walk lists the root inside it (so it can be a candidate) but never enters it; the inner root's own walk reaches everything below it the outer walk would, and more deeply; the walks then never meet the same folder, in any order. Pass-over rules depend only on the folder, so the union equals "each root four levels down" (checked on abstract trees of 1–4 roots).
+
+### Q24
+Answer (investigator 80%, orchestrator 90% on the code evidence): only a stop that asks gains lines in `kiln status` text; today's lines and state words stay (STATE_WORDS, waiver-facts.ts:191: "needs you"); under the stopped row, at the waiver lines' indent, each question's sentences, first prefixed `Phase plan reads: ` on the plan stop or `A session asked for <label>: ` on any other; one line per checkout found (`<folder>  <remote>`, `  (not on GitHub)` when not pickable); then `Controls: locate-repository (available|<reason>)`, continuing ` · waive-and-advance (once a recheck still fails)` when the stop offers Mark complete. Mockup state 7's `Needs you · hasn’t started` is drift (no criterion changes a state word; no code makes the suffix): corrected to `needs you`, canvas artboard 7 too.
+
+Conformance pass 3: merged the Change paragraph's two sentences on the remembered folder's mark; Testing Approach covers pass 3's additions; AC-ASK-07's second Replaces line's "what stays" widened to match the exception; no new Replaces line needed.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -135,7 +153,8 @@ Pass 1: 2026-11-22 · 3 open entries · first sort kept all 3 business · doubt 
 ## Blockers
 | Blocker | Questions affected | What unblocks it |
 |---|---|---|
+| Canvas artboard 7 (TerminalCommands) update to `needs you` refused by the auto-mode permission check; the edited copy is in the session scratchpad | Q24 (mirror only) | Doug approves the publish, or edits artboard 7 by hand |
 | The worktree has no node_modules, so Kiln's tests and build can't run here | Any question needing a run of Kiln code | Read the code instead; `npm ci` only if a question can't be settled by reading |
 
 ## Next action
-Pass 3: Q19–Q22 (from pass 2 conformance) and pass 3 discovery.
+Pass 4: discovery (one subagent, state file for repeats).
