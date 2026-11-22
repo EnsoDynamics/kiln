@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-find-repositories-anywhere
 
-Started: 2026-11-22   Current pass: 4   Status: In progress
+Started: 2026-11-22   Current pass: 5   Status: In progress
 Branch: prd/kiln-find-repositories-anywhere
 Existing code posture: Preserve (source: user; the design's Existing Code says the same)
 PRD words: at start 3644 · growth baseline 3644
@@ -20,6 +20,7 @@ Last updated: 2026-11-22
 | 1 | 13 (5 design Open Questions + 8 discovery; 5 repeats) + 1 from conformance | 14 | 14 | 0 | 0 | 0 | 0 |
 | 2 | 4 (4 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
 | 3 | 5 (4 repeats) + 4 from pass 2 conformance + 1 copy gap | 10 | 10 | 0 | 0 | 0 | 0 |
+| 4 | 4 (7 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -52,6 +53,10 @@ Last updated: 2026-11-22
 | Q26 | 3 | Under Change, is the remembered folder pickable, and how does the person back out | Technical | LOW | 80 → 90 | Resolved | TD §The answer, §Finding a Checkout |
 | Q27 | 3 | Does "a folder is met once" let an outer root's walk cut an inner root's depth | Technical | LOW | 85 → 98 | Resolved | TD §The search, Testing |
 | Q28 | 3 | The plan stop's Phase plan reads fact when the checkouts found aren't on GitHub has no wording | Technical | LOW | 90 → 95 | Resolved | TD §The stops that ask |
+| Q29 | 4 | A plan stop that asks is waived (Mark complete): what key the skipped phase's recorded scope holds for a repository never set up | Technical | MEDIUM | 60 → 92 | Resolved | TD §Names, Testing |
+| Q30 | 4 | A phase about to start names several repositories and one asks: does a question end the addition loop? | Technical | MEDIUM | 65 → 90 | Resolved | TD §The stops that ask, Testing |
+| Q31 | 4 | Where a stop's question content (kind, checkouts, searched) comes from after `kiln run` restarts, and the status token | Technical | MEDIUM | 65 → 92 | Resolved | TD §Data Models, §The stops that ask, §Finding a Checkout, Testing |
+| Q32 | 4 | The label of a session's request that Kiln didn't add | Technical | LOW | 85 → 90 | Resolved | TD §Worktree Folders and Labels, §Snapshot |
 
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
 
@@ -126,6 +131,20 @@ Answer (investigator 80%, orchestrator 90% on the code evidence): only a stop th
 
 Conformance pass 3: merged the Change paragraph's two sentences on the remembered folder's mark; Testing Approach covers pass 3's additions; AC-ASK-07's second Replaces line's "what stays" widened to match the exception; no new Replaces line needed.
 
+### Q30
+Answer (90%): a question doesn't end the additions before a phase; Kiln keeps it and goes on, so the stop asks every question at once; a failed check still ends them as today; repositories added before the stop stay set up whatever happens to the phase (harmless: no commits → no PR); the stop's facts are the question facts and any failure fact, in plan order; waivers match the joined facts exactly as today. Evidence: engine.ts:7608-7620,4453-4468,6206-6213; waivers.ts:242-243.
+
+### Q31
+Answer (92%): the stop saves its questions whole (`locate?: [ Question & { phaseFile? } ]`), as it saves its check rows (records.ts:111-136). Kiln searches when it makes the stop, at each Check again, when an answer is accepted, and when a request comes while the stop is open; the page, `kiln status` (which reads the record when kiln run isn't running, client.ts:73-76) and a restarted kiln run show the saved questions and never search to show them. "Opened" means Kiln making the stop. A question opening or closing changes the control revision (fingerprint engine.ts:8240-8245 must cover stop.locate), so the token changes; a restart already makes old tokens stale (controlEpoch, engine.ts:376,563,665). Rejected: searching on every page connect (stale refusals; the background check checks-at-a-stop rejects).
+
+### Q29
+Answer (92%): Mark complete can be offered on a plan stop that asks (AC-WAIVE-02, WAIVE-001); the skip records, for a repository with no entry, its lower-cased address path; a folder name that reached nothing keeps its spelling. An entry's name never holds `/`, so a key with `/` is an address path. A reader comparing a recorded key with a repository counts it as that repository when the key is its name or its address path: the scope comparison (also completed-plan-discovery.ts:151), readiness, external completion evidence. A skipped phase has no revisions, so readiness needs a valid preparation binding for that repository; one that still asks is a problem. A folder name that reached nothing has no address path, so re-spelling it reads as changed scope (loud, as renaming a folder does today). Evidence: engine.ts:4454-4463,8121-8122; plan-reconciliation.ts:276-296,331-337; completed-plan-accounting.ts:87-89; continuation-readiness.ts:77-80,107-108.
+
+### Q32
+Answer (90%): a request's label follows the same rule against the PRD's repositories: the label of the repository it asks for when that is one of them, otherwise its address path when its short name matches one of theirs, otherwise its short name; it changes no other label. `Question` gains `label` (stop.locate[] is projected from it). Not the address path everywhere: the text line would print the path twice.
+
+Conformance pass 4: Data Models `stop.locate` lists the saved fields (label and fieldError aren't saved); a bullet notes a scopeRepositories key can be an address path; Testing covers a request's label; the schema 25 row names the address-path scope key (orchestrator, from conformance's pending question).
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -157,4 +176,4 @@ Pass 1: 2026-11-22 · 3 open entries · first sort kept all 3 business · doubt 
 | The worktree has no node_modules, so Kiln's tests and build can't run here | Any question needing a run of Kiln code | Read the code instead; `npm ci` only if a question can't be settled by reading |
 
 ## Next action
-Pass 4: discovery (one subagent, state file for repeats).
+Pass 5: discovery (one subagent, state file for repeats).
