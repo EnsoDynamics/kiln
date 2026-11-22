@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-find-repositories-anywhere
 
-Started: 2026-11-22   Current pass: 2   Status: In progress
+Started: 2026-11-22   Current pass: 3   Status: In progress
 Branch: prd/kiln-find-repositories-anywhere
 Existing code posture: Preserve (source: user; the design's Existing Code says the same)
 PRD words: at start 3644 · growth baseline 3644
@@ -18,6 +18,7 @@ Last updated: 2026-11-22
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 13 (5 design Open Questions + 8 discovery; 5 repeats) + 1 from conformance | 14 | 14 | 0 | 0 | 0 | 0 |
+| 2 | 4 (4 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -36,6 +37,14 @@ Last updated: 2026-11-22
 | Q12 | 1 | Does a name with a host (`github.com:acme/x`) match only checkouts on that host? | Technical | LOW | 80 → 90 | Resolved | TD §Names |
 | Q13 | 1 | Is the "Git can't read this candidate" terminal line printed on every search? | Technical | LOW | 80 → 92 | Resolved | TD §The search Reading candidates, §Command line |
 | Q14 | 1 | (conformance) Which earlier criteria AC-ASK-07's new Replaces line should name | Technical | LOW | 80 → 95 | Resolved | Kept as written (AC-CONTINUE-06, AC-SETUP-07) |
+| Q15 | 2 | A request made while its phase is already stopped at Needs you: does the open stop gain the question at once? | Technical | MEDIUM | 75 → 90 | Resolved | TD §A session's request, §The stops that ask, Testing |
+| Q16 | 2 | What `repository` carries in `POST /api/repository-location` and `/change`: address path or name? | Technical | LOW | 88 → 95 | Resolved | TD §Worktree Folders and Labels, §HTTP, §Snapshot |
+| Q17 | 2 | Change's question when the remembered folder isn't among the checkouts found, or is the only one listed (count, singular) | Technical | LOW | 80 → 90 | Resolved | TD §The answer (Change), §Finding a Checkout (number rule), §Asking Before Start (status line) |
+| Q18 | 2 | A search root that is itself a checkout: candidate, and are its entries searched? | Technical | LOW | 75 → 90 | Resolved | TD §The search, Testing |
+| Q19 | 3 | (conformance) One page shows a count as a word where the page writes it and digits where the server does: accept or send words? | Technical | LOW | 80 → | Pending | — |
+| Q20 | 3 | (conformance) Change can ask about one found checkout; only the plural "Kiln found <n> checkouts" is defined | Technical | LOW | 90 → | Pending | — |
+| Q21 | 3 | (conformance) "The stop in Kiln now asks where it is." doesn't fit a request that ended in the "which checkout" question | Technical | LOW | 90 → | Pending | — |
+| Q22 | 3 | (conformance) Labels paragraph says `/api/repositories`' `name` "stays a name"; the HTTP table says it takes every name form | Technical | LOW | 90 → | Pending | — |
 
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
 
@@ -85,6 +94,20 @@ Orchestrator check: AC-CONTINUE-06 (the continuation starts the next phase once 
 
 Conformance pass 1 fixes: TD Changes header links four more designs; Names lost a rejected-alternatives sentence; coverage table rows widened; Testing Approach gained three cases; mockup's field-message comment gained the submodule and no-origin messages (comment only; canvas artboards carry no comments, nothing to mirror).
 
+### Q18
+Answer (90%): a root is always searched, even when it is a checkout; AC-FIND-02's never-inside rule covers folders met going down; a root holding `.git` is a candidate when the root above lists it (every root but the topmost); the PRD's repository is a candidate like any other, reached first by §Names step 1; a folder is met once however many roots reach it (overlapping roots would otherwise count one checkout twice).
+
+### Q15
+Answer (90%): `kiln add-repository` is accepted at a stop (multi-repo AC-ADD-01; engine.ts:7591-7596), usually from the phase's conversation reopened in a terminal (handoff AC-TERMINAL-01) or a person; Kiln can't tell them apart, so both are treated alike. Today a request at an open stop changes neither the page nor the token (fingerprint engine.ts:665, controlRevision 8240 don't cover requests). Fold in §A session's request after "The phase doesn't stop.": "When the phase is already stopped at Needs you, whether the request comes from its conversation reopened in a terminal or from a person, the open stop gains the question at once, from the search the request just made. Kiln saves it, so the page and `kiln status` show it, and the status token changes. The answer also says "The stop in Kiln now asks where it is."" §The stops that ask row 2: "…when the stop is opened or checked, or that is made while it is open".
+
+### Q17
+Interim (85%): `<n>` counts only checkouts the search found; the remembered folder is listed even when the search didn't reach it, marked `You told Kiln where this is`; one found checkout on GitHub is asked about too under Change; with nothing found, Change shows the "where" question with the remembered folder in the field (state 2). Follow-up (90%): number rule: a count in a sentence the page writes is a word up to ten ("Kiln found two checkouts", "one checkout"), from COUNT_WORDS (view/src/lib/progress.ts:335, to be exported); every count the server writes, on the page or in the terminal, is digits ("1 repository to locate"). The view's status line "Tell Kiln where one repository is, then review and start." (state 2; the which wording in state 3) is missing from the design and goes in §Asking Before Start.
+
+### Q16
+Answer (95%): both location routes take the address path as `repository` (`Question.repository`), lower-cased by Kiln to match the open question; only the existing bodies (`bases` in /api/settings, `name` in /api/repositories) stay keyed by name. Fold: §Worktree Folders and Labels last paragraph; §HTTP both rows; §Snapshot `Question.repository` is the address path as the plan or the session's request writes it. Evidence: local-server.ts:512-518,815-821; view/src/lib/documents-found.ts:182.
+
+Conformance pass 2: Testing Approach's search bullet now covers a root holding `.git` found as a candidate; four items raised as Q19–Q22.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -115,4 +138,4 @@ Pass 1: 2026-11-22 · 3 open entries · first sort kept all 3 business · doubt 
 | The worktree has no node_modules, so Kiln's tests and build can't run here | Any question needing a run of Kiln code | Read the code instead; `npm ci` only if a question can't be settled by reading |
 
 ## Next action
-Pass 2: discovery (one subagent, state file passed for repeats); conflict check and re-sort are pass 1 only.
+Pass 3: Q19–Q22 (from pass 2 conformance) and pass 3 discovery.
