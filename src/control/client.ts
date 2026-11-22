@@ -15,7 +15,7 @@ import { ControlFailure, errorFact, failed, exitFor, result, serialize, type Res
 import type { CommandContext } from "../kiln-command.js";
 import { loopSettings, REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
 import { auditLoopsText, loopSettingInputs, SETTING_FLAGS, type AuditLoopsView } from "./loop-text.js";
-import { continuationText, deliveredText } from "./delivered-facts.js";
+import { afterDeliveryText, continuationText, deliveredText } from "./delivered-facts.js";
 
 interface Capability { protocol_major: number; execution_id: string; prd_path: string; instance: { pid: number; process_start_time: string | null }; features: string[] }
 interface Controller { features?: string[]; state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
@@ -119,7 +119,8 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     const loops = current && !delivered ? auditLoopsText(answer.audit_loops as AuditLoopsView | null | undefined) : undefined;
     const items = personItemsText(answer.items as Record<string, unknown>[] | null | undefined);
     const offer = current ? continuationText(answer.continuation as Parameters<typeof continuationText>[0]) : undefined;
-    const lead = [rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control)).trimEnd() : undefined, loops, items, delivered, offer].filter(Boolean).join("\n");
+    const merge = current ? afterDeliveryText(answer.after_delivery as Parameters<typeof afterDeliveryText>[0], (answer.repositories as unknown[] | undefined ?? []).length > 1) : undefined;
+    const lead = [rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control)).trimEnd() : undefined, loops, items, delivered, merge, offer].filter(Boolean).join("\n");
     return lead ? `${lead}\n` : undefined;
   };
   const receiptLead = (answer: Result, record: SavedWork["record"] | undefined, waive = false) => receiptLines(answer, record, waive)?.join("\n");
@@ -175,11 +176,13 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       const waive = name === "waive-and-advance";
       if (waive && !owner.features?.includes("waive_and_advance")) throw new ControlFailure("instance_incompatible", "This controller does not support waive-and-advance. Restart it with updated Kiln.");
       if ((name === "carry-on" || name === "start-again" || name === "reset") && !owner.features?.includes(name.replace("-", "_"))) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
+      // Merging after delivery needs a controller that has the merge activity (Kiln After Delivery, "Interfaces").
+      if ((name === "merge" || name === "exit") && !owner.features?.includes("after_delivery")) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
       // The loop limits and continuing with new phases need a controller that moves on at the limits (AC-BOT-01).
       if ((name === "continue-with-phases" || Object.keys(loopInputs).length) && !owner.features?.includes("loop_limits_move_on")) throw new ControlFailure("instance_incompatible", INCOMPATIBLE_LOOPS);
       const token = String(flags["only-if-status-matches"]);
       const instruction = { command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
-        inputs: name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}), ...loopInputs } : name === "continue-with-phases" ? { proposal_id: flags.proposal } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };
+        inputs: name === "merge" || name === "exit" ? { via: "command_line" } : name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}), ...loopInputs } : name === "continue-with-phases" ? { proposal_id: flags.proposal } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };
       if (flags["message-reviewed"]) Object.assign(instruction.inputs, { reviewed_receipt_ids: flags["message-reviewed"] });
       // Run restart AC-CURRENT-01: the session-starting commands catch an untouched branch up unless told not to.
       if (flags["leave-branch-as-is"]) Object.assign(instruction.inputs, { leave_branch: true });

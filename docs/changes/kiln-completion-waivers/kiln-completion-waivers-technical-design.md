@@ -69,6 +69,8 @@ Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Check Runs and When Mark Complete Is Offered (at a **Nothing holds the run** stop the offer is Continue anyway with effect `continued`, even after a pull request session ran, so waiving it never completes the run).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "At the stop" (a merge stop never offers Mark complete).
+
 A stop records the identity of its latest check run:
 
 ```

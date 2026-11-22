@@ -163,6 +163,8 @@ When the row fails, at the routing decision or in the engine loop the pull reque
 
 ## The Status Line (AC-STOP-05)
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Closing-Audit Names (a session of test fixes names its loop and session on its row).
+
 During the closing audits the status line names what is running, from a `position` the snapshot derives from the current or stopped activity and the ledger:
 
 | The activity | `position` | Status line |
@@ -179,6 +181,8 @@ During the closing audits the status line names what is running, from a `positio
 Kiln never records a loop stop. The loop stop page, **Allow _N_ more loops** and **Accept what is left and deliver** are removed from the page. `kiln allow-more-loops` and `kiln accept-and-deliver` stay in the CLI only to refuse, exit code 2, `removed_command`: "Kiln no longer stops at a loop limit. Change the limits with kiln settings." The control journal refuses either action from an older script with the same code and reason. The `settings` input `after_last_test_audit_loop` and the flag `--after-last-test-audit-loop` are refused the same way, saying the setting was removed. The CLI refuses both commands and the flag before it reads any other flag or looks up the controller, so the refusal needs no `--command-id` and is the same whatever the controller's version.
 
 ## Interfaces (AC-BOT-01, AC-BOT-02)
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`check-for-new-phases` reads GitHub first and counts as a person's press; `continue-with-phases` pushes first).
 
 **Command line.**
 

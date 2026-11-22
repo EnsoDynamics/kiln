@@ -64,18 +64,19 @@ it.each([false, true])("keeps completed history with removed old artifacts throu
   const done = runKilnCommand(["run", COMET_DIRECTORY], { cwd: h.repository, env: cliEnv(), stdout: { write: text => { stdout += text; } }, stderr: { write: text => { stdout += text; } }, signals, onServing: value => { address = value; } });
   const chrome = await launchChrome();
   try {
-    await waitFor(() => !!address && stdout.includes("7 new unfinished phases"), 40_000);
-    const before = () => stdout.split("7 new unfinished phases").length;
+    await waitFor(() => !!address && stdout.includes("7 phases were added to this PRD after Kiln finished it"), 40_000);
+    const before = () => stdout.split("7 phases were added to this PRD after Kiln finished it").length;
     let count = before();
     const page = await chrome.open(address);
     try {
       await page.waitFor("document.body.innerText.includes('Readiness: Ready') && [...document.querySelectorAll('button')].some(b=>b.textContent.includes('Check for new phases') && !b.disabled)");
       await waitFor(() => before() > count); count = before();
+      // The terminal prints the page load's check before the page has it; wait for the page's button.
+      await page.waitFor("[...document.querySelectorAll('button')].some(b=>b.textContent.includes('Check for new phases') && !b.disabled)");
       await page.evaluate("[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Check for new phases')).click()");
       await waitFor(() => before() > count);
-      expect(stdout).toContain("First phase to run: Phase 9");
-      expect(stdout).toContain("Phases: 9 · Catalog capability 9; 10 · Catalog capability 10");
-      expect(stdout).toContain(`Review ${address}`);
+      expect(stdout).toContain("7 phases were added to this PRD after Kiln finished it: 9, 10, 11, 12, 13, 14, 15, in commit");
+      expect(stdout).toContain("Run kiln continue-with-phases to build them.");
       expect(await page.evaluate("document.body.innerText")).toContain("Earlier catalog delivery");
       // The terminal reports the check before the page has its new snapshot, and the button stays
       // disabled until then; wait for the page to catch up rather than read it at once.
@@ -131,8 +132,11 @@ it.each([false, true])("projects uncertain completed-check publication as failed
 
 it.each([1200, 390])("holds stale offers after browser-local failures and recovers on successful retry at width %s", async width => {
   const f = await createCometContinuation(); h = f.h; f.integrate(); await httpCheck();
+  const loaded = h.engine.record.completedPlanCheck?.attemptedAt;
   const chrome = await launchChrome(); const page = await chrome.open(server!.address, { width, height: 1000 });
   try {
+    // Every page load runs one check (Kiln After Delivery "The Delivery Reading"); let it finish first.
+    await waitFor(() => h.engine.record.completedPlanCheck?.attemptedAt !== loaded && !h.engine.checking);
     await page.waitFor("document.body.innerText.includes('Readiness: Ready') && [...document.querySelectorAll('button')].some(b=>b.textContent.includes('Check for new phases') && !b.disabled)");
     await page.evaluate("window.realFetch = window.fetch");
     for (const failure of ["transport", "json", "503", "409", "failed-check"]) {
@@ -161,7 +165,8 @@ it.skipIf(process.platform !== "darwin")("retains the exact target grant across 
   git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: target preparation"); f.publish();
   const path = join(h.repository, COMET_DIRECTORY, "phase-10-catalog.md"); writeFileSync(path, readFileSync(path, "utf8").replace("Catalog capability", "**Catalog** capability"));
   const blocked = await h.engine.checkCompletedPlan(); expect(blocked.result!.proposal!.grantEligible).toBe(true);
-  expect(blocked.result!.source.kind).toBe("delivery_base"); expect(blocked.sources[0]!.digest).not.toBe(blocked.sources[1]!.digest);
+  // The main checkout's uncommitted edit is named and never read (Kiln After Delivery AC-BACK-03).
+  expect(blocked.result!.source.kind).toBe("remote_base"); expect(blocked.result!.uncommitted).toEqual([`${COMET_DIRECTORY}/phase-10-catalog.md`]);
   const grant = { ...request(blocked.result!.proposal!.id, "equivalent-source-grant"), authorizationRevision: 0, target: { repository: "github.com/fictional/comet-library", baseBranch: "develop" } };
   expect(await h.engine.authorizeContinuationTarget(grant)).toMatchObject({ ok: true });
   const authority = readPendingAuthority(h.stateDirectory, h.engine.record)!; expect(authority.state).toBe("pending"); expect(h.claudeCalls()).toEqual([]);

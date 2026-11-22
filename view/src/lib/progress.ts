@@ -9,15 +9,22 @@ import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
 import { ago, clockTime, limitTime, shortDuration, timeSpan, timingAt, timingText } from "./time.js";
 import { activityKeyKind } from "../../../src/state/activity-keys.js";
 import { positionText } from "./audit-loops.js";
+import { auditName, type AuditName } from "../../../src/audit/audit-names.js";
 import type { PauseNowView } from "../../../src/live/pause-now.js";
 
 export const PR_ID = "pr";
+
+/** An audit row's name, its title, line and sentence, from the facts the row carries (Kiln After Delivery AC-AUDIT-01). */
+export function rowAuditName(row: Pick<PhaseView, "kind" | "loops" | "fixing">): AuditName {
+  const loop = row.loops?.at(-1);
+  return auditName({ kind: row.kind === "delivery_audit" ? "delivery_audit" : "test_audit", ...(loop ? { loop: { number: loop.number, limit: loop.limit } } : {}), ...(row.fixing ? { fixing: row.fixing } : {}) });
+}
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
 
-/** An audit's or the preflight's key: a row named by its title, never "phase <id>" (one shared key classifier). */
+/** An audit's, the preflight's or the merge's key: a row named by its title, never "phase <id>" (one shared key classifier). */
 export function namedActivity(id: string): boolean {
   const kind = activityKeyKind(id);
-  return kind === "audit" || kind === "preflight";
+  return kind === "audit" || kind === "preflight" || kind === "merge" || kind === "plan_push";
 }
 
 /** "phase 2b", "the pull request" (AC-PR-05), an audit's title or "preflight". */
@@ -112,7 +119,8 @@ export function headerTotals(feature: Snapshot["feature"], now: Date): HeaderTot
   const start = feature.timingSince ?? feature.startedAt;
   if (!feature.timing || !start) return undefined;
   const { running, waiting } = timingAt(feature.timing, now.getTime());
-  const since = feature.state === "complete" && feature.completedAt ? timeSpan(start, feature.completedAt, now) : `since ${clockTime(start, now, { afterWord: true })}`;
+  // An open after-delivery activity keeps the totals counting on a finished run; once it closes, the span ends there (Kiln After Delivery AC-MERGE-05).
+  const since = feature.state === "complete" && feature.completedAt && !feature.timing.advancing ? timeSpan(start, feature.completeUntil ?? feature.completedAt, now) : `since ${clockTime(start, now, { afterWord: true })}`;
   return { running: shortDuration(running), waiting: shortDuration(waiting), since };
 }
 
@@ -135,6 +143,9 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
       const which = namedActivity(stopped.phaseId) ? row?.title ?? "Audit" : stopped.phaseId === PR_ID ? "PR" : `Phase ${stopped.phaseId}`;
       const position = snapshot.auditLoops?.position;
       const stoppedFact = `Stopped ${clockTime(stopped.stoppedAt, now, { afterWord: true })}`;
+      // A merge stop names what it was merging (Kiln After Delivery, mockup state 4).
+      if (activityKeyKind(stopped.phaseId) === "merge") return { kind: "needs_you", label: "Needs you", facts: [mergingFact(snapshot), stoppedFact] };
+      if (activityKeyKind(stopped.phaseId) === "plan_push") return { kind: "needs_you", label: "Needs you", facts: ["Push the plan", stoppedFact] };
       // An audit's own stop is named by its loop alone; any other stop keeps its name beside the latest loop.
       if (position) return { kind: "needs_you", label: "Needs you", facts: [...(activityKeyKind(stopped.phaseId) === "audit" ? [] : [`${which} · ${row?.title ?? ""}`]), positionText(position), stoppedFact] };
       return { kind: "needs_you", label: "Needs you", facts: [`${which} · ${row?.title ?? ""}`, stoppedFact] };
@@ -144,6 +155,8 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
       const waiting = snapshot.waiting!;
       const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === waiting.phaseId);
       const which = namedActivity(waiting.phaseId) ? row?.title ?? "Audit" : waiting.phaseId === PR_ID ? "PR" : `Phase ${waiting.phaseId}`;
+      // A merge session's wait names the activity as its row does (Kiln After Delivery, mockup state 2).
+      if (activityKeyKind(waiting.phaseId) === "merge" || activityKeyKind(waiting.phaseId) === "plan_push") return { kind: "waiting", label: "Waiting for usage", facts: [row?.title ?? "Merge", `Waiting since ${limitTime(waiting.since, now)}`] };
       return { kind: "waiting", label: "Waiting for usage", facts: [`${which} · ${row?.title ?? ""}`, `Waiting since ${limitTime(waiting.since, now)}`] };
     }
     case "paused":
@@ -154,6 +167,13 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
       // The totals are on the PRD total line, not beside the pill (time totals AC-TOTAL-01).
       const facts = [done];
       if (feature.completedAt) facts.push(`Finished ${clockTime(feature.completedAt, now, { afterWord: true })}`);
+      // After delivery (Kiln After Delivery "Display Contract"): Merging while the merge session runs or starts, Merged once GitHub shows every pull request merged.
+      const after = snapshot.afterDelivery;
+      if (after?.merge && after.merge.state !== "done") return { kind: after.merge.state === "interrupted" ? "interrupted" : "implementing", label: "Merging", facts: after.merge.state === "interrupted" ? [...facts, "Interrupted · Resume to carry on"] : facts };
+      // Continue's push of the plan: Pushing the plan while its session runs; past Done, the plan check in progress.
+      if (after?.planPush && after.planPush.state !== "done" && after.planPush.state !== "accepting") return { kind: after.planPush.state === "interrupted" ? "interrupted" : "implementing", label: "Pushing the plan", facts: after.planPush.state === "interrupted" ? [done, "Interrupted · Resume to carry on"] : [done] };
+      if (after?.planPush?.state === "accepting") return { kind: "implementing", label: "Checking for new phases", facts: [done] };
+      if (after && after.pullRequests.length > 0 && after.pullRequests.length === (snapshot.pullRequests ?? []).length && after.pullRequests.every(pull => pull.state === "merged")) return { kind: "complete", label: "Merged", facts };
       return { kind: "complete", label: snapshot.developmentDelivery?.authorization.enabled ? (snapshot.developmentDelivery.repositoryResults.some(one => one.state === "mixed") || snapshot.developmentDelivery.repositoryResults.some(one => one.state === "delivered") && snapshot.developmentDelivery.repositoryResults.some(one => one.state === "review") ? "Development delivered; review remaining" : snapshot.developmentDelivery.repositoryResults.some(one => one.state === "review") ? "Ready for review" : "Development delivered") : snapshot.mergedBranches?.length ? (snapshot.pullRequests?.length ? "Ready for review · some work already merged" : "Already merged") : "PR ready for review", facts };
     }
     default:
@@ -161,6 +181,13 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
       if (snapshot.auditLoops?.position) return { kind: "implementing", label: positionText(snapshot.auditLoops.position), facts: [done] };
       return { kind: "implementing", label: current && namedActivity(current) ? `Running ${phaseName(current, snapshot)}` : `Implementing ${phaseName(current ?? "")}`, facts: [done] };
   }
+}
+
+/** "Merging pull request #218 into develop", or with several, each by repository. */
+function mergingFact(snapshot: Snapshot): string {
+  const pulls = (snapshot.afterDelivery?.merge?.pullRequests ?? []).map(one => snapshot.pullRequests?.find(pull => pull.repository === one.repository && pull.number === one.number)).filter(pull => pull !== undefined);
+  if (pulls.length === 1) return `Merging pull request #${pulls[0]!.number} into ${pulls[0]!.base}`;
+  return `Merging ${pulls.map(pull => `${pull.repository} #${pull.number}`).join(" and ")}`;
 }
 
 export type RowState = PhaseView["state"] | "interrupted" | "paused";
@@ -172,6 +199,8 @@ export type RowState = PhaseView["state"] | "interrupted" | "paused";
  * (Kiln Pause Now AC-PAUSE-05).
  */
 export function rowState(row: PhaseView, connected: boolean, pauseNow?: PauseNowView): RowState {
+  // The merge row of a session held at the restart review reads Interrupted (Kiln After Delivery "Display Contract").
+  if (row.interrupted) return "interrupted";
   if (pauseNow && row.id === pauseNow.activityKey) return pauseNow.phase === "paused" ? "paused" : connected ? "implementing" : "interrupted";
   return (row.state === "implementing" || row.state === "waiting") && !connected ? "interrupted" : row.state;
 }
@@ -219,12 +248,15 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
       // A completion with a waived check reads Complete, its count beside it (waivers AC-WAIVE-10).
       if (preflightPill(row)) return preflightPill(row)!.text;
       if (row.waivedChecks) return "Complete";
+      // A push of the plan reads Pushed once origin holds the plan (Kiln After Delivery "Display Contract").
+      if (row.kind === "plan_push") return "Pushed";
       return row.id === PR_ID && opened !== undefined ? opened : "Done";
     case "split":
       return `Split into ${(row.splitInto ?? []).join(", ")}`;
     case "implementing":
       return row.kind === "preflight" ? "Checking" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing";
     case "interrupted":
+      if (row.interrupted) return "Interrupted";
       return `Last known: ${row.state === "waiting" ? "Waiting for usage" : row.kind === "preflight" ? "Checking" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing"}`;
     case "needs_you":
       return "Needs you";
@@ -403,7 +435,7 @@ export interface NeedsYouCopy {
 
 export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false, developmentDelivery = false): NeedsYouCopy {
   const copy = stopCopy(stop, settings, now, multiRepository, developmentDelivery);
-  if (stop.rowsAreCompletionChecks) return { ...copy, sideHeading: "Completion checks" };
+  if (stop.rowsAreCompletionChecks) return activityKeyKind(stop.phaseId) === "merge" || activityKeyKind(stop.phaseId) === "plan_push" ? copy : { ...copy, sideHeading: "Completion checks" };
   // Rows saved at the stop read Why Kiln stopped, and wording that calls them the completion checks waits until they are (AC-STOPCHECK-01).
   const rowsAsChecks = new Set(["This is the same check Kiln runs after every phase. Later phases wait until it passes.", "This is the check Kiln runs after the pull-request session.", "These are the current delivery finalization checks."]);
   return {
@@ -448,6 +480,39 @@ function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, mul
     notePlaceholder: "Give instructions, answer its question, or ask what you need to know before it continues.",
   };
 
+  // A stopped merge session (Kiln After Delivery AC-MERGE-06, mockup state 4): GitHub decides, and nothing starts a fresh merge session.
+  if (activityKeyKind(stop.phaseId) === "merge" && stop.kind !== "selection" && stop.kind !== "billing") {
+    const closed = stop.checks.filter(check => !check.passed && check.facts.some(fact => fact.includes("was closed on GitHub without merging")));
+    const agent = (stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent;
+    return {
+      ...copy,
+      headline: "The merge session stopped before merging.",
+      line: closed.length ? closed.flatMap(check => check.facts).join(" ") : `${multiRepository ? "The pull requests not yet merged are" : "The pull request is"} unchanged on GitHub.`,
+      freshLink: false,
+      finishTitle: `Merge with ${agent}, the way you normally would`,
+      finishText: "GitHub decides: once every pull request shows merged into its base branch, the merge is done.",
+      checkAgainText: "Kiln reads each pull request on GitHub. Once every one shows merged, Kiln shows Merged and checks for new phases.",
+      sideHeading: "Kiln shows Merged when",
+      footnote: "GitHub shows each pull request merged into its base branch.",
+      resumeText: "Kiln reads GitHub first. If a pull request is still to merge, it picks up the same session, with its full history, and sends your reply before it carries on: the merge where it stopped, the tests, the push, the required checks and the merge.",
+    };
+  }
+  // A stopped push session (Kiln After Delivery AC-BACK-05, AC-MERGE-06): origin decides, and nothing starts a fresh push session.
+  if (activityKeyKind(stop.phaseId) === "plan_push" && stop.kind !== "selection" && stop.kind !== "billing") {
+    const base = `origin/${settings.baseBranch}`;
+    return {
+      ...copy,
+      headline: "The push session stopped before pushing the plan.",
+      line: `Nothing Kiln can see was pushed to ${base}.`,
+      freshLink: false,
+      finishTitle: "Push the plan yourself, the way you normally would",
+      finishText: `${base} decides: once it holds this PRD’s documents, the push is done.`,
+      checkAgainText: `Kiln reads ${base}. Once it holds the plan, Kiln checks for new phases again and starts the build when the same phases are still ready.`,
+      sideHeading: "Kiln goes on when",
+      footnote: `${base} holds this PRD’s documents.`,
+      resumeText: `Kiln reads ${base} first. If the plan is still to push, it picks up the same session, with its full history, and sends your reply before it carries on. A reply can tell it to push the other commits too, or how to combine the documents.`,
+    };
+  }
   if (activityKeyKind(stop.phaseId) === "audit") {
     Object.assign(copy, { headline: "The audit ended before its work was resolved.", finishTitle: "Finish the assigned audit", finishText: "Kiln checks the audit's report, the plan and Git again. Resume continues the audit in its original conversation so it can finish or correct its report.", checkAgainText: "Kiln validates the report, current work and retained delivery obligations before continuing automatically.", footnote: stop.resumeOffered ? "Check again checks completion. To continue unfinished audit work, press Resume; your reply is optional." : "A successful process exit does not establish an audit result.", resumeText: "Kiln checks the audit first. If it is unfinished, Resume sends your reply and the saved audit task to the same conversation." });
   }

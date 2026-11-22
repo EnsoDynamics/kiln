@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "executionId": "ae01ea9e-0f42-4945-a00d-2b01e33377c0",
+  "activityId": "30fe94ab-7a02-4624-a97f-3656e31fb31d",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "Phase 5 built every part the last audit found missing. The Merged card shows the check's answer beside Exit Kiln, the phase count leaves out the Merge and Push the plan rows, a closed and an unreadable pull request together now say GitHub could not be read, the header keeps PR ready for review while a pull request is closed, and kiln status names the new rows and gives the commit message of added phases. This repair audit re-read the four Phase 5 criteria and the 13 others whose code Phase 5 touched, and found no new gap in one round. The one open item is unchanged: the line about a finished phase edited later is still deliberately not built while PLAN-001 is unanswered.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "AC-BACK-01 still requires one quiet line when a finished phase's document is edited later. The build left the line out on purpose, because PLAN-001 reopened your 2026-11-21 ruling and proposes saying nothing. The code therefore departs from a criterion that records your ruling.",
+      "action": "Answer PLAN-001 in kiln-after-delivery-assumptions.md. Confirming silence means amending AC-BACK-01 to drop the line. Keeping your original ruling means adding a phase to build the line."
+    }
+  ],
+  "settled": []
+}

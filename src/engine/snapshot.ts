@@ -1,11 +1,12 @@
 import type { PhaseRecoveryView } from "./phase-recovery.js";
+import { auditName, auditNameFacts, recordedAuditName } from "../audit/audit-names.js";
 import type { ReopenCheck } from "./reopen-check.js";
 import { lastRecordedRun, launchFailure, type LaunchFailure, type WorkRead } from "./stopped-phase.js";
 import { runLastOutputAt } from "../session/claude-session.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
 import { RESULT_CHECK } from "../audit/admission.js";
-import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
+import { activityHistory, acceptedAudit } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { personItems, settledLines } from "../audit/person-items.js";
 import type { WorkSnapshot } from "../audit/contracts.js";
@@ -14,7 +15,7 @@ import { DELIVERY_CHECK, deliveryEnabled, finishedBy } from "./development-deliv
 import { sameOwner, type DevelopmentSettings } from "../state/development-delivery.js";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import type { AgentAccount } from "../agents/metadata.js";
-import { selectedChoice } from "../state/records.js";
+import { readSessionRecord, selectedChoice } from "../state/records.js";
 // The Snapshot every screen renders from (technical design, "Snapshot"), built from the
 // engine's record, the plan as last read, what the engine is doing, and the account and model
 // list once they have arrived.
@@ -30,6 +31,10 @@ import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
+import { deliveryWaiting, latestPlanPush, mergeOffer, openAfterDeliveryKey, type MergeOffer, type PlanPushActivity } from "./delivery-reading.js";
+import { closedOfferLine, mergeNote, unreadableLine } from "./merge-wording.js";
+import { isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
+import { readAcceptance } from "./continuation-state.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
 import { closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
@@ -161,7 +166,9 @@ export interface StartView {
 
 export interface PhaseView {
   activityId?: string;
-  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight";
+  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight" | "merge" | "plan_push";
+  /** The archived execution a Push the plan row's session ran in, for its session links (Kiln After Delivery, "Activation and the row"). */
+  executionId?: string;
   /** A Preflight row (build preflight "Interfaces"). */
   preflight?: {
     /** Absent when no report has been read: running, or marked complete before a session reported. */
@@ -171,8 +178,11 @@ export interface PhaseView {
     /** Why a no_report preflight launched no session for its last attempt. */
     reason?: string;
   };
+  /** Identifiers only; a person reads the title and line (Kiln After Delivery AC-AUDIT-01). */
   round?: number;
   continuationIndex?: number;
+  /** A session of test fixes: the test audit loop that started its chain and its place in that chain, from 1. */
+  fixing?: { loop?: number; session: number };
   audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[];
     /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
     personItems?: { count: number; waiting: boolean };
@@ -205,6 +215,8 @@ export interface PhaseView {
   loops?: import("./loop-view.js").ActivityLoopView[];
   /** Skipped under a waived plan problem (AC-WAIVE-04): not built, counted as closed. */
   skippedByWaiver?: true;
+  /** The merge row while its session is held at the restart review (Kiln After Delivery "Display Contract"): it reads Interrupted. */
+  interrupted?: true;
   details?: SessionIdentityView & {
     from: string;
     to?: string;
@@ -267,12 +279,42 @@ export interface RepositoryRow {
   fieldErrors: { baseBranch?: string };
 }
 
+/** A finished run's delivery as GitHub last showed it, the merge offer and the merge activity (Kiln After Delivery "Interfaces"). */
+export interface AfterDeliveryView {
+  pullRequests: Omit<import("./delivery-reading.js").PullRequestReading, "headSha">[];
+  readError?: { at: string; problem: string };
+  waiting: boolean;
+  /** What the pull request card offers (AC-MERGE-07): the note beside Merge with {agent}, or the line saying why it is not offered. */
+  offer: { kind: MergeOffer["kind"]; available: boolean; reason?: string; note?: string; line?: string };
+  merge?: MergeView;
+  /** The latest push of the plan (Kiln After Delivery "Interfaces"). */
+  planPush?: PlanPushView;
+}
+export interface PlanPushView {
+  key: string;
+  state: "running" | "stopped" | "waiting" | "interrupted" | "accepting" | "done";
+  sessionId?: string;
+  proposalId: string;
+}
+export interface MergeView {
+  state: "running" | "stopped" | "waiting" | "interrupted" | "done";
+  sessionId?: string; startedAt?: string; doneAt?: string; summary?: string;
+  /** The pull requests the press opened it for. */
+  pullRequests: { repository: string; number: number }[];
+  /** Where the session runs, as shown. */
+  folder: string;
+}
+
 export interface Snapshot {
   /** Set exactly when `feature.state` is `folder_missing` (AC-GONE-02). */
   folderMissing?: FolderMissingSnapshot;
   /** The record's compatibility notices, one line each, shown on every screen (AC-AGENT-04). */
   compatibility?: string[];
   liveControl?: import("../live/target.js").LiveView;
+  /** A finished run's delivery as GitHub last showed it (Kiln After Delivery "Interfaces"). */
+  afterDelivery?: AfterDeliveryView;
+  /** Exit Kiln on a finished run (Kiln After Delivery AC-EXIT-01): offered, or unavailable with why, and the command that opens the PRD again. */
+  exit?: { available: boolean; reason?: string; command: string };
   continuation?: { preparation?: ReturnType<Engine["preparationStatus"]>; acceptance?: ReturnType<Engine["continuationAcceptance"]>; executions?: Omit<import("./continuation-state.js").ExecutionSummary, "archiveId">[]; check?: import("./completed-plan-discovery.js").CompletedPlanCheck; handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
   controlToken?: string;
   unsentReplies?: { id: string; text: string }[];
@@ -303,6 +345,8 @@ export interface Snapshot {
     phasesTotal: number;
     startedAt?: string;
     completedAt?: string;
+    /** When a finished run last became complete, when an after-delivery activity closed after `completedAt`: Complete's span ends here (Kiln After Delivery AC-MERGE-05). */
+    completeUntil?: string;
     timing?: Timing;
     /** When the PRD total starts, when it counts earlier executions too (time totals AC-TOTAL-02); otherwise `startedAt`. */
     timingSince?: string;
@@ -522,7 +566,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ? "not_started"
     : folderMissing
       ? "folder_missing"
-      : engine.currentlyComplete
+      // A merge activity held at the restart review shows the finished page, waiting or not (Kiln After Delivery, "Ctrl+C and restart").
+      : engine.currentlyComplete || engine.finished && openAfterDeliveryKey(record) !== undefined && stoppedKey === undefined && (waitingKey === undefined || engine.restartReview?.activityKey === openAfterDeliveryKey(record)) && !record.billing?.hold
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
@@ -549,8 +594,11 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }) } : {}),
       ...(record.completedPlanCheck ? { check: record.completedPlanCheck } : {}),
       ...(record.planReconciliation?.handback ? { handback: record.planReconciliation.handback } : {}),
-      ...(record.planReconciliation?.check?.status === "failed" ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
+      // An in-progress plan's "Plan needs reconciliation" notice is never rendered on a finished run (Kiln After Delivery AC-BACK-01).
+      ...(record.planReconciliation?.check?.status === "failed" && !record.completedAt ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
+    ...(record.completedAt && record.afterDelivery ? { afterDelivery: afterDeliveryView(engine) } : {}),
+    ...(engine.finished ? { exit: { ...engine.exitControl(), command: engine.reopenCommand } } : {}),
     activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...preflightPlanned(engine, state, documents),
     auditLoops: auditLoopsView(engine),
@@ -562,13 +610,15 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
       state,
-      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && phase.state === "done").length : leaves.filter((leaf) => effectiveRecordedClosed(record, leaf)).length,
+      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && !isAfterDeliveryKey(phase.id) && phase.state === "done").length : leaves.filter((leaf) => effectiveRecordedClosed(record, leaf)).length,
       phasesTotal: leaves.length,
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
-      // Delivery can reopen a completed PRD and leave completedAt set; its totals keep counting until it is complete again (time totals AC-TOTAL-03).
-      ...(includeTiming ? prdTimingFields(prdTiming(engine, timingFor(engine, Object.keys(record.phases), record.startedAt, state === "complete" ? record.completedAt : undefined)), record.startedAt) : {}),
+      // Delivery, or an open after-delivery activity, can reopen a completed PRD and leave completedAt set; its totals keep
+      // counting until it is complete again, and then end when it last became complete (time totals AC-TOTAL-03, Kiln After Delivery AC-MERGE-05).
+      ...(includeTiming ? prdTimingFields(prdTiming(engine, timingFor(engine, Object.keys(record.phases), record.startedAt, completeUntil(engine))), record.startedAt) : {}),
+      ...optional("completeUntil", completeUntil(engine) !== record.completedAt ? completeUntil(engine) : undefined),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),
@@ -784,6 +834,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const auditTask = engine.auditRecoveryTask(phaseKey, folder);
   const preflight = engine.preflightActivity(phaseKey);
   const originalPrompts = (ran: boolean) =>
+      phaseKey === MERGE_KEY ? engine.mergePrompt(folder) :
+      isPlanPushKey(phaseKey) ? engine.planPushPrompt(phaseKey) :
       preflight ? engine.preflightPrompt(preflight, folder) :
       auditTask ? auditRecoveryPrompt(auditTask, engine.deliveryAuthority()) :
       isPr
@@ -1091,6 +1143,17 @@ export function codexResumeCommand(folder: string, session: SessionRecord, platf
 }
 
 /** Timing is derived from saved runs; historical open runs stop at their last evidence. */
+/**
+ * When the run last became complete: the later of `completedAt` and the latest after-delivery
+ * activity's close; undefined while it is not complete (Kiln After Delivery, "While open").
+ */
+function completeUntil(engine: Engine): string | undefined {
+  const { record } = engine;
+  if (!engine.currentlyComplete || !record.completedAt) return undefined;
+  const closed = [record.afterDelivery?.merge?.closedAt, ...(record.afterDelivery?.planPushes ?? []).map(push => push.closedAt)].filter((at): at is string => at !== undefined).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+  return closed && Date.parse(closed) > Date.parse(record.completedAt) ? closed : record.completedAt;
+}
+
 function timingFor(engine: Engine, keys: string[], from?: string, doneAt?: string): Timing | undefined {
   if (!from) return undefined;
   const { runs, running } = engine.sessionRuns(keys);
@@ -1186,7 +1249,7 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     const firstSession = engine.sessionRecord(PR_PHASE_KEY, facts?.sessionIds[0] ?? "");
     const startedAt = firstSession?.runs[0]?.startedAt;
     const row: PhaseView = { id: PR_PHASE_KEY, title: deliveryEnabled(record) ? "Finalize delivery" : PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
-    if (engine.currentlyComplete) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
+    if (engine.finished) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
     else if (facts?.stop) row.state = "needs_you";
     else if (facts?.wait) row.state = "waiting";
     else if (state === "implementing" && engine.current?.phaseKey === PR_PHASE_KEY) row.state = "implementing";
@@ -1198,7 +1261,144 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     Object.assign(row, waivedFacts(engine, PR_PHASE_KEY, row.state === "done"));
     rows.push(row);
   }
+  const merge = mergeRow(engine, includeTiming);
+  if (merge) rows.push(merge);
+  const push = planPushRow(engine, includeTiming);
+  if (push) {
+    // In the build a push led to, the row sits before the first added phase; on the finished page, after the rest.
+    const before = push.executionId ? rows.findIndex(row => row.id === push.beforeId) : -1;
+    const { beforeId: _before, ...row } = push; void _before;
+    if (before >= 0) rows.splice(before, 0, row); else rows.push(row);
+  }
   return rows;
+}
+
+/**
+ * The Push the plan row (Kiln After Delivery AC-MERGE-05): on the finished page while a push is
+ * open, and while the acceptance it led to is being prepared; in the build that acceptance
+ * activated, Done before the first added phase, read from the archived execution. Never counted
+ * among the phases done.
+ */
+function planPushRow(engine: Engine, includeTiming: boolean): (PhaseView & { beforeId?: string }) | undefined {
+  const { record } = engine;
+  const current = record.continuation?.acceptances.find(row => row.id === record.continuation?.currentAcceptanceId);
+  const latest = latestPlanPush(record);
+  const preparing = !!current && current.completedExecutionId === record.executionId && current.state === "preparing";
+  if (latest && (!latest.closedAt || preparing && readAcceptance(engine.stateDirectory, current!.id).planPushKey === planPushKey(latest.operationId))) {
+    return pushRowFor(engine, record, latest, planPushState(engine, latest).state, includeTiming);
+  }
+  if (!current || current.completedExecutionId === record.executionId) return undefined;
+  const acceptance = readAcceptance(engine.stateDirectory, current.id);
+  if (!acceptance.planPushKey) return undefined;
+  const archived = engine.historicalExecution(acceptance.completedExecutionId)?.record;
+  const push = archived?.afterDelivery?.planPushes?.find(one => planPushKey(one.operationId) === acceptance.planPushKey);
+  if (!archived || !push) return undefined;
+  return { ...pushRowFor(engine, archived, push, "done", includeTiming, acceptance.completedExecutionId), executionId: acceptance.completedExecutionId, ...optional("beforeId", acceptance.proposal.added[0]?.id) };
+}
+
+/** `archivedIn`: the archived execution the push ran in, whose sessions are read as that execution's, never this one's. */
+function pushRowFor(engine: Engine, record: Pick<PrdRecord, "phases" | "repositories" | "settings">, push: PlanPushActivity, state: PlanPushView["state"], includeTiming: boolean, archivedIn?: string): PhaseView {
+  const key = planPushKey(push.operationId);
+  const facts = record.phases[key];
+  const ids = facts?.sessionIds ?? [];
+  const read = (id: string) => {
+    if (!archivedIn) return engine.sessionRecord(key, id);
+    const saved = readSessionRecord(engine.stateDirectory, key, id);
+    return saved?.executionId === archivedIn ? saved : undefined;
+  };
+  const session = ids.length ? read(ids.at(-1)!) : undefined;
+  const base = record.repositories.find(entry => entry.kind === "prd")?.baseBranch ?? record.settings.baseBranch;
+  const checkout = displayPath(engine.record.repository.mainCheckoutPath);
+  const line = `${state === "done" || state === "accepting" ? "pushed" : "pushing"} this PRD’s documents to ${base} from ${checkout}`;
+  const row: PhaseView = { id: key, kind: "plan_push", title: "Push the plan", file: session ? `${AGENT_NAMES[session.agentId ?? "claude_code"]} · ${session.modelDisplayName} · ${line}` : line,
+    state: state === "done" || state === "accepting" ? "done" : state === "stopped" ? "needs_you" : state === "waiting" ? "waiting" : state === "interrupted" ? "next" : "implementing", finishedByPerson: false, ...optional("doneAt", push.doneAt), ...(state === "interrupted" ? { interrupted: true as const } : {}) };
+  const first = ids[0] ? read(ids[0]) : undefined;
+  const from = first?.runs[0]?.startedAt;
+  if (session) {
+    if (!archivedIn) row.outputLineCount = engine.outputLines(session).length;
+    if (from) {
+      row.sessionStartedAt = from;
+      if (includeTiming) row.timing = archivedIn ? runTiming(session.runs.map(run => ({ startedAt: run.startedAt, ...optional("interruptedAt", run.interruptedAt), endedAt: run.endedAt ?? run.startedAt })), from, push.doneAt ?? from) : timingFor(engine, [key], from, push.doneAt)!;
+      row.details = { ...sessionIdentity(session), from, ...optional("to", push.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.workingDirectoryOf(session)), branch: base, sessionId: session.sessionId };
+    }
+  }
+  return row;
+}
+
+/** A push's state (Kiln After Delivery "Interfaces"): done, accepting (past Done, its check not decided), stopped, waiting, interrupted or running. */
+function planPushState(engine: Engine, push: PlanPushActivity): PlanPushView {
+  const { record } = engine;
+  const key = planPushKey(push.operationId);
+  const facts = record.phases[key];
+  const session = engine.latestSession(key);
+  const state: PlanPushView["state"] = push.closedAt ? "done" : push.doneAt ? "accepting" : facts?.stop || record.billing?.hold?.phaseKey === key ? "stopped" : engine.restartReview?.activityKey === key ? "interrupted" : facts?.wait ? "waiting" : "running";
+  return { key, state, ...optional("sessionId", session?.sessionId), proposalId: push.proposalId };
+}
+
+/**
+ * The Merge row, after the final pull request row (Kiln After Delivery AC-MERGE-05): never counted
+ * among the phases done. Its line names the agent, the model and what it merges.
+ */
+function mergeRow(engine: Engine, includeTiming: boolean): PhaseView | undefined {
+  const { record } = engine;
+  const merge = record.afterDelivery?.merge;
+  if (!merge) return undefined;
+  const facts = record.phases[MERGE_KEY];
+  const session = engine.latestSession(MERGE_KEY);
+  const view = mergeState(engine)!;
+  const pulls = merge.pullRequests.map(pull => record.pullRequests?.find(one => one.repository === pull.repository && one.number === pull.number)).filter(pull => pull !== undefined);
+  const what = pulls.map(pull => `${pulls.length > 1 ? `${pull.repository} ` : ""}#${pull.number}`).join(" and ");
+  const bases = [...new Set(pulls.map(pull => pull.base))];
+  const line = `${view.state === "done" ? "merged" : "merging"} ${what}${bases.length === 1 ? ` into ${bases[0]}` : ""}`;
+  const row: PhaseView = { id: MERGE_KEY, kind: "merge", title: "Merge", file: session ? `${AGENT_NAMES[session.agentId ?? "claude_code"]} · ${session.modelDisplayName} · ${line}` : line, state: view.state === "done" ? "done" : view.state === "stopped" ? "needs_you" : view.state === "waiting" ? "waiting" : view.state === "interrupted" ? "next" : "implementing", finishedByPerson: false, ...optional("doneAt", facts?.doneAt), ...(view.state === "interrupted" ? { interrupted: true as const } : {}) };
+  const first = facts?.sessionIds[0] ? engine.sessionRecord(MERGE_KEY, facts.sessionIds[0]) : undefined;
+  const from = first?.runs[0]?.startedAt;
+  if (session) {
+    row.outputLineCount = engine.outputLines(session).length;
+    if (from) {
+      row.sessionStartedAt = from;
+      if (includeTiming) row.timing = timingFor(engine, [MERGE_KEY], from, facts?.doneAt)!;
+      row.details = { ...sessionIdentity(session), from, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.workingDirectoryOf(session)), branch: record.settings.featureBranch, sessionId: session.sessionId };
+    }
+  }
+  return row;
+}
+
+/** The merge activity's state (Kiln After Delivery "Interfaces"): done, stopped (a stop or billing hold), waiting, interrupted (held at the restart review) or running. */
+function mergeState(engine: Engine): MergeView | undefined {
+  const { record } = engine;
+  const merge = record.afterDelivery?.merge;
+  if (!merge) return undefined;
+  const facts = record.phases[MERGE_KEY];
+  const session = engine.latestSession(MERGE_KEY);
+  const state: MergeView["state"] = merge.closedAt ? "done" : facts?.stop || record.billing?.hold?.phaseKey === MERGE_KEY ? "stopped" : engine.restartReview?.activityKey === MERGE_KEY ? "interrupted" : facts?.wait ? "waiting" : "running";
+  return { state, ...optional("sessionId", session?.sessionId), ...optional("startedAt", session?.runs[0]?.startedAt), ...optional("doneAt", merge.doneAt), ...optional("summary", merge.summary), pullRequests: merge.pullRequests, folder: displayPath(session ? engine.workingDirectoryOf(session) : engine.sessionFolder) };
+}
+
+/** The pull request card's facts (AC-MERGE-01, AC-MERGE-04, AC-MERGE-07, AC-WAIT-02). */
+export function afterDeliveryView(engine: Engine): AfterDeliveryView {
+  const { record } = engine;
+  const state = record.afterDelivery!;
+  const offer = mergeOffer(record);
+  const control = engine.mergeControl();
+  const multi = (record.pullRequests ?? []).length > 1;
+  const agent = AGENT_NAMES[record.settings.agentId];
+  const base = (row: { repository: string; number: number }) => record.pullRequests?.find(pull => pull.repository === row.repository && pull.number === row.number)?.base ?? "";
+  const merge = mergeState(engine);
+  const offerView: AfterDeliveryView["offer"] = {
+    kind: offer.kind, available: control.available, ...optional("reason", control.available ? undefined : control.reason),
+    ...(offer.kind === "offered" && control.offered ? { note: mergeNote({ agent, multi, toMerge: offer.toMerge.map(row => ({ repository: row.repository, number: row.number, base: base(row), ordered: !!row.order })), merged: offer.merged }) } : {}),
+    // The closed line shows only while no merge activity exists (Display Contract).
+    ...(offer.kind === "closed" && !merge ? { line: closedOfferLine({ multi, ...offer }) } : offer.kind === "unreadable" && !merge ? { line: unreadableLine(offer.problem) } : {}),
+  };
+  return {
+    pullRequests: state.pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }),
+    ...(state.readError ? { readError: { at: state.readError.at, problem: state.readError.problem } } : {}),
+    waiting: deliveryWaiting(record) === true,
+    offer: offerView,
+    ...(merge ? { merge } : {}),
+    ...(latestPlanPush(record) ? { planPush: planPushState(engine, latestPlanPush(record)!) } : {}),
+  };
 }
 
 /**
@@ -1389,9 +1589,9 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
   const started = new Set<string>();
   const audits = record.completionAudits?.activities ?? [];
   let ledger: ReturnType<typeof personItems> | undefined;
-  try { ledger = personItems(engine.stateDirectory, audits, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
+  try { ledger = personItems(engine.stateDirectory, record, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
   for (const activity of activityHistory(record, engine.stateDirectory)) {
-    if (activity.kind === "implementation" || activity.kind === "final_delivery") {
+    if (activity.kind === "implementation" || activity.kind === "final_delivery" || activity.kind === "merge" || activity.kind === "plan_push") {
       const parent = phases.find(r => r.id === activity.key && r.state === "split");
       if (parent && !started.has(parent.id)) { rows.push(parent); started.add(parent.id); }
       const row = phases.find(r => r.id === engine.judgedId(activity.key));
@@ -1404,8 +1604,10 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       continue;
     }
     const audit = engine.auditActivity(activity.key)!;
+    // Each audit row is named for what it does (Kiln After Delivery AC-AUDIT-01).
+    const nameFacts = auditNameFacts(record, audit); const name = auditName(nameFacts);
     const facts = record.phases[activity.key]; const session = engine.latestSession(activity.key);
-    const row: PhaseView = { id: activity.key, activityId: activity.activityId, kind: audit.kind, title: auditLabel(audit.kind), file: `Round ${audit.round}${audit.continuationIndex > 1 ? ` · Continuation ${audit.continuationIndex}` : ""}`, round: audit.round, continuationIndex: audit.continuationIndex, state: facts?.stop ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing", finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt) };
+    const row: PhaseView = { id: activity.key, activityId: activity.activityId, kind: audit.kind, title: name.title, file: name.line ?? "", ...(nameFacts.fixing ? { fixing: nameFacts.fixing } : {}), round: audit.round, continuationIndex: audit.continuationIndex, state: facts?.stop ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing", finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt) };
     if (session) {
       const first = facts?.sessionIds[0] ? engine.sessionRecord(activity.key, facts.sessionIds[0]) : undefined;
       const from = first?.runs[0]?.startedAt;
@@ -1527,7 +1729,7 @@ function activityName(engine: Engine, key: string): string {
   if (key === PR_PHASE_KEY) return "Final delivery";
   if (isPreflightKey(key)) return PREFLIGHT_TITLE;
   const audit = key.startsWith("audit-") ? engine.auditActivity(key) : undefined;
-  if (audit) return auditLabel(audit.kind);
+  if (audit) return recordedAuditName(engine.record, audit).title;
   return `Phase ${judgedKeyFor(engine.record.plan ?? [], key)}`;
 }
 

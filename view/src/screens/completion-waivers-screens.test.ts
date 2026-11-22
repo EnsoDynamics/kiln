@@ -284,7 +284,7 @@ describe("a waived check reads Waived, never Passed (AC-WAIVE-10)", () => {
 
   it("puts the no-report warning beside a waived audit's label and explains it in its detail (AC-WAIVE-12)", () => {
     const snapshot = noReportAuditSnapshot();
-    expect(text(running(snapshot))).toMatch(/Delivery audit Round 1 [^]*?Complete · 1 check waived ! no audit report/);
+    expect(text(running(snapshot))).toMatch(/Delivery audit Loop 1 of 4 [^]*?Complete · 1 check waived ! no audit report/);
     const words = text(detail(snapshot, "audit-da1"));
     expect(words).toContain("Complete · 1 check waived ! no audit report");
     expect(words).toContain("! No audit report Kiln couldn’t tell what this audit found. It counted the audit as passed and moved on to the test audit.");

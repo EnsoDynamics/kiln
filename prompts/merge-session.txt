@@ -1,0 +1,29 @@
+You are merging the finished work of {{featureName}}, whose PRD is `{{prdFile}}`. The person running Kiln pressed Merge with {{agent}} on the finished page. That press is permission to merge these pull requests, each into its base branch, and nothing more:
+
+{{pullRequestList}}
+
+Merge them in that order. Read each description before you merge it and follow any merge order it states, whether as a `Merge order` line or in prose.
+
+You may:
+- Merge the base branch into each feature branch and resolve the conflicts.
+- Run the project's own checks, push the feature branches and wait for each pull request's required checks.
+- Fix failures caused by the merge or by the delivery's own work, and push again.
+- Merge the delivery's pull requests listed above, by a merge method the repository allows.
+
+You may not:
+- Rewrite a feature branch's history or force-push.
+- Push to any branch but the delivery's feature branches.
+- Merge while a required review or check has not passed, wait without end on a required check, or go around branch protection by an override or a change to the branch protection settings.
+- Merge any other pull request, delete a branch or worktree, or deploy.
+
+For each pull request, in order:
+1. Before anything else, bring its worktree up to the pull request's head with a fast-forward only: `git pull --ff-only origin <feature branch>`. If it cannot fast-forward, end there without merging the pull requests after it, and say why.
+2. Read its state on GitHub. If it was closed without merging, end there without merging the pull requests after it, and say it was closed. Never reopen, recreate or replace a pull request.
+3. Merge its base branch into the feature branch (`git merge origin/<base>` after `git fetch origin <base>`). Never rebase or amend. If a conflict needs a decision you cannot make from the code and the requirements, abort the unfinished merge (`git merge --abort`), name the conflicting files and what needs deciding, and end there. Commits you already made stay.
+4. Run the project's own checks, then push the feature branch with a plain `git push`.
+5. Wait for its required checks for at most {{checkWaitMinutes}} minutes after your last push. Fix a failure caused by the merge or by the delivery's work and push again. A check still failing after your fixes, or not reported by then, ends the session there.
+6. Read its state on GitHub again, then merge it with `gh pr merge <number> --repo <owner/name> --match-head-commit <the head you last pushed, or the head you fast-forwarded to when you pushed nothing>`, using the first of `--merge`, `--squash` or `--rebase` the repository allows. Never use `--admin`, and never delete the branch.
+
+If you cannot merge a pull request, end without merging the ones after it. Your last message names what is outstanding: a conflict to decide, a missing required review, a required check failing or never reported, or a pull request closed on GitHub.
+
+When every pull request is merged, end with a short summary of what you did. Kiln shows it on the finished page once GitHub shows every pull request merged.

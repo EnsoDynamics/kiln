@@ -40,6 +40,10 @@ export interface Harness {
   claudeCalls(): { args: string[]; cwd: string; prompt: string }[];
   ghCalls(): string[][];
   setPulls(pulls: unknown[] | { fail: string }): void;
+  /** Sets what `gh pr view` answers, keyed "<owner>/<name>#<n>" (see recordedPullRequest), keeping the stand-in's other state. */
+  setPullRequestViews(views: Record<string, unknown>): void;
+  /** Gives the repository the GitHub origin a real run has (acme/acme-shop), served by the local bare origin, so the main checkout is found (Kiln After Delivery, "The Plan Check", step 2). */
+  useGithubOrigin(): void;
   /** A new engine over the same record and state, as the next `kiln run` makes. */
   reopen(): Engine;
   /**
@@ -179,6 +183,11 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     claudeCalls: () => readJsonLines(`${scenarioPath}.calls.jsonl`),
     ghCalls: () => readJsonLines(`${ghStatePath}.calls.jsonl`),
     setPulls: (pulls) => writeFileSync(ghStatePath, JSON.stringify(Array.isArray(pulls) ? { pulls } : pulls)),
+    useGithubOrigin: () => {
+      git(sandbox, repository, "config", `url.${origin}.insteadOf`, "https://github.com/acme/acme-shop.git");
+      git(sandbox, repository, "remote", "set-url", "origin", "https://github.com/acme/acme-shop.git");
+    },
+    setPullRequestViews: (views) => writeFileSync(ghStatePath, JSON.stringify({ ...JSON.parse(readFileSync(ghStatePath, "utf8")) as object, views })),
     reopen: () => { harness.engine.close(); return harness.engine = make(); },
     reopenFromDisk: () => { harness.engine.close(); return harness.engine = engineOver(feature, readPrdRecord(feature.stateDirectory)!); },
     engineFor: async (name) => { const engine = engineOver(await newFeature(name)); await engine.agents.refresh(); return engine; },

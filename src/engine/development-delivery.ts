@@ -926,6 +926,17 @@ function repositoryReason(state: DevelopmentLedger, result: RepositoryResult, er
  * per repository. Items are unmarked and repository items carry an empty `against`, which the engine fills before
  * applying waivers; `passed` and `currentComplete` are the unwaived result.
  */
+/**
+ * A finished run's review pull request in this repository that the delivery reading shows merged into
+ * its recorded base (Kiln After Delivery, "The Delivery Reading"), or undefined.
+ */
+export function finishedReviewMerged(record: PrdRecord, repository: string): import("../state/records.js").PullRequestFacts | undefined {
+  if (!record.completedAt) return undefined;
+  const pull = (record.pullRequests ?? []).find(one => one.repository === repository);
+  const reading = pull && record.afterDelivery?.pullRequests.find(row => row.repository === repository && row.number === pull.number);
+  return reading?.state === "merged" ? pull : undefined;
+}
+
 export async function evaluateRepositories(context: DeliveryContext): Promise<{ passed: boolean; checks: CheckResult[]; pullRequests: import("../state/records.js").PullRequestFacts[] }> {
   const state = ledger(context.record); const results: RepositoryResult[] = []; const pullRequests: import("../state/records.js").PullRequestFacts[] = [];
   const checkedHeads = new Map<string, { head: string; status: string; remote?: string }>(); const work = new Map<string, Set<string>>();
@@ -945,6 +956,14 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
   for (const repo of context.record.repositories.filter(one => one.setupCompletedAt)) {
     const result: RepositoryResult = { repository: repo.name, state: "unresolved", deliveredCheckpointIds: state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge).map(one => one.id), reasons: [] };
     results.push(result); const repositoryWork = new Set<string>(); work.set(repo.name, repositoryWork);
+    // On a finished run a review pull request GitHub shows merged counts as delivered, whoever merged it and however its
+    // branch was updated: nothing is read from the run worktree, which may be gone or mid-merge (Kiln After Delivery, "Under early merges").
+    const mergedReview = finishedReviewMerged(context.record, repo.name);
+    if (mergedReview) {
+      result.state = result.deliveredCheckpointIds.length ? "mixed" : "review"; result.reviewPullRequest = { number: mergedReview.number, url: mergedReview.url };
+      pullRequests.push(mergedReview);
+      continue;
+    }
     const fail = (error: unknown, isWork = false) => repositoryReason(state, result, error, isWork ? repositoryWork : undefined, result.reasons.length === 0);
     const attempt = async <T>(read: () => Promise<T>): Promise<T | undefined> => { try { return await read(); } catch (error) { fail(error); return undefined; } };
     /** Records the reason when the condition fails; true when it holds. */
@@ -1021,6 +1040,7 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
   const allLinks = results.flatMap(one => one.reviewPullRequest ? [one.reviewPullRequest.url] : []);
   for (const repo of context.record.repositories.filter(one => one.setupCompletedAt)) {
     const result = results.find(one => one.repository === repo.name)!;
+    if (finishedReviewMerged(context.record, repo.name)) continue;
     for (const number of [...state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge).map(one => one.merge!.number), ...(result.reviewPullRequest ? [result.reviewPullRequest.number] : [])]) {
       try { const pull = object(await github(context, `repos/${repo.github}/pulls/${number}`)); for (const url of allLinks) if (url !== pull.html_url && !String(pull.body).includes(url)) repositoryReason(state, result, new DeliveryRefusal(`${repo.name} #${number}: link related review ${url}.`)); }
       catch (error) { repositoryReason(state, result, error); }

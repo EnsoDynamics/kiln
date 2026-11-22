@@ -74,7 +74,7 @@ it.each(["formatVersion", "normalizerVersion"])("refuses correctly hashed unknow
   expect(h.claudeCalls()).toEqual([]);
 });
 
-it.each([true, false])("keeps continuation ready after a linked rename with retained baseline=%s, preserving history and blocking real changes", async retained => {
+it.each([true, false])("keeps continuation ready after a linked rename with retained baseline=%s, preserving history and keeping a changed finished phase finished (Kiln After Delivery AC-BACK-01)", async retained => {
   await completed(retained);
   const baselineId = h.engine.record.planReconciliation?.baselineId;
   const baselineFile = baselineId && join(h.stateDirectory, "plans", `${baselineId}.json`);
@@ -82,7 +82,7 @@ it.each([true, false])("keeps continuation ready after a linked rename with reta
   const historicalFacts = structuredClone(h.engine.record.phases);
   renameCatalog(); write("phase-9-lending.md", phase("9", false) + "\n## Phase dependencies\n1, 2.\n"); publish();
   const check = await h.engine.checkCompletedPlan();
-  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { added: [{ id: "9" }], earlierWorkChanges: [], proposal: { readiness: "ready", firstEligiblePhase: "9" } } });
+  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { added: [{ id: "9" }], proposal: { readiness: "ready", firstEligiblePhase: "9" } } });
   expect(check.result?.leaves?.filter(p => p.classification === "carried_completed").map(p => p.id)).toEqual(["1", "2"]);
   expect(readBaseline(h.stateDirectory, check.result!.baselineId).normalizerVersion).toBe(PLAN_NORMALIZER_VERSION);
   if (baselineFile) {
@@ -97,10 +97,9 @@ it.each([true, false])("keeps continuation ready after a linked rename with reta
   expect(h.engine.record.completedAt).toBe("2026-10-01T12:00:00Z");
   for (const changed of [phase("1") + link("new").replace("#summary", "#different"), phase("1") + link("new").replace("mode=read", "mode=write"), phase("1").replace("Catalog 1", "Different implementation") + link("new"), phase("1", false) + link("new")]) {
     write("phase-1-catalog.md", changed); publish();
-    const blocked = await h.engine.checkCompletedPlan();
-    expect(blocked.status).toBe("blocked");
-    expect(blocked.result?.earlierWorkChanges.join(" ")).toContain("Phase 1");
-    expect(blocked.result?.proposal?.readiness).toBe("blocked");
+    const kept = await h.engine.checkCompletedPlan();
+    expect(kept).toMatchObject({ status: "available", result: { added: [{ id: "9" }], proposal: { readiness: "ready" } } });
+    expect(kept.result?.leaves?.find(p => p.id === "1")?.classification).toBe("carried_completed");
   }
   expect(h.claudeCalls()).toEqual([]);
   expect(h.kilnGitCalls().some(call => /^(checkout|switch|reset|worktree add|merge |push)\b/.test(call))).toBe(false);
@@ -115,7 +114,7 @@ it("verifies inherited external completion against its original Git tree after a
   write("comet-prd.md", prd + `\n## External completion evidence\nPhase 8a: repository \`acme-shop\` at commit \`${external}\`.\n`);
   write("phase-9-lending.md", phase("9", false) + "\n## Phase dependencies\n8a.\n"); publish();
   const check = await h.engine.checkCompletedPlan();
-  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { added: [{ id: "9" }], earlierWorkChanges: [] } });
+  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { added: [{ id: "9" }] } });
   expect(check.result?.leaves?.find(p => p.id === "8a")).toMatchObject({ classification: "externally_verified", repositories: [{ revision: external, integration: "integrated_verified" }] });
   write("phase-8a-lending.md", phase("8a") + link("new") + "\nMaterially different lending behavior.\n"); publish();
   const blocked = await h.engine.checkCompletedPlan();
@@ -171,15 +170,16 @@ it.each([1, 2] as const)("compares governing links across saved/Git filenames af
   renameCatalog();
   for (const file of ["comet-prd.md", "comet-technical-design.md", "comet-phase-plan.md"]) write(file, readFileSync(join(h.repository, directory, file), "utf8").replaceAll("2-old.md", "2-new.md"));
   const check = await h.engine.checkCompletedPlan();
-  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { source: { kind: "delivery_base" }, earlierWorkChanges: [], proposal: { readiness: "ready", added: [{ id: "9" }] } } });
+  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { source: { kind: "remote_base" }, proposal: { readiness: "ready", added: [{ id: "9" }] } } });
   expect(readBaseline(h.stateDirectory, check.result!.baselineId).normalizerVersion).toBe(PLAN_NORMALIZER_VERSION);
   expect(readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!).normalizerVersion).toBe(version);
+  // An uncommitted edit in the main checkout is named and never read (Kiln After Delivery AC-BACK-03).
   write("comet-technical-design.md", "# Design\nSubstantively different behavior.\nRead [Catalog](phase-2-new.md).\n");
-  expect((await h.engine.checkCompletedPlan()).result?.problems.join(" ")).toContain("source_conflict");
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { uncommitted: expect.arrayContaining([`${directory}/comet-technical-design.md`]), problems: [] } });
   expect(h.claudeCalls()).toEqual([]);
 });
 
-it("blocks inherited completed repository removal/replacement while allowing parent additions for remaining children", async () => {
+it("keeps an inherited completed phase finished through its parent's repository changes, offering the remaining children (Kiln After Delivery AC-BACK-01)", async () => {
   await completed(true);
   const parent = (repositories: string, remaining = true) => `# Phase 8: Lending\n\n**Repositories:** ${repositories}\n\n## Split into\n| Phase | Work |\n|---|---|\n| [8a](phase-8a-lending.md) | Lending |\n${remaining ? "| [8b](phase-8b-search.md) | Search |\n" : ""}`;
   write("phase-8-parent.md", parent("comet-api", false));
@@ -191,14 +191,15 @@ it("blocks inherited completed repository removal/replacement while allowing par
   for (const repositories of ["comet-web", "acme-shop"]) {
     write("phase-8-parent.md", parent(repositories)); publish();
     const check = await h.engine.checkCompletedPlan();
-    expect(check).toMatchObject({ status: "blocked", result: { earlierWorkChanges: [expect.stringContaining("Phase 8a")] } });
-    expect(check.result?.leaves?.find(row => row.id === "8a")?.classification).toBe("unresolved_earlier_work");
+    // Only readiness can withhold Continue here: the missing repositories and retained revisions, never the finished phase's changed scope.
+    expect(check).toMatchObject({ status: "blocked", result: { added: [{ id: "8b" }] } });
+    expect(check.result?.problems.join(" ")).not.toMatch(/reopened|materially changed|reconcil/);
+    expect(check.result?.leaves?.find(row => row.id === "8a")?.classification).toBe("carried_completed");
     expect(check.result?.leaves?.filter(row => row.classification === "new_unfinished").map(row => row.id)).toEqual(["8b"]);
   }
   write("phase-8-parent.md", parent("comet-api, comet-web")); publish();
   expect(completedScopeProblems(baseline.active, observePlan(h.repository, directory))).toEqual([]);
   const check = await h.engine.checkCompletedPlan();
-  expect(check.result?.earlierWorkChanges).toEqual([]);
   expect(check.result?.leaves?.find(row => row.id === "8a")?.classification).toBe("carried_completed");
   expect(h.engine.record.planReconciliation!.baselineId).toBe(baseline.id);
   expect(h.claudeCalls()).toEqual([]);
@@ -260,7 +261,7 @@ it.each([false, true])("retains original completed repository scope through pare
   h.engine.record.planReconciliation!.baselineId = accepted.id;
   write("phase-9-lending.md", phase("9", false) + "\n## Phase dependencies\n8.\n"); publish();
   const check = await h.engine.checkCompletedPlan();
-  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { earlierWorkChanges: [], proposal: { readiness: "ready", firstEligiblePhase: "9" } } });
+  expect(check, JSON.stringify(check)).toMatchObject({ status: "available", result: { proposal: { readiness: "ready", firstEligiblePhase: "9" } } });
   expect(check.result?.leaves?.filter(row => row.classification === "carried_completed").map(row => row.id)).toEqual(["1", "2", "8a", "8b"]);
   expect(await h.engine.continuationCommand("accept", { proposalId: check.result!.proposal!.id, executionId: h.engine.record.executionId!, commandId: "accept-historical-repositories", statusToken: h.engine.controlView().token })).toMatchObject({ ok: true });
   await h.engine.settled();
@@ -268,7 +269,7 @@ it.each([false, true])("retains original completed repository scope through pare
   expect(readBaseline(h.stateDirectory, h.engine.record.planReconciliation!.baselineId!).completions["8a"]!.scopeRepositories).toEqual(["comet-api"]);
 }, 120_000);
 
-it("rejects completed sibling reordering without changing parent session ownership, while accepting compatible additions", async () => {
+it("keeps reordered completed siblings finished without changing parent session ownership, while accepting compatible additions (Kiln After Delivery AC-BACK-01)", async () => {
   const parent = (children: string[]) => `# Phase 2: Catalog split\n\n## Split into\n| Phase | Work |\n|---|---|\n${children.map(id => `| [${id}](phase-${id}-catalog.md) | Catalog ${id} |`).join("\n")}\n`;
   h = await createHarness({ folder: "comet", sessions: [], files: { "comet-prd.md": prd, "comet-technical-design.md": "# Design\nCatalog.\n", "phase-1-catalog.md": phase("1"), "phase-2-catalog.md": parent(["2a", "2b"]), "phase-2a-catalog.md": phase("2a"), "phase-2b-catalog.md": phase("2b") } });
   git(h.sandbox, h.repository, "config", `url.${h.origin}.insteadOf`, "https://github.com/acme/acme-shop.git"); git(h.sandbox, h.repository, "remote", "set-url", "origin", "https://github.com/acme/acme-shop.git");
@@ -281,8 +282,8 @@ it("rejects completed sibling reordering without changing parent session ownersh
   const { judgedPhase } = await import("./plan-reading.js"); expect(judgedPhase(old.plan.phases, "2")?.id).toBe("2a");
   write("phase-2-catalog.md", parent(["2b", "2a"])); publish();
   const changed = await h.engine.checkCompletedPlan();
-  expect(changed.status).toBe("blocked"); expect(changed.result!.earlierWorkChanges.join(" ")).toContain("Phase 2a");
-  expect(changed.result!.leaves!.filter(row => ["2a", "2b"].includes(row.id)).map(row => row.classification)).toEqual(["unresolved_earlier_work", "unresolved_earlier_work"]);
+  expect(changed.status).toBe("unchanged");
+  expect(changed.result!.leaves!.filter(row => ["2a", "2b"].includes(row.id)).map(row => row.classification)).toEqual(["carried_completed", "carried_completed"]);
   expect(judgedPhase(record.plan!, "2")?.id).toBe("2a"); expect(record.phases["2"]!.doneAt).toBe(record.completedAt);
   expect(readBaseline(h.stateDirectory, changed.result!.baselineId).normalizerVersion).toBe(PLAN_NORMALIZER_VERSION);
   const acceptedRecord = structuredClone(record);
@@ -310,7 +311,7 @@ it("rejects completed sibling reordering without changing parent session ownersh
   expect(recovered.errors.join(" ")).toContain("differs from its original completion revision");
   Object.assign(record, acceptedRecord);
   write("phase-2-catalog.md", parent(["2a", "2b", "2c"])); write("phase-2c-catalog.md", phase("2c", false)); publish();
-  const compatible = await h.engine.checkCompletedPlan(); expect(compatible.result!.earlierWorkChanges).toEqual([]); expect(compatible.result!.added.map(row => row.id)).toEqual(["2c"]);
+  const compatible = await h.engine.checkCompletedPlan(); expect(compatible.result!.added.map(row => row.id)).toEqual(["2c"]);
   expect(compatible.result!.leaves!.filter(row => ["2a", "2b"].includes(row.id)).every(row => row.classification === "carried_completed")).toBe(true);
   expect(h.claudeCalls()).toEqual([]);
 });

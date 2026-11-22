@@ -83,6 +83,7 @@ Kiln does the job of the person who starts each session, gives it permission to 
   - Superseded in part by: AC-FIND-02 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (completed-feature discovery reads the shared checkout and remote delivery base; active execution stays in its workspace).
   - Superseded in part by: AC-DEV-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (an earlier phase with unresolved required development delivery is reconciled before selecting the next unclosed leaf; sequential plan order remains).
   - Superseded in part by: AC-WAIVE-04/09 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (a leaf whose missing Closed line was waived counts as done when choosing the next phase, and under a waived plan problem Kiln skips phases).
+  - Superseded in part by: AC-BACK-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (in a build Continue started, a phase finished before it began counts as done when choosing the next phase, even once its Closed line is removed).
 - [ ] **AC-RUN-02 — Each phase gets a fresh session.** Each leaf is implemented by a new, unattended Claude Code session started in the PRD's worktree, with the model and effort level from the PRD's settings.
   - Superseded in part by: AC-WORK-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (a fresh phase conversation may use Codex).
   - Superseded in part by: AC-SPACE-02 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the session works across the workspace, and may ask Kiln for another repository)
@@ -197,6 +198,7 @@ When every leaf is closed, Kiln finishes with a single pull request for the whol
   - Superseded in part by: AC-AUTO-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a pull-request session that fails its check after hitting a usage limit waits for usage rather than going to Needs you)
 - [ ] **AC-PR-03 — Kiln stops at "PR ready for review".** Kiln doesn't merge the pull request, wait on CI to merge it, or deploy anything.
   - Superseded in part by: AC-PRS-03 and AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (truthful already-merged and mixed completion; no merge or deployment authority).
+  - Superseded in part by: AC-MERGE-02 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (on the press of Merge with {agent} the merge session merges the delivery's pull requests; otherwise Kiln still merges and deploys only as AC-DEV-01 in Kiln Development Deployments allows)
 - [ ] **AC-PR-04 — The Complete screen is the progress screen, finished.** It shows:
   - Superseded in part by: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (audit and repair activity rows precede final delivery).
   - the pull request's number, title, branches and link, with its commit count and lines added and removed;
@@ -209,6 +211,7 @@ When every leaf is closed, Kiln finishes with a single pull request for the whol
   - Superseded in part by: AC-DISPLAY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (final-session naming, recovery copy and the completion header where the result is not solely open review pull requests).
   - Superseded in part by: AC-PRS-05 and AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one pull request per repository that changed; every pull request, and commits by repository)
   - Superseded in part by: AC-LEFT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a pull request found already open no longer completes without a session, so its row and terminal lines show the session that wrote its description)
+  - Superseded in part by: AC-MERGE-05 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the pull-request session's row is no longer the last: the Merge row follows it)
 
   | | The pull-request session |
   |---|---|
@@ -232,6 +235,7 @@ The person can see how far Kiln has got, what the current session is doing, and 
   - Superseded in part by: AC-GONE-02 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (while a folder is missing, the page shows Folder missing, and earlier phase results appear only as history).
   - Superseded in part by: AC-PREFLIGHT-08 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Preflight row in the plan, the header naming the preflight while it runs, and both drawn on screens the mockups predate).
   - Superseded in part by: AC-ATTEND-01 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Needs you there marker beside a marked phase's name).
+  - Superseded in part by: AC-MERGE-05 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the plan gains the Merge and Push the plan rows)
 
   | State | When | The row also shows |
   |---|---|---|
@@ -256,6 +260,7 @@ The person can see how far Kiln has got, what the current session is doing, and 
   - Superseded in part by: AC-PREFLIGHT-08 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Preflight row in the plan, the header naming the preflight while it runs, and both drawn on screens the mockups predate).
   - Superseded in part by: AC-STOP-05 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (at a Needs you stop during the closing audits, the header keeps the loop position).
   - Superseded in part by: AC-PAUSE-05 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the header for a pending or completed Pause now).
+  - Superseded in part by: AC-MERGE-05 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the header gains the Merging and Pushing the plan states)
 - [ ] **AC-WATCH-03 — The current phase is always at the top.** The phase being implemented is shown in a full-width panel above the phase plan: its number and title, when it started, its progress steps (AC-WATCH-04), the last thing seen in the session, its latest output line, a link to its live output, and its own Details. The latest-output preview uses the same compact terminal presentation as the phase detail, with tool names and inputs, indented results, explicit reviewer and child-agent identities, and amber errors. It reserves three lines so new entries do not move the phase plan; Watch live opens the expandable output.
 - [ ] **AC-WATCH-04 — The current phase shows its progress steps.** The current phase shows six steps, in the order the Enso Method runs them: Build, Deliverable review, Test hardening, Commit, Refactor pass and Push. A step starts when the session is seen doing it: starting `implement-from-requirements`, calling the `deliverable-review`, `test-hardening` or `refactor-pass` skill, running its first `git commit`, or running `git push`. A refactor commit, when `refactor-pass` makes one, belongs to the Refactor pass step, and the push sends it with the feature commit. A step counts as finished once the next one starts. A step the session never visibly calls stays unreached, and Kiln doesn't fill it in. After the person resumes a stopped session, show a separate active “Follow-up” indicator; recorded milestones remain visible without claiming an old step is the current activity. Automatic recovery and Resume now after a usage limit retain ordinary progress. A reply attached to a manual usage-limit resume is follow-up too.
   - Superseded in part by: AC-DISPLAY-02 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (the six-step display also distinguishes authorized development-delivery activity; existing steps and Follow-up remain).
@@ -348,6 +353,7 @@ Phases within one PRD run one at a time, but a person can have several PRDs movi
 Working through a PRD can take many hours, but each phase is its own session, so an interruption costs at most the phase in progress, and usually not even that. Kiln runs in the terminal it was started from; it doesn't install a background service. In exchange, any interruption is cheap: `kiln run` picks the work back up where it was.
 
 - [ ] **AC-KEEP-01 — Kiln lives in its terminal.** `kiln run` stays in the foreground of its terminal, including after the pull request is ready, until the person interrupts it with Ctrl+C or by closing the terminal. Kiln installs no background or system service. Closing the browser has no effect on Kiln.
+  - Superseded in part by: AC-EXIT-02 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (Kiln also ends when the person presses Exit Kiln on a finished run's page)
 - [ ] **AC-KEEP-02 — Ctrl+C is a controlled interruption.** On Ctrl+C, Kiln ends the current session's turn so the session stays resumable, records which phase and session were interrupted, and exits leaving no Claude Code process behind.
   - Superseded in part by: AC-RECOVER-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex interruption stops tracked processes and discloses detached-process limits).
 - [ ] **AC-KEEP-03 — Interrupted work is never thrown away.** Changed and new files, partly written tests and uncommitted work in an interrupted phase stay exactly as they were. Kiln never starts a fresh session on top of them on its own.

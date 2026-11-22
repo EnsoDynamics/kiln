@@ -57,7 +57,7 @@ describe("Documents found", () => {
 
   it("shows what Kiln may and may not do, next to Start (AC-START-08)", () => {
     expect(text(html())).toContain(
-      "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Never merge, deploy, or touch other branches Start Confirm refinement to start.",
+      "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page Push this PRD’s documents to develop only when you press Continue on the finished page Never deploy or touch other branches Start Confirm refinement to start.",
     );
   });
 
@@ -132,7 +132,7 @@ describe("Documents found across repositories (multi-repo AC-REPO-03, AC-SPACE-0
     expect(words).toContain(`${sessionsAdd} Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks.`);
     expect(words).toContain("Ends at One PR in each repository that changed, ready for review. Kiln won’t merge.");
     expect(words).toContain(
-      "Starting lets Kiln In each repository, commit and push to feature/customer-returns In each repository, open one pull request into its base branch once every phase closes Never merge, deploy, or touch other branches",
+      "Starting lets Kiln In each repository, commit and push to feature/customer-returns In each repository, open one pull request into its base branch once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page In the PRD’s repository, push this PRD’s documents to main only when you press Continue on the finished page Never deploy or touch other branches",
     );
   });
 

@@ -38,7 +38,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on"] }));
+    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "after_delivery"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -92,9 +92,10 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
       if (c.req.header("content-length") && Number(c.req.header("content-length")) !== 0) throw new ControlFailure("invalid_input", "check-for-new-phases accepts no inputs.", 2);
       const control = engine.newPhaseControls().find(one => one.name === "check-for-new-phases")!;
       if (!control.available) throw new ControlFailure(engine.currentlyComplete ? "busy" : "wrong_activity", control.reason!, 3);
-      const check = await engine.checkCompletedPlan();
+      // Does what the card's Check now does, and counts as a person's press (Kiln After Delivery AC-BOT-01).
+      const check = await engine.checkCompletedPlan({ press: true });
       const errors = check.status === "failed" ? [errorFact("check_unavailable", check.errors.join(" ") || "The check for new phases could not read the plan.")] : [];
-      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check) }, errors));
+      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check, engine.record.prdDirectory) }, errors));
     } catch (e) { return send(c, { ...failed(e), prd_path: canonical, execution_id: engine.record.executionId! }); }
   });
   app.post("/api/control/v1/commands", async c => {
@@ -163,7 +164,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
  * phases does, and answers with its receipt, refusals included (AC-BOT-01).
  */
 async function continueWithPhases(engine: Engine, command: Record<string, unknown>): Promise<[Result, 202 | 400 | 409 | 503]> {
-  const answer = engine.commands.submitInternal({ command_id: command.command_id, execution_id: command.execution_id, status_token: command.status_token, action: "continuation-accept", inputs: { proposal_id: (command.inputs as Record<string, unknown>).proposal_id } });
+  const answer = engine.commands.submitInternal({ command_id: command.command_id, execution_id: command.execution_id, status_token: command.status_token, action: "continuation-accept", inputs: { proposal_id: (command.inputs as Record<string, unknown>).proposal_id, via: "command_line" } });
   return [answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400];
 }
 

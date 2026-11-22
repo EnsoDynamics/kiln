@@ -1,0 +1,5 @@
+Carry on merging the delivery's pull requests from where you stopped. Read each worktree's state first: a merge of the base branch left in progress by an interruption is yours to finish, or to abort and redo; never commit it half-resolved. GitHub shows them now as:
+
+{{pullRequestList}}
+
+Everything in the first message still applies: the same order, what you may and may not do, at most {{checkWaitMinutes}} minutes of waiting for required checks after your last push, `gh pr merge --match-head-commit` with no `--admin` and no branch deleted, and a short summary of what you did once every pull request is merged.

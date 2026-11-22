@@ -13,7 +13,7 @@ export interface PauseNowView {
   phase: "pausing" | "paused";
   /** The running header's key for the activity: the leaf a split phase is working on ("2b" for launched "2"), or the audit's key. */
   activityKey: string;
-  /** The running header's name for the activity at that time: "phase 2b", "delivery audit · round 2". */
+  /** The running header's name for the activity at that time: "phase 2b", "delivery audit loop 2". */
   label: string;
   requestedAt: string;
   /** Present exactly when `phase` is "paused". */

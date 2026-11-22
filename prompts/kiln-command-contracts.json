@@ -2559,6 +2559,238 @@
     },
     {
       "path": [
+        "merge"
+      ],
+      "group": "answer",
+      "purpose": "On a finished run, merge the delivery’s pull requests, as Merge with {agent} on the finished page does. Merge with {agent} starts one more session in this PRD’s worktree or workspace. It brings each base branch into its feature branch, resolves any conflicts, runs the tests, pushes, waits for the required checks and merges the delivery’s open pull requests, in any order their descriptions state. If one can’t be merged, it stops there and leaves the rest open. Each merge into a base branch may start that repository’s CI or deployment. Running this command is the permission for that delivery only; nothing is remembered for other pull requests, other PRDs or a later run.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller with the after_delivery feature, on a finished run whose pull requests GitHub last showed open (some may be merged) and before any merge session was started for this delivery; status reports current eligibility.",
+      "usage": "kiln merge <PRD-path> [options]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Kiln reads each pull request from GitHub again first. When every one is merged the receipt completes with outcome already_merged and no session starts. When one was closed on GitHub without merging, or GitHub could not be read, the receipt fails with outcome pull_request_closed or github_unreadable and nothing starts. A worktree that is missing, off the feature branch, holds uncommitted work or a merge in progress, or has commits the pull request lacks while the pull request has commits it lacks, fails it with merge_folder_not_ready.",
+        "Otherwise it completes with outcome merge_started and Kiln starts the merge session. Kiln shows the run as Merged only once GitHub shows every pull request merged; a session that ends without merging stops at Needs you, answered with kiln resume, kiln reply or kiln check-again. A merge session is started once per delivery: this command is never available again for it."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "Always not_started on the receipt; the merge session starts after the receipt completes and is reported by kiln status.",
+        "operation.effects.plan": "Always not_advanced.",
+        "operation.outcome": "merge_started when the merge session's activity opened, already_merged when GitHub showed every pull request merged, or pull_request_closed, github_unreadable, merge_folder_not_ready or merge_unavailable when nothing started.",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.reply_text": "Always null.",
+        "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Merge a finished run’s pull requests with its agent.",
+          "argv": [
+            "kiln",
+            "merge",
+            "/work/shop/docs/prds/orders",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, invalid command ID or malformed message. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
+      }
+    },
+    {
+      "path": [
+        "exit"
+      ],
+      "group": "answer",
+      "purpose": "On a finished run, end Kiln for this PRD, as Exit Kiln on the finished page does. Kiln stops in its terminal with a success status, leaves no agent process behind and changes no pull request, branch, worktree or saved record. Every open page says Kiln has exited, and the terminal’s last line gives the command that opens the PRD again.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller with the after_delivery feature, on a finished run whenever no session is running and Kiln is not starting one: on the finished or Merged page, at a merge or push stop, while a merge or push session waits for usage or is held after Ctrl+C, and while Kiln checks for new phases, except the check after Continue’s push. Status reports current eligibility and why not.",
+      "usage": "kiln exit <PRD-path> [options]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "A plan check or GitHub reading in progress is abandoned; the record keeps the last completed check and the next kiln run checks again.",
+        "The answer is the accepted receipt. It completes with outcome exited before Kiln ends, a moment later; kiln command-status reads it afterwards, and kiln status then reports no running Kiln for the PRD. Ctrl+C remains the way to stop a run still in progress."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "Always not_started.",
+        "operation.effects.plan": "Always not_advanced.",
+        "operation.outcome": "exited when Kiln accepted the exit and is ending, or exit_unavailable when a session is running or being started, a command is applying, or Kiln is checking after Continue’s push.",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.reply_text": "Always null.",
+        "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Exit Kiln on a finished run.",
+          "argv": [
+            "kiln",
+            "exit",
+            "/work/shop/docs/prds/orders",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, invalid command ID or malformed message. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
+      }
+    },
+    {
+      "path": [
         "command-status"
       ],
       "group": "inspect",

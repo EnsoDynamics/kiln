@@ -26,7 +26,7 @@ it("renders saved authority and observed activity, then distinct merged and revi
   expect(initial).toContain("github.com/acme/returns-api · develop · Existing scope: returns-api-dev");
   expect(initial).toContain("Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes");
   expect(initial).toMatch(/Verifying\s*· github\.com\/acme\/returns-api · returns-api-dev/);
-  expect(initial).not.toContain("It never merges, deploys");
+  expect(initial).not.toContain("never deploys or touches other branches");
 
   const complete = completeRepositoriesSnapshot();
   complete.phases = complete.phases.filter(phase => phase.id !== "pr");

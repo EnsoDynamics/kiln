@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "executionId": "ae01ea9e-0f42-4945-a00d-2b01e33377c0",
+  "activityId": "08242ffd-9878-4ffc-9105-ea5c0e37cfcf",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The first session of test fixes took the two-pull-request merge rows and two quick high-risk rows. It added a two-repository finished-run fixture and tests for the stated merge order, merging only the open pull requests, no merge permission carried into a continued run, the press refused when GitHub can't be read, the page with several pull requests, Merge with Codex, a hand merge with no summary, exit writing no pull request, and retried kiln exit and kiln continue-with-phases. Every new test failed with its part broken. A fresh re-grade raised AC-MERGE-01 and AC-MERGE-04 to Adequate. AC-MERGE-02, AC-MERGE-07, AC-EXIT-02 and AC-BOT-01 are closer but still Weak, each with one or two small parts left. 16 rows remain to fix, recorded in test-audit.md. The claude stand-in now writes owner-only transcripts, so the merge-wait and billing tests pass under this machine's 0002 umask.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "AC-BACK-01 still requires one quiet line when a finished phase's document is edited later. The build left the line out on purpose, because PLAN-001 reopened your 2026-11-21 ruling and proposes saying nothing. The code therefore departs from a criterion that records your ruling.",
+      "action": "Answer PLAN-001 in kiln-after-delivery-assumptions.md. Confirming silence means amending AC-BACK-01 to drop the line. Keeping your original ruling means adding a phase to build the line."
+    },
+    {
+      "id": "item-2",
+      "criterion": "AC-MERGE-03",
+      "problem": "AC-MERGE-03 is high risk and still Weak. No test in the project's test runs proves that the real merge session stops at the first pull request it cannot merge, or that it never merges past a required review or check. Only its instructions are tested. The provider proof that shows the real behavior makes paid model calls and no test command runs it. Sessions of test fixes can add a scripted test of Kiln's side, but not of the agent's.",
+      "action": "Either have the merge provider proof run in a gated test command, or accept AC-MERGE-03's agent-behavior parts once the scripted test is in."
+    },
+    {
+      "kind": "other",
+      "problem": "On this machine (umask 0002), 7 integration tests outside this PRD's criteria fail: account-provenance, claude-history and record-migration. They write Claude history files group-writable, and Kiln rightly refuses those as unsafe. All 7 pass under umask 022. Before this session, the same cause also failed the merge-wait and billing tests; fixing the claude stand-in cleared those.",
+      "action": "Run the integration tests under umask 022, or have those tests create their history files with mode 0600, in separate work outside this PRD."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": false,
+  "raised": ["AC-MERGE-01", "AC-MERGE-04"]
+}

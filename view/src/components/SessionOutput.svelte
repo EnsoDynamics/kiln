@@ -8,7 +8,8 @@
   import { viewContext } from "../lib/view-context.js";
   import TerminalOutputRow from "./TerminalOutputRow.svelte";
 
-  let { sessionId, live, connected, total, now, recent = true, initialLines = [] }: { sessionId: string | undefined; live: boolean; connected: boolean; total: number; now: number; recent?: boolean; initialLines?: OutputLine[] } = $props();
+  // `executionId`: an archived execution's session, such as a Push the plan row in the build it led to (Kiln After Delivery, "Activation and the row").
+  let { sessionId, live, connected, total, now, recent = true, initialLines = [], executionId }: { sessionId: string | undefined; live: boolean; connected: boolean; total: number; now: number; recent?: boolean; initialLines?: OutputLine[]; executionId?: string } = $props();
   const { config, connection } = viewContext();
   // svelte-ignore state_referenced_locally
   let lines = $state<OutputLine[]>(mergeOutput([], initialLines, recent));
@@ -33,7 +34,7 @@
     if (!sessionId || loading) return;
     loading = true;
     try {
-      const page = await outputPage(config, sessionId, before, recent ? LIVE_ENTRY_LIMIT : 200);
+      const page = await outputPage(config, sessionId, before, recent ? LIVE_ENTRY_LIMIT : 200, executionId);
       add(page.lines);
       pageTotal = page.total;
       loadError = undefined;
@@ -51,7 +52,7 @@
     let before: number | undefined;
     try {
       for (;;) {
-        const page = await outputPage(config, sessionId!, before);
+        const page = await outputPage(config, sessionId!, before, 200, executionId);
         add(page.lines);
         pageTotal = page.total;
         const first = page.lines[0]?.line;

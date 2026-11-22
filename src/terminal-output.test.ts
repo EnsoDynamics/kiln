@@ -211,7 +211,7 @@ describe("a stop that needs a person (AC-START-09)", () => {
 
   it("says Kiln is waiting and where, for a phase, an audit and final delivery", () => {
     expect(formatTerminalEvent({ kind: "phase", at, phaseId: "2b", title: "Store credit", event: "stopped" }, record, plain, undefined, address)).toBe(`11:31  2b  Store credit  ${says}`);
-    expect(formatTerminalEvent({ kind: "audit", at, activityId: "a1", label: "Test audit", round: 1, event: "stopped" }, record, plain, undefined, address)).toBe(`11:31      Test audit · Round 1  ${says}`);
+    expect(formatTerminalEvent({ kind: "audit", at, activityId: "a1", title: "Test audit", line: "Loop 1 of 4", event: "stopped" }, record, plain, undefined, address)).toBe(`11:31      Test audit · Loop 1 of 4  ${says}`);
     expect(formatTerminalEvent({ kind: "pull_request", at, event: "stopped" }, record, plain, undefined, address)).toBe(`11:31  PR  Final pull request  ${says}`);
   });
 
@@ -228,17 +228,19 @@ describe("a stop that needs a person (AC-START-09)", () => {
 });
 
 describe("audit activity terminal names", () => {
-  it("prints audit rounds and stop/wait facts without exposing an audit as a numbered phase", () => {
+  it("names each closing audit for what it does, never by round or continuation (Kiln After Delivery AC-AUDIT-01)", () => {
     const at = new Date(2026,9,24,11,31);const record={plan:[]} as unknown as PrdRecord;
-    for(const label of ["Delivery audit","Test audit"]){
-      const event={kind:"audit" as const,at,activityId:"opaque-audit-id",label,round:2};
+    for(const title of ["Delivery audit","Test audit"]){
+      const event={kind:"audit" as const,at,activityId:"opaque-audit-id",title,line:"Loop 2 of 4"};
       const started=formatTerminalEvent({...event,event:"started"},record,plain);
-      expect(started).toContain(`${label} · Round 2`);expect(started).toContain("started");
-      expect(formatTerminalEvent({...event,continuationIndex:3,event:"started"},record,plain)).toContain(`${label} · Round 2 · Continuation 3`);
-      expect(started).not.toContain("opaque-audit-id");expect(started).not.toContain("Phase");
+      expect(started).toContain(`${title} · Loop 2 of 4`);expect(started).toContain("started");
+      expect(started).not.toContain("opaque-audit-id");expect(started).not.toContain("Phase");expect(started).not.toMatch(/Round|Continuation/);
       expect(formatTerminalEvent({...event,event:"waiting",limit:{label:"Weekly"}},record,plain)).toContain("waiting · Weekly");
       expect(formatTerminalEvent({...event,event:"done"},record,plain)).toContain("Audit result recorded");
     }
+    const fixing=formatTerminalEvent({kind:"audit",at,activityId:"f",title:"Fixing tests",line:"From test audit loop 1 · session 2",event:"started"},record,plain);
+    expect(fixing).toContain("Fixing tests · From test audit loop 1 · session 2");
+    expect(formatTerminalEvent({kind:"audit",at,activityId:"u",title:"Delivery audit",event:"started"},record,plain)).toMatch(/Delivery audit +started/);
   });
 });
 

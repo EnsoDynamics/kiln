@@ -88,6 +88,8 @@ Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-des
 
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Provider Sessions and Development Delivery (audit task identity and owner scope accompany current authority in resumed and manual recovery; note/workspace-repair precedence remains).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §The Merge Session (the statement names the merge on the finished page and, in the PRD's repository, the plan push).
+
 Generate one authorization block from the execution record for initial phases, subsequent sessions, every Kiln-launched resume cause, finalization and fresh-session recovery. It identifies execution, assigned workspaces/feature branch and exact approved targets, the unchanged restricted repositories, and AC-DEV-02/04's boundaries. Explicitly replace the earlier no-PR/no-merge/no-deploy sentence only for the named scope; do not append a grant beside an unconditional prohibition. Resumes of older conversations say this block replaces their earlier delivery restriction for these targets, while preserving all other instructions. User notes remain first, then workspace repair guidance, then the effective authority and remaining task. For a person reopening an existing conversation in a terminal, show only the provider resume command, without displaying or requiring a recovery prompt. This also applies after a grant changes; changed instructions can be discussed directly in the resumed conversation. Retain current-authority prompt generation for Kiln-managed resumes, programmatic handoff information and fresh-session recovery.
 
 Sessions may open/merge a checkpoint only to satisfy an identified PRD criterion needing development delivery. Closing a phase or finishing the PRD is not a trigger. Required pre-merge checks and reviews must pass for the checkpoint head, including human approvals when the project requires them. No administrator override, force push, separate release workflow or checkout switch is allowed. The approved branch’s configured CI/CD is covered without inspecting its production classification. Use ordinary protected GitHub merge operations with the expected head pinned; if that head changes, reassess and recheck before merging. An approval auto-review rejection remains a rejection.
@@ -194,6 +196,8 @@ Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audi
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §What a Delivered Run Says (the Complete screen also shows the loops used of each kind).
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §Display Contract (the early-merge warning beneath Allow early merges).
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Display Contract (the Merged header once GitHub shows every pull request merged).
 
 The snapshot adds effective authorization, candidate settings for this PRD before Start, per-repository results, checkpoints with separate merge/deploy/verification outcomes, missing-target grant requests and last-check/error facts. The view renders these facts; it never computes completion from PR state.
 

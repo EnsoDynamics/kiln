@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { MERGE_LIVE_REASON, PLAN_PUSH_LIVE_REASON } from "../../../src/engine/merge-wording.js";
   import { PREFLIGHT_HEADING, PREFLIGHT_LIVE_REASON } from "../../../src/engine/preflight.js";
   // Phase detail (docs/design/mockups/kiln-screen-phase-detail-live.html): the current phase's
   // live output, its progress steps, its session and its commits (PRD AC-WATCH-04 to 06). For a
@@ -26,7 +27,6 @@
   import WaivedStatus from "../components/WaivedStatus.svelte";
   import { addedLabel, capitalized, commitsByRepository, headerState, modelAndEffort, phaseName, phaseOfTotal, preflightPill, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
-  import { rowLoopLabel } from "../lib/audit-loops.js";
   import { clockTime, elapsed, timingText } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
 
@@ -38,10 +38,14 @@
   const current = $derived(stopped || snapshot.current?.phaseId !== phaseId ? undefined : snapshot.current);
   const isPr = $derived(phaseId === PR_ID);
   const row = $derived((snapshot.activities ?? snapshot.phases).find((phase) => phase.id === phaseId));
-  const live = $derived(current !== undefined && connected);
-  // An audit that is a loop names it, as its row does (Kiln Deliver When Audit Loops Run Out AC-STOP-05).
-  const loopLabel = $derived(row ? rowLoopLabel(row) : undefined);
+  // A merge session runs on the finished page, with no current phase (Kiln After Delivery AC-MERGE-05).
+  const isMerge = $derived(row?.kind === "merge");
+  const mergeRunning = $derived(isMerge && snapshot.afterDelivery?.merge?.state === "running");
+  const pushRunning = $derived(row?.kind === "plan_push" && snapshot.afterDelivery?.planPush?.key === phaseId && snapshot.afterDelivery.planPush.state === "running");
+  const live = $derived((current !== undefined || mergeRunning || pushRunning) && connected);
   const isAudit = $derived(row?.kind === "delivery_audit" || row?.kind === "test_audit");
+  // An audit's line, as its row shows it: "Loop 2 of 4", "From test audit loop 1 · session 2" (Kiln After Delivery AC-AUDIT-01).
+  const loopLabel = $derived(isAudit && row?.file ? row.file : undefined);
   const isPreflight = $derived(row?.kind === "preflight");
   const donePill = $derived(row ? preflightPill(row) : undefined);
   // Both clocks stop when the view loses Kiln; while stopped, only waiting advances.
@@ -81,13 +85,15 @@
   <section class="phase">
     <a class="back" href={back} onclick={(event) => routedClick(event, router, back)}><Icon name="back" strokeWidth={1.9} />{paused ? "Paused" : pausing ? "All phases" : waiting ? "Waiting for usage" : stopped ? "Needs you" : "All phases"}</a>
     <div class="name">
-      <PhaseCircle id={isAudit ? (row?.kind === "delivery_audit" ? "DA" : "TA") : isPreflight ? "PF" : phaseId} tone={paused ? "next" : pausing ? connected ? "implementing" : "amber" : live ? "implementing" : waiting && connected ? "next" : "amber"} />
+      <PhaseCircle id={isAudit ? (row?.kind === "delivery_audit" ? "DA" : row?.fixing ? "FT" : "TA") : isPreflight ? "PF" : isMerge ? "M" : row?.kind === "plan_push" ? "P" : phaseId} tone={paused ? "next" : pausing ? connected ? "implementing" : "amber" : live ? "implementing" : waiting && connected ? "next" : "amber"} />
       <h2>{isPreflight ? PREFLIGHT_HEADING : row?.title ?? ""}</h2>
       {#if paused}<Pill tone="strong-outline" icon="pause">Paused</Pill>{:else if pausing && connected}<Pill tone="amber-outline" icon="spinner" spin>Pausing</Pill>{:else if pausing}<Pill tone="amber-outline">Last known: Pausing</Pill>{:else if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done" && donePill?.warning}<Pill tone="amber-outline" icon="warning">{donePill.text}</Pill>{#if row.waivedChecks}<WaivedStatus {row} />{/if}{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">{donePill?.text ?? (row.waivedChecks ? "Complete" : "Done")}</Pill>{#if row.waivedChecks || row.warnings?.length}<WaivedStatus {row} />{/if}{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span>{#if loopLabel}<span class="dot" aria-hidden="true">·</span><span class="loop">{loopLabel}</span>{/if}<span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
-  {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={live && !stopped} total={session.total} {now} />{/key}
+  {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={live && !stopped} total={session.total} {now} executionId={row?.executionId} />{/key}
+  {#if mergeRunning}<section class="card"><p>{MERGE_LIVE_REASON}</p></section>{/if}
+  {#if pushRunning}<section class="card"><p>{PLAN_PUSH_LIVE_REASON}</p></section>{/if}
   {#if current}
     {#if isPr}<section class="card"><p>Live messages and Pause now are unavailable during final delivery. Live controls support Claude phases and audits.</p></section>
     {:else if isPreflight}<section class="card"><p>{PREFLIGHT_LIVE_REASON}</p></section>
@@ -98,7 +104,7 @@
   {#if (current || pausing) && !isPr && !isPreflight}<PausePanel {snapshot} {connected} />{/if}
   {#if row?.audit}
     <section class="card">
-      <h3>{row.title} · {row.file}</h3>
+      <h3>{row.title}{#if row.file} · {row.file}{/if}</h3>
       {#if row.audit.outcome}<p>Outcome: {({ passed: "nothing left", completion_phases: "added phases", continue_test: "more test work", needs_you: "needs you", blocked: "blocked" } as Record<string, string>)[row.audit.outcome] ?? row.audit.outcome}</p>{/if}
       {#if row.audit.summary}<p>{row.audit.summary}</p>{/if}
       {#each row.audit.repositories as repository}<p class="mono">{repository.name}: {repository.revision}</p>{/each}

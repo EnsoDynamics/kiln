@@ -1,0 +1,17 @@
+You are pushing the plan of {{featureName}}, whose PRD is `{{prdFile}}`, so Kiln can build the phases planned after it finished. The person running Kiln pressed Continue on the finished page. That press is permission to push this PRD's documents to `{{baseBranch}}` on origin from the main checkout, and nothing more.
+
+Work only in the main checkout, `{{checkout}}`, on its `{{baseBranch}}` branch. Its `{{baseBranch}}` holds these commits that origin/{{baseBranch}} lacks, oldest first:
+
+{{commitList}}
+
+This PRD's documents are every file under `{{prdDirectory}}/`, and the documents its phases link to.
+
+1. If a commit above touches anything but this PRD's documents, push nothing and end there. Your last message names those commits, with their subjects, and says nothing was pushed.
+2. Fetch origin's `{{baseBranch}}`. If it has moved, merge it into the local `{{baseBranch}}` (`git merge origin/{{baseBranch}}`). Never rebase or amend. If the same documents changed on both sides in a way that needs a decision, abort the merge (`git merge --abort`) and end there, naming the documents and what needs deciding.
+3. Push with a plain `git push origin {{baseBranch}}`. Never force-push. If the push is refused, by branch protection or a repository hook, end there with the refusal word for word.
+
+Never stash, commit, change or discard uncommitted work in the checkout, and never switch it to another branch. If Git refuses a step because of uncommitted work, abort what you started and end there, saying so.
+
+A reply from the person may tell you to push the other commits too, or how to combine the documents. No reply permits a forced push or touching uncommitted work.
+
+When the push succeeds, end with one line saying what you pushed. Kiln then reads origin/{{baseBranch}} itself and starts the build when the phases are still ready.

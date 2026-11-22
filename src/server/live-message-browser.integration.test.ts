@@ -6,7 +6,7 @@ import { serveViewFixture } from "../test-support/view-fixture-server.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import type { Receipt } from "../control/commands.js";
 import type { LiveTarget } from "../live/target.js";
-/** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit · Round 3". */
+/** An activity's name mid-sentence, as the hand-back page writes it: "Phase 2b", "delivery audit loop 3". */
 const inSentence = (label: string) => /^Phase /.test(label) ? label : label.charAt(0).toLowerCase() + label.slice(1);
 let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
@@ -62,7 +62,7 @@ it.each([1200, 390])("preserves an exact attempt's draft through navigation and 
     expect(page.problems).toEqual([]);
   } finally { await page.close(); await server.close(); }
 });
-it.each(["Phase 2b", "Test audit · Round 2"])("keeps %s held after uncertain-message review until explicit hand-back", async label => {
+it.each(["Phase 2b", "Test audit loop 2"])("keeps %s held after uncertain-message review until explicit hand-back", async label => {
   const snapshot = needsYouMessageSnapshot(); const stop = snapshot.needsYou!; const key = label.startsWith("Test") ? "audit-test-2" : stop.phaseId; const t = target(stop.sessionId!, key);
   stop.phaseId = key; stop.phaseRecovery = { target: { executionId: "execution", phaseKey: key, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: t }, completion: "incomplete" };
   const r = { id: "receipt", command_id: "message", accepted_at: stop.stoppedAt, message: { text: "  review exact instruction\n", uuid: "uuid", delivery: "uncertain" } } as Receipt;
@@ -148,13 +148,13 @@ it("disables Send and takeover throughout a pending HTTP submission and pending 
 it("shows active audit identity, gives a successor an empty draft, and excludes historical controls", async () => {
   const snapshot = runningSnapshot(); const current = snapshot.current!; const t = target(current.sessionId!, "audit-test-3");
   current.phaseId = t.activityKey;
-  snapshot.activities = [{ ...snapshot.phases[0]!, id: "1", state: "done", details: { sessionId: "historical-session", from: current.startedAt!, model: "Sonnet", worktree: "/fixture/worktree", branch: "fixture" } }, { ...snapshot.phases[0]!, id: t.activityKey, kind: "test_audit", round: 3, title: "Test audit · Round 3", state: "implementing" }];
-  snapshot.liveControl = { target: t, label: "Test audit · Round 3", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
+  snapshot.activities = [{ ...snapshot.phases[0]!, id: "1", state: "done", details: { sessionId: "historical-session", from: current.startedAt!, model: "Sonnet", worktree: "/fixture/worktree", branch: "fixture" } }, { ...snapshot.phases[0]!, id: t.activityKey, kind: "test_audit", round: 3, title: "Test audit loop 3", state: "implementing" }];
+  snapshot.liveControl = { target: t, label: "Test audit loop 3", observedAt: new Date().toISOString(), available: true, reason: "Ready", input: { available: true, reason: "Ready", pending: 0 } };
   const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
   const page = await chrome.open(`${server.address}/phase/${t.activityKey}`);
   try {
     await page.waitFor(`document.querySelector('#live-message')`);
-    expect(await page.evaluate("document.body.textContent")).toContain("Test audit · Round 3 · Claude");
+    expect(await page.evaluate("document.body.textContent")).toContain("Test audit loop 3 · Claude");
     await page.evaluate(`document.querySelector('#live-message').value='predecessor draft';document.querySelector('#live-message').dispatchEvent(new Event('input',{bubbles:true}));`);
     current.sessionId = "successor-session"; snapshot.liveControl.target = { ...t, sessionId: current.sessionId, providerSessionId: current.sessionId, attemptId: "successor" }; server.send("snapshot", snapshot);
     await page.waitFor(`document.querySelector('#live-message')?.value===''`);

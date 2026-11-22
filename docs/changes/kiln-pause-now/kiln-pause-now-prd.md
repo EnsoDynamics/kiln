@@ -30,6 +30,7 @@ A person choosing a pause decides one thing: stop now, or let the current phase 
   - Replaces in part: AC-LIVE-03 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the heading, the choice titles, wording and button labels, including its ban on a control labelled "Pause now"; the safe-checkpoint timing and what the end-of-activity pause does remain).
   - Replaces in part: AC-LIVE-01 and AC-LIVE-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (the pause group's heading, and its narrow-screen order).
   - Replaces in part: AC-VIEW-02 and AC-VIEW-03 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the end-of-phase pause's button label).
+  - Superseded in part by: AC-AUDIT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (an audit is named by its title and loop, never its round, in the pause panel and the paused eyebrow)
 
   | Choice | Words beside the button | Button |
   |---|---|---|
@@ -41,6 +42,7 @@ A person choosing a pause decides one thing: stop now, or let the current phase 
   - Replaces in part: AC-RESET-02 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the reset explanation names Pause now).
   - Replaces in part: AC-AGENT-03 and AC-AGENT-04 in `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-prd.md` (the action's name in the browser, for AC-AGENT-03; the feature's name in the incompatibility report in the browser and `kiln status`, for AC-AGENT-04).
   - Replaces in part: AC-PREFLIGHT-08 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the reason shown during the preflight names Pause now).
+  - Superseded in part by: AC-MERGE-05 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (Pause now is also withheld while a merge or push session runs, with a reason naming Pause now)
 
 ### While Kiln is pausing
 
@@ -69,6 +71,7 @@ Between pressing Pause now and the release, the person needs to know what Kiln i
 After an immediate pause, the person comes back to a page that says plainly where things stand and offers both outcomes with equal weight: let Kiln carry on, or take the conversation over themselves.
 
 - [ ] **AC-PAUSE-05 — An immediate pause reads as Paused, not Needs you.** From the release until the activity runs again or advances, Kiln shows the activity as Paused, in the neutral style of the existing Paused state and not the amber Needs you style, as the table says. A pause for an uncertain message keeps today's terminal lines.
+  - Superseded in part by: AC-AUDIT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (an audit is named by its title and loop, never its round, in the pause panel and the paused eyebrow)
 
   | Where | What it shows |
   |---|---|

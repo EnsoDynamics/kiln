@@ -23,6 +23,7 @@
   // A `loop_limit` stop saved by Kiln 1.3.0 shows one line and Check again only, which always
   // clears it (Kiln Deliver When Audit Loops Run Out AC-STOP-04, technical design "Upgrade").
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
+  import ExitKiln from "../components/ExitKiln.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
@@ -398,6 +399,8 @@
     </div>
   </div>
   {/if}
+  <!-- A merge or push stop on a finished run also offers Exit Kiln (Kiln After Delivery AC-EXIT-01). -->
+  {#if snapshot.exit}<section class="exit-row" aria-label="Exit Kiln"><ExitKiln {snapshot} {connected} /></section>{/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
   <BillingPanel {snapshot} />
 </main>

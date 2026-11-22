@@ -42,6 +42,8 @@ An extension of the local TypeScript engine, the browser view and the CLI. No ne
 
 ## When the Preflight Is Due (AC-PREFLIGHT-01, AC-PREFLIGHT-05)
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Continue and the Push Session (when Continue pushes the plan first, the push session runs before the preflight; the preflight's mark is set when the acceptance that follows the push activates).
+
 An execution's preflight is **settled** once one of its preflight activities has `doneAt` and no `no_report` result: it reported ready, or Mark complete finished it at a preflight or launch-check stop before any report was read. So "marked complete" in AC-PREFLIGHT-01 means a Mark complete that finished the preflight: a waived Codex-safety check followed by no report leaves the preflight finished but not settled, and a later Resume runs one (AC-PREFLIGHT-06, Reading the Result).
 
 These entry points set `preflight.due` in the same record write that records the action, with the `trigger` shown (Data Models):

@@ -302,6 +302,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
           engine.claude?.onChange(onChange),
           engine.onOutput((sessionId, lines) => void stream.writeSSE({ event: "output", data: JSON.stringify({ sessionId, lines }) })),
           engine.onPartial((sessionId, partial) => void stream.writeSSE({ event: "partial", data: JSON.stringify({ sessionId, ...partial }) })),
+          // Exit Kiln (Kiln After Delivery AC-EXIT-02): the page shows Kiln has exited and stops reconnecting.
+          engine.onExited((exit) => void stream.writeSSE({ event: "exited", data: JSON.stringify(exit) })),
         ];
         return () => { for (const off of offs) off?.(); };
       };
@@ -522,10 +524,12 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.delete("/api/pause", (c) => legacyControl(c, "cancel-pause"));
   app.post("/api/continuation/check", async c => {
     let body: unknown;
-    try { body = await c.req.json(); } catch { return refuse(c, 400, "Expected an empty JSON object."); }
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) return refuse(c, 400, "Expected an empty JSON object.");
+    try { body = await c.req.json(); } catch { return refuse(c, 400, "Expected {} or { \"press\": true }."); }
+    // The page's load sends {}; Check now and Check for new phases send { "press": true }, a person's press (Kiln After Delivery AC-WAIT-01).
+    const keys = body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body) : undefined;
+    if (!keys || keys.some(key => key !== "press") || "press" in (body as object) && (body as { press: unknown }).press !== true) return refuse(c, 400, "Expected {} or { \"press\": true }.");
     try {
-      const check = await engine.checkCompletedPlan();
+      const check = await engine.checkCompletedPlan({ press: keys.includes("press") });
       if (check.failure) return c.json({ ok: false, ...check.failure, reason: check.errors.join(" "), checks: [], check }, 413);
       return c.json({ check }, check.status === "failed" ? 503 : 200);
     }
@@ -609,6 +613,42 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       const op = admitting.commands.lookup(id).operation as Receipt;
       if (op.state !== "completed") return c.json({ ok: false, code: op.outcome ?? "operation_indeterminate", reason: op.reason }, op.state === "indeterminate" ? 500 : 409);
       return c.json({ ok: true, outcome: "reset", controlToken: outcome?.ok && outcome.controlToken ? outcome.controlToken : engine.controlView().token });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
+  });
+
+  // Merge with {agent} (Kiln After Delivery AC-MERGE-02): the `merge` journal action, admitted only
+  // against the page's own status token, so a press made on a stale reading is refused.
+  app.post("/api/merge", async (c) => {
+    const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
+    if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "Merge needs the page's status token and command id." }, 400);
+    try {
+      const answer = engine.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action: "merge", inputs: { via: "browser" } }, "caller", true);
+      if (!answer.ok) { const refusal = answer.errors[0]!; return c.json({ ok: false, code: refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409); }
+      await engine.commands.settled();
+      const op = engine.commands.lookup(id).operation as Receipt;
+      if (op.state !== "completed") return c.json({ ok: false, code: op.outcome ?? "operation_indeterminate", reason: op.reason }, op.state === "indeterminate" ? 500 : 409);
+      return c.json({ ok: true, outcome: op.outcome, controlToken: engine.controlView().token });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
+  });
+
+  // Exit Kiln (Kiln After Delivery AC-EXIT-02): the `exit` journal action, admitted only against the
+  // page's own status token. It answers once the receipt settles; the run ends shortly after.
+  app.post("/api/exit", async (c) => {
+    const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
+    if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "Exit needs the page's status token and command id." }, 400);
+    try {
+      const answer = engine.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action: "exit", inputs: { via: "browser" } }, "caller", true);
+      if (!answer.ok) { const refusal = answer.errors[0]!; return c.json({ ok: false, code: refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409); }
+      await engine.commands.settled();
+      const op = engine.commands.lookup(id).operation as Receipt;
+      if (op.state !== "completed") return c.json({ ok: false, code: op.outcome ?? "operation_indeterminate", reason: op.reason }, op.state === "indeterminate" ? 500 : 409);
+      return c.json({ ok: true, outcome: op.outcome });
     } catch (error) {
       if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
       return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);

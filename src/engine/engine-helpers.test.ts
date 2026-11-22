@@ -119,7 +119,8 @@ describe("the prompts", () => {
       deliveryBlock: BLOCK,
     });
     expect(several).toContain("- `returns-api` (`acme/returns-api`), worktree `/w/returns-api`, into `develop`\n\nEach description names the PRD and links every other pull request opened for it");
-    expect(several).toContain("as the technical design gives the order.\n\nOpen them ready for review");
+    expect(several).toContain("as the technical design gives the order. Where they must merge in an order, end each description with the line `Merge order: N of M`");
+    expect(several).toContain("its pull request can merge at any point.\n\nOpen them ready for review");
   });
 
   it("states Kiln's version-2 report contract without the method's vocabulary (AC-NEUTRAL-01, AC-NEUTRAL-02)", () => {
