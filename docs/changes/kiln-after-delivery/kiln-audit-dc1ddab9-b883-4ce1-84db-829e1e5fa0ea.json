@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 2,
+  "executionId": "ae01ea9e-0f42-4945-a00d-2b01e33377c0",
+  "activityId": "dc1ddab9-b883-4ce1-84db-829e1e5fa0ea",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The third session of test fixes took the three high-risk rows about the plan source, the plan push and the merge stop. New tests cover: a diverged main checkout reading the remote base; phases only origin holds waiting for the push; Continue returning once a missing checkout is back; an uncommitted PRD edit surviving the push; a push refused by a real repository hook; a blocking change on origin and a failed check after the push, each starting nothing; and Kiln's side of a merge session that stops at the second of two pull requests. Every new assertion failed twice with its part broken. A fresh re-grade raised AC-BACK-03 to Adequate. AC-BACK-05 is at 12 of 13 parts: its early-merge part needs the preparation verifier, which runs only on macOS. AC-MERGE-03 has no Kiln-side gap left; the real agent's stopping behavior still rests on the unrun provider proof. 9 rows remain, recorded in test-audit.md. The full suite passes under umask 022.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "AC-BACK-01 still requires one quiet line when a finished phase's document is edited later. The build left the line out on purpose, because PLAN-001 reopened your 2026-11-21 ruling and proposes saying nothing. The code therefore departs from a criterion that records your ruling.",
+      "action": "Answer PLAN-001 in kiln-after-delivery-assumptions.md. Confirming silence means amending AC-BACK-01 to drop the line. Keeping your original ruling means adding a phase to build the line."
+    },
+    {
+      "id": "item-2",
+      "criterion": "AC-MERGE-03",
+      "problem": "AC-MERGE-03 is high risk and still Weak. A scripted test now proves Kiln's side of a merge stop: the second pull request stays open, Kiln never shows Merged, and the resume keeps the first message's limits. No test in the project's test runs proves that a real merge session stops at the first pull request it cannot merge, or never merges past a required review or check. Only the provider proof shows that; it makes paid model calls and no test command runs it.",
+      "action": "Either have the merge provider proof run in a gated test command, or accept AC-MERGE-03's two agent-behavior parts as Weak."
+    },
+    {
+      "id": "item-3",
+      "problem": "On this machine (umask 0002), 7 integration tests outside this PRD's criteria fail: account-provenance, claude-history and record-migration. They write Claude history files group-writable, and Kiln rightly refuses those as unsafe. All 7 pass under umask 022.",
+      "action": "Run the integration tests under umask 022, or have those tests create their history files with mode 0600, in separate work outside this PRD."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-BACK-05",
+      "problem": "AC-BACK-05 is high risk and at 12 of 13 parts. No test shows that an early-merge permission granted before Continue is superseded by the push and asked for again. An early-merge target exists only when a phase has a preparation step, and the preparation verifier runs only on macOS, so a session on this Linux machine can't build or check that test.",
+      "action": "Have a test-fix session run on macOS to add the macOS-only test that test-audit.md describes, or accept this one part of AC-BACK-05."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": false,
+  "raised": ["AC-BACK-03"]
+}
