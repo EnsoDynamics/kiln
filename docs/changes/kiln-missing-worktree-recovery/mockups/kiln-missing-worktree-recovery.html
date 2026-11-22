@@ -245,7 +245,7 @@ Set the run up again: <span class="y">http://localhost:4317/invoice-evidence-col
   </div>
   <div class="kp-run kp-before"><span class="kp-eyebrow">Before you start</span>
    <div class="kp-between" style="align-items:flex-end;margin-top:10px">
-    <div><span class="kp-muted kp-small">Starting lets Kiln</span><ul class="kp-allowed-list">${lets}${clearItem}<li class="kp-muted">✕ Never merge, deploy, or touch other branches</li></ul></div>
+    <div><span class="kp-muted kp-small">Starting lets Kiln</span><ul class="kp-allowed-list">${lets}${clearItem}<li>✓ Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page</li><li>✓ ${c.multi?"In the PRD’s repository, push":"Push"} this PRD’s documents to <code>develop</code> only when you press Continue on the finished page</li><li class="kp-muted">✕ Never deploy or touch other branches</li></ul></div>
     <div style="text-align:right"><button type="button" class="kp-primary" data-act="start">${label}</button><p class="kp-help">Earlier phases, sessions and delivery links stay in this run’s history.</p></div>
    </div></div>`;
  }

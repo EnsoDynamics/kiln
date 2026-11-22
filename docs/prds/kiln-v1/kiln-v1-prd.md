@@ -198,6 +198,7 @@ When every leaf is closed, Kiln finishes with a single pull request for the whol
   - Superseded in part by: AC-AUTO-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a pull-request session that fails its check after hitting a usage limit waits for usage rather than going to Needs you)
 - [ ] **AC-PR-03 — Kiln stops at "PR ready for review".** Kiln doesn't merge the pull request, wait on CI to merge it, or deploy anything.
   - Superseded in part by: AC-PRS-03 and AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (truthful already-merged and mixed completion; no merge or deployment authority).
+  - Superseded in part by: AC-MERGE-02 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (on the press of Merge with {agent} the merge session merges the delivery's pull requests; otherwise Kiln still merges and deploys only as AC-DEV-01 in Kiln Development Deployments allows)
 - [ ] **AC-PR-04 — The Complete screen is the progress screen, finished.** It shows:
   - Superseded in part by: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (audit and repair activity rows precede final delivery).
   - the pull request's number, title, branches and link, with its commit count and lines added and removed;

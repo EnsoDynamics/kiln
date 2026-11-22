@@ -14,7 +14,8 @@ import { newAcceptance, prepareWorkspaces, validatePreparedWorkspace } from "./c
 import { authorityForApproval, changesContinuationScope, readPendingAuthority, writePendingAuthority, pendingForProposal, reserveAuthority, type ContinuationInputObservation } from "./continuation-authority.js";
 import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, retainExecution, type ContinuationAcceptance, type ContinuationState, type ExecutionSummary } from "./continuation-state.js";
 import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck, type DeliveryDecision } from "./completed-plan-discovery.js";
-import { deliveryWaiting, prdPullRequest, readDelivery } from "./delivery-reading.js";
+import { deliveryWaiting, mergeOffer, openMerge, orderedForMerge, prdPullRequest, readDelivery } from "./delivery-reading.js";
+import { closedAtStopLine, closedLine, MERGE_LIVE_REASON, unreadableLine } from "./merge-wording.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
 import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate, type GateState } from "../live/gate.js";
@@ -46,7 +47,7 @@ import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt, preflightSessionPrompt } from "../session/prompts.js";
-import { isPreflightKey, activityKeyKind } from "../state/activity-keys.js";
+import { isPreflightKey, activityKeyKind, MERGE_KEY } from "../state/activity-keys.js";
 import { keyOf as preflightKeyOf, latestPreflight, preflightActivity, preflightSettled, readPreflightReport, setPreflightDue, unfinishedPreflight, PREFLIGHT_CHECK, PREFLIGHT_LIVE_REASON, PREFLIGHT_PAUSE_REASON, PREFLIGHT_SKILL, PREFLIGHT_STOP_REASON, PREFLIGHT_TITLE, type PreflightActivity, type PreflightReport, type PreflightTrigger } from "./preflight.js";
 import { appendLoop, closedKinds, closingAudits, limitFloor, LOOP_STOP_LINE, loopSettings, REMOVED_LOOP_COMMAND, startedLedger, validLimit, type AuditLoopSettings } from "../state/audit-loops.js";
 import { nextStepsForecast } from "./next-steps.js";
@@ -110,7 +111,9 @@ import {
 import {
   phaseSessionPrompt,
   pullRequestSessionPrompt,
+  mergeSessionPrompt,
   resumePrompt,
+  type MergePullRequest,
   type PhasePromptValues,
   type AuditRecoveryTask,
   type PromptRepository,
@@ -229,6 +232,8 @@ export type TerminalEvent =
       opened?: { repository: string; number: number }[];
     }
   | { kind: "delivery"; at: Date; repository: string; environment: string; stage: string; outcome: string }
+  /** The merge activity's lines (Kiln After Delivery AC-MERGE-05): its row is **Merge**, id M. */
+  | { kind: "merge"; at: Date; event: "started" | "stopped" | "paused" | "interrupted" | "resumed" | "waiting" | "merged"; summary?: string; limit?: { label: string; resetsAt?: string } }
   | { kind: "message"; text: string };
 
 class TakeoverAlreadyComplete extends Error {}
@@ -349,6 +354,8 @@ export type UnderwayDecision =
   | { kind: "start_audit"; phaseKey: string; label: string; round: number; doneFirst?: DoneFirst }
   | { kind: "start_phase"; phaseId: string; doneFirst?: DoneFirst }
   | { kind: "start_pull_request"; doneFirst?: DoneFirst }
+  /** The merge activity is open and its session has not started yet (Kiln After Delivery AC-MERGE-05). */
+  | { kind: "start_merge" }
   | { kind: "needs_you"; phaseKey: string; again: boolean; doneFirst?: DoneFirst }
   | { kind: "plan_stop"; phaseKey: string; doneFirst?: DoneFirst }
   | { kind: "paused"; beforePhaseKey: string; doneFirst?: DoneFirst }
@@ -370,6 +377,7 @@ type ResumeRequest = { phaseKey: string; cause: "person_resume" | "limit_resume"
 /** Writes refused because an earlier durable control write failed; the controller does no more work until restart. */
 class ControllerFrozen extends Error {}
 class FrozenStateWrite extends RecoveryStateWriteFailed {}
+const MERGE_BUSY = "Kiln is checking or changing work. Try again when it has finished.";
 const refusedWhileFrozen = (error: unknown) => error instanceof ControllerFrozen || error instanceof FrozenStateWrite;
 
 export class Engine {
@@ -447,6 +455,8 @@ export class Engine {
   deliveryHistoryPending = false;
   deliveryHistoryError: string | undefined;
   private deliveryReading: Promise<void> | undefined;
+  /** The delivery reading in flight (Kiln After Delivery, "The Delivery Reading"): one at a time, joined by every occasion. */
+  private afterDeliveryReading: Promise<{ failed: { repository: string; number: number }[] }> | undefined;
   /** Aborted when a stop begins: every git and gh call still running ends, and new ones fail at once. */
   private readonly abort = new AbortController();
   /** The live session process's controls, while one runs. */
@@ -625,7 +635,7 @@ export class Engine {
       reply: !!key && this.resumeOffered(key) && !busy,
       resume: !this.restartReview && !!(wait || key && this.resumeOffered(key)) && !busy,
       "verify-and-advance": !!this.phaseRecoveryTarget() && !busy && !releasePending,
-      "request-pause": this.isUnderway && !this.currentlyComplete && !key && !wait && !paused && !this.record.pause.requestedAt && this.current?.phaseKey !== PR_PHASE_KEY && !this.commands?.busy,
+      "request-pause": this.isUnderway && !this.currentlyComplete && !openMerge(this.record) && !key && !wait && !paused && !this.record.pause.requestedAt && this.current?.phaseKey !== PR_PHASE_KEY && !this.commands?.busy,
       "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
       continue: paused && !busy,
       "check-again": !!key && !this.phaseRecoveryTarget() && !busy,
@@ -635,6 +645,7 @@ export class Engine {
       "carry-on": this.carryOnControl(true).available && !busy,
       "start-again": this.startAgainControl().available && !busy,
       reset: this.resetControl().available,
+      merge: this.mergeControl().available,
     };
     // At a preflight stop only Check Preflight again and Mark complete are offered (The Preflight Stop).
     const preflightStop = this.preflightStopKey() !== undefined;
@@ -654,18 +665,22 @@ export class Engine {
       "carry-on": this.carryOnControl(true).reason ?? "Carry on isn't offered here.",
       "start-again": this.startAgainControl().reason ?? "Start again isn't offered here.",
       reset: this.resetControl().reason ?? "Reset isn't available.",
+      merge: this.mergeControl().reason ?? "Merge with the agent isn't offered here.",
+      // A running merge session offers no message, pause or takeover, and says why (AC-MERGE-05, MERGE-001).
+      ...(openMerge(this.record) && !key && !wait ? { "take-over": MERGE_LIVE_REASON, message: MERGE_LIVE_REASON, "request-pause": MERGE_LIVE_REASON } : {}),
       ...(preflightStop ? { reply: PREFLIGHT_STOP_REASON, resume: PREFLIGHT_STOP_REASON, "carry-on": PREFLIGHT_STOP_REASON, "start-again": PREFLIGHT_STOP_REASON, "verify-and-advance": PREFLIGHT_STOP_REASON } : {}),
       ...(preflightRunning ? { "request-pause": PREFLIGHT_PAUSE_REASON } : {}),
     };
     // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
     const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
-    const fixedReason = (name: Action) => name === "reset" || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
+    const mergeRunning = !!openMerge(this.record) && !key && !wait;
+    const fixedReason = (name: Action) => name === "reset" || name === "merge" || mergeRunning && (name === "take-over" || name === "message" || name === "request-pause") || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
     const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : fixedReason(name) ? unavailable[name]! : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
     // A Pause now's per-reading reasons (the hold's reason, its rows) stay out of the token, so a pause still pausing doesn't change it every second (Kiln Pause Now, "Interfaces").
     const pauseHeld = !!this.record.liveControl && this.record.liveControl.takeover.kind !== "delivery_recovery";
     const tokenControls = pauseHeld ? controls.map(c => ["take-over", "message", "verify-and-advance", "waive-and-advance", "resume", "reply"].includes(c.name) ? { name: c.name, available: c.available } : c) : controls;
-    const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, run: key ? (this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold.run?.id : this.record.phases[key]?.stop?.run?.id) : undefined, controls: tokenControls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval,
+    const fingerprint = { continuation: this.record.continuation, proposal: this.record.completedPlanCheck?.result?.proposal?.id, live: live && { target: live.target, takeover: live.takeover && { kind: live.takeover.kind, state: live.takeover.state }, review: live.reviewRequired, messages: live.messages?.map(m => ({ id: m.id, delivery: m.delivery, reviewedAt: m.reviewedAt })) }, epoch: this.controlEpoch, execution: this.record.executionId, revision: this.record.controlRevision ?? 0, target, run: key ? (this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold.run?.id : this.record.phases[key]?.stop?.run?.id) : undefined, controls: tokenControls, pause: this.record.pause, settings: this.record.settings, current: this.current && { key: this.current.phaseKey, session: this.current.session?.sessionId, attempt: this.current.session?.runs.length, running: this.current.processRunning }, authority: this.record.developmentAuthorization, billingHold: this.record.billing?.hold, billingApproval: this.record.billing?.approval, afterDelivery: this.record.afterDelivery && { pulls: this.record.afterDelivery.pullRequests.map(row => [row.repository, row.number, row.state, row.headSha ?? null]), merge: this.record.afterDelivery.merge && { id: this.record.afterDelivery.merge.operationId, closed: !!this.record.afterDelivery.merge.closedAt } },
       unsent: this.commands?.unsent(target).map(r => r.id) ?? [] };
     return { token: `${this.record.executionId!}:${createHash("sha256").update(JSON.stringify(fingerprint)).digest("base64url")}`, target, controls };
   }
@@ -799,6 +814,7 @@ export class Engine {
       const refused = await this.folderRefusal();
       if (refused) return refused;
     } else if (this.folderMissing && action !== "folder-setup-start" && !action.startsWith("continuation-")) return { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 };
+    if (action === "merge") return this.applyMerge(inputs, receipt);
     if (action === "continuation-grant") return this.grantContinuationTarget(inputs, receipt);
     if (action === "continuation-accept") return this.acceptContinuation(inputs, receipt);
     if (action === "continuation-retry") return this.retryContinuation(inputs);
@@ -849,7 +865,7 @@ export class Engine {
       case "reply": case "resume":
         this.controlDispatch = receipt;
         answer = receipt.source === "automatic" ? (await this.resumeWait(this.waitingPhaseKey()!, "limit_resume") === "folder_missing" ? { ok: false, code: "folder_missing", reason: FOLDER_MISSING_REASON, status: 409 } : { ok: true }) : await this.resume({ ...(target ? { target } : {}), ...(action === "reply" ? { note: inputs.message } : {}) });
-        if (answer.ok && priorKey && !priorDone && this.record.phases[priorKey]?.doneAt) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced" }; }
+        if (answer.ok && priorKey && !priorDone && this.record.phases[priorKey]?.doneAt) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: priorKey === MERGE_KEY ? "already_done" : "advanced" }; }
         if (answer.ok && answer.noteSkipped) { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced_reply_not_sent" }; }
         if (answer.ok && answer.outcome === "advanced") { this.controlDispatch = undefined; receipt.effects.plan = "advanced"; return { ok: true, outcome: "advanced" }; }
         if (answer.ok && answer.outcome !== "already_complete") {
@@ -865,7 +881,7 @@ export class Engine {
         break;
     }
     if (!answer.ok) return answer;
-    const outcome = answer.outcome === "already_complete" ? "phase_already_complete" : answer.outcome === "still_stopped" ? "completion_checks_failed" : answer.outcome === "advanced" ? "advanced" : action === "reply" || action === "resume" ? "session_resumed" : "completed";
+    const outcome = action === "check-again" && priorKey === MERGE_KEY && !priorDone && this.record.phases[MERGE_KEY]?.doneAt ? "already_done" : answer.outcome === "already_complete" ? "phase_already_complete" : answer.outcome === "still_stopped" ? "completion_checks_failed" : answer.outcome === "advanced" ? "advanced" : action === "reply" || action === "resume" ? "session_resumed" : "completed";
     if (action === "settings") receipt.settings = this.runtimeControlSettings();
     this.record.controlApplied = { operationId: receipt.id, outcome, ...(receipt.settings ? { settings: receipt.settings } : {}) }; this.save();
     return { ok: true, outcome };
@@ -1091,7 +1107,7 @@ export class Engine {
     const current = this.current;
     const session = current?.session;
     // Final delivery and the preflight have no live controls (build preflight "The Preflight Stop").
-    if (!current?.processRunning || !session || session.agentId !== "claude_code" || session.kind === "pull_request" || session.kind === "preflight") return undefined;
+    if (!current?.processRunning || !session || session.agentId !== "claude_code" || session.kind === "pull_request" || session.kind === "preflight" || session.kind === "merge") return undefined;
     const activity = activityHistory(this.record, this.stateDirectory).findLast(a => a.key === current.phaseKey);
     if (!activity || session.executionId !== this.record.executionId) return undefined;
     const run = session.runs.at(-1); if (!run || run.endedAt) return undefined;
@@ -2132,6 +2148,8 @@ export class Engine {
   markCompleteOffer(admitting = false): MarkCompleteOffer {
     const key = this.stoppedPhaseKey();
     if (key === undefined || this.current?.processRunning) return { offered: false, reason: this.current?.processRunning ? `${this.activityName(this.current.phaseKey)} is running, not at Needs you. There is nothing to mark complete.` : "Nothing is waiting at Needs you. There is nothing to mark complete." };
+    // GitHub decides whether a merge is done, so a merge stop offers no Mark complete (AC-MERGE-06).
+    if (key === MERGE_KEY) return { offered: false, reason: "GitHub decides whether the merge is done. Press Check again once the pull requests are merged." };
     const name = this.activityName(key);
     // A loop stop saved by Kiln 1.3.0 is not a failing check; Check again clears it (technical design, "Upgrade").
     if (this.record.phases[key]?.stop?.kind === "loop_limit") return { offered: false, reason: LOOP_STOP_LINE };
@@ -2417,6 +2435,10 @@ export class Engine {
     try {
       // Resume reopens the stopped conversation, so an out-of-date description resumes that session rather than starting a new one (AC-LEFT-01).
       verdict = await this.recheckStop(key, { resuming: true });
+    } catch (error) {
+      // A reading that could not finish decides nothing: nothing resumes and the stop names why (AC-MERGE-06).
+      if (!(error instanceof CompletionCheckUnavailable) || key !== MERGE_KEY) throw error;
+      return { ok: false, code: "check_unavailable", reason: error.message, status: 503 };
     } finally {
       // Held on through the resume only when the check failed; the run's start releases it.
       if (verdict !== "still_stopped" || this.stopping) {
@@ -2467,7 +2489,7 @@ export class Engine {
     // Kiln never resumes a preflight session with a person's words (The Preflight Stop).
     if (isPreflightKey(phaseKey)) return false;
     const kind = this.record.phases[phaseKey]?.stop?.kind;
-    if (kind !== "done_check" && kind !== "pull_request_check" && kind !== "not_resumable" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
+    if (kind !== "done_check" && kind !== "pull_request_check" && kind !== "merge_check" && kind !== "not_resumable" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
     const session = this.recoverySession(phaseKey);
     if (!session || !session.runs.some((run) => run.pid !== undefined)) return false;
     // Resume goes by the reopen check, never by the stop's kind (run restart "Whether the conversation can be reopened").
@@ -2504,7 +2526,8 @@ export class Engine {
   carryOnControl(acknowledging = false): { offered: boolean; available: boolean; reason?: string } {
     const held = this.heldHistoryKey();
     const key = held ?? this.stoppedPhase();
-    if (key === undefined || isPreflightKey(key)) return { offered: false, available: false };
+    // Nothing starts a second merge session (AC-MERGE-06).
+    if (key === undefined || isPreflightKey(key) || key === MERGE_KEY) return { offered: false, available: false };
     if (!held && (!this.conversationBegan(key) || this.reopenCheck(key).state !== "unavailable")) return { offered: false, available: false };
     const hold = this.record.liveControl?.takeover;
     const reason = (held && (hold?.carryOnObstacle ?? (!acknowledging && this.liveView()?.reviewRequired?.length ? "Acknowledge each message Kiln isn't sure was delivered first." : undefined))) || this.launchBusy() || this.launchRestriction();
@@ -2514,6 +2537,7 @@ export class Engine {
   /** Start Phase N again (AC-CASE-02, AC-CARRY-03): offered when no session of a stopped phase began a conversation. */
   startAgainControl(): { offered: boolean; available: boolean; reason?: string } {
     const stopped = this.stoppedPhaseKey();
+    if (stopped === MERGE_KEY) return { offered: false, available: false };
     const key = isPreflightKey(stopped) ? stopped : this.stoppedPhase();
     // On a preflight key: offered at a launch-check or done-check stop, never at the preflight stop itself.
     if (key !== undefined && isPreflightKey(key)) {
@@ -2841,7 +2865,9 @@ export class Engine {
     return recovery ? recoveryOwners(recovery).map(owner => ownerDeliveryCheck(this.deliveryContext(), owner)) : [];
   }
 
-  get currentlyComplete(): boolean { return this.record.completedAt !== undefined && (!deliveryEnabled(this.record) || this.record.developmentDelivery?.currentComplete === true); }
+  /** Complete, apart from an open after-delivery activity, which reopens the run while it is open (Kiln After Delivery, "While open"). */
+  get finished(): boolean { return this.record.completedAt !== undefined && (!deliveryEnabled(this.record) || this.record.developmentDelivery?.currentComplete === true); }
+  get currentlyComplete(): boolean { return this.finished && !openMerge(this.record); }
 
   /** Audits have activity storage keys, never synthetic implementation phase IDs. */
   auditRecoveryTask(key: string, folder: string): AuditRecoveryTask | undefined {
@@ -3272,6 +3298,7 @@ export class Engine {
   private emitSessionEvent(phaseKey: string, event: "interrupted" | "resumed" | "stopped" | "paused" | "waiting", limit?: { label: string; resetsAt?: string }): void {
     const extra = limit === undefined ? {} : { limit };
     if (phaseKey === PR_PHASE_KEY) this.emit({ kind: "pull_request", at: this.now(), event, ...extra });
+    else if (phaseKey === MERGE_KEY) this.emit({ kind: "merge", at: this.now(), event, ...extra });
     else if (this.auditActivity(phaseKey)) this.emitAudit(this.auditActivity(phaseKey)!, event, limit);
     else if (this.preflightActivity(phaseKey)) this.emitPreflight(this.preflightActivity(phaseKey)!, event, limit);
     else {
@@ -3538,6 +3565,9 @@ export class Engine {
     // A press that arrives during a page load's reading is not lost: it reads again, as a press, once that one ends.
     if (this.completedPlanReading) return options.press && !this.completedPlanPress ? this.completedPlanReading.catch(() => undefined).then(() => this.checkCompletedPlan(options)) : this.completedPlanReading;
     if (this.commands.blocked) return Promise.reject(new AuditRefusal("busy", this.commands.fault ?? "Reconcile the retained command owner before another plan check.", 409));
+    // While the merge activity is open a page or button occasion only saves the pull request states
+    // the card shows; it never closes the activity, whatever it reads (Kiln After Delivery, "While open").
+    if (openMerge(this.record)) return this.readDeliveryNow(options.press === true).then(() => Promise.reject(new AuditRefusal("busy", "Kiln checks for new phases once it confirms the merge.", 409)));
     if (!this.currentlyComplete) return Promise.reject(new AuditRefusal("wrong_activity", "Only a completed feature can check for added phases.", 409));
     if (this.commands.busy || this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping) return Promise.reject(new AuditRefusal("busy", "Kiln is already checking or changing work.", 409));
     return this.checkCompletedPlanOwned(options);
@@ -3552,11 +3582,7 @@ export class Engine {
     const record = this.record;
     const merged = (pull: { repository: string; number: number }) => record.afterDelivery?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number)?.state === "merged";
     let failed: { repository: string; number: number }[] = [];
-    if (!(record.pullRequests ?? []).every(merged)) {
-      const read = await readDelivery({ record, git: { ...this.git, signal }, gh: this.options.tools.gh, now: () => this.now().toISOString(), signal, press });
-      record.afterDelivery = read.state; failed = read.failed;
-      this.save();
-    }
+    if (!(record.pullRequests ?? []).every(merged)) failed = (await this.readDeliveryNow(press, signal)).failed;
     const readings = record.afterDelivery?.pullRequests ?? [];
     const prd = prdPullRequest(record);
     // A reading of the PRD's pull request that failed now decides nothing: the check fails with the failure, never shows an earlier waiting state.
@@ -3569,6 +3595,279 @@ export class Engine {
       merged: Object.fromEntries(readings.flatMap(row => row.state === "merged" && row.mergeCommit ? [[row.repository, row.mergeCommit]] : [])),
       closed: readings.filter(row => row.state === "closed").map(row => ({ repository: row.repository, number: row.number })),
     };
+  }
+
+  // ---- Merge with the agent (Kiln After Delivery, "The Merge Session") --------------------
+
+  /**
+   * The delivery reading, one at a time: an occasion that arrives while one is in flight waits
+   * for its result instead of starting another. A failed read keeps the previous reading.
+   */
+  private async readDeliveryNow(press: boolean, signal?: AbortSignal, fresh = false): Promise<{ failed: { repository: string; number: number }[] }> {
+    // The merge activity's own occasions (the press, the session's end, its stop's controls) need a
+    // reading started after them: one already in flight may predate the session's merge.
+    if (fresh) while (this.afterDeliveryReading) await this.afterDeliveryReading.catch(() => undefined);
+    if (this.afterDeliveryReading) return this.afterDeliveryReading;
+    return this.startDeliveryReading(press, signal);
+  }
+
+  private startDeliveryReading(press: boolean, signal?: AbortSignal): Promise<{ failed: { repository: string; number: number }[] }> {
+    const reading = (async () => {
+      const abort = signal ?? AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
+      const read = await readDelivery({ record: this.record, git: { ...this.git, signal: abort }, gh: this.options.tools.gh, now: () => this.now().toISOString(), signal: abort, press });
+      // The merge activity may have changed while GitHub was read; the reading never replaces it.
+      const merge = this.record.afterDelivery?.merge;
+      this.record.afterDelivery = { ...read.state, ...(merge ? { merge } : {}) };
+      if (!merge) delete this.record.afterDelivery.merge;
+      this.save();
+      return { failed: read.failed };
+    })().finally(() => { this.afterDeliveryReading = undefined; this.changed(); });
+    this.afterDeliveryReading = reading;
+    return reading;
+  }
+
+  /**
+   * Merge with {agent} (AC-MERGE-01, AC-MERGE-07): offered from the saved reading while no merge
+   * activity exists for this execution. Its reasons never carry a reading's failure text or time,
+   * so the status token stays still between readings.
+   */
+  mergeControl(): { offered: boolean; available: boolean; reason?: string } {
+    const record = this.record;
+    if (!this.finished) return { offered: false, available: false, reason: "Merge with the agent is offered once every phase is done and its pull requests are open." };
+    if (record.afterDelivery?.merge) return { offered: false, available: false, reason: "A merge session was already started for this delivery." };
+    const offer = mergeOffer(record);
+    if (offer.kind === "nothing") return { offered: false, available: false, reason: "This delivery has no pull request to merge." };
+    if (offer.kind === "all_merged") return { offered: false, available: false, reason: "Every pull request of this delivery is merged." };
+    if (offer.kind === "closed") return { offered: false, available: false, reason: "A pull request of this delivery was closed on GitHub without merging." };
+    if (offer.kind === "unreadable") return { offered: false, available: false, reason: "GitHub could not be read for this delivery's pull requests." };
+    if (this.mergeBusy(false)) return { offered: true, available: false, reason: MERGE_BUSY };
+    return { offered: true, available: true };
+  }
+
+  /** Whether the press must wait: a session, a stop or wait, a check or another command is under way. */
+  private mergeBusy(applying: boolean): boolean {
+    return !!(this.current?.processRunning || this.stoppedPhaseKey() !== undefined || this.waitingPhaseKey() !== undefined || this.pendingContinuation() || this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping || !applying && this.commands?.busy || this.completedPlanReading);
+  }
+
+  /** The delivery's pull requests the merge session works on, in its order, with the latest reading (AC-MERGE-02). */
+  private mergePullRequests(only?: { repository: string; number: number }[]): MergePullRequest[] {
+    const recorded = this.record.pullRequests ?? [];
+    const readings = this.record.afterDelivery?.pullRequests ?? [];
+    const rows = recorded.filter(pull => !only || only.some(row => row.repository === pull.repository && row.number === pull.number)).map(pull => ({ pull, reading: readings.find(row => row.repository === pull.repository && row.number === pull.number) }));
+    return orderedForMerge(rows.map(({ pull, reading }) => ({ repository: pull.repository, number: pull.number, ...(reading?.order ? { order: reading.order } : {}), pull, reading })), recorded).map(({ pull, reading }) => {
+      const entry = this.record.repositories.find(one => one.name === pull.repository);
+      return { repository: pull.repository, github: entry?.github ?? this.record.repository.github, number: pull.number, featureBranch: pull.head, baseBranch: pull.base, worktreePath: expandHome(entry?.worktreePath ?? this.worktreePath), ...(reading ? { state: reading.state } : {}) };
+    });
+  }
+
+  /**
+   * The press (technical design, "The Merge Session"): a fresh reading, then every pull request
+   * merged completes as `already_merged`; any closed or unknown is refused; otherwise each
+   * worktree still to merge is checked and the merge activity opens. The accepted receipt for this
+   * execution is the whole permission (AC-MERGE-02): nothing is written to settings or a grant.
+   */
+  private async applyMerge(inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; outcome?: string; reason?: string; code?: string; status?: number }> {
+    // The press decides on a fresh reading, so a saved closed, unknown or merged state refuses only after it.
+    const control = this.mergeControl();
+    if (!this.finished || this.record.afterDelivery?.merge || mergeOffer(this.record).kind === "nothing") return { ok: false, code: "merge_unavailable", reason: control.reason!, status: 409 };
+    if (this.mergeBusy(true)) return { ok: false, code: "busy", reason: MERGE_BUSY, status: 409 };
+    this.checking = true;
+    this.changed();
+    try {
+      await this.readDeliveryNow(false, undefined, true);
+      if (this.stopping) return { ok: false, code: "merge_unavailable", reason: "Kiln is stopping.", status: 409 };
+      const offer = mergeOffer(this.record);
+      if (offer.kind === "all_merged") {
+        this.record.controlApplied = { operationId: receipt.id, outcome: "already_merged" };
+        this.save();
+        this.confirmedMerge();
+        return { ok: true, outcome: "already_merged" };
+      }
+      if (offer.kind === "closed") return { ok: false, code: "pull_request_closed", reason: closedLine({ multi: (this.record.pullRequests ?? []).length > 1, closed: offer.closed, open: offer.open }), status: 409 };
+      if (offer.kind === "unreadable") return { ok: false, code: "github_unreadable", reason: unreadableLine(offer.problem), status: 503 };
+      if (offer.kind !== "offered") return { ok: false, code: "merge_unavailable", reason: "This delivery has no pull request to merge.", status: 409 };
+      const pressHeads: { repository: string; sha: string }[] = [];
+      for (const row of offer.toMerge) {
+        const ready = await this.mergeFolderReady(row.repository, row.number, row.headSha!);
+        if (!ready.ok) return { ok: false, code: "merge_folder_not_ready", reason: ready.reason, status: 409 };
+        pressHeads.push({ repository: row.repository, sha: ready.head });
+      }
+      const at = this.now().toISOString();
+      this.record.afterDelivery!.merge = { operationId: receipt.id, requestedAt: at, via: inputs.via === "command_line" ? "command_line" : "browser", pullRequests: offer.toMerge.map(row => ({ repository: row.repository, number: row.number })), pressHeads };
+      this.record.controlApplied = { operationId: receipt.id, outcome: "merge_started" };
+      this.save();
+    } finally {
+      this.checking = false;
+      this.changed();
+    }
+    // Every path that did not open the activity returned above.
+    this.kick();
+    return { ok: true, outcome: "merge_started" };
+  }
+
+  /**
+   * A pull request's worktree at the press (technical design, "Gates"): there, on the feature
+   * branch, with no uncommitted work and no merge in progress; the pull request's head brought in
+   * from the main checkout with no ref written; and the worktree's head at, ahead of or behind it.
+   * A Git read that fails refuses the press and names the failure; it is never read as behind.
+   */
+  private async mergeFolderReady(repository: string, number: number, headSha: string): Promise<{ ok: true; head: string } | { ok: false; reason: string }> {
+    const entry = this.record.repositories.find(one => one.name === repository);
+    const folder = entry?.worktreePath ?? this.record.settings.worktreePath;
+    const cwd = expandHome(folder);
+    const main = expandHome(entry?.mainCheckoutPath ?? this.paths.mainCheckoutPath);
+    const branch = this.record.settings.featureBranch;
+    const refuse = (what: string) => ({ ok: false as const, reason: `Kiln can't start the merge in ${repository}'s worktree, ${folder}: ${what}` });
+    try { if (!statSync(cwd).isDirectory()) return refuse("it is not a folder."); }
+    catch { return refuse("it is not there."); }
+    const [top, current, status, merging] = await Promise.all([
+      runGit(this.git, cwd, ["rev-parse", "--show-toplevel"]), runGit(this.git, cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
+      runGit(this.git, cwd, ["status", "--porcelain", "--untracked-files=all"]), runGit(this.git, cwd, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]),
+    ]);
+    if (top.exitCode !== 0 || comparable(realPathOfNearestAncestor(top.stdout.trim())) !== comparable(realPathOfNearestAncestor(cwd))) return refuse("it is not a Git worktree of the repository.");
+    if (current.exitCode !== 0 || current.stdout.trim() !== branch) return refuse(`it is not on ${branch}.`);
+    if (status.exitCode !== 0) return refuse(`Git could not read it: ${status.stderr.trim()}`);
+    if (status.stdout.trim()) return refuse("it has uncommitted work. Commit or remove it, then press Merge again.");
+    if (merging.exitCode === 0) return refuse("a merge is in progress there. Finish or abort it, then press Merge again.");
+    const fetched = await runGit(this.git, main, ["fetch", "--no-tags", "--no-write-fetch-head", "origin", headSha]);
+    if (fetched.exitCode !== 0) return refuse(`Git could not bring in pull request #${number}'s head ${headSha.slice(0, 7)}: ${fetched.stderr.trim()}`);
+    const head = await runGit(this.git, cwd, ["rev-parse", "HEAD"]);
+    if (head.exitCode !== 0) return refuse(`Git could not read its head: ${head.stderr.trim()}`);
+    const sha = head.stdout.trim();
+    if (sha === headSha) return { ok: true, head: sha };
+    const ancestor = async (a: string, b: string) => (await runGit(this.git, cwd, ["merge-base", "--is-ancestor", a, b])).exitCode;
+    const behind = await ancestor(sha, headSha);
+    const ahead = behind === 0 ? 1 : await ancestor(headSha, sha);
+    if (behind !== 0 && behind !== 1 || ahead !== 0 && ahead !== 1) return refuse("Git could not compare it with the pull request's head.");
+    if (behind === 0 || ahead === 0) return { ok: true, head: sha };
+    return { ok: false, reason: `${repository}'s worktree, ${folder}, and pull request #${number} each have commits the other lacks. Bring them together, then press Merge again.` };
+  }
+
+  /**
+   * Whether the merge is done (AC-MERGE-04): every pull request of the delivery read `merged`,
+   * never the session's word. One check row per pull request; `unreadable` when a pull request not
+   * already merged could not be read, which decides nothing.
+   */
+  private mergeResult(): { done: boolean; unreadable?: string; checks: CheckResult[] } {
+    const state = this.record.afterDelivery;
+    const failed = (pull: { repository: string; number: number }) => state?.readError?.pullRequests?.some(row => row.repository === pull.repository && row.number === pull.number);
+    let unreadable: string | undefined;
+    const checks: CheckResult[] = (this.record.pullRequests ?? []).map(pull => {
+      const reading = state?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number);
+      const name = `${pull.repository} #${pull.number}`;
+      if (reading?.state === "merged") return { name, passed: true, facts: [`Merged into ${pull.base} at ${reading.mergedAt} · merge ${reading.mergeCommit?.slice(0, 7)}`] };
+      if (!reading || failed(pull)) { unreadable = state?.readError?.problem ?? "GitHub has not been read yet."; return { name, passed: false, facts: [unreadable] }; }
+      if (reading.state === "closed") return { name, passed: false, facts: [closedAtStopLine(pull)] };
+      return { name, passed: false, facts: [`Open on GitHub and not merged into ${pull.base}.${reading.conflicts ? ` GitHub shows it conflicts with ${pull.base}.` : ""}`] };
+    });
+    return { done: checks.length > 0 && checks.every(check => check.passed), ...(unreadable ? { unreadable } : {}), checks };
+  }
+
+  /**
+   * Closes the merge activity once every pull request reads merged, then runs the check for new
+   * phases unasked (AC-WAIT-03). The summary is saved only when a merge session's own end closed it.
+   */
+  private closeMerge(summary?: string): void {
+    const merge = this.record.afterDelivery?.merge;
+    if (!merge || merge.closedAt) return;
+    const at = this.now().toISOString();
+    merge.doneAt = at; merge.closedAt = at;
+    if (summary !== undefined) merge.summary = summary;
+    const facts = this.phaseFacts(MERGE_KEY);
+    delete facts.stop; delete facts.wait;
+    if (this.record.billing?.hold?.phaseKey === MERGE_KEY) delete this.record.billing.hold;
+    facts.doneAt = at;
+    this.current = undefined;
+    this.save();
+    this.emit({ kind: "merge", at: this.now(), event: "merged", summary: (this.record.pullRequests ?? []).map(pull => `${this.record.pullRequests!.length > 1 ? `${pull.repository} ` : ""}#${pull.number} merged`).join(" · ") });
+    this.confirmedMerge();
+  }
+
+  /** Kiln confirmed the merge: the check for new phases runs unasked (AC-WAIT-03). */
+  private confirmedMerge(): void {
+    if (this.stopping || !this.currentlyComplete) return;
+    void this.checkCompletedPlanOwned().catch(() => undefined);
+  }
+
+  /** The closing summary: the final message of the run that just ended, when it ended on its own with no error (AC-MERGE-04). */
+  private mergeSummary(): string | undefined {
+    const run = this.latestSession(MERGE_KEY)?.runs.at(-1);
+    if (!run || run.limitRefusal || run.interruptedBy || run.spawnError || run.result?.isError) return undefined;
+    return run.result?.text?.trim() ? run.result.text : undefined;
+  }
+
+  /**
+   * The loop's turn while the merge activity is open: launch its one session, or resume it when
+   * Kiln's own recovery asked; then settle it by the reading its end takes.
+   */
+  private async driveMerge(): Promise<"closed" | "stopped"> {
+    this.phaseFacts(MERGE_KEY);
+    if (this.pendingResume === MERGE_KEY) {
+      this.pendingResume = undefined;
+      await this.resumeSession(MERGE_KEY);
+    } else {
+      // Once per delivery: the one session is only ever resumed, never launched again.
+      // A session that never started (a failed spawn) is not a second session: launching again is allowed.
+      if (this.latestSession(MERGE_KEY)?.runs.some(run => run.pid !== undefined)) return "stopped";
+      this.current = { phaseKey: MERGE_KEY, commits: [], processRunning: false };
+      this.changed();
+      if (!await this.launchReadiness(MERGE_KEY)) return "stopped";
+      const prompt = this.mergePrompt(this.sessionFolder);
+      this.emit({ kind: "merge", at: this.now(), event: "started" });
+      await this.launchSession(MERGE_KEY, "merge", prompt);
+    }
+    const verdict = await this.settleSession(MERGE_KEY);
+    return verdict.kind === "complete" ? "closed" : "stopped";
+  }
+
+  /**
+   * `kiln run` on a finished run whose merge activity is open: its stop is checked again, an
+   * interrupted session reads GitHub before anything resumes, and one that ended unjudged is judged.
+   */
+  private async decideMerge(): Promise<UnderwayDecision> {
+    const key = MERGE_KEY;
+    if (this.record.billing?.hold?.phaseKey === key) return { kind: "needs_you", phaseKey: key, again: true };
+    if (this.waitingPhaseKey() === key) {
+      const verdict = await this.recheckWait(key, "restart");
+      if (verdict === "complete") return { kind: "complete" };
+      if (verdict === "stopped" || verdict === "stopping") return { kind: "needs_you", phaseKey: key, again: false };
+      return { kind: "waiting", phaseKey: key, limit: this.waitLimit(key) };
+    }
+    if (this.record.phases[key]?.stop) {
+      try { if (await this.recheckStop(key) === "complete") return { kind: "complete" }; }
+      catch (error) { if (!(error instanceof CompletionCheckUnavailable)) throw error; }
+      return { kind: "needs_you", phaseKey: key, again: true };
+    }
+    const session = this.latestSession(key);
+    const run = session?.runs.at(-1);
+    if (!session || !run) return { kind: "start_merge" };
+    this.interruptedKey = key;
+    await this.stopLiveProcess(session);
+    const verdict = run.endedAt === undefined || run.interruptedBy !== undefined ? await this.checkInterrupted(key) : await this.judgeEndedSession(key, false);
+    this.interruptedKey = undefined;
+    if (verdict.kind === "complete") return { kind: "complete" };
+    if (verdict.kind === "resume") { this.interruptedKey = key; this.pendingResume = key; return { kind: "resume", phaseKey: key, sessionId: session.sessionId }; }
+    if (verdict.kind === "waiting") return { kind: "waiting", phaseKey: key, limit: this.waitLimit(key) };
+    return { kind: "needs_you", phaseKey: key, again: false };
+  }
+
+  /** The merge session's first message, for the pull requests the press opened it for (AC-MERGE-03). */
+  mergePrompt(folder: string): string {
+    const pulls = this.mergePullRequests(this.record.afterDelivery?.merge?.pullRequests);
+    return mergeSessionPrompt({ featureName: this.paths.featureName, prdFile: this.pathFrom(folder, this.prdFile()), agent: AGENT_NAMES[this.record.settings.agentId], pullRequests: pulls });
+  }
+
+  /** The merge session ended (technical design, "Ending"): its reading decides, never its word. */
+  private async judgeMerge(notResumable: boolean): Promise<Verdict> {
+    await this.readDeliveryNow(false, undefined, true);
+    if (this.stopping) return { kind: "stopping" };
+    const result = this.mergeResult();
+    if (result.done) { this.closeMerge(this.mergeSummary()); return { kind: "complete" }; }
+    const session = this.latestSession(MERGE_KEY);
+    const runIndex = (session?.runs.length ?? 0) - 1;
+    if (!result.unreadable && !notResumable && session?.runs[runIndex]?.limitRefusal !== undefined) return this.settleRefused(MERGE_KEY, session, runIndex, result.checks);
+    this.recordStop(MERGE_KEY, notResumable ? "not_resumable" : "merge_check", result.checks);
+    return { kind: "stopped" };
   }
 
   private checkCompletedPlanOwned(options: { press?: boolean } = {}): Promise<CompletedPlanCheck> {
@@ -4287,6 +4586,8 @@ export class Engine {
     if (!await this.folderGuard({ mayLeave: false })) return { kind: "folder_missing" };
     if (this.commands.blocked) return { kind: "needs_you", phaseKey: this.stoppedPhaseKey() ?? this.nextKeyFromRecordedPlan(), again: true };
     const { record } = this;
+    // An open merge activity is handled before anything else `kiln run` does for a finished run (Kiln After Delivery, "Ctrl+C and restart").
+    if (openMerge(record)) return this.decideMerge();
     if (deliveryEnabled(record) && record.completedAt && !await this.obsoleteCompletedDeliveryArtifacts()) {
       await this.readPlan();
       const earlier = await this.unresolvedDeliveryLeaf();
@@ -4452,6 +4753,12 @@ export class Engine {
       // No other phase starts during a wait; its readings, not the loop, end it.
       if (this.waitingPhaseKey() !== undefined) {
         this.watchWait();
+        return;
+      }
+      // An open merge activity is the loop's next activity ahead of anything else; the plan, the
+      // audits, the preflight and the completion step never run for it (Kiln After Delivery, "While open").
+      if (openMerge(record)) {
+        if (await this.driveMerge() === "closed") continue;
         return;
       }
       // Checked after a wait's watch starts, so the watch begins before this loop first waits on Git.
@@ -5433,7 +5740,7 @@ export class Engine {
     const facts = this.record.phases[phaseKey]!;
     const audit = this.auditActivity(phaseKey) ?? this.preflightActivity(phaseKey);
     const auditRecord = this.auditActivity(phaseKey);
-    observeActivity(this.record, this.stateDirectory, phaseKey, auditRecord?.kind ?? (kind === "preflight" ? "preflight" : kind === "pull_request" ? "final_delivery" : "implementation"), this.now().toISOString(), audit?.activityId);
+    observeActivity(this.record, this.stateDirectory, phaseKey, auditRecord?.kind ?? (kind === "preflight" ? "preflight" : kind === "pull_request" ? "final_delivery" : kind === "merge" ? "merge" : "implementation"), this.now().toISOString(), audit?.activityId);
     // A session launch waits for an addition under way, so it gets the workspace as it ends.
     await this.additionChain;
     // Only the next launch reads the phase's last record, reusing it when it has no run (run restart "A session record with no run").
@@ -5500,7 +5807,7 @@ export class Engine {
       catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
     } else await this.stopLiveProcess(session);
     if (this.stopping) return;
-    const reconciled = await this.readPlan();
+    const reconciled: PlanRead = phaseKey === MERGE_KEY ? { ok: true } as PlanRead : await this.readPlan();
     if (!reconciled.ok) {
       this.checking = false;
       if (!this.record.phases[phaseKey]?.stop && !this.record.phases[phaseKey]?.wait) this.recordStop(phaseKey, phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", [planCheck(reconciled)]);
@@ -5545,7 +5852,7 @@ export class Engine {
       ...(refusal !== undefined && endedOnItsOwn ? { usageLimit: label === UNKNOWN_LIMIT_LABEL || label === undefined ? "" : limitSentence(label) } : {}),
       ...(endedOnItsOwn ? { endedOnItsOwn: true } : recorded ? { cause: run.interruptedBy! } : {}),
       time: time.replace(/\.\d+Z$/, "Z"),
-      ...(auditTask ? { auditTask } : this.preflightActivity(phaseKey) ? { preflightTask: { prdFile: this.pathFrom(cwd, this.prdFile()), skillPath: this.preflightActivity(phaseKey)!.skill?.path ?? PREFLIGHT_SKILL } } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
+      ...(phaseKey === MERGE_KEY ? { mergeTask: { pullRequests: this.mergePullRequests(this.record.afterDelivery?.merge?.pullRequests) } } : auditTask ? { auditTask } : this.preflightActivity(phaseKey) ? { preflightTask: { prdFile: this.pathFrom(cwd, this.prdFile()), skillPath: this.preflightActivity(phaseKey)!.skill?.path ?? PREFLIGHT_SKILL } } : phaseKey === PR_PHASE_KEY ? {} : { phaseDoc: this.pathFrom(cwd, `${this.paths.prdDirectoryFromRoot}/${this.fileOf(phaseKey) ?? ""}`) }),
       multiRepository: phaseKey === PR_PHASE_KEY ? this.pullRequestRepositories().length > 1 : multi,
       ...(request?.note === undefined ? {} : { note: request.note }),
       ...(block === undefined ? {} : { deliveryBlock: block }),
@@ -6046,6 +6353,7 @@ export class Engine {
         return this.advancePreparation();
       }
       const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && (session.agentId === "codex" ? this.transcriptMissing(session) : !runReportedInit(this.options.stateDirectory, session, runIndex));
+      if (phaseKey === MERGE_KEY) return await this.judgeMerge(notResumable);
       if (phaseKey === PR_PHASE_KEY) {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
         if (this.stopping) return { kind: "stopping" };
@@ -6089,6 +6397,14 @@ export class Engine {
       if (safety) return this.stopInterrupted(phaseKey, "done_check", [safety]);
       if (session && !this.transcriptMissing(session) && this.canResumeCodex(phaseKey)) return { kind: "resume" };
       return this.judgePreflight(phaseKey);
+    }
+    if (phaseKey === MERGE_KEY) {
+      // An interrupted merge session reads GitHub first; only a merge still to do resumes it.
+      await this.readDeliveryNow(false, undefined, true);
+      if (this.stopping) return { kind: "stopping" };
+      const result = this.mergeResult();
+      if (result.done) { this.closeMerge(); return { kind: "complete" }; }
+      return !result.unreadable && !this.codexSafetyProblems(phaseKey).length && this.canResumeCodex(phaseKey) ? { kind: "resume" } : this.stopInterrupted(MERGE_KEY, "merge_check", result.checks);
     }
     if (phaseKey === PR_PHASE_KEY) {
       const check = await this.pullRequestCheck(PR_PHASE_KEY);
@@ -6180,6 +6496,12 @@ export class Engine {
       return "still_stopped";
     }
     const stop = facts.stop!;
+    if (phaseKey === MERGE_KEY && stop.kind !== "merge_check" && stop.kind !== "not_resumable") {
+      // A merge stop that never reached the session (a launch check) reads GitHub first too (AC-MERGE-06).
+      await this.readDeliveryNow(false, undefined, true);
+      if (this.stopping) return "still_stopped";
+      if (this.mergeResult().done) { this.closeMerge(); return "complete"; }
+    }
     // A loop stop saved by Kiln 1.3.0: Kiln no longer stops at a limit, so its recheck always clears it and routing goes on (technical design, "Upgrade").
     if (stop.kind === "loop_limit") return this.clearStop(phaseKey);
     const latest = this.latestSession(phaseKey);
@@ -6278,6 +6600,19 @@ export class Engine {
       if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks, false); return "still_stopped"; }
       return this.clearStop(phaseKey);
     }
+    if (phaseKey === MERGE_KEY) {
+      // Check again, Resume and Send and resume read GitHub first (AC-MERGE-06): done closes the
+      // activity without resuming; a pull request that could not be read decides nothing.
+      await this.readDeliveryNow(false, undefined, true);
+      if (this.stopping) return "still_stopped";
+      const result = this.mergeResult();
+      if (result.done) { this.closeMerge(); return "complete"; }
+      this.updateStop(MERGE_KEY, result.checks, true);
+      if (result.unreadable) throw new CompletionCheckUnavailable(result.unreadable);
+      // No session ever started: the stop clears, and the loop launches the merge session it never had.
+      if (!this.latestSession(MERGE_KEY)?.runs.some(run => run.pid !== undefined)) return this.clearStop(MERGE_KEY);
+      return "still_stopped";
+    }
     if (phaseKey === PR_PHASE_KEY) {
       // A holding item no waiver covers stops the run before anything completes it, such as an item with no kind on a stop saved by Kiln 1.3.0 (AC-ITEM-01, "Upgrade").
       if (routeAudits && await this.holdStops()) return "still_stopped";
@@ -6322,6 +6657,7 @@ export class Engine {
     // A preflight has no completion rows (Reading the Result).
     if (isPreflightKey(phaseKey)) return [];
     if (phaseKey === PR_PHASE_KEY) return (await this.pullRequestCheck(PR_PHASE_KEY)).checks;
+    if (phaseKey === MERGE_KEY) return this.mergeResult().checks;
     const outcome = await this.doneCheck(phaseKey);
     if (outcome === "stopping") throw new CompletionCheckUnavailable("The completion check was interrupted.");
     if (outcome.unavailable) { this.unfinishedRecheck(phaseKey); throw new CompletionCheckUnavailable(outcome.unavailable); }
@@ -8131,7 +8467,7 @@ export class Engine {
 
   /** The leaf a launched leaf's session is shown as: its first leaf after a split, else itself. */
   judgedId(launchedId: string): string {
-    if (launchedId === PR_PHASE_KEY) return launchedId;
+    if (launchedId === PR_PHASE_KEY || launchedId === MERGE_KEY) return launchedId;
     return judgedPhase(this.record.plan ?? [], launchedId)?.id ?? launchedId;
   }
 

@@ -875,7 +875,10 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
     ? [{ allowed: true, parts: [{ text: "In each repository, commit and push to " }, { text: branch, tone: "code" }] }, { allowed: true, parts: [{ text: "In each repository, open one pull request into its base branch once every phase closes" }] }]
     : [{ allowed: true, parts: [{ text: "Commit and push to " }, { text: branch, tone: "code" }] }, { allowed: true, parts: [{ text: "Open one pull request into " }, { text: "develop", tone: "code" }, { text: " once every phase closes" }] }];
   if (!fromBase && which !== "occupied") lets.push({ allowed: true, parts: [{ text: "Clear git’s record of the missing folder " }, { text: multi ? `${WT}/harbor-portal` : SAVED, tone: "code" }] });
-  lets.push({ allowed: false, parts: [{ text: "Never merge, deploy, or touch other branches" }] });
+  // After delivery: the merge and, in the PRD's repository, the plan push (Kiln After Delivery AC-MERGE-08).
+  lets.push({ allowed: true, parts: [{ text: "Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page" }] });
+  lets.push({ allowed: true, parts: [{ text: `${multi ? "In the PRD’s repository, push" : "Push"} this PRD’s documents to develop only when you press Continue on the finished page` }] });
+  lets.push({ allowed: false, parts: [{ text: "Never deploy or touch other branches" }] });
   const folder = fromBase ? (multi ? WT2 : NEWDIR) : which === "occupied" ? NEWDIR : multi ? WT : SAVED;
   return {
     suggested: pick, selected: pick, multi,

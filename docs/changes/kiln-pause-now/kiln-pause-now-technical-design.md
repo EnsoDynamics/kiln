@@ -59,6 +59,8 @@ The take-over receipt stays `takeover_requested`; the cancel receipt records `ta
 
 ## The Pause Now State
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "No live controls" (Pause now is withheld while the merge session runs, with the reason the page prints).
+
 Replaces in part: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (the pause panel's heading, choices and narrow-screen order, and the requested and completed takeover wording, for a hold that is not delivery recovery).
 
 The engine projects one state for the activity under a takeover hold that is not delivery recovery:

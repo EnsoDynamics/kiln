@@ -30,7 +30,9 @@ import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
-import { deliveryWaiting } from "./delivery-reading.js";
+import { deliveryWaiting, mergeOffer, openMerge, type MergeOffer } from "./delivery-reading.js";
+import { closedLine, mergeNote, unreadableLine } from "./merge-wording.js";
+import { MERGE_KEY } from "../state/activity-keys.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
 import { closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
@@ -162,7 +164,7 @@ export interface StartView {
 
 export interface PhaseView {
   activityId?: string;
-  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight";
+  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight" | "merge";
   /** A Preflight row (build preflight "Interfaces"). */
   preflight?: {
     /** Absent when no report has been read: running, or marked complete before a session reported. */
@@ -268,6 +270,24 @@ export interface RepositoryRow {
   fieldErrors: { baseBranch?: string };
 }
 
+/** A finished run's delivery as GitHub last showed it, the merge offer and the merge activity (Kiln After Delivery "Interfaces"). */
+export interface AfterDeliveryView {
+  pullRequests: Omit<import("./delivery-reading.js").PullRequestReading, "headSha">[];
+  readError?: { at: string; problem: string };
+  waiting: boolean;
+  /** What the pull request card offers (AC-MERGE-07): the note beside Merge with {agent}, or the line saying why it is not offered. */
+  offer: { kind: MergeOffer["kind"]; available: boolean; reason?: string; note?: string; line?: string };
+  merge?: MergeView;
+}
+export interface MergeView {
+  state: "running" | "stopped" | "waiting" | "interrupted" | "done";
+  sessionId?: string; startedAt?: string; doneAt?: string; summary?: string;
+  /** The pull requests the press opened it for. */
+  pullRequests: { repository: string; number: number }[];
+  /** Where the session runs, as shown. */
+  folder: string;
+}
+
 export interface Snapshot {
   /** Set exactly when `feature.state` is `folder_missing` (AC-GONE-02). */
   folderMissing?: FolderMissingSnapshot;
@@ -275,7 +295,7 @@ export interface Snapshot {
   compatibility?: string[];
   liveControl?: import("../live/target.js").LiveView;
   /** A finished run's delivery as GitHub last showed it (Kiln After Delivery "Interfaces"). */
-  afterDelivery?: { pullRequests: Omit<import("./delivery-reading.js").PullRequestReading, "headSha">[]; readError?: { at: string; problem: string }; waiting: boolean };
+  afterDelivery?: AfterDeliveryView;
   continuation?: { preparation?: ReturnType<Engine["preparationStatus"]>; acceptance?: ReturnType<Engine["continuationAcceptance"]>; executions?: Omit<import("./continuation-state.js").ExecutionSummary, "archiveId">[]; check?: import("./completed-plan-discovery.js").CompletedPlanCheck; handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
   controlToken?: string;
   unsentReplies?: { id: string; text: string }[];
@@ -525,7 +545,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ? "not_started"
     : folderMissing
       ? "folder_missing"
-      : engine.currentlyComplete
+      : engine.currentlyComplete || engine.finished && openMerge(record) && stoppedKey === undefined && waitingKey === undefined && !record.billing?.hold
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
@@ -555,7 +575,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       // An in-progress plan's "Plan needs reconciliation" notice is never rendered on a finished run (Kiln After Delivery AC-BACK-01).
       ...(record.planReconciliation?.check?.status === "failed" && !record.completedAt ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
-    ...(record.completedAt && record.afterDelivery ? { afterDelivery: { pullRequests: record.afterDelivery.pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }), ...(record.afterDelivery.readError ? { readError: record.afterDelivery.readError } : {}), waiting: deliveryWaiting(record) === true } } : {}),
+    ...(record.completedAt && record.afterDelivery ? { afterDelivery: afterDeliveryView(engine) } : {}),
     activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...preflightPlanned(engine, state, documents),
     auditLoops: auditLoopsView(engine),
@@ -789,6 +809,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const auditTask = engine.auditRecoveryTask(phaseKey, folder);
   const preflight = engine.preflightActivity(phaseKey);
   const originalPrompts = (ran: boolean) =>
+      phaseKey === MERGE_KEY ? engine.mergePrompt(folder) :
       preflight ? engine.preflightPrompt(preflight, folder) :
       auditTask ? auditRecoveryPrompt(auditTask, engine.deliveryAuthority()) :
       isPr
@@ -1191,7 +1212,7 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     const firstSession = engine.sessionRecord(PR_PHASE_KEY, facts?.sessionIds[0] ?? "");
     const startedAt = firstSession?.runs[0]?.startedAt;
     const row: PhaseView = { id: PR_PHASE_KEY, title: deliveryEnabled(record) ? "Finalize delivery" : PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
-    if (engine.currentlyComplete) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
+    if (engine.finished) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
     else if (facts?.stop) row.state = "needs_you";
     else if (facts?.wait) row.state = "waiting";
     else if (state === "implementing" && engine.current?.phaseKey === PR_PHASE_KEY) row.state = "implementing";
@@ -1203,7 +1224,74 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     Object.assign(row, waivedFacts(engine, PR_PHASE_KEY, row.state === "done"));
     rows.push(row);
   }
+  const merge = mergeRow(engine, includeTiming);
+  if (merge) rows.push(merge);
   return rows;
+}
+
+/**
+ * The Merge row, after the final pull request row (Kiln After Delivery AC-MERGE-05): never counted
+ * among the phases done. Its line names the agent, the model and what it merges.
+ */
+function mergeRow(engine: Engine, includeTiming: boolean): PhaseView | undefined {
+  const { record } = engine;
+  const merge = record.afterDelivery?.merge;
+  if (!merge) return undefined;
+  const facts = record.phases[MERGE_KEY];
+  const session = engine.latestSession(MERGE_KEY);
+  const view = mergeState(engine)!;
+  const pulls = merge.pullRequests.map(pull => record.pullRequests?.find(one => one.repository === pull.repository && one.number === pull.number)).filter(pull => pull !== undefined);
+  const what = pulls.map(pull => `${pulls.length > 1 ? `${pull.repository} ` : ""}#${pull.number}`).join(" and ");
+  const bases = [...new Set(pulls.map(pull => pull.base))];
+  const line = `${view.state === "done" ? "merged" : "merging"} ${what}${bases.length === 1 ? ` into ${bases[0]}` : ""}`;
+  const row: PhaseView = { id: MERGE_KEY, kind: "merge", title: "Merge", file: session ? `${AGENT_NAMES[session.agentId ?? "claude_code"]} · ${session.modelDisplayName} · ${line}` : line, state: view.state === "done" ? "done" : view.state === "stopped" ? "needs_you" : view.state === "waiting" ? "waiting" : view.state === "interrupted" ? "next" : "implementing", finishedByPerson: false, ...optional("doneAt", facts?.doneAt) };
+  const first = facts?.sessionIds[0] ? engine.sessionRecord(MERGE_KEY, facts.sessionIds[0]) : undefined;
+  const from = first?.runs[0]?.startedAt;
+  if (session) {
+    row.outputLineCount = engine.outputLines(session).length;
+    if (from) {
+      row.sessionStartedAt = from;
+      if (includeTiming) row.timing = timingFor(engine, [MERGE_KEY], from, facts?.doneAt)!;
+      row.details = { ...sessionIdentity(session), from, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.workingDirectoryOf(session)), branch: record.settings.featureBranch, sessionId: session.sessionId };
+    }
+  }
+  return row;
+}
+
+/** The merge activity's state (Kiln After Delivery "Interfaces"): done, stopped (a stop or billing hold), waiting, interrupted (held at the restart review) or running. */
+function mergeState(engine: Engine): MergeView | undefined {
+  const { record } = engine;
+  const merge = record.afterDelivery?.merge;
+  if (!merge) return undefined;
+  const facts = record.phases[MERGE_KEY];
+  const session = engine.latestSession(MERGE_KEY);
+  const state: MergeView["state"] = merge.closedAt ? "done" : facts?.stop || record.billing?.hold?.phaseKey === MERGE_KEY ? "stopped" : engine.restartReview?.activityKey === MERGE_KEY ? "interrupted" : facts?.wait ? "waiting" : "running";
+  return { state, ...optional("sessionId", session?.sessionId), ...optional("startedAt", session?.runs[0]?.startedAt), ...optional("doneAt", merge.doneAt), ...optional("summary", merge.summary), pullRequests: merge.pullRequests, folder: displayPath(session ? engine.workingDirectoryOf(session) : engine.sessionFolder) };
+}
+
+/** The pull request card's facts (AC-MERGE-01, AC-MERGE-04, AC-MERGE-07, AC-WAIT-02). */
+export function afterDeliveryView(engine: Engine): AfterDeliveryView {
+  const { record } = engine;
+  const state = record.afterDelivery!;
+  const offer = mergeOffer(record);
+  const control = engine.mergeControl();
+  const multi = (record.pullRequests ?? []).length > 1;
+  const agent = AGENT_NAMES[record.settings.agentId];
+  const base = (row: { repository: string; number: number }) => record.pullRequests?.find(pull => pull.repository === row.repository && pull.number === row.number)?.base ?? "";
+  const merge = mergeState(engine);
+  const offerView: AfterDeliveryView["offer"] = {
+    kind: offer.kind, available: control.available, ...optional("reason", control.available ? undefined : control.reason),
+    ...(offer.kind === "offered" && control.offered ? { note: mergeNote({ agent, multi, toMerge: offer.toMerge.map(row => ({ repository: row.repository, number: row.number, base: base(row), ordered: !!row.order })), merged: offer.merged }) } : {}),
+    // The closed line shows only while no merge activity exists (Display Contract).
+    ...(offer.kind === "closed" && !merge ? { line: closedLine({ multi, closed: offer.closed, open: offer.open }) } : offer.kind === "unreadable" && !merge ? { line: unreadableLine(offer.problem) } : {}),
+  };
+  return {
+    pullRequests: state.pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }),
+    ...(state.readError ? { readError: { at: state.readError.at, problem: state.readError.problem } } : {}),
+    waiting: deliveryWaiting(record) === true,
+    offer: offerView,
+    ...(merge ? { merge } : {}),
+  };
 }
 
 /**
@@ -1396,7 +1484,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
   let ledger: ReturnType<typeof personItems> | undefined;
   try { ledger = personItems(engine.stateDirectory, audits, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
   for (const activity of activityHistory(record, engine.stateDirectory)) {
-    if (activity.kind === "implementation" || activity.kind === "final_delivery") {
+    if (activity.kind === "implementation" || activity.kind === "final_delivery" || activity.kind === "merge") {
       const parent = phases.find(r => r.id === activity.key && r.state === "split");
       if (parent && !started.has(parent.id)) { rows.push(parent); started.add(parent.id); }
       const row = phases.find(r => r.id === engine.judgedId(activity.key));

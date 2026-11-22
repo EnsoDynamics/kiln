@@ -577,6 +577,19 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
         columns,
         colors,
       );
+    case "merge":
+      return formatPhaseLine(
+        event.at,
+        "M",
+        "Merge",
+        event.event === "merged"
+          ? { kind: "completed", summary: event.summary ?? "Merged" }
+          : event.event === "waiting"
+            ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
+            : { kind: event.event, ...where },
+        columns,
+        colors,
+      );
     case "message":
       return `${colors.amber("✗")} ${event.text}`;
   }

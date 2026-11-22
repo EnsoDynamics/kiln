@@ -462,7 +462,7 @@ const SCREENS: {
       `${SESSIONS_ADD} Agent Claude Code`,
       "Keep this computer awake while a session works or Kiln waits Stops idle sleep only.",
       `Kiln picks up where it left off afterwards. ${LIMIT_SETTING.label} ${LIMIT_SETTING.help}`,
-      "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Never merge, deploy, or touch other branches Start",
+      "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page Push this PRD’s documents to develop only when you press Continue on the finished page Never deploy or touch other branches Start",
     ],
   },
   {
@@ -478,7 +478,7 @@ const SCREENS: {
       "Used in every repository. Repositories Branch from, and PR into product PRD’s repository",
       `${SESSIONS_ADD} Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks. Agent Claude Code`,
       "Pushes After every phase Ends at One PR in each repository that changed, ready for review. Kiln won’t merge.",
-      "Starting lets Kiln In each repository, commit and push to feature/customer-returns In each repository, open one pull request into its base branch once every phase closes Never merge, deploy, or touch other branches Start",
+      "Starting lets Kiln In each repository, commit and push to feature/customer-returns In each repository, open one pull request into its base branch once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page In the PRD’s repository, push this PRD’s documents to main only when you press Continue on the finished page Never deploy or touch other branches Start",
     ],
   },
   {

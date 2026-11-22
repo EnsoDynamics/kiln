@@ -96,7 +96,7 @@ While GitHub has not yet worked out whether an open pull request merges cleanly 
 
 The reading also parses the merge order line from each description (§Prompts) into a position, where one is given. The note names that order when every description has the line. When none has it, the note says the session follows any order the descriptions state, which covers pull requests opened before this change, whose order is in prose.
 
-The reading is `gh pr view <number> --repo github.com/<owner>/<name> --json number,state,mergedAt,mergeCommit,headRefOid,baseRefName,mergeable,mergeStateStatus,body`, and for a merged pull request `gh api repos/<owner>/<name>/compare/<base>...<merge commit>`, whose `status` reads `behind` or `identical` exactly when the base contains the merge commit. A merged pull request whose `baseRefName` is not the recorded base is a failed read, never `merged`. `gh` runs from each repository's main checkout, never from a run worktree, which a person may remove once the work has merged. A repository whose main checkout is not found (§The Plan Check, step 2) is not read, and its read fails with that step's text. One reading runs at a time; an occasion that arrives while one is in flight waits for its result instead of starting another.
+The reading is `gh pr view <number> --repo github.com/<owner>/<name> --json number,state,mergedAt,mergeCommit,headRefOid,baseRefName,mergeable,mergeStateStatus,body`, and for a merged pull request `gh api repos/<owner>/<name>/compare/<base>...<merge commit>`, whose `status` reads `behind` or `identical` exactly when the base contains the merge commit. A merged pull request whose `baseRefName` is not the recorded base is a failed read, never `merged`. `gh` runs from each repository's main checkout, never from a run worktree, which a person may remove once the work has merged. A repository whose main checkout is not found (§The Plan Check, step 2) is not read, and its read fails with that step's text. One reading runs at a time; an occasion that arrives while one is in flight waits for its result instead of starting another. The merge activity's own occasions (the press, its session's end, and Check again, Resume or Send and resume at its stop) wait for a reading in flight and then take a fresh one, since a reading started before the session merged would show its pull requests still open.
 
 **Occasions.** `kiln run` on a finished run, before the terminal's line; opening or reloading the page, which is the view's one request when it mounts (`POST /api/continuation/check` without the press flag), while a reconnect of the event stream and a snapshot read take no reading; Check now, Check for new phases and `kiln check-for-new-phases`; the Merge press, before the activity opens; the end of a merge session; Check again, Resume or Send and resume at its stop; Resume or `kiln continue` at the restart review; and the resume after a usage-limit wait. There is no timer.
 
@@ -266,7 +266,10 @@ afterDelivery?:                    — on a finished run
                   mergedAt?, mergeCommit?, readAt }[]
   readError?: { at, problem }
   waiting: boolean
-  merge?:    { state: "running" | "stopped" | "waiting" | "interrupted" | "done", sessionId?, startedAt?, doneAt?, summary? }
+  offer:     { kind: "offered" | "all_merged" | "closed" | "unreadable" | "nothing", available, reason?,
+               note?, line? }  — AC-MERGE-07's row: the note beside the button, or the line saying why none is offered
+  merge?:    { state: "running" | "stopped" | "waiting" | "interrupted" | "done", sessionId?, startedAt?, doneAt?, summary?,
+               pullRequests: { repository, number }[], folder }
   planPush?: { key, state: "running" | "stopped" | "waiting" | "interrupted" | "accepting" | "done", sessionId?, proposalId }
                                    — the latest push
 continuation.check.result          — gains:
@@ -307,7 +310,7 @@ The record gains one object at schema 25, and the field `continuationBaselineId`
 ```
 afterDelivery?:
   pullRequests: { repository, number, state, headSha?, mergedAt?, mergeCommit?, conflicts?, order?, readAt }[]
-  readError?: { at, problem }
+  readError?: { at, problem, pullRequests?: { repository, number }[] }   — the pull requests the latest reading could not read
   checkedWhileClosedAt?: string
   merge?:    { operationId, requestedAt, via: "browser" | "command_line", pullRequests: { repository, number }[],
               pressHeads: { repository, sha }[], doneAt?, closedAt?, summary? }

@@ -26,7 +26,7 @@
   // and while the delivery waits to merge the check never changes the header.
   const planCheckLabel = $derived.by(() => {
     const check = snapshot.continuation?.check;
-    if (snapshot.feature.state !== "complete" || !check || snapshot.afterDelivery?.waiting || check.status === "awaiting_merge") return undefined;
+    if (snapshot.feature.state !== "complete" || !check || snapshot.afterDelivery?.waiting || check.status === "awaiting_merge" || snapshot.afterDelivery?.merge && snapshot.afterDelivery.merge.state !== "done") return undefined;
     if (check.status === "checking") return "Checking for new phases";
     if (check.status === "failed") return "Could not check for new phases";
     return check.result?.added.length ? "New phases found" : undefined;

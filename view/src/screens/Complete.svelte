@@ -9,7 +9,11 @@
   import { onMount } from "svelte";
   import CompletedPlanCheck from "../components/CompletedPlanCheck.svelte";
   import { awaitingMergeText, checkNowLead } from "../../../src/engine/awaiting-merge.js";
-  import { checkForNewPhases } from "../lib/api.js";
+  import { checkForNewPhases, merge as pressMerge } from "../lib/api.js";
+  import { phasePath, routedClick } from "../lib/router.svelte.js";
+  import { viewContext } from "../lib/view-context.js";
+  import { MERGE_LIVE_REASON } from "../../../src/engine/merge-wording.js";
+  import { clockTime } from "../lib/time.js";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import ForYou from "../components/ForYou.svelte";
   import ClosingAudits from "../components/ClosingAudits.svelte";
@@ -55,6 +59,24 @@
     catch (failure) { checkProblem = (failure as Error).message; }
     finally { checking = false; }
   }
+  // After delivery (Kiln After Delivery AC-MERGE-01, AC-MERGE-04, AC-MERGE-07): each pull request as GitHub last showed it, the offer and the merge activity.
+  const after = $derived(snapshot.afterDelivery);
+  const mergeActivity = $derived(after?.merge);
+  const mergeOpen = $derived(!!mergeActivity && mergeActivity.state !== "done");
+  const allMerged = $derived(!!after && pullRequests.length > 0 && pullRequests.every(pull => readingOf(pull)?.state === "merged"));
+  const readingOf = (pull: { repository: string; number: number }) => after?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number);
+  const ordinal = (n: number) => ["first", "second", "third", "fourth", "fifth"][n - 1] ?? `${n}th`;
+  const mergeRow = $derived((snapshot.activities ?? snapshot.phases).find(row => row.kind === "merge"));
+  const mergeLink = $derived(config ? phasePath(config.base, "merge") : undefined);
+  const { router } = viewContext();
+  let merging = $state(false);
+  let mergeProblem = $state<string>();
+  async function pressMergeButton() {
+    if (!config || !connected || merging) return;
+    merging = true; mergeProblem = undefined;
+    try { const answer = await pressMerge(config); if (!answer.ok) mergeProblem = answer.reason; }
+    finally { merging = false; }
+  }
   // The page's one request when it loads, which reads GitHub first; an event-stream reconnect makes none.
   onMount(() => { void checkNow(false); });
   const tagFor = (repository: string) => {
@@ -64,8 +86,40 @@
   };
 </script>
 
+{#snippet pullFacts(pullRequest: PullRequestFacts)}
+  {@const reading = readingOf(pullRequest)}
+  {#if reading?.state === "merged"}<span>Merged into {pullRequest.base}{reading.mergedAt ? ` at ${clockTime(reading.mergedAt, new Date(now), { afterWord: true })}` : ""}{reading.mergeCommit ? ` · merge ${reading.mergeCommit.slice(0, 7)}` : ""}</span>
+  {:else if reading?.state === "closed"}<span class="warn">Closed without merging</span>
+  {:else if reading?.conflicts}<span class="warn">Conflicts with {pullRequest.base}</span>{/if}
+{/snippet}
+
+{#snippet mergePart(url?: string)}
+  {#if mergeOpen && mergeActivity}
+    <div class="merge-session">
+      <p class="merge-line"><span class="eyebrow">Merge session</span> {snapshot.settings.agent}{mergeRow?.details?.model ? ` · ${mergeRow.details.model}` : ""}</p>
+      {#if mergeActivity.startedAt}<p class="note">Started {clockTime(mergeActivity.startedAt, new Date(now), { afterWord: true })} in <span class="mono">{mergeActivity.folder}</span></p>{/if}
+      <div class="open">{#if mergeLink && mergeRow?.details}<a class="button solid" href={mergeLink} onclick={(event) => routedClick(event, router, mergeLink)}>Watch the session</a>{/if}</div>
+      <p class="note">{MERGE_LIVE_REASON} It waits for the required checks before each merge. If it stops before merging, Kiln shows Needs you with its last message. Kiln shows Merged once GitHub shows {pullRequests.length > 1 ? "every pull request" : `#${pullRequests[0]?.number}`} merged.</p>
+    </div>
+  {:else if allMerged}
+    {#if mergeActivity?.summary}
+      <div class="merge-summary"><h3 class="eyebrow">The merge session’s summary</h3><p class="summary-text">{mergeActivity.summary}</p></div>
+    {/if}
+  {:else if after?.offer.note}
+    <div class="open">
+      <button class="button solid" type="button" disabled={!connected || !config || merging || !after.offer.available} title={after.offer.available ? undefined : after.offer.reason} onclick={pressMergeButton}>{merging ? "Starting…" : `Merge with ${snapshot.settings.agent}`}</button>
+      {#if url}<a class="button" href={url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>{/if}
+    </div>
+    <p class="note">{after.offer.note}</p>
+    {#if !after.offer.available && after.offer.reason}<p class="note">{after.offer.reason}</p>{/if}
+    {#if mergeProblem}<p class="history-gap" role="alert">{mergeProblem}</p>{/if}
+  {:else if after?.offer.line}
+    <p class="history-gap">{after.offer.line}</p>
+  {/if}
+{/snippet}
+
 {#snippet waitingLine()}
-  {#if awaiting}
+  {#if awaiting && !mergeOpen}
     <p class="note new-phases">{awaitingMergeText(awaiting)}{checkNowLead(awaiting) ? ` ${checkNowLead(awaiting)}` : ""} <button class="link" type="button" disabled={!connected || !config || checking || check?.status === "checking"} onclick={() => checkNow(true)}>{checking || check?.status === "checking" ? "Checking…" : "Check now"}</button></p>
     {#if checkProblem}<p class="history-gap" role="alert">{checkProblem}</p>{/if}
   {/if}
@@ -96,27 +150,32 @@
         {#each pullRequests as pullRequest (pullRequest.repository)}
           {@const tag = tagFor(pullRequest.repository)}
           <li>
-            <div class="repo"><span class="mono repo-name">{pullRequest.repository}</span><span class="repo-sub"><span class="mono repo-number">#{pullRequest.number}</span>{#if tag}<span class="tag">{tag}</span>{/if}</span></div>
+            <div class="repo"><span class="mono repo-name">{pullRequest.repository}</span><span class="repo-sub"><span class="mono repo-number">#{pullRequest.number}</span>{#if readingOf(pullRequest)?.order}<span class="tag">merges {ordinal(readingOf(pullRequest)!.order!.position)}</span>{/if}{#if tag}<span class="tag">{tag}</span>{/if}</span></div>
             <div class="what">
               <span class="pr-title">{pullRequest.title}</span>
-              <span class="pr-line"><span class="mono pr-branches">{pullRequest.head} → {pullRequest.base}</span><span class="sep" aria-hidden="true">·</span><span>{commitCount(pullRequest)}</span><span class="sep" aria-hidden="true">·</span><span>+{number(pullRequest.additions)} −{number(pullRequest.deletions)}</span></span>
+              <span class="pr-line"><span class="mono pr-branches">{pullRequest.head} → {pullRequest.base}</span><span class="sep" aria-hidden="true">·</span><span>{commitCount(pullRequest)}</span><span class="sep" aria-hidden="true">·</span><span>+{number(pullRequest.additions)} −{number(pullRequest.deletions)}</span>{#if readingOf(pullRequest)?.state === "merged" || readingOf(pullRequest)?.state === "closed" || readingOf(pullRequest)?.conflicts}<span class="sep" aria-hidden="true">·</span>{@render pullFacts(pullRequest)}{/if}</span>
             </div>
             <a class="button small open-one" href={pullRequest.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={13} strokeWidth={1.8} />Open on GitHub</a>
           </li>
         {/each}
       </ul>
-      <p class="note">Human review is next. The pull requests say which to merge first. Kiln stops at “PR ready” and doesn’t merge.</p>
+      {#if after}{@render mergePart()}{:else}<p class="note">Human review is next. The pull requests say which to merge first. Kiln stops at “PR ready” and doesn’t merge.</p>{/if}
       {@render waitingLine()}
     </section>
   {:else if pr}
     <section class="pr">
       <div class="which"><Icon name="pull-request" size={20} strokeWidth={1.6} /><span class="mono number">Pull request #{pr.number}</span><span class="dot" aria-hidden="true">·</span><span class="mono branches">{pr.head} → {pr.base}</span></div>
       <h2>{pr.title}</h2>
-      <div class="size"><span>{commitCount(pr)}</span><span class="dot" aria-hidden="true">·</span><span>+{number(pr.additions)} −{number(pr.deletions)}</span></div>
-      <div class="open">
-        <a class="button solid" href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>
-        <span class="note">{snapshot.developmentDelivery?.authorization.enabled ? "This remaining work awaits human review. Earlier development deliveries are recorded above." : "Human review is next. Kiln stops at “PR ready” and doesn’t merge."}</span>
-      </div>
+      <div class="size"><span>{commitCount(pr)}</span><span class="dot" aria-hidden="true">·</span><span>+{number(pr.additions)} −{number(pr.deletions)}</span>{#if readingOf(pr)?.state === "merged" || readingOf(pr)?.state === "closed" || readingOf(pr)?.conflicts}<span class="dot" aria-hidden="true">·</span>{@render pullFacts(pr)}{/if}</div>
+      {#if after}
+        {@render mergePart(pr.url)}
+        {#if !after.offer.note || mergeOpen}<div class="open"><a class="button" class:solid={!mergeOpen} href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a></div>{/if}
+      {:else}
+        <div class="open">
+          <a class="button solid" href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>
+          <span class="note">{snapshot.developmentDelivery?.authorization.enabled ? "This remaining work awaits human review. Earlier development deliveries are recorded above." : "Human review is next. Kiln stops at “PR ready” and doesn’t merge."}</span>
+        </div>
+      {/if}
       {@render waitingLine()}
     </section>
   {/if}
@@ -198,6 +257,11 @@
 
 <style>
   .history-repo .pr-title { overflow-wrap: anywhere; }
+  .warn { color: var(--amber); }
+  .merge-session, .merge-summary { display: flex; flex-direction: column; gap: 8px; }
+  .merge-line { margin: 0; font-size: 14px; color: var(--muted); }
+  .summary-text { margin: 0; font-size: 14.5px; color: var(--text); white-space: pre-wrap; }
+  h3.eyebrow { margin: 0; }
   .link { background: none; border: 0; padding: 0; font: inherit; color: var(--green); text-decoration: underline; cursor: pointer; }
   .link:disabled { color: var(--dim); cursor: default; }
   .history-repo h3 { margin: 0; }

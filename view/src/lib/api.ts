@@ -196,3 +196,4 @@ export async function newerVersion(config: PageConfig): Promise<string | undefin
     return undefined;
   }
 }
+export const merge = (config: PageConfig) => send(config, "POST", "/api/merge");

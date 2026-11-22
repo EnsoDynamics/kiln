@@ -21,11 +21,66 @@ export interface PullRequestReading {
   order?: { position: number; of: number };
   readAt: string;
 }
+/**
+ * The merge activity (Kiln After Delivery, "After-Delivery Activities"): opened by the one accepted
+ * Merge with {agent} press of this execution, open until `closedAt`. Closed only when a reading
+ * shows every pull request merged, so `doneAt` and `closedAt` are written in the same save.
+ */
+export interface MergeActivity {
+  /** The receipt of the press that opened it. */
+  operationId: string;
+  requestedAt: string;
+  via: "browser" | "command_line";
+  /** The pull requests that read `open` at the press, in the order the session merges them. */
+  pullRequests: { repository: string; number: number }[];
+  /** Each of their worktrees' heads at the press. */
+  pressHeads: { repository: string; sha: string }[];
+  doneAt?: string;
+  closedAt?: string;
+  /** The merge session's closing message, word for word, when its own end closed the activity (AC-MERGE-04). */
+  summary?: string;
+}
 export interface AfterDeliveryState {
   pullRequests: PullRequestReading[];
-  readError?: { at: string; problem: string };
+  /** The latest reading's failure, with each pull request it could not read. */
+  readError?: { at: string; problem: string; pullRequests?: { repository: string; number: number }[] };
   /** A person's Check now or `kiln check-for-new-phases` read the PRD repository's pull request closed. */
   checkedWhileClosedAt?: string;
+  merge?: MergeActivity;
+}
+
+/** The merge activity while it is open (Kiln After Delivery, "While open"). */
+export function openMerge(record: Pick<PrdRecord, "completedAt" | "afterDelivery">): MergeActivity | undefined {
+  const merge = record.afterDelivery?.merge;
+  return record.completedAt && merge && !merge.closedAt ? merge : undefined;
+}
+
+/** What the pull request card offers (AC-MERGE-07), from the saved reading alone, so the page and `kiln status` agree. */
+export type MergeOffer =
+  | { kind: "nothing" }
+  | { kind: "offered"; toMerge: PullRequestReading[]; merged: PullRequestReading[] }
+  | { kind: "all_merged" }
+  | { kind: "closed"; closed: PullRequestReading[]; open: PullRequestReading[] }
+  | { kind: "unreadable"; problem: string };
+
+export function mergeOffer(record: Pick<PrdRecord, "pullRequests" | "afterDelivery">): MergeOffer {
+  const pulls = record.pullRequests ?? [];
+  if (!pulls.length) return { kind: "nothing" };
+  const state = record.afterDelivery;
+  const readings = pulls.map(pull => state?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number));
+  const failed = (pull: { repository: string; number: number }) => !!state?.readError?.pullRequests?.some(row => row.repository === pull.repository && row.number === pull.number);
+  const closed = readings.filter((row): row is PullRequestReading => row?.state === "closed" && !failed(row));
+  if (closed.length) return { kind: "closed", closed, open: readings.filter((row): row is PullRequestReading => row?.state === "open") };
+  if (readings.some((row, index) => !row || row.state !== "merged" && failed(pulls[index]!))) return { kind: "unreadable", problem: state?.readError?.problem ?? "Kiln has not read the pull requests from GitHub yet." };
+  const merged = readings.filter((row): row is PullRequestReading => row!.state === "merged");
+  if (merged.length === readings.length) return { kind: "all_merged" };
+  return { kind: "offered", toMerge: orderedForMerge(readings.filter((row): row is PullRequestReading => row!.state === "open"), pulls), merged };
+}
+
+/** Stated positions first, then the recorded order (Kiln After Delivery, "The Merge Session"). */
+export function orderedForMerge<T extends { repository: string; number: number; order?: { position: number } }>(rows: T[], recorded: { repository: string; number: number }[]): T[] {
+  const place = (row: T) => recorded.findIndex(pull => pull.repository === row.repository && pull.number === row.number);
+  return [...rows].sort((a, b) => (a.order?.position ?? Number.MAX_SAFE_INTEGER) - (b.order?.position ?? Number.MAX_SAFE_INTEGER) || place(a) - place(b));
 }
 
 /** The pull request in the PRD's repository, when the run opened one there. */
@@ -79,7 +134,7 @@ const ORDER = /^\s*Merge order:\s*(\d+)\s+of\s+(\d+)\s*$/im;
 export async function readDelivery(input: ReadingInput): Promise<{ state: AfterDeliveryState; failed: { repository: string; number: number }[] }> {
   const { record } = input;
   const previous = record.afterDelivery;
-  const next: AfterDeliveryState = { pullRequests: [...(previous?.pullRequests ?? [])], ...(previous?.checkedWhileClosedAt ? { checkedWhileClosedAt: previous.checkedWhileClosedAt } : {}) };
+  const next: AfterDeliveryState = { pullRequests: [...(previous?.pullRequests ?? [])], ...(previous?.checkedWhileClosedAt ? { checkedWhileClosedAt: previous.checkedWhileClosedAt } : {}), ...(previous?.merge ? { merge: previous.merge } : {}) };
   const problems: string[] = [];
   const fresh = new Set<PullRequestReading>();
   const failed: { repository: string; number: number }[] = [];
@@ -97,7 +152,7 @@ export async function readDelivery(input: ReadingInput): Promise<{ state: AfterD
   // Recorded only for a person's press; it stops counting once the pull request reads open again.
   if (prdReading?.state === "closed" && input.press && fresh.has(prdReading)) next.checkedWhileClosedAt = prdReading.readAt;
   if (prdReading?.state === "open") delete next.checkedWhileClosedAt;
-  if (problems.length) next.readError = { at: input.now(), problem: problems.join(" ") };
+  if (problems.length) next.readError = { at: input.now(), problem: problems.join(" "), pullRequests: failed };
   return { state: next, failed };
 }
 

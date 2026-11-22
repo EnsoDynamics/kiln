@@ -20,7 +20,7 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 import { assertPreflightState } from "../engine/preflight.js";
-import { preflightKey } from "./activity-keys.js";
+import { MERGE_KEY, preflightKey } from "./activity-keys.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
 export const SCHEMA_VERSION = 25;
@@ -73,7 +73,8 @@ export function assertAgent(agent: unknown): asserts agent is AgentId {
 }
 
 /** `preflight`: a preflight that reported items stops on its key (build preflight "The Preflight Stop"). */
-export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight";
+/** `merge_check`: a merge session ended with a pull request GitHub does not show merged (Kiln After Delivery AC-MERGE-06). */
+export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight" | "merge_check";
 
 export interface CheckResult {
   name: string;
@@ -534,7 +535,7 @@ export interface SessionRecord {
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
-  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight";
+  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight" | "merge";
   createdAt: string;
   /** The chosen alias, as passed to --model. */
   model: string;
@@ -822,5 +823,6 @@ export function sessionStorageKey(record: Pick<SessionRecord, "kind" | "phaseId"
     if (!record.activityId || !/^[a-zA-Z0-9-]+$/.test(record.activityId)) throw new Error("Preflight session needs a safe activity identity.");
     return preflightKey(record.activityId);
   }
+  if (record.kind === "merge") return MERGE_KEY;
   return record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId;
 }

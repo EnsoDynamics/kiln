@@ -617,6 +617,24 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     }
   });
 
+  // Merge with {agent} (Kiln After Delivery AC-MERGE-02): the `merge` journal action, admitted only
+  // against the page's own status token, so a press made on a stale reading is refused.
+  app.post("/api/merge", async (c) => {
+    const status = c.req.header("X-Kiln-Status"); const id = c.req.header("X-Kiln-Command-Id");
+    if (!status || !id) return c.json({ ok: false, code: "invalid_request", reason: "Merge needs the page's status token and command id." }, 400);
+    try {
+      const answer = engine.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action: "merge", inputs: { via: "browser" } }, "caller", true);
+      if (!answer.ok) { const refusal = answer.errors[0]!; return c.json({ ok: false, code: refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409); }
+      await engine.commands.settled();
+      const op = engine.commands.lookup(id).operation as Receipt;
+      if (op.state !== "completed") return c.json({ ok: false, code: op.outcome ?? "operation_indeterminate", reason: op.reason }, op.state === "indeterminate" ? 500 : 409);
+      return c.json({ ok: true, outcome: op.outcome, controlToken: engine.controlView().token });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
+  });
+
   // Mark complete (waivers "Local HTTP", AC-WAIVE-03 to 06): the one `waive-and-advance` journal
   // action, admitted only against the page's own status token and check run, never a substituted one.
   app.post("/api/mark-complete", async (c) => {

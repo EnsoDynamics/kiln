@@ -22,7 +22,7 @@
   const opened = $derived(openedLabel(snapshot));
   // The Preflight row (build preflight AC-PREFLIGHT-08): planned before it is allocated, then an activity row.
   const rows = $derived(withPlannedPreflight(snapshot.activities ?? snapshot.phases, snapshot));
-  const circleId = (row: (typeof rows)[number]) => row.kind === "delivery_audit" ? "DA" : row.kind === "test_audit" ? "TA" : row.kind === "preflight" ? "PF" : row.id;
+  const circleId = (row: (typeof rows)[number]) => row.kind === "delivery_audit" ? "DA" : row.kind === "test_audit" ? "TA" : row.kind === "preflight" ? "PF" : row.kind === "merge" ? "M" : row.id;
   const { config, router } = viewContext();
 
   const LOOKS: Record<RowState, { circle: CircleTone; pill: PillTone; icon?: IconName }> = {

@@ -18,7 +18,7 @@ Exit Kiln, including its availability while a push activity is accepting (Phase 
 ## Phase-specific notes
 - While a push activity is `accepting`, the run is not currently complete, so the check and acceptance guards (`engine.ts`, near lines 3310 and 3531 before the develop merge) must let the automatic re-check and acceptance through.
 - The automatic acceptance must supply a current status token to `submitInternal`.
-- The real push session with each agent runs against the temporary GitHub test repository (the design's "Delivery"), which Phase 1 did not create (Phase 2's "Carried forward from Phase 1").
+- The real push session with each agent runs against the temporary GitHub test repository (the design's "Delivery"), which Phase 1 did not create (Phase 2a's "Pending human actions").
 
 ## Carried forward from Phase 1
 - **The interim refusal to replace:** `acceptContinuation` (`engine.ts`) refuses an offer whose `proposal.source.kind` is `main_checkout` with code `plan_not_pushed` and the reason "These phases are committed on this machine's {base} but not pushed. Push them to origin/{base}, then check for new phases again." The integration test "reads the main checkout's committed plan only when it holds unfinished phases the remote base lacks" pins it; this phase changes that expectation to the push.

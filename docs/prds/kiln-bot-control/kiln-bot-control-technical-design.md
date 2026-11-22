@@ -107,6 +107,8 @@ Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limi
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`check-for-new-phases` and `continue-with-phases` added; `allow-more-loops`, `accept-and-deliver` and the third loop setting refused as removed).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`kiln merge`).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |
@@ -280,6 +282,8 @@ Inspection cache writes share the existing 100 ms snapshot cadence and flush pen
 ## Local API and Integration Points
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`POST /api/control/v1/continuation/check`).
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`POST /api/merge`, the `merge` journal action and the `after_delivery` feature).
 
 Every route retains loopback-only binding, strict Host and matching mutation Origin, `X-Kiln-Token`, no CORS, no-store and owner-only token lookup. CLI does not expose tokens in argv or public output. Validate execution binding on all responses. Redirects are refused; a loopback redirect cannot forward a token elsewhere.
 

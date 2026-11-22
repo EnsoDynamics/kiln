@@ -73,7 +73,7 @@ describe("Documents found, starting from a branch someone built phases on (AC-FR
     expect(words).toContain("Phase plan 6 phase docs Read from feature/receipts-by-hand 3 of 5 phases are already closed on that branch. Kiln starts at Phase 3.");
     expect(words).toContain("1 Return intake closed");
     expect(words).toContain("3 Returns dashboard Kiln starts here");
-    expect(words).toContain("Starting lets Kiln Commit and push to feature/receipts-by-hand Use its open pull request into develop , #48 , once every phase closes Never merge, deploy, or touch other branches Start at Phase 3 Phases 1, 2a and 2b are closed on the branch and won't run. Confirm refinement to start.");
+    expect(words).toContain("Starting lets Kiln Commit and push to feature/receipts-by-hand Use its open pull request into develop , #48 , once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page Push this PRD’s documents to develop only when you press Continue on the finished page Never deploy or touch other branches Start at Phase 3 Phases 1, 2a and 2b are closed on the branch and won't run. Confirm refinement to start.");
   });
 
   it("shows today's screen for a new feature branch, with the plan read from the base branch", () => {
@@ -84,7 +84,7 @@ describe("Documents found, starting from a branch someone built phases on (AC-FR
     expect(words).toContain("Branch from, and PR into");
     expect(words).not.toContain("never rewrites");
     expect(words).toContain("Phase plan 6 phase docs Read from develop 5 phases to implement, in this order");
-    expect(words).toContain("Open one pull request into develop once every phase closes Never merge, deploy, or touch other branches Start Confirm refinement to start.");
+    expect(words).toContain("Open one pull request into develop once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page Push this PRD’s documents to develop only when you press Continue on the finished page Never deploy or touch other branches Start Confirm refinement to start.");
   });
 });
 

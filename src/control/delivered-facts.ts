@@ -60,10 +60,31 @@ export function continuationFacts(check: CompletedPlanCheck, prdDirectory = ""):
 }
 
 /** What GitHub last showed of a finished run's pull requests, and whether the delivery waits to merge (Kiln After Delivery AC-BOT-02). */
-export function afterDeliveryFacts(record: PrdRecord): Record<string, unknown> | null {
+export function afterDeliveryFacts(record: PrdRecord, view?: import("../engine/snapshot.js").AfterDeliveryView): Record<string, unknown> | null {
   if (!record.completedAt || !record.afterDelivery) return null;
-  const { pullRequests, readError } = record.afterDelivery;
-  return { pullRequests: pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }), readError: readError ?? null, waiting: deliveryWaiting(record) ?? null };
+  // A live controller's view adds the merge offer and the merge activity's state (Kiln After Delivery AC-BOT-02).
+  if (view) return { ...view, readError: view.readError ?? null, merge: view.merge ?? null };
+  const { pullRequests, readError, merge } = record.afterDelivery;
+  return { pullRequests: pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }), readError: readError ? { at: readError.at, problem: readError.problem } : null, waiting: deliveryWaiting(record) ?? null, merge: merge ? { state: merge.closedAt ? "done" : record.phases.merge?.stop || record.billing?.hold?.phaseKey === "merge" ? "stopped" : record.phases.merge?.wait ? "waiting" : "running", ...(merge.doneAt ? { doneAt: merge.doneAt } : {}), ...(merge.summary !== undefined ? { summary: merge.summary } : {}), pullRequests: merge.pullRequests } : null };
+}
+
+interface AfterDeliveryJson { pullRequests: { repository: string; number: number; state: string; mergedAt?: string; mergeCommit?: string; conflicts?: true }[]; offer?: { kind: string; available: boolean; note?: string; line?: string; reason?: string }; merge: { state: string; summary?: string } | null }
+
+/**
+ * `kiln status` text for the merge (Kiln After Delivery AC-BOT-02), in the page's words: merging,
+ * a stopped merge session, merged with each merge commit and the session's summary, or the offer.
+ */
+export function afterDeliveryText(after: AfterDeliveryJson | null | undefined, multiRepository: boolean): string | undefined {
+  if (!after) return undefined;
+  const name = (pull: { repository: string; number: number }) => `${multiRepository ? `${pull.repository} ` : ""}#${pull.number}`;
+  const merged = after.pullRequests.filter(pull => pull.state === "merged");
+  if (after.merge?.state === "done" || after.pullRequests.length > 0 && merged.length === after.pullRequests.length) {
+    return [`Merged: ${merged.map(pull => `${name(pull)} at ${pull.mergedAt} (merge ${pull.mergeCommit?.slice(0, 7)})`).join(" · ")}`, ...(after.merge?.summary ? [`The merge session's summary: ${after.merge.summary}`] : [])].join("\n");
+  }
+  if (after.merge) return after.merge.state === "stopped" ? "Merging: the merge session stopped before merging; it needs you." : after.merge.state === "interrupted" ? "Merging, interrupted: resume with kiln continue." : after.merge.state === "waiting" ? "Merging: the merge session is waiting for usage." : "Merging: the merge session is running.";
+  if (after.offer?.note) return `Merge with the agent${after.offer.available ? "" : ` (unavailable: ${after.offer.reason})`}: ${after.offer.note} Run kiln merge to start it.`;
+  if (after.offer?.line) return after.offer.line;
+  return undefined;
 }
 
 interface DeliveredJson { loops: ClosingAudits; forYou: { items: { kind: string | null; line: string; waived_tag?: string }[]; afterDelivery: string[] }; pullRequests: { repository: string; number: number; url: string }[] }

@@ -51,6 +51,8 @@ Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Mark Complete (a third intent, Mark complete, after a failed Verify).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "At the stop" (a merge stop takes its own reading of GitHub first and never offers a fresh session).
+
 An evaluation returns one of: **complete**, **incomplete**, or **check unavailable**, with an authoritative result time for completed evaluations. It may refresh the accepted plan and evidence records as existing checks require, but does not delete a stop, mark Done, clear a billing hold, activate a pause or kick subsequent work merely because it passed.
 
 | Person’s intent | Complete | Incomplete | Check unavailable |

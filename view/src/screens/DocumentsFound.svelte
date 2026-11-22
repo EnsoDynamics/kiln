@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { mergeAllowedLine, NEVER_LINE, pushAllowedLine } from "../../../src/engine/authority-statement.js";
   import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanel from "../components/BillingPanel.svelte";
   // Documents found (docs/design/mockups/kiln-screen-documents-found.html): what Kiln found
@@ -421,7 +422,10 @@
           {#if settings.developmentDeployments?.enabled && pullRequest}<li>{@render check(14, true)}<span>{#if "number" in pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, <a href={pullRequest.url}>#{pullRequest.number}</a>, for the work that stays open{:else}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, or open one, for the work that stays open. {pullRequest.unknown}{/if}</span></li>{/if}
           <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Early merges may happen on approved repository branches; remaining work stays open for review{:else if pullRequest && "number" in pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, <a href={pullRequest.url}>#{pullRequest.number}</a>, once every phase closes{:else if pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, or open one, once every phase closes. {pullRequest.unknown}{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
         {/if}
-        <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Early merges only into approved repository branches; no unrelated or destructive actions" : "Never merge, deploy, or touch other branches"}</span></li>
+        <!-- After delivery: the merge and, in the PRD's repository, the plan push (Kiln After Delivery AC-MERGE-08). -->
+        <li>{@render check(14, true)}<span>{mergeAllowedLine(settings.agent)}</span></li>
+        <li>{@render check(14, true)}<span>{multi ? `In the PRD’s repository, p${pushAllowedLine(settings.baseBranch).slice(1)}` : pushAllowedLine(settings.baseBranch)}</span></li>
+        <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Early merges only into approved repository branches; no unrelated or destructive actions" : NEVER_LINE}</span></li>
       </ul>
     </div>
 
