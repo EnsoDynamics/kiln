@@ -373,7 +373,7 @@ A short-name clash isn't drawn. Its rows follow state 1 with the address path as
 
 ## The Enso Method's `phase-split`
 
-This change is made and reviewed by hand, outside the phase plan, on an Enso Method branch held unmerged until step 2 of [Delivery](#delivery). No Kiln run changes the Enso Method. It replaces the PRD's retired AC-SPLIT-01 and AC-SPLIT-02.
+This change was made and reviewed by hand, outside the phase plan, and published to the Enso Method on 2026-11-22, ahead of Kiln's release (see [Delivery](#delivery)). No Kiln run changes the Enso Method. It replaces the PRD's retired AC-SPLIT-01 and AC-SPLIT-02.
 
 The skill's rule for the `**Repositories:**` line, its phase document templates and its example change together:
 
@@ -410,7 +410,7 @@ As the designs before it: real temporary Git repositories with local bare reposi
 
 - **After the build:**
   1. Merge Kiln's branch and release Kiln to npm, as a minor version, since it adds functionality.
-  2. Only once that release is published, merge and publish the Enso Method's `phase-split` change. A Kiln from before this change reads an address path as a broken plan, and Kiln's own sessions split phases with the installed skill, so the order can't be reversed.
+  2. The Enso Method's `phase-split` change was published on 2026-11-22, before this release, by the maintainer's choice. Until Kiln's release is installed, a Kiln from before this change reads an address path as a broken plan, so a phase split that names repositories other than the PRD's own fails its start checks there; a split that names only the PRD's repository writes no line and is unaffected.
   3. Update the Enso Method plugin wherever it is installed from the published repository.
 
 ## Acceptance Criteria Coverage
