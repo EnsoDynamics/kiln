@@ -92,6 +92,28 @@ it("reads the remote base when the main checkout is on another branch, names unc
   expect(output).toContain("comet-technical-design.md and phase-10-other.md have edits in your main checkout that aren’t committed. Kiln didn’t read them.");
   expect(output).not.toContain("Plan needs reconciliation");
 });
+it("never reads another worktree of the repository, even one holding a committed added phase (AC-BACK-03)", async () => {
+  await fixture(); add(); publish();
+  // A linked worktree on another branch, holding a committed phase 11 that no named place has.
+  const other = join(h.sandbox.root, "gift-cards-worktree");
+  git(h.sandbox, h.repository, "worktree", "add", "-q", "-b", "feature/gift-cards", other);
+  writeFileSync(join(other, directory, "phase-11-holds.md"), newPhase.replace("Phase 9: Lending", "Phase 11: Holds"));
+  git(h.sandbox, other, "add", directory); git(h.sandbox, other, "commit", "-qm", "docs(comet): add holds");
+  const check = await h.engine.checkCompletedPlan();
+  expect(check).toMatchObject({ status: "available", result: { source: { kind: "remote_base", branch: "develop" } } });
+  // Read from the main checkout's own branch, never the linked worktree's.
+  expect(check.result?.notRead ?? null).toBeNull();
+  expect(check.result?.added.map(one => one.id)).toEqual(["9"]);
+  expect(check.result?.uncommitted ?? []).toEqual([]);
+  expect(JSON.stringify(check.result)).not.toContain("phase-11-holds");
+});
+it("keeps Plan needs reconciliation off a finished run, even with a failed reconciliation check saved (AC-BACK-01)", async () => {
+  await fixture();
+  h.engine.record.planReconciliation!.check = { status: "failed", attemptedAt: "2026-10-01T12:30:00Z", problem: "Phase 1's document changed after it closed." };
+  expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "unchanged" });
+  expect(buildSnapshot(h.engine).continuation?.planCheck).toBeUndefined();
+  expect(formatDecisionLine({ kind: "complete" }, h.engine, terminalColors({}, {}))).not.toContain("Plan needs reconciliation");
+});
 it("reads the main checkout's committed plan only when it holds unfinished phases the remote base lacks (AC-BACK-03, AC-BACK-04)", async () => {
   await fixture();
   // Ahead with a commit that adds no unfinished phase: the remote base is read.
@@ -181,6 +203,11 @@ it("keeps a finished phase finished whatever later happens to its document, and 
     const check = await h.engine.checkCompletedPlan();
     expect(check).toMatchObject({ status: "unchanged", errors: [], result: { added: [] } });
     expect(JSON.stringify(check)).not.toContain("reconcil");
+    // No problem and no list of differing documents on any surface (AC-BACK-01).
+    expect(check.result?.proposal?.problems ?? []).toEqual([]);
+    for (const surface of [JSON.stringify(check), JSON.stringify(buildSnapshot(h.engine)), formatDecisionLine({ kind: "complete" }, h.engine, terminalColors({}, {}))]) {
+      expect(surface).not.toMatch(/materially changed|previously completed scope|reconcil/i);
+    }
   }
   // A finished leaf given children after the run finished stays finished, and every child is offered, the first one included.
   writeFileSync(file, "# Phase 1: Catalog\n\n## Split into\n| Phase | Work |\n|---|---|\n| [1a](phase-1a-catalog.md) | Catalog |\n| [1b](phase-1b-catalog.md) | Shelving |\n");

@@ -578,6 +578,12 @@ it("a bot checks a finished run for new phases and continues it from the command
     expect(proposal.phases.length).toBeGreaterThan(0);
     expect(await control("continue-with-phases")).toMatchObject({ available: true, reason: null });
     const token = (await cli(["status", target, "--json"])).json().status_token as string;
+    // A stale status token is refused before anything is accepted (AC-BOT-01 targeting).
+    const stale = await cli(["continue-with-phases", target, "--proposal", proposal.id, "--only-if-status-matches", `${token}-stale`, "--command-id", "bot-continue-stale", "--json"]);
+    expect(stale.code, stale.stdout).toBe(3);
+    expect(stale.json().errors[0].code).toBe("stale_status_token");
+    expect(h.engine.record.continuation?.acceptances ?? []).toEqual([]);
+    expect(h.engine.record.executionId).toBe(before);
     const go = await cli(["continue-with-phases", target, "--proposal", proposal.id, "--only-if-status-matches", token, "--command-id", "bot-continue", "--json"]);
     expect(go.code, go.stdout).toBe(0);
     await h.engine.commands.settled(); await h.engine.settled();

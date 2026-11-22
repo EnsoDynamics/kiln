@@ -72,8 +72,12 @@ const RUNNING_REASON = "Exit Kiln returns once the session ends, or once Kiln ha
 async function pressExit(via: "browser" | "command_line" = "browser"): Promise<void> {
   const before = { record: savedRecord(), git: gitState(), gh: h!.ghCalls().length };
   const told: ExitNotice[] = []; h!.engine.onExited(exit => told.push(exit));
+  const pressedAt = Date.now();
   expect(await control("exit", { via })).toMatchObject({ state: "completed", outcome: "exited" });
   expect(told).toEqual([{ at: expect.any(String), via, command: "kiln run docs/prds/customer-returns" }]);
+  // The page's exit time is the press's own time, not a saved or made-up one.
+  expect(Date.parse(told[0]!.at)).toBeGreaterThanOrEqual(pressedAt);
+  expect(Date.parse(told[0]!.at)).toBeLessThanOrEqual(Date.now());
   await waitFor(() => reports.length > 0);
   expect(exits).toEqual(told);
   expect(reports[0]).toEqual({ text: `Kiln exited from ${via === "browser" ? "the page" : "the command line"}.`, grey: "Run kiln run docs/prds/customer-returns to open it again." });

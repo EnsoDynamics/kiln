@@ -4,7 +4,8 @@
 // feature head to the base on the origin and marking the pull request merged in the gh stand-in's
 // state, as `gh pr merge` would; Kiln decides Merged only from its own reading of GitHub.
 import { afterEach, describe, expect, it } from "vitest";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
@@ -54,6 +55,8 @@ async function control(action: string, inputs: Record<string, unknown> = {}): Pr
   return h!.engine.commands.lookup(command_id).operation as Receipt;
 }
 const status = () => statusProjection(readWork(stateRoot(h!.env), h!.stateDirectory), h!.engine) as unknown as { state: string; after_delivery: Parameters<typeof afterDeliveryText>[0] & Record<string, unknown>; controls: { name: string; available: boolean; reason: string | null }[] };
+/** Every file under a folder, recursively. */
+const listFiles = (folder: string): string[] => existsSync(folder) ? readdirSync(folder).flatMap(name => { const path = join(folder, name); return statSync(path).isDirectory() ? listFiles(path) : [path]; }) : [];
 const controlOf = (name: string) => h!.engine.controlView().controls.find(one => one.name === name)!;
 const mergeCalls = () => h!.claudeCalls().filter(call => call.prompt.includes("You are merging the finished work"));
 /** Merges #218 outside Kiln, as a person would on GitHub. */
@@ -188,6 +191,21 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     expect(h!.engine.record.afterDelivery!.merge).toMatchObject({ summary: SUMMARY, closedAt: expect.any(String) });
   });
 
+  it("Resume with no reply resumes the same merge session once, which merges, and shows Merged (AC-MERGE-06)", async () => {
+    await finished([stopping("Waiting on a review."), merging()]);
+    await control("merge");
+    expect(h!.engine.stoppedPhaseKey()).toBe(MERGE_KEY);
+    const stopped = h!.engine.latestSession(MERGE_KEY)!;
+    expect(await control("resume")).toMatchObject({ state: "completed", outcome: "session_resumed" });
+    await h!.engine.settled();
+    const resumes = h!.claudeCalls().filter(call => call.args.includes("--resume"));
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0]!.args).toContain(stopped.sessionId);
+    expect(resumes[0]!.prompt).toContain("Carry on merging the delivery's pull requests from where you stopped.");
+    expect(mergeCalls()).toHaveLength(1);
+    expect(h!.engine.record.afterDelivery!.merge).toMatchObject({ summary: SUMMARY, closedAt: expect.any(String) });
+  });
+
   it("closes the activity without resuming when Resume finds every pull request merged, and refuses Resume when GitHub can't be read", async () => {
     await finished([stopping("Waiting on a review.")]);
     await control("merge");
@@ -257,6 +275,47 @@ describe("the press from the page (AC-MERGE-02)", () => {
     } finally { await h!.engine.stop("sigint"); await server.close(); }
   });
 
+  it("with Codex chosen, the press starts one Codex merge session with the merge prompt (AC-MERGE-02)", async () => {
+    await finished([]);
+    const f = codexWorkFixture();
+    try {
+      Object.assign(h!.tools, { codex: f.options.executable });
+      f.configureEnvironment(h!.env);
+      f.set({ dynamicRecord: true, stateDirectory: h!.stateDirectory });
+      h!.engine.record.settings.agentId = "codex";
+      h!.reopen(); await h!.engine.agents.refresh();
+      expect(h!.engine.selectionError).toBeUndefined();
+      await h!.engine.checkCompletedPlan();
+      expect(await control("merge")).toMatchObject({ state: "completed", outcome: "merge_started" });
+      await h!.engine.settled();
+      const starts = f.calls().filter(call => call.method === "turn/start");
+      expect(starts).toHaveLength(1);
+      const input = JSON.stringify(starts[0]!.params!.input);
+      expect(input).toContain("You are merging the finished work");
+      expect(input).toContain("#218 (`acme/acme-shop`): `feature/customer-returns` into `develop`");
+      expect(h!.engine.latestSession(MERGE_KEY)).toMatchObject({ agentId: "codex", kind: "merge" });
+      expect(mergeCalls()).toEqual([]);
+    } finally { await h!.engine.stop("sigint"); await f.sandbox.cleanup(); }
+  });
+
+  it("remembers nothing for another PRD: no state outside this PRD's own changes, and the other PRD has no merge (AC-MERGE-02)", async () => {
+    await finished([merging()]);
+    const root = stateRoot(h!.env);
+    const outside = () => listFiles(root).filter(file => !file.startsWith(h!.stateDirectory)).map(file => [file, readFileSync(file, "utf8")]);
+    const before = outside();
+    expect(await control("merge")).toMatchObject({ state: "completed", outcome: "merge_started" });
+    await h!.engine.settled();
+    expect(h!.engine.record.afterDelivery!.merge!.closedAt).toBeDefined();
+    // Every file the press and the merge wrote is in this PRD's own state.
+    expect(outside()).toEqual(before);
+    const other = await h!.engineFor("another-prd");
+    try {
+      expect(other.record.afterDelivery).toBeUndefined();
+      expect(other.record.developmentAuthorization).toMatchObject({ enabled: false, grants: [] });
+      expect(other.controlView().controls.find(one => one.name === "merge")!.available).toBe(false);
+    } finally { other.close(); }
+  });
+
   it("gives the session the order a description states (Merge order line)", async () => {
     await finished([]);
     h!.setPullRequestViews({ [KEY]: recordedPullRequest("open", { number: 218, base: "develop", head: featureHead(), body: "Delivers customer returns.\n\nMerge order: 1 of 1" }) });
@@ -279,6 +338,9 @@ describe("what the card offers (AC-MERGE-07) and the press's own checks", () => 
     expect(unreadable.kind).toBe("unreadable");
     expect(unreadable.line).toContain("GitHub could not be read, so Kiln doesn’t offer the merge.");
     expect(unreadable.line).toContain("HTTP 502: Bad Gateway");
+    // Unreadable: the control is unavailable for that reason, and the card has no note beside it.
+    expect(controlOf("merge")).toMatchObject({ available: false, reason: "GitHub could not be read for this delivery's pull requests." });
+    expect(unreadable.note).toBeUndefined();
     // The press reads GitHub again: read open, then closed on GitHub before the press, it is refused and nothing opens.
     show("open"); await h!.engine.checkCompletedPlan();
     expect(controlOf("merge").available).toBe(true);

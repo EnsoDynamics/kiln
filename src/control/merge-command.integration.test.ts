@@ -69,8 +69,9 @@ it("sends merge from the command line, lists it in kiln status, and refuses a co
   const help = await cli(["merge", "--help"]);
   expect(help.code).toBe(0);
   expect(help.stdout).toContain("kiln merge <PRD-path> [options]");
-  expect(help.stdout).toContain("It brings each base branch into its feature branch, resolves any conflicts, runs the tests, pushes, waits for the required checks and merges the delivery’s open pull requests");
+  expect(help.stdout).toContain("It brings each base branch into its feature branch, resolves any conflicts, runs the tests, pushes, waits for the required checks and merges the delivery’s open pull requests, in any order their descriptions state. If one can’t be merged, it stops there and leaves the rest open.");
   expect(help.stdout).toContain("may start that repository’s CI or deployment");
+  expect(help.stdout).toContain("Merge with {agent} starts one more session in this PRD’s worktree or workspace.");
   await server!.close(); server = undefined;
   const safety = (id: string) => ["--only-if-status-matches", `${h.engine.record.executionId}:token`, "--command-id", id, "--json"];
   const current = await standIn(["status", "commands", "command_status", "after_delivery"]);

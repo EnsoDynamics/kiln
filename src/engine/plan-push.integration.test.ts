@@ -210,6 +210,10 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(h!.engine.markCompleteOffer()).toMatchObject({ offered: false });
     expect(h!.engine.carryOnControl().offered).toBe(false);
     expect(h!.engine.startAgainControl().offered).toBe(false);
+    // The terminal command opens that same session, and the stop offers no Continue (no fresh push session).
+    const stopped = h!.engine.latestSession(key)!;
+    expect(page.needsYou?.resumeCommand).toContain(`claude --resume ${stopped.sessionId}`);
+    expect(h!.engine.newPhaseControls().find(one => one.name === "continue-with-phases")).toMatchObject({ available: false });
     expect(afterDeliveryText(status().after_delivery, false)).toBe("Pushing the plan: the push session stopped before pushing the plan; it needs you.");
     // Check again reads origin and keeps the stop.
     expect(await control("check-again")).toMatchObject({ state: "completed", outcome: "completion_checks_failed" });
@@ -222,6 +226,7 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     // The resume went to the same session with the reply first and the push session's carry-on (AC-MERGE-06).
     const resumed = h!.claudeCalls().find(call => call.prompt.includes("Carry on pushing this PRD's documents"))!;
     expect(resumed.prompt).toContain("Push it too.");
+    expect(resumed.args).toContain("--resume"); expect(resumed.args).toContain(stopped.sessionId);
     expect(resumed.cwd).toBe(h!.repository);
     expect(remoteHead()).toBe(git(h!.sandbox, h!.repository, "rev-parse", "develop").trim());
   });
@@ -237,6 +242,36 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(await control("check-again")).toMatchObject({ state: "completed", outcome: "already_done" });
     await buildStarted(finishedExecution);
     expect(h!.claudeCalls().filter(call => call.prompt.includes("Carry on pushing"))).toEqual([]);
+  });
+
+  it("Resume with no reply at a push stop resumes the same session once, which pushes, and the build starts (AC-MERGE-06)", async () => {
+    await finished([stopping("The push timed out talking to origin. Nothing was pushed."), pushing(), building]);
+    const proposal = await offer();
+    const finishedExecution = h!.engine.record.executionId!;
+    const key = ((await pressContinue(proposal.id)) as { planPush: string }).planPush;
+    await waitFor(() => h!.engine.stoppedPhaseKey() === key);
+    const stopped = h!.engine.latestSession(key)!;
+    expect(await control("resume")).toMatchObject({ state: "completed" });
+    await buildStarted(finishedExecution);
+    const resumes = h!.claudeCalls().filter(call => call.args.includes("--resume"));
+    expect(resumes).toHaveLength(1);
+    expect(resumes[0]!.args).toContain(stopped.sessionId);
+    expect(resumes[0]!.prompt).toContain("Carry on pushing this PRD's documents");
+    expect(pushCalls()).toHaveLength(1);
+    expect(remoteHead()).toBe(localHead());
+  });
+
+  it("Resume after a hand push at a push stop is already done: no resume, and the build starts (AC-MERGE-06)", async () => {
+    await finished([stopping("The push was refused: remote rejected develop (protected branch hook declined)."), building]);
+    const proposal = await offer();
+    const finishedExecution = h!.engine.record.executionId!;
+    const key = ((await pressContinue(proposal.id)) as { planPush: string }).planPush;
+    await waitFor(() => h!.engine.stoppedPhaseKey() === key);
+    git(h!.sandbox, h!.repository, "push", "-q", "origin", "develop");
+    expect(await control("resume")).toMatchObject({ state: "completed", outcome: "already_done" });
+    await buildStarted(finishedExecution);
+    expect(h!.claudeCalls().filter(call => call.args.includes("--resume"))).toEqual([]);
+    expect(pushCalls()).toHaveLength(1);
   });
 
   it("shows a refreshed offer for a fresh choice when the push brings in other phases, and nothing starts", async () => {
