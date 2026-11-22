@@ -49,7 +49,7 @@ export function atLimitLine(limit: LimitView, now: Date): string | undefined {
 
 /** "Phase 2b", or "The pull-request session". */
 function sessionName(phaseId: string): string {
-  return activityKeyKind(phaseId) === "audit" ? "This audit" : activityKeyKind(phaseId) === "preflight" ? "The preflight" : phaseId === PR_ID ? "The pull-request session" : capitalized(phaseName(phaseId));
+  return activityKeyKind(phaseId) === "audit" ? "This audit" : activityKeyKind(phaseId) === "preflight" ? "The preflight" : activityKeyKind(phaseId) === "merge" ? "The merge session" : phaseId === PR_ID ? "The pull-request session" : capitalized(phaseName(phaseId));
 }
 
 export interface WaitingCopy {

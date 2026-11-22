@@ -208,6 +208,8 @@ export interface PhaseView {
   loops?: import("./loop-view.js").ActivityLoopView[];
   /** Skipped under a waived plan problem (AC-WAIVE-04): not built, counted as closed. */
   skippedByWaiver?: true;
+  /** The merge row while its session is held at the restart review (Kiln After Delivery "Display Contract"): it reads Interrupted. */
+  interrupted?: true;
   details?: SessionIdentityView & {
     from: string;
     to?: string;
@@ -326,6 +328,8 @@ export interface Snapshot {
     phasesTotal: number;
     startedAt?: string;
     completedAt?: string;
+    /** When a finished run last became complete, when an after-delivery activity closed after `completedAt`: Complete's span ends here (Kiln After Delivery AC-MERGE-05). */
+    completeUntil?: string;
     timing?: Timing;
     /** When the PRD total starts, when it counts earlier executions too (time totals AC-TOTAL-02); otherwise `startedAt`. */
     timingSince?: string;
@@ -545,7 +549,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ? "not_started"
     : folderMissing
       ? "folder_missing"
-      : engine.currentlyComplete || engine.finished && openMerge(record) && stoppedKey === undefined && waitingKey === undefined && !record.billing?.hold
+      // A merge activity held at the restart review shows the finished page, waiting or not (Kiln After Delivery, "Ctrl+C and restart").
+      : engine.currentlyComplete || engine.finished && openMerge(record) && stoppedKey === undefined && (waitingKey === undefined || engine.restartReview?.activityKey === MERGE_KEY) && !record.billing?.hold
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
@@ -592,8 +597,10 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
-      // Delivery can reopen a completed PRD and leave completedAt set; its totals keep counting until it is complete again (time totals AC-TOTAL-03).
-      ...(includeTiming ? prdTimingFields(prdTiming(engine, timingFor(engine, Object.keys(record.phases), record.startedAt, state === "complete" ? record.completedAt : undefined)), record.startedAt) : {}),
+      // Delivery, or an open after-delivery activity, can reopen a completed PRD and leave completedAt set; its totals keep
+      // counting until it is complete again, and then end when it last became complete (time totals AC-TOTAL-03, Kiln After Delivery AC-MERGE-05).
+      ...(includeTiming ? prdTimingFields(prdTiming(engine, timingFor(engine, Object.keys(record.phases), record.startedAt, completeUntil(engine))), record.startedAt) : {}),
+      ...optional("completeUntil", completeUntil(engine) !== record.completedAt ? completeUntil(engine) : undefined),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),
@@ -1117,6 +1124,17 @@ export function codexResumeCommand(folder: string, session: SessionRecord, platf
 }
 
 /** Timing is derived from saved runs; historical open runs stop at their last evidence. */
+/**
+ * When the run last became complete: the later of `completedAt` and the latest after-delivery
+ * activity's close; undefined while it is not complete (Kiln After Delivery, "While open").
+ */
+function completeUntil(engine: Engine): string | undefined {
+  const { record } = engine;
+  if (!engine.currentlyComplete || !record.completedAt) return undefined;
+  const closed = record.afterDelivery?.merge?.closedAt;
+  return closed && Date.parse(closed) > Date.parse(record.completedAt) ? closed : record.completedAt;
+}
+
 function timingFor(engine: Engine, keys: string[], from?: string, doneAt?: string): Timing | undefined {
   if (!from) return undefined;
   const { runs, running } = engine.sessionRuns(keys);
@@ -1244,7 +1262,7 @@ function mergeRow(engine: Engine, includeTiming: boolean): PhaseView | undefined
   const what = pulls.map(pull => `${pulls.length > 1 ? `${pull.repository} ` : ""}#${pull.number}`).join(" and ");
   const bases = [...new Set(pulls.map(pull => pull.base))];
   const line = `${view.state === "done" ? "merged" : "merging"} ${what}${bases.length === 1 ? ` into ${bases[0]}` : ""}`;
-  const row: PhaseView = { id: MERGE_KEY, kind: "merge", title: "Merge", file: session ? `${AGENT_NAMES[session.agentId ?? "claude_code"]} · ${session.modelDisplayName} · ${line}` : line, state: view.state === "done" ? "done" : view.state === "stopped" ? "needs_you" : view.state === "waiting" ? "waiting" : view.state === "interrupted" ? "next" : "implementing", finishedByPerson: false, ...optional("doneAt", facts?.doneAt) };
+  const row: PhaseView = { id: MERGE_KEY, kind: "merge", title: "Merge", file: session ? `${AGENT_NAMES[session.agentId ?? "claude_code"]} · ${session.modelDisplayName} · ${line}` : line, state: view.state === "done" ? "done" : view.state === "stopped" ? "needs_you" : view.state === "waiting" ? "waiting" : view.state === "interrupted" ? "next" : "implementing", finishedByPerson: false, ...optional("doneAt", facts?.doneAt), ...(view.state === "interrupted" ? { interrupted: true as const } : {}) };
   const first = facts?.sessionIds[0] ? engine.sessionRecord(MERGE_KEY, facts.sessionIds[0]) : undefined;
   const from = first?.runs[0]?.startedAt;
   if (session) {

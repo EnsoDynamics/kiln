@@ -1,5 +1,7 @@
 # Phase 2b: The merge session's waits, interruptions and workspace
 
+**Closed:** 2026-11-22
+
 **Parent PRD:** [Kiln After Delivery](kiln-after-delivery-prd.md)
 **Technical design:** [Kiln After Delivery technical design](kiln-after-delivery-technical-design.md) — relevant sections: "After-Delivery Activities" (Gates, Ctrl+C and restart, While open's time totals), "The Merge Session" ("Under early merges"), "Display Contract" (the Interrupted and Waiting rows), "Interfaces" (`interrupted`, `waiting`)
 

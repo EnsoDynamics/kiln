@@ -1,9 +1,13 @@
 // The finished page's pull request card after delivery and the merge stop (Kiln After Delivery
-// AC-MERGE-01, AC-MERGE-04, AC-MERGE-05, AC-MERGE-06, AC-MERGE-07, mockup states 1 to 4), rendered from snapshots.
+// AC-MERGE-01, AC-MERGE-04, AC-MERGE-05, AC-MERGE-06, AC-MERGE-07, mockup states 1 to 4), and the merge
+// session's restart hold, usage wait and the PRD's totals (Phase 2b), rendered from snapshots.
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { AfterDeliveryView, Snapshot } from "../../../src/engine/snapshot.js";
-import { completeSnapshot, needsYouMessageSnapshot, RUNNING_NOW } from "../../../src/test-support/sample-snapshots.js";
+import { completeSnapshot, needsYouMessageSnapshot, RUNNING_NOW, USAGE_LIMIT_NOW, waitingSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { headerTotals } from "../lib/progress.js";
+import { timeSpan } from "../lib/time.js";
+import Waiting from "./Waiting.svelte";
 import Complete from "./Complete.svelte";
 import NeedsYou from "./NeedsYou.svelte";
 import StateHeader from "../components/StateHeader.svelte";
@@ -72,5 +76,42 @@ describe("a stopped merge session (AC-MERGE-06, state 4)", () => {
     expect(words).toContain("GitHub shows each pull request merged into its base branch.");
     expect(words).not.toContain("Copy a prompt for a fresh session instead");
     expect(words).not.toContain("Mark ");
+  });
+});
+
+// Phase 2b of Kiln After Delivery: the merge session held at the restart review, its usage wait, and the PRD's totals.
+describe("the merge session's waits and restart hold (AC-MERGE-05)", () => {
+  it("keeps the finished page after Ctrl+C: the Merge row reads Interrupted, the card offers Resume, the header reads Merging, Interrupted", () => {
+    const snapshot = finished({ merge: { state: "interrupted", startedAt: "2026-10-17T19:02:00Z", pullRequests: [{ repository: "acme-shop", number: 218 }], folder: "~/w" } });
+    snapshot.phases = [...snapshot.phases, { id: "merge", kind: "merge", title: "Merge", file: "Claude Code · Opus 5.5 · merging #218 into develop", state: "next", finishedByPerson: false, interrupted: true }];
+    snapshot.restartReview = { activityKey: "merge", action: "resume" };
+    const words = page(snapshot);
+    expect(words).toMatch(/Merge Claude Code · Opus 5\.5 · merging #218 into develop Interrupted/);
+    expect(words).toContain("Resume Kiln was stopped while the merge session ran. Resume reads GitHub first; if a pull request is still to merge, it picks up the same session where it stopped.");
+    expect(words).not.toContain("Watch the session");
+    expect(header(snapshot)).toContain("Merging");
+    expect(header(snapshot)).toContain("Interrupted · Resume to carry on");
+    // Held after Ctrl+C during a usage wait, Resume restarts the wait.
+    snapshot.restartReview = { activityKey: "merge", action: "wait" };
+    expect(page(snapshot)).toContain("Kiln was stopped while the merge session waited for usage. Resume reads GitHub first; if a pull request is still to merge, it waits for usage again, then picks up the same session.");
+  });
+  it("shows the Waiting screen for a merge session's usage wait, naming the activity as its row does, reading GitHub first", () => {
+    const snapshot = waitingSnapshot();
+    snapshot.phases = [...snapshot.phases.map(row => ({ ...row, state: row.state === "waiting" ? "done" as const : row.state })), { id: "merge", kind: "merge", title: "Merge", file: "Claude Code · Opus 5.5 · merging #218 into develop", state: "waiting", finishedByPerson: false }];
+    snapshot.waiting = { ...snapshot.waiting!, phaseId: "merge" };
+    const words = text(render(Waiting, { props: { snapshot, now: USAGE_LIMIT_NOW } }).body);
+    expect(words).toContain("The merge session is waiting for");
+    expect(words).toContain("Kiln checks GitHub first, then picks up the same session.");
+    expect(header(snapshot)).toMatch(/Waiting for usage Merge · Waiting since/);
+  });
+  it("keeps the PRD's totals counting while a merge activity is open, and ends Complete's span when it closed", () => {
+    const snapshot = completeSnapshot();
+    const timing = snapshot.feature.timing!;
+    const open = headerTotals({ ...snapshot.feature, timing: { ...timing, advancing: "running" } }, new Date(RUNNING_NOW));
+    expect(open!.since).toMatch(/^since /);
+    const completeUntil = new Date(Date.parse(snapshot.feature.completedAt!) + 3 * 3_600_000).toISOString();
+    const closed = headerTotals({ ...snapshot.feature, completeUntil }, new Date(RUNNING_NOW));
+    expect(closed!.since).toBe(timeSpan(snapshot.feature.startedAt!, completeUntil, new Date(RUNNING_NOW)));
+    expect(closed!.since).not.toBe(timeSpan(snapshot.feature.startedAt!, snapshot.feature.completedAt!, new Date(RUNNING_NOW)));
   });
 });

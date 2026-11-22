@@ -112,7 +112,8 @@ export function headerTotals(feature: Snapshot["feature"], now: Date): HeaderTot
   const start = feature.timingSince ?? feature.startedAt;
   if (!feature.timing || !start) return undefined;
   const { running, waiting } = timingAt(feature.timing, now.getTime());
-  const since = feature.state === "complete" && feature.completedAt ? timeSpan(start, feature.completedAt, now) : `since ${clockTime(start, now, { afterWord: true })}`;
+  // An open after-delivery activity keeps the totals counting on a finished run; once it closes, the span ends there (Kiln After Delivery AC-MERGE-05).
+  const since = feature.state === "complete" && feature.completedAt && !feature.timing.advancing ? timeSpan(start, feature.completeUntil ?? feature.completedAt, now) : `since ${clockTime(start, now, { afterWord: true })}`;
   return { running: shortDuration(running), waiting: shortDuration(waiting), since };
 }
 
@@ -146,6 +147,8 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
       const waiting = snapshot.waiting!;
       const row = (snapshot.activities ?? snapshot.phases).find((phase) => phase.id === waiting.phaseId);
       const which = namedActivity(waiting.phaseId) ? row?.title ?? "Audit" : waiting.phaseId === PR_ID ? "PR" : `Phase ${waiting.phaseId}`;
+      // A merge session's wait names the activity as its row does (Kiln After Delivery, mockup state 2).
+      if (activityKeyKind(waiting.phaseId) === "merge") return { kind: "waiting", label: "Waiting for usage", facts: [row?.title ?? "Merge", `Waiting since ${limitTime(waiting.since, now)}`] };
       return { kind: "waiting", label: "Waiting for usage", facts: [`${which} · ${row?.title ?? ""}`, `Waiting since ${limitTime(waiting.since, now)}`] };
     }
     case "paused":
@@ -185,6 +188,8 @@ export type RowState = PhaseView["state"] | "interrupted" | "paused";
  * (Kiln Pause Now AC-PAUSE-05).
  */
 export function rowState(row: PhaseView, connected: boolean, pauseNow?: PauseNowView): RowState {
+  // The merge row of a session held at the restart review reads Interrupted (Kiln After Delivery "Display Contract").
+  if (row.interrupted) return "interrupted";
   if (pauseNow && row.id === pauseNow.activityKey) return pauseNow.phase === "paused" ? "paused" : connected ? "implementing" : "interrupted";
   return (row.state === "implementing" || row.state === "waiting") && !connected ? "interrupted" : row.state;
 }
@@ -238,6 +243,7 @@ export function rowPill(row: PhaseView, state: RowState, opened: string | undefi
     case "implementing":
       return row.kind === "preflight" ? "Checking" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing";
     case "interrupted":
+      if (row.interrupted) return "Interrupted";
       return `Last known: ${row.state === "waiting" ? "Waiting for usage" : row.kind === "preflight" ? "Checking" : row.kind?.endsWith("audit") ? "Auditing" : "Implementing"}`;
     case "needs_you":
       return "Needs you";

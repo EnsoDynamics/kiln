@@ -60,7 +60,7 @@ import { auditStatus, issueSnapshot, submitAudit, auditCurrentness, oneRowPerChe
 import { AuditRefusal } from "../audit/contracts.js";
 import { normalizeMergeTarget, authorizationTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { fileURLToPath } from "node:url";
-import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, acceptPhaseDocuments, acceptAuditDocuments, bindAtFinish, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, type DeliveryContext } from "./development-delivery.js";
+import { DeliveryRefusal, deliveryEnabled, ledger, validateStartTargets, recordAssessment, prepareOperation, submitEvidence, reconcileDelivery, phaseDeliveryCheck, acceptPhaseDocuments, acceptAuditDocuments, bindAtFinish, owesDevelopmentEvidence, leavesClosedAtRunBase, evaluateRepositories, finishedReviewMerged, type DeliveryContext } from "./development-delivery.js";
 import { emptyDevelopmentLedger, restrictedAuthorization, developmentDeliverySummary, assertDevelopmentState, type CommandEvidence } from "../state/development-delivery.js";
 import { readTranscript } from "../session/transcripts.js";
 import { readDeliveryHistory } from "./delivery-history.js";
@@ -1598,6 +1598,19 @@ export class Engine {
   }
 
   /**
+   * The repositories a session is given (its added directories, Codex's roots and assigned worktrees,
+   * and the agent readiness read): every set-up one, or, while the merge activity is open, only those
+   * whose pull request the latest delivery reading does not show merged, so a worktree removed after
+   * its pull request merged never stops the merge session (Kiln After Delivery, "Gates").
+   */
+  get sessionRepositories(): RepositoryEntry[] {
+    if (!openMerge(this.record)) return this.setUpRepositories;
+    const readings = this.record.afterDelivery?.pullRequests ?? [];
+    const toMerge = (this.record.pullRequests ?? []).filter(pull => readings.find(row => row.repository === pull.repository && row.number === pull.number)?.state !== "merged");
+    return this.setUpRepositories.filter(entry => toMerge.some(pull => pull.repository === entry.name));
+  }
+
+  /**
    * The PRD's repositories as Documents found shows them before Start: those already set up,
    * then the PRD's repository and the named repositories the start checks found, each with any
    * entry an earlier Start left. After Start, the set-up entries.
@@ -2446,6 +2459,11 @@ export class Engine {
         this.changed();
       }
     }
+    if (verdict === "still_stopped" && !this.stopping && key === MERGE_KEY) {
+      // Resume at a merge stop is refused, naming the repository and folder, when a worktree is not ready (technical design, "Gates").
+      const folder = await this.mergeFolderProblem();
+      if (folder) { this.checking = false; this.changed(); return { ok: false, code: "merge_folder_not_ready", reason: folder.facts[0]!, status: 409 }; }
+    }
     if (verdict === "still_stopped" && !this.stopping) this.requestedResume = { phaseKey: key, cause: "person_resume", ...(note === "" ? {} : { note }) };
     this.kick();
     // A stop whose recheck cleared it, such as a loop stop saved by Kiln 1.3.0, resumes no conversation: the run carries on and the note is not delivered.
@@ -2566,7 +2584,8 @@ export class Engine {
     const kilnWork = !!(this.checking || this.driving || this.settingUp || this.deliveryBusy || this.completedPlanReading || this.deliveryReading || this.billing.busy || this.stopping || this.commands?.busy || this.folderStartProgress && !this.folderStartProgress.error);
     if (!session && !kilnWork) return { available: true };
     const paused = !!this.record.pause.activeSince || !!this.restartReview;
-    const pauseAfter = this.isUnderway && !this.currentlyComplete && !this.stoppedPhaseKey() && !this.waitingPhaseKey() && !paused && !this.record.pause.requestedAt && this.current !== undefined && this.current.phaseKey !== PR_PHASE_KEY && !isPreflightKey(this.current.phaseKey) && !this.commands?.busy && !this.folderMissing;
+    // Pause after is never offered for an after-delivery activity, so its reset line is the session's or Kiln's own (Kiln After Delivery, "No live controls").
+    const pauseAfter = this.isUnderway && !this.currentlyComplete && !openMerge(this.record) && !this.stoppedPhaseKey() && !this.waitingPhaseKey() && !paused && !this.record.pause.requestedAt && this.current !== undefined && this.current.phaseKey !== PR_PHASE_KEY && !isPreflightKey(this.current.phaseKey) && !this.commands?.busy && !this.folderMissing;
     if (session) {
       const takeOver = !!this.liveView()?.available && !this.commands?.busy;
       if (takeOver && pauseAfter) return { available: false, reason: "Reset isn't available while a session is working. Stop it now with Pause now above, or pause after the current phase or audit and reset once it ends." };
@@ -3744,6 +3763,60 @@ export class Engine {
   }
 
   /**
+   * The merge activity's folders before a launch or resume (technical design, "Gates"): each pull
+   * request still to merge has its run worktree, on the feature branch, whose head descends from the
+   * head recorded at the press. Uncommitted work or a merge in progress is left for the resumed
+   * session. A check row naming the repository and folder when one is not ready; none when all are.
+   */
+  private async mergeFolderProblem(): Promise<CheckResult | undefined> {
+    const merge = this.record.afterDelivery?.merge;
+    if (!merge) return undefined;
+    const readings = this.record.afterDelivery!.pullRequests;
+    const branch = this.record.settings.featureBranch;
+    for (const pull of merge.pullRequests) {
+      if (readings.find(row => row.repository === pull.repository && row.number === pull.number)?.state === "merged") continue;
+      const entry = this.record.repositories.find(one => one.name === pull.repository);
+      const folder = entry?.worktreePath ?? this.record.settings.worktreePath;
+      const cwd = expandHome(folder);
+      const problem = (what: string): CheckResult => ({ name: `${pull.repository} worktree`, passed: false, facts: [`Kiln can't carry on the merge in ${pull.repository}'s worktree, ${folder}: ${what}`] });
+      try { if (!statSync(cwd).isDirectory()) return problem("it is not a folder."); }
+      catch { return problem("it is not there."); }
+      const [top, current] = await Promise.all([runGit(this.git, cwd, ["rev-parse", "--show-toplevel"]), runGit(this.git, cwd, ["symbolic-ref", "--quiet", "--short", "HEAD"])]);
+      if (top.exitCode !== 0 || comparable(realPathOfNearestAncestor(top.stdout.trim())) !== comparable(realPathOfNearestAncestor(cwd))) return problem("it is not a Git worktree of the repository.");
+      if (current.exitCode !== 0 || current.stdout.trim() !== branch) return problem(`it is not on ${branch}.`);
+      const pressed = merge.pressHeads.find(one => one.repository === pull.repository)?.sha;
+      if (!pressed) continue;
+      const descends = await runGit(this.git, cwd, ["merge-base", "--is-ancestor", pressed, "HEAD"]);
+      if (descends.exitCode === 1) return problem(`its head no longer contains ${pressed.slice(0, 7)}, the head it had when Merge was pressed.`);
+      if (descends.exitCode !== 0) return problem(`Git could not compare its head with ${pressed.slice(0, 7)}: ${descends.stderr.trim()}`);
+    }
+    return undefined;
+  }
+
+  /**
+   * Check again at a billing hold on the merge session (Kiln After Delivery AC-MERGE-05): GitHub first,
+   * as the merge stop reads it, then the hold's own rows. Merged closes the activity without resuming.
+   */
+  private async recheckMergeHold(hold: NonNullable<NonNullable<PrdRecord["billing"]>["hold"]>): Promise<"complete" | "cleared" | "still_stopped"> {
+    await this.readDeliveryNow(false, undefined, true);
+    if (this.stopping) return "still_stopped";
+    const result = this.mergeResult();
+    if (result.done) { this.closeMerge(); return "complete"; }
+    if (result.unreadable) { hold.checks = markReasonRows(result.checks); hold.run = this.newRun("recheck"); this.save(); throw new CompletionCheckUnavailable(result.unreadable); }
+    const ran = !!(hold.sessionId ? this.sessionRecord(MERGE_KEY, hold.sessionId) : this.latestSession(MERGE_KEY))?.runs.length;
+    if (!ran) {
+      await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true);
+      if (this.billing.view.canLaunch) { delete this.record.billing!.hold; this.save(); return "cleared"; }
+    }
+    // The run's rows only once it ran; Billing approval beside them for a launch hold (waivers "Check Runs").
+    hold.checks = markReasonRows(ran ? result.checks : [...result.checks, { name: "Billing approval", passed: false, facts: [hold.reason] }]);
+    if (ran) hold.rowsAreCompletionChecks = true; else delete hold.rowsAreCompletionChecks;
+    hold.run = this.newRun("recheck");
+    this.save();
+    return "still_stopped";
+  }
+
+  /**
    * Whether the merge is done (AC-MERGE-04): every pull request of the delivery read `merged`,
    * never the session's word. One check row per pull request; `unreadable` when a pull request not
    * already merged could not be read, which decides nothing.
@@ -3802,6 +3875,15 @@ export class Engine {
    */
   private async driveMerge(): Promise<"closed" | "stopped"> {
     this.phaseFacts(MERGE_KEY);
+    // Every launch and resume checks the merge activity's folders first (technical design, "Gates").
+    const resuming = this.pendingResume === MERGE_KEY;
+    const folder = resuming || !this.latestSession(MERGE_KEY)?.runs.some(run => run.pid !== undefined) ? await this.mergeFolderProblem() : undefined;
+    if (this.stopping) return "stopped";
+    if (folder) {
+      this.pendingResume = undefined;
+      this.recordStop(MERGE_KEY, "merge_check", [...this.mergeResult().checks, folder]);
+      return "stopped";
+    }
     if (this.pendingResume === MERGE_KEY) {
       this.pendingResume = undefined;
       await this.resumeSession(MERGE_KEY);
@@ -4512,6 +4594,9 @@ export class Engine {
     let missing = false;
     for (const entry of this.setUpRepositories) {
       const main = expandHome(entry.mainCheckoutPath); const cwd = expandHome(entry.worktreePath);
+      // A review pull request GitHub shows merged is delivered whatever its worktree holds: nothing is read from the worktree, which
+      // may be gone or part-way through a merge, and its files are not audited again (Kiln After Delivery, "Under early merges").
+      if (finishedReviewMerged(this.record, entry.name)) { missing = true; continue; }
       const published = await runGit(this.git, main, ["ls-remote", "origin", `refs/heads/${this.record.settings.featureBranch}`]);
       if (published.exitCode !== 0) return false;
       let publishedHead: string | undefined;
@@ -4856,7 +4941,7 @@ export class Engine {
    */
   private async launchReadiness(nextKey: string): Promise<boolean> {
     // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
-    if (this.record.settings.agentId === "codex") await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
+    if (this.record.settings.agentId === "codex") await this.agents.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
     else { void this.claude?.refreshAccount(); await this.agents.refreshClaudeModels(); }
     if (this.stopping) return false;
     const selectionError = this.record.settings.agentId === "claude_code" ? this.selectionIssue(true) : this.selectionError;
@@ -4935,6 +5020,8 @@ export class Engine {
    */
   private markResumePreflight(decided = false): void {
     if (!decided && !this.restartReview) return;
+    // An open after-delivery activity never marks a preflight (Kiln After Delivery, "Ctrl+C and restart").
+    if (openMerge(this.record)) return;
     if (this.stoppedPhaseKey() !== undefined || this.record.pause.activeSince !== undefined || this.currentlyComplete) return;
     if (preflightSettled(this.record) || this.record.preflight?.due) return;
     setPreflightDue(this.record, "resume", this.now().toISOString());
@@ -6181,7 +6268,7 @@ export class Engine {
     const writableRoots = candidates.filter((path, index) => !candidates.some((other, otherIndex) => index !== otherIndex && isWithin(comparable(realPathOfNearestAncestor(path)), comparable(realPathOfNearestAncestor(other)))));
     return {
       executable: this.options.tools.codex!, cwd, writableRoots,
-      repositories: this.setUpRepositories.map(entry => ({ path: expandHome(entry.worktreePath), branch: this.record.settings.featureBranch })),
+      repositories: this.sessionRepositories.map(entry => ({ path: expandHome(entry.worktreePath), branch: this.record.settings.featureBranch })),
       env: this.sessionEnv(), signal: this.abort.signal,
     };
   }
@@ -6465,6 +6552,7 @@ export class Engine {
     if (isPreflightKey(phaseKey)) { const preflight = await this.recheckPreflight(phaseKey); if (preflight) return preflight; }
     const facts = this.record.phases[phaseKey]!;
     const hold = this.record.billing?.hold;
+    if (hold?.phaseKey === phaseKey && phaseKey === MERGE_KEY) return this.recheckMergeHold(hold);
     if (hold?.phaseKey === phaseKey) {
       // A billing hold's recheck reads the hold's own session, so a launch hold is rechecked as a launch (run restart "A session record with no run").
       if ((hold.sessionId ? this.sessionRecord(phaseKey, hold.sessionId) : this.latestSession(phaseKey))?.runs.length) {
@@ -6537,7 +6625,7 @@ export class Engine {
       return this.clearStop(phaseKey);
     }
     if (stop.kind === "selection") {
-      await this.agents.refresh([this.sessionFolder, ...this.setUpRepositories.map((entry) => expandHome(entry.worktreePath))]);
+      await this.agents.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
       if (this.stopping) return "still_stopped";
       const issue = this.selectionError;
       const probe = !issue && stop.checks.some(check => check.name === "Codex launch settings") ? await this.probeCodexLaunch() : undefined;
@@ -7019,7 +7107,8 @@ export class Engine {
   private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string): void {
     // A real stop replaces the overview with its own recovery controls.
     if (this.restartReview) { this.restartReview = undefined; this.reviewingRestart = false; }
-    if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
+    // A merge stop leaves the early-merge ledger's completion result as it was (Kiln After Delivery, "Ending").
+    if (deliveryEnabled(this.record) && phaseKey !== MERGE_KEY) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = this.phaseFacts(phaseKey);
     const alreadyStopped = facts.stop !== undefined || this.record.billing?.hold?.phaseKey === phaseKey;
@@ -7334,7 +7423,7 @@ export class Engine {
     const refusal = this.refusedRun(phaseKey)?.refusal;
     delete facts.wait;
     this.unwatchWait();
-    this.recordStop(phaseKey, phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check", checks, undefined, refusal ? stopLimit(refusal) : undefined, checkedAt);
+    this.recordStop(phaseKey, phaseKey === PR_PHASE_KEY ? "pull_request_check" : phaseKey === MERGE_KEY ? "merge_check" : "done_check", checks, undefined, refusal ? stopLimit(refusal) : undefined, checkedAt);
     this.updateKeepAwake();
   }
 
@@ -7365,6 +7454,17 @@ export class Engine {
       }
       if (this.finalNeedsAudits(check)) { delete facts.wait; this.unwatchWait(); return "done"; }
       checks = check.checks;
+    } else if (phaseKey === MERGE_KEY) {
+      // The resume after a usage-limit wait reads GitHub first (Kiln After Delivery, "At the stop"): merged
+      // closes the activity without resuming; a reading that failed, or a folder not ready, resumes nothing.
+      await this.readDeliveryNow(false, undefined, true);
+      if (this.stopping) return "stopping";
+      const result = this.mergeResult();
+      if (result.done) { this.unwatchWait(); this.closeMerge(); this.updateKeepAwake(); return "complete"; }
+      const folder = result.unreadable ? undefined : await this.mergeFolderProblem();
+      if (this.stopping) return "stopping";
+      if (result.unreadable || folder) { this.waitToStop(phaseKey, folder ? [...result.checks, folder] : result.checks); return "stopped"; }
+      checks = result.checks;
     } else {
       const outcome = await this.doneCheck(phaseKey);
       if (outcome === "stopping" || this.stopping) return "stopping";
@@ -8171,7 +8271,7 @@ export class Engine {
     const dirs: string[] = [];
     const folder = this.workspaceFolder;
     if (comparable(realPathOfNearestAncestor(cwd)) !== comparable(realPathOfNearestAncestor(folder))) dirs.push(folder);
-    for (const entry of this.setUpRepositories) {
+    for (const entry of this.sessionRepositories) {
       const path = expandHome(entry.worktreePath);
       if (!inside(path, cwd) && !inside(path, folder)) dirs.push(path);
     }

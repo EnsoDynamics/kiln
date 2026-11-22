@@ -9,7 +9,7 @@
   import { onMount } from "svelte";
   import CompletedPlanCheck from "../components/CompletedPlanCheck.svelte";
   import { awaitingMergeText, checkNowLead } from "../../../src/engine/awaiting-merge.js";
-  import { checkForNewPhases, merge as pressMerge } from "../lib/api.js";
+  import { checkForNewPhases, merge as pressMerge, start } from "../lib/api.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
   import { MERGE_LIVE_REASON } from "../../../src/engine/merge-wording.js";
@@ -77,6 +77,15 @@
     try { const answer = await pressMerge(config); if (!answer.ok) mergeProblem = answer.reason; }
     finally { merging = false; }
   }
+  // Resume for a merge session held at the restart review (Kiln After Delivery, "Ctrl+C and restart"): the review's Resume.
+  let resuming = $state(false);
+  let resumeProblem = $state<string>();
+  async function pressResume() {
+    if (!config || !connected || resuming) return;
+    resuming = true; resumeProblem = undefined;
+    try { const answer = await start(config, false); if (!answer.ok) resumeProblem = answer.reason; }
+    finally { resuming = false; }
+  }
   // The page's one request when it loads, which reads GitHub first; an event-stream reconnect makes none.
   onMount(() => { void checkNow(false); });
   const tagFor = (repository: string) => {
@@ -98,7 +107,13 @@
     <div class="merge-session">
       <p class="merge-line"><span class="eyebrow">Merge session</span> {snapshot.settings.agent}{mergeRow?.details?.model ? ` · ${mergeRow.details.model}` : ""}</p>
       {#if mergeActivity.startedAt}<p class="note">Started {clockTime(mergeActivity.startedAt, new Date(now), { afterWord: true })} in <span class="mono">{mergeActivity.folder}</span></p>{/if}
+      {#if mergeActivity.state === "interrupted"}
+        <div class="open"><button class="button solid" type="button" disabled={!connected || !config || resuming} onclick={pressResume}>{resuming ? "Resuming…" : "Resume"}</button></div>
+        <p class="note">{snapshot.restartReview?.action === "wait" ? "Kiln was stopped while the merge session waited for usage. Resume reads GitHub first; if a pull request is still to merge, it waits for usage again, then picks up the same session." : "Kiln was stopped while the merge session ran. Resume reads GitHub first; if a pull request is still to merge, it picks up the same session where it stopped."}</p>
+        {#if resumeProblem}<p class="history-gap" role="alert">{resumeProblem}</p>{/if}
+      {:else}
       <div class="open">{#if mergeLink && mergeRow?.details}<a class="button solid" href={mergeLink} onclick={(event) => routedClick(event, router, mergeLink)}>Watch the session</a>{/if}</div>
+      {/if}
       <p class="note">{MERGE_LIVE_REASON} It waits for the required checks before each merge. If it stops before merging, Kiln shows Needs you with its last message. Kiln shows Merged once GitHub shows {pullRequests.length > 1 ? "every pull request" : `#${pullRequests[0]?.number}`} merged.</p>
     </div>
   {:else if allMerged}

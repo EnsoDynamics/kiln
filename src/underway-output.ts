@@ -26,7 +26,7 @@ const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(
 export function whereItStands(engine: Engine): string {
   const { record } = engine;
   if (engine.currentlyComplete) return engine.record.completedPlanCheck ? "earlier delivery complete; current plan checked" : "complete";
-  if (record.completedAt && record.developmentAuthorization?.enabled) return "previously complete; current delivery is being reconciled";
+  if (record.completedAt && record.developmentAuthorization?.enabled && !openMerge(record)) return "previously complete; current delivery is being reconciled";
   const waiting = engine.waitingPhaseKey();
   if (waiting !== undefined) return `${phaseName(engine.judgedId(waiting), engine)} is waiting for usage`;
   // Pause now reads as pausing or paused, never needs you (Kiln Pause Now AC-PAUSE-03, AC-PAUSE-05).

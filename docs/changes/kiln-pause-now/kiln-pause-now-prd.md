@@ -41,6 +41,7 @@ A person choosing a pause decides one thing: stop now, or let the current phase 
   - Replaces in part: AC-RESET-02 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the reset explanation names Pause now).
   - Replaces in part: AC-AGENT-03 and AC-AGENT-04 in `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-prd.md` (the action's name in the browser, for AC-AGENT-03; the feature's name in the incompatibility report in the browser and `kiln status`, for AC-AGENT-04).
   - Replaces in part: AC-PREFLIGHT-08 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the reason shown during the preflight names Pause now).
+  - Superseded in part by: AC-MERGE-05 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (Pause now is also withheld while a merge or push session runs, with a reason naming Pause now)
 
 ### While Kiln is pausing
 
