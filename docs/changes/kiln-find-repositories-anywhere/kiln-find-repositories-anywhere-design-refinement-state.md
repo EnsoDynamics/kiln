@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-find-repositories-anywhere
 
-Started: 2026-11-22   Current pass: 5   Status: In progress
+Started: 2026-11-22   Current pass: 6   Status: In progress
 Branch: prd/kiln-find-repositories-anywhere
 Existing code posture: Preserve (source: user; the design's Existing Code says the same)
 PRD words: at start 3644 · growth baseline 3644
@@ -21,6 +21,7 @@ Last updated: 2026-11-22
 | 2 | 4 (4 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
 | 3 | 5 (4 repeats) + 4 from pass 2 conformance + 1 copy gap | 10 | 10 | 0 | 0 | 0 | 0 |
 | 4 | 4 (7 repeats) | 4 | 4 | 0 | 0 | 0 | 0 |
+| 5 | 3 (4 repeats) | 3 | 3 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -57,6 +58,9 @@ Last updated: 2026-11-22
 | Q30 | 4 | A phase about to start names several repositories and one asks: does a question end the addition loop? | Technical | MEDIUM | 65 → 90 | Resolved | TD §The stops that ask, Testing |
 | Q31 | 4 | Where a stop's question content (kind, checkouts, searched) comes from after `kiln run` restarts, and the status token | Technical | MEDIUM | 65 → 92 | Resolved | TD §Data Models, §The stops that ask, §Finding a Checkout, Testing |
 | Q32 | 4 | The label of a session's request that Kiln didn't add | Technical | LOW | 85 → 90 | Resolved | TD §Worktree Folders and Labels, §Snapshot |
+| Q33 | 5 | "Kiln searches when it makes the stop" vs a synchronous stop-recording path: when a phase's requests' questions land on a new stop | Technical | MEDIUM | 75 → 90 | Resolved | TD §The stops that ask, Testing |
+| Q34 | 5 | Mockup state 8's "Kiln then adds it… and starts phase 4." is false when the plan stop holds several questions or a failure fact | Technical | LOW | 80 → 90 | Resolved | PRD AC-ASK-07 table; TD §Screens, Testing |
+| Q35 | 5 | Does a billing hold count as a Needs you stop for a session's request? | Technical | LOW | 75 → 90 | Resolved | TD §The stops that ask, §Data Models, Testing |
 
 Status values: Pending · Investigating · Answered, not folded · Resolved · Assumption · Deferred (carried to next pass) · Blocked · Dropped (failed the scope gate on closer look; reason in notes). A Reframed question is replaced by a new row marked Pending with "reframed from Qn" in its notes.
 
@@ -145,6 +149,14 @@ Answer (90%): a request's label follows the same rule against the PRD's reposito
 
 Conformance pass 4: Data Models `stop.locate` lists the saved fields (label and fieldError aren't saved); a bullet notes a scopeRepositories key can be an address path; Testing covers a request's label; the schema 25 row names the address-path scope key (orchestrator, from conformance's pending question).
 
+### Q34
+Answer (90%): state 8's paragraph ("Kiln then adds it to the workspace and starts phase 4. Or clone it where the search reaches, and press Check again.") appears only when the stop holds one question and no other fact. Otherwise: one question block per question in plan order, each with its own field and button, and after the last block "Or clone it where the search reaches, and press Check again. Phase <n> starts once nothing else holds this stop." ("them" for several). Also the stop's lead ("Kiln couldn't add it") names one repository: with several, each block names its own. PRD AC-ASK-07 first row's last cell: "Adds the repository and starts the phase once nothing else holds the stop".
+
+### Q35
+Answer (investigator 85% reframed to yes; orchestrator 90%: the PRD's "for whatever reason" and the billing PRD's AC-RUN-02 calling the hold Needs you make inclusion required, and where to save follows the hold's own pattern): a billing hold is a Needs you stop of its phase (engine.ts:586,1479; snapshot.ts:746-750 builds its stop page). With a retained stop it shows that stop's saved questions; without one it saves them on `billing.hold.locate`, as it saves rows on `billing.hold.checks`; it searches when the hold is made and at each Check again; stoppedPhaseKey (engine.ts:8052) names the hold's phase, so locate-repository is eligible. Data Models: `billing.hold: { …, locate?: [ … ] }`, schema 25.
+
+Conformance pass 5: PRD AC-SEE-03 names the plan stop with several questions and counts a billing hold among other Needs you stops; its Replaces line adds billing safeguards AC-RUN-02 (orchestrator confirmed: that criterion describes the hold's screen); §Screens says so; Testing covers the hold, a two-question plan stop and one question beside a failure.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -152,7 +164,7 @@ Conformance pass 4: Data Models `stop.locate` lists the saved fields (label and 
 
 ## Conflict check
 Pass 1: 2026-11-22 · 16 earlier criteria changed · 8 existing lines confirmed · 4 Replaces lines to write (plus AC-ASK-07's lines from Q4) · 3 questions: A written up by the orchestrator (one sensible answer), B answered by Q4, C settled at 95% (Q2)
-Changed after pass 1: AC-FOLDER-01 (Q1); AC-SEE-03, AC-ASK-07, AC-ASK-01, AC-FIND-04 (reworded by the conflict fold); AC-SPLIT-01 (Q7)
+Changed after pass 1: AC-FOLDER-01 (Q1); AC-SEE-03, AC-ASK-07, AC-ASK-01, AC-FIND-04 (reworded by the conflict fold); AC-SPLIT-01 (Q7); AC-ASK-07 again (Q23, Q34); AC-SEE-03 again (pass 5 conformance: billing hold page, AC-RUN-02 Replaces)
 Completion:
 
 ## Register re-sort
@@ -176,4 +188,4 @@ Pass 1: 2026-11-22 · 3 open entries · first sort kept all 3 business · doubt 
 | The worktree has no node_modules, so Kiln's tests and build can't run here | Any question needing a run of Kiln code | Read the code instead; `npm ci` only if a question can't be settled by reading |
 
 ## Next action
-Pass 5: discovery (one subagent, state file for repeats).
+Pass 6: discovery (one subagent, state file for repeats).
