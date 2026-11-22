@@ -23,6 +23,17 @@ export function originLine(result: Pick<CompletedPlanResult, "origin" | "source"
   return `Added on ${when(origin.committedAt).replace(", ", " at ")}, in commit ${origin.revision.slice(0, 7)} “${origin.subject}”.`;
 }
 
+/**
+ * The Merged card's line for no new phases (Kiln After Delivery AC-WAIT-03, mockup state 3):
+ * "No new phases found. Kiln checked develop at 3:19 PM.", with the date when it was not today.
+ */
+export function noNewPhasesInCardLine(branch: string, iso: string, now = new Date()): string {
+  const at = new Date(iso);
+  const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const today = at.toDateString() === now.toDateString();
+  return `No new phases found. Kiln checked ${branch} ${today ? "" : `on ${at.toLocaleDateString("en-US", { month: "short", day: "numeric" })} `}at ${time}.`;
+}
+
 /** "Last checked Dec 12 at 9:40 AM." */
 export const lastCheckedLine = (iso: string): string => `Last checked ${when(iso).replace(", ", " at ")}.`;
 
@@ -46,11 +57,11 @@ export function uncommittedLine(result: Pick<CompletedPlanResult, "uncommitted">
 
 /**
  * The terminal's and `kiln status`'s sentence for unfinished phases:
- * "2 phases were added to this PRD after Kiln finished it: 5, 6, in commit a41c0d2 on origin/develop (Nov 24, 2:10 PM)."
+ * "2 phases were added to this PRD after Kiln finished it: 5, 6, in commit a41c0d2 “Plan the return labels” on origin/develop (Nov 24, 2:10 PM)."
  */
 export function addedSentence(result: Pick<CompletedPlanResult, "added" | "origin" | "source">): string {
   const ids = result.added.map(phase => phase.id).join(", ");
   const origin = result.origin;
-  const where = !origin ? "" : origin.kind === "unpushed" ? `, committed on this machine's ${result.source.branch} and not pushed; Continue pushes them first` : `, in commit ${origin.revision.slice(0, 7)} on origin/${result.source.branch} (${when(origin.committedAt)})`;
+  const where = !origin ? "" : origin.kind === "unpushed" ? `, committed on this machine's ${result.source.branch} and not pushed; Continue pushes them first` : `, in commit ${origin.revision.slice(0, 7)} “${origin.subject}” on origin/${result.source.branch} (${when(origin.committedAt)})`;
   return `${addedHeading(result.added.length)}: ${ids}${where}.`;
 }

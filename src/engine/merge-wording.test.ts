@@ -1,7 +1,7 @@
 // The pull request card's words for the merge and the offer table (Kiln After Delivery AC-MERGE-01,
 // AC-MERGE-07, mockup state 1), and the order the merge session is given (SCOPE-001).
 import { describe, expect, it } from "vitest";
-import { closedLine, mergeNote } from "./merge-wording.js";
+import { closedLine, closedOfferLine, mergeNote } from "./merge-wording.js";
 import { mergeOffer, orderedForMerge, type PullRequestReading } from "./delivery-reading.js";
 import type { PrdRecord } from "../state/records.js";
 
@@ -42,6 +42,13 @@ describe("the offer table (AC-MERGE-07)", () => {
     expect(mergeOffer(record([reading("acme-shop", 218, "open"), reading("acme-api", 57, "open")], [{ repository: "acme-api", number: 57 }]))).toEqual({ kind: "unreadable", problem: "HTTP 502" });
     expect(mergeOffer(record([reading("acme-shop", 218, "open"), reading("acme-api", 57, "merged")], [{ repository: "acme-api", number: 57 }])).kind).toBe("offered");
     expect(mergeOffer(record([reading("acme-shop", 218, "open")])).kind).toBe("unreadable");
+  });
+  it("is closed, and also says GitHub could not be read and why, when one is closed and another could not be read", () => {
+    const offer = mergeOffer(record([reading("acme-shop", 218, "open"), reading("acme-api", 57, "closed")], [{ repository: "acme-shop", number: 218 }]));
+    expect(offer).toMatchObject({ kind: "closed", closed: [{ number: 57 }], unreadable: { pullRequests: [{ repository: "acme-shop", number: 218 }], problem: "HTTP 502" } });
+    expect(mergeOffer(record([reading("acme-shop", 218, "open"), reading("acme-api", 57, "closed")]))).not.toHaveProperty("unreadable");
+    // The one that could not be read is never named as one to merge by hand.
+    expect(offer.kind === "closed" && closedOfferLine({ multi: true, ...offer })).toBe("acme-api #57 was closed without merging, so Kiln doesn’t offer to merge this delivery. Reopen #57 on GitHub and the merge comes back. GitHub could not be read for acme-shop #218. HTTP 502");
   });
   it("keeps the recorded order for pull requests that state none", () => {
     expect(orderedForMerge([{ repository: "b", number: 2 }, { repository: "a", number: 1 }], [{ repository: "a", number: 1 }, { repository: "b", number: 2 }]).map(row => row.repository)).toEqual(["a", "b"]);

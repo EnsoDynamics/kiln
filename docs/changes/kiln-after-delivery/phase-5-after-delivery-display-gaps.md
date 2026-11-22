@@ -1,5 +1,7 @@
 # Phase 5: Complete the after-delivery card, header, phase count and status text
 
+**Closed:** 2026-11-22
+
 **Added by delivery audit:** 2026-11-22, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln After Delivery](kiln-after-delivery-prd.md)
 **Technical design:** [Kiln After Delivery technical design](kiln-after-delivery-technical-design.md) — relevant sections: "The Delivery Reading", "Display Contract", "Interfaces", "After-Delivery Activities"

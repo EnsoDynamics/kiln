@@ -23,10 +23,12 @@
   };
   const look = $derived(LOOKS[state.kind]);
   // A finished run's check (Kiln After Delivery "Display Contract"): never "Plan needs reconciliation",
-  // and while the delivery waits to merge the check never changes the header.
+  // and while the delivery waits to merge the check never changes the header. While a pull request is
+  // closed, only a check that finds new phases does: the header keeps PR ready for review (AC-MERGE-07).
   const planCheckLabel = $derived.by(() => {
     const check = snapshot.continuation?.check;
     if (snapshot.feature.state !== "complete" || !check || snapshot.afterDelivery?.waiting || check.status === "awaiting_merge" || snapshot.afterDelivery?.merge && snapshot.afterDelivery.merge.state !== "done") return undefined;
+    if (snapshot.afterDelivery?.pullRequests.some(pull => pull.state === "closed")) return check.result?.added.length && check.status !== "checking" && check.status !== "failed" ? "New phases found" : undefined;
     if (check.status === "checking") return "Checking for new phases";
     if (check.status === "failed") return "Could not check for new phases";
     return check.result?.added.length ? "New phases found" : undefined;

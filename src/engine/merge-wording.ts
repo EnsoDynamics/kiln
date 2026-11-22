@@ -47,6 +47,21 @@ export function closedLine(input: { multi: boolean; closed: { repository: string
 /** The card's line when GitHub could not be read (AC-MERGE-07). */
 export const unreadableLine = (problem: string): string => `GitHub could not be read, so Kiln doesn’t offer the merge. ${problem}`;
 
+/**
+ * Beside the closed line, when another of the delivery's pull requests could not be read (AC-MERGE-07).
+ *
+ *   unreadableBesideClosedLine([{ repository: "acme-web", number: 12 }], "HTTP 502")
+ *   // "GitHub could not be read for acme-web #12. HTTP 502"
+ */
+export const unreadableBesideClosedLine = (pullRequests: { repository: string; number: number }[], problem: string): string =>
+  `GitHub could not be read for ${pullRequests.map(row => `${row.repository} #${row.number}`).join(" and ")}. ${problem}`;
+
+/** The closed row's whole line (AC-MERGE-07): the closed line, then the unreadable one when another could not be read. */
+export function closedOfferLine(input: Parameters<typeof closedLine>[0] & { unreadable?: { pullRequests: { repository: string; number: number }[]; problem: string } }): string {
+  const closed = closedLine(input);
+  return input.unreadable ? `${closed} ${unreadableBesideClosedLine(input.unreadable.pullRequests, input.unreadable.problem)}` : closed;
+}
+
 /** Said wherever a running merge session offers no message box, pause or takeover (AC-MERGE-05, MERGE-001). */
 export const MERGE_LIVE_REASON = "Like the pull request session, the merge session can’t be messaged, paused or taken over while it runs.";
 

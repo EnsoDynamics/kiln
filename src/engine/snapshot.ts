@@ -32,8 +32,8 @@ import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
 import { deliveryWaiting, latestPlanPush, mergeOffer, openAfterDeliveryKey, type MergeOffer, type PlanPushActivity } from "./delivery-reading.js";
-import { closedLine, mergeNote, unreadableLine } from "./merge-wording.js";
-import { isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
+import { closedOfferLine, mergeNote, unreadableLine } from "./merge-wording.js";
+import { isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
 import { readAcceptance } from "./continuation-state.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
@@ -610,7 +610,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
       state,
-      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && phase.state === "done").length : leaves.filter((leaf) => effectiveRecordedClosed(record, leaf)).length,
+      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && !isAfterDeliveryKey(phase.id) && phase.state === "done").length : leaves.filter((leaf) => effectiveRecordedClosed(record, leaf)).length,
       phasesTotal: leaves.length,
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
@@ -1389,7 +1389,7 @@ export function afterDeliveryView(engine: Engine): AfterDeliveryView {
     kind: offer.kind, available: control.available, ...optional("reason", control.available ? undefined : control.reason),
     ...(offer.kind === "offered" && control.offered ? { note: mergeNote({ agent, multi, toMerge: offer.toMerge.map(row => ({ repository: row.repository, number: row.number, base: base(row), ordered: !!row.order })), merged: offer.merged }) } : {}),
     // The closed line shows only while no merge activity exists (Display Contract).
-    ...(offer.kind === "closed" && !merge ? { line: closedLine({ multi, closed: offer.closed, open: offer.open }) } : offer.kind === "unreadable" && !merge ? { line: unreadableLine(offer.problem) } : {}),
+    ...(offer.kind === "closed" && !merge ? { line: closedOfferLine({ multi, ...offer }) } : offer.kind === "unreadable" && !merge ? { line: unreadableLine(offer.problem) } : {}),
   };
   return {
     pullRequests: state.pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }),

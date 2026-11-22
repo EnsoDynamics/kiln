@@ -15,7 +15,7 @@ import { authorityForApproval, changesContinuationScope, readPendingAuthority, w
 import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, retainExecution, type ContinuationAcceptance, type ContinuationState, type ExecutionSummary } from "./continuation-state.js";
 import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck, type DeliveryDecision } from "./completed-plan-discovery.js";
 import { deliveryWaiting, findMainCheckout, latestPlanPush, mergeOffer, openAfterDeliveryKey, openMerge, openPlanPush, orderedForMerge, prdPullRequest, readDelivery, type PlanPushActivity } from "./delivery-reading.js";
-import { closedAtStopLine, closedLine, MERGE_LIVE_REASON, PLAN_PUSH_LIVE_REASON, unreadableLine } from "./merge-wording.js";
+import { closedAtStopLine, closedOfferLine, MERGE_LIVE_REASON, PLAN_PUSH_LIVE_REASON, unreadableLine } from "./merge-wording.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
 import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate, type GateState } from "../live/gate.js";
@@ -3806,7 +3806,7 @@ export class Engine {
         this.confirmedMerge();
         return { ok: true, outcome: "already_merged" };
       }
-      if (offer.kind === "closed") return { ok: false, code: "pull_request_closed", reason: closedLine({ multi: (this.record.pullRequests ?? []).length > 1, closed: offer.closed, open: offer.open }), status: 409 };
+      if (offer.kind === "closed") return { ok: false, code: "pull_request_closed", reason: closedOfferLine({ multi: (this.record.pullRequests ?? []).length > 1, ...offer }), status: 409 };
       if (offer.kind === "unreadable") return { ok: false, code: "github_unreadable", reason: unreadableLine(offer.problem), status: 503 };
       if (offer.kind !== "offered") return { ok: false, code: "merge_unavailable", reason: "This delivery has no pull request to merge.", status: 409 };
       const pressHeads: { repository: string; sha: string }[] = [];

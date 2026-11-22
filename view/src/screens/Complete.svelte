@@ -9,6 +9,7 @@
   import { onMount } from "svelte";
   import CompletedPlanCheck from "../components/CompletedPlanCheck.svelte";
   import { awaitingMergeText, checkNowLead } from "../../../src/engine/awaiting-merge.js";
+  import { addedHeading } from "../../../src/engine/new-phases-wording.js";
   import { checkForNewPhases, merge as pressMerge, start } from "../lib/api.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
@@ -67,6 +68,10 @@
   const allMerged = $derived(!!after && pullRequests.length > 0 && pullRequests.every(pull => readingOf(pull)?.state === "merged"));
   // Merged: Exit Kiln is the pull request card's main button (Kiln After Delivery AC-EXIT-01, mockup state 3).
   const exitInCard = $derived(allMerged && !!snapshot.exit);
+  // Once merged, the check's answer shows in the card beside Exit Kiln, not in a panel of its own (AC-WAIT-03, mockup state 3).
+  // Phases found keep their prominent panel above the earlier delivery (Kiln Continue Added Phases AC-OFFER-01), and the card names them in one line.
+  const phasesFound = $derived((check?.result ?? check?.earlierResult)?.added.length ?? 0);
+  const checkInCard = $derived(allMerged && !mergeOpen && !phasesFound && !snapshot.continuation?.acceptance);
   const readingOf = (pull: { repository: string; number: number }) => after?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number);
   const ordinal = (n: number) => ["first", "second", "third", "fourth", "fifth"][n - 1] ?? `${n}th`;
   const mergeRow = $derived((snapshot.activities ?? snapshot.phases).find(row => row.kind === "merge"));
@@ -128,6 +133,8 @@
       <div class="merge-summary"><h3 class="eyebrow">The merge session’s summary</h3><p class="summary-text">{mergeActivity.summary}</p></div>
     {/if}
     <div class="open"><ExitKiln {snapshot} {connected} main line={`Nothing is left for Kiln to do on this PRD. Exiting stops Kiln in its terminal; the ${pullRequests.length > 1 ? "worktrees stay" : "worktree stays"} until you remove ${pullRequests.length > 1 ? "them" : "it"}.`} />{#if url}<a class="button" href={url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>{/if}</div>
+    {#if panelShown && !planPush && phasesFound}<p class="note">{addedHeading(phasesFound)}. Continue is at the top of this page.</p>{/if}
+    {#if panelShown && !planPush && checkInCard}<CompletedPlanCheck inCard {now} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   {:else if after?.offer.note}
     <div class="open">
       <button class="button solid" type="button" disabled={!connected || !config || merging || !after.offer.available} title={after.offer.available ? undefined : after.offer.reason} onclick={pressMergeButton}>{merging ? "Starting…" : `Merge with ${snapshot.settings.agent}`}</button>
@@ -178,7 +185,7 @@
       {/if}
     </section>
   {/if}
-  {#if panelShown && !planPush}<CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
+  {#if panelShown && !planPush && !checkInCard}<CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}

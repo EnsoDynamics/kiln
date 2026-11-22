@@ -122,6 +122,9 @@ function rowLabel(record: PrdRecord, key: string, kind: string): { label: string
   if (audit) { const facts = auditNameFacts(record, audit); const name = auditName(facts); return { label: name.title, title: name.line ?? "", ...(facts.fixing ? { fixing: facts.fixing } : {}) }; }
   if (key === "pr" || kind === "final_delivery") return { label: "Final delivery", title: "" };
   if (activityKeyKind(key) === "preflight") return { label: "Preflight", title: "" };
+  // The after-delivery rows read as the screens name them (Kiln After Delivery AC-BOT-02).
+  if (activityKeyKind(key) === "merge") return { label: "Merge", title: "" };
+  if (activityKeyKind(key) === "plan_push") return { label: "Push the plan", title: "" };
   return { label: `Phase ${key}`, title: record.plan?.find(p => p.id === key)?.title ?? "" };
 }
 

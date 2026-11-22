@@ -525,7 +525,8 @@ it("a bot sees the delivery waiting to merge and checks a closed pull request wi
     expect(check.json().data).toMatchObject({ check: { status: "available" }, answer: { source: { kind: "remote_base", branch: "develop" }, origin: { kind: "commit", subject: "test(comet): publish revised plan" }, phases: expect.arrayContaining([{ id: "9", title: "Catalog capability 9" }]) } });
     expect(h.engine.record.afterDelivery?.checkedWhileClosedAt).toBeDefined();
     const answered = (await cli(["status", target])).stdout;
-    expect(answered).toContain("7 phases were added to this PRD after Kiln finished it: 9, 10, 11, 12, 13, 14, 15, in commit");
+    // The commit that added the phases, by its message too, as the page names it (Kiln After Delivery AC-BOT-02).
+    expect(answered).toMatch(/7 phases were added to this PRD after Kiln finished it: 9, 10, 11, 12, 13, 14, 15, in commit [0-9a-f]{7} “test\(comet\): publish revised plan” on origin\/develop \(/);
     expect(answered).not.toContain("Plan needs reconciliation");
   } finally { await hosted.server.close(); hosted.release(); }
 }, 120_000);

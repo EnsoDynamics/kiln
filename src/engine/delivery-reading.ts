@@ -97,7 +97,7 @@ export type MergeOffer =
   | { kind: "nothing" }
   | { kind: "offered"; toMerge: PullRequestReading[]; merged: PullRequestReading[] }
   | { kind: "all_merged" }
-  | { kind: "closed"; closed: PullRequestReading[]; open: PullRequestReading[] }
+  | { kind: "closed"; closed: PullRequestReading[]; open: PullRequestReading[]; unreadable?: { pullRequests: { repository: string; number: number }[]; problem: string } }
   | { kind: "unreadable"; problem: string };
 
 export function mergeOffer(record: Pick<PrdRecord, "pullRequests" | "afterDelivery">): MergeOffer {
@@ -107,8 +107,11 @@ export function mergeOffer(record: Pick<PrdRecord, "pullRequests" | "afterDelive
   const readings = pulls.map(pull => state?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number));
   const failed = (pull: { repository: string; number: number }) => !!state?.readError?.pullRequests?.some(row => row.repository === pull.repository && row.number === pull.number);
   const closed = readings.filter((row): row is PullRequestReading => row?.state === "closed" && !failed(row));
-  if (closed.length) return { kind: "closed", closed, open: readings.filter((row): row is PullRequestReading => row?.state === "open") };
-  if (readings.some((row, index) => !row || row.state !== "merged" && failed(pulls[index]!))) return { kind: "unreadable", problem: state?.readError?.problem ?? "Kiln has not read the pull requests from GitHub yet." };
+  // Both rows of AC-MERGE-07's table apply when one pull request is closed and another could not be read.
+  const unread = pulls.filter((pull, index) => !readings[index] || readings[index]!.state !== "merged" && failed(pull));
+  const problem = state?.readError?.problem ?? "Kiln has not read the pull requests from GitHub yet.";
+  if (closed.length) return { kind: "closed", closed, open: readings.filter((row): row is PullRequestReading => row?.state === "open" && !failed(row)), ...(unread.length ? { unreadable: { pullRequests: unread.map(({ repository, number }) => ({ repository, number })), problem } } : {}) };
+  if (unread.length) return { kind: "unreadable", problem };
   const merged = readings.filter((row): row is PullRequestReading => row!.state === "merged");
   if (merged.length === readings.length) return { kind: "all_merged" };
   return { kind: "offered", toMerge: orderedForMerge(readings.filter((row): row is PullRequestReading => row!.state === "open"), pulls), merged };

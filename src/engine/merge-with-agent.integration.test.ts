@@ -288,6 +288,21 @@ describe("what the card offers (AC-MERGE-07) and the press's own checks", () => 
     expect(mergeCalls()).toEqual([]);
   });
 
+  it("says GitHub could not be read, and why, beside the closed line when one pull request is closed and another can't be read", async () => {
+    await finished([]);
+    // A second pull request of the delivery, in a repository Kiln has no record of, so its read fails.
+    h!.engine.record.pullRequests = [...h!.engine.record.pullRequests!, { ...h!.engine.record.pullRequests![0]!, repository: "acme-api", number: 57, url: "https://github.com/acme/acme-api/pull/57" }];
+    show("closed");
+    await h!.engine.checkCompletedPlan({ press: true }).catch(() => undefined);
+    const offer = buildSnapshot(h!.engine).afterDelivery!.offer;
+    expect(offer.kind).toBe("closed");
+    expect(offer.available).toBe(false);
+    expect(offer.line).toContain("acme-shop #218 was closed without merging, so Kiln doesn’t offer to merge this delivery.");
+    expect(offer.line).toContain("GitHub could not be read for acme-api #57.");
+    // And why: Kiln has no GitHub repository recorded for it.
+    expect(offer.line).toBe("acme-shop #218 was closed without merging, so Kiln doesn’t offer to merge this delivery. Reopen #218 on GitHub and the merge comes back. GitHub could not be read for acme-api #57. Kiln has no GitHub repository recorded for acme-api.");
+  });
+
   it("completes as already merged when GitHub shows every pull request merged, with no session", async () => {
     await finished([]);
     mergeByHand();

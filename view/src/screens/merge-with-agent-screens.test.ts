@@ -115,3 +115,84 @@ describe("the merge session's waits and restart hold (AC-MERGE-05)", () => {
     expect(closed!.since).not.toBe(timeSpan(snapshot.feature.startedAt!, snapshot.feature.completedAt!, new Date(RUNNING_NOW)));
   });
 });
+
+// Phase 5 of Kiln After Delivery (the display gaps the delivery audit found): the check's answer beside
+// Exit Kiln once merged (AC-WAIT-03, mockup state 3) and the header while a pull request is closed (AC-MERGE-07).
+describe("the check's answer and the header after delivery", () => {
+  const result = (added: { id: string; title: string }[]) => ({ baselineId: "b", candidateId: "c", source: { kind: "remote_base", branch: "develop", revision: "0a3d75d" }, uncommitted: [], added, problems: [], ...(added.length ? { origin: { kind: "commit", revision: "a41c0d2aa", committedAt: "2026-10-18T14:10:00Z", subject: "Plan the return labels" } } : {}) });
+  const check = (status: string, added: { id: string; title: string }[] = []) => ({ check: { status, attemptedAt: "2026-10-17T19:20:00Z", lastSuccessfulAt: "2026-10-17T19:20:00Z", errors: status === "failed" ? ["HTTP 502"] : [], ...(status === "checking" || status === "failed" ? {} : { result: result(added) }) } }) as unknown as Snapshot["continuation"];
+  function merged(continuation: Snapshot["continuation"]): Snapshot {
+    const snapshot = finished({ waiting: false, offer: { kind: "all_merged", available: false }, merge: { state: "done", summary: "Merged #218.", pullRequests: [{ repository: "acme-shop", number: 218 }], folder: "~/w" } }, [{ repository: "acme-shop", number: 218, state: "merged", mergedAt: "2026-10-17T19:19:00Z", mergeCommit: "8e41c0d9aa", readAt: "2026-10-17T19:20:00Z" }]);
+    snapshot.exit = { available: true, command: "kiln run docs/prds/customer-returns" };
+    snapshot.continuation = continuation;
+    return snapshot;
+  }
+  const html = (snapshot: Snapshot) => render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body;
+
+  it("shows the answer in the Merged card beside Exit Kiln, with no panel of its own above the card (state 3)", () => {
+    const markup = html(merged(check("unchanged")));
+    expect(markup.match(/class="plan-check/g)).toHaveLength(1);
+    const card = markup.indexOf("Pull request #218");
+    const exit = markup.indexOf(">Exit Kiln</button>");
+    const panel = markup.indexOf("class=\"plan-check");
+    expect(card).toBeGreaterThan(-1);
+    expect(exit).toBeGreaterThan(card);
+    expect(panel).toBeGreaterThan(exit);
+    expect(markup.slice(card, markup.indexOf("Phase plan"))).toContain("No new phases found");
+    expect(markup).toMatch(/class="plan-check[^"]*in-card/);
+    // The page's clock decides the date: none for a check made today, the date for an earlier one.
+    const at = (now: number) => text(render(Complete, { props: { snapshot: merged(check("unchanged")), connected: true, now, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body);
+    const time = new Date("2026-10-17T19:20:00Z").toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    expect(at(Date.parse("2026-10-17T19:30:00Z"))).toContain(`No new phases found. Kiln checked develop at ${time}. Check for new phases`);
+    expect(at(Date.parse("2026-10-25T12:00:00Z"))).toMatch(new RegExp(`No new phases found\\. Kiln checked develop on Oct 1[78] at ${time}\\. Check for new phases`));
+  });
+
+  it("keeps found phases in the prominent panel above the earlier delivery, and names them beside Exit Kiln (AC-WAIT-03 with Kiln Continue Added Phases AC-OFFER-01)", () => {
+    const markup = html(merged(check("available", [{ id: "5", title: "Return labels" }])));
+    expect(markup.match(/class="plan-check/g)).toHaveLength(1);
+    expect(markup).not.toMatch(/class="plan-check[^"]*in-card/);
+    const panel = markup.indexOf("class=\"plan-check");
+    const card = markup.indexOf("Pull request #218");
+    const exit = markup.indexOf(">Exit Kiln</button>");
+    expect(panel).toBeLessThan(card);
+    expect(text(markup.slice(exit, markup.indexOf("Phase plan")))).toContain("1 phase was added to this PRD after Kiln finished it. Continue is at the top of this page.");
+    expect(header(merged(check("available", [{ id: "5", title: "Return labels" }])))).toContain("New phases found");
+  });
+
+  it("shows the answer in the card on a run with several pull requests too", () => {
+    const snapshot = merged(check("unchanged"));
+    const one = snapshot.pullRequests![0]!;
+    snapshot.feature.multiRepository = true;
+    snapshot.pullRequests = [one, { ...one, repository: "acme-api", number: 57, url: "https://github.com/acme/acme-api/pull/57" }];
+    snapshot.afterDelivery!.pullRequests = [...snapshot.afterDelivery!.pullRequests, { repository: "acme-api", number: 57, state: "merged", mergedAt: "2026-10-17T19:18:00Z", mergeCommit: "77aa0000", readAt: "2026-10-17T19:20:00Z" }];
+    const markup = html(snapshot);
+    expect(markup.match(/class="plan-check/g)).toHaveLength(1);
+    expect(markup).toMatch(/class="plan-check[^"]*in-card/);
+    expect(markup.indexOf("class=\"plan-check")).toBeGreaterThan(markup.indexOf(">Exit Kiln</button>"));
+    expect(text(markup)).toContain("the worktrees stay until you remove them.");
+  });
+
+  it("keeps the panel of its own while the delivery is not merged", () => {
+    const snapshot = finished({ waiting: false, offer: { kind: "closed", available: false, line: "Pull request #218 was closed without merging, so Kiln doesn’t offer to merge it. Reopen it on GitHub and the merge comes back." } }, [{ repository: "acme-shop", number: 218, state: "closed", readAt: "2026-10-17T19:00:00Z" }]);
+    snapshot.continuation = check("unchanged");
+    const markup = html(snapshot);
+    expect(markup.indexOf("class=\"plan-check")).toBeLessThan(markup.indexOf("Pull request #218"));
+    expect(markup).not.toMatch(/class="plan-check[^"]*in-card/);
+  });
+
+  it("keeps PR ready for review while a pull request is closed, unless a check finds new phases (AC-MERGE-07)", () => {
+    const closed = (continuation: Snapshot["continuation"]) => {
+      const snapshot = finished({ waiting: false, offer: { kind: "closed", available: false } }, [{ repository: "acme-shop", number: 218, state: "closed", readAt: "2026-10-17T19:00:00Z" }]);
+      snapshot.continuation = continuation;
+      return header(snapshot);
+    };
+    for (const status of ["checking", "failed", "unchanged"]) {
+      const words = closed(check(status));
+      expect(words, status).toContain("PR ready for review");
+      expect(words, status).not.toContain("new phases");
+    }
+    expect(closed(check("available", [{ id: "5", title: "Return labels" }]))).toContain("New phases found");
+    // A merged delivery's check still shows in the header, as today.
+    expect(header(merged(check("failed")))).toContain("Could not check for new phases");
+  });
+});

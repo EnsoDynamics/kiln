@@ -10,6 +10,7 @@ import { deliveryFixture } from "../test-support/development-delivery-fixture.js
 import { git } from "../test-support/git-repositories.js";
 import { evaluateRepositories } from "./development-delivery.js";
 import { MERGE_KEY } from "../state/activity-keys.js";
+import { buildSnapshot } from "./snapshot.js";
 
 let fixture: Awaited<ReturnType<typeof deliveryFixture>> | undefined;
 afterEach(async () => { await fixture?.h.cleanup(); fixture = undefined; });
@@ -112,4 +113,21 @@ it("leaves the run complete through a merge stop and the merge's close on an ear
   expect(engine.record.developmentDelivery!.currentComplete).toBe(true);
   expect(engine.currentlyComplete).toBe(true);
   expect(await engine.decide()).toMatchObject({ kind: "complete" });
+});
+
+it("never counts the finished Merge row or a pushed Push the plan row among the phases done on an early-merge run (AC-MERGE-05)", async () => {
+  const setup = await finishedWithReview();
+  const engine = setup.f.h.engine;
+  const before = buildSnapshot(engine).feature;
+  const at = new Date().toISOString();
+  reviewMerged(setup);
+  engine.record.afterDelivery!.merge = { operationId: "merge-press", requestedAt: at, via: "browser", pullRequests: [{ repository: "acme-shop", number: 2 }], pressHeads: [{ repository: "acme-shop", sha: setup.head }] };
+  (engine as unknown as { closeMerge(summary?: string): void }).closeMerge();
+  // Continue's push past Done, its row reading done while its check decides.
+  engine.record.afterDelivery!.planPushes = [{ operationId: "op-9", requestedAt: at, via: "browser", proposalId: "p-1", offered: [], doneAt: at }];
+  engine.record.phases["plan-push-op-9"] = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: at };
+  const after = buildSnapshot(engine);
+  expect(after.phases.filter(row => row.id === MERGE_KEY || row.id === "plan-push-op-9").map(row => [row.title, row.state])).toEqual([["Merge", "done"], ["Push the plan", "done"]]);
+  expect(after.feature.phasesDone).toBe(before.phasesDone);
+  expect(after.feature.phasesDone).toBeLessThanOrEqual(after.feature.phasesTotal);
 });

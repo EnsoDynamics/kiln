@@ -5,10 +5,11 @@
   // waits to merge the page shows no panel; the pull request card carries the one line (AC-WAIT-02).
   import BusyStatus from "./BusyStatus.svelte";
   import type { CompletedPlanCheck } from "../../../src/engine/completed-plan-discovery.js";
-  import { addedHeading, continueLine, lastCheckedLine, notReadLine, originLine, uncommittedLine } from "../../../src/engine/new-phases-wording.js";
+  import { addedHeading, continueLine, lastCheckedLine, noNewPhasesInCardLine, notReadLine, originLine, uncommittedLine } from "../../../src/engine/new-phases-wording.js";
   import { authorizeContinuation, checkForNewPhases, continueFeature, type PageConfig } from "../lib/api.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
-  let { check, config, connected, acceptance, prdDirectory }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"]; prdDirectory: string } = $props();
+  // inCard: once every pull request has merged, the answer sits in the pull request card beside Exit Kiln (AC-WAIT-03, mockup state 3).
+  let { check, config, connected, acceptance, prdDirectory, inCard = false, now }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"]; prdDirectory: string; inCard?: boolean; now?: number } = $props();
   let pending = $state(false);
   let continuing = $state(false);
   // Continue and Retry preparation, not the early-merge tick, show the busy spinner.
@@ -19,6 +20,8 @@
   const earlier = $derived(pending || !!refreshFailure || check?.status === "failed" || check?.status === "checking");
   const result = $derived(earlier ? check?.earlierResult ?? check?.result : check?.result);
   const external = $derived(result?.leaves?.filter(row => row.classification === "externally_verified" || row.classification === "externally_unverified") ?? []);
+  // In the Merged card, no new phases is one line with its check time, as mockup state 3 shows it.
+  const cardLine = $derived(inCard && !earlier && check?.status === "unchanged" && result ? noNewPhasesInCardLine(result.source.branch, check.attemptedAt, now === undefined ? undefined : new Date(now)) : undefined);
   const notes = $derived(result ? [notReadLine(result), uncommittedLine(result, prdDirectory)].filter((line): line is string => !!line) : []);
   // Check for new phases is a person's press (AC-WAIT-01).
   async function refresh() {
@@ -51,8 +54,9 @@
   }
 </script>
 
-<section class="plan-check" aria-label="Current plan check" aria-live="polite">
-  <h2>{check?.status === "checking" || pending ? "Checking for new phases" : refreshFailure || check?.status === "failed" ? "Could not check for new phases" : result?.added.length ? addedHeading(result.added.length) : check?.status === "unchanged" ? "No new phases found" : "Check for new phases"}</h2>
+<section class="plan-check" class:in-card={inCard} aria-label="Current plan check" aria-live="polite">
+  {#if cardLine}<p class="answer">{cardLine} <button class="link" type="button" onclick={refresh} disabled={!connected || !config || pending}>Check for new phases</button></p>{:else}
+  <h2>{check?.status === "checking" || pending ? "Checking for new phases" : refreshFailure || check?.status === "failed" ? "Could not check for new phases" : result?.added.length ? addedHeading(result.added.length) : check?.status === "unchanged" ? "No new phases found" : "Check for new phases"}</h2>{/if}
   {#if refreshFailure}<p role="alert">{refreshFailure}</p>{/if}
   {#if error}<p role="alert">{error}</p>{/if}
   {#if earlier}<p>Showing earlier results. The current phase count is unknown.</p>{/if}
@@ -105,13 +109,20 @@
     {/if}
     {#each notes as note}<p class="note">{note}</p>{/each}
   {/if}
-  <button class="button" type="button" onclick={refresh} disabled={!connected || !config || pending || check?.status === "checking"}>{pending || check?.status === "checking" ? "Checking…" : "Check for new phases"}</button>
-  {#if check?.lastSuccessfulAt}<p class="source">{lastCheckedLine(check.lastSuccessfulAt)}</p>{/if}
+  {#if !cardLine}
+    <button class="button" type="button" onclick={refresh} disabled={!connected || !config || pending || check?.status === "checking"}>{pending || check?.status === "checking" ? "Checking…" : "Check for new phases"}</button>
+    {#if check?.lastSuccessfulAt}<p class="source">{lastCheckedLine(check.lastSuccessfulAt)}</p>{/if}
+  {/if}
 </section>
 
 <style>
   .plan-check { border: 1px solid var(--amber); border-radius: 16px; padding: 24px; margin: 24px 0; overflow-wrap: anywhere; }
   h2 { font-family: var(--serif); font-weight: 400; font-size: 34px; }
+  .plan-check.in-card { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 16px 0 0; margin: 0; }
+  .in-card h2 { font-size: 24px; margin: 0 0 8px; }
+  .answer { margin: 0; font-size: 13.5px; }
+  .link { background: none; border: 0; padding: 0 0 0 8px; font: inherit; font-weight: 600; color: var(--green); text-decoration: underline; cursor: pointer; }
+  .link:disabled { color: var(--dim); cursor: default; }
   p, li { color: var(--muted); line-height: 1.6; }
   .source { font-size: 12px; }
   .problem { border-left: 3px solid var(--amber); padding-left: 12px; color: var(--text); }

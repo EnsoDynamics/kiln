@@ -74,6 +74,18 @@ describe("status waiver facts", () => {
     expect(activityWaivers(audit, "4").warnings).toEqual([{ kind: "plan_problem_waived", text: "plan problem waived: Kiln followed its normal order", waiver_id: "w-p" }]);
   });
 
+  it("names the Merge and Push the plan rows as the screens do, in text and JSON (Kiln After Delivery AC-BOT-02)", () => {
+    const after = record({ activities: [{ activityId: "a2", sequence: 1, kind: "implementation", key: "2", createdAt: "" }, { activityId: "m", sequence: 2, kind: "merge", key: "merge", createdAt: "" }, { activityId: "p", sequence: 3, kind: "plan_push", key: "plan-push-op-9", createdAt: "" }] as unknown as NonNullable<PrdRecord["activities"]> });
+    after.phases.merge = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: "2026-11-02T02:00:00.000Z" };
+    const rows = progressRows(after, "plan-push-op-9");
+    expect(rows.filter(r => r.key === "merge" || r.key.startsWith("plan-push-")).map(r => [r.key, r.label, r.title, r.state])).toEqual([["merge", "Merge", "", "complete"], ["plan-push-op-9", "Push the plan", "", "running"]]);
+    const text = progressText("Example feature", rows);
+    expect(text).toContain("Merge");
+    expect(text).toContain("Push the plan");
+    expect(text).not.toContain("Phase merge");
+    expect(text).not.toContain("Phase plan-push");
+  });
+
   it("prints the mockup's kiln status block: complete · 1 check waived with time and source, counts and the waived item", () => {
     const rows = progressRows(record(), "4");
     expect(rows.map(r => [r.key, r.state, r.status_label])).toEqual([["2", "complete", "Complete"], ["3", "complete", "Complete · 1 check waived"], ["4", "running", null]]);
