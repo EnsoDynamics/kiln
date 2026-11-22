@@ -6,7 +6,10 @@
   // multi-repository PRD (docs/changes/kiln-multi-repo-delivery/mockups/
   // kiln-screen-complete-repositories.html) lists every pull request with its repository, and
   // the workspace folder Kiln keeps with its worktrees (multi-repo AC-PRS-03, AC-SPACE-05).
+  import { onMount } from "svelte";
   import CompletedPlanCheck from "../components/CompletedPlanCheck.svelte";
+  import { awaitingMergeText, checkNowLead } from "../../../src/engine/awaiting-merge.js";
+  import { checkForNewPhases } from "../lib/api.js";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import ForYou from "../components/ForYou.svelte";
   import ClosingAudits from "../components/ClosingAudits.svelte";
@@ -32,12 +35,41 @@
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
   const number = (value: number) => value.toLocaleString("en-US");
   const commitCount = (pullRequest: PullRequestFacts) => `${pullRequest.commits >= 100 ? "100+" : number(pullRequest.commits)} ${pullRequest.commits === 1 ? "commit" : "commits"}`;
+  // While the delivery waits to merge (Kiln After Delivery AC-WAIT-02): no check panel, one line in the pull request card.
+  // The HTTP answer is applied at once; the event stream may bring the same check later (the newer one wins).
+  let answered = $state<import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck>();
+  const check = $derived.by(() => {
+    const streamed = snapshot.continuation?.check;
+    if (!answered || !streamed) return streamed ?? answered;
+    const later = Date.parse(answered.attemptedAt) - Date.parse(streamed.attemptedAt);
+    return later > 0 || later === 0 && streamed.status === "checking" ? answered : streamed;
+  });
+  const awaiting = $derived(check?.status === "awaiting_merge" ? check.awaitingMerge : undefined);
+  const panelShown = $derived(!!snapshot.continuation?.acceptance || !!check && !awaiting && !snapshot.afterDelivery?.waiting && !(check.status === "checking" && !snapshot.afterDelivery && pullRequests.length > 0));
+  let checking = $state(false);
+  let checkProblem = $state<string>();
+  async function checkNow(press: boolean) {
+    if (!config || !connected || checking) return;
+    checking = true; checkProblem = undefined;
+    try { const answer = await checkForNewPhases(config, press); if (answer.check) answered = answer.check; else checkProblem = answer.reason ?? "Could not check for new phases. Try again."; }
+    catch (failure) { checkProblem = (failure as Error).message; }
+    finally { checking = false; }
+  }
+  // The page's one request when it loads, which reads GitHub first; an event-stream reconnect makes none.
+  onMount(() => { void checkNow(false); });
   const tagFor = (repository: string) => {
     if (repository === snapshot.feature.repositoryName) return "PRD’s repository";
     const added = snapshot.repositories.find((row) => row.name === repository)?.addedInPhase;
     return added === undefined ? undefined : addedLabel(added);
   };
 </script>
+
+{#snippet waitingLine()}
+  {#if awaiting}
+    <p class="note new-phases">{awaitingMergeText(awaiting)}{checkNowLead(awaiting) ? ` ${checkNowLead(awaiting)}` : ""} <button class="link" type="button" disabled={!connected || !config || checking || check?.status === "checking"} onclick={() => checkNow(true)}>{checking || check?.status === "checking" ? "Checking…" : "Check now"}</button></p>
+    {#if checkProblem}<p class="history-gap" role="alert">{checkProblem}</p>{/if}
+  {/if}
+{/snippet}
 
 {#snippet historyRow(event: DeliveryEvent)}
   {@const time = deliveryTime(event.occurredAt, now)}
@@ -53,7 +85,7 @@
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
   {#if criticalFirst}<ForYou {snapshot} />{/if}
-  <CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} check={snapshot.continuation?.check} {config} {connected} />
+  {#if panelShown}<CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}
@@ -74,6 +106,7 @@
         {/each}
       </ul>
       <p class="note">Human review is next. The pull requests say which to merge first. Kiln stops at “PR ready” and doesn’t merge.</p>
+      {@render waitingLine()}
     </section>
   {:else if pr}
     <section class="pr">
@@ -84,6 +117,7 @@
         <a class="button solid" href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>
         <span class="note">{snapshot.developmentDelivery?.authorization.enabled ? "This remaining work awaits human review. Earlier development deliveries are recorded above." : "Human review is next. Kiln stops at “PR ready” and doesn’t merge."}</span>
       </div>
+      {@render waitingLine()}
     </section>
   {/if}
   {#if mergedBranches.length}
@@ -164,6 +198,8 @@
 
 <style>
   .history-repo .pr-title { overflow-wrap: anywhere; }
+  .link { background: none; border: 0; padding: 0; font: inherit; color: var(--green); text-decoration: underline; cursor: pointer; }
+  .link:disabled { color: var(--dim); cursor: default; }
   .history-repo h3 { margin: 0; }
   .history-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 8px; }
   .event-time { font-size: 12.5px; color: var(--dim); }

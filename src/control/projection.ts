@@ -36,7 +36,7 @@ import { findExecutable } from "../platform/helper-process.js";
 import { displayPath } from "../engine/worktree-setup.js";
 import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed } from "../state/audit-loops.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
-import { continuationFacts, deliveredFacts } from "./delivered-facts.js";
+import { afterDeliveryFacts, continuationFacts, deliveredFacts } from "./delivered-facts.js";
 
 export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases", "handoff"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
@@ -338,7 +338,9 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     items: view?.items?.map(projectPersonItem) ?? null,
     // A finished run's loops, For you and pull requests, and the offer to continue the finished page shows (AC-LEFT-02, AC-BOT-02).
     delivered: view?.delivered ? deliveredFacts(view.delivered, record) : null,
-    continuation: record.completedAt && (view?.continuation?.check ?? record.completedPlanCheck) ? continuationFacts((view?.continuation?.check ?? record.completedPlanCheck)!) : null,
+    continuation: record.completedAt && (view?.continuation?.check ?? record.completedPlanCheck) ? continuationFacts((view?.continuation?.check ?? record.completedPlanCheck)!, record.prdDirectory) : null,
+    // What GitHub last showed of the delivery's pull requests, and whether it waits to merge (Kiln After Delivery AC-BOT-02).
+    after_delivery: afterDeliveryFacts(record),
     pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
     progress,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },

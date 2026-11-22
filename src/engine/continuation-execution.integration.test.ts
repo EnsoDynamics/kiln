@@ -8,6 +8,7 @@ import { effectiveAudit } from "../audit/workflow.js";
 import type { Harness } from "../test-support/engine-harness.js";
 import { landingSession, pullRequestSession, waitFor } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
+import { recordedPullRequest } from "../test-support/recorded-pull-requests.js";
 import { readPrdRecord, writePrdRecord } from "../state/records.js";
 let h: Harness;
 afterEach(async () => { vi.restoreAllMocks(); await h?.engine.stop("sigint"); await h?.cleanup(); });
@@ -49,6 +50,32 @@ it("accepts once from current bases, archives earlier completion and starts a fr
   expect((await h.engine.continuationCommand("accept", { ...body, commandId: "same-proposal-second-id" })).ok).toBe(true);
   expect(h.engine.record.continuation?.executions).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(1);
 });
+
+it("keeps a phase finished before Continue closed in the build Continue started, while its own phases still get their checks (Kiln After Delivery AC-BACK-01)", async () => {
+  await fixture();
+  const { landingSession } = await import("../test-support/engine-harness.js");
+  const { COMET_DIRECTORY, cometPhase } = await import("../test-support/comet-continuation-fixture.js");
+  const { buildSnapshot } = await import("./snapshot.js");
+  const { writeFileSync } = await import("node:fs");
+  // Phase 9's session also removes finished phase 3's Closed line; phase 10's reopens phase 9, which this build finished.
+  const reopen = (id: number, extra = "") => ({ write: { path: `${COMET_DIRECTORY}/phase-${id}-catalog.md`, content: cometPhase(id) + extra } });
+  const landing = (file: string, write: object) => { const session = landingSession(file); session.actions.splice(1, 0, write as never); return session; };
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [landing("capability-9.txt", reopen(3)), landing("capability-10.txt", reopen(9, "\n## Phase dependencies\n8.\n"))] }));
+  const check = await h.engine.checkCompletedPlan();
+  expect((await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "continue-carried"))).ok).toBe(true);
+  await h.engine.settled();
+  expect(h.engine.record.continuationBaselineId).toMatch(/^[a-f0-9]{64}$/);
+  // Phase 3 counts as closed whatever its document says: never launched, shown done, no reopened-phase stop.
+  expect(h.engine.record.phases["9"]?.doneAt).toBeDefined();
+  expect(h.engine.record.plan?.find(phase => phase.id === "3")?.closed).toBe(true);
+  expect(buildSnapshot(h.engine).phases.find(row => row.id === "3")?.state).toBe("done");
+  expect(h.engine.record.phases["3"]).toBeUndefined();
+  expect(h.claudeCalls().map(call => call.prompt).filter(prompt => /Phase 3\b/.test(prompt))).toEqual([]);
+  // Phase 9 was built by this execution: removing its Closed line stops the plan read as before.
+  expect(h.engine.record.phases["10"]?.sessionIds.length).toBe(1);
+  expect(h.engine.record.planReconciliation?.check).toMatchObject({ status: "failed", problem: expect.stringContaining("Phase 9: previously completed scope was removed, reopened, split or materially changed.") });
+  expect(h.engine.record.planReconciliation?.check?.problem).not.toContain("Phase 3");
+}, 120_000);
 
 it("holds an accepted workspace when its base moves during setup and requires a new explicit choice", async () => {
   const f = await fixture();
@@ -222,9 +249,12 @@ it("offers Not now and a fresh choice in the real browser, then retains readable
   const get = async (path: string) => fetch(origin + path, { headers: { "X-Kiln-Token": h.engine.record.token } });
   try {
     for (const width of [1200, 390]) {
+      const loaded = h.engine.record.completedPlanCheck?.attemptedAt;
       const page = await chrome.open(hosted.server.address, { width, height: 1100 });
       try {
         const button = (label: string) => `Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === ${JSON.stringify(label)})`;
+        // Every page load runs one check (Kiln After Delivery "The Delivery Reading"); let it finish first.
+        await waitFor(() => h.engine.record.completedPlanCheck?.attemptedAt !== loaded && !h.engine.checking);
         await page.waitFor(`${button("Continue with 7 phases")} && !${button("Continue with 7 phases")}.disabled`);
         await page.evaluate(`${button("Not now")}.click()`);
         await page.waitFor("document.body.innerText.includes('Additional work is available when you are ready.')");
@@ -318,6 +348,8 @@ it.each(["merge", "squash"])("finishes revised-scope audits and audit-added work
     git(h.sandbox, h.repository, "merge", "--no-edit", first.settings.featureBranch);
     f.write("phase-17-catalog.md", cometPhase(17) + "\n## Phase dependencies\n16.\n");
     git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: append a second continuation"); f.publish();
+    // GitHub shows the first continuation's pull request merged, its merge commit in develop.
+    h.setPullRequestViews({ "fictional/comet-library#41": recordedPullRequest("merged", { number: 41, base: "develop", mergeCommit: git(h.sandbox, h.repository, "rev-parse", "HEAD~1").trim() }) });
     // The provider fixture tracks consumed slots, so retain its earlier slots and append.
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [...sessions, landingSession("capability-17.txt", "Capability 17.\n"), delivery(42)], auditSessions: [audit({ gap: true }), audit(), audit(), audit(), audit()] }));
     const next = await h.engine.checkCompletedPlan(); expect(next.status, JSON.stringify(next)).toBe("available");
@@ -466,6 +498,37 @@ it("after Continue with N phases, the phases a delivery audit adds at its last l
     expect(h.engine.record.auditLoops!.atPullRequest).toMatchObject({ deliveryLimit: 1, testLimit: 3 });
   } finally { await hosted.server.close(); hosted.release(); }
 }, 180_000);
+
+it("a bot sees the delivery waiting to merge and checks a closed pull request with kiln check-for-new-phases, as Check now does (Kiln After Delivery AC-BOT-01, AC-BOT-02)", async () => {
+  await fixture();
+  const { spawn } = await import("node:child_process"); const { fileURLToPath } = await import("node:url"); const { join } = await import("node:path");
+  const { startFixtureController } = await import("../test-support/controller-server.js");
+  const { COMET_DIRECTORY } = await import("../test-support/comet-continuation-fixture.js");
+  h.setPullRequestViews({ "fictional/comet-library#12": recordedPullRequest("closed", { number: 12, base: "develop" }) });
+  await h.engine.checkCompletedPlan();
+  const hosted = await startFixtureController({ engine: h.engine, folderName: "library-catalog", featureName: "Comet Library", token: h.engine.record.token });
+  const cli = async (args: string[]) => {
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), ...args], { cwd: h.sandbox.root, env: h.env, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = ""; child.stdout.on("data", data => stdout += String(data));
+    const code = await new Promise<number | null>(resolve => child.once("close", resolve));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a status read the test walks freely
+    return { code, stdout, json: () => JSON.parse(stdout) as Record<string, any> };
+  };
+  const target = join(h.repository, COMET_DIRECTORY);
+  try {
+    const waiting = (await cli(["status", target, "--json"])).json();
+    expect(waiting.after_delivery).toMatchObject({ waiting: true, readError: null, pullRequests: [{ repository: "comet-library", number: 12, state: "closed" }] });
+    expect(waiting.continuation).toMatchObject({ check: { status: "awaiting_merge" }, waiting: { repository: "comet-library", number: 12, baseBranch: "develop", closed: true }, summary: "New phases: Kiln can check for them once #12 has merged into develop." });
+    expect((await cli(["status", target])).stdout).toContain("New phases: Kiln can check for them once #12 has merged into develop.");
+    const check = await cli(["check-for-new-phases", target, "--json"]);
+    expect(check.code, check.stdout).toBe(0);
+    expect(check.json().data).toMatchObject({ check: { status: "available" }, answer: { source: { kind: "remote_base", branch: "develop" }, origin: { kind: "commit", subject: "test(comet): publish revised plan" }, phases: expect.arrayContaining([{ id: "9", title: "Catalog capability 9" }]) } });
+    expect(h.engine.record.afterDelivery?.checkedWhileClosedAt).toBeDefined();
+    const answered = (await cli(["status", target])).stdout;
+    expect(answered).toContain("7 phases were added to this PRD after Kiln finished it: 9, 10, 11, 12, 13, 14, 15, in commit");
+    expect(answered).not.toContain("Plan needs reconciliation");
+  } finally { await hosted.server.close(); hosted.release(); }
+}, 120_000);
 
 it("a bot checks a finished run for new phases and continues it from the command line (Kiln Deliver When Audit Loops Run Out AC-BOT-01)", async () => {
   await fixture();

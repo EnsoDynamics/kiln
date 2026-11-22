@@ -30,6 +30,7 @@ import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
+import { deliveryWaiting } from "./delivery-reading.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
 import { closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
@@ -273,6 +274,8 @@ export interface Snapshot {
   /** The record's compatibility notices, one line each, shown on every screen (AC-AGENT-04). */
   compatibility?: string[];
   liveControl?: import("../live/target.js").LiveView;
+  /** A finished run's delivery as GitHub last showed it (Kiln After Delivery "Interfaces"). */
+  afterDelivery?: { pullRequests: Omit<import("./delivery-reading.js").PullRequestReading, "headSha">[]; readError?: { at: string; problem: string }; waiting: boolean };
   continuation?: { preparation?: ReturnType<Engine["preparationStatus"]>; acceptance?: ReturnType<Engine["continuationAcceptance"]>; executions?: Omit<import("./continuation-state.js").ExecutionSummary, "archiveId">[]; check?: import("./completed-plan-discovery.js").CompletedPlanCheck; handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
   controlToken?: string;
   unsentReplies?: { id: string; text: string }[];
@@ -549,8 +552,10 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }) } : {}),
       ...(record.completedPlanCheck ? { check: record.completedPlanCheck } : {}),
       ...(record.planReconciliation?.handback ? { handback: record.planReconciliation.handback } : {}),
-      ...(record.planReconciliation?.check?.status === "failed" ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
+      // An in-progress plan's "Plan needs reconciliation" notice is never rendered on a finished run (Kiln After Delivery AC-BACK-01).
+      ...(record.planReconciliation?.check?.status === "failed" && !record.completedAt ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
+    ...(record.completedAt && record.afterDelivery ? { afterDelivery: { pullRequests: record.afterDelivery.pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }), ...(record.afterDelivery.readError ? { readError: record.afterDelivery.readError } : {}), waiting: deliveryWaiting(record) === true } } : {}),
     activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
     ...preflightPlanned(engine, state, documents),
     auditLoops: auditLoopsView(engine),

@@ -13,7 +13,8 @@ import { bindExecutionAliases, bindLegacySessions, cacheSnapshot, inspectionSnap
 import { newAcceptance, prepareWorkspaces, validatePreparedWorkspace } from "./continuation-setup.js";
 import { authorityForApproval, changesContinuationScope, readPendingAuthority, writePendingAuthority, pendingForProposal, reserveAuthority, type ContinuationInputObservation } from "./continuation-authority.js";
 import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, retainExecution, type ContinuationAcceptance, type ContinuationState, type ExecutionSummary } from "./continuation-state.js";
-import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck } from "./completed-plan-discovery.js";
+import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck, type DeliveryDecision } from "./completed-plan-discovery.js";
+import { deliveryWaiting, prdPullRequest, readDelivery } from "./delivery-reading.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
 import { createGate, gateDirectory, readGate, withGate, unsettled, observeGate, type GateState } from "../live/gate.js";
@@ -383,6 +384,8 @@ export class Engine {
   /** True while Check again's check runs. */
   checking = false;
   private completedPlanReading: Promise<CompletedPlanCheck> | undefined;
+  /** Whether the check in flight was a person's press (Kiln After Delivery AC-WAIT-01). */
+  private completedPlanPress = false;
   private phaseCheckError: { target: PhaseRecoveryTarget; reason: string; attemptedAt: string } | undefined;
   private announcedDelivery = new Set<string>();
   private deliveryBusy = false;
@@ -3017,7 +3020,7 @@ export class Engine {
     // A waived missing activation-recovery phase lifts the recovery gate (AC-WAIVE-04).
     const recoveryWaived = knownProblemWaiver(this.record.waivers, ACTIVATION_MISSING);
     if (activation && !recoveryWaived && !this.record.phases[recoveryStopKey(activation)]?.sessionIds.length && this.activationChecks().some(check => !check.passed)) return judgedPhase(plan.phases, recoveryStopKey(activation));
-    const leaf = nextLeaf(effectivePlan(plan, this.record, this.carriedWaived()).plan);
+    const leaf = nextLeaf(effectivePlan(plan, this.record, this.carriedClosed()).plan);
     if (leaf && activation && recoveryWaived && !this.record.phases[leaf.id]?.waiverWarning) { this.phaseFacts(leaf.id).waiverWarning = { kind: "plan", waiverId: recoveryWaived.waiverId }; }
     return leaf;
   }
@@ -3396,6 +3399,8 @@ export class Engine {
     if (!proposal || proposal.id !== inputs.proposal_id) return { ok: false, status: 409, code: "proposal_changed", reason: "The plan or delivery prerequisites changed. Review the refreshed offer and choose Continue again." };
     if (check.status !== "available" || proposal.readiness !== "ready" || !proposal.added.length) return { ok: false, status: 422, code: "prerequisite_blocked", reason: proposal.problems.join(" ") || "No ready additional work is available." };
     if (proposal.prerequisites.some(row => !["integrated_verified", "preparation_available"].includes(row.status))) return { ok: false, status: 422, code: "preparation_unverified", reason: "Required prerequisites are unresolved." };
+    // An offer read from the main checkout needs its documents pushed first, which Continue does not do yet.
+    if (proposal.source?.kind === "main_checkout") return { ok: false, status: 422, code: "plan_not_pushed", reason: `These phases are committed on this machine's ${proposal.source.branch} but not pushed. Push them to origin/${proposal.source.branch}, then check for new phases again.` };
     const previous = this.record.continuation?.acceptances.find(row => row.completedExecutionId === this.record.executionId && row.state !== "superseded");
     if (previous) {
       if (previous.state !== "blocked") return refuse("An accepted continuation already owns preparation.");
@@ -3474,7 +3479,7 @@ export class Engine {
       const continuation = structuredClone(old.continuation!);
       continuation.acceptances = continuation.acceptances.map(row => row.id === acceptance.id ? acceptanceSummary(acceptance) : row);
       this.activateExecution({ archiveRow, continuation, newExecutionId: acceptance.newExecutionId, operationId: acceptance.operationId, plan: source.plan, baselineId: baseline.id, at: acceptance.activatedAt,
-        fields: { settings: acceptance.settings, repositories: acceptance.repositories, pause: {}, developmentAuthorization: acceptance.authorization ?? restrictedAuthorization(), ...(old.pendingContinuationAuthority ? { pendingContinuationAuthority: old.pendingContinuationAuthority } : {}), ...(acceptance.proposal.preparation.length ? { preparation: newPreparationState(acceptance.proposal) } : {}), ...(old.branchStem ? { branchStem: old.branchStem } : {}), startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt },
+        fields: { settings: acceptance.settings, repositories: acceptance.repositories, pause: {}, developmentAuthorization: acceptance.authorization ?? restrictedAuthorization(), ...(old.pendingContinuationAuthority ? { pendingContinuationAuthority: old.pendingContinuationAuthority } : {}), ...(acceptance.proposal.preparation.length ? { preparation: newPreparationState(acceptance.proposal) } : {}), ...(old.branchStem ? { branchStem: old.branchStem } : {}), continuationBaselineId: baseline.id, startedAt: acceptance.acceptedAt, refinementConfirmedAt: acceptance.acceptedAt, setupCompletedAt: acceptance.activatedAt },
         afterSave: () => { if (authority && acceptance.pendingAuthorityId === authority.id) { authority.state = "adopted"; authority.acceptanceId = acceptance.id; this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); } } });
     } catch (error) {
       if (this.commands.fault || this.stopping || this.record.executionId === acceptance.newExecutionId) {
@@ -3491,7 +3496,7 @@ export class Engine {
    * new record assembled and saved, the control epoch and the command journal's execution rotated,
    * aliases and legacy sessions rebound, and the inspection snapshot cached.
    */
-  private activateExecution(input: { archiveRow: ExecutionSummary; continuation: ContinuationState; newExecutionId: string; operationId: string; plan: PhasePlan; baselineId: string; at: string; fields: Pick<PrdRecord, "settings" | "repositories" | "pause" | "developmentAuthorization" | "startedAt" | "refinementConfirmedAt" | "setupCompletedAt"> & Partial<Pick<PrdRecord, "pendingContinuationAuthority" | "preparation" | "branchStem" | "folderSetupStart">>; afterSave?: () => void }): void {
+  private activateExecution(input: { archiveRow: ExecutionSummary; continuation: ContinuationState; newExecutionId: string; operationId: string; plan: PhasePlan; baselineId: string; at: string; fields: Pick<PrdRecord, "settings" | "repositories" | "pause" | "developmentAuthorization" | "startedAt" | "refinementConfirmedAt" | "setupCompletedAt"> & Partial<Pick<PrdRecord, "pendingContinuationAuthority" | "preparation" | "branchStem" | "folderSetupStart" | "continuationBaselineId">>; afterSave?: () => void }): void {
     const old = this.record;
     const { continuation, archiveRow } = input;
     if (!continuation.executions.some(row => row.executionId === archiveRow.executionId)) continuation.executions.push(archiveRow);
@@ -3525,20 +3530,54 @@ export class Engine {
    * Read current scope without changing the completed execution or authorizing work.
    * Concurrent refreshes share this read under the existing command admission.
    */
-  checkCompletedPlan(): Promise<CompletedPlanCheck> {
-    if (this.completedPlanReading) return this.completedPlanReading;
+  /**
+   * `press`: a person asked, by Check now, Check for new phases or `kiln check-for-new-phases`; only
+   * such a reading lets a closed pull request stop the delivery waiting (Kiln After Delivery AC-WAIT-01).
+   */
+  checkCompletedPlan(options: { press?: boolean } = {}): Promise<CompletedPlanCheck> {
+    // A press that arrives during a page load's reading is not lost: it reads again, as a press, once that one ends.
+    if (this.completedPlanReading) return options.press && !this.completedPlanPress ? this.completedPlanReading.catch(() => undefined).then(() => this.checkCompletedPlan(options)) : this.completedPlanReading;
     if (this.commands.blocked) return Promise.reject(new AuditRefusal("busy", this.commands.fault ?? "Reconcile the retained command owner before another plan check.", 409));
     if (!this.currentlyComplete) return Promise.reject(new AuditRefusal("wrong_activity", "Only a completed feature can check for added phases.", 409));
     if (this.commands.busy || this.checking || this.driving || this.settingUp || this.deliveryBusy || this.stopping) return Promise.reject(new AuditRefusal("busy", "Kiln is already checking or changing work.", 409));
-    return this.checkCompletedPlanOwned();
+    return this.checkCompletedPlanOwned(options);
   }
 
-  private checkCompletedPlanOwned(): Promise<CompletedPlanCheck> {
+  /**
+   * The delivery reading before the check (Kiln After Delivery, "The Delivery Reading"): each of the
+   * delivery's pull requests from GitHub, saved, then what the check needs from it. Once every pull
+   * request reads `merged`, nothing is read from GitHub again.
+   */
+  private async deliveryDecision(press: boolean, signal: AbortSignal): Promise<DeliveryDecision> {
+    const record = this.record;
+    const merged = (pull: { repository: string; number: number }) => record.afterDelivery?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number)?.state === "merged";
+    let failed: { repository: string; number: number }[] = [];
+    if (!(record.pullRequests ?? []).every(merged)) {
+      const read = await readDelivery({ record, git: { ...this.git, signal }, gh: this.options.tools.gh, now: () => this.now().toISOString(), signal, press });
+      record.afterDelivery = read.state; failed = read.failed;
+      this.save();
+    }
+    const readings = record.afterDelivery?.pullRequests ?? [];
+    const prd = prdPullRequest(record);
+    // A reading of the PRD's pull request that failed now decides nothing: the check fails with the failure, never shows an earlier waiting state.
+    const waiting = prd && failed.some(row => row.repository === prd.repository && row.number === prd.number) ? undefined : deliveryWaiting(record);
+    const prdReading = prd && readings.find(row => row.repository === prd.repository && row.number === prd.number);
+    return {
+      waiting,
+      ...(waiting && prd ? { awaiting: { repository: prd.repository, number: prd.number, url: prd.url, baseBranch: prd.base, closed: prdReading?.state === "closed" } } : {}),
+      ...(record.afterDelivery?.readError ? { failure: record.afterDelivery.readError.problem } : {}),
+      merged: Object.fromEntries(readings.flatMap(row => row.state === "merged" && row.mergeCommit ? [[row.repository, row.mergeCommit]] : [])),
+      closed: readings.filter(row => row.state === "closed").map(row => ({ repository: row.repository, number: row.number })),
+    };
+  }
+
+  private checkCompletedPlanOwned(options: { press?: boolean } = {}): Promise<CompletedPlanCheck> {
     if (this.completedPlanReading) return this.completedPlanReading;
+    this.completedPlanPress = options.press === true;
     const previous = this.record.completedPlanCheck;
     this.checking = true;
     const attemptedAt = this.now().toISOString();
-    this.record.completedPlanCheck = { status: "checking", attemptedAt, sources: [], errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}) };
+    this.record.completedPlanCheck = { status: "checking", attemptedAt, errors: [], ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}), ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}) };
     this.changed();
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
     const reading = Promise.resolve().then(async () => {
@@ -3557,7 +3596,8 @@ export class Engine {
         try { this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
         catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
       };
-      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, observeInput });
+      const delivery = await this.deliveryDecision(options.press === true, signal);
+      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, delivery, observeInput });
     }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
@@ -3576,7 +3616,7 @@ export class Engine {
       // An uncertain record/sidecar write is not an acknowledged successful check.
       // Keep disk reconciliation faulted; only the public observation becomes unknown.
       this.record.completedPlanCheck = {
-        status: "failed", attemptedAt, sources: this.record.completedPlanCheck?.sources ?? [],
+        status: "failed", attemptedAt,
         errors: [this.commands.fault ?? (error as Error).message],
         ...(previous?.lastSuccessfulAt ? { lastSuccessfulAt: previous.lastSuccessfulAt } : {}),
         ...(previous?.result ?? previous?.earlierResult ? { earlierResult: previous?.result ?? previous?.earlierResult } : {}),
@@ -5080,7 +5120,7 @@ export class Engine {
         else if (read.ok) leaves = read.plan;
       }
       leaves ??= { phases: this.orderSource(), problems: [] };
-      if (next === "final_delivery" && !nextLeaf(effectivePlan(leaves, this.record, this.carriedWaived()).plan) && baseline === this.record.planReconciliation?.baselineId) {
+      if (next === "final_delivery" && !nextLeaf(effectivePlan(leaves, this.record, this.carriedClosed()).plan) && baseline === this.record.planReconciliation?.baselineId) {
         // Met only because an audit counts on its waiver: a met row marked Waived, tagged with that audit's waiver (AC-WAIVE-10, AC-WAIVE-12).
         const audits = this.record.completionAudits?.activities ?? [];
         const relied = [audits.findLast(a => a.kind === "delivery_audit"), audits.findLast(a => a.kind === "test_audit")].filter((a): a is AuditActivity => !!a?.waivedResult);
@@ -6688,9 +6728,12 @@ export class Engine {
 
   // ---- Waivers (waivers technical design) ---------------------------------------------------
 
-  /** A leaf closed by waiver or skipped under a plan waiver counts as closed (waivers "Effective plan"). */
+  /**
+   * A leaf closed by waiver or skipped under a plan waiver counts as closed (waivers "Effective plan"),
+   * and so does a phase finished before an execution Continue created (Kiln After Delivery AC-BACK-01).
+   */
   private waiverClosed(phaseId: string): boolean {
-    return !!this.record.phases[phaseId]?.skippedByWaiver || !!closedWaiver(this.record.waivers, phaseId) || this.carriedWaived().has(phaseId);
+    return !!this.record.phases[phaseId]?.skippedByWaiver || !!closedWaiver(this.record.waivers, phaseId) || this.carriedWaived().has(phaseId) || this.carriedFinished().has(phaseId);
   }
 
   /** Leaves an earlier execution completed or skipped on a waiver, carried through the plan baseline (waivers "Continuation executions"). */
@@ -6705,6 +6748,30 @@ export class Engine {
     return this.carriedWaivedCache.ids;
   }
   private carriedWaivedCache: { id: string; ids: Set<string> } | undefined;
+  /** Every carried leaf that counts as closed: carried on a waiver, or finished before Continue (Kiln After Delivery AC-BACK-01). */
+  private carriedClosed(): Set<string> { return new Set([...this.carriedWaived(), ...this.carriedFinished()]); }
+
+  /**
+   * The carried-finished set (Kiln After Delivery "The Plan Check", step 3): the completions with no
+   * waiver in the baseline Continue activated this execution with. Each counts as closed whatever its
+   * document now says; an execution a folder start created has none.
+   */
+  private carriedFinished(): Set<string> {
+    const id = this.record.continuationBaselineId;
+    if (!id) return new Set();
+    if (this.carriedFinishedCache?.id !== id) {
+      let ids: string[] = [];
+      try { ids = Object.entries(readBaseline(this.stateDirectory, id).completions).filter(([, receipt]) => !receipt.waiverId).map(([phaseId]) => phaseId); } catch { /* An unreadable baseline stops at the plan read, not here. */ }
+      this.carriedFinishedCache = { id, ids: new Set(ids) };
+    }
+    return this.carriedFinishedCache.ids;
+  }
+  private carriedFinishedCache: { id: string; ids: Set<string> } | undefined;
+  /** A plan with every carried-finished leaf closed, as the execution reads it (AC-BACK-01); the documents are untouched. */
+  private withCarriedFinished(plan: PhasePlan): PhasePlan {
+    const carried = this.carriedFinished();
+    return carried.size ? { ...plan, phases: plan.phases.map(phase => phase.splitInto === undefined && !phase.closed && carried.has(phase.id) ? { ...phase, closed: true } : phase) } : plan;
+  }
 
   /**
    * The phases Normal Order takes its order from while the plan does not read: the readable
@@ -8108,7 +8175,9 @@ export class Engine {
         if (!recorded || !current || !current.closed && !this.waiverClosed(current.id) || current.splitInto) throw new Error(`baseline_unavailable: Phase ${recorded?.id ?? key} was previously completed but is now removed, reopened or split. Reconcile that historical completion before returning control.`);
       }
       if (previous) {
-        const completed = new Set([...Object.keys(previous.completions), ...Object.entries(this.record.phases).filter(([, f]) => f.doneAt).map(([key]) => this.judgedId(key))]);
+        // A carried-finished phase is never compared: it stays finished whatever its document says (AC-BACK-01).
+        const carried = this.carriedFinished();
+        const completed = new Set([...Object.keys(previous.completions), ...Object.entries(this.record.phases).filter(([, f]) => f.doneAt).map(([key]) => this.judgedId(key))].filter(id => !carried.has(id)));
         const problems = completedScopeProblems({ ...previous.active, plan: { ...previous.active.plan, phases: previous.active.plan.phases.map(p => ({ ...p, closed: p.closed && completed.has(p.id) })) } }, active, previous.completions);
         if (problems.length) throw new Error(problems.join(" ") + " Reconcile earlier completed work before returning control.");
       }
@@ -8206,8 +8275,8 @@ export class Engine {
     const earlier = this.record.planReconciliation;
     this.record.planReconciliation = { baselineId: retained.id, check: { status: "accepted", attemptedAt },
       ...(added.length ? { handback: { source: baseline.active.path, addedPhaseIds: added, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length, acceptedAt: attemptedAt } } : earlier?.handback ? { handback: { ...earlier.handback, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length } } : {}) };
-    this.plan = baseline.active.plan;
-    this.record.plan = recordedPlan(baseline.active.plan);
+    this.plan = this.withCarriedFinished(baseline.active.plan);
+    this.record.plan = recordedPlan(this.plan);
     this.record.planReadAt = attemptedAt;
     try { this.save(); }
     catch (error) { this.commands.fault = "Accepted plan could not be durably saved. Restart Kiln to reconcile before advancing."; throw error; }

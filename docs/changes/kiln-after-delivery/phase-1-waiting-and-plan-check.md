@@ -1,5 +1,7 @@
 # Phase 1: Waiting to merge, and the finished-run check for new phases
 
+**Closed:** 2026-11-22
+
 **Parent PRD:** [Kiln After Delivery](kiln-after-delivery-prd.md)
 **Technical design:** [Kiln After Delivery technical design](kiln-after-delivery-technical-design.md) — relevant sections: "The Delivery Reading", "The Plan Check on a Finished Run", "Interfaces" (`check-for-new-phases`, the check result's new fields), "Display Contract" (the waiting line and the two answers), "Data Models and Upgrade", "Open Questions" (PLAN-001)
 

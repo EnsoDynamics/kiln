@@ -92,9 +92,10 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
       if (c.req.header("content-length") && Number(c.req.header("content-length")) !== 0) throw new ControlFailure("invalid_input", "check-for-new-phases accepts no inputs.", 2);
       const control = engine.newPhaseControls().find(one => one.name === "check-for-new-phases")!;
       if (!control.available) throw new ControlFailure(engine.currentlyComplete ? "busy" : "wrong_activity", control.reason!, 3);
-      const check = await engine.checkCompletedPlan();
+      // Does what the card's Check now does, and counts as a person's press (Kiln After Delivery AC-BOT-01).
+      const check = await engine.checkCompletedPlan({ press: true });
       const errors = check.status === "failed" ? [errorFact("check_unavailable", check.errors.join(" ") || "The check for new phases could not read the plan.")] : [];
-      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check) }, errors));
+      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check, engine.record.prdDirectory) }, errors));
     } catch (e) { return send(c, { ...failed(e), prd_path: canonical, execution_id: engine.record.executionId! }); }
   });
   app.post("/api/control/v1/commands", async c => {

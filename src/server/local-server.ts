@@ -522,10 +522,12 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.delete("/api/pause", (c) => legacyControl(c, "cancel-pause"));
   app.post("/api/continuation/check", async c => {
     let body: unknown;
-    try { body = await c.req.json(); } catch { return refuse(c, 400, "Expected an empty JSON object."); }
-    if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).length) return refuse(c, 400, "Expected an empty JSON object.");
+    try { body = await c.req.json(); } catch { return refuse(c, 400, "Expected {} or { \"press\": true }."); }
+    // The page's load sends {}; Check now and Check for new phases send { "press": true }, a person's press (Kiln After Delivery AC-WAIT-01).
+    const keys = body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body) : undefined;
+    if (!keys || keys.some(key => key !== "press") || "press" in (body as object) && (body as { press: unknown }).press !== true) return refuse(c, 400, "Expected {} or { \"press\": true }.");
     try {
-      const check = await engine.checkCompletedPlan();
+      const check = await engine.checkCompletedPlan({ press: keys.includes("press") });
       if (check.failure) return c.json({ ok: false, ...check.failure, reason: check.errors.join(" "), checks: [], check }, 413);
       return c.json({ check }, check.status === "failed" ? 503 : 200);
     }

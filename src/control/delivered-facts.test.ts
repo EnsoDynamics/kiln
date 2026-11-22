@@ -2,7 +2,7 @@
 // the loop line and each pull request, For you after them or first when it lists a critical
 // finding, and the check for new phases with its offer.
 import { describe, expect, it } from "vitest";
-import { continuationText, deliveredText } from "./delivered-facts.js";
+import { continuationFacts, continuationText, deliveredText } from "./delivered-facts.js";
 
 const loops = { delivery: { used: 4, limit: 4 }, test: { used: 2, limit: 4 } };
 const pullRequests = [{ repository: "product", number: 214, url: "https://github.com/acme/product/pull/214" }, { repository: "returns-api", number: 31, url: "https://github.com/acme/returns-api/pull/31" }];
@@ -36,6 +36,9 @@ describe("the offer to continue in kiln status text (AC-BOT-02)", () => {
       "  Problem: Phase 4 needs Authorize early merges.",
     ].join("\n"));
     expect(continuationText({ check: { status: "unchanged", attemptedAt: "2026-11-20T01:00:00Z", lastSuccessfulAt: null, errors: [] } })).toBe("Check for new phases: unchanged at 2026-11-20T01:00:00Z");
+    // The terminal's words for the answer, waiting to merge included (Kiln After Delivery AC-BOT-02).
+    const waiting = continuationFacts({ status: "awaiting_merge", attemptedAt: "2026-11-20T01:00:00Z", errors: [], awaitingMerge: { repository: "acme-shop", number: 218, url: "https://github.com/acme/acme-shop/pull/218", baseBranch: "develop", closed: false } });
+    expect(continuationText(waiting as unknown as Parameters<typeof continuationText>[0])).toBe("Check for new phases: awaiting_merge at 2026-11-20T01:00:00Z\n  New phases: Kiln can check for them once #218 has merged into develop. It checks as soon as it confirms the merge.");
     expect(continuationText(null)).toBeUndefined();
   });
 });

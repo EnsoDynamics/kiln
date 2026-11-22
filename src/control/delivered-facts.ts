@@ -15,6 +15,8 @@ import { PR_PHASE_KEY, type PrdRecord } from "../state/records.js";
 import { isPreflightKey } from "../state/activity-keys.js";
 import { PREFLIGHT_TITLE } from "../engine/preflight.js";
 import type { CompletedPlanCheck } from "../engine/completed-plan-discovery.js";
+import { deliveryWaiting } from "../engine/delivery-reading.js";
+import { formatCompletedPlanCheck } from "../underway-output.js";
 import type { Snapshot } from "../engine/snapshot.js";
 import { projectRef } from "./waiver-facts.js";
 
@@ -39,13 +41,29 @@ export function deliveredFacts(delivered: NonNullable<Snapshot["delivered"]>, re
   };
 }
 
-/** The finished page's check and offer as `kiln status` shows them (AC-BOT-02), with the latest check's status and time. */
-export function continuationFacts(check: CompletedPlanCheck): Record<string, unknown> {
-  const proposal = check.result?.proposal;
+/**
+ * The finished page's check and offer as `kiln status` shows them (Kiln Deliver When Audit Loops Run
+ * Out AC-BOT-02; Kiln After Delivery AC-BOT-02): the latest check's status and time, the pull request
+ * the delivery waits on, the answer with where its phases came from, and `summary`, the terminal's
+ * words for it.
+ */
+export function continuationFacts(check: CompletedPlanCheck, prdDirectory = ""): Record<string, unknown> {
+  const result = check.status === "failed" || check.status === "checking" ? undefined : check.result;
+  const proposal = result?.proposal;
   return {
     check: { status: check.status, attemptedAt: check.attemptedAt, lastSuccessfulAt: check.lastSuccessfulAt ?? null, errors: check.errors },
+    summary: formatCompletedPlanCheck(check, prdDirectory),
+    ...(check.awaitingMerge ? { waiting: { repository: check.awaitingMerge.repository, number: check.awaitingMerge.number, url: check.awaitingMerge.url, baseBranch: check.awaitingMerge.baseBranch, closed: check.awaitingMerge.closed } } : {}),
+    ...(result ? { answer: { source: result.source, notRead: result.notRead ?? null, uncommitted: result.uncommitted, origin: result.origin ?? null, phases: result.added.map(phase => ({ id: phase.id, title: phase.title })) } } : {}),
     ...(proposal ? { proposal: { id: proposal.id, readiness: proposal.readiness, phases: proposal.added.map(phase => ({ id: phase.id, title: phase.title })), problems: proposal.problems } } : {}),
   };
+}
+
+/** What GitHub last showed of a finished run's pull requests, and whether the delivery waits to merge (Kiln After Delivery AC-BOT-02). */
+export function afterDeliveryFacts(record: PrdRecord): Record<string, unknown> | null {
+  if (!record.completedAt || !record.afterDelivery) return null;
+  const { pullRequests, readError } = record.afterDelivery;
+  return { pullRequests: pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }), readError: readError ?? null, waiting: deliveryWaiting(record) ?? null };
 }
 
 interface DeliveredJson { loops: ClosingAudits; forYou: { items: { kind: string | null; line: string; waived_tag?: string }[]; afterDelivery: string[] }; pullRequests: { repository: string; number: number; url: string }[] }
@@ -61,15 +79,16 @@ export function deliveredText(delivered: DeliveredJson | null | undefined, multi
   return (critical ? [forYou, loops, ...pulls] : [loops, ...pulls, forYou]).filter(Boolean).join("\n");
 }
 
-interface ContinuationJson { check: { status: string; attemptedAt?: string; lastSuccessfulAt: string | null; errors: string[] }; proposal?: { id: string; readiness: string; phases: { id: string; title: string }[]; problems: string[] } }
+interface ContinuationJson { check: { status: string; attemptedAt?: string; lastSuccessfulAt: string | null; errors: string[] }; summary?: string; proposal?: { id: string; readiness: string; phases: { id: string; title: string }[]; problems: string[] } }
 
-/** `kiln status` text for the finished page's check for new phases and its offer to continue. */
+/** `kiln status` text for the finished page's check for new phases: the terminal's words for its answer, then the offer to continue. */
 export function continuationText(continuation: ContinuationJson | null | undefined): string | undefined {
   if (!continuation) return undefined;
   const { check, proposal } = continuation;
   const lines = [`Check for new phases: ${check.status}${check.attemptedAt ? ` at ${check.attemptedAt}` : ""}`];
-  for (const error of check.errors) lines.push(`  ${error}`);
-  if (proposal) {
+  if (continuation.summary) lines.push(`  ${continuation.summary}`);
+  else for (const error of check.errors) lines.push(`  ${error}`);
+  if (proposal?.phases.length) {
     lines.push(`Continue with ${proposal.phases.length} ${proposal.phases.length === 1 ? "phase" : "phases"} (${proposal.readiness}), proposal ${proposal.id}:`);
     for (const phase of proposal.phases) lines.push(`  - Phase ${phase.id}: ${phase.title}`);
     for (const problem of proposal.problems) lines.push(`  Problem: ${problem}`);

@@ -31,6 +31,7 @@ const files = {
 };
 async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession()], documentFiles = files, engineOptions: Partial<EngineOptions> = {}) {
   h = await createHarness({ folder: "proof", files: documentFiles, sessions, auditCycles: true, engineOptions });
+  h.useGithubOrigin();
   writeFileSync(join(h.repository, ".gitignore"), ".proof/\n"); git(h.sandbox, h.repository, "add", "--", ".gitignore"); git(h.sandbox, h.repository, "commit", "-m", "test(audit): ignore transient requests"); git(h.sandbox, h.repository, "push", "origin", "develop");
   if (auditSessions) writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions }));
   const hosted = await startFixtureController({ engine: h.engine, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
@@ -547,7 +548,8 @@ describe("automatic completion activities", () => {
       expect(h.engine.record.pause.activeSince).toBeTruthy();
       await h.engine.start(); await h.engine.settled();
       await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);
-      await page.waitFor(`document.body.innerText.includes('Test audit') && document.body.innerText.includes('No new phases found')`);
+      // The pull request is open, so the delivery waits to merge (Kiln After Delivery AC-WAIT-01).
+      await page.waitFor(`document.body.innerText.includes('Test audit') && document.body.innerText.includes('New phases: Kiln can check for them once #218 has merged into develop.')`);
       expect(await page.evaluate(`document.querySelector('a[href="${h.engine.record.pullRequests![0]!.url}"]')?.href`)).toBe(h.engine.record.pullRequests![0]!.url);
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
       await page.waitFor(`document.body.innerText.includes('Outcome: nothing left')`);

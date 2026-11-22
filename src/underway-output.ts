@@ -5,6 +5,7 @@ import { developmentDeliverySummary } from "./state/development-delivery.js";
 // it does next. Every part comes from Kiln's own record and checks, never a guessed cause.
 
 import { awaitingMergeText } from "./engine/awaiting-merge.js";
+import { addedSentence, notReadLine, uncommittedLine } from "./engine/new-phases-wording.js";
 import type { CompletedPlanCheck } from "./engine/completed-plan-discovery.js";
 import type { Engine, UnderwayDecision } from "./engine/engine.js";
 import type { FolderMissingView } from "./engine/folder-facts.js";
@@ -93,7 +94,7 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
     }
     case "complete":
       if (engine.record.completedPlanCheck) {
-        text = formatCompletedPlanCheck(engine.record.completedPlanCheck);
+        text = formatCompletedPlanCheck(engine.record.completedPlanCheck, engine.record.prdDirectory);
         break;
       }
       text = engine.record.developmentAuthorization?.enabled ? developmentDeliverySummary(engine.record) : engine.record.mergedBranches?.length
@@ -125,33 +126,29 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
   return `${colors.red("●")} ${text}${openedAddress === undefined ? "" : ` Opened ${colors.red(openedAddress)}`}`;
 }
 
-/** One retained observation supplies startup and later browser-triggered terminal notices. */
-export function formatCompletedPlanCheck(check: CompletedPlanCheck): string {
+/**
+ * One retained observation supplies startup and later browser-triggered terminal notices: while the
+ * delivery waits, the pull request card's sentence (Kiln After Delivery AC-WAIT-02); otherwise one of
+ * the two answers (AC-BACK-01, AC-BACK-04). Never "Plan needs reconciliation" on a finished run.
+ */
+export function formatCompletedPlanCheck(check: CompletedPlanCheck, prdDirectory = ""): string {
+  const result = check.result;
   let text: string;
   if (check.status === "failed") text = `Could not check for new phases: ${check.errors.join(" ")}`;
-  else if (check.status === "checking") text = "Checking for new phases. The current phase count is unknown.";
-  else if (check.status === "blocked") {
-    const result = check.result;
-    const coherent = result?.leaves && !result.earlierWorkChanges.length && !result.problems.some(problem => problem.includes("source_conflict"));
-    text = coherent ? `${result.added.length} new unfinished ${result.added.length === 1 ? "phase" : "phases"} found. Completion or readiness evidence is unresolved. ${result.problems.join(" ")}` : `Plan needs reconciliation. The current phase count is unresolved. ${result?.problems.join(" ") ?? ""}`;
-  }
-  else if (check.status === "unchanged") text = "No new phases found. Earlier delivery remains complete.";
+  else if (check.status === "checking") text = "Checking for new phases.";
   else if (check.status === "awaiting_merge") text = awaitingMergeText(check.awaitingMerge!);
+  else if (check.status === "unchanged" || !result?.added.length) text = "No new phases found. Earlier delivery remains complete.";
   else {
-    const count = check.result!.added.length;
-    text = `${count} new unfinished ${count === 1 ? "phase" : "phases"} found. Review the current plan on the feature page.`;
+    text = addedSentence(result);
+    const proposal = result.proposal;
+    text += check.status === "available" ? ` Run kiln continue-with-phases to build ${result.added.length === 1 ? "it" : "them"}.` : ` Continue isn't available yet: ${(proposal?.problems ?? result.problems).join(" ")}`;
   }
-  if (check.result?.proposal) {
-    const proposal = check.result.proposal;
-    text += ` Readiness: ${proposal.readiness === "ready" ? "Ready" : "Not ready"}.${proposal.firstEligiblePhase ? ` First phase to run: Phase ${proposal.firstEligiblePhase}${proposal.readiness === "blocked" ? " after resolving blockers" : ""}.` : ""} Phases: ${proposal.added.map(row => `${row.id} · ${row.title}`).join("; ")}. Review the feature page.`;
+  if (result && (check.status === "unchanged" || check.status === "available" || check.status === "blocked")) {
+    const external = result.leaves?.filter(row => row.classification === "externally_verified" || row.classification === "externally_unverified") ?? [];
+    if (external.length) text += ` Closed outside Kiln: ${external.map(row => `Phase ${row.id} · ${row.title} (${row.classification === "externally_verified" ? "completion and integration verified" : "not verified"})`).join("; ")}.`;
+    for (const line of [notReadLine(result), uncommittedLine(result, prdDirectory)]) if (line) text += ` ${line}`;
   }
-  if (check.result?.leaves) {
-    const external = check.result.leaves.filter(row => row.classification === "externally_verified" || row.classification === "externally_unverified");
-    if (external.length) text += ` External work: ${external.map(row => `Phase ${row.id} · ${row.title} (${row.classification === "externally_verified" ? "completion and integration verified" : "completion evidence unresolved"})`).join("; ")}.`;
-  }
-  if (check.status === "failed" || check.status === "checking") text += " Current phase count is unknown; any retained result is earlier information.";
-  if (check.lastSuccessfulAt) text += ` Last successful check: ${new Date(check.lastSuccessfulAt).toLocaleString()}.`;
-  if (check.sources.length) text += ` Sources: ${check.sources.map(source => `${source.path}${source.revision ? ` at ${source.revision}` : ""}${source.error ? ` (${source.error})` : ""}`).join("; ")}.`;
+  if ((check.status === "failed" || check.status === "checking") && check.lastSuccessfulAt) text += ` Last successful check: ${new Date(check.lastSuccessfulAt).toLocaleString()}.`;
   return text;
 }
 

@@ -180,6 +180,8 @@ Kiln never records a loop stop. The loop stop page, **Allow _N_ more loops** and
 
 ## Interfaces (AC-BOT-01, AC-BOT-02)
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`check-for-new-phases` reads GitHub first and counts as a person's press; `continue-with-phases` pushes first).
+
 **Command line.**
 
 ```

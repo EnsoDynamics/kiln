@@ -22,12 +22,16 @@ import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
 
 export interface ReadinessPrerequisite { phaseId: string; status: "integrated_verified" | "preparation_available" | "blocked" | "unknown"; evidence: string[]; recovery?: string }
 export interface PreparationBinding extends PreparationInstruction { sourceRevision: string; repositoryIdentity: string; baseBranch: string; baseRevision: string; authorization: "phase_preparation" | "delivery_target"; valid: boolean }
+/** The one copy of the plan an offer was read from (Kiln After Delivery AC-BACK-03). */
+export interface ProposalSource { kind: "remote_base" | "main_checkout"; branch: string; revision: string }
 export interface ContinuationProposal {
   formatVersion: 1; id: string; completedExecutionId: string; baselineId: string; candidateDigest: string;
+  source?: ProposalSource;
   added: { id: string; title: string; file: string }[]; firstEligiblePhase?: string;
   readiness: "ready" | "blocked"; problems: string[]; prerequisites: ReadinessPrerequisite[];
   repositories: { name: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
   preparation: PreparationBinding[]; settingsDigest: string;
+  /** Proposals saved before Kiln After Delivery: a digest of the main checkout's files, no longer read or written. */
   sharedDigest?: string;
   permissionDigest?: string; scopeDigest?: string; grantEligible?: boolean;
   /** Read evidence already covered by permissionDigest, retained for partial observations. */
@@ -35,7 +39,13 @@ export interface ContinuationProposal {
   authorization?: { revision: number; executionId?: string; superseded: boolean; targets: { target: MergeTarget; granted: boolean }[] };
 }
 export interface ReadinessInput {
-  sharedDigest?: string;
+  source?: ProposalSource;
+  /**
+   * The delivery reading (Kiln After Delivery "The Plan Check", step 4): `merged` maps a repository to
+   * its delivery pull request's merge commit, `closed` lists the pull requests closed without merging,
+   * and `executionFinished` the phases the finished execution itself completed.
+   */
+  delivery?: { merged: Record<string, string>; closed: { repository: string; number: number }[]; executionFinished: ReadonlySet<string> };
   codex?: string | undefined;
   record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; accounting: Omit<CompletionAccounting, "id">;
   git: GitContext; shared: string; directory: string; problems: string[];
@@ -78,6 +88,13 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
       for (const name of affected) {
         const repo = repositories.find(repo => repo.name === name);
         const revision = receipt?.repositories?.[name]?.revision ?? (name === record.repository.name ? receipt?.revision : undefined);
+        // A merge Kiln confirmed counts, by any merge method: the base holds the pull request's merge commit (AC-WAIT-01).
+        const mergeCommit = input.delivery?.executionFinished.has(row.id) ? input.delivery.merged[name] : undefined;
+        if (repo && mergeCommit) {
+          if (await baseContains(git, repo.path, mergeCommit, repo.baseRevision)) continue;
+          integrationProblems.push(`Phase ${row.id}: the merge commit ${mergeCommit.slice(0, 7)} of ${name}'s pull request is not in origin/${repo.baseBranch}.`); continue;
+        }
+        const closed = input.delivery?.executionFinished.has(row.id) ? input.delivery.closed.find(pull => pull.repository === name) : undefined;
         if (!repo || !revision) { integrationProblems.push(`Phase ${row.id}: restore the retained ${name} completion revision before checking integration.`); continue; }
         const result = await runGit(git, repo.path, ["merge-base", "--is-ancestor", revision, repo.baseRevision]);
         if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not check retained Phase ${row.id} integration in ${name}. Restore revision ${revision}.`);
@@ -96,7 +113,8 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
             const target = await runGit(git, repo.path, ["merge-base", "--is-ancestor", merge.resultSha, repo.baseRevision]);
             if (source.exitCode === 0 && target.exitCode === 0) covered = true;
           }
-          if (!covered) integrationProblems.push(`Phase ${row.id}: ${name} completion ${revision} is not integrated in origin/${repo.baseBranch}; reconcile explicit preparation before continuing.`);
+          if (!covered && closed) integrationProblems.push(`Pull request #${closed.number} in ${name} was closed without merging, so its work is not in ${repo.baseBranch}. Reopen it on GitHub and merge it, and Continue comes back.`);
+          else if (!covered) integrationProblems.push(`Phase ${row.id}: ${name} completion ${revision} is not integrated in origin/${repo.baseBranch}; reconcile explicit preparation before continuing.`);
         }
       }
     }
@@ -125,7 +143,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     input.observeInput?.({ kind: "source", repository: repo.name, sourceRef: binding.sourceRef, revision });
     if (revision !== binding.sourceRevision) throw new Error(`source_changed: preparation source ${binding.sourceRef} moved. Check again.`);
   }
-  const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, ...(input.sharedDigest ? { sharedDigest: input.sharedDigest } : {}), added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
+  const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, ...(input.source ? { source: input.source } : {}), added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
   const permissionInputs: NonNullable<ContinuationProposal["permissionInputs"]> = [];
   if (preparation.length && preparation.every(binding => binding.valid)) {
     const proposed = { ...body, id: authorityDigest(body) };
@@ -155,6 +173,14 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
  * continuation readiness and a base-branch start from the Folder missing page (missing worktree
  * recovery, "Start", From the base branch, step 3). Problems are appended to `input.problems`.
  */
+/** Whether the base revision holds a commit; a commit missing from the object store is not in it. */
+async function baseContains(git: GitContext, path: string, commit: string, base: string): Promise<boolean> {
+  if ((await runGit(git, path, ["cat-file", "-e", `${commit}^{commit}`])).exitCode !== 0) return false;
+  const result = await runGit(git, path, ["merge-base", "--is-ancestor", commit, base]);
+  if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not tell whether ${commit} is in the base revision ${base}.`);
+  return result.exitCode === 0;
+}
+
 export async function bindPreparation(input: { git: GitContext; record: PrdRecord; candidate: PlanSource; first: import("../plan/phase-plan.js").PlannedPhase | undefined; repositories: ContinuationProposal["repositories"]; problems: string[]; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<{ preparation: PreparationBinding[]; extractedProblems: string[] }> {
   const { git, record, candidate, first, repositories, problems } = input;
   const preparation: PreparationBinding[] = [];

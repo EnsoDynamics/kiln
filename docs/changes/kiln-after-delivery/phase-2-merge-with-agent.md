@@ -17,4 +17,10 @@ The push session and its row, header, stop and wait (Phase 3; this phase builds 
 
 ## Phase-specific notes
 - The status token's fingerprint includes control reasons (`engine.ts`, near line 665 before the develop merge). Keep per-reading failure text and times out of the merge control's reason, as Pause Now did.
-- The real merge session with each agent runs against the temporary GitHub test repository Phase 1 created (the design's "Delivery").
+- The real merge session with each agent runs against the temporary GitHub test repository (the design's "Delivery"). Phase 1 did not create it: see "Carried forward from Phase 1".
+
+## Carried forward from Phase 1
+- **The temporary GitHub test repository does not exist yet.** Phase 1's `gh repo create EnsoDynamics/kiln-proof-after-delivery-temp-<YYYYMMDD>` was refused by this machine's agent permission settings (the auto-mode classifier denied it as unauthorized access), so Phase 1 captured the delivery reading's `gh pr view` and compare answers read-only from public pull requests instead (`test/fixtures/gh/pr-view-states-recorded-2026-11-21.json`, replayed by `test/stand-ins/gh-stand-in.mjs` through `recordedPullRequest`). Create the repository as the design's "Delivery" describes before the real merge sessions; if the permission is still refused, that is a blocker only a person can clear by allowing the command.
+- **The delivery reading is built** (`src/engine/delivery-reading.ts`, called by `Engine.deliveryDecision` before every finished-run check): it saves `afterDelivery.pullRequests` with `headSha`, `conflicts`, `order` and the merged time and commit. The merge press, the end of a merge session and the stop's occasions call `readDelivery` too; one reading at a time is today guaranteed only by the check's own join (`completedPlanReading`), so a reading taken outside the check needs its own join.
+- **AC-BOT-01's `Superseded in part by:` lines on AC-ACT-01 and AC-ACT-03** in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (two more commands, and `kiln merge` merges work) are owed with `kiln merge`; Phase 1 wrote AC-BOT-01's line on Kiln Deliver When Audit Loops Run Out AC-BOT-01.
+

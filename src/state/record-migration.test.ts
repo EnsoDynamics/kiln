@@ -81,7 +81,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(24);
+    expect(SCHEMA_VERSION).toBe(25);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -202,7 +202,7 @@ describe("schema 24: a loop is one run of an audit (Kiln Deliver When Audit Loop
 
   it("keeps the limits as recorded, drops the third setting, and rebuilds the loops as audit runs with only start epochs", () => {
     const migrated = migrateRecord(released());
-    expect(migrated.schemaVersion).toBe(24);
+    expect(migrated.schemaVersion).toBe(25);
     expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 2, testLimit: 5 });
     expect(migrated.auditLoops).toEqual({
       epochs: [{ kind: "delivery", at, cause: "start", loopsBefore: 0 }, { kind: "test", at, cause: "start", loopsBefore: 0 }],
@@ -264,7 +264,30 @@ describe("schema 23: the build preflight's state (build preflight \"Upgrade\")",
 
   it("refuses a record from a newer schema under the existing rule", () => {
     const newer = migrateRecord(schemaOne({}));
-    newer.schemaVersion = 25;
+    newer.schemaVersion = SCHEMA_VERSION + 1;
     expect(() => migrateRecord(newer)).toThrow(/newer|Update Kiln/);
+  });
+});
+
+describe("schema 25: the delivery reading and the carried-finished set (Kiln After Delivery \"Data Models and Upgrade\")", () => {
+  it("drops a check saved under the old rules, so no stale reconciliation or waiting panel renders before the first new check", () => {
+    for (const status of ["blocked", "awaiting_merge"] as const) {
+      const old = migrateRecord(schemaOne({}));
+      old.schemaVersion = 24;
+      old.completedAt = "2026-10-01T12:00:00Z";
+      old.completedPlanCheck = { status, attemptedAt: "2026-11-20T01:00:00Z", errors: [] };
+      const migrated = migrateRecord(old);
+      expect(migrated.schemaVersion).toBe(25);
+      expect(migrated.completedPlanCheck).toBeUndefined();
+      expect(migrated.afterDelivery).toBeUndefined();
+      expect(migrated.continuationBaselineId).toBeUndefined();
+    }
+  });
+  it("keeps a current record's check and refuses a malformed continuation baseline reference", () => {
+    const current = migrateRecord(schemaOne({}));
+    current.completedPlanCheck = { status: "unchanged", attemptedAt: "2026-11-20T01:00:00Z", errors: [] };
+    expect(migrateRecord(current).completedPlanCheck?.status).toBe("unchanged");
+    current.continuationBaselineId = "not-a-digest";
+    expect(() => migrateRecord(current)).toThrow("Malformed continuation baseline reference.");
   });
 });

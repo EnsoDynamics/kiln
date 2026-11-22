@@ -538,7 +538,7 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
   const columns = planColumns(record.plan ?? []);
   const where = viewAddress === undefined ? {} : { viewAddress };
   switch (event.kind) {
-    case "completed_plan_checked": return formatCompletedPlanCheck(event.check);
+    case "completed_plan_checked": return formatCompletedPlanCheck(event.check, record.prdDirectory);
     case "folder_missing": return formatFolderMissing(event.view, event.address, colors);
     case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
     case "audit":
