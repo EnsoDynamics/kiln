@@ -17,3 +17,6 @@ Exit Kiln on a run still in progress (the PRD's Out of Scope).
 
 ## Phase-specific notes
 - Exit ends through the ordinary stop path with code 0, but a reset ends through `stop.end()` (`kiln-command.ts`), skipping `engine.stop()`; signals give 130, 129 or 143, and `InterruptCause` (`records.ts`) has no exit value. `engine.stop` needs an exit cause, its report line and code 0.
+
+## Carried forward from Phase 3
+- **The push activity is built.** `openPlanPush(record)` (`delivery-reading.ts`) is the open push, `accepting` while it has `doneAt` and no `closedAt`; `openAfterDeliveryKey(record)` gives the open merge or push key. Exit is unavailable while a push is `accepting` (Kiln's own re-check and acceptance run from the loop's `acceptAfterPush`); its push stop, wait and restart hold reuse the merge's paths, keyed `plan-push-<operationId>`. `src/engine/plan-push.integration.test.ts` holds the harness (`finished`, `pressContinue`, `refused()`, `hanging()`, `kilnRun()`).

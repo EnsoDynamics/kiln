@@ -80,7 +80,7 @@
         <p>{preparation.authorization === "phase_preparation" ? "Continue authorizes this preparation." : "Requires the existing early-merge target authorization for the fresh run."} Verify before implementation: {preparation.checks.map(check => check.command).join("; ")}.</p>
       {/each}
       {#each result.proposal.prerequisites.filter(row => row.status === "preparation_available") as prerequisite}<p>Phase {prerequisite.phaseId}: awaiting planned preparation; not yet integrated.</p>{/each}
-      {#if result.proposal.authorization?.superseded}<p>Earlier target approval was superseded because the plan or its prerequisites changed.</p>{/if}
+      {#if result.proposal.authorization?.superseded}<p>{result.followsPush ? `Pushing the plan moved ${result.source.branch}, so the earlier permission for early merges no longer applies. Authorize early merges again to continue.` : "Earlier target approval was superseded because the plan or its prerequisites changed."}</p>{/if}
       {#each result.proposal.authorization?.targets ?? [] as row}
         <p>Early merges to {row.target.repository} / {row.target.baseBranch} may run its existing CI/CD before the PRD finishes.</p>
         {#if row.granted}<p>Authorized for this run: {row.target.repository} / {row.target.baseBranch}</p>

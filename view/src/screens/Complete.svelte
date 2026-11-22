@@ -12,7 +12,7 @@
   import { checkForNewPhases, merge as pressMerge, start } from "../lib/api.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
-  import { MERGE_LIVE_REASON } from "../../../src/engine/merge-wording.js";
+  import { MERGE_LIVE_REASON, PLAN_PUSH_LIVE_REASON } from "../../../src/engine/merge-wording.js";
   import { clockTime } from "../lib/time.js";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import ForYou from "../components/ForYou.svelte";
@@ -67,6 +67,10 @@
   const readingOf = (pull: { repository: string; number: number }) => after?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number);
   const ordinal = (n: number) => ["first", "second", "third", "fourth", "fifth"][n - 1] ?? `${n}th`;
   const mergeRow = $derived((snapshot.activities ?? snapshot.phases).find(row => row.kind === "merge"));
+  // Continue's push of the plan (Kiln After Delivery AC-BACK-05, mockup state 5): its session runs on the finished page.
+  const planPush = $derived(after?.planPush && after.planPush.state !== "done" ? after.planPush : undefined);
+  const pushRow = $derived(planPush ? (snapshot.activities ?? snapshot.phases).find(row => row.id === planPush.key) : undefined);
+  const pushLink = $derived(config && planPush ? phasePath(config.base, planPush.key) : undefined);
   const mergeLink = $derived(config ? phasePath(config.base, "merge") : undefined);
   const { router } = viewContext();
   let merging = $state(false);
@@ -154,7 +158,23 @@
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
   {#if criticalFirst}<ForYou {snapshot} />{/if}
-  {#if panelShown}<CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
+  {#if planPush}
+    <section class="pr" aria-label="Push the plan">
+      <h2>Push the plan</h2>
+      {#if pushRow?.file}<p class="note">{pushRow.file}</p>{/if}
+      {#if planPush.state === "interrupted"}
+        <div class="open"><button class="button solid" type="button" disabled={!connected || !config || resuming} onclick={pressResume}>Resume</button></div>
+        <p class="note">Kiln was stopped while the push session ran. Resume reads origin first; if the plan is still to push, it picks up the same session where it stopped.</p>
+        {#if resumeProblem}<p class="history-gap" role="alert">{resumeProblem}</p>{/if}
+      {:else if planPush.state === "accepting"}
+        <p class="note">The plan is pushed. Kiln is checking for new phases again, and starts the build when the same phases are still ready.</p>
+      {:else}
+        <div class="open">{#if pushLink && pushRow?.details}<a class="button solid" href={pushLink} onclick={(event) => routedClick(event, router, pushLink)}>Watch the session</a>{/if}</div>
+        <p class="note">{PLAN_PUSH_LIVE_REASON} Once {snapshot.settings.baseBranch} holds the documents, the build starts. If the push session stops, Kiln shows Needs you with its last message.</p>
+      {/if}
+    </section>
+  {/if}
+  {#if panelShown && !planPush}<CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}

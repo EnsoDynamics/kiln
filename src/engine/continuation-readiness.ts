@@ -24,9 +24,13 @@ export interface ReadinessPrerequisite { phaseId: string; status: "integrated_ve
 export interface PreparationBinding extends PreparationInstruction { sourceRevision: string; repositoryIdentity: string; baseBranch: string; baseRevision: string; authorization: "phase_preparation" | "delivery_target"; valid: boolean }
 /** The one copy of the plan an offer was read from (Kiln After Delivery AC-BACK-03). */
 export interface ProposalSource { kind: "remote_base" | "main_checkout"; branch: string; revision: string }
+/** A commit the main checkout's base branch holds beyond the remote base, oldest first, and whether it touches only this PRD's documents (AC-BACK-05). */
+export interface UnpushedCommit { sha: string; subject: string; onlyDocuments: boolean }
 export interface ContinuationProposal {
   formatVersion: 1; id: string; completedExecutionId: string; baselineId: string; candidateDigest: string;
   source?: ProposalSource;
+  /** For an offer read from the main checkout: the commits Continue's push session pushes (Kiln After Delivery "Continue and the Push Session"). */
+  commits?: UnpushedCommit[];
   added: { id: string; title: string; file: string }[]; firstEligiblePhase?: string;
   readiness: "ready" | "blocked"; problems: string[]; prerequisites: ReadinessPrerequisite[];
   repositories: { name: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
@@ -40,6 +44,7 @@ export interface ContinuationProposal {
 }
 export interface ReadinessInput {
   source?: ProposalSource;
+  commits?: UnpushedCommit[];
   /**
    * The delivery reading (Kiln After Delivery "The Plan Check", step 4): `merged` maps a repository to
    * its delivery pull request's merge commit, `closed` lists the pull requests closed without merging,
@@ -143,7 +148,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     input.observeInput?.({ kind: "source", repository: repo.name, sourceRef: binding.sourceRef, revision });
     if (revision !== binding.sourceRevision) throw new Error(`source_changed: preparation source ${binding.sourceRef} moved. Check again.`);
   }
-  const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, ...(input.source ? { source: input.source } : {}), added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
+  const body: Omit<ContinuationProposal, "id"> = { formatVersion: 1, completedExecutionId: record.executionId, baselineId: baseline.id, candidateDigest: candidate.digest, ...(input.source ? { source: input.source } : {}), ...(input.commits ? { commits: input.commits } : {}), added, ...(first ? { firstEligiblePhase: first.id } : {}), readiness: problems.length ? "blocked" : "ready", problems: [...new Set(problems)], prerequisites, repositories, preparation, settingsDigest: authorityDigest(record.settings) };
   const permissionInputs: NonNullable<ContinuationProposal["permissionInputs"]> = [];
   if (preparation.length && preparation.every(binding => binding.valid)) {
     const proposed = { ...body, id: authorityDigest(body) };

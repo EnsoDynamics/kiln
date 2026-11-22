@@ -104,11 +104,9 @@ it("reads the main checkout's committed plan only when it holds unfinished phase
   const check = await h.engine.checkCompletedPlan();
   expect(check).toMatchObject({ status: "available", result: { source: { kind: "main_checkout", branch: "develop", revision: tip }, origin: { kind: "unpushed" }, added: [{ id: "9" }] } });
   expect(check.result?.proposal?.source).toEqual({ kind: "main_checkout", branch: "develop", revision: tip });
-  expect(formatDecisionLine({ kind: "complete" }, h.engine, terminalColors({}, {}))).toContain("1 phase was added to this PRD after Kiln finished it: 9, committed on this machine's develop and not pushed.");
-  // Until Continue pushes the plan first, accepting such an offer is refused and starts nothing.
-  const answer = await h.engine.continuationCommand("accept", { proposalId: check.result!.proposal!.id, executionId: h.engine.record.executionId!, commandId: "accept-unpushed", statusToken: h.engine.controlView().token });
-  expect(answer).toMatchObject({ ok: false, code: "plan_not_pushed" });
-  expect(h.engine.record.continuation?.acceptances ?? []).toEqual([]);
+  expect(formatDecisionLine({ kind: "complete" }, h.engine, terminalColors({}, {}))).toContain("1 phase was added to this PRD after Kiln finished it: 9, committed on this machine's develop and not pushed; Continue pushes them first.");
+  // The offer lists the commits Continue's push session pushes, each marked as touching only this PRD's documents or not (plan-push.integration.test.ts drives the push itself).
+  expect(check.result?.proposal?.commits).toEqual([{ sha: git(h.sandbox, h.repository, "rev-parse", "HEAD~1").trim(), subject: "chore: local note", onlyDocuments: false }, { sha: tip, subject: "test(comet): extend plan", onlyDocuments: true }]);
   git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
   expect(await h.engine.checkCompletedPlan()).toMatchObject({ status: "available", result: { source: { kind: "remote_base", revision: tip }, origin: { kind: "commit", revision: tip } } });
   git(h.sandbox, h.repository, "reset", "-q", "--hard", behind);
@@ -538,7 +536,7 @@ it("says once, in the pull request card, that the delivery waits to merge, with 
     expect(h.claudeCalls()).toEqual([]);
   } finally { await chrome.close(); }
 }, 90_000);
-it("shows on the page the checkout on another branch, uncommitted documents, an unpushed plan and Continue's refusal (AC-BACK-03, AC-BACK-04)", async () => {
+it("shows on the page the checkout on another branch, uncommitted documents, an unpushed plan and Continue pushing it first (AC-BACK-03, AC-BACK-04, AC-BACK-05)", async () => {
   await fixture();
   // A linked document outside the PRD folder, committed, then edited and not committed.
   writeFileSync(join(h.repository, "shared-rules.md"), "# Shared rules\n");
@@ -558,26 +556,28 @@ it("shows on the page the checkout on another branch, uncommitted documents, an 
     const page = await chrome.open(server.address, { width: 1200, height: 900 });
     try {
       await waitFor(() => h.engine.record.completedPlanCheck?.attemptedAt !== check.attemptedAt && !h.engine.checking);
-      await page.waitFor(`${panel}.includes('These documents are committed on this machine’s develop but not pushed.') && ${panel}.includes('shared-rules.md has edits in your main checkout that aren’t committed. Kiln didn’t read them.')`);
+      await page.waitFor(`${panel}.includes('These documents are committed on this machine’s develop but not pushed. Continue pushes them first.') && ${panel}.includes('shared-rules.md has edits in your main checkout that aren’t committed. Kiln didn’t read them.')`);
       await page.waitFor("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Continue with 1 phase') && !b.disabled)");
-      // The page may still hold the status token from before its load's check; a person presses again on a stale refusal.
-      const refused = `${panel}.includes('These phases are committed on this machine') && ${panel}.includes('Push them to origin/develop, then check for new phases again.')`;
-      for (let attempt = 0; attempt < 5 && !await page.evaluate<boolean>(refused); attempt++) {
-        await page.waitFor("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Continue with 1 phase') && !b.disabled)");
-        await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.includes('Continue with 1 phase')).click()");
-        await page.waitFor(`${refused} || ${panel}.includes('Refresh status')`);
-      }
-      await page.waitFor(refused);
-      expect(h.engine.record.continuation?.acceptances ?? []).toEqual([]);
       // On another branch: the remote base is read, and the page says why the checkout was not.
       git(h.sandbox, h.repository, "checkout", "-qb", "feature/gift-cards");
       writeFileSync(join(h.repository, directory, "phase-10-other.md"), newPhase.replace("Phase 9: Lending", "Phase 10: Reservations")); git(h.sandbox, h.repository, "add", directory); git(h.sandbox, h.repository, "commit", "-qm", "docs: other feature's phase");
       await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.includes('Check for new phases')).click()");
       await page.waitFor(`${panel}.includes('The main checkout is on feature/gift-cards, so Kiln read the plan from origin/develop only.') && ${panel}.includes('No new phases found')`);
       expect(h.engine.record.completedPlanCheck?.result?.added).toEqual([]);
+      // Back on develop, Continue pushes the plan first: the push session runs, and here it stops at Needs you saying so (AC-BACK-05).
+      git(h.sandbox, h.repository, "checkout", "-q", "develop");
+      await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.includes('Check for new phases')).click()");
+      await page.waitFor("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Continue with 1 phase') && !b.disabled)");
+      for (let attempt = 0; attempt < 5 && !h.engine.record.afterDelivery?.planPushes?.length; attempt++) {
+        await page.waitFor("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Continue with 1 phase') && !b.disabled)");
+        await page.evaluate("[...document.querySelectorAll('button')].find(b => b.textContent.includes('Continue with 1 phase')).click()");
+        await waitFor(() => !!h.engine.record.afterDelivery?.planPushes?.length || !h.engine.checking, 10_000).catch(() => undefined);
+      }
+      await page.waitFor("document.body.innerText.includes('The push session stopped before pushing the plan.') && document.body.innerText.includes('Nothing Kiln can see was pushed to origin/develop.')");
+      expect(h.engine.record.continuation?.acceptances ?? []).toEqual([]);
     } finally { await page.close(); }
   } finally { await chrome.close(); }
-  expect(h.claudeCalls()).toEqual([]);
+  expect(h.claudeCalls().map(call => call.cwd)).toEqual([h.repository]);
 }, 60_000);
 it("counts a leaf the execution finished after the plan's last read as finished (AC-BACK-01)", async () => {
   await fixture();

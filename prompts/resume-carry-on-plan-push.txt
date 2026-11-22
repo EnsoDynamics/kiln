@@ -1,0 +1,3 @@
+Carry on pushing this PRD's documents to `{{baseBranch}}` from the main checkout, `{{checkout}}`. Read its state first: a merge of origin/{{baseBranch}} left in progress by an interruption is yours to finish, or to abort; never commit it half-resolved, and never leave it part-way.
+
+Everything in the first message still applies: push nothing when a commit touches anything but this PRD's documents unless a reply says to, never force-push, never stash, commit, change or discard uncommitted work, and end with the refusal word for word if the push is refused.

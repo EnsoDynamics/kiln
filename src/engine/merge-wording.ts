@@ -52,3 +52,6 @@ export const MERGE_LIVE_REASON = "Like the pull request session, the merge sessi
 
 /** At a merge stop, a pull request read `closed` (Display Contract). */
 export const closedAtStopLine = (row: { repository: string; number: number }): string => `${row.repository} #${row.number} was closed on GitHub without merging. Reopen it there, then press Resume.`;
+
+/** Said wherever a running push session offers no message box, pause or takeover (AC-MERGE-05, mockup state 5). */
+export const PLAN_PUSH_LIVE_REASON = "Like the pull request session, the push session can’t be messaged, paused or taken over while it runs.";

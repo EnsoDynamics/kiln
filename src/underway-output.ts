@@ -5,7 +5,7 @@ import { developmentDeliverySummary } from "./state/development-delivery.js";
 // it does next. Every part comes from Kiln's own record and checks, never a guessed cause.
 
 import { awaitingMergeText } from "./engine/awaiting-merge.js";
-import { openMerge } from "./engine/delivery-reading.js";
+import { openAfterDeliveryKey, openMerge, openPlanPush } from "./engine/delivery-reading.js";
 import { addedSentence, notReadLine, uncommittedLine } from "./engine/new-phases-wording.js";
 import type { CompletedPlanCheck } from "./engine/completed-plan-discovery.js";
 import type { Engine, UnderwayDecision } from "./engine/engine.js";
@@ -15,7 +15,7 @@ import { effectiveRecordedClosed } from "./engine/waivers.js";
 import { PR_PHASE_KEY } from "./state/records.js";
 import { resetClock, type TerminalColors } from "./terminal-output.js";
 
-const phaseName = (key: string, engine?: Engine) => (key === PR_PHASE_KEY ? "the pull request" : key === MERGE_KEY ? "the merge session" : engine?.auditActivity(key) ? engine.titleOf(key).toLowerCase() : activityKeyKind(key) === "preflight" ? "the preflight" : `phase ${key}`);
+const phaseName = (key: string, engine?: Engine) => (key === PR_PHASE_KEY ? "the pull request" : key === MERGE_KEY ? "the merge session" : activityKeyKind(key) === "plan_push" ? "the push session" : engine?.auditActivity(key) ? engine.titleOf(key).toLowerCase() : activityKeyKind(key) === "preflight" ? "the preflight" : `phase ${key}`);
 const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
@@ -26,7 +26,7 @@ const capitalized = (text: string) => text.charAt(0).toUpperCase() + text.slice(
 export function whereItStands(engine: Engine): string {
   const { record } = engine;
   if (engine.currentlyComplete) return engine.record.completedPlanCheck ? "earlier delivery complete; current plan checked" : "complete";
-  if (record.completedAt && record.developmentAuthorization?.enabled && !openMerge(record)) return "previously complete; current delivery is being reconciled";
+  if (record.completedAt && record.developmentAuthorization?.enabled && !openAfterDeliveryKey(record)) return "previously complete; current delivery is being reconciled";
   const waiting = engine.waitingPhaseKey();
   if (waiting !== undefined) return `${phaseName(engine.judgedId(waiting), engine)} is waiting for usage`;
   // Pause now reads as pausing or paused, never needs you (Kiln Pause Now AC-PAUSE-03, AC-PAUSE-05).
@@ -42,6 +42,8 @@ export function whereItStands(engine: Engine): string {
     }
   }
   if (openMerge(record)) return "the merge session is next";
+  const push = openPlanPush(record);
+  if (push) return push.doneAt ? "the plan is pushed; checking for new phases" : "the push session is next";
   const next = engine.nextKeyFromRecordedPlan();
   if (record.pause.activeSince !== undefined) return `paused before ${phaseName(next, engine)}`;
   return `${phaseName(next, engine)} is next`;
@@ -79,6 +81,12 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
       break;
     case "start_merge":
       text = "Starting the merge session.";
+      break;
+    case "start_plan_push":
+      text = "Starting the session that pushes the plan.";
+      break;
+    case "plan_push_accepting":
+      text = "The plan is pushed. Checking for new phases again before starting the build.";
       break;
     case "needs_you": {
       const judged = engine.judgedId(decision.phaseKey);

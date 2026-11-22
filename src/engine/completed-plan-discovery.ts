@@ -14,7 +14,7 @@ import { judgedPhase, planStructure, recordedPlan } from "./plan-reading.js";
 import { gitError, runGit, type GitContext } from "./git-reads.js";
 import { gitRead, observeGitPlan, remoteBase } from "./completed-plan-sources.js";
 import { PLAN_NORMALIZER_VERSION, PlanCapacityError, PlanBaselineWriteFailure, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, retainBaseline, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
-import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal, type ProposalSource } from "./continuation-readiness.js";
+import { evaluateContinuationReadiness, retainContinuationProposal, type ContinuationProposal, type ProposalSource, type UnpushedCommit } from "./continuation-readiness.js";
 import { accountCompletedLeaves, retainCompletionAccounting, type AccountedLeaf } from "./completed-plan-accounting.js";
 import type { ContinuationInputObservation } from "./continuation-authority.js";
 import type { AwaitingMerge } from "./awaiting-merge.js";
@@ -38,6 +38,8 @@ export interface CompletedPlanResult {
   proposal?: ContinuationProposal;
   accountingId?: string;
   leaves?: AccountedLeaf[];
+  /** The latest push of the plan whose re-check produced an offer of this scope (Kiln After Delivery, "Data Models"). */
+  followsPush?: string;
 }
 export interface CompletedPlanCheck {
   status: "checking" | "unchanged" | "available" | "blocked" | "failed" | "awaiting_merge";
@@ -150,6 +152,21 @@ async function uncommittedDocuments(git: GitContext, path: string, prdDirectory:
   return [...names].filter(name => relevant.has(name) || name.startsWith(`${prdDirectory}/`)).sort();
 }
 
+/**
+ * The commits the main checkout's base branch holds beyond the remote base, oldest first, each
+ * marked as touching only this PRD's documents or not (Kiln After Delivery, "Continue and the Push Session").
+ */
+async function unpushedCommits(git: GitContext, path: string, remote: string, tip: string, prdDirectory: string, documents: string[]): Promise<UnpushedCommit[]> {
+  const ours = new Set(documents);
+  const rows = (await gitRead(git, path, ["log", "--reverse", "--format=%x1e%H%x1f%s", "--name-only", "--no-renames", "--diff-merges=first-parent", `${remote}..${tip}`])).split("\x1e").filter(row => row.trim());
+  return rows.map(row => {
+    const [head, ...files] = row.split("\n");
+    const [sha, subject] = head!.split("\x1f");
+    const touched = files.map(file => file.trim()).filter(Boolean);
+    return { sha: sha!, subject: subject ?? "", onlyDocuments: touched.every(file => ours.has(file) || file.startsWith(`${prdDirectory}/`)) };
+  });
+}
+
 /** The checkout's current branch, or undefined when HEAD is detached. */
 async function currentBranch(git: GitContext, path: string): Promise<string | undefined> {
   const result = await runGit(git, path, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
@@ -204,11 +221,12 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     } else notRead = { reason: "other_branch", branch: checkout ?? "a detached HEAD" };
     context.observeInput?.({ kind: "candidate", digest: selected.digest });
     const uncommitted = await uncommittedDocuments(git, shared, record.prdDirectory, Object.keys(selected.documents));
+    const commits = source.kind === "main_checkout" ? await unpushedCommits(git, shared, revision, source.revision, record.prdDirectory, Object.keys(selected.documents)) : undefined;
     const finished: PlanBaseline = { ...baseline, completions };
     const accounting = await accountCompletedLeaves({ record, baseline: finished, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
     // The phases this execution itself completed: a confirmed merge of its pull request proves their work is in the base (step 4).
     const executionFinished = new Set(Object.entries(record.phases).flatMap(([key, facts]) => activityKeyKind(key) === "phase" && facts.doneAt ? [judgedPhase(record.plan ?? [], key)?.id].filter((id): id is string => !!id) : []));
-    const proposal = await evaluateContinuationReadiness({ record, baseline: finished, candidate: selected, accounting, git, shared, directory, problems: [], source, delivery: { merged: delivery.merged, closed: delivery.closed, executionFinished }, codex: context.codex, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
+    const proposal = await evaluateContinuationReadiness({ record, baseline: finished, candidate: selected, accounting, git, shared, directory, problems: [], source, ...(commits ? { commits } : {}), delivery: { merged: delivery.merged, closed: delivery.closed, executionFinished }, codex: context.codex, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
     const added = accounting.leaves.filter(p => p.classification === "new_unfinished").map(({ id, title, file }) => ({ id, title, file }));
     // Where the phases came from (AC-BACK-04): the most recent commit that added one of their documents.
     let origin: CompletedPlanResult["origin"];

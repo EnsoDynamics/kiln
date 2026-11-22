@@ -164,7 +164,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
  * phases does, and answers with its receipt, refusals included (AC-BOT-01).
  */
 async function continueWithPhases(engine: Engine, command: Record<string, unknown>): Promise<[Result, 202 | 400 | 409 | 503]> {
-  const answer = engine.commands.submitInternal({ command_id: command.command_id, execution_id: command.execution_id, status_token: command.status_token, action: "continuation-accept", inputs: { proposal_id: (command.inputs as Record<string, unknown>).proposal_id } });
+  const answer = engine.commands.submitInternal({ command_id: command.command_id, execution_id: command.execution_id, status_token: command.status_token, action: "continuation-accept", inputs: { proposal_id: (command.inputs as Record<string, unknown>).proposal_id, via: "command_line" } });
   return [answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400];
 }
 

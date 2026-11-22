@@ -19,7 +19,7 @@ export function addedHeading(n: number): string {
 export function originLine(result: Pick<CompletedPlanResult, "origin" | "source">): string | undefined {
   const origin = result.origin;
   if (!origin) return undefined;
-  if (origin.kind === "unpushed") return `These documents are committed on this machine’s ${result.source.branch} but not pushed.`;
+  if (origin.kind === "unpushed") return `These documents are committed on this machine’s ${result.source.branch} but not pushed. Continue pushes them first.`;
   return `Added on ${when(origin.committedAt).replace(", ", " at ")}, in commit ${origin.revision.slice(0, 7)} “${origin.subject}”.`;
 }
 
@@ -51,6 +51,6 @@ export function uncommittedLine(result: Pick<CompletedPlanResult, "uncommitted">
 export function addedSentence(result: Pick<CompletedPlanResult, "added" | "origin" | "source">): string {
   const ids = result.added.map(phase => phase.id).join(", ");
   const origin = result.origin;
-  const where = !origin ? "" : origin.kind === "unpushed" ? `, committed on this machine's ${result.source.branch} and not pushed` : `, in commit ${origin.revision.slice(0, 7)} on origin/${result.source.branch} (${when(origin.committedAt)})`;
+  const where = !origin ? "" : origin.kind === "unpushed" ? `, committed on this machine's ${result.source.branch} and not pushed; Continue pushes them first` : `, in commit ${origin.revision.slice(0, 7)} on origin/${result.source.branch} (${when(origin.committedAt)})`;
   return `${addedHeading(result.added.length)}: ${ids}${where}.`;
 }

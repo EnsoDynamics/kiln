@@ -180,6 +180,7 @@ The PRD ends with each changed repository ready for review or already merged int
   - Replaces in part: AC-START-06, AC-START-08, AC-WATCH-07 and AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (per repository, and where Kiln stops)
   - Superseded in part by: AC-FROM-04 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (Starting lets Kiln names the chosen branch, its open pull request, and bringing an untouched branch up to date).
   - Superseded in part by: AC-MERGE-08 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (merging stays forbidden except on the press of Merge with {agent}, and the statement names Continue's push of this PRD's documents; the rest remains)
+  - Superseded in part by: AC-BACK-05 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (Continue may push this PRD's documents to the base branch; touching other branches stays forbidden).
 
 ### Look Like This Change's Mockups
 

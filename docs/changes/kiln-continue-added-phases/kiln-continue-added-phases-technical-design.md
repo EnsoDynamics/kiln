@@ -202,6 +202,7 @@ Preparation under the assigned-feature destination is presented as authorized by
 ### Durable proposal and one acceptance
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`continuation-accept` is public as `continue-with-phases`; the grant action stays browser-only).
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Continue and the Push Session (accepting an offer read from the main checkout pushes first, then accepts the matching refreshed offer itself).
 
 A successful completed-feature check retains a `ContinuationProposal` and an opaque content-derived `proposalId`. Bind the ID to the completed execution, baseline ID, candidate document bytes, ordered eligible leaves, repository/base revisions, prerequisite source revisions and evidence, preparation bindings, and applicable authority/settings revisions. Exclude check timestamps and display-only observation times so an identical recheck preserves identity.
 

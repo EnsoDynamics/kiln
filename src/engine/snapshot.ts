@@ -14,7 +14,7 @@ import { DELIVERY_CHECK, deliveryEnabled, finishedBy } from "./development-deliv
 import { sameOwner, type DevelopmentSettings } from "../state/development-delivery.js";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import type { AgentAccount } from "../agents/metadata.js";
-import { selectedChoice } from "../state/records.js";
+import { readSessionRecord, selectedChoice } from "../state/records.js";
 // The Snapshot every screen renders from (technical design, "Snapshot"), built from the
 // engine's record, the plan as last read, what the engine is doing, and the account and model
 // list once they have arrived.
@@ -30,9 +30,10 @@ import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
-import { deliveryWaiting, mergeOffer, openMerge, type MergeOffer } from "./delivery-reading.js";
+import { deliveryWaiting, latestPlanPush, mergeOffer, openAfterDeliveryKey, type MergeOffer, type PlanPushActivity } from "./delivery-reading.js";
 import { closedLine, mergeNote, unreadableLine } from "./merge-wording.js";
-import { MERGE_KEY } from "../state/activity-keys.js";
+import { isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
+import { readAcceptance } from "./continuation-state.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
 import { closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
@@ -164,7 +165,9 @@ export interface StartView {
 
 export interface PhaseView {
   activityId?: string;
-  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight" | "merge";
+  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight" | "merge" | "plan_push";
+  /** The archived execution a Push the plan row's session ran in, for its session links (Kiln After Delivery, "Activation and the row"). */
+  executionId?: string;
   /** A Preflight row (build preflight "Interfaces"). */
   preflight?: {
     /** Absent when no report has been read: running, or marked complete before a session reported. */
@@ -280,6 +283,14 @@ export interface AfterDeliveryView {
   /** What the pull request card offers (AC-MERGE-07): the note beside Merge with {agent}, or the line saying why it is not offered. */
   offer: { kind: MergeOffer["kind"]; available: boolean; reason?: string; note?: string; line?: string };
   merge?: MergeView;
+  /** The latest push of the plan (Kiln After Delivery "Interfaces"). */
+  planPush?: PlanPushView;
+}
+export interface PlanPushView {
+  key: string;
+  state: "running" | "stopped" | "waiting" | "interrupted" | "accepting" | "done";
+  sessionId?: string;
+  proposalId: string;
 }
 export interface MergeView {
   state: "running" | "stopped" | "waiting" | "interrupted" | "done";
@@ -550,7 +561,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     : folderMissing
       ? "folder_missing"
       // A merge activity held at the restart review shows the finished page, waiting or not (Kiln After Delivery, "Ctrl+C and restart").
-      : engine.currentlyComplete || engine.finished && openMerge(record) && stoppedKey === undefined && (waitingKey === undefined || engine.restartReview?.activityKey === MERGE_KEY) && !record.billing?.hold
+      : engine.currentlyComplete || engine.finished && openAfterDeliveryKey(record) !== undefined && stoppedKey === undefined && (waitingKey === undefined || engine.restartReview?.activityKey === openAfterDeliveryKey(record)) && !record.billing?.hold
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
@@ -817,6 +828,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const preflight = engine.preflightActivity(phaseKey);
   const originalPrompts = (ran: boolean) =>
       phaseKey === MERGE_KEY ? engine.mergePrompt(folder) :
+      isPlanPushKey(phaseKey) ? engine.planPushPrompt(phaseKey) :
       preflight ? engine.preflightPrompt(preflight, folder) :
       auditTask ? auditRecoveryPrompt(auditTask, engine.deliveryAuthority()) :
       isPr
@@ -1131,7 +1143,7 @@ export function codexResumeCommand(folder: string, session: SessionRecord, platf
 function completeUntil(engine: Engine): string | undefined {
   const { record } = engine;
   if (!engine.currentlyComplete || !record.completedAt) return undefined;
-  const closed = record.afterDelivery?.merge?.closedAt;
+  const closed = [record.afterDelivery?.merge?.closedAt, ...(record.afterDelivery?.planPushes ?? []).map(push => push.closedAt)].filter((at): at is string => at !== undefined).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   return closed && Date.parse(closed) > Date.parse(record.completedAt) ? closed : record.completedAt;
 }
 
@@ -1244,7 +1256,76 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
   }
   const merge = mergeRow(engine, includeTiming);
   if (merge) rows.push(merge);
+  const push = planPushRow(engine, includeTiming);
+  if (push) {
+    // In the build a push led to, the row sits before the first added phase; on the finished page, after the rest.
+    const before = push.executionId ? rows.findIndex(row => row.id === push.beforeId) : -1;
+    const { beforeId: _before, ...row } = push; void _before;
+    if (before >= 0) rows.splice(before, 0, row); else rows.push(row);
+  }
   return rows;
+}
+
+/**
+ * The Push the plan row (Kiln After Delivery AC-MERGE-05): on the finished page while a push is
+ * open, and while the acceptance it led to is being prepared; in the build that acceptance
+ * activated, Done before the first added phase, read from the archived execution. Never counted
+ * among the phases done.
+ */
+function planPushRow(engine: Engine, includeTiming: boolean): (PhaseView & { beforeId?: string }) | undefined {
+  const { record } = engine;
+  const current = record.continuation?.acceptances.find(row => row.id === record.continuation?.currentAcceptanceId);
+  const latest = latestPlanPush(record);
+  const preparing = !!current && current.completedExecutionId === record.executionId && current.state === "preparing";
+  if (latest && (!latest.closedAt || preparing && readAcceptance(engine.stateDirectory, current!.id).planPushKey === planPushKey(latest.operationId))) {
+    return pushRowFor(engine, record, latest, planPushState(engine, latest).state, includeTiming);
+  }
+  if (!current || current.completedExecutionId === record.executionId) return undefined;
+  const acceptance = readAcceptance(engine.stateDirectory, current.id);
+  if (!acceptance.planPushKey) return undefined;
+  const archived = engine.historicalExecution(acceptance.completedExecutionId)?.record;
+  const push = archived?.afterDelivery?.planPushes?.find(one => planPushKey(one.operationId) === acceptance.planPushKey);
+  if (!archived || !push) return undefined;
+  return { ...pushRowFor(engine, archived, push, "done", includeTiming, acceptance.completedExecutionId), executionId: acceptance.completedExecutionId, ...optional("beforeId", acceptance.proposal.added[0]?.id) };
+}
+
+/** `archivedIn`: the archived execution the push ran in, whose sessions are read as that execution's, never this one's. */
+function pushRowFor(engine: Engine, record: Pick<PrdRecord, "phases" | "repositories" | "settings">, push: PlanPushActivity, state: PlanPushView["state"], includeTiming: boolean, archivedIn?: string): PhaseView {
+  const key = planPushKey(push.operationId);
+  const facts = record.phases[key];
+  const ids = facts?.sessionIds ?? [];
+  const read = (id: string) => {
+    if (!archivedIn) return engine.sessionRecord(key, id);
+    const saved = readSessionRecord(engine.stateDirectory, key, id);
+    return saved?.executionId === archivedIn ? saved : undefined;
+  };
+  const session = ids.length ? read(ids.at(-1)!) : undefined;
+  const base = record.repositories.find(entry => entry.kind === "prd")?.baseBranch ?? record.settings.baseBranch;
+  const checkout = displayPath(engine.record.repository.mainCheckoutPath);
+  const line = `${state === "done" || state === "accepting" ? "pushed" : "pushing"} this PRD’s documents to ${base} from ${checkout}`;
+  const row: PhaseView = { id: key, kind: "plan_push", title: "Push the plan", file: session ? `${AGENT_NAMES[session.agentId ?? "claude_code"]} · ${session.modelDisplayName} · ${line}` : line,
+    state: state === "done" || state === "accepting" ? "done" : state === "stopped" ? "needs_you" : state === "waiting" ? "waiting" : state === "interrupted" ? "next" : "implementing", finishedByPerson: false, ...optional("doneAt", push.doneAt), ...(state === "interrupted" ? { interrupted: true as const } : {}) };
+  const first = ids[0] ? read(ids[0]) : undefined;
+  const from = first?.runs[0]?.startedAt;
+  if (session) {
+    if (!archivedIn) row.outputLineCount = engine.outputLines(session).length;
+    if (from) {
+      row.sessionStartedAt = from;
+      if (includeTiming) row.timing = archivedIn ? runTiming(session.runs.map(run => ({ startedAt: run.startedAt, ...optional("interruptedAt", run.interruptedAt), endedAt: run.endedAt ?? run.startedAt })), from, push.doneAt ?? from) : timingFor(engine, [key], from, push.doneAt)!;
+      row.details = { ...sessionIdentity(session), from, ...optional("to", push.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.workingDirectoryOf(session)), branch: base, sessionId: session.sessionId };
+    }
+  }
+  return row;
+}
+
+/** A push's state (Kiln After Delivery "Interfaces"): done, accepting (past Done, its check not decided), stopped, waiting, interrupted or running. */
+function planPushState(engine: Engine, push: PlanPushActivity): PlanPushView {
+  const { record } = engine;
+  const key = planPushKey(push.operationId);
+  const facts = record.phases[key];
+  const session = engine.latestSession(key);
+  const state: PlanPushView["state"] = push.closedAt ? "done" : push.doneAt ? "accepting" : facts?.stop || record.billing?.hold?.phaseKey === key ? "stopped" : engine.restartReview?.activityKey === key ? "interrupted" : facts?.wait ? "waiting" : "running";
+  return { key, state, ...optional("sessionId", session?.sessionId), proposalId: push.proposalId };
 }
 
 /**
@@ -1309,6 +1390,7 @@ export function afterDeliveryView(engine: Engine): AfterDeliveryView {
     waiting: deliveryWaiting(record) === true,
     offer: offerView,
     ...(merge ? { merge } : {}),
+    ...(latestPlanPush(record) ? { planPush: planPushState(engine, latestPlanPush(record)!) } : {}),
   };
 }
 
@@ -1502,7 +1584,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
   let ledger: ReturnType<typeof personItems> | undefined;
   try { ledger = personItems(engine.stateDirectory, audits, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
   for (const activity of activityHistory(record, engine.stateDirectory)) {
-    if (activity.kind === "implementation" || activity.kind === "final_delivery" || activity.kind === "merge") {
+    if (activity.kind === "implementation" || activity.kind === "final_delivery" || activity.kind === "merge" || activity.kind === "plan_push") {
       const parent = phases.find(r => r.id === activity.key && r.state === "split");
       if (parent && !started.has(parent.id)) { rows.push(parent); started.add(parent.id); }
       const row = phases.find(r => r.id === engine.judgedId(activity.key));

@@ -590,6 +590,19 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
         columns,
         colors,
       );
+    case "plan_push":
+      return formatPhaseLine(
+        event.at,
+        "P",
+        "Push the plan",
+        event.event === "pushed"
+          ? { kind: "completed", summary: "Pushed" }
+          : event.event === "waiting"
+            ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
+            : { kind: event.event, ...where },
+        columns,
+        colors,
+      );
     case "message":
       return `${colors.amber("✗")} ${event.text}`;
   }

@@ -1,5 +1,7 @@
 # Phase 3: Continue pushes the plan first
 
+**Closed:** 2026-11-22
+
 **Parent PRD:** [Kiln After Delivery](kiln-after-delivery-prd.md)
 **Technical design:** [Kiln After Delivery technical design](kiln-after-delivery-technical-design.md) — relevant sections: "Continue and the Push Session", "After-Delivery Activities" (Push the plan), "Interfaces" (`continue-with-phases`, `planPush`, `followsPush`), "Display Contract", "Data Models and Upgrade" (`planPushes`, `planPushKey`, `refreshedScope`), "Prompts"
 
@@ -14,6 +16,9 @@ Exit Kiln, including its availability while a push activity is accepting (Phase 
 
 ## Phase dependencies
 1 (the plan read from the main checkout, the offer's source and origin, and the interim refusal this phase replaces); 2 (the after-delivery activity: reopening a finished run, its gates, stops, waits and restart hold).
+
+## Real push sessions
+Run on 2026-11-22 against the temporary repository with each agent: [Kiln After Delivery push proof results](kiln-after-delivery-push-proof-results.md).
 
 ## Phase-specific notes
 - While a push activity is `accepting`, the run is not currently complete, so the check and acceptance guards (`engine.ts`, near lines 3310 and 3531 before the develop merge) must let the automatic re-check and acceptance through.

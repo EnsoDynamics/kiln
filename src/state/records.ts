@@ -74,7 +74,8 @@ export function assertAgent(agent: unknown): asserts agent is AgentId {
 
 /** `preflight`: a preflight that reported items stops on its key (build preflight "The Preflight Stop"). */
 /** `merge_check`: a merge session ended with a pull request GitHub does not show merged (Kiln After Delivery AC-MERGE-06). */
-export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight" | "merge_check";
+/** `plan_push_check`: a push session ended with the plan not in the remote base branch (AC-BACK-05). */
+export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight" | "merge_check" | "plan_push_check";
 
 export interface CheckResult {
   name: string;
@@ -535,7 +536,7 @@ export interface SessionRecord {
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
-  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight" | "merge";
+  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight" | "merge" | "plan_push";
   createdAt: string;
   /** The chosen alias, as passed to --model. */
   model: string;

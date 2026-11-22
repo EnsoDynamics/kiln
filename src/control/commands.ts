@@ -179,7 +179,9 @@ function validateInternalInstruction(raw: unknown): Instruction {
     return value;
   }
   const key = value.action === "continuation-accept" ? "proposal_id" : "acceptance_id";
-  if (!INTERNAL_ACTIONS.includes(value.action as typeof INTERNAL_ACTIONS[number]) || !value.inputs || Object.keys(value.inputs).join() !== key || typeof value.inputs[key] !== "string" || !(key === "proposal_id" ? /^[a-f0-9]{64}$/ : /^[\w.-]{1,128}$/).test(value.inputs[key] as string)) throw new ControlFailure("invalid_input", "Invalid internal continuation instruction.", 2);
+  // A continuation acceptance may say it came from the command line, or that Kiln accepts after its push of the plan (Kiln After Delivery AC-BACK-05).
+  const optional = value.action === "continuation-accept" && value.inputs ? Object.keys(value.inputs).filter(name => name === "via" && value.inputs.via === "command_line" || name === "plan_push" && typeof value.inputs.plan_push === "string" && /^plan-push-[\w.-]{1,128}$/.test(value.inputs.plan_push)) : [];
+  if (!INTERNAL_ACTIONS.includes(value.action as typeof INTERNAL_ACTIONS[number]) || !value.inputs || Object.keys(value.inputs).filter(name => !optional.includes(name)).join() !== key || typeof value.inputs[key] !== "string" || !(key === "proposal_id" ? /^[a-f0-9]{64}$/ : /^[\w.-]{1,128}$/).test(value.inputs[key] as string)) throw new ControlFailure("invalid_input", "Invalid internal continuation instruction.", 2);
   validateInstruction({ ...value, action: "continue", inputs: {} });
   return value;
 }

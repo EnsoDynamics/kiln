@@ -7,6 +7,7 @@ import { existsSync, realpathSync, statSync } from "node:fs";
 import { parseGithubOrigin } from "../github-origin.js";
 import { runHelper } from "../platform/helper-process.js";
 import type { PrdRecord } from "../state/records.js";
+import { MERGE_KEY, planPushKey } from "../state/activity-keys.js";
 import { gitError, runGit, type GitContext } from "./git-reads.js";
 import { expandHome } from "./worktree-setup.js";
 
@@ -47,6 +48,42 @@ export interface AfterDeliveryState {
   /** A person's Check now or `kiln check-for-new-phases` read the PRD repository's pull request closed. */
   checkedWhileClosedAt?: string;
   merge?: MergeActivity;
+  /** Continue's pushes of the plan, one per press that opened one, never removed (Kiln After Delivery, "Data Models"). */
+  planPushes?: PlanPushActivity[];
+}
+
+/**
+ * A push of the plan (Kiln After Delivery, "Continue and the Push Session"): opened by a Continue
+ * press on an offer read from the main checkout. Done (`doneAt`) once the remote base holds the plan,
+ * then `accepting` until the re-check decides; `closedAt` is written with that decision.
+ */
+export interface PlanPushActivity {
+  /** The receipt of the Continue press that opened it; the activity key is `plan-push-<operationId>`. */
+  operationId: string;
+  requestedAt: string;
+  via: "browser" | "command_line";
+  proposalId: string;
+  /** The offer's ordered unfinished phases, each with its phase scope digest. */
+  offered: { id: string; phaseScopeDigest: string }[];
+  doneAt?: string;
+  closedAt?: string;
+  /** The `scopeDigest` of the offer its re-check found, saved as it closed. */
+  refreshedScope?: string;
+}
+
+/** The push of the plan while it is open, `accepting` included (at most one). */
+export function openPlanPush(record: Pick<PrdRecord, "completedAt" | "afterDelivery">): PlanPushActivity | undefined {
+  return record.completedAt ? record.afterDelivery?.planPushes?.find(push => !push.closedAt) : undefined;
+}
+
+/** The latest push of the plan, open or closed. */
+export const latestPlanPush = (record: Pick<PrdRecord, "afterDelivery">): PlanPushActivity | undefined => record.afterDelivery?.planPushes?.at(-1);
+
+/** The open after-delivery activity's key: the merge, or the open push of the plan (Kiln After Delivery, "While open"). */
+export function openAfterDeliveryKey(record: Pick<PrdRecord, "completedAt" | "afterDelivery">): string | undefined {
+  if (openMerge(record)) return MERGE_KEY;
+  const push = openPlanPush(record);
+  return push ? planPushKey(push.operationId) : undefined;
 }
 
 /** The merge activity while it is open (Kiln After Delivery, "While open"). */
@@ -134,7 +171,7 @@ const ORDER = /^\s*Merge order:\s*(\d+)\s+of\s+(\d+)\s*$/im;
 export async function readDelivery(input: ReadingInput): Promise<{ state: AfterDeliveryState; failed: { repository: string; number: number }[] }> {
   const { record } = input;
   const previous = record.afterDelivery;
-  const next: AfterDeliveryState = { pullRequests: [...(previous?.pullRequests ?? [])], ...(previous?.checkedWhileClosedAt ? { checkedWhileClosedAt: previous.checkedWhileClosedAt } : {}), ...(previous?.merge ? { merge: previous.merge } : {}) };
+  const next: AfterDeliveryState = { pullRequests: [...(previous?.pullRequests ?? [])], ...(previous?.checkedWhileClosedAt ? { checkedWhileClosedAt: previous.checkedWhileClosedAt } : {}), ...(previous?.merge ? { merge: previous.merge } : {}), ...(previous?.planPushes ? { planPushes: previous.planPushes } : {}) };
   const problems: string[] = [];
   const fresh = new Set<PullRequestReading>();
   const failed: { repository: string; number: number }[] = [];
