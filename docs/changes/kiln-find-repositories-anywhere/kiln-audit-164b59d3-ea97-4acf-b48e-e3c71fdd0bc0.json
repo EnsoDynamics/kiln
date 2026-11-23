@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "164b59d3-ea97-4acf-b48e-e3c71fdd0bc0",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Test audit of the whole PRD (21 criteria) at 7b62864. Every criterion is built and no mapped test is missing or failing. 8 criteria are Adequate, and 9 red checks on them all turned red. 13 are Weak, 2 of them high risk (AC-ASK-03, AC-ASK-04), mostly from untested error cases, end-to-end paths and drawing colours. test-audit.md lists each gap and its fix, in order, for a session of test fixes.",
+  "completionPhases": [],
+  "needsYou": [
+    {"kind": "test", "criterion": "AC-ASK-03", "problem": "High-risk criterion still Weak: a bare repository given as the answer is untested, and only one refusal is tested end to end that it leaves nothing remembered.", "action": "None yet; the next test-fix session works it first. Review it only if it is still open at delivery."},
+    {"kind": "test", "criterion": "AC-ASK-04", "problem": "High-risk criterion still Weak: after a remembered folder fails, no test proves Kiln searches again rather than only asking.", "action": "None yet; the next test-fix session works it first. Review it only if it is still open at delivery."}
+  ],
+  "settled": [],
+  "changedImplementation": false
+}
