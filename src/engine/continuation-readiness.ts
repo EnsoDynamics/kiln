@@ -18,7 +18,8 @@ const authorityDigest = (value: unknown) => createHash("sha256").update(JSON.str
 import { readPendingAuthority, pendingForProposal, type ContinuationInputObservation } from "./continuation-authority.js";
 import { mergeTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
-import { preparationReads, reachedName, reachRecordNames, recordedName, type PlanReach } from "./plan-repositories.js";
+import { preparationReads, reachedName, reachRecordNames, recordedName, recordLabelSet, type PlanReach } from "./plan-repositories.js";
+import { labelAmong, shortNameOf } from "./repository-labels.js";
 import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
 
 export interface ReadinessPrerequisite { phaseId: string; status: "integrated_verified" | "preparation_available" | "blocked" | "unknown"; evidence: string[]; recovery?: string }
@@ -27,7 +28,8 @@ export interface ContinuationProposal {
   formatVersion: 1; id: string; completedExecutionId: string; baselineId: string; candidateDigest: string;
   added: { id: string; title: string; file: string }[]; firstEligiblePhase?: string;
   readiness: "ready" | "blocked"; problems: string[]; prerequisites: ReadinessPrerequisite[];
-  repositories: { name: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
+  /** shortName: kept when it differs from name, so the accepted workspace's entries keep it (find repositories anywhere AC-FOLDER-01). */
+  repositories: { name: string; shortName?: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
   preparation: PreparationBinding[]; settingsDigest: string;
   sharedDigest?: string;
   permissionDigest?: string; scopeDigest?: string; grantEligible?: boolean;
@@ -53,6 +55,13 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
   // Each name reaches its repository first, and the reader works with Kiln's name for it (find repositories anywhere "Names").
   const reach = names.length ? await reachRecordNames(git, record, shared, candidate.plan.phases) : new Map<string, PlanReach>();
   const seen = new Set<string>();
+  // Each repository in a problem by its label (find repositories anywhere AC-FOLDER-02).
+  const labels = recordLabelSet(record, candidate.plan.phases);
+  const shown = (name: string): string => {
+    const entry = record.repositories.find(one => one.name === name);
+    const one = entry ? { shortName: shortNameOf(entry), addressPath: entry.github } : labels.find(member => member.name === name || member.shortName === name);
+    return one ? labelAmong(one, labels) : name;
+  };
   // A repository Kiln would ask about is left out: the stop before the phase that names it asks (find repositories anywhere AC-ASK-07), unless the first phase's preparation reads it.
   const prepared = names.length ? preparationReads(candidate, record.prdDirectory, first, record.repository.name) : new Set<string>();
   for (const written of names) {
@@ -62,22 +71,22 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const name = reached.name;
     if (seen.has(name)) continue;
     seen.add(name);
-    let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(one => one.name === name);
+    let repo: { mainCheckoutPath: string; github: string; baseBranch: string; shortName?: string } | undefined = record.repositories.find(one => one.name === name);
     if (!repo) {
       const found = reached.row?.found ? { ok: true as const, repository: reached.row.found } : await findRepository(git, repositoriesParent(shared), name, first?.fileName ?? "current plan");
       if (!found.ok) { if (found.unavailable) throw new Error(`source_unavailable: ${found.problem} Restore repository access, then check again.`); problems.push(found.problem); continue; }
       const origin = await originBranches(git, found.repository.mainCheckoutPath);
-      if (!origin.ok) throw new Error(`source_unavailable: Could not read ${name}'s delivery bases: ${origin.error}. Restore repository access, then check for new phases again.`);
+      if (!origin.ok) throw new Error(`source_unavailable: Could not read ${shown(name)}'s delivery bases: ${origin.error}. Restore repository access, then check for new phases again.`);
       const baseBranch = record.settings.bases[name] ?? defaultBaseBranch(origin.value);
-      if (!baseBranch) { problems.push(`Establish a configured delivery base for ${name}, then check again.`); continue; }
+      if (!baseBranch) { problems.push(`Establish a configured delivery base for ${shown(name)}, then check again.`); continue; }
       repo = { ...found.repository, baseBranch };
     }
     const path = name === record.repository.name ? shared : expandHome(repo.mainCheckoutPath);
     const origin = parseGithubOrigin(await gitRead(git, path, ["config", "--get", "remote.origin.url"]));
     input.observeInput?.({ kind: "repository", repository: name, identity: origin ? `${origin.owner}/${origin.name}` : null });
-    if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { problems.push(`Restore the recorded ${repo.github} origin for ${name}, then check again.`); continue; }
+    if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { problems.push(`Restore the recorded ${repo.github} origin for ${shown(name)}, then check again.`); continue; }
     const baseRevision = await remoteBase(git, path, repo.baseBranch, true, revision => input.observeInput?.({ kind: "base", repository: name, branch: repo.baseBranch, revision }));
-    repositories.push({ name, identity: repo.github, path, baseBranch: repo.baseBranch, baseRevision });
+    repositories.push({ name, ...(repo.shortName === undefined ? {} : { shortName: repo.shortName }), identity: repo.github, path, baseBranch: repo.baseBranch, baseRevision });
   }
   const extracted = await bindPreparation({ git, record, candidate, first, repositories, problems, ...(input.observeInput ? { observeInput: input.observeInput } : {}) });
   const preparation = extracted.preparation;
@@ -90,15 +99,15 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
       for (const name of affected) {
         const repo = repositories.find(repo => repo.name === name);
         const revision = receipt?.repositories?.[name]?.revision ?? (name === record.repository.name ? receipt?.revision : undefined);
-        if (!repo || !revision) { integrationProblems.push(`Phase ${row.id}: restore the retained ${name} completion revision before checking integration.`); continue; }
+        if (!repo || !revision) { integrationProblems.push(`Phase ${row.id}: restore the retained ${shown(name)} completion revision before checking integration.`); continue; }
         const result = await runGit(git, repo.path, ["merge-base", "--is-ancestor", revision, repo.baseRevision]);
-        if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not check retained Phase ${row.id} integration in ${name}. Restore revision ${revision}.`);
+        if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not check retained Phase ${row.id} integration in ${shown(name)}. Restore revision ${revision}.`);
         if (result.exitCode === 1) {
           let covered = false;
           const retained = receipt?.repositories?.[name];
           if (retained?.identity.toLowerCase() === repo.identity.toLowerCase() && retained.integration?.sourceRevision === revision && /^[a-f0-9]{40,64}$/.test(retained.integration.baseRevision)) {
             const priorBase = await runGit(git, repo.path, ["merge-base", "--is-ancestor", retained.integration.baseRevision, repo.baseRevision]);
-            if (priorBase.exitCode !== 0 && priorBase.exitCode !== 1) throw new Error(`Could not verify retained integration of Phase ${row.id} in ${name}.`);
+            if (priorBase.exitCode !== 0 && priorBase.exitCode !== 1) throw new Error(`Could not verify retained integration of Phase ${row.id} in ${shown(name)}.`);
             covered = priorBase.exitCode === 0;
           }
           for (const checkpoint of record.developmentDelivery?.checkpoints ?? []) {
@@ -108,7 +117,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
             const target = await runGit(git, repo.path, ["merge-base", "--is-ancestor", merge.resultSha, repo.baseRevision]);
             if (source.exitCode === 0 && target.exitCode === 0) covered = true;
           }
-          if (!covered) integrationProblems.push(`Phase ${row.id}: ${name} completion ${revision} is not integrated in origin/${repo.baseBranch}; reconcile explicit preparation before continuing.`);
+          if (!covered) integrationProblems.push(`Phase ${row.id}: ${shown(name)} completion ${revision} is not integrated in origin/${repo.baseBranch}; reconcile explicit preparation before continuing.`);
         }
       }
     }
@@ -129,7 +138,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
   for (const repo of repositories) {
     const revision = await remoteBase(git, repo.path, repo.baseBranch, false);
     input.observeInput?.({ kind: "base", repository: repo.name, branch: repo.baseBranch, revision });
-    if (revision !== repo.baseRevision) throw new Error(`source_changed: ${repo.name}/${repo.baseBranch} moved during readiness evaluation. Check again.`);
+    if (revision !== repo.baseRevision) throw new Error(`source_changed: ${shown(repo.name)}/${repo.baseBranch} moved during readiness evaluation. Check again.`);
   }
   for (const binding of preparation) {
     const repo = repositories.find(one => one.name === binding.repository)!;

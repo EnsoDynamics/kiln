@@ -200,6 +200,18 @@ it("renders all-delivered completion without an invented final session or review
   expect(text).toContain("Kiln keeps it until you remove it");
 });
 
+it("shows each repository's result by its label, not Kiln's name for it (find repositories anywhere AC-FOLDER-02)", () => {
+  const snapshot = delivered(completeRepositoriesSnapshot());
+  snapshot.developmentDelivery!.repositoryResults = [
+    { repository: "admin", label: "acme/admin", state: "delivered", deliveredCheckpointIds: [], reasons: [] },
+    { repository: "acme-labs+admin", label: "acme-labs/admin", state: "unresolved", deliveredCheckpointIds: [], reasons: ["acme-labs/admin: uncommitted work remains."] },
+  ];
+  const text = words(completePage(snapshot));
+  expect(text).toContain("acme/admin: delivered");
+  expect(text).toContain("acme-labs/admin: unresolved");
+  expect(text).not.toContain("acme-labs+admin");
+});
+
 it("renders mixed repositories with separate historical merges and current review links and a real finalization row", () => {
   const snapshot = delivered(completeRepositoriesSnapshot());
   const api = snapshot.pullRequests!.find(pr => pr.repository === "returns-api")!;

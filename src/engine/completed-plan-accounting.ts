@@ -24,6 +24,8 @@ export interface CompletionRepositoryEvidence {
   repository: string; identity: string; revision: string; baseBranch: string; baseRevision: string;
   integration: "integrated_verified" | "blocked";
   merge?: { sourceHead: string; resultSha: string; url: string };
+  /** Shown to the page only, never saved: the repository's label (find repositories anywhere AC-FOLDER-02). */
+  label?: string;
 }
 export interface AccountedLeaf {
   id: string; title: string; file: string; classification: LeafClassification;

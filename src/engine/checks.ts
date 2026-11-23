@@ -19,6 +19,8 @@ const ORIGIN_RETRY_INTERVAL_MS = 5_000;
 /** One of the PRD's set-up repositories, as the done and pull-request checks read it. */
 export interface CheckedRepository {
   name: string;
+  /** What its facts call it: its label (find repositories anywhere AC-FOLDER-02); its name when absent. */
+  label?: string;
   /** `<owner>/<name>`. */
   github: string;
   baseBranch: string;
@@ -79,12 +81,13 @@ export async function runDoneCheck(input: DoneCheckInput): Promise<DoneCheckOutc
   ]);
   const committedCheckResult = combineCommitted(committed, input.repositories, multi);
   const pushedPassed = pushed.every((one) => one.passed);
+  const pushedLabel = (one: RepositoryPushed) => labelOf(input.repositories.find((repository) => repository.name === one.name)!);
   const pushedCheckResult: CheckResult = {
     name: CHECK_NAMES.pushed,
     passed: pushedPassed,
     // Passing, one line per repository; failing, the repositories that failed.
-    facts: multi ? pushed.filter((one) => one.passed === pushedPassed).map((one) => `${one.name}: ${one.fact}`) : [pushed[0]!.fact],
-    ...(pushedPassed ? {} : { items: pushed.filter(one => !one.passed).map(one => workItem(one.name, multi ? `${one.name}: ${one.fact}` : one.fact)) }),
+    facts: multi ? pushed.filter((one) => one.passed === pushedPassed).map((one) => `${pushedLabel(one)}: ${one.fact}`) : [pushed[0]!.fact],
+    ...(pushedPassed ? {} : { items: pushed.filter(one => !one.passed).map(one => workItem(one.name, multi ? `${pushedLabel(one)}: ${one.fact}` : one.fact)) }),
   };
   const checks = [closed.check, committedCheckResult, pushedCheckResult];
   return {
@@ -149,10 +152,12 @@ function combineCommitted(results: RepositoryCommitted[], repositories: CheckedR
   const name = CHECK_NAMES.committed;
   const passed = results.every((one) => one.passed);
   if (!multi) return { name, passed, facts: [results[0]!.fact], ...(passed ? {} : { items: [workItem(repositories[0]!.name, results[0]!.fact)] }) };
-  if (passed) return { name, passed, facts: [`Clean in ${joinNames(repositories.map((repository) => repository.name))}`] };
-  const failing = results.flatMap((one, index) => (one.passed ? [] : [{ repository: repositories[index]!.name, fact: `${repositories[index]!.name}: ${one.fact}` }]));
+  if (passed) return { name, passed, facts: [`Clean in ${joinNames(repositories.map(labelOf))}`] };
+  const failing = results.flatMap((one, index) => (one.passed ? [] : [{ repository: repositories[index]!.name, fact: `${labelOf(repositories[index]!)}: ${one.fact}` }]));
   return { name, passed, facts: failing.map(one => one.fact), items: failing.map(one => workItem(one.repository, one.fact)) };
 }
+
+const labelOf = (repository: CheckedRepository): string => repository.label ?? repository.name;
 
 /** A repository's uncommitted or unpushed work, checked against its feature head and changes, which the engine fills in. */
 const workItem = (repository: string, text: string): CheckItem => ({ kind: "repository_work", subject: repository, text, against: "" });
@@ -221,6 +226,8 @@ export interface PullRequestCheckInput {
   baseBranch: string;
   /** The repository's name, recorded with its pull request. */
   repository: string;
+  /** What the check's facts call it: its label (find repositories anywhere AC-FOLDER-02); its name when absent. */
+  label?: string;
   /** Local proof is required for recognizing prior integration; absent for list-only callers. */
   git?: GitContext;
   worktreePath?: string;
@@ -259,7 +266,7 @@ export async function runPullRequestChecks(inputs: PullRequestCheckInput[]): Pro
   const outcomes = await Promise.all(inputs.map((input) => runPullRequestCheck(input)));
   const open = outcomes.length > 0 && outcomes.every((outcome) => outcome.passed);
   const facts =
-    outcomes.length === 1 ? outcomes[0]!.check.facts : outcomes.map((outcome, index) => `${inputs[index]!.repository}: ${outcome.check.facts.join(" ")}`);
+    outcomes.length === 1 ? outcomes[0]!.check.facts : outcomes.map((outcome, index) => `${inputs[index]!.label ?? inputs[index]!.repository}: ${outcome.check.facts.join(" ")}`);
   const items: CheckItem[] = outcomes.length === 0 ? [{ kind: "other", subject: "No repository has commits of its own", text: "No repository has commits of its own", against: "" }]
     : outcomes.flatMap((outcome, index) => outcome.passed ? [] : [{ kind: "other" as const, subject: inputs[index]!.repository, text: facts[index]!, against: "" }]);
   const check: CheckResult = { name, passed: open, facts: outcomes.length === 0 ? ["No repository has commits of its own"] : facts, ...(open ? {} : { items }) };

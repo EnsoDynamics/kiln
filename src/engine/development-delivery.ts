@@ -22,7 +22,10 @@ export interface DeliveryContext {
   record: PrdRecord; stateDirectory: string; prdWorktree: string; prdDirectory: string;
   git: GitContext; gh: string; env: NodeJS.ProcessEnv; phaseId?: string; owner?: DeliveryOwner;
   commands(sessionId: string, signal?: AbortSignal): Promise<CommandEvidence[]>; now(): string; signal?: AbortSignal;
+  /** The label a repository is shown by, from Kiln's name for it (find repositories anywhere AC-FOLDER-02); its name when absent. */
+  label?: (name: string) => string;
 }
+const labelIn = (context: DeliveryContext, name: string): string => context.label?.(name) ?? name;
 function sourceUnavailable(error: unknown): boolean { return /unavailable|deadline|timeout|timed out|aborted|malformed|unreadable|incomplete github|pagination/i.test((error as Error).message); }
 const hash = (value: unknown) => createHash("sha256").update(typeof value === "string" ? value : JSON.stringify(value)).digest("hex");
 const sha = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{40,64}$/.test(value);
@@ -61,11 +64,11 @@ function granted(context: DeliveryContext, checkpoint: DeliveryCheckpoint): void
 }
 async function git(context: DeliveryContext, repo: RepositoryEntry, args: string[]): Promise<string> {
   const answer = await runGit(context.git, repo.worktreePath, args);
-  need(answer.exitCode === 0, `Git evidence unavailable in ${repo.name}: ${answer.stderr.trim() || answer.stdout.trim()}`); return answer.stdout.trim();
+  need(answer.exitCode === 0, `Git evidence unavailable in ${labelIn(context, repo.name)}: ${answer.stderr.trim() || answer.stdout.trim()}`); return answer.stdout.trim();
 }
 async function ancestor(context: DeliveryContext, repo: RepositoryEntry, a: string, b: string): Promise<boolean> {
   const answer = await runGit(context.git, repo.worktreePath, ["merge-base", "--is-ancestor", a, b]);
-  need(answer.exitCode === 0 || answer.exitCode === 1, `Could not establish source coverage in ${repo.name}.`); return answer.exitCode === 0;
+  need(answer.exitCode === 0 || answer.exitCode === 1, `Could not establish source coverage in ${labelIn(context, repo.name)}.`); return answer.exitCode === 0;
 }
 async function source(context: DeliveryContext, repo: RepositoryEntry, path: string, revision: string): Promise<string> {
   need(sha(revision) && typeof path === "string" && path.length > 0 && !isAbsolute(path) && !path.split(/[\\/]/).includes(".."), "Workflow evidence needs a repository-relative source path and immutable revision.", 422);
@@ -951,9 +954,9 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
     const holds = (condition: unknown, message: string, isWork = false): boolean => { if (!condition) fail(new DeliveryRefusal(message), isWork); return !!condition; };
     let settled: RepositoryResult["state"] = "unresolved";
     const branch = await attempt(() => git(context, repo, ["symbolic-ref", "--short", "HEAD"]));
-    const onBranch = branch !== undefined && holds(branch === featureBranch, `${repo.name}: assigned workspace branch changed.`);
+    const onBranch = branch !== undefined && holds(branch === featureBranch, `${labelIn(context, repo.name)}: assigned workspace branch changed.`);
     const status = await attempt(() => git(context, repo, ["status", "--porcelain", "--untracked-files=all"]));
-    if (status !== undefined) holds(status === "", `${repo.name}: uncommitted work remains.`, true);
+    if (status !== undefined) holds(status === "", `${labelIn(context, repo.name)}: uncommitted work remains.`, true);
     const head = onBranch ? await attempt(() => git(context, repo, ["rev-parse", "HEAD"])) : undefined;
     if (head !== undefined && holds(sha(head), "Feature head unavailable.")) {
       const checked: { head: string; status: string; remote?: string } = { head, status: status ?? "" }; checkedHeads.set(repo.name, checked);
@@ -961,9 +964,9 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
       else if (head === repo.baseCommit && !result.deliveredCheckpointIds.length) settled = "unchanged";
       else {
         const remote = await attempt(async () => (await git(context, repo, ["ls-remote", "origin", `refs/heads/${featureBranch}`])).split(/\s/)[0] ?? "");
-        const pushed = remote !== undefined && (checked.remote = remote, holds(remote === head, `${repo.name}: current feature head is not pushed to its assigned origin branch.`, true));
+        const pushed = remote !== undefined && (checked.remote = remote, holds(remote === head, `${labelIn(context, repo.name)}: current feature head is not pushed to its assigned origin branch.`, true));
         const confirmed = state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge);
-        for (const checkpoint of confirmed) { const contained = await attempt(() => ancestor(context, repo, checkpoint.headSha, head)); if (contained !== undefined) holds(contained, `${repo.name}: accumulated source work is missing from the assigned branch.`); }
+        for (const checkpoint of confirmed) { const contained = await attempt(() => ancestor(context, repo, checkpoint.headSha, head)); if (contained !== undefined) holds(contained, `${labelIn(context, repo.name)}: accumulated source work is missing from the assigned branch.`); }
         const uncovered = await attempt(async () => {
           const commits = (await git(context, repo, ["rev-list", "--first-parent", `${repo.baseCommit}..${head}`])).split("\n").filter(Boolean);
           const missing: string[] = [];
@@ -991,7 +994,7 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
           if (uncovered.length && pushed) review = await attempt(async () => {
             const pulls = await pages(context, `repos/${repo.github}/pulls?state=open&head=${encodeURIComponent(repo.github.split("/")[0] + ":" + featureBranch)}&base=${encodeURIComponent(repo.baseBranch)}`);
             const listed = pulls.find(pull => pull.draft === false && object(pull.head).sha === head && object(pull.head).ref === featureBranch && object(object(pull.head).repo).full_name?.toString().toLowerCase() === repo.github.toLowerCase() && object(pull.base).ref === repo.baseBranch);
-            need(listed && typeof listed.body === "string" && typeof listed.html_url === "string" && Number.isSafeInteger(listed.number), `${repo.name}: open, non-draft review PR must contain the exact current pushed head.`);
+            need(listed && typeof listed.body === "string" && typeof listed.html_url === "string" && Number.isSafeInteger(listed.number), `${labelIn(context, repo.name)}: open, non-draft review PR must contain the exact current pushed head.`);
             const reread = object(await github(context, `repos/${repo.github}/pulls/${listed.number}`));
             need(typeof reread.html_url === "string" && reread.state === "open" && reread.draft === false && object(reread.head).sha === head && object(reread.base).ref === repo.baseBranch && Number.isInteger(reread.commits) && Number.isInteger(reread.additions) && Number.isInteger(reread.deletions), "The remaining review PR changed or returned incomplete facts.");
             result.remainingHeadSha = head; result.reviewPullRequest = { number: reread.number as number, url: reread.html_url };
@@ -1003,15 +1006,15 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
           for (const number of descriptions) {
             const pull = await attempt(async () => object(await github(context, `repos/${repo.github}/pulls/${number}`))); if (!pull) continue;
             const body = typeof pull.body === "string" ? pull.body : "";
-            holds(body.includes(context.prdDirectory), `${repo.name} #${number}: add the PRD reference to the description.`);
-            for (const url of related.filter(url => url !== pull.html_url)) holds(body.includes(url), `${repo.name} #${number}: link related delivery ${url}.`);
+            holds(body.includes(context.prdDirectory), `${labelIn(context, repo.name)} #${number}: add the PRD reference to the description.`);
+            for (const url of related.filter(url => url !== pull.html_url)) holds(body.includes(url), `${labelIn(context, repo.name)} #${number}: link related delivery ${url}.`);
             for (const checkpoint of confirmed.filter(one => one.merge!.number === number)) for (const dependency of checkpoint.dependsOn) {
-              const url = effectiveCheckpoint(state, dependency)?.merge?.url; holds(url && body.includes(url) && /depends on|after|before/i.test(body), `${repo.name} #${number}: state its required delivery order.`);
+              const url = effectiveCheckpoint(state, dependency)?.merge?.url; holds(url && body.includes(url) && /depends on|after|before/i.test(body), `${labelIn(context, repo.name)} #${number}: state its required delivery order.`);
             }
           }
           settled = review ? (confirmed.length ? "mixed" : "review") : (confirmed.length && !uncovered.length ? "delivered" : "unresolved");
           // A missing review PR is already its own reason; otherwise nothing accounts for the source work.
-          if (settled === "unresolved" && !uncovered.length) holds(false, `${repo.name}: no complete source-work delivery provenance.`);
+          if (settled === "unresolved" && !uncovered.length) holds(false, `${labelIn(context, repo.name)}: no complete source-work delivery provenance.`);
         }
       }
     }
@@ -1022,7 +1025,7 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
   for (const repo of context.record.repositories.filter(one => one.setupCompletedAt)) {
     const result = results.find(one => one.repository === repo.name)!;
     for (const number of [...state.checkpoints.filter(one => one.target.repository === `github.com/${repo.github}`.toLowerCase() && one.merge).map(one => one.merge!.number), ...(result.reviewPullRequest ? [result.reviewPullRequest.number] : [])]) {
-      try { const pull = object(await github(context, `repos/${repo.github}/pulls/${number}`)); for (const url of allLinks) if (url !== pull.html_url && !String(pull.body).includes(url)) repositoryReason(state, result, new DeliveryRefusal(`${repo.name} #${number}: link related review ${url}.`)); }
+      try { const pull = object(await github(context, `repos/${repo.github}/pulls/${number}`)); for (const url of allLinks) if (url !== pull.html_url && !String(pull.body).includes(url)) repositoryReason(state, result, new DeliveryRefusal(`${labelIn(context, repo.name)} #${number}: link related review ${url}.`)); }
       catch (error) { repositoryReason(state, result, error); }
     }
   }
@@ -1031,14 +1034,14 @@ export async function evaluateRepositories(context: DeliveryContext): Promise<{ 
     const expected = checkedHeads.get(repo.name); const result = results.find(one => one.repository === repo.name)!;
     if (!expected) continue;
     try {
-      need(await git(context, repo, ["rev-parse", "HEAD"]) === expected.head && await git(context, repo, ["status", "--porcelain", "--untracked-files=all"]) === expected.status, `${repo.name}: workspace changed during completion reconciliation.`);
-      if (expected.remote !== undefined) need((await git(context, repo, ["ls-remote", "origin", `refs/heads/${featureBranch}`])).split(/\s/)[0] === expected.remote, `${repo.name}: origin changed during completion reconciliation.`);
+      need(await git(context, repo, ["rev-parse", "HEAD"]) === expected.head && await git(context, repo, ["status", "--porcelain", "--untracked-files=all"]) === expected.status, `${labelIn(context, repo.name)}: workspace changed during completion reconciliation.`);
+      if (expected.remote !== undefined) need((await git(context, repo, ["ls-remote", "origin", `refs/heads/${featureBranch}`])).split(/\s/)[0] === expected.remote, `${labelIn(context, repo.name)}: origin changed during completion reconciliation.`);
     } catch (error) { repositoryReason(state, result, error); }
   }
-  const repositoryItems = results.flatMap(result => result.reasons.map((reason): CheckItem => ({ kind: work.get(result.repository)?.has(reason) ? "repository_work" : "other", subject: result.repository, text: reason.includes(result.repository) ? reason : `${result.repository}: ${reason}`, against: "" })));
+  const repositoryItems = results.flatMap(result => result.reasons.map((reason): CheckItem => ({ kind: work.get(result.repository)?.has(reason) ? "repository_work" : "other", subject: result.repository, text: reason.includes(labelIn(context, result.repository)) ? reason : `${labelIn(context, result.repository)}: ${reason}`, against: "" })));
   const items = uniqueItems([...global, ...repositoryItems]);
   state.repositoryResults = results; state.checkedAt = context.now(); state.currentComplete = global.length === 0 && results.length > 0 && results.every(one => one.state !== "unresolved");
   const passed = state.currentComplete;
-  const facts = passed || !items.length ? results.map(one => `${one.repository}: ${one.state}${one.reasons.length ? ` — ${one.reasons.join(" ")}` : ""}`) : items.map(item => item.text);
+  const facts = passed || !items.length ? results.map(one => `${labelIn(context, one.repository)}: ${one.state}${one.reasons.length ? ` — ${one.reasons.join(" ")}` : ""}`) : items.map(item => item.text);
   return { passed, pullRequests, checks: [{ name: "Development delivery and remaining review", passed, facts, ...(passed || !items.length ? {} : { items }) }] };
 }

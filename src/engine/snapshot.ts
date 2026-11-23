@@ -588,7 +588,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...(record.continuation || record.completedPlanCheck || record.planReconciliation?.handback || record.planReconciliation?.check?.status === "failed" ? { continuation: {
       ...(record.preparation ? { preparation: engine.preparationStatus(record.executionId, record.preparation.phaseId) } : {}),
       ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }) } : {}),
-      ...(record.completedPlanCheck ? { check: record.completedPlanCheck } : {}),
+      ...(record.completedPlanCheck ? { check: labelledPlanCheck(engine, record.completedPlanCheck) } : {}),
       ...(record.planReconciliation?.handback ? { handback: record.planReconciliation.handback } : {}),
       ...(record.planReconciliation?.check?.status === "failed" ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
@@ -1715,4 +1715,10 @@ function personItemFields(engine: Engine, store?: Pick<AuditStore, "read">): Pic
     const delivered = forYou && { loops: closingAudits(engine.record), forYou, pullRequests: (engine.record.pullRequests ?? []).map(pull => ({ repository: pull.repository, number: pull.number, url: pull.url })) };
     return { ...(items?.length ? { items } : {}), ...(delivered ? { delivered } : {}) };
   } catch (error) { if (store) throw error; return {}; }
+}
+
+/** A completed-plan check with each repository's label beside Kiln's name for it, for the page (find repositories anywhere AC-FOLDER-02). */
+function labelledPlanCheck(engine: Engine, check: NonNullable<PrdRecord["completedPlanCheck"]>): NonNullable<PrdRecord["completedPlanCheck"]> {
+  const labelled = (result: typeof check.result) => result && { ...result, ...(result.leaves ? { leaves: result.leaves.map((leaf) => ({ ...leaf, repositories: leaf.repositories.map((repository) => ({ ...repository, label: engine.labelOf(repository.repository) })) })) } : {}) };
+  return { ...check, ...(check.result ? { result: labelled(check.result)! } : {}), ...(check.earlierResult ? { earlierResult: labelled(check.earlierResult)! } : {}) };
 }

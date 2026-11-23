@@ -118,14 +118,11 @@ export async function resolveNames(input: ResolveInput): Promise<Resolution> {
     if (read.kind === "problem") { problem(read.problem(namedIn)); continue; }
     if (read.kind === "path") { paths.push({ name, addressPath: read.addressPath, index }); continue; }
     if (name === input.prd.name) { reachPrd(); continue; }
-    // Step 2: a folder beside the PRD's repository that is an entry's own checkout.
-    // The folder beside is an entry's own checkout; with no folder there, an entry Kiln named by that
-    // folder name keeps the checkout it was set up with, as before this change. A different folder of
-    // that name is its own repository, even when an entry found by its address path has that short name.
+    // Step 2: a folder beside the PRD's repository that is an entry's own checkout. A folder name
+    // reaches only the folder beside the PRD's repository (AC-FIND-04): an entry whose checkout is
+    // elsewhere, such as one set up from a search under that short name, is never reached by it.
     const besideFolder = join(parent, name);
-    const besideEntry = existsSync(besideFolder)
-      ? input.entries.find((entry) => samePath(besideFolder, expandHome(entry.mainCheckoutPath)))
-      : input.entries.find((entry) => entry.name === name && entry.kind !== "prd" && entry.shortName === undefined);
+    const besideEntry = input.entries.find((entry) => samePath(besideFolder, expandHome(entry.mainCheckoutPath)));
     if (besideEntry) { reachEntry(besideEntry, index); continue; }
     // Step 3: today's four checks beside the PRD's repository.
     const lookup = await findRepository(input.git, parent, name, namedIn);

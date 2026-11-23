@@ -61,7 +61,7 @@
   {#if acceptance && ["preparing", "blocked"].includes(acceptance.state)}
     <h3>{acceptance.state === "preparing" ? "Preparing additional work" : "Preparation needs attention"}</h3>
     {#if acceptance.reason}<p class="problem">{acceptance.reason}</p>{/if}
-    {#each acceptance.repositories as repository}<p>{repository.name}: {repository.ready ? "Workspace ready" : "Waiting for setup"} · {repository.worktreePath}</p>{/each}
+    {#each acceptance.repositories as repository}<p>{repository.label}: {repository.ready ? "Workspace ready" : "Waiting for setup"} · {repository.worktreePath}</p>{/each}
     {#if acceptance.state === "blocked"}<button class="button" class:busy={accepting} aria-busy={accepting} disabled={!connected || continuing || pending} onclick={() => accept(true)}>Retry preparation</button>{#if accepting}<BusyStatus text="Preparing the workspace for the new phases." />{/if}{/if}
     <p>The accepted plan is retained. Earlier delivery remains complete while preparation is reconciled.</p>
   {/if}
@@ -103,7 +103,7 @@
         <ul>{#each external as phase}<li>
           <strong>Phase {phase.id} · {phase.title}</strong>
           <p>{phase.classification === "externally_verified" ? "Completion and integration verified" : "Completion evidence unresolved"}.</p>
-          {#each phase.repositories as repository}<p class="source">{repository.repository}: {repository.revision} · {repository.integration === "integrated_verified" ? "Verified in" : "Not verified in"} {repository.baseBranch} at {repository.baseRevision}</p>{/each}
+          {#each phase.repositories as repository}<p class="source">{repository.label ?? repository.repository}: {repository.revision} · {repository.integration === "integrated_verified" ? "Verified in" : "Not verified in"} {repository.baseBranch} at {repository.baseRevision}</p>{/each}
           <p class="source">{phase.completedAt ? `Original completion: ${time(phase.completedAt)}` : "Original completion time not recorded."}{#if phase.verifiedAt} Verified: <time datetime={phase.verifiedAt}>{time(phase.verifiedAt)}</time>{/if}</p>
         </li>{/each}</ul>
       {/if}

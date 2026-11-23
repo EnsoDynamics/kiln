@@ -2225,7 +2225,8 @@ export class Engine {
       : preview ? `${counted}${nextActivity?.kind === "audit" ? `moves on to the ${nextActivity.title.toLowerCase()}` : nextActivity?.kind === "final_delivery" ? "moves on to final delivery" : nextActivity?.kind === "phase" ? "runs the completion phases it added first" : "moves to the next step"}`
       : "moves to the next step";
     const resultingLabel = completeLabel(failing.length + checkCounts(checks).waived + (complete ? this.waivedCount(key) : 0));
-    const repositoryWork = [...new Set(items.filter(item => item.kind === "repository_work").map(item => item.subject))];
+    // Each repository by its label (find repositories anywhere AC-FOLDER-02); an item's subject is Kiln's name.
+    const repositoryWork = [...new Set(items.filter(item => item.kind === "repository_work").map(item => this.labelOf(item.subject)))];
     const work = this.stoppedPhase() === key ? this.workOf(key) : undefined;
     const builtNothing = !!work && !("unknown" in work) && work.builtNothing;
     return {
@@ -2928,7 +2929,7 @@ export class Engine {
 
   private deliveryContext(phaseId?: string): DeliveryContext {
     const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(120_000)]);
-    return { record: this.record, stateDirectory: this.stateDirectory, prdWorktree: this.worktreePath, prdDirectory: this.paths.prdDirectoryFromRoot, git: { ...this.git, signal }, gh: this.options.tools.gh, env: this.options.env, ...(phaseId ? { ...(this.deliveryOwnerFor(phaseId).kind === "phase" ? { phaseId } : {}), owner: this.deliveryOwnerFor(phaseId) } : {}), signal, now: () => this.now().toISOString(), commands: (id, deadline) => this.deliveryCommands(id, deadline) };
+    return { record: this.record, stateDirectory: this.stateDirectory, prdWorktree: this.worktreePath, prdDirectory: this.paths.prdDirectoryFromRoot, git: { ...this.git, signal }, gh: this.options.tools.gh, env: this.options.env, ...(phaseId ? { ...(this.deliveryOwnerFor(phaseId).kind === "phase" ? { phaseId } : {}), owner: this.deliveryOwnerFor(phaseId) } : {}), signal, now: () => this.now().toISOString(), commands: (id, deadline) => this.deliveryCommands(id, deadline), label: (name) => this.labelOf(name) };
   }
 
   deliveryStatus() {
@@ -2942,7 +2943,7 @@ export class Engine {
       let binding: { documentsDigest: string; requirementManifestDigest?: string } | undefined;
       try { binding = ownerDocuments(this.deliveryContext(), owner); } catch { /* Failed check below names the source. */ }
       return { ...ownerFields(owner), ...(binding ? { documentsDigest: binding.documentsDigest, ...(binding.requirementManifestDigest ? { requirementManifestDigest: binding.requirementManifestDigest } : {}) } : {}), ...ownerDeliveryCheck(this.deliveryContext(), owner) };
-    }) } : {}), executionId: this.record.executionId, authorization: this.record.developmentAuthorization ?? restrictedAuthorization(), ...state, ...(binding ? { documentsDigest: binding.documentsDigest, ...(binding.requirementManifestDigest ? { requirementManifestDigest: binding.requirementManifestDigest } : {}) } : {}), ...(owner ? ownerFields(owner) : {}) };
+    }) } : {}), executionId: this.record.executionId, authorization: this.record.developmentAuthorization ?? restrictedAuthorization(), ...state, repositoryResults: state.repositoryResults.map((result): typeof result & { label?: string } => ({ ...result, label: this.labelOf(result.repository) })), ...(binding ? { documentsDigest: binding.documentsDigest, ...(binding.requirementManifestDigest ? { requirementManifestDigest: binding.requirementManifestDigest } : {}) } : {}), ...(owner ? ownerFields(owner) : {}) };
   }
 
   async deliveryReadStatus() {
@@ -3433,7 +3434,7 @@ export class Engine {
     const row = this.record.continuation?.acceptances.find(row => row.id === (id ?? this.record.continuation?.currentAcceptanceId));
     if (!row) return undefined;
     const acceptance = readAcceptance(this.stateDirectory, row.id);
-    return { ...row, repositories: acceptance.repositories.map(repo => ({ name: repo.name, worktreePath: repo.worktreePath, baseBranch: repo.baseBranch, baseRevision: repo.baseCommit, ready: !!repo.setupCompletedAt })), branch: acceptance.settings.featureBranch };
+    return { ...row, repositories: acceptance.repositories.map(repo => ({ name: repo.name, label: labelAmong({ shortName: shortNameOf(repo), addressPath: repo.github }, this.labelSet()), worktreePath: repo.worktreePath, baseBranch: repo.baseBranch, baseRevision: repo.baseCommit, ready: !!repo.setupCompletedAt })), branch: acceptance.settings.featureBranch };
   }
 
   async continuationCommand(action: "accept" | "retry", body: Record<string, unknown>) {
@@ -3842,7 +3843,7 @@ export class Engine {
     return {
       git: this.git, record: this.record, view, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, prdFolder: this.paths.folderName,
       completedByRun, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
-      model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id),
+      model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id), label: name => this.labelOf(name),
       ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
       ...(leftOver?.runs.at(-1)?.pid !== undefined ? { stopsLeftOver: leftOver.runs.at(-1)!.pid! } : {}), ...(busy ? { busy } : {}),
       originIdentity: async path => { const origin = parseGithubOrigin((await runGit(this.git, path, ["config", "--get", "remote.origin.url"])).stdout); return origin ? `${origin.owner}/${origin.name}` : undefined; },
@@ -3991,18 +3992,20 @@ export class Engine {
 
     // The start intent, written before any Git write: a failed one with the same kind and names is resumed.
     const repositories: FolderSetupRepository[] = build.repositories.filter(repository => build.folders[repository.name] !== undefined).map(repository => ({
-      name: repository.name, kind: repository.kind, github: repository.github, mainCheckoutPath: repository.mainCheckoutPath, baseBranch: repository.baseBranch, branch: build.fields.featureBranch, worktreePath: build.folders[repository.name]!,
+      name: repository.name, ...(repository.shortName === undefined ? {} : { shortName: repository.shortName }), kind: repository.kind, github: repository.github, mainCheckoutPath: repository.mainCheckoutPath, baseBranch: repository.baseBranch, branch: build.fields.featureBranch, worktreePath: build.folders[repository.name]!,
       ...(build.baseCommits[repository.name] ? { baseCommit: build.baseCommits[repository.name]! } : {}),
       ...(build.createLocal[repository.name] ? { createLocalFromOrigin: build.createLocal[repository.name]! } : {}),
       ...(build.clearRecords.find(path => this.record.repositories.find(entry => entry.name === repository.name && comparable(expandHome(entry.worktreePath)) === comparable(path))) ? { clearStaleRecord: build.clearRecords.find(path => this.record.repositories.find(entry => entry.name === repository.name && comparable(expandHome(entry.worktreePath)) === comparable(path)))! } : {}),
     }));
     const names = (intent: FolderSetupStart) => JSON.stringify(intent.repositories.map(r => [r.name, r.branch, comparable(expandHome(r.worktreePath))]));
+    const labels = this.labelSet();
+    const stepLabel = (repository: FolderSetupRepository) => labelAmong({ shortName: repository.shortName ?? repository.name, addressPath: repository.github }, labels);
     const settings = this.folderSettings(build.fields);
     const earlier = this.failedStartIntent();
     let intent: FolderSetupStart;
     if (earlier && earlier.kind === kind && names(earlier) === JSON.stringify(repositories.map(r => [r.name, r.branch, comparable(expandHome(r.worktreePath))]))) {
       // The steps follow the new build (a clear it now needs is added), keeping what the earlier attempt did.
-      const steps = plannedSteps(kind, repositories, build.repositories.length > 1).map(planned => earlier.steps.find(row => row.name === planned.name) ?? planned);
+      const steps = plannedSteps(kind, repositories, build.repositories.length > 1, stepLabel).map(planned => earlier.steps.find(row => row.name === planned.name) ?? planned);
       intent = { ...earlier, settings, steps, factsId: view.factsId, previewId: panel.previewId, state: "in_progress", repositories: earlier.repositories.map((row, index) => ({ ...repositories[index]!, ...(row.baseCommit && earlier.steps.some(s => s.name === `worktree:${row.name}` && s.state === "done") ? { baseCommit: row.baseCommit } : {}) })) };
     } else {
       if (earlier) {
@@ -4011,7 +4014,7 @@ export class Engine {
         if (occupied) return { ok: false, code: "folder_setup_work_present", reason: `${displayPath(occupied)} holds work Start did not make. Nothing was removed; move or commit it, then press Start again.`, status: 409 };
         earlier.state = "superseded"; writeStartIntent(this.stateDirectory, earlier);
       }
-      intent = { formatVersion: 1, id: randomUUID(), commandId: receipt.command_id, executionId: this.record.executionId!, kind, factsId: view.factsId, previewId: panel.previewId, createdAt: this.now().toISOString(), settings, repositories, steps: plannedSteps(kind, repositories, build.repositories.length > 1), state: "in_progress", ...(kind === "base" ? { newExecutionId: randomUUID() } : {}) };
+      intent = { formatVersion: 1, id: randomUUID(), commandId: receipt.command_id, executionId: this.record.executionId!, kind, factsId: view.factsId, previewId: panel.previewId, createdAt: this.now().toISOString(), settings, repositories, steps: plannedSteps(kind, repositories, build.repositories.length > 1, stepLabel), state: "in_progress", ...(kind === "base" ? { newExecutionId: randomUUID() } : {}) };
     }
     const save = () => writeStartIntent(this.stateDirectory, intent);
     this.folderStarting = true;
@@ -4109,7 +4112,7 @@ export class Engine {
     const remaining = leavesOf(source.plan).filter(leaf => !leaf.closed).map(leaf => leaf.id);
     const pausePhase = this.stoppedPhaseKey() !== undefined ? this.judgedId(this.stoppedPhaseKey()!) : recordedLeaves(old.plan ?? []).find(leaf => !leaf.closed && !this.waiverClosed(leaf.id) && !old.phases[leaf.id]?.doneAt)?.id;
     const pause = old.pause.requestedAt && !old.pause.activeSince && pausePhase && remaining.includes(pausePhase) ? { requestedAt: old.pause.requestedAt, requestedFor: pausePhase } : {};
-    const repositories: RepositoryEntry[] = intent.repositories.map(repository => ({ name: repository.name, kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, baseBranch: repository.baseBranch, worktreePath: expandHome(repository.worktreePath), baseCommit: repository.baseCommit!, setupCompletedAt: at }));
+    const repositories: RepositoryEntry[] = intent.repositories.map(repository => ({ name: repository.name, ...(repository.shortName === undefined ? {} : { shortName: repository.shortName }), kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, baseBranch: repository.baseBranch, worktreePath: expandHome(repository.worktreePath), baseCommit: repository.baseCommit!, setupCompletedAt: at }));
     const continuation: ContinuationState = old.continuation ? structuredClone(old.continuation) : { formatVersion: 1, journalIndexed: true, acceptances: [], executions: [] };
     delete continuation.currentAcceptanceId;
     this.commands.enableExecutionIndex();
@@ -6528,6 +6531,7 @@ export class Engine {
           branch: this.record.settings.featureBranch,
           baseBranch: entry.baseBranch,
           repository: entry.name,
+          label: this.labelOf(entry.name),
           git: this.git,
           worktreePath: expandHome(entry.worktreePath),
           completedCommits: Object.entries(this.record.phases).filter(([key, facts]) => activityKeyKind(key) !== "final_delivery" && activityKeyKind(key) !== "preflight" && facts.doneAt).flatMap(([, facts]) => facts.repositories[entry.name]?.pushedSha ? [facts.repositories[entry.name]!.pushedSha!] : []),
@@ -6710,8 +6714,8 @@ export class Engine {
       at: this.now(),
       event: deliveryEnabled(record) || mergedBranches.length ? "completed" : "opened",
       ...(pullRequests[0] ? { number: pullRequests[0].number } : {}),
-      ...(deliveryEnabled(record) ? { summary: developmentDeliverySummary(record) } : {}),
-      ...(mergedBranches.length ? { summary: [...pullRequests.map(pull => `${pull.repository} #${pull.number} ready`), ...mergedBranches.map(branch => `${branch.repository} already merged into ${branch.base}`)].join(" · ") } : {}),
+      ...(deliveryEnabled(record) ? { summary: developmentDeliverySummary(record, (name) => this.labelOf(name)) } : {}),
+      ...(mergedBranches.length ? { summary: [...pullRequests.map(pull => `${this.labelOf(pull.repository)} #${pull.number} ready`), ...mergedBranches.map(branch => `${this.labelOf(branch.repository)} already merged into ${branch.base}`)].join(" · ") } : {}),
       ...(this.setUpRepositories.length > 1 ? { opened: pullRequests.map((pull) => ({ repository: pull.repository, number: pull.number })) } : {}),
     });
   }
@@ -7482,8 +7486,8 @@ export class Engine {
       delete record.startedAt;
       delete record.refinementConfirmedAt;
       this.save();
-      this.startError = "catchUp" in outcome ? (list.length > 1 ? `Couldn’t bring ${entry.name}’s branch up to date: ${outcome.error}` : `Couldn’t bring the branch up to date: ${outcome.error}`)
-        : list.length > 1 ? `Couldn’t set up ${entry.name}’s worktree: ${outcome.error}` : `Couldn’t set up the worktree: ${outcome.error}`;
+      this.startError = "catchUp" in outcome ? (list.length > 1 ? `Couldn’t bring ${this.labelOf(entry.name)}’s branch up to date: ${outcome.error}` : `Couldn’t bring the branch up to date: ${outcome.error}`)
+        : list.length > 1 ? `Couldn’t set up ${this.labelOf(entry.name)}’s worktree: ${outcome.error}` : `Couldn’t set up the worktree: ${outcome.error}`;
       this.emit({ kind: "message", text: this.startError });
       return outcome;
     }
@@ -7808,7 +7812,7 @@ export class Engine {
     const underway = this.additionsUnderway.get(name);
     if (underway) return underway;
     const addition = this.additionChain.then(async () => {
-      const reached = await this.reachForAddition(name, phaseKey);
+      const reached = await this.reachForAddition(name, phaseKey, this.plan?.phases ?? []);
       if ("question" in reached) return this.requestAsks(phaseKey, reached.question);
       return "result" in reached ? reached.result : this.addOne(reached.name, phaseKey, reached.found);
     });
@@ -7829,7 +7833,7 @@ export class Engine {
     const locate: SavedQuestion[] = [];
     for (const name of names) {
       const addition = this.additionChain.then(async (): Promise<AddRepositoryResult | { ask: Question }> => {
-        const reached = await this.reachForAddition(name, leaf.id);
+        const reached = await this.reachForAddition(name, leaf.id, plan.phases);
         if ("question" in reached) return { ask: reached.question };
         return "result" in reached ? reached.result : this.addOne(reached.name, leaf.id, reached.found);
       });
@@ -7986,33 +7990,37 @@ export class Engine {
    * "Names"): an entry Kiln recorded keeps its checkout; a repository found gets its name, given
    * once against the entries; a question is the caller's to ask (find repositories anywhere AC-ASK-07, AC-SESSION-01).
    */
-  private async reachForAddition(written: string, phaseKey: string): Promise<{ name: string; found?: FoundRepository } | { result: AddRepositoryResult } | { question: Question }> {
+  private async reachForAddition(written: string, phaseKey: string, planPhases: { fileName: string; repositories: string[] }[]): Promise<{ name: string; found?: FoundRepository } | { result: AddRepositoryResult } | { question: Question }> {
     const refuse422 = (reason: string) => ({ result: { ok: false as const, status: 422 as const, reason } });
     const read = readRepositoryName(written);
     if (read.kind === "problem") return refuse422(read.problem());
     const { record } = this;
+    // Reached together with the plan's folder names, so an address path a folder name of the plan
+    // reaches is that folder's repository, with no search (find repositories anywhere AC-NAME-02, "Names" step 4).
+    // In plan order, so of two folder names with one address path the first is its checkout.
+    const folderNames = planNames(planPhases, this.paths.repositoryName).filter((one) => one.name === written || readRepositoryName(one.name).kind === "folder").map((one) => (one.name === written ? { name: written, namedIn: phaseKey } : one));
+    if (!folderNames.some((one) => one.name === written)) folderNames.push({ name: written, namedIn: phaseKey });
     const resolution = await resolveNames({
       git: this.git,
       env: this.options.env,
       prd: { name: this.paths.repositoryName, mainCheckoutPath: this.paths.mainCheckoutPath, github: record.repository.github },
       entries: record.repositories,
-      names: [{ name: written, namedIn: phaseKey }],
+      names: folderNames,
       say: (line) => this.repositoryLine(line),
       said: this.repositoryLinesSaid,
     });
-    if (resolution.problems.length > 0) {
+    const reached = resolution.byName.get(written)!;
+    if (reached.kind === "problem") {
       // A folder name keeps today's wording, without a phase file.
-      const problem = resolution.problems[0]!;
-      return refuse422(read.kind === "folder" ? problem.replace(`${phaseKey} names ${written}, which`, `${written}`) : problem);
+      return refuse422(read.kind === "folder" ? reached.problem.replace(`${phaseKey} names ${written}, which`, `${written}`) : reached.problem);
     }
-    const entryName = resolution.entries[0];
-    if (entryName !== undefined) return { name: entryName };
-    const repository = resolution.repositories[0];
+    if (reached.kind === "entry") return { name: reached.name };
     // The PRD's own repository, by a name that reaches it: already in the workspace.
-    if (!repository) {
+    if (reached.kind === "prd") {
       const prd = record.repositories.find((entry) => entry.kind === "prd");
       return prd ? { result: { ok: true, name: prd.name, worktreePath: expandHome(prd.worktreePath), branch: record.settings.featureBranch, baseBranch: prd.baseBranch, added: false } } : refuse422(`${written} is the PRD's own repository.`);
     }
+    const { repository } = reached;
     if (repository.question) return { question: repository.question };
     const given = giveNames(record.repositories, [{ shortName: repository.shortName, addressPath: repository.addressPath }]);
     if (!given.ok) return refuse422(given.problem);
@@ -8295,6 +8303,7 @@ export class Engine {
   private checkedRepository(entry: RepositoryEntry): CheckedRepository {
     return {
       name: entry.name,
+      label: this.labelOf(entry.name),
       github: entry.github,
       baseBranch: entry.baseBranch,
       mainCheckoutPath: entry.mainCheckoutPath,

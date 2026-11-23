@@ -243,12 +243,22 @@ describe("which repository a name reaches (AC-NAME-02, AC-FIND-03, AC-FIND-04)",
     expect(named.named.map((row) => [row.name, row.found?.shortName])).toEqual([["acme+admin", "admin"]]);
   });
 
-  it("keeps an entry named by a folder name to its recorded checkout when no folder of that name is beside the PRD's repository", async () => {
+  it("keeps an entry named by a folder name to its recorded checkout beside the PRD's repository after that folder is gone", async () => {
     const h = homeWithProduct();
-    const moved = checkout("home/elsewhere/storefront", "git@github.com:acme/storefront.git");
-    const entry: RepositoryEntry = { name: "storefront", kind: "named", mainCheckoutPath: moved, github: "acme/storefront", baseBranch: "develop", worktreePath: "/w/storefront", setupCompletedAt: "2026-11-22T00:00:00Z" };
+    // Recorded when the folder was beside the PRD's repository; the folder has since gone.
+    const entry: RepositoryEntry = { name: "storefront", kind: "named", mainCheckoutPath: join(h.home, "code", "acme", "storefront"), github: "acme/storefront", baseBranch: "develop", worktreePath: "/w/storefront", setupCompletedAt: "2026-11-22T00:00:00Z" };
     const resolution = await resolveNames(input(h, [{ name: "storefront", namedIn: "phase-1-x.md" }], [entry]));
     expect(resolution.byName.get("storefront")).toEqual({ kind: "entry", name: "storefront" });
+  });
+
+  it("never reaches an entry set up from a search under a folder name's short name: the folder name reaches only the folder beside (AC-FIND-04)", async () => {
+    const h = homeWithProduct();
+    const searched = checkout("home/code/acme-labs/admin", "git@github.com:acme-labs/admin.git");
+    // Set up from acme-labs/admin's address path, found by the search, so named by its short name.
+    const entry: RepositoryEntry = { name: "admin", kind: "named", mainCheckoutPath: searched, github: "acme-labs/admin", baseBranch: "develop", worktreePath: "/w/admin", setupCompletedAt: "2026-11-22T00:00:00Z" };
+    const resolution = await resolveNames(input(h, [{ name: "admin", namedIn: "phase-4-x.md" }], [entry]));
+    expect(resolution.entries).toEqual([]);
+    expect(resolution.problems).toEqual([`phase-4-x.md names admin, which isn’t in ${join(h.home, "code", "acme")}/.`]);
   });
 
   it("keeps a folder name to the folder beside the PRD's repository, as today, with no search", async () => {

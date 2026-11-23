@@ -17,6 +17,8 @@ import { safeIdentity } from "./continuation-state.js";
 
 export interface FolderSetupRepository {
   name: string;
+  /** Its short name, kept when it differs from name, so the entries Start rebuilds keep it (find repositories anywhere AC-FOLDER-01). */
+  shortName?: string;
   kind: RepositoryEntry["kind"];
   github: string;
   mainCheckoutPath: string;
@@ -99,8 +101,9 @@ export async function step(intent: FolderSetupStart, name: string, save: () => v
 }
 
 /** The steps a start runs, in order, with what each says on the page (done[] and remaining[]). */
-export function plannedSteps(kind: "base" | "branch", repositories: FolderSetupRepository[], multi: boolean): FolderSetupStart["steps"] {
-  const where = (repository: FolderSetupRepository) => multi ? ` in ${repository.name}` : "";
+export function plannedSteps(kind: "base" | "branch", repositories: FolderSetupRepository[], multi: boolean, label: (repository: FolderSetupRepository) => string = (repository) => repository.name): FolderSetupStart["steps"] {
+  // Each repository by its label (find repositories anywhere AC-FOLDER-02).
+  const where = (repository: FolderSetupRepository) => multi ? ` in ${label(repository)}` : "";
   if (kind === "base") return [
     ...repositories.filter(repository => repository.clearStaleRecord).map(repository => ({ name: `clear:${repository.name}`, label: `Clear git’s record of the missing folder${where(repository)}`, state: "pending" as const })),
     ...repositories.map(repository => ({ name: `worktree:${repository.name}`, label: `Create ${repository.branch} and its folder${where(repository)}`, state: "pending" as const })),

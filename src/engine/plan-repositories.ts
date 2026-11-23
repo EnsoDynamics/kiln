@@ -13,7 +13,13 @@ import { isAncestorOf } from "../plan/phase-ids.js";
 import type { PlannedPhase } from "../plan/phase-plan.js";
 import type { PlanSource } from "./plan-reconciliation.js";
 import { giveNames, labelAmong, shortNameOf, type Labelled } from "./repository-labels.js";
-import { lastPart, readRepositoryName, sameAddressPath } from "../plan/repository-names.js";
+import { lastPart, parseRemoteAddress, readRepositoryName, sameAddressPath } from "../plan/repository-names.js";
+import { spawnSync } from "node:child_process";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { findExecutable } from "../platform/helper-process.js";
+import { repositoriesParent } from "./repositories.js";
+import { expandHome } from "./worktree-setup.js";
 
 /** A named repository with its name: found (its checkout known), or asking. */
 export interface NamedRepositoryRow extends Omit<NamedRepository, "found"> {
@@ -153,12 +159,39 @@ export function recordedName(record: { repository: { name: string; github: strin
   return record.repositories.find((entry) => sameAddressPath(entry.github, read.addressPath))?.name ?? read.addressPath.toLowerCase();
 }
 
+const besideAddressPaths = new Map<string, string | null>();
+
 /**
- * The PRD's repositories for a label once Start is pressed (AC-FOLDER-02), from the record alone:
- * the PRD's repository, every entry, and every repository the plan as it stands names that no
- * entry is, by the plan's name for it.
+ * The address path of the folder of this name beside the PRD's repository, its `origin` read by
+ * Git, or undefined when there is no such checkout. Read once per folder in a process: a label
+ * worked out after Start uses it to count a folder name and an address path that reach one
+ * repository once (find repositories anywhere AC-NAME-02).
+ *
+ *   besideAddressPath("~/code/acme/product", "admin")  // "acme-labs/admin"
  */
-export function recordLabelSet(record: { repository: { name: string; github: string }; repositories: RepositoryEntry[] }, phases: { repositories: string[] }[]): (Labelled & { name?: string })[] {
+export function besideAddressPath(prdMainCheckoutPath: string, name: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  let parent: string;
+  try { parent = repositoriesParent(expandHome(prdMainCheckoutPath)); } catch { return undefined; }
+  // Matched against the parent folder's listing, case included, as the start checks match a folder name.
+  try { if (!readdirSync(parent).includes(name)) return undefined; } catch { return undefined; }
+  const folder = join(parent, name);
+  const known = besideAddressPaths.get(folder);
+  if (known !== undefined) return known ?? undefined;
+  try { if (lstatSync(folder).isSymbolicLink() || !existsSync(join(folder, ".git"))) return undefined; } catch { return undefined; }
+  const read = spawnSync(findExecutable("git", env) ?? "git", ["-C", folder, "remote", "get-url", "origin"], { env, encoding: "utf8", timeout: 2_000, windowsHide: true });
+  // Every outcome is kept, a read that didn't finish included, so a hung Git never holds up each label after the first.
+  const addressPath = read.error === undefined && read.signal === null && read.status === 0 ? parseRemoteAddress(read.stdout)?.addressPath : undefined;
+  besideAddressPaths.set(folder, addressPath ?? null);
+  return addressPath;
+}
+
+/**
+ * The PRD's repositories for a label once Start is pressed (AC-FOLDER-02), from the record and
+ * the folders beside the PRD's repository: the PRD's repository, every entry, and every
+ * repository the plan as it stands names that no entry is, by the plan's name for it. A folder
+ * name not set up and an address path that reach one repository count once, by the folder name.
+ */
+export function recordLabelSet(record: { repository: { name: string; github: string; mainCheckoutPath?: string }; repositories: RepositoryEntry[] }, phases: { repositories: string[] }[]): (Labelled & { name?: string })[] {
   const set: (Labelled & { name?: string })[] = [];
   const add = (one: Labelled & { name?: string }) => {
     if (set.some((other) => (one.name !== undefined && other.name === one.name) || sameAddressPath(other.addressPath, one.addressPath))) return;
@@ -166,18 +199,24 @@ export function recordLabelSet(record: { repository: { name: string; github: str
   };
   add({ name: record.repository.name, shortName: record.repository.name, addressPath: record.repository.github });
   for (const entry of record.repositories) add({ name: entry.name, shortName: shortNameOf(entry), addressPath: entry.github });
-  for (const written of phases.flatMap((phase) => phase.repositories)) {
-    const read = readRepositoryName(written);
-    if (read.kind === "folder") {
-      if (written === record.repository.name || record.repositories.some((entry) => entry.name === written || shortNameOf(entry) === written)) continue;
-      add({ shortName: written, addressPath: written });
-    } else if (read.kind === "path") add({ shortName: lastPart(read.addressPath), addressPath: read.addressPath });
+  const written = phases.flatMap((phase) => phase.repositories);
+  // Folder names first, as the names are reached ("Names" step 4), so an address path one of them reaches counts as it.
+  for (const name of written) {
+    if (readRepositoryName(name).kind !== "folder" || name === record.repository.name) continue;
+    const addressPath = record.repository.mainCheckoutPath === undefined ? undefined : besideAddressPath(record.repository.mainCheckoutPath, name);
+    if (addressPath !== undefined) { add({ shortName: name, addressPath }); continue; }
+    if (record.repositories.some((entry) => entry.name === name || shortNameOf(entry) === name)) continue;
+    add({ shortName: name, addressPath: name });
+  }
+  for (const name of written) {
+    const read = readRepositoryName(name);
+    if (read.kind === "path") add({ shortName: lastPart(read.addressPath), addressPath: read.addressPath });
   }
   return set;
 }
 
 /** Each entry's name, label and address path, for \x60kiln status --json\x60's \x60repository_details\x60 (in \x60repositories\x60' order). */
-export function repositoryDetails(record: { repository: { name: string; github: string }; repositories: RepositoryEntry[]; plan?: { repositories: string[] }[] }): { name: string; label: string; address_path: string }[] {
+export function repositoryDetails(record: { repository: { name: string; github: string; mainCheckoutPath?: string }; repositories: RepositoryEntry[]; plan?: { repositories: string[] }[] }): { name: string; label: string; address_path: string }[] {
   const set = recordLabelSet(record, record.plan ?? []);
   const entries = record.repositories.length ? record.repositories.map((entry) => ({ name: entry.name, shortName: shortNameOf(entry), addressPath: entry.github })) : [{ name: record.repository.name, shortName: record.repository.name, addressPath: record.repository.github }];
   return entries.map((entry) => ({ name: entry.name, label: labelAmong(entry, set), address_path: entry.addressPath }));

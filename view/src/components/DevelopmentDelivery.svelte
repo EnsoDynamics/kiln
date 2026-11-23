@@ -129,7 +129,7 @@
       </article>
     {/each}
     </details>{/if}
-    {#each delivery.repositoryResults as result}<p><strong>{result.repository}: {result.state}</strong>{#if result.reviewPullRequest}{" · "}<a href={result.reviewPullRequest.url} target="_blank" rel="noreferrer">Review #{result.reviewPullRequest.number}</a>{/if}{#each result.reasons as reason}<span>{" · "}{reason}</span>{/each}</p>{/each}
+    {#each delivery.repositoryResults as result}<p><strong>{result.label ?? result.repository}: {result.state}</strong>{#if result.reviewPullRequest}{" · "}<a href={result.reviewPullRequest.url} target="_blank" rel="noreferrer">Review #{result.reviewPullRequest.number}</a>{/if}{#each result.reasons as reason}<span>{" · "}{reason}</span>{/each}</p>{/each}
     {#if delivery.checkedAt}<p>Last checked {new Date(delivery.checkedAt).toLocaleString()}</p>{/if}
   {/if}
   {#if !editable && snapshot.needsYou && delivery?.executionId}

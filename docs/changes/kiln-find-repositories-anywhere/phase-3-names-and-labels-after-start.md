@@ -1,5 +1,7 @@
 # Phase 3: Reach names together and show labels everywhere after Start
 
+**Closed:** 2026-11-23
+
 **Added by delivery audit:** 2026-11-22, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md
 **Technical design:** docs/changes/kiln-find-repositories-anywhere/technical-design.md — relevant sections: "Names", "Finding a Checkout", "After Start" ("A continuation and a base-branch start"), "Worktree Folders and Labels", "Data Models"
