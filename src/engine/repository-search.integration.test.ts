@@ -363,6 +363,13 @@ describe("the answer and the remembered answer (AC-ASK-03, AC-ASK-04, AC-ASK-05)
     expect(await checkAnswer(h.git, join(h.sandbox.root, "nowhere"), path)).toEqual({ ok: false, message: "That folder doesn’t exist." });
     expect(await checkAnswer(h.git, join(h.sandbox.root, "volumes", "link"), path)).toEqual({ ok: false, message: `That folder is a link to ${good}. Give the checkout itself.` });
     expect(await checkAnswer(h.git, join(h.sandbox.root, "volumes", "plain"), path)).toEqual({ ok: false, message: "That folder isn’t a Git checkout." });
+    // A bare repository, even one whose origin has the path, and a folder inside a checkout are not checkouts.
+    const bare = join(h.sandbox.root, "volumes", "bare.git");
+    git(h.sandbox, h.sandbox.root, "init", "-q", "--bare", bare);
+    git(h.sandbox, bare, "remote", "add", "origin", "git@github.com:acme-labs/storefront.git");
+    expect(await checkAnswer(h.git, bare, path)).toEqual({ ok: false, message: "That folder isn’t a Git checkout." });
+    mkdirSync(join(good, "src"), { recursive: true });
+    expect(await checkAnswer(h.git, join(good, "src"), path)).toEqual({ ok: false, message: "That folder isn’t a Git checkout." });
     expect(await checkAnswer(h.git, join(h.sandbox.root, "volumes", "wt"), path)).toEqual({ ok: false, message: `That folder is a worktree of ${good}. Give the checkout itself.` });
     expect(await checkAnswer(h.git, other, path)).toEqual({ ok: false, message: "That checkout’s origin is acme/storefront-old, not acme-labs/storefront." });
     expect(await checkAnswer(h.git, none, path)).toEqual({ ok: false, message: "That checkout has no origin remote." });
@@ -394,6 +401,15 @@ describe("the answer and the remembered answer (AC-ASK-03, AC-ASK-04, AC-ASK-05)
     expect(said).toEqual([`Kiln no longer remembers Acme-Labs/Storefront at ${folder}. That checkout’s origin is acme/elsewhere, not Acme-Labs/Storefront.`]);
     expect(readRememberedLocation(h.env, "acme-labs/storefront")).toEqual({ kind: "none" });
     expect(third.repositories[0]!.question?.kind).toBe("where");
+    // When the remembered folder fails, Kiln searches again: a checkout cloned where the search reaches is found and used.
+    rememberLocation(h.env, "acme-labs/storefront", folder, new Date("2026-11-22T11:00:00Z"));
+    const near = checkout("home/code/acme-labs/storefront", "git@github.com:acme-labs/storefront.git");
+    const fourth = await resolveNames({ ...input(h, named), say: (line) => said.push(line) });
+    expect(said).toHaveLength(2);
+    expect(said[1]).toBe(`Kiln no longer remembers Acme-Labs/Storefront at ${folder}. That checkout’s origin is acme/elsewhere, not Acme-Labs/Storefront.`);
+    expect(readRememberedLocation(h.env, "acme-labs/storefront")).toEqual({ kind: "none" });
+    expect(fourth.repositories[0]!.found).toEqual({ name: "storefront", mainCheckoutPath: near, github: "acme-labs/storefront", located: "search" });
+    expect(fourth.repositories[0]!.question).toBeUndefined();
   });
 
   it("keeps a remembered folder Kiln couldn't check, reporting it as an unreadable checkout", async () => {

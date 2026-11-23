@@ -165,6 +165,22 @@ describe("kiln run on a plan that names repositories by their address path", () 
     snapshot = await snapshotOf(address, token);
     expect(snapshot.repositories[2]!.question!.fieldError).toBe("Enter a full path, starting with / or ~.");
     expect(readRememberedLocation(f.env, "acme-labs/storefront")).toEqual({ kind: "none" });
+    // Every other failed check is refused the same way: a worktree, and a checkout of another repository.
+    const worktree = join(f.sandbox.root, "volumes", "wt-storefront");
+    git(f.sandbox, storefront, "worktree", "add", "-q", "-b", "wt", worktree);
+    const wrong = createRepository(f.sandbox, "volumes/work/old", "git@github.com:acme/storefront-old.git");
+    for (const [folder, reason] of [
+      [worktree, `That folder is a worktree of ${displayPath(storefront)}. Give the checkout itself.`],
+      [wrong, "That checkout’s origin is acme/storefront-old, not acme-labs/storefront."],
+    ] as const) {
+      expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/storefront", folder })).toEqual({ status: 422, body: { ok: false, reason } });
+      snapshot = await snapshotOf(address, token);
+      expect(snapshot.repositories[2]!.question!.fieldError).toBe(reason);
+      expect(snapshot.repositories[2]!.checkoutFolder).toBeUndefined();
+      expect(readRememberedLocation(f.env, "acme-labs/storefront")).toEqual({ kind: "none" });
+    }
+    git(f.sandbox, storefront, "worktree", "remove", "--force", worktree);
+    git(f.sandbox, storefront, "branch", "-q", "-D", "wt");
     // Only a repository a row asks about can be answered.
     expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme/returns-api", folder: storefront })).toMatchObject({ status: 409 });
 
