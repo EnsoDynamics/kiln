@@ -31,6 +31,6 @@ Each phase adds the `Superseded in part by:` lines the design's "Changes to Earl
 
 From the technical design's Delivery section, all needed before Phase 1 starts:
 
-- The Enso Method names where a plain brief lives under `source-material/`. Not yet in the method; the design reads it as `source-material/{name}/{name}-brief.md`.
+- The Enso Method's change naming a brief's file `source-material/{name}/{name}-brief.md`, the name the design reads, is published.
 - Kiln Phase Model Tiers is built and merged to `develop`, and `develop` is merged into this branch. Only its requirements documents are on `develop` today.
 - Claude Code and Codex both installed and signed in on the build computer, each with the Enso Method installed.
