@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Phase Model Tiers
 
-Started: 2026-11-22   Current pass: 1 (complete)   Status: In progress
+Started: 2026-11-22   Current pass: 2 (complete)   Status: In progress
 Branch: feature/kiln-phase-model-tiers
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 4139 · growth baseline 4139
@@ -18,6 +18,7 @@ Last updated: 2026-11-22
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 13 | 12 | 12 | 0 | 1 | 0 | 0 |
+| 2 | 14 | 12 (Q12 + Q14–Q24) | 12 | 0 | 3 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -33,10 +34,46 @@ Last updated: 2026-11-22
 | Q9 | 1 | Row/card while the activity's session is launching, before any response (decided choice, Fallback tag) | Technical | LOW | 75 → 92 | Resolved | TD §When an Activity Starts, §Design Decisions, §HTTP, §Snapshot |
 | Q10 | 1 | Refuse a family that can't run unattended (e.g. Haiku without auto mode) in Model defaults and Change? | Technical | LOW | 80 → 92 | Resolved | TD §A choice that can\'t be used, §Model defaults file, §HTTP |
 | Q11 | 1 | Migration: saved Codex choice with empty model (GPT Sol not pinned) | Technical | LOW | 85 → 95 | Resolved | TD §Data Models migration step 2 |
-| Q12 | 1 | Demanding/Mechanical tag explanation when the tier line gives no reason | Technical | LOW | 85 → 85 | Deferred | — |
+| Q12 | 1 | Demanding/Mechanical tag explanation when the tier line gives no reason | Technical | LOW | 85 → 95 | Resolved | TD §The Tier Line |
 | Q13 | 1 | (Conflict check C1) A not-started activity opened in a terminal gets a response there; Resume must keep that conversation. How does Kiln see that response? | Technical | HIGH | 70 → 90 | Resolved | TD §When an Activity Starts |
+| Q14 | 2 | Who makes an agent "needed" for editor/Model defaults page (no route signals it); read every installed agent's model list instead? | Technical | MEDIUM | 60 → 92 | Resolved | TD §Agents, §HTTP, §Snapshot |
+| Q15 | 2 | What discards the Claude billing reading when the needed-agent set changes; is the approval ever cleared? | Technical | MEDIUM | 75 → 90 | Resolved | TD §Agents Billing, §HTTP |
+| Q16 | 2 | Contract for "start unknown" (unreadable history) and the interval before the on-load read: row, POST /api/model, kiln model | Technical | MEDIUM | 70 → 90 | Resolved | TD §When an Activity Starts, §Snapshot, §HTTP, §Command line |
+| Q17 | 2 | At a stop on a not-started activity, which terminal command follows model.choice; can a resume-in-terminal override a later Change? | Technical | MEDIUM | 65 → 85 | Resolved by decision | TD §Design Decisions, §Snapshot, §Changes; PRD AC-PICK-07 Replaces |
+| Q18 | 2 | Does `kiln account` report the other needed agent's account/usage and over-threshold marks? | Technical | MEDIUM | 70 → 92 | Resolved | TD §Command line, §Agents, §Changes |
+| Q19 | 2 | Does an automatic Codex launch ending a Claude-started wait save an attempt in the activity's Codex record? | Technical | LOW | 75 → 92 | Resolved | TD §A Wait Before the Start, §The launch decision |
+| Q20 | 2 | AC-FALLBACK-04 "next activity" when the current activity has no start and is waiting/stopped | Technical | LOW | 75 → 90 | Resolved | TD §The launch decision |
+| Q21 | 2 | Unreadable or newer-schema Model defaults file: GET, page, CLI; can Restore overwrite it? | Technical | LOW | 70 → 88 | Resolved by decision | TD §Model defaults file, §HTTP, §Design Decisions |
+| Q22 | 2 | Migration step 2 decides "started" from saved events only, before the history read; accept and say so? | Technical | LOW | 80 → 90 | Resolved | TD §Data Models |
+| Q23 | 2 | PRD AC-PICK-02 "No model recorded" row vs TD (no session got a response); align PRD wording | Technical | LOW | 85 → 95 | Resolved | PRD AC-PICK-02 |
+| Q24 | 2 | How long the "why the fallback wasn't used" row note stays | Technical | LOW | 80 → 85 | Resolved by decision | TD §The launch decision |
+| Q25 | 2 | Help group/heading and contract entries for `kiln model` and `kiln model-defaults` | Technical | LOW | 80 → 80 | Deferred | — |
+| Q26 | 2 | Codex start found only in thread history: which time is saved as firstResponseAt | Technical | LOW | 85 → 85 | Deferred | — |
+| Q27 | 2 | A changed phase that its session splits: does the second child inherit the Change? (proposed no) | Technical | LOW | 90 → 90 | Deferred | — |
+| Q28 | 2 | A Codex choice used up by the one-attempt record "counts as blocked for usage"; the card would say "ordinary usage blocked" — give the record its own label? | Technical | LOW | 80 → 80 | Pending | — |
+| Q29 | 2 | `kiln account` when `agent` is null: today's fields null, every needed agent in other_agents[]? | Technical | LOW | 85 → 85 | Pending | — |
+| Q30 | 2 | Change during a takeover hold on a not-started activity (person in the terminal conversation): unavailable while the hold is in place? | Technical | MEDIUM | 65 → 65 | Pending | — |
+| Q31 | 2 | Heads-up on an activity whose start is unknown: skip it like a started activity? | Technical | LOW | 85 → 85 | Pending | — |
 
 ## Question notes
+
+### Pass 2 conformance
+Fixed: AC-PICK-07 Replaces chain ends (AC-NEXT-01, AC-TAKE-03, AC-SEE-08 added; AC-STOP-05 Claude-only); §Changes gains completion-waivers §Display Contract and live-session-control §Terminal Ownership and Hand-back; start-unknown row in the row table; §A Wait wording for a used-up first choice; GET/`kiln model-defaults` read readiness on demand, readinessErrors optional; POST /api/model-defaults 409 while unreadable; Restore row refuses newer schema; Criteria Coverage updated. Raised Q28–Q31 as Pending for pass 3.
+
+### Q18 / Q21
+Answered (92% / 88%), folded. Q18: `kiln account` and full status's account keep today's fields for the reported activity's agent (`agent` names it, null when none); `other_agents[]` per other needed agent with agent, next_attempt, usage, recovery, billing; over_threshold per usage row and `data.fallback {enabled, threshold}` with the fallback on; billing loses selectionGeneration; --refresh reads every needed agent; provider_unavailable names each failed agent (projection.ts:162-201; server.ts:61-83; client.ts:219-224). Q21 (folded as decision): unparseable or newer-schema file is an error with path; GET 409 {reason, path, canRestore}; page shows reason in place of table; CLI exits 4 state_unavailable; saves refused; Restore overwrites only an unparseable file (rows default, fallback off at 95, says so); refused over a newer schema ("written by a newer Kiln; update Kiln") (records.ts:578-579; local-server.ts:130; installed-copy.ts:1-3). Restore Design Decisions row amended accordingly.
+
+### Q19 / Q20
+Answered (92% / 90%), folded. Q19: every automatic Codex launch ending a wait saves its attempt in the activity's record (whatever agent's refusal began the wait); creates the record if none, account from the decision's Codex reading, which must name a stable account; a Codex choice whose fingerprint matches the saved attempt counts as blocked for usage in both decision tests during a wait (else the decision loops); first launch ends no wait, saves nothing; person's Resume/reply and Claude launches not bounded (codex-usage.ts:26-59; codex-session.ts:77-92; engine.ts:7086-7100). Full prose in investigator's report (replace §A Wait Before the Start "While the activity hasn't started…" paragraph; add one sentence after counted-limit paragraph). Q20: heads-up on the activity Kiln launches next — current when no start and nothing launching/running, else first not-started after it; started or launch-in-progress rows never carry it; on a waiting row it shows only until the next reading (engine.ts:4848-4866; plan-reading.ts:35; mockup 3 line 95). Not the same as status's `activity` (projection.ts:328).
+
+### Q16 / Q17
+Answered (90% / 85%); folded. Conformance to check: AC-STOP-05 and AC-TERMINAL-01 are already partly superseded (AC-RECOVER-02, AC-SPACE-04, AC-OUTSIDE-01; AC-BACK-01, AC-NEXT-01/02, AC-WAIVE-02, run-restart AC-CASE-02) — the new Replaces lines may need to point to the end of those chains. Q16: load read runs in prepare() before folderGuard (kiln-command.ts:453-486; engine.ts:4109-4125), so no "checking" state; start unknown = will_run_on + change unavailable with the reopen check's reason; 409/refusal for unknown start. Orchestrator ruling: Codex not installed = unreadable; a Codex thread Codex reports it doesn't have = no response (like a missing Claude file). Q17 (85%, folded as decision): resume command offered only while model.choice equals the session's recorded choice; otherwise fresh-session command for the current agent (snapshot.ts:807,873-875,1063,1087-1090; projection.ts:478-479). Conflict-check additions: AC-TERMINAL-01 (needs-you-handoff) merged into the AC-PICK-07 line; AC-STOP-05 (v1) new line; codex-support line extended.
+
+### Q12 / Q22 / Q23 / Q24
+Folded. Q12: no-reason explanation + "with no separator, the rest after the tier word". Q22: migration step 2 decides "started" from saved evidence only (records.ts:614 sync; private-state.ts:65). Q23: PRD AC-PICK-02 last two rows → "a session of it got a response from the model" / "no session of it got a response" (PRD criterion text change). Q24 (85%, mockup 5 panel D): note shows while current; dropped on Ran on; kept in phase detail.
+
+### Q14 / Q15
+Answered (92% / 90%), folded. Q14: drop the editor/page clause from "needed"; every installed agent's model list read at start and each refresh (cheap, ~0.3s each), carried in agents[].models; GET /api/model-defaults and CLI read on demand; a signed-out agent returns its built-in list, editor shows it with the readiness problem beside it, re-read once signed in (metadata.ts:68-105; local-server.ts:482). Q15: a change in the needed set discards no reading and clears no approval; approval stays keyed to the identity fingerprint (authority.ts:61-92); not-needed Claude reading not refreshed/shown/blocking; when needed again, read and pending until it returns; Start/approval/launch read fresh (engine.ts:1724, 5607). Build notes: refreshBilling early-return (engine.ts:1481-1484) and refreshClaudeForLaunch (engine.ts:536-545) move to the per-agent Claude reader.
 
 ### Q9 / Q11
 Answered (92% / 95%); folded. Q9: new row-table row for a launch under way or a running process (Will run on the session's recorded choice + Fallback tag, no Change); Change unavailable from the saved decision until the launch ends; snapshot model.choice from the launching session once decided. Q11: migration step 2 treats a choice with no model as no choice (engine.ts:1523,1535-1537,1688; records.ts:63).
@@ -83,7 +120,7 @@ Deferred (12-question cap). Proposed: say the line gives no reason, plus "from t
 
 ## Conflict check
 Pass 1: 2026-11-22 · 20 earlier criteria changed · Replaces lines folded (new lines on AC-PICK-01, -07, DEFAULT-02, -05, FALLBACK-01, AGENTS-01, -04, KEEP-01; merged into existing lines on PICK-07, AGENTS-02, -03, KEEP-01); TD Open Question 1 removed, its panel decision moved to §Changes to Earlier Designs, 4 earlier-design bullets added. AC-WATCH-06, AC-SEE-02, AC-CONTINUE-08, billing AC-RUN-01 checked: not changed · 1 raised as a question (C1, below) · existing lines accurate, 3 stopped short of their chain (closed by the new lines)
-Changed after pass 1: none (pass 1 added Replaces lines only; no criterion's requirement text changed)
+Changed after pass 1: AC-PICK-07 (Replaces lines only: AC-TERMINAL-01, AC-STOP-05 Claude-only, AC-NEXT-01 completion-waivers, AC-TAKE-03 live-session-control, AC-SEE-08 bot-control added in pass 2), AC-PICK-02 (pass 2, Q23: finished rows keyed on whether a session got a response)
 
 ### C1 (unintended, Business — enters Questions table in pass 1)
 Needs-you-handoff AC-RETURN-01, AC-TERMINAL-01 and live-session-control AC-BACK-02 promise Resume keeps a terminal discussion. A not-started activity (refused before first response, or held by Pause now) offers "Open the conversation in your terminal"; if the person talks there then presses Resume, AC-PICK-07 launches a new session and the discussion is lost. Proposed: a model response in that session, even in the terminal, counts as the start, so AC-PICK-04 applies and Resume reopens it on its original choice. ~85%.
@@ -94,6 +131,10 @@ Observations (not criteria): Codex-support and usage-limit-recovery Out of Scope
 Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as Technical questions · 2 stay business (DEF-001, DEF-002, both below the line). Second reviewer doubted neither. Folded: DEF-001's "If they choose otherwise" line and boxes lack "Mechanical ships at Sonnet · high" (the stakeholder's Sonnet reluctance is the main argument against it); add it.
 
 ## Noticed, out of scope
+- Concurrent saves to model-defaults.json from several Kilns and the CLI have no lock; one change can be lost (hardening).
+- On a Codex-only computer a row's first choice can't move to Codex (its fallback would need Claude Code's unreadable list); only the Fallback column is editable.
+- With Codex uninstalled, a not-started activity with Codex sessions sits at "start unknown" until reinstall, Mark complete or Reset.
+- Reading usage at every launch adds calls to Claude's usage endpoint beyond the scheduled reads.
 - AC-KEEP-02 moves an unstarted PRD whose person picked Codex (with the auto-filled GPT Sol · high) onto Claude Code tiers on a computer with both agents; the PRD says so explicitly, may surprise Codex-preferring people.
 - On an account without Fable, the shipped Demanding row makes Start unavailable for a plan with a demanding phase until changed (AC-PICK-06 settles it); maybe a guide line.
 - Kiln's Claude terminal command (`claude --resume <id>`) passes no `--model`, unlike Codex's; a terminal response may come from the person's default model.
@@ -104,4 +145,4 @@ Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 s
 |---|---|---|
 
 ## Next action
-Pass 1 committed. Start pass 2: discovery (carry Q12 Deferred first), scope-gated, state file passed in.
+Pass 2 committed. Pass 3: discovery (carry Q28–Q31 Pending and Q25–Q27 Deferred first).
