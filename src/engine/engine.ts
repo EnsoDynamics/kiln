@@ -391,6 +391,9 @@ class ControllerFrozen extends Error {}
 class FrozenStateWrite extends RecoveryStateWriteFailed {}
 const refusedWhileFrozen = (error: unknown) => error instanceof ControllerFrozen || error instanceof FrozenStateWrite;
 
+/** Why Start, an answer or Change waits before Start while a check Kiln reports has failed. */
+const FIX_WHAT_FAILED = "Fix what failed, then reload.";
+
 export class Engine {
   readonly commands: CommandJournal;
   private controlEpoch = randomUUID();
@@ -1668,7 +1671,7 @@ export class Engine {
   /** Why Start is unavailable while a row asks (find repositories anywhere "Asking Before Start"). */
   get startBlockedBy(): string | undefined {
     // A named repository Kiln couldn't check holds Start, named on the page as a failed check.
-    if (this.record.startedAt === undefined && (this.repositoryProblems.length > 0 || this.resetCheckFailing)) return "Fix what failed, then reload.";
+    if (this.record.startedAt === undefined && (this.repositoryProblems.length > 0 || this.resetCheckFailing)) return FIX_WHAT_FAILED;
     const asking = this.locatingRepositories;
     if (asking.length === 0) return undefined;
     if (asking.length > 1) return `Tell Kiln where ${asking.length} repositories are to start.`;
@@ -1761,8 +1764,7 @@ export class Engine {
     }
     if (record.startedAt !== undefined || this.settingUp) return refuse("Kiln isn't waiting for Start.");
     if (body.refinementConfirmed !== true) return { ok: false, status: 400, reason: "Confirm the documents have been through requirements refinement first." };
-    // A page a reset built keeps Start unavailable while a start check fails (run restart AC-RESET-04).
-    if (this.resetDocuments()?.checksFailed) return refuse("Fix what failed, then reload.");
+    // A page a reset built keeps Start unavailable while a start check fails (run restart AC-RESET-04), as does a row that asks.
     if (this.startBlockedBy) return refuse(this.startBlockedBy);
     if (this.baseCheck === "checking") return refuse(`Kiln is checking ${record.settings.baseBranch || "the base branch"} on origin.`);
     const modelError = this.currentFieldErrors.model;
@@ -7335,7 +7337,7 @@ export class Engine {
   async locateRepository(repository: string, folder: string): Promise<{ ok: true; repository: string; folder: string } | { ok: false; status: 409 | 422; reason: string }> {
     if (this.record.startedAt !== undefined || this.settingUp) return { ok: false, status: 409, reason: `No stop is asking where ${repository} is.` };
     // A failing start check on a page a reset built is reported first; the question waits until it passes (AC-ASK-01).
-    if (this.resetCheckFailing) return { ok: false, status: 409, reason: "Fix what failed, then reload." };
+    if (this.resetCheckFailing) return { ok: false, status: 409, reason: FIX_WHAT_FAILED };
     const row = this.locatingRepositories.find((one) => sameAddressPath(one.question!.repository, repository));
     if (!row) return { ok: false, status: 409, reason: `Documents found isn’t asking where ${repository} is.` };
     const question = row.question!;
@@ -7361,7 +7363,7 @@ export class Engine {
   /** `POST /api/repository-location/change`: puts a row whose checkout came from a remembered answer back to asking, before Start (AC-ASK-05). */
   async changeRepositoryLocation(repository: string): Promise<CommandResult> {
     if (this.record.startedAt !== undefined || this.settingUp) return refuse("A repository's checkout is fixed once Start is pressed.");
-    if (this.resetCheckFailing) return refuse("Fix what failed, then reload.");
+    if (this.resetCheckFailing) return refuse(FIX_WHAT_FAILED);
     const row = this.namedRows.find((one) => one.found?.located === "answer" && sameAddressPath(one.addressPath, repository));
     if (!row) return refuse(`Kiln isn’t using a remembered answer for ${repository}.`);
     this.changingLocations.add(row.addressPath.toLowerCase());
