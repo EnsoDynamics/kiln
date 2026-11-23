@@ -51,7 +51,7 @@
 
 **Assumption**: **Yes.** **Sonnet at medium** for mechanical phases, and **GPT Astra at high** as the demanding fallback (AC-DEFAULT-01). Fable at high was confirmed on 2026-11-22; these two were not mentioned. The person can change either in Model defaults.
 
-**If they choose otherwise**: Those rows ship at other efforts, such as GPT Astra at extra high.
+**If they choose otherwise**: The Demanding fallback ships at **Codex · GPT Astra · extra high**, Mechanical ships at **Claude Code · Sonnet · high**, or both. Each changes its row of the AC-DEFAULT-01 table and the shipped defaults.
 
 **Evidence**: Anthropic's guidance says medium "fits day-to-day engineering work with a clear scope", which is what a **mechanical** phase is, and ships Sonnet at medium by default. GPT Astra at high matches the stakeholder's high for GPT Sol on phases (2026-11-21).
 
@@ -62,6 +62,7 @@ Against GPT Astra at high: he raised the audits' GPT Sol fallback to "very high 
 **Confirm or Correct**:
 - [ ] Correct as stated
 - [ ] Wrong — GPT Astra at extra high
+- [ ] Wrong — Sonnet at high
 - [ ] Wrong — corrections: _______________
 
 **Confidence**: 70% | **Impact**: 🟢 LOW
