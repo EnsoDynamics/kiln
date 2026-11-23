@@ -42,12 +42,12 @@ Claude Code and Codex through their existing adapters, Git, and the installed En
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| How a session reports | A fenced block in its final message, in the form §The report gives, read from the run's recorded result | The preflight already reads its verdict there, for both agents. A file would be an uncommitted change in the worktree, which AC-STAGE-02 forbids, or a file in the repository the method doesn't write. A command would need the session to reach outside its sandbox |
+| How a session reports | A fenced block in its final message, in the form §The report gives, read from the run's recorded result | The preflight already reads its verdict from the final message, for both agents. A report file would be an uncommitted change in the worktree, which AC-STAGE-02 forbids, or a Kiln file committed beside requirements documents the method owns. An audit's submit round-trip exists so Kiln can refuse a report against its signed-off evidence; a requirements report has no evidence to check against, so a report that doesn't read is a Needs you like any unfinished stage |
 | The one method name Kiln holds for requirements | The entry skill, `using-the-enso-method`, named in the prompts | AC-PLAN-02 rules out a list of stages. The entry skill is the method's front door, and every other name comes from it at run time. A rename of it is the occasional break the PRD accepts |
 | Who pushes after a requirements session | Kiln, with a plain push of the feature branch, after Everything committed passes | The requirements skills never push by default, and a person who finishes a stage by hand only commits (AC-STAGE-02). One rule covers both. A push Git rejects stops at Needs you on the Pushed check; Kiln never forces |
 | How a run is kept before the PRD's folder exists (BEGIN-001) | Under the key of what `kiln run` was pointed at, for the life of the run. The record names the PRD directory once it exists, and Kiln finds a run for a path by reading the repository's records | The method doesn't promise the PRD folder shares the source folder's name, and AC-BEGIN-06 keeps the run through a rename. Moving a state directory would move its port, address and token |
 | The title before the draft (BEGIN-001) | The first heading of the brief or intake record, without a leading "Brief:" or "Requirements intake:" label; the folder's name in words when it has none. A planned PRD: the initiative's title, a colon, the row's name | AC-HOME-02 asks for a name from the source material itself, and the mockups draw a title, not a folder name |
-| Finding the PRD's folder after the draft | The directory the drafting session's report names, accepted only when the feature branch holds a `<folder>-prd.md` there that the base commit doesn't. Later, when that file is gone, Kiln follows the rename Git reports for it | Git settles it, so a wrong report can't point the run at another PRD. Rename detection is what Kiln already uses for phase files |
+| Finding the PRD's folder after the draft | The directory the drafting session's report names, accepted only when the feature branch holds a `<folder>-prd.md` there that the base commit doesn't. Later, when that file is gone, Kiln follows the rename Git's rename detection reports for it between the last commit that held it and the branch tip, and a later report's `prdDirectory` must agree with it | Git settles it, so a wrong report can't point the run at another PRD. Kiln reads history with `--no-renames` everywhere today, so this one read turns rename detection on; a rename Git can't detect (the PRD rewritten as well as moved) leaves the report's directory to be accepted by the draft's rule, a new `<folder>-prd.md` the base commit doesn't hold |
 | What source material counts as "written from" (HOME-003) | Kiln's records in the repository, then a PRD or initiative folder of the same name on any local branch or any remote-tracking branch of `origin`, as last fetched. The home screen never fetches. A planned PRD's list is read from the shared branch only | A PRD written on another computer hides its source material after the next fetch, with no network call from a page that must open fast. A planned PRD renamed on an unmerged branch is not yet the initiative's word |
 | Where the feature branch is cut from, for a start with no phase plan | The local shared branch's tip, when it holds origin's tip. When it doesn't, Start is unavailable and says to bring the shared branch up to date | The home screen's prompt has the person's session commit source material on the shared branch and stop, so the material is often not pushed. The method cuts a PRD's branch the same way when the commits it needs are only local |
 | When a stakeholder review is stale | Its file has no commit, or a later commit on the branch changes or removes a file the PRD directory held at the review's latest commit | Git alone decides, so a person's own session is judged the same way as Kiln's. New files don't count, so a phase plan that only adds phase documents starts no session (AC-PLAN-08), while one that rewrites a criterion does |
@@ -55,7 +55,7 @@ Claude Code and Codex through their existing adapters, Git, and the installed En
 | A method update at a stage boundary | Kiln reads the plan again and waits for it, up to the read's time limit, before launching the next stage | The stage's model comes from what the plan expects next (AC-MODEL-02), and the report in hand came from a session on the old copy. A minute's wait before a stage that runs for hours costs nothing. At Start nothing waits (AC-PLAN-05) |
 | How the home screen opens a PRD (HOME-002) | It starts `kiln run` for that PRD as a child process of its own terminal, and the page opens the PRD's address in a new tab. Ctrl+C in that terminal stops the home screen and every Kiln it started, each as its own Ctrl+C would | Kiln has no background service. A Kiln with no terminal has nothing that ends it, and a build nobody can find is worse than a terminal that must stay open, which the README already asks for |
 | Keeping the home list current (HOME-002) | The home process reads a cheap fingerprint every 5 seconds (each repository's refs and the status of the folders it lists, the state root's records, each running Kiln's status) and scans again only when it changes | Nothing in Kiln watches files today, and Git's refs are the one place a commit on any branch shows. A scan on every tick would spend Git calls on an idle page |
-| The build of a PRD with no phase plan (SCOPE-001) | A plan of one leaf with no file, run through the phase path, judged by a report plus the two Git checks, with the delivery audit kind closed from the start | AC-FINAL-06 needs a second way of building. One synthetic leaf keeps every screen, stop, model rule and record that reads phases working, so the second way is one prompt and one check |
+| The build of a PRD with no phase plan (SCOPE-001) | A plan of one leaf with no file, run through the phase path, judged by a report plus the two Git checks, with no delivery audit allocated | AC-FINAL-06 needs a second way of building. One synthetic leaf keeps every screen, stop, model rule and record that reads phases working, so the second way is one prompt and one check |
 | Form of a remembered stage choice | The model's family when it has one, as a Model defaults row stores it, otherwise the exact model | A choice kept for every PRD must not pin last year's version (AC-MODEL-03) |
 
 ## What Kiln Knows About the Method
@@ -97,7 +97,7 @@ Kiln resolves the path, finds the run (§Run identity), and takes the first row 
 
 | The path is | Kiln |
 |---|---|
-| Anything with an unfinished or finished run of its own | Opens that run, as today |
+| Anything with a started run of its own, unfinished or finished | Opens that run, as today. A record never started, or reset, is not a run: the rows below place the path, and the screen before Start reuses that record |
 | A PRD directory holding phase documents | Today's start checks and Documents found. No requirements side exists for this run (AC-BEGIN-05) |
 | A PRD directory with no phase documents | The requirements start checks, then the screen before Start in its requirements form, headed by where the documents stand (AC-BEGIN-04) |
 | Source material, or a planned PRD, that fits AC-HOME-13's Ready to start row | The requirements start checks, then the screen before Start with What Kiln found (AC-BEGIN-07) |
@@ -106,13 +106,13 @@ Kiln resolves the path, finds the run (§Run identity), and takes the first row 
 
 A PRD directory that isn't in the checkout is looked for on local and remote-tracking branches. On one unmerged branch, that branch is the start; on several, the terminal lists them and `--branch` picks. Whenever the PRD's documents are on a branch that hasn't merged into the shared branch, the screen before Start has **A branch that already exists** selected with that branch (AC-BEGIN-08), and Run Restart's preview reads the documents from its tip.
 
-**Requirements start checks** replace the document rows of today's start checks: the PRD file exists, or the source material's named file does and is committed in the local shared branch's tip with no uncommitted change under its folder; the checkout is clean; Git, `gh` and `origin` pass as today. Agent readiness is per needed agent, as Tiers defines it, counting every planned stage row. A failure prints in the terminal and nothing opens, as today.
+**Requirements start checks** replace the document rows of today's start checks: the PRD file is committed at the start commit with no uncommitted change under its directory, or the source material's named file is committed in the local shared branch's tip with no uncommitted change under its folder; the checkout is clean; Git, `gh` and `origin` pass as today. Agent readiness is per needed agent, as Tiers defines it, counting every planned stage row. A failure prints in the terminal and nothing opens, as today.
 
 ### Run identity (AC-BEGIN-02, AC-BEGIN-06)
 
 The state directory's key is the start path with `/` replaced by `--`: `source-material--gift-card-balance`, `docs--initiatives--loyalty-program--points-earning` for a planned PRD (its directory name last), or today's `docs--prds--<name>`. The key, the port and the address never change. The address's last part is the start path's last part, so a run from source material stays at `/gift-card-balance` when its PRD lands in `docs/prds/gift-card-balance-lookup/`.
 
-The record gains `origin` and an optional `prdDirectory` (§Data Models). To find the run for a path, Kiln reads the records of the repository's state directories and takes the one whose key, `origin.path` or `prdDirectory` is that path. This one lookup serves `kiln run`, every `kiln` command that takes a PRD path, and the home screen. A path that resolves to a record under another key is never given a second record.
+The record gains `origin` and an optional `prdDirectory` (§Data Models). A reset keeps both in the fresh record it writes, so the source material stays written from (AC-HOME-13) and, once `prdDirectory` is set, the reset run starts as a PRD on a branch that hasn't merged (AC-BEGIN-08). To find the run for a path, Kiln reads the records of the repository's state directories and takes the one whose key, `origin.path` or `prdDirectory` is that path. This one lookup serves `kiln run`, every `kiln` command that takes a PRD path, and the home screen. A path that resolves to a record under another key is never given a second record.
 
 ### Branch and worktree (AC-BEGIN-06)
 
@@ -122,14 +122,14 @@ Start, not the first session, cuts the feature branch and worktree, through toda
 
 ### Reading it (AC-PLAN-02 to 05, AC-PLAN-07)
 
-The plan is one file for the computer, `<state root>/requirements-plan.json`, holding one plan per agent (§Data Models). A plan is current while its **method fingerprint** matches: a hash of the name and bytes of every `SKILL.md` beside the entry skill in the copy that agent resolves, found by the lookup audits use for their skill. **Last updated** is the plugin registry's `lastUpdated` for a registered plugin, otherwise the newest of those files' modification times. No version is read or shown.
+The plan is one file for the computer, `<state root>/requirements-plan.json`, holding plans by agent and method fingerprint (§Data Models). A plan is current while its **method fingerprint** matches: a hash of the name and bytes of every `SKILL.md` beside the entry skill in the copy that agent resolves for the repository, found by the lookup audits use for their skill, run in the repository's checkout so a copy installed for that project only is the one found. **Last updated** is the plugin registry's `lastUpdated` when the copy found is the registry's install path, otherwise the newest of those files' modification times: a plugin loaded from a local directory is read from that directory while its registry entry keeps the date it was installed. No version is read or shown.
 
-The fingerprint is computed when the home screen opens, when `kiln run` starts, before each requirements session launches, and on **Read again**. When no current plan exists for the agent of the Requirements stages choice, the process that noticed starts a **plan read**: one session of that agent, on the Requirements stages choice, in an empty directory under the state root, told to load the entry skill, follow the method from source material to the build, and answer with the plan block of §Interfaces. It has a 10-minute limit, no resume and no fallback. A lock file beside the plan lets one process read at a time; every Kiln watches the state root for the plan file's name, as Tiers has it watch Model defaults, and republishes when it changes.
+The fingerprint is computed when the home screen opens (for each repository it lists), when `kiln run` starts, before each requirements session launches, and on **Read again**. When no plan exists for the agent of the Requirements stages choice and that fingerprint, the process that noticed starts a **plan read**: one session of that agent, on the Requirements stages choice, in an empty directory under the state root. Its prompt gives the path of the entry skill's `SKILL.md` in the copy the fingerprint covers, as an audit's prompt pins its skill's path, and tells it to read the method from that folder only, follow it from source material to the build, and answer with the plan block of §Interfaces. It has a 10-minute limit, no resume and no fallback. A lock file beside the plan lets one process read at a time; every Kiln watches the state root for the plan file's name, as Tiers has it watch Model defaults, and republishes when it changes.
 
 - **Billing.** The read's launch runs the billing check. On a metered route it starts only in a PRD's Kiln, once that PRD's billing approval is given; the home screen never starts it there (AC-PLAN-03).
-- **Failure.** A read that ends without a valid block, hits its limit or can't launch is saved as the latest failure with its reason and time. The screen shows it with Read again (AC-PLAN-05). Kiln doesn't retry by itself until the fingerprint changes.
+- **Failure.** A read that ends without a valid block, hits its limit or can't launch is saved as the latest failure for its agent and fingerprint, with its reason and time. The screen shows it with Read again (AC-PLAN-05). Kiln doesn't retry by itself until the fingerprint changes, and the driver doesn't wait on a fingerprint whose read failed: it goes on without a plan.
 - **While reading.** The snapshot carries the read's start time, and the screen states the three things that hold whatever the plan says (AC-PLAN-04).
-- **A method update during a run.** A changed fingerprint found before a launch starts a read, which that launch waits for (§Design Decisions). The new plan is compared with the old by skill name: the notice lists the stages no longer in it, the new ones, and the count before and after, with when the method was updated (AC-PLAN-07). Finished rows keep their record.
+- **A method update during a run.** A changed fingerprint found before a launch starts a read, which that launch waits for (§Design Decisions). The new plan is compared by skill name with the plan this PRD last showed, the one its `planFingerprint` names: the notice lists the stages no longer in it, the new ones, and the count before and after, with when the method was updated (AC-PLAN-07). Finished rows keep their record.
 
 ### Rows (AC-PLAN-01, AC-PLAN-06, AC-STAGE-03)
 
@@ -153,7 +153,7 @@ While the record's requirements side is open, the engine's loop runs this before
 
 ```
 each pass, after the stop, hold, pause and wait checks every activity gets:
-    the method's fingerprint changed → read the plan again; wait for it
+    the method's fingerprint changed, and its read hasn't failed → read the plan again; wait for it
     feedback is waiting → run a feedback session; next pass
     standing has requirements_finished:
         the review is missing or stale → run a review session; next pass
@@ -203,11 +203,14 @@ Feedback is a list on the record. Each message has an id and a state:
 
 ```
 waiting → sent → read → applied
-                   └→ waiting      (the stage's report says it was not worked in, or names no outcome for it)
+                   └→ waiting      (the stage's report says it was not worked in or names no outcome for it,
+                                    or the session ended with no valid report)
 ```
 
+A message that goes back to waiting is applied by a feedback session even when its first session may have worked part of it in: applying it again to documents that already carry it changes nothing, while dropping it loses it.
+
 - **Sending** never pauses, holds or stops anything (AC-TALK-03). The route accepts a message whenever the requirements side is open.
-- **A session is running and takes live messages** (Claude Code where Message Claude works today): Kiln delivers it at once, prefixed with its id, through Message Claude's path. The existing receipt makes it `read`, with the time. The session's report gives each message it read an outcome, and `worked_in` makes it `applied` with that session's commit.
+- **A session is running and takes live messages** (Claude Code where Message Claude works today): Kiln delivers it at once through Message Claude's path, as the person's literal text after one line naming its id, so the report can give its outcome. The existing receipt makes it `read`, with the time. The session's report gives each message it read an outcome, and `worked_in` makes it `applied` with that session's commit.
 - **Otherwise** (no session, Codex, a platform without live messages, an unconfirmed delivery) it stays `waiting`, and the driver runs a feedback session before the next stage. Its report makes each message `applied`.
 - **At a review**, Send feedback is the same route with the stop's own options (§The Two Reviews).
 
@@ -217,7 +220,7 @@ A feedback session is an activity like a stage: it can stop at Needs you, wait a
 
 **The draft note.** When a report carries `draft`, Kiln saves its statements and what the PRD leaves out, and the running screen shows them, marked as not waiting, until the early review is ready. A report without `draft` shows nothing.
 
-**Ready.** A review is ready when the driver reaches its milestone with a current review, whether or not it then stops. Kiln records the kind, the review's file and commit and the time, and opens the review once with the platform's opener, under the rules for opening the view. The view links to it at `<base>/stakeholder-review`, which serves the file from the worktree with a content policy that allows the page's own inline script and style and no network. While a stop stands, no session runs.
+**Ready.** A review is ready when the driver reaches its milestone with a current review, whether or not it then stops. Kiln records the kind, the review's file and commit and the time, and opens the review once with the platform's opener, under the rules for opening the view. The view links to it at `<base>/stakeholder-review`, which serves the file from the worktree under a sandboxing content policy: `sandbox allow-scripts allow-downloads allow-modals`, inline script and style, images from `data:` only, and nothing else. The file is written by an agent from repository content and is served on the origin that holds the PRD's token, so without the sandbox its script could open the view and send any control, Start the build included. Sandboxed, it runs in an opaque origin with no network. The method's template already degrades there: its saved drafts are off when storage throws, and Copy reply falls back to Download reply. While a stop stands, no session runs.
 
 **The three answers** are the same at both stops:
 
@@ -236,18 +239,18 @@ A feedback session is an activity like a stage: it can stop at Needs you, wait a
 **Start the build** is offered only at the final review. It is one instruction that:
 
 1. Runs today's start checks against the worktree: with phase documents, all of them; with none, that the PRD exists and the tree is clean. A failure is listed on the screen, and the button is unavailable until a reload finds them passing, as after a reset.
-2. Asks today's refinement confirmation only when the PRD has reached `prd_refined` or `design_ready` and no Kiln session reported reaching that milestone itself (AC-FINAL-05).
+2. Asks today's refinement confirmation only when the PRD has reached `prd_refined` or `design_ready` and that milestone is not in `reachedByKiln`: a refinement the method called for ran outside Kiln (AC-FINAL-05).
 3. Closes the requirements side and hands the execution to today's loop, with the preflight due as at Start. The plan is read, and its baseline recorded, here for the first time, so feedback that changed the phase plan before this point is never a plan change.
 
 The screen's count of unconfirmed assumptions is today's count (AC-FINAL-04).
 
-**A PRD with no phase plan** (SCOPE-001). When the PRD directory holds no phase documents at Start the build, the plan is one leaf, id `whole`, titled with the PRD's name, with no file and no tier, so it resolves on the Standard row and offers Change like any phase. Its session gets a prompt of its own: build the unsplit PRD with `implement-from-requirements`, commit, push the feature branch, and end with the report. Its check is three rows: the report says finished, Everything committed, Pushed. If phase documents exist when the session ends, the session split the work: Kiln reads the plan and carries on as for any split PRD, delivery audit included. Otherwise the delivery audit kind is closed for the execution, and the test audit and pull request session follow as today. At a stop, the person finishes it as they finish a phase, with Mark complete standing in for the report.
+**A PRD with no phase plan** (SCOPE-001). When the PRD directory holds no phase documents at Start the build, the plan is one leaf, id `whole`, titled with the PRD's name, with no file and no tier, so it resolves on the Standard row and offers Change like any phase. Its session gets a prompt of its own: build the unsplit PRD with `implement-from-requirements`, commit, push the feature branch, and end with the report. Its check is three rows: the report says finished, Everything committed, Pushed. While the execution's plan is the `whole` leaf, a plan read that finds no phase documents gives that plan, never the "No phase documents" problem it gives today. If phase documents exist when the session ends, the session split the work: Kiln reads the plan and carries on as for any split PRD, delivery audit included. Otherwise the record marks the execution `wholeBuild`, and the routing that picks the next audit allocates no delivery audit for it: the test audit and pull request session follow as today. This is a condition of its own, not a closed kind, since a kind with no loop is never closed and closing one reports its loops as used up. At a stop, the person finishes it as they finish a phase, with Mark complete standing in for the report.
 
 ## Models (AC-MODEL-01 to 06)
 
 Kiln Phase Model Tiers' resolver gains one step and two rows. For a requirements activity that hasn't started, first match wins:
 
-1. Its own entry for this PRD, marked **Changed by you**. Entries are kept by skill name and its occurrence in the PRD's plan, so each row has its own.
+1. Its own entry for this PRD, marked **Changed by you**. Entries are kept by stage key (§Data Models), so each row has its own.
 2. The remembered choice for the skill it is expected to run, marked **Saved for every PRD** (AC-MODEL-03).
 3. Its Model defaults row: **Refining the design** when the PRD is in that span, otherwise **Requirements stages**.
 
@@ -369,7 +372,7 @@ The home list: `{ scope: { kind, name, sharedBranch?, repositories[] }, plan, un
 kiln                                        the home screen for the current scope
 kiln new                                    the same
 kiln feedback <path> (--text <text> | --file <file>) [--stop-again]
-kiln continue <path>                        at the early review, continues to the next stage (today's command)
+kiln continue <path>                        today's command, which also continues from the early review to the next stage
 kiln start-build <path> [--refinement-confirmed]
 kiln settings <path> --wait-at-early-review <on|off>
 kiln model <path> --stage <row key or id> (… | --use-default) [--remember]
@@ -399,24 +402,29 @@ requirements?:
   draftNote?, review?, notice?                                       as the snapshot shows them
   feedback:     [ { id, text, at, state, sessionId?, readAt?, appliedCommit? } ]
   reachedByKiln: string[]                                            milestones a Kiln session reported reaching itself
+wholeBuild?:    true                                                the execution builds the `whole` leaf (§Starting the Build)
 settings.waitAtEarlyReview: boolean
-settings.modelChoices.stages: { [skill#occurrence]: ModelChoice | "default" }
+settings.modelChoices.stages: { [stage key]: ModelChoice | "default" }
 ```
 
-Activities gain the kind `requirements`, with keys `req-<id>`; session records gain the same kind. A reset removes the requirements side with the rest of the PRD's state.
+A **stage key** is `kiln:early` or `kiln:final` for Kiln's two review rows, and `<skill>#<occurrence>` for the method's entries, counting that skill's earlier entries in the method's plan only, so a review the method itself makes never shifts the key of one Kiln adds.
+
+Activities gain the kind `requirements`, with keys `req-<id>`, added to the one activity-key classifier, which reads any key it doesn't know as a phase; session records gain the same kind. A reset removes the requirements side with the rest of the PRD's state, and keeps `origin` and `prdDirectory` (§Run identity).
 
 **Requirements plan file**, `<state root>/requirements-plan.json`, owner-only and written atomically:
 
 ```
 { schemaVersion: 1,
-  plans: { [agentId]: { fingerprint, methodUpdatedAt, readAt, stages[], reviewSkill, previous?: { stages[] } } },
-  reading?: { agentId, startedAt, pid, processStartTime },
-  lastFailure?: { agentId, fingerprint, reason, at } }
+  plans: { [agentId]: { [fingerprint]: { methodUpdatedAt, readAt, usedAt, stages[], reviewSkill } } },
+  reading?: { agentId, fingerprint, startedAt, pid, processStartTime },
+  failures: { [agentId]: { [fingerprint]: { reason, at } } } }
 ```
+
+Plans are kept by fingerprint so two copies of the method, one installed for a single project, never evict each other's plan and start a read each time Kiln moves between them. A plan not used for 30 days is dropped on the next write; a PRD whose `planFingerprint` names a dropped plan gets its notice with the count of stages after the change only.
 
 A plan-read session's output is kept under `<state root>/requirements-plan/<session id>/`, in the files every session keeps.
 
-**Model defaults file** gains the rows `requirements` and `refining_design` and `skills: { [skillName]: FamilyChoice | ModelChoice }`. Its schema version stays 1 when this ships with Tiers' first release of the file, and becomes 2 otherwise, since an older Kiln must refuse a file it would half-read.
+**Model defaults file** gains the rows `requirements` and `refining_design` and `skills: { [skillName]: FamilyChoice | ModelChoice }`. Restore clears the six rows and leaves `skills`, each of which is forgotten on its own. Its schema version stays 1 when this ships with Tiers' first release of the file, and becomes 2 otherwise, since an older Kiln must refuse a file it would half-read.
 
 **Home state**, `<state root>/home/<8-character hash of the scope's path>/`: the instance lock and the token. Nothing else is saved; the list is always scanned.
 
@@ -424,12 +432,12 @@ A plan-read session's output is kept under `<state root>/requirements-plan/<sess
 
 Each line is added to the earlier section, as `Superseded in part by:`, in the commit that builds the change.
 
-- Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Command line (`kiln run` accepts source material, a planned PRD and a PRD with no phase documents; `kiln` alone opens the home screen), §Where a Feature Stands (a run with a requirements side runs the requirements driver before any plan is read), §Ports and one Kiln per PRD (the address's last part is the start path's, and the home screen takes a port), §Kiln's State on Disk (the key is the start path; `prdDirectory` is optional), §Worktree and Branch Setup (a start with no phase plan cuts from the local shared branch's tip), §The Done Check (a requirements session's check and Kiln's own push; the whole-PRD build's check).
+- Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Command line (`kiln run` accepts source material, a planned PRD and a PRD with no phase documents; `kiln` alone opens the home screen), §Where a Feature Stands (a run with a requirements side runs the requirements driver before any plan is read), §Ports and one Kiln per PRD (the address's last part is the start path's, and the home screen takes a port), §Kiln's State on Disk (the key is the start path; `prdDirectory` is optional), §Worktree and Branch Setup (a start with no phase plan cuts from the local shared branch's tip), §The Done Check (a requirements session's check and Kiln's own push; the whole-PRD build's check), §The Plan Reader (a plan of the one `whole` leaf reads with no phase documents).
 - Replaces in part: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Resolving a Choice (requirements activities, the remembered-choice step and two rows), §Model defaults file, §HTTP and §Command line (the rows, `skills`, `--stage`, `remember` and `forget`).
-- Replaces in part: `docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md`, §The starting point (an unmerged branch holding the PRD's documents is selected first).
-- Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision (a PRD built from a plan of the one `whole` leaf gets no delivery audit).
+- Replaces in part: `docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md`, §The starting point (an unmerged branch holding the PRD's documents is selected first; a new branch for a start with no phase plan is cut from the local shared branch's tip), §After Start (Kiln's own push after a requirements session), §Reset, Doing it (the fresh record keeps `origin` and `prdDirectory`).
+- Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §One completion decision, and `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Routing After the Last Loop (an execution marked `wholeBuild` allocates no delivery audit).
 - Replaces in part: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Command grammar (`feedback`, `start-build`, `new`; `kiln` with no arguments), §Outstanding-work inventory (runs keyed by a start path; the two review states).
-- Replaces in part: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Uncertainty recovery (feedback to a requirements session takes no hold when its delivery is uncertain).
+- Replaces in part: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Literal input and admission (feedback to a requirements session carries one line naming its id before the person's text), §Uncertainty recovery (feedback to a requirements session takes no hold when its delivery is uncertain).
 
 ## Integration Points
 
@@ -475,9 +483,8 @@ Each line is added to the earlier section, as `Superseded in part by:`, in the c
 
 ## Open Questions
 
-1. **SCOPE-001 is open.** If the answer is that the person builds such a PRD themselves, §Starting the Build loses its last paragraph, the `whole` leaf and the completion-audits change, and the final review of a PRD with no phase documents ends with a prompt to paste.
+1. **SCOPE-001 is open.** If the answer is that the person builds such a PRD themselves, §Starting the Build loses its last paragraph, the `whole` leaf, `wholeBuild` and the audit-routing change, and the final review of a PRD with no phase documents ends with a prompt to paste.
 2. **HOME-004 is open.** Either other answer changes only the scan's placement of folders that hold neither a brief nor an intake record.
-3. **AC-FINAL-06 needs a `Replaces in part:` line** for AC-AUDIT-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a PRD built in one session with no phase plan gets no delivery audit). The PRD carries none, and the design refinement adds it.
-4. **The brief's file name** is this design's reading of a method change not yet made. If the method sets another name, one constant changes.
-5. **Kiln Phase Model Tiers is designed and not built.** This design assumes its contracts as its refined design states them: activities resolved by one resolver, the start line, the launch decision, the Model defaults file and page, and `kiln model`. Its open questions DEF-001 and DEF-002 decide the two new rows' fallback values and nothing else here.
-6. **The method's test audit after an unsplit build.** The method says a test audit can be pointed at an unsplit PRD and does not say one follows by default. AC-FINAL-06 has Kiln finish such a PRD as it finishes a split one, so Kiln runs it. Whether the method should say so is for the method.
+3. **The brief's file name** is this design's reading of a method change not yet made. If the method sets another name, one constant changes.
+4. **Kiln Phase Model Tiers is designed and not built.** This design assumes its contracts as its refined design states them: activities resolved by one resolver, the start line, the launch decision, the Model defaults file and page, and `kiln model`. Its open questions DEF-001 and DEF-002 decide the two new rows' fallback values and nothing else here. Its design names its record schema 25, which the code already uses, so its migration takes the next free version and this design's the one after.
+5. **The method's test audit after an unsplit build.** The method says a test audit can be pointed at an unsplit PRD and does not say one follows by default. AC-FINAL-06 has Kiln finish such a PRD as it finishes a split one, so Kiln runs it. Whether the method should say so is for the method.

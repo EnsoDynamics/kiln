@@ -149,6 +149,7 @@ The final review is the last thing in the requirements and the place the build s
 - [ ] **AC-FINAL-05 — Kiln doesn't ask whether the PRD was refined when it ran the refinements.** Kiln asks for today's confirmation only when it didn't run every refinement the method called for on this PRD.
 - [ ] **AC-FINAL-06 — A PRD with no phase plan is built in one session.** When the requirements finish without phase documents, because phase planning found the work fits one session or the method let a small change skip the design and the phase plan, the final review shows one build row for the whole PRD in place of the phase plan, with the model a phase with no rating gets, **Change** and **Start the build** (SCOPE-001). The build is one session on the feature branch, with what a phase session gets (AC-STAGE-04). Kiln then finishes it as it finishes a split PRD, except that no delivery audit runs, as the method skips it.
   - Replaces in part: AC-START-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a PRD whose requirements finished without phase documents, or without a technical design, is built, not stopped; the rest remains).
+  - Replaces in part: AC-AUDIT-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a PRD built in one session with no phase plan gets no delivery audit; the rest remains).
 
   Added in refinement.
 
