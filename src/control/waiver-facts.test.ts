@@ -4,8 +4,9 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrdRecord, CheckResult } from "../state/records.js";
 import type { MarkCompleteOffer, Waiver, AuditWaiverResult } from "../engine/waivers.js";
-import { activityWaivers, markCompletePreview, previewLines, progressRows, progressText, projectCheck, receiptLines, terminalWaivers } from "./waiver-facts.js";
+import { activityWaivers, locateText, markCompletePreview, previewLines, progressRows, progressText, projectCheck, receiptLines, terminalWaivers } from "./waiver-facts.js";
 import { formatTerminalEvent } from "../kiln-command.js";
+import { terminalColors } from "../terminal-output.js";
 
 const plain = { green: (s: string) => s, amber: (s: string) => s, red: (s: string) => s, grey: (s: string) => s, bold: (s: string) => s } as unknown as Parameters<typeof formatTerminalEvent>[2];
 let zone: string | undefined;
@@ -184,5 +185,18 @@ describe("the command line's Mark complete preview", () => {
     const refused = (reason: string) => receiptLines({ operation: { id: "op", action: "waive-and-advance", state: "refused", outcome: "mark_complete_not_offered", reason, updated_at: "" } })![0];
     expect(refused("No check has run since Phase 3 stopped.")).toBe("Refused: no check has run since Phase 3 stopped. Run without --confirm to check again first.");
     expect(refused("Phase 3 is running, not at Needs you. There is nothing to mark complete.")).toBe("Refused: Phase 3 is running, not at Needs you. There is nothing to mark complete.");
+  });
+});
+
+describe("kiln status's question lines on a terminal (find repositories anywhere AC-SEE-05)", () => {
+  it("draws every question line light grey, checkouts and Which included, and the Controls line grey", () => {
+    const colors = terminalColors({ isTTY: true }, {});
+    const stop = { locate: [{ kind: "which", address_path: "acme-labs/ledger", label: "ledger", phase_file: null, searched_from: "/home/a/code/acme", searched_to: null, checkouts: [{ folder: "/home/a/code/acme-labs/ledger", remote: "github.com/acme-labs/ledger", pickable: true }, { folder: "/home/a/archive/ledger", remote: "git.example.com/acme-labs/ledger", pickable: false }], available: true, reason: null }] };
+    const lines = locateText(stop, colors);
+    const plain = locateText(stop);
+    expect(plain.at(-1)).toBe("Controls: locate-repository (available)");
+    expect(lines).toEqual([...plain.slice(0, -1).map((line) => colors.lightGrey(line)), colors.grey(plain.at(-1)!)]);
+    expect(plain).toContain("Which should it use?");
+    expect(plain.filter((line) => line.startsWith("  "))).toHaveLength(2);
   });
 });

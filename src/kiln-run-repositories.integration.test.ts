@@ -876,7 +876,7 @@ describe("one catch-up offer over several repositories (run restart AC-CURRENT-0
     const token = await tokenOf(address);
     expect((await api(address, token, "POST", "/api/settings", { start: { from: "existing", bringUpToDate: true } })).status).toBe(200);
     const start = (await snapshotOf(address, token)).documents!.start!;
-    expect(start.catchUp).toEqual({ repositories: [{ name: "returns-api", branch: BRANCH, base: "develop", behind: 2 }] });
+    expect(start.catchUp).toEqual({ repositories: [{ name: "returns-api", label: "returns-api", branch: BRANCH, base: "develop", behind: 2 }] });
     expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true, previewId: start.previewId })).toEqual({ status: 200, body: { ok: true } });
     await waitFor(() => readJsonLines(`${f.scenarioPath}.calls.jsonl`).length > 0, 60_000);
     const remoteTip = (bare: string) => git(f.sandbox, bare, "rev-parse", `refs/heads/${BRANCH}`).trim();
@@ -924,7 +924,7 @@ describe("one catch-up offer over several repositories at a stop (run restart AC
 
     // A page open reads the stop afresh: the offer names returns-api alone, two behind.
     await waitFor(async () => (await snapshotOf(address, token)).needsYou?.catchUp !== undefined, 30_000);
-    expect((await snapshotOf(address, token)).needsYou!.catchUp).toEqual({ repositories: [{ name: "returns-api", branch: BRANCH, base: "develop", behind: 2 }] });
+    expect((await snapshotOf(address, token)).needsYou!.catchUp).toEqual({ repositories: [{ name: "returns-api", label: "returns-api", branch: BRANCH, base: "develop", behind: 2 }] });
     const origin = new URL(address).origin;
     const pressed = await fetch(`${origin}/api/start-again`, { method: "POST", headers: { "X-Kiln-Token": token, Origin: origin, "Content-Type": "application/json", "X-Kiln-Status": (await snapshotOf(address, token)).controlToken!, "X-Kiln-Command-Id": "stop-catch-up" }, body: JSON.stringify({ bringUpToDate: true }) });
     const answer = await pressed.json() as { operation?: Receipt };

@@ -16,6 +16,7 @@ import type { CommandContext } from "../kiln-command.js";
 import { loopSettings, REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
 import { auditLoopsText, loopSettingInputs, SETTING_FLAGS, type AuditLoopsView } from "./loop-text.js";
 import { continuationText, deliveredText } from "./delivered-facts.js";
+import { terminalColors } from "../terminal-output.js";
 
 interface Capability { protocol_major: number; execution_id: string; prd_path: string; instance: { pid: number; process_start_time: string | null }; features: string[] }
 interface Controller { features?: string[]; state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
@@ -119,7 +120,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     const loops = current && !delivered ? auditLoopsText(answer.audit_loops as AuditLoopsView | null | undefined) : undefined;
     const items = personItemsText(answer.items as Record<string, unknown>[] | null | undefined);
     const offer = current ? continuationText(answer.continuation as Parameters<typeof continuationText>[0]) : undefined;
-    const lead = [rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control), locateText(answer.stop as Record<string, unknown> | null | undefined)).trimEnd() : undefined, loops, items, delivered, offer].filter(Boolean).join("\n");
+    const lead = [rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control), locateText(answer.stop as Record<string, unknown> | null | undefined, terminalColors(context.stdout, context.env))).trimEnd() : undefined, loops, items, delivered, offer].filter(Boolean).join("\n");
     return lead ? `${lead}\n` : undefined;
   };
   const receiptLead = (answer: Result, record: SavedWork["record"] | undefined, waive = false) => receiptLines(answer, record, waive)?.join("\n");

@@ -318,7 +318,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     }
     if (!found) { set.push({ name, kind: "named", mainCheckoutPath: "", github: "", baseBranch: "", problem: problem! }); continue; }
     const origin = await originBranches(git, found.mainCheckoutPath);
-    if (!origin.ok) return { unavailable: `origin for ${name}`, known: false };
+    if (!origin.ok) return { unavailable: `origin for ${shown(context, name)}`, known: false };
     if (context.originIdentity) {
       const identity = await context.originIdentity(found.mainCheckoutPath);
       if (!identity || identity.toLowerCase() !== found.github.toLowerCase()) problem = `Restore the recorded ${found.github} origin for ${shown(context, name)}, then check again.`;
@@ -379,7 +379,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const ownFolder = (path: string) => !!own && Object.values(own.repositories).some(r => comparable(expandHome(r.worktreePath)) === comparable(expandHome(path)));
   if (multi) {
     if (!ownFolder(join(fields.workspaceFolder, prdRead.name))) {
-      const error = await checkWorkspaceFolder(git, set.filter(r => r.mainCheckoutPath), fields.workspaceFolder, clearRecords);
+      const error = await checkWorkspaceFolder(git, set.filter(r => r.mainCheckoutPath).map(r => ({ name: r.name, mainCheckoutPath: r.mainCheckoutPath, label: shown(context, r.name) })), fields.workspaceFolder, clearRecords);
       if (error) fieldErrors.workspaceFolder = error;
     }
   } else if (!ownFolder(fields.worktreePath)) {
@@ -552,7 +552,7 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
   // The checks a worktree path gets at a first Start, for every folder Start creates; git's record of
   // a missing saved folder that Start clears first counts as absent (Path checks with a stale record).
   const fieldErrors: Record<string, string> = {};
-  const runCheckouts = reads.repositories.map(read => ({ name: read.name, mainCheckoutPath: expandHome(read.entry.mainCheckoutPath) }));
+  const runCheckouts = reads.repositories.map(read => ({ name: read.name, mainCheckoutPath: expandHome(read.entry.mainCheckoutPath), label: shown(context, read.name) }));
   for (const read of failing) {
     const path = folders[read.name]!;
     if (ownStartFolder(context, read.name, path)) continue;

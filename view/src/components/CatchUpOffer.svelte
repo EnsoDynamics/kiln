@@ -15,7 +15,7 @@
 <div class="offer" class:start={where === "start"} class:stop={where === "stop"}>
   {#if multi}
     {#each offer.repositories as repository (repository.name)}
-      <span class="behind">In <span class="mono">{repository.name}</span>, the branch is {commits(repository.behind)} behind <code>{repository.base}</code>.</span>
+      <span class="behind">In <span class="mono">{repository.label ?? repository.name}</span>, the branch is {commits(repository.behind)} behind <code>{repository.base}</code>.</span>
     {/each}
   {:else}
     <span class="behind">This branch is {commits(offer.repositories[0]!.behind)} behind <code>{offer.repositories[0]!.base}</code>.</span>

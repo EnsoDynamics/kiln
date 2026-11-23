@@ -13,9 +13,10 @@ it.each([390, 1280])("shows branch cards without environment inputs at %s pixels
   setup.settings.developmentDeployments = { enabled: true, targets: [] };
   setup.repositories[0]!.github = "github.com/acme/pricing";
   setup.repositories[0]!.name = "pricing";
+  setup.repositories[0]!.label = "pricing";
   setup.repositories[0]!.baseBranch = "develop";
-  setup.repositories.push({ ...setup.repositories[0]!, name: "long-repository-name-".repeat(4), github: `github.com/example/${"long-repository-name-".repeat(4)}`, baseBranch: "development-integration-".repeat(4) });
-  const unavailable = { ...setup.repositories[0]!, name: "unavailable", baseBranch: "" };
+  setup.repositories.push({ ...setup.repositories[0]!, name: "long-repository-name-".repeat(4), label: "long-repository-name-".repeat(4), github: `github.com/example/${"long-repository-name-".repeat(4)}`, baseBranch: "development-integration-".repeat(4) });
+  const unavailable = { ...setup.repositories[0]!, name: "unavailable", label: "unavailable", baseBranch: "" };
   delete unavailable.github;
   setup.repositories.push(unavailable);
   server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: setup });

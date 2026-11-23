@@ -1,5 +1,7 @@
 # Phase 5: Show the label in the remaining places, and close the stop, link, name and colour gaps
 
+**Closed:** 2026-11-23
+
 **Added by delivery audit:** 2026-11-23, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md
 **Technical design:** docs/changes/kiln-find-repositories-anywhere/technical-design.md — relevant sections: "Worktree Folders and Labels", "Finding a Checkout", "The stops that ask", "Interfaces" ("Command line"), "Screens"

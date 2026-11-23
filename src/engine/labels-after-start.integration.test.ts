@@ -24,6 +24,10 @@ import { readStartIntent } from "./folder-setup-start.js";
 import { newAcceptance } from "./continuation-setup.js";
 import type { ContinuationProposal } from "./continuation-readiness.js";
 import type { Receipt } from "../control/commands.js";
+import { repositoryChecks } from "../audit/admission.js";
+import { captureSnapshot } from "../audit/snapshots.js";
+import { checkFields } from "./worktree-setup.js";
+import { baseCard, factRows, intro, lostNote } from "../../view/src/lib/folder-missing.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -186,5 +190,58 @@ describe("labels on the delivery panel and the completed-plan check (AC-FOLDER-0
     expect(check.result!.leaves![0]!.repositories.map((repository) => [repository.repository, repository.label])).toEqual([["admin", "acme/admin"]]);
     // The saved record keeps Kiln's name only.
     expect(JSON.stringify(h.engine.record.completedPlanCheck)).not.toContain("\"label\"");
+  });
+});
+
+describe("labels in the remaining places (AC-FOLDER-02, Phase 5)", () => {
+  type Internals = { admissionContext(): import("../audit/admission.js").AdmissionContext };
+
+  it("names each repository by its label in the audit's own facts and refusals, the catch-up offer and an addition's refusal", async () => {
+    const h = await clashingRepositories([{ actions: [{ result: "I need a decision." }] }]);
+    const labs = join(h.engine.workspaceFolder, "acme-labs+admin");
+    // The audit's Everything committed and Pushed facts.
+    writeFileSync(join(labs, "scratch.txt"), "left behind\n");
+    const context = (h.engine as unknown as Internals).admissionContext();
+    const facts = factsOf(await repositoryChecks(context));
+    expect(facts).toContain("acme-labs/admin: uncommitted or untracked work remains.");
+    expect(facts).toEqual(expect.arrayContaining([expect.stringMatching(/^acme\/admin: current head is not pushed/), expect.stringMatching(/^acme-labs\/admin: current head is not pushed/)]));
+    expect(facts.join(" ")).not.toMatch(CLASH);
+    // The audit's refusal when a repository is off its branch.
+    git(h.sandbox, labs, "switch", "-q", "-c", "elsewhere");
+    await expect(captureSnapshot({ ...context, activity: {} as never, now: new Date().toISOString() })).rejects.toThrow("acme-labs/admin is not on its assigned branch.");
+    // The catch-up offer on the stopped page carries each repository's label.
+    h.engine.stoppedCatchUp = { phaseKey: "1", offer: { repositories: [{ name: "acme-labs+admin", branch: BRANCH, base: "develop", behind: 2 }] } };
+    expect(buildSnapshot(h.engine).needsYou!.catchUp!.repositories).toEqual([{ name: "acme-labs+admin", label: "acme-labs/admin", branch: BRANCH, base: "develop", behind: 2 }]);
+    // An addition refused because the branch exists names the repository by its label, not `other+admin`.
+    const origin = createGithubOrigin(h.sandbox, "other", "admin");
+    const other = createRepository(h.sandbox, "other/admin", origin.url);
+    git(h.sandbox, other, "branch", BRANCH);
+    expect(await h.engine.addRepository("other/admin")).toMatchObject({ ok: false, reason: `That branch already exists in other/admin. Kiln adds a repository only where ${BRANCH} is free.` });
+  });
+
+  it("names each repository by its label when the feature branch is taken in the field checks", async () => {
+    const h = await clashingRepositories([{ actions: [{ result: "I need a decision." }] }]);
+    const branch = "feature/taken";
+    for (const at of ["admin", "labs/admin"]) git(h.sandbox, join(h.sandbox.root, at), "branch", branch);
+    const repositories = h.engine.record.repositories.map((entry) => ({ name: entry.name, kind: entry.kind, mainCheckoutPath: entry.mainCheckoutPath, github: entry.github, label: h.engine.labelOf(entry.name) }));
+    const outcome = await checkFields({ git: { git: "git", env: h.env }, paths: h.engine.paths, settings: { ...h.engine.record.settings, featureBranch: branch, workspaceFolder: join(h.sandbox.root, "fresh-workspace") }, prdTree: "", repositories, origins: new Map(), multiRepository: true, workspaceFixed: false });
+    expect(outcome.errors.featureBranch).toMatch(/^That branch already exists in acme\/admin and acme-labs\/admin\. /);
+  });
+
+  it("names each repository by its label in the Folder missing facts and on the page", async () => {
+    const h = await clashingRepositories([{ actions: [{ result: "I need a decision." }] }, { actions: [{ result: "Still stuck." }] }]);
+    rmSync(join(h.engine.workspaceFolder, "acme-labs+admin"), { recursive: true, force: true });
+    const labs = join(h.sandbox.root, "labs", "admin");
+    git(h.sandbox, labs, "worktree", "prune");
+    git(h.sandbox, labs, "branch", "-D", BRANCH);
+    await h.engine.folderGuard({ gather: true });
+    const view = buildSnapshot(h.engine).folderMissing!;
+    expect(view.repositories.map((repository) => [repository.name, repository.label])).toEqual([["acme-shop", "acme-shop"], ["admin", "acme/admin"], ["acme-labs+admin", "acme-labs/admin"]]);
+    expect(h.engine.folderMissing!.existingBranch).toEqual({ available: false, reason: "in acme-labs/admin, the branch was deleted." });
+    const page = [intro(view), baseCard(view).note, lostNote(view), ...factRows(view).map((row) => row.label.map((part) => part.text).join(""))].join(" ");
+    expect(page).toContain("acme-labs/admin’s folder in it no longer exists");
+    expect(page).toContain("acme-labs/admin · ");
+    expect(page).toContain("in acme-labs/admin’s deleted folder");
+    expect(page).not.toMatch(CLASH);
   });
 });

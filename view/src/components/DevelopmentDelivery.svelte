@@ -94,7 +94,7 @@
         {#each snapshot.repositories.filter((one) => !one.question) as row (row.name)}
           {@const candidate = saved.targets.find(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch)}
           {#if !legacyChoices || candidate}
-            <EarlyMergeTarget name={row.name} repository={row.github} branch={row.baseBranch} mode="summary" disabled={!connected || saving || !!snapshot.documents?.starting} legacyEnvironment={saved.targets.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch).map(one => one.target.environment).filter(Boolean).join(", ") || undefined} />
+            <EarlyMergeTarget name={row.label} repository={row.github} branch={row.baseBranch} mode="summary" disabled={!connected || saving || !!snapshot.documents?.starting} legacyEnvironment={saved.targets.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch).map(one => one.target.environment).filter(Boolean).join(", ") || undefined} />
           {/if}
         {/each}
       </div>
@@ -140,7 +140,7 @@
       {#each snapshot.repositories as row (row.name)}
         {@const grants = delivery.authorization.grants.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch)}
         {@const authorized = grants.some(one => one.target.environment === undefined)}
-        <EarlyMergeTarget name={row.name} repository={row.github} branch={row.baseBranch} mode="grant" disabled={!connected || !!snapshot.needsYou.checking || granting} {authorized} legacyEnvironment={authorized ? undefined : grants.map(one => one.target.environment).join(", ") || undefined} onauthorize={() => grant(row)} />
+        <EarlyMergeTarget name={row.label} repository={row.github} branch={row.baseBranch} mode="grant" disabled={!connected || !!snapshot.needsYou.checking || granting} {authorized} legacyEnvironment={authorized ? undefined : grants.map(one => one.target.environment).join(", ") || undefined} onauthorize={() => grant(row)} />
       {/each}
     </div>
     {#if delivery.activationRecovery?.some(one => !one.passed)}<p>Recovery assessments required for earlier/stopped work: {delivery.activationRecovery.filter(one => !one.passed).map(one => one.owner?.kind === "audit" ? `audit ${one.owner.activityId}` : one.phaseId).join(", ")}. Resume or manual recovery can supply them; Check again only checks evidence.</p>{/if}

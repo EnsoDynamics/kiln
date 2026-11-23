@@ -96,6 +96,18 @@ it.skipIf(process.platform !== "darwin")("holds uncertain delivery through resta
   expect(receipt("uncertain").message?.resolvedBy).toBeDefined();
   h.engine = h.reopenFromDisk(); await h.engine.prepare(); expect(h.engine.record.liveControl).toBeUndefined(); expect(inputs()).toHaveLength(1);
 });
+it.skipIf(process.platform !== "darwin")("asks a session's recorded request on the Needs you stop an uncertain delivery's hold ends at, without Check again (find repositories anywhere AC-ASK-07)", async () => {
+  const target = await setup([{ liveMessages: 1, uncorrelated: true, exitAfter: true }]);
+  // The running session asked for a repository Kiln can't place; the request is kept with its phase.
+  h.engine.record.phases["1"]!.repositoryRequests = [{ addressPath: "acme-labs/ledger", at: new Date().toISOString() }];
+  await post("live/message", { instructionId: "uncertain", target, text: "inspect this exact instruction" });
+  await h.engine.settled();
+  await waitFor(async () => { await h.engine.reconcileTakeover(); return h.engine.record.liveControl?.takeover.state === "released"; });
+  expect(h.engine.record.phases["1"]!.stop?.kind).toBe("done_check");
+  await waitFor(() => h.engine.record.phases["1"]!.stop!.locate !== undefined);
+  expect(h.engine.record.phases["1"]!.stop!.locate).toMatchObject([{ kind: "where", repository: "acme-labs/ledger" }]);
+  expect(buildSnapshot(h.engine).needsYou!.locate).toMatchObject([{ repository: "acme-labs/ledger", label: "ledger" }]);
+});
 it.skipIf(process.platform !== "darwin")("serializes takeover against message delivery and refuses messages after takeover", async () => {
   const target = await setup([{ sleepFor: 1500 }, { result: "Ended under hold." }]);
   const [message, takeover] = await Promise.all([post("live/message", { instructionId: "race-message", target, text: "Never send to another owner" }), post("live/take-over", { instructionId: "race-takeover", target })]);

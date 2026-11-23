@@ -178,7 +178,7 @@ export interface PhaseView {
   };
   round?: number;
   continuationIndex?: number;
-  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[];
+  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; label?: string; revision: string }[]; blockers: string[]; pendingActions: string[];
     /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
     personItems?: { count: number; waiting: boolean };
     /** Items this audit settled, each as "<problem> Listed by <audit>, settled by <audit>: <how>". */
@@ -1035,7 +1035,7 @@ function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | und
     ...(began ? { reopen: engine.reopenCheck(phaseKey) } : {}),
     ...optional("carryOn", carryOn),
     ...(start.offered ? { startAgain: { available: start.available, ...optional("reason", start.reason) } } : {}),
-    ...optional("catchUp", engine.stoppedCatchUp?.phaseKey === phaseKey ? engine.stoppedCatchUp.offer : undefined),
+    ...optional("catchUp", labelledCatchUp(engine, engine.stoppedCatchUp?.phaseKey === phaseKey ? engine.stoppedCatchUp.offer : undefined)),
   };
 }
 
@@ -1360,7 +1360,7 @@ function startView(engine: Engine, preview: StartPreview, readAtStart: boolean):
     closedCount: preview.closedCount,
     // The closed marks belong to the plan read at the start commit, so Start at Phase N waits for it too.
     ...optional("startAt", readAtStart ? preview.startAt : undefined),
-    ...optional("catchUp", preview.catchUp),
+    ...optional("catchUp", labelledCatchUp(engine, preview.catchUp)),
   };
 }
 
@@ -1377,7 +1377,13 @@ function gitDocumentsFound(preview: StartPreview, engine: Engine): DocumentsFoun
   return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.paths.repositoryName, read);
 }
 
+/** A catch-up offer with each repository's label beside its name (find repositories anywhere AC-FOLDER-02). */
+function labelledCatchUp(engine: Engine, offer: CatchUpOffer | undefined): CatchUpOffer | undefined {
+  return offer && { repositories: labelled(engine, offer.repositories) };
+}
+
 /** Each repository's commits and latest commit in a phase: what its Done recorded, or what Kiln read for its stop. */
+
 /** Each repository's label beside its name (find repositories anywhere AC-FOLDER-02). */
 function labelled<T extends { name: string }>(engine: Engine, list: T[]): (T & { label: string })[] {
   return list.map((one) => ({ ...one, label: engine.labelOf(one.name) }));
@@ -1553,7 +1559,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
       const snapshot = audit.snapshots.at(-1) ? store.read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
       const checks = (facts?.stop?.checks ?? attempt?.checks ?? []).filter(check => check.name !== "Stayed in the workspace").map(check => auditCheckTitle(activity.key, check));
-      const repositories = snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [];
+      const repositories = snapshot?.repositories.map(r => ({ name: r.repository, label: engine.labelOf(r.repository), revision: r.head })) ?? [];
       if (report?.schemaVersion === 2) {
         row.audit = { outcome: report.outcome, summary: report.summary, checks, criteria: [], repositories, blockers: report.needsYou.map(item => `${item.problem} ${item.action}`), pendingActions: [] };
         // An audit marked complete with a valid report counts as accepted (AC-ITEM-01), unless Kiln 1.3.0 marked it.

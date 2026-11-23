@@ -155,3 +155,12 @@ describe("a waiting phase's recorded results in the run's history (AC-GONE-02)",
     expect(waitedChecks({ passed: 0, failed: 0 })).toBe("no completion checks recorded");
   });
 });
+
+describe("each repository by its label (find repositories anywhere AC-FOLDER-02)", () => {
+  it("names the PRD's repository by its label on the plan card when another repository shares its short name", () => {
+    const facts = view("multi");
+    facts.repositories[0] = { ...facts.repositories[0]!, label: "acme/harbor" };
+    expect(baseCard(facts).note).toContain("acme/harbor’s ");
+    expect(baseCard(facts).note).not.toContain(`${facts.repositories[0]!.name}’s `);
+  });
+});

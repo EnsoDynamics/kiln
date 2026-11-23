@@ -113,13 +113,15 @@ describe("Documents found across repositories (multi-repo AC-REPO-03)", () => {
     const ready = documentsFoundRepositoriesSnapshot();
     expect(startState(ready, true, true)).toEqual({ enabled: true });
     const held = documentsFoundRepositoriesSnapshot();
-    held.repositories[1] = { ...held.repositories[1]!, fieldErrors: { baseBranch: "develop isn’t on origin." } };
-    expect(startState(held, true, true)).toEqual({ enabled: false, note: `${held.repositories[1]!.name}’s base branch: develop isn’t on origin.` });
+    // Named by its label, not Kiln's name for it (find repositories anywhere AC-FOLDER-02).
+    held.repositories[1] = { ...held.repositories[1]!, name: "acme-labs+admin", label: "acme-labs/admin", fieldErrors: { baseBranch: "develop isn’t on origin." } };
+    expect(startState(held, true, true)).toEqual({ enabled: false, note: "acme-labs/admin’s base branch: develop isn’t on origin." });
     const prdBase = documentsFoundRepositoriesSnapshot();
     const prdRow = prdBase.repositories.findIndex((row) => row.kind === "prd");
     prdBase.settings.fieldErrors = { baseBranch: "develop isn’t on origin." };
-    prdBase.repositories[prdRow] = { ...prdBase.repositories[prdRow]!, fieldErrors: { baseBranch: "develop isn’t on origin." } };
-    expect(startState(prdBase, true, true)).toEqual({ enabled: false, note: `${prdBase.repositories[prdRow]!.name}’s base branch: develop isn’t on origin.` });
+    // The PRD's repository by its label too, when another repository shares its short name.
+    prdBase.repositories[prdRow] = { ...prdBase.repositories[prdRow]!, name: "shop", label: "acme/storefront", fieldErrors: { baseBranch: "develop isn’t on origin." } };
+    expect(startState(prdBase, true, true)).toEqual({ enabled: false, note: "acme/storefront’s base branch: develop isn’t on origin." });
     const checking = documentsFoundRepositoriesSnapshot();
     checking.repositories[2] = { ...checking.repositories[2]!, baseCheck: "checking" };
     expect(startState(checking, true, true)).toEqual({ enabled: false, note: "Checking the base branches on origin…" });

@@ -186,10 +186,11 @@ const FIELD_LABELS: Record<string, string> = { workspaceFolder: "Workspace folde
  */
 function heldBy(snapshot: Snapshot): { field: string; message: string }[] {
   const multi = snapshot.feature.multiRepository;
-  const prdName = snapshot.repositories.find((row) => row.kind === "prd")?.name;
+  // The PRD's repository by its label (find repositories anywhere AC-FOLDER-02).
+  const prdName = snapshot.repositories.find((row) => row.kind === "prd")?.label;
   const label = (key: string) => (key === "baseBranch" && multi && prdName ? `${prdName}’s base branch` : FIELD_LABELS[key] ?? key);
   const fields = Object.entries(snapshot.settings.fieldErrors).flatMap(([key, message]) => (message === undefined ? [] : [{ field: label(key), message }]));
-  const rows = snapshot.repositories.flatMap((row) => (row.kind !== "prd" && row.fieldErrors.baseBranch !== undefined ? [{ field: `${row.name}’s base branch`, message: row.fieldErrors.baseBranch }] : []));
+  const rows = snapshot.repositories.flatMap((row) => (row.kind !== "prd" && row.fieldErrors.baseBranch !== undefined ? [{ field: `${row.label}’s base branch`, message: row.fieldErrors.baseBranch }] : []));
   return [...fields, ...rows];
 }
 

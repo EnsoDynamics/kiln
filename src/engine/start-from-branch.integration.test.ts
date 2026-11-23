@@ -371,7 +371,7 @@ describe("a stopped phase's untouched branch (AC-CURRENT-01 at a stop)", () => {
     expect(h.engine.stoppedPhase()).toBe("1");
     const developTip = advanceDevelop(h, "merged-elsewhere.txt");
     await h.engine.refreshStoppedWork();
-    expect(buildSnapshot(h.engine).needsYou!.catchUp).toEqual({ repositories: [{ name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 }] });
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toEqual({ repositories: [{ name: "acme-shop", label: "acme-shop", branch: BRANCH, base: "develop", behind: 1 }] });
 
     // Ticked on the page, but the branch has an uncommitted file now: nothing starts (branch_changed).
     const scratch = join(h.engine.worktreePath, "scratch.txt");

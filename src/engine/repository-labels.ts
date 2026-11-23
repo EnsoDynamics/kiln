@@ -27,7 +27,8 @@ export type GivenNames = { ok: true; names: string[] } | { ok: false; problem: s
 /**
  * Names for repositories set up together, against the entries already written: the short name
  * when nothing already written has it as short name or name and no other newcomer shares it;
- * otherwise the whole-path form. A whole-path form an entry already has refuses, in one line.
+ * otherwise the whole-path form. A whole-path form an entry already has, or another newcomer keeps
+ * as its name, refuses, in one line.
  *
  *   giveNames([], [{ shortName: "product", addressPath: "acme/product", prd: true }, { shortName: "admin", addressPath: "acme/admin" }, { shortName: "admin", addressPath: "acme-labs/admin" }])
  *   // { ok: true, names: ["product", "acme+admin", "acme-labs+admin"] }
@@ -44,6 +45,12 @@ export function giveNames(entries: (NamedEntry & { github?: string })[], newcome
     const holder = entries.find((entry) => key(entry.name) === key(whole));
     if (holder) return { ok: false, problem: `Kiln can’t set up ${newcomer.addressPath}: its worktree folder would be ${whole}, which ${holder.github ?? holder.name} already has.` };
     names.push(whole);
+  }
+  // A whole-path form another newcomer keeps as its own name, the PRD's included, would share its folder.
+  for (const [index, newcomer] of newcomers.entries()) {
+    if (names[index] === newcomer.shortName) continue;
+    const other = newcomers.findIndex((one, at) => at !== index && key(names[at]!) === key(names[index]!));
+    if (other >= 0) return { ok: false, problem: `Kiln can’t set up ${newcomer.addressPath}: its worktree folder would be ${names[index]}, which ${newcomers[other]!.addressPath} would have too.` };
   }
   return { ok: true, names };
 }

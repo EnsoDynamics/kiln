@@ -21,6 +21,13 @@ describe("the name, given once (AC-FOLDER-01)", () => {
       .toEqual({ ok: false, problem: "Kiln can’t set up acme/admin: its worktree folder would be acme+admin, which acme/admin-old already has." });
   });
 
+  it("refuses a Start whose whole-path form another repository set up with it keeps as its name, the PRD's included", () => {
+    expect(giveNames([], [{ shortName: "product", addressPath: "acme/product", prd: true }, { shortName: "acme+admin", addressPath: "acme/admin-tools" }, { shortName: "admin", addressPath: "acme/admin" }, { shortName: "admin", addressPath: "other/admin" }]))
+      .toEqual({ ok: false, problem: "Kiln can’t set up acme/admin: its worktree folder would be acme+admin, which acme/admin-tools would have too." });
+    expect(giveNames([], [{ shortName: "acme+shop", addressPath: "acme/product", prd: true }, { shortName: "shop", addressPath: "acme/shop" }, { shortName: "shop", addressPath: "other/shop" }]))
+      .toEqual({ ok: false, problem: "Kiln can’t set up acme/shop: its worktree folder would be acme+shop, which acme/product would have too." });
+  });
+
   it("keeps the PRD's repository's own name when a repository set up with it shares its short name", () => {
     expect(giveNames([], [{ shortName: "shop", addressPath: "acme/storefront", prd: true }, { shortName: "shop", addressPath: "other/shop" }])).toEqual({ ok: true, names: ["shop", "other+shop"] });
   });

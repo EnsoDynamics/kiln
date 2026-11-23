@@ -25,9 +25,9 @@ export function repositoryFor(record: PrdRecord, name: string): RepositoryEntry 
   const repository = record.repositories.find(r => r.name === name && r.setupCompletedAt);
   requireAudit(repository, `Repository ${name} is not assigned.`, "outside_execution"); return repository;
 }
-export async function gitText(git: GitContext, repo: RepositoryEntry, args: string[]): Promise<string> {
+export async function gitText(git: GitContext, repo: RepositoryEntry, args: string[], label = repo.name): Promise<string> {
   const result = await runGit(git, repo.worktreePath, args);
-  if (result.exitCode !== 0) throw new AuditRefusal("evidence_unavailable", `${repo.name}: ${result.failure ?? result.stderr.trim() ?? "Git read failed"}`, 503);
+  if (result.exitCode !== 0) throw new AuditRefusal("evidence_unavailable", `${label}: ${result.failure ?? result.stderr.trim() ?? "Git read failed"}`, 503);
   return result.stdout;
 }
 
@@ -91,7 +91,7 @@ export function phaseScope(content: string): string {
 
 /** `retainedClassification` re-reads a version-1 snapshot's test paths without re-checking their support. */
 /** `planPhases`: while a waived plan problem stops the plan from reading, the phases Normal Order uses (waivers AC-WAIVE-04). */
-export interface SnapshotContext { record: PrdRecord; activity: AuditActivity; git: GitContext; now: string; retainedClassification?: boolean; planPhases?: PlannedPhase[] }
+export interface SnapshotContext { record: PrdRecord; activity: AuditActivity; git: GitContext; now: string; retainedClassification?: boolean; planPhases?: PlannedPhase[]; /** A repository's label, for refusal reasons (find repositories anywhere AC-FOLDER-02). Absent: its name. */ label?(name: string): string }
 
 export function fileInSnapshot(snapshot: WorkSnapshot, reference: FileReference): boolean {
   return !!reference && snapshot.repositories.find(r => r.repository === reference.repository)?.files[reference.path]?.blob === reference.blob;
@@ -115,16 +115,17 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
   const normalizedPlan = plan.plan.phases.map(p => ({ id: p.id, file: `${record.prdDirectory}/${p.fileName}`, closed: p.closed, content: phaseScope(readFileSync(assignedPath(prdRepo, `${record.prdDirectory}/${p.fileName}`), "utf8")), ...(p.splitInto ? { splitInto: p.splitInto } : {}) }));
   const repositories: WorkSnapshot["repositories"] = [];
   for (const repo of record.repositories) {
-    requireAudit(repo.setupCompletedAt, `Repository ${repo.name} setup is incomplete.`, "outside_execution");
-    const head = (await gitText(git, repo, ["rev-parse", "HEAD"])).trim();
-    const branch = (await gitText(git, repo, ["branch", "--show-current"])).trim();
-    requireAudit(branch === record.settings.featureBranch, `${repo.name} is not on its assigned branch.`, "outside_execution");
-    const identity = (await gitText(git, repo, ["remote", "get-url", "origin"])).trim();
-    const tree = await gitText(git, repo, ["ls-files", "--stage", "-z"]);
+    const label = context.label?.(repo.name) ?? repo.name;
+    requireAudit(repo.setupCompletedAt, `Repository ${label} setup is incomplete.`, "outside_execution");
+    const head = (await gitText(git, repo, ["rev-parse", "HEAD"], label)).trim();
+    const branch = (await gitText(git, repo, ["branch", "--show-current"], label)).trim();
+    requireAudit(branch === record.settings.featureBranch, `${label} is not on its assigned branch.`, "outside_execution");
+    const identity = (await gitText(git, repo, ["remote", "get-url", "origin"], label)).trim();
+    const tree = await gitText(git, repo, ["ls-files", "--stage", "-z"], label);
     const files: WorkSnapshot["repositories"][number]["files"] = {};
     for (const row of tree.split("\0").filter(Boolean)) {
       const match = /^(\d+) ([a-f0-9]+) 0\t([\s\S]+)$/.exec(row);
-      requireAudit(match, `${repo.name} contains an unresolved index entry.`, "stale_snapshot");
+      requireAudit(match, `${label} contains an unresolved index entry.`, "stale_snapshot");
       const path = match[3]!;
       requireAudit(match[1] !== "160000", `Submodule content needs an assigned repository: ${repo.name}/${path}`, "missing_evidence");
       const bytes = readFileSync(assignedPath(repo, path));
@@ -134,7 +135,7 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
       files[path] = { blob, digest: hashBytes(phase ? phase.content : bytes), mode: lstatSync(assignedPath(repo, path)).mode & 0o111 ? "100755" : "100644", changedAtMs: Math.floor(lstatSync(assignedPath(repo, path)).ctimeMs) };
     }
     // Unknown untracked work must not disappear from a checked snapshot.
-    const untracked = await gitText(git, repo, ["ls-files", "--others", "--exclude-standard", "-z"]);
+    const untracked = await gitText(git, repo, ["ls-files", "--others", "--exclude-standard", "-z"], label);
     for (const path of untracked.split("\0").filter(Boolean)) {
       const bytes = readFileSync(assignedPath(repo, path));
       const stat = lstatSync(assignedPath(repo, path));

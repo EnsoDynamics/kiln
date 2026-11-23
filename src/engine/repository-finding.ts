@@ -83,6 +83,7 @@ export interface ResolveInput {
 }
 
 const real = (path: string) => { try { return realpathSync.native(path); } catch { return resolve(path); } };
+const isLink = (path: string) => { try { return lstatSync(path).isSymbolicLink(); } catch { return false; } };
 const samePath = (a: string, b: string) => (process.platform === "linux" ? real(a) === real(b) : real(a).toLowerCase() === real(b).toLowerCase());
 
 /**
@@ -122,7 +123,8 @@ export async function resolveNames(input: ResolveInput): Promise<Resolution> {
     // reaches only the folder beside the PRD's repository (AC-FIND-04): an entry whose checkout is
     // elsewhere, such as one set up from a search under that short name, is never reached by it.
     const besideFolder = join(parent, name);
-    const besideEntry = input.entries.find((entry) => samePath(besideFolder, expandHome(entry.mainCheckoutPath)));
+    // A link there is never an entry's checkout: step 3 refuses it, as it refuses any link.
+    const besideEntry = isLink(besideFolder) ? undefined : input.entries.find((entry) => samePath(besideFolder, expandHome(entry.mainCheckoutPath)));
     if (besideEntry) { reachEntry(besideEntry, index); continue; }
     // Step 3: today's four checks beside the PRD's repository.
     const lookup = await findRepository(input.git, parent, name, namedIn);

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Snapshot } from "./engine/snapshot.js";
 import { displayPath } from "./engine/worktree-setup.js";
 import { runKilnCommand } from "./kiln-command.js";
+import { terminalColors } from "./terminal-output.js";
 import { readPrdRecord, type PrdRecord } from "./state/records.js";
 import { readRememberedLocation } from "./state/repository-locations.js";
 import { prdStateDirectory, readJsonLines, stateRoot } from "./state/state-files.js";
@@ -165,6 +166,14 @@ describe("asking where a repository is after Start", () => {
     expect(text).toMatch(/\n {10}A session asked for ledger: Kiln couldn’t find a checkout of acme-labs\/ledger\.\n/);
     expect(text).toContain(`\n          It searched outward from ${searchedFrom}/, never above your home folder.\n`);
     expect(text).toMatch(/\n {10}Controls: locate-repository \(available\)/);
+    // On a terminal, the questions are light grey and the Controls line grey, as state 7 draws (AC-SEE-05).
+    let coloured = "";
+    await runKilnCommand(["status", f.prdPath], { cwd: f.sandbox.root, env: { ...f.env, NO_COLOR: "" }, stdout: { isTTY: true, write: (chunk: string) => (coloured += chunk) }, stderr: { write: () => true } });
+    const colors = terminalColors({ isTTY: true }, {});
+    expect(coloured).toContain(`          ${colors.lightGrey("A session asked for ledger: Kiln couldn’t find a checkout of acme-labs/ledger.")}\n`);
+    expect(coloured).toContain(`          ${colors.lightGrey(`It searched outward from ${searchedFrom}/, never above your home folder.`)}\n`);
+    const controls = /\n {10}(Controls: locate-repository \(available\)[^\n]*)\n/.exec(text)![1]!;
+    expect(coloured).toContain(`\n          ${colors.grey(controls)}\n`);
     // The capabilities handshake names the new command.
     const capabilities = await (await fetch(`${new URL(address).origin}/api/control/v1/capabilities`, { headers: { "X-Kiln-Token": recordOf(f).token } })).json() as { protocol_minor: number; features: string[] };
     expect(capabilities.protocol_minor).toBe(3);

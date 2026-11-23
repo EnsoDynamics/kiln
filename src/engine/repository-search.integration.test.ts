@@ -261,6 +261,17 @@ describe("which repository a name reaches (AC-NAME-02, AC-FIND-03, AC-FIND-04)",
     expect(resolution.problems).toEqual([`phase-4-x.md names admin, which isn’t in ${join(h.home, "code", "acme")}/.`]);
   });
 
+  it("refuses a link beside the PRD's repository even when it points at an entry's recorded checkout (AC-FIND-04)", async () => {
+    const h = homeWithProduct();
+    const elsewhere = checkout("home/archive/storefront", "git@github.com:acme/storefront.git");
+    symlinkSync(elsewhere, join(h.home, "code", "acme", "storefront"));
+    const entry: RepositoryEntry = { name: "storefront", kind: "named", mainCheckoutPath: elsewhere, github: "acme/storefront", baseBranch: "develop", worktreePath: "/w/storefront", setupCompletedAt: "2026-11-22T00:00:00Z" };
+    const resolution = await resolveNames(input(h, [{ name: "storefront", namedIn: "phase-1-x.md" }], [entry]));
+    expect(resolution.entries).toEqual([]);
+    expect(resolution.byName.get("storefront")).toMatchObject({ kind: "problem" });
+    expect(resolution.problems).toEqual([`storefront in ${join(h.home, "code", "acme")}/ is a link to ${elsewhere}; Kiln needs the checkout itself there.`]);
+  });
+
   it("keeps a folder name to the folder beside the PRD's repository, as today, with no search", async () => {
     const h = homeWithProduct();
     checkout("home/code/acme-labs/storefront", "git@github.com:acme-labs/storefront.git");
@@ -398,5 +409,18 @@ describe("worktree folder names for a clash (AC-FOLDER-01)", () => {
     });
     expect(result.problems).toEqual([]);
     expect(result.named.map((row) => [row.name, row.found?.shortName])).toEqual([["acme+admin", "admin"], ["acme-labs+admin", "admin"], ["other+product", "product"]]);
+  });
+
+  it("refuses a Start where a folder beside the PRD's repository has the whole-path form another repository would take", async () => {
+    const h = homeWithProduct();
+    checkout("home/code/acme/acme+admin", "git@github.com:acme/admin-tools.git");
+    checkout("home/code/acme-labs/acme/admin", "git@github.com:acme/admin.git");
+    checkout("home/code/other/admin", "git@github.com:other/admin.git");
+    const result = await resolvePlanRepositories({
+      git: h.git, env: h.env, home: h.home, prd: { name: "product", mainCheckoutPath: h.product, github: "acme/product" }, entries: [],
+      phases: [{ fileName: "phase-1-x.md", repositories: ["acme+admin", "acme/admin", "other/admin"] }],
+    });
+    expect(result.named).toEqual([]);
+    expect(result.problems).toEqual(["Kiln can’t set up acme/admin: its worktree folder would be acme+admin, which acme/admin-tools would have too."]);
   });
 });

@@ -8,6 +8,7 @@ import type { AuditActivity } from "../audit/contracts.js";
 import type { CheckResult, PrdRecord } from "../state/records.js";
 import { AUDIT_WARNING, checkCounts, checksWord, completeLabel, countsText, NO_REPORT_WARNING, PLAN_WARNING, READINESS_CHECK, type AuditWaiverResult, type CheckItem, type MarkCompleteOffer, type Waiver, type WaiverRef } from "../engine/waivers.js";
 import { commandText } from "./result.js";
+import { terminalColors, type TerminalColors } from "../terminal-output.js";
 
 export type CheckState = "passed" | "waived" | "failed";
 /** A check item as status shows it: the saved item's own fields plus `waived` in snake case. */
@@ -389,27 +390,28 @@ export function personItemsText(items: readonly Record<string, unknown>[] | null
 
 /**
  * A stop's questions in `kiln status`'s text form (find repositories anywhere, "The command"):
- * each question's sentences, the checkouts found, then the controls that answer it.
+ * each question's sentences, the checkouts found, then the controls that answer it. On a terminal the
+ * questions are light grey and the Controls line grey, as mockup state 7 draws them.
  *
  *   locateText(stop)
  *   // ["Phase plan reads: Kiln couldn’t find a checkout of acme-labs/inventory.",
  *   //  "It searched outward from ~/code/acme/, never above your home folder.",
  *   //  "Controls: locate-repository (available) · waive-and-advance (once a recheck still fails)"]
  */
-export function locateText(stop: Record<string, unknown> | null | undefined): string[] {
+export function locateText(stop: Record<string, unknown> | null | undefined, colors: Pick<TerminalColors, "grey" | "lightGrey"> = terminalColors({ isTTY: false }, {})): string[] {
   const questions = (stop?.locate ?? []) as { kind: string; address_path: string; label: string; phase_file: string | null; searched_from: string; searched_to: string | null; checkouts: { folder: string; remote: string; pickable: boolean }[]; available: boolean; reason: string | null }[];
   if (!questions.length) return [];
   const lines: string[] = [];
   for (const question of questions) {
     const lead = question.phase_file !== null ? "Phase plan reads: " : `A session asked for ${question.label}: `;
     const first = question.kind === "which" ? `Kiln found ${question.checkouts.filter(one => !(one as { remembered?: boolean }).remembered).length} checkouts of ${question.address_path}.` : question.checkouts.length ? `Kiln couldn’t find a checkout of ${question.address_path} that it can deliver to.` : `Kiln couldn’t find a checkout of ${question.address_path}.`;
-    lines.push(`${lead}${first}`);
-    lines.push(question.kind === "which" ? "Which should it use?" : `It searched outward from ${displayPath(question.searched_from)}/, ${question.searched_to === null ? "never above your home folder." : `as far as ${displayPath(question.searched_to)}/.`}`);
-    for (const checkout of question.checkouts) lines.push(`  ${displayPath(checkout.folder)}  ${checkout.remote}${checkout.pickable ? "" : "  (not on GitHub)"}`);
+    lines.push(colors.lightGrey(`${lead}${first}`));
+    lines.push(colors.lightGrey(question.kind === "which" ? "Which should it use?" : `It searched outward from ${displayPath(question.searched_from)}/, ${question.searched_to === null ? "never above your home folder." : `as far as ${displayPath(question.searched_to)}/.`}`));
+    for (const checkout of question.checkouts) lines.push(colors.lightGrey(`  ${displayPath(checkout.folder)}  ${checkout.remote}${checkout.pickable ? "" : "  (not on GitHub)"}`));
   }
   const first = questions[0]!;
   const mark = stop?.mark_complete as { offered?: boolean; reason?: string } | undefined;
   const waive = mark?.offered ? " · waive-and-advance (available)" : mark?.reason && /no check has run since/i.test(mark.reason) ? " · waive-and-advance (once a recheck still fails)" : "";
-  lines.push(`Controls: locate-repository (${first.available ? "available" : first.reason ?? "unavailable"})${waive}`);
+  lines.push(colors.grey(`Controls: locate-repository (${first.available ? "available" : first.reason ?? "unavailable"})${waive}`));
   return lines;
 }
