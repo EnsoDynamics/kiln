@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createRepository, createSandbox, git, type Sandbox } from "../test-support/git-repositories.js";
 import { checkAnswer, resolveNames, type ResolveInput } from "./repository-finding.js";
 import { GUARDED_FOLDERS, searchCheckouts, searchRoots } from "./repository-search.js";
-import { resolvePlanRepositories } from "./plan-repositories.js";
+import { reachRecordNames, resolvePlanRepositories } from "./plan-repositories.js";
 import { rememberLocation, readRememberedLocation, repositoryLocationsFolder } from "../state/repository-locations.js";
 import type { RepositoryEntry } from "../state/records.js";
 
@@ -78,6 +78,23 @@ describe("where the search looks (AC-FIND-01)", () => {
     const result = await searchCheckouts({ git: h.git, prdMainCheckoutPath: h.product, home: h.home });
     expect(found(result, "acme/sibling")).toHaveLength(1);
     expect(found(result, "acme/far")).toEqual([]);
+  });
+
+  it("outside the home folder, never climbs to a folder that holds the home folder", async () => {
+    // Home is <root>/home; the PRD's repository is <root>/shared/team/product, so <root> holds the home folder.
+    const h = homeWithProduct("shared/team/product");
+    checkout("shared/neighbour", "git@github.com:acme/neighbour.git");
+    checkout("home/code/storefront", "git@github.com:acme/storefront.git");
+    checkout("others-home/code/storefront", "git@github.com:acme/storefront.git");
+    const roots = searchRoots(h.product, h.home);
+    expect(roots.roots).toEqual([join(h.sandbox.root, "shared", "team"), join(h.sandbox.root, "shared")]);
+    expect(roots.searchedTo).toBe(join(h.sandbox.root, "shared"));
+    const result = await searchCheckouts({ git: h.git, prdMainCheckoutPath: h.product, home: h.home });
+    expect(found(result, "acme/neighbour")).toHaveLength(1);
+    expect(found(result, "acme/storefront")).toEqual([]);
+    expect(result.listed.some((folder) => folder === h.sandbox.root || folder.startsWith(h.home))).toBe(false);
+    // One level below a folder holding the home folder, the parent is the only root.
+    expect(searchRoots(checkout("shared/product", "git@github.com:acme/product-two.git"), h.home).roots).toEqual([join(h.sandbox.root, "shared")]);
   });
 
   it("still searches a parent folder that is itself a checkout, lists it as a candidate from the root above, and lists each checkout once", async () => {
@@ -433,6 +450,22 @@ describe("worktree folder names for a clash (AC-FOLDER-01)", () => {
     });
     expect(result.problems).toEqual([]);
     expect(result.named.map((row) => [row.name, row.found?.shortName])).toEqual([["acme+admin", "admin"], ["acme-labs+admin", "admin"], ["other+product", "product"]]);
+  });
+
+  it("after Start, weighs only the repositories found, so one set up beside a left-out repository of the same short name keeps its short name", async () => {
+    const h = homeWithProduct();
+    checkout("home/code/acme/admin", "git@github.com:acme/admin.git");
+    // other/admin has no checkout on this computer, so its finding ends in a question.
+    const phases = [{ fileName: "phase-3-x.md", repositories: ["acme/admin", "other/admin"] }];
+    const before = await resolvePlanRepositories({ git: h.git, env: h.env, home: h.home, prd: { name: "product", mainCheckoutPath: h.product, github: "acme/product" }, entries: [], phases });
+    // Before Start both are set up together at Start, so both take the whole-path form.
+    expect(before.named.map((row) => [row.name, !!row.found])).toEqual([["acme+admin", true], ["other+admin", false]]);
+    // A continuation or a base-branch start leaves other/admin out, so acme/admin is weighed alone.
+    const after = await reachRecordNames({ ...h.git, env: { ...h.env, HOME: h.home } }, { repository: { name: "product", github: "acme/product" }, repositories: [] }, h.product, phases);
+    const reached = after.get("acme/admin");
+    expect(reached?.kind === "repository" && [reached.row.name, reached.row.found?.name, reached.row.found?.shortName]).toEqual(["admin", "admin", undefined]);
+    const left = after.get("other/admin");
+    expect(left?.kind === "repository" && !left.row.found && left.row.question?.repository).toBe("other/admin");
   });
 
   it("refuses a Start where a folder beside the PRD's repository has the whole-path form another repository would take", async () => {

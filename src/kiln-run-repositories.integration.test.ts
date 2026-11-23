@@ -180,6 +180,8 @@ describe("kiln run on a PRD across repositories", () => {
         ],
       },
     ]);
+    // The sandbox is the home folder of the `kiln add-repository` a session runs, so it shows the worktree's path from ~/ (AC-SEE-05).
+    f.env.HOME = f.sandbox.root;
     // AC-REPO-02: a named repository's own checkout needn't be clean; storefront also has a main to branch from.
     writeFileSync(join(f.code["returns-api"]!.checkout, "notes.txt"), "work in progress\n");
     git(f.sandbox, f.code.storefront!.checkout, "push", "-q", "origin", "develop:main");
@@ -243,7 +245,8 @@ describe("kiln run on a PRD across repositories", () => {
       {
         name: "notifications",
         status: 0,
-        stdout: `Added notifications at ${join(workspace, "notifications")}, on ${BRANCH} from main. Read its CLAUDE.md and AGENTS.md, if it has them, before you change it.\n`,
+        // Two lines, as the drawing of a session's request has them (find repositories anywhere AC-SEE-05).
+        stdout: `Added notifications at ~/.worktrees/${FOLDER}/notifications, on ${BRANCH} from main.\nRead its CLAUDE.md and AGENTS.md, if it has them, before you change it.\n`,
         stderr: "",
       },
     ]);

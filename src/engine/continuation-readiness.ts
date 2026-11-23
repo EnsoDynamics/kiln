@@ -23,7 +23,9 @@ import { labelAmong, shortNameOf } from "./repository-labels.js";
 import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
 
 export interface ReadinessPrerequisite { phaseId: string; status: "integrated_verified" | "preparation_available" | "blocked" | "unknown"; evidence: string[]; recovery?: string }
-export interface PreparationBinding extends PreparationInstruction { sourceRevision: string; repositoryIdentity: string; baseBranch: string; baseRevision: string; authorization: "phase_preparation" | "delivery_target"; valid: boolean }
+export interface PreparationBinding extends PreparationInstruction { sourceRevision: string; repositoryIdentity: string; baseBranch: string; baseRevision: string; authorization: "phase_preparation" | "delivery_target"; valid: boolean;
+  /** Shown to the page only, never saved: the repository's label (find repositories anywhere AC-FOLDER-02). */
+  label?: string }
 export interface ContinuationProposal {
   formatVersion: 1; id: string; completedExecutionId: string; baselineId: string; candidateDigest: string;
   added: { id: string; title: string; file: string }[]; firstEligiblePhase?: string;

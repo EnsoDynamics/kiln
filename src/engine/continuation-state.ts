@@ -11,7 +11,9 @@ export interface ExecutionSummary {
   executionId: string; archiveId: string; startedAt?: string;
   /** Absent only for an execution set up again from the Folder missing page (`ending: "folder_missing_setup"`). */
   completedAt?: string;
-  branch: string; deliveries: { repository: string; url: string }[];
+  branch: string;
+  /** `label` is shown to the page only, never saved: the repository's label (find repositories anywhere AC-FOLDER-02). */
+  deliveries: { repository: string; url: string; label?: string }[];
   /** Schema 20; a summary without them reads as `ending: "completed"`, `endedAt = completedAt`. */
   endedAt?: string; ending?: "completed" | "folder_missing_setup";
   /** Its sessions' recorded running time, saved when it was archived (time totals AC-TOTAL-02); absent on rows archived before. */

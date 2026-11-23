@@ -26,7 +26,7 @@ import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import type { CommandResult, Engine } from "../engine/engine.js";
-import { buildSnapshot, type DocumentsFound, type Snapshot } from "../engine/snapshot.js";
+import { buildSnapshot, labelledExecution, type DocumentsFound, type Snapshot } from "../engine/snapshot.js";
 import { readOutputLines } from "../session/claude-session.js";
 import { NewerSchemaError, type Effort, type Settings } from "../state/records.js";
 import { AuditRefusal } from "../audit/contracts.js";
@@ -240,7 +240,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       start = index + 1;
     }
     const page = rows.slice(start, start + 100);
-    return c.json({ executions: page.map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }), nextCursor: start + 100 < rows.length ? Buffer.from(page.at(-1)!.executionId).toString("base64url") : null });
+    return c.json({ executions: page.map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return labelledExecution(engine, row); }), nextCursor: start + 100 < rows.length ? Buffer.from(page.at(-1)!.executionId).toString("base64url") : null });
   });
   app.get("/api/executions/:id", c => {
     const execution = engine.historicalExecution(c.req.param("id"));

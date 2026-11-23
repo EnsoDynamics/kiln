@@ -245,3 +245,50 @@ describe("labels in the remaining places (AC-FOLDER-02, Phase 5)", () => {
     expect(page).not.toMatch(CLASH);
   });
 });
+
+describe("labels in the last places (AC-FOLDER-02, Phase 7)", () => {
+  it("names each earlier delivery by its label on the page and in the executions page, the record keeping Kiln's name", async () => {
+    const h = await clashingRepositories([{ actions: [{ result: "I need a decision." }] }]);
+    const deliveries = [
+      { repository: "acme-labs+admin", url: "https://github.com/acme-labs/admin/pull/7" },
+      // A development checkpoint's merge records its target, github.com/<address path>.
+      { repository: "github.com/acme/admin", url: "https://github.com/acme/admin/pull/3" },
+      { repository: "acme-shop", url: "https://github.com/acme/acme-shop/pull/9" },
+    ];
+    h.engine.record.continuation = { formatVersion: 1, journalIndexed: true, acceptances: [], executions: [{ executionId: "earlier-1", archiveId: "a".repeat(64), completedAt: "2026-11-01T12:00:00Z", branch: BRANCH, deliveries }] } as unknown as NonNullable<typeof h.engine.record.continuation>;
+    const expected = [["acme-labs+admin", "acme-labs/admin"], ["github.com/acme/admin", "acme/admin"], ["acme-shop", "acme-shop"]];
+    const shown = buildSnapshot(h.engine).continuation!.executions![0]!.deliveries;
+    expect(shown.map((delivery) => [delivery.repository, delivery.label])).toEqual(expected);
+    const { startFixtureController } = await import("../test-support/controller-server.js");
+    const hosted = await startFixtureController({ engine: h.engine, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+    try {
+      const page = await (await fetch(new URL("/api/executions", hosted.server.address), { headers: { "X-Kiln-Token": h.engine.record.token } })).json() as { executions: { deliveries: { repository: string; label?: string }[] }[] };
+      expect(page.executions[0]!.deliveries.map((delivery) => [delivery.repository, delivery.label])).toEqual(expected);
+    } finally { await hosted.server.close(); hosted.release(); }
+    expect(JSON.stringify(h.engine.record.continuation)).not.toContain("\"label\"");
+  });
+
+  it("names the repository a continuation's preparation integrates in by its label", async () => {
+    const h = await clashingRepositories([{ actions: [{ result: "I need a decision." }] }]);
+    const binding = { phaseId: "4", prerequisites: ["1"], repository: "acme-labs+admin", sourceRef: "wt/x", sourceRevision: "a".repeat(40), destination: "assigned_feature", repositoryIdentity: "acme-labs/admin", baseBranch: "develop", baseRevision: "b".repeat(40), authorization: "phase_preparation", valid: true };
+    h.engine.record.completedPlanCheck = { status: "unchanged", attemptedAt: new Date().toISOString(), sources: [], errors: [], result: { leaves: [], proposal: { preparation: [binding] } } } as unknown as NonNullable<typeof h.engine.record.completedPlanCheck>;
+    const check = buildSnapshot(h.engine).continuation!.check!;
+    expect(check.result!.proposal!.preparation.map((one) => [one.repository, one.label])).toEqual([["acme-labs+admin", "acme-labs/admin"]]);
+    expect(JSON.stringify(h.engine.record.completedPlanCheck)).not.toContain("\"label\"");
+  });
+
+  it("names repository work by its label in the waive preview and the changed-results receipt", async () => {
+    const h = await clashingRepositories([{ actions: [{ result: "I need a decision." }] }]);
+    const { receiptLines } = await import("../control/waiver-facts.js");
+    const preview = { offered: true, label: "Mark Phase 1 complete", continue_in_order: false, failing_checks: 1, resulting_label: "complete", next_activity: null, next_argv: null, sentence: [],
+      items: [{ check: "Committed", kind: "repository_work", subject: "acme-labs+admin", text: "Uncommitted work remains." }, { check: "Committed", kind: "repository_work", subject: "admin", text: "Uncommitted work remains." }] };
+    const recheck = receiptLines({ operation: { id: "op_1", action: "waive-and-advance", state: "completed", outcome: "check_still_failing", reason: null, updated_at: new Date().toISOString() }, mark_complete: preview }, h.engine.record, true)!;
+    expect(recheck).toEqual(expect.arrayContaining(["    acme-labs/admin", "    acme/admin"]));
+    expect(recheck.join("\n")).not.toMatch(CLASH);
+    const changed = receiptLines({ operation: { id: "op_2", action: "waive-and-advance", state: "completed", outcome: "check_results_changed", reason: null, updated_at: new Date().toISOString(), changes: [{ check: "Committed", subject: "acme-labs+admin", change: "newly_passing" }, { check: "Readiness", subject: "plan", change: "newly_failing", after: "The plan changed." }] } }, h.engine.record, true)!;
+    expect(changed.slice(1, 3)).toEqual(["  Committed · acme-labs/admin: now passes", "  Readiness · plan: now fails — The plan changed."]);
+    // Without the record, the answer's repository_details give the label.
+    const fromAnswer = receiptLines({ repository_details: [{ name: "acme-labs+admin", label: "acme-labs/admin" }], operation: { id: "op_3", action: "waive-and-advance", state: "completed", outcome: "check_results_changed", reason: null, updated_at: new Date().toISOString(), changes: [{ check: "Committed", subject: "acme-labs+admin", change: "newly_passing" }] } }, undefined, true)!;
+    expect(fromAnswer[1]).toBe("  Committed · acme-labs/admin: now passes");
+  });
+});

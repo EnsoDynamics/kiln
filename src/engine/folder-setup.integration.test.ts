@@ -293,6 +293,35 @@ describe("a repository the base plan names that Kiln would ask about (find repos
   });
 });
 
+describe("a repository set up beside one left out with the same short name (find repositories anywhere AC-FOLDER-01)", () => {
+  it("gives the one a base-branch start sets up its short name, since the one left out isn't set up with it", async () => {
+    const h = await twoRepositories();
+    const short = "admin";
+    const origin = createGithubOrigin(h.sandbox, "acme", short);
+    const admin = createRepository(h.sandbox, "admin-checkout", origin.url);
+    git(h.sandbox, admin, "push", "-q", "origin", "develop");
+    // The sandbox is the home folder, so the search stays inside it.
+    Object.assign(h.env, h.sandbox.env, { HOME: h.sandbox.root });
+    // The plan on the base branch names, for phase 3, acme/<short>, found, and other/<short>, which nothing on this computer has.
+    const file = join(h.repository, "docs/prds/customer-returns/phase-3-returns-dashboard.md");
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const [title, ...rest] = readFileSync(file, "utf8").split("\n");
+    writeFileSync(file, [title, "", `**Repositories:** acme/${short}, other/${short}`, ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 3 names two repositories with one short name");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).repositories.map(row => [row.name, row.problem])).toEqual([["acme-shop", undefined], ["returns-api", undefined], [short, undefined]]);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const workspace = join(h.sandbox.root, ".worktrees", "customer-returns-2");
+    const entry = readPrdRecord(h.stateDirectory)!.repositories.find(one => one.github === `acme/${short}`)!;
+    expect([entry.name, entry.shortName, entry.worktreePath]).toEqual([short, undefined, join(workspace, short)]);
+    expect(git(h.sandbox, join(workspace, short), "remote", "get-url", "origin").trim()).toBe(origin.url);
+  });
+});
+
 describe("a repository whose setup was left unfinished (find repositories anywhere AC-NAME-02)", () => {
   it("is set up again from its recorded checkout, not looked for beside the PRD's repository by Kiln's name", async () => {
     const files = prdDirectoryFiles();

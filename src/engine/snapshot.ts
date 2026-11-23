@@ -589,7 +589,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
   const snapshot: Snapshot = {
     ...(record.continuation || record.completedPlanCheck || record.planReconciliation?.handback || record.planReconciliation?.check?.status === "failed" ? { continuation: {
       ...(record.preparation ? { preparation: engine.preparationStatus(record.executionId, record.preparation.phaseId) } : {}),
-      ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }) } : {}),
+      ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return labelledExecution(engine, row); }) } : {}),
       ...(record.completedPlanCheck ? { check: labelledPlanCheck(engine, record.completedPlanCheck) } : {}),
       ...(record.planReconciliation?.handback ? { handback: record.planReconciliation.handback } : {}),
       ...(record.planReconciliation?.check?.status === "failed" ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
@@ -1731,8 +1731,21 @@ function personItemFields(engine: Engine, store?: Pick<AuditStore, "read">): Pic
   } catch (error) { if (store) throw error; return {}; }
 }
 
+/**
+ * An earlier execution with each delivery's repository label (find repositories anywhere AC-FOLDER-02).
+ * A delivery records Kiln's name, or a development checkpoint's `github.com/<address path>` target.
+ */
+export function labelledExecution<T extends { deliveries: { repository: string; url: string }[] }>(engine: Engine, row: T): T {
+  const nameOf = (repository: string) => repository.toLowerCase().startsWith("github.com/") ? repository.slice("github.com/".length) : repository;
+  return { ...row, deliveries: row.deliveries.map((delivery) => ({ ...delivery, label: engine.labelOf(nameOf(delivery.repository)) })) };
+}
+
 /** A completed-plan check with each repository's label beside Kiln's name for it, for the page (find repositories anywhere AC-FOLDER-02). */
 function labelledPlanCheck(engine: Engine, check: NonNullable<PrdRecord["completedPlanCheck"]>): NonNullable<PrdRecord["completedPlanCheck"]> {
-  const labelled = (result: typeof check.result) => result && { ...result, ...(result.leaves ? { leaves: result.leaves.map((leaf) => ({ ...leaf, repositories: leaf.repositories.map((repository) => ({ ...repository, label: engine.labelOf(repository.repository) })) })) } : {}) };
+  const labelled = (result: typeof check.result) => result && {
+    ...result,
+    ...(result.leaves ? { leaves: result.leaves.map((leaf) => ({ ...leaf, repositories: leaf.repositories.map((repository) => ({ ...repository, label: engine.labelOf(repository.repository) })) })) } : {}),
+    ...(result.proposal ? { proposal: { ...result.proposal, preparation: result.proposal.preparation.map((binding) => ({ ...binding, label: engine.labelOf(binding.repository) })) } } : {}),
+  };
   return { ...check, ...(check.result ? { result: labelled(check.result)! } : {}), ...(check.earlierResult ? { earlierResult: labelled(check.earlierResult)! } : {}) };
 }

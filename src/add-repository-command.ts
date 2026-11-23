@@ -5,7 +5,7 @@
 import { readdirSync, realpathSync } from "node:fs";
 import { request } from "node:http";
 import { basename, join, resolve } from "node:path";
-import { comparable, expandHome, isWithin, realPathOfNearestAncestor } from "./engine/worktree-setup.js";
+import { comparable, displayPath, expandHome, isWithin, realPathOfNearestAncestor } from "./engine/worktree-setup.js";
 import { TOKEN_HEADER } from "./server/local-server.js";
 import { liveInstance } from "./state/instance-lock.js";
 import { readPrdRecord, type PrdRecord } from "./state/records.js";
@@ -25,7 +25,8 @@ const USAGE = "Usage: kiln add-repository <owner>/<repository>, the path in the 
  * workspace, 1 when Kiln refused or couldn't be reached, 2 for a usage error.
  *
  *   await runAddRepository(["notifications"], context)
- *   // prints "Added notifications at /home/a/acme/.worktrees/customer-returns/notifications, on feature/customer-returns from main. …"
+ *   // prints "Added notifications at ~/acme/.worktrees/customer-returns/notifications, on feature/customer-returns from main."
+ *   //   and "Read its CLAUDE.md and AGENTS.md, if it has them, before you change it." on the line under it
  */
 export async function runAddRepository(args: string[], context: CommandStreams): Promise<number> {
   if (args.length !== 1 || args[0]!.startsWith("-")) {
@@ -66,8 +67,9 @@ export async function runAddRepository(args: string[], context: CommandStreams):
     context.stdout.write(`${label} is already in the workspace at ${String(body.worktreePath)}.\n`);
     return 0;
   }
+  // Two lines, the path as Kiln shows paths, as the drawing of a session's request has them (find repositories anywhere AC-SEE-05).
   context.stdout.write(
-    `Added ${label} at ${String(body.worktreePath)}, on ${String(body.branch)} from ${String(body.baseBranch)}. Read its CLAUDE.md and AGENTS.md, if it has them, before you change it.\n`,
+    `Added ${label} at ${displayPath(String(body.worktreePath))}, on ${String(body.branch)} from ${String(body.baseBranch)}.\nRead its CLAUDE.md and AGENTS.md, if it has them, before you change it.\n`,
   );
   return 0;
 }

@@ -8,6 +8,7 @@ import type { AuditActivity } from "../audit/contracts.js";
 import type { CheckResult, PrdRecord } from "../state/records.js";
 import { AUDIT_WARNING, checkCounts, checksWord, completeLabel, countsText, NO_REPORT_WARNING, PLAN_WARNING, READINESS_CHECK, type AuditWaiverResult, type CheckItem, type MarkCompleteOffer, type Waiver, type WaiverRef } from "../engine/waivers.js";
 import { commandText } from "./result.js";
+import { repositoryDetails } from "../engine/plan-repositories.js";
 import { terminalColors, type TerminalColors } from "../terminal-output.js";
 
 export type CheckState = "passed" | "waived" | "failed";
@@ -277,7 +278,7 @@ function nextText(next: unknown): string {
  * What a recheck that still fails would let Mark complete waive, as the CLI prints it (the
  * mockup's "A bot doing it through the command line").
  */
-export function previewLines(preview: Record<string, unknown>, checkedAt: string): string[] {
+export function previewLines(preview: Record<string, unknown>, checkedAt: string, label: (name: string) => string = (name) => name): string[] {
   if (preview.offered !== true) return typeof preview.reason === "string" ? [`Mark complete is not offered: ${preview.reason}`] : [];
   const activity = offeredActivity(preview);
   const items = (preview.items ?? []) as { check: string; kind: string; subject: string; text: string }[];
@@ -289,7 +290,7 @@ export function previewLines(preview: Record<string, unknown>, checkedAt: string
   for (const [check, list] of byCheck) {
     lines.push(`  ${check}`);
     for (const item of list) {
-      if (item.kind === "development_requirement" || item.kind === "repository_work") lines.push(`    ${item.kind === "development_requirement" ? item.subject.split("/").join(" / ") : item.subject}`);
+      if (item.kind === "development_requirement" || item.kind === "repository_work") lines.push(`    ${item.kind === "development_requirement" ? item.subject.split("/").join(" / ") : label(item.subject)}`);
       lines.push(`    ${item.text}`);
     }
   }
@@ -314,6 +315,17 @@ function activityName(record: PrdRecord | undefined, key: string): string {
   return label;
 }
 
+/**
+ * The label each repository is shown by in a receipt (find repositories anywhere AC-FOLDER-02):
+ * from the PRD's record when the CLI has it, else from the answer's `repository_details`. A
+ * subject that names no repository, such as a check's own subject, is shown as it is.
+ */
+function receiptLabels(answer: Record<string, unknown>, record?: PrdRecord): (name: string) => string {
+  if (!record?.repository || !record.repositories) return statusLabels(answer);
+  const details = repositoryDetails({ repository: record.repository, repositories: record.repositories, ...(record.plan ? { plan: record.plan } : {}) });
+  return (name) => details.find((one) => one.name === name)?.label ?? name;
+}
+
 const CHANGE_WORDS = { newly_failing: "now fails", newly_passing: "now passes", text_changed: "changed" } as const;
 
 /**
@@ -335,9 +347,10 @@ export function receiptLines(answer: Record<string, unknown>, record?: PrdRecord
   if (op.state === "indeterminate") return [`Operation ${op.id} is indeterminate. ${op.reason ?? "Inspect its receipt before retrying."}`];
   if (op.state === "failed") return [op.outcome === "check_unavailable" ? `Operation ${op.id} failed: the check could not finish. ${op.reason ?? ""}`.trim() : `Operation ${op.id} failed: ${op.outcome ?? "failed"}. ${op.reason ?? ""}`.trim()];
   if (op.action === "locate-repository") return locatedLines(op);
+  const label = receiptLabels(answer, record);
   if (preview) {
     const activity = preview.offered === true ? offeredActivity(preview) : "The activity";
-    return [`Operation ${op.id} completed. ${activity} is still at Needs you.`, ...previewLines(preview, op.updated_at)];
+    return [`Operation ${op.id} completed. ${activity} is still at Needs you.`, ...previewLines(preview, op.updated_at, label)];
   }
   const waiver = op.waiver_id ? record?.waivers?.find(w => w.waiverId === op.waiver_id) : undefined;
   const name = waiver ? activityName(record, waiver.activityKey) : "The activity";
@@ -350,7 +363,7 @@ export function receiptLines(answer: Record<string, unknown>, record?: PrdRecord
     case "checks_passed": return [`Operation ${op.id} completed. Every check passed when Kiln checked again, so nothing was waived and Kiln advanced.`];
     case "check_results_changed": return [
       `Operation ${op.id} completed. The results changed when Kiln checked again, so nothing was waived or advanced:`,
-      ...(op.changes ?? []).map(c => `  ${c.check} · ${c.subject}: ${CHANGE_WORDS[c.change]}${c.after ? ` — ${c.after}` : c.before ? ` — was: ${c.before}` : ""}`),
+      ...(op.changes ?? []).map(c => `  ${c.check} · ${label(c.subject)}: ${CHANGE_WORDS[c.change]}${c.after ? ` — ${c.after}` : c.before ? ` — was: ${c.before}` : ""}`),
       "Read kiln status for the new check run; to mark it complete, run again with --confirm, the new status token and a new command id.",
     ];
     default: return [`Operation ${op.id} completed: ${op.outcome ?? "completed"}.`];

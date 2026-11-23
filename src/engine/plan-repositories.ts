@@ -39,6 +39,12 @@ export interface PlanRepositoriesInput {
   said?: Set<string>;
   changing?: string[];
   home?: string;
+  /**
+   * Weigh only the repositories found, for a reader after Start that leaves out one whose finding
+   * ends in a question (a continuation, a base-branch start): only repositories set up together
+   * are weighed against each other (AC-FOLDER-01).
+   */
+  foundOnly?: boolean;
 }
 
 /**
@@ -74,13 +80,16 @@ export async function resolvePlanRepositories(input: PlanRepositoriesInput): Pro
     ...(input.home ? { home: input.home } : {}),
   });
   const written = input.entries.filter((entry) => entry.name !== input.prd.name);
+  const weighed = resolution.repositories.filter((repository) => !input.foundOnly || repository.found);
   const given = giveNames(written, [
     { shortName: input.prd.name, addressPath: input.prd.github, prd: true },
-    ...resolution.repositories.map((repository) => ({ shortName: repository.shortName, addressPath: repository.addressPath })),
+    ...weighed.map((repository) => ({ shortName: repository.shortName, addressPath: repository.addressPath })),
   ]);
   if (!given.ok) return { named: [], problems: [...resolution.problems, given.problem], entries: resolution.entries, byName: new Map() };
-  const rows = resolution.repositories.map((repository, index): NamedRepositoryRow => {
-    const name = given.names[index + 1]!;
+  const rows = resolution.repositories.map((repository): NamedRepositoryRow => {
+    // One left out is not named here: it is named when it is set up, before the phase that names it.
+    const index = weighed.indexOf(repository);
+    const name = index < 0 ? repository.shortName : given.names[index + 1]!;
     const { found, ...rest } = repository;
     return { ...rest, name, ...(found ? { found: { ...found, name, ...(name !== repository.shortName ? { shortName: repository.shortName } : {}) } } : {}) };
   });
@@ -114,7 +123,7 @@ export type PlanReach = Exclude<Reached, { kind: "repository" }> | { kind: "repo
  * reader works with Kiln's name for a repository (find repositories anywhere "Where names are compared").
  */
 export async function reachRecordNames(git: GitContext, record: { repository: { name: string; github: string }; repositories: RepositoryEntry[] }, prdCheckout: string, phases: { fileName: string; repositories: string[] }[]): Promise<Map<string, PlanReach>> {
-  const result = await resolvePlanRepositories({ git, env: git.env, prd: { name: record.repository.name, mainCheckoutPath: prdCheckout, github: record.repository.github }, entries: record.repositories, phases });
+  const result = await resolvePlanRepositories({ git, env: git.env, prd: { name: record.repository.name, mainCheckoutPath: prdCheckout, github: record.repository.github }, entries: record.repositories, phases, foundOnly: true });
   return result.byName;
 }
 

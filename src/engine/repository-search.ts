@@ -45,7 +45,7 @@ const isInside = (path: string, folder: string) => samePath(path, folder) || com
 /**
  * The search roots: the real parent folder of the PRD's main checkout and each folder above it up
  * to and including the home folder; outside the home folder, that parent and the two above it,
- * stopping below the top of a disk.
+ * stopping below the top of a disk and below a folder that holds the home folder.
  *
  *   searchRoots("/home/a/code/acme/product", "/home/a")
  *   // { roots: ["/home/a/code/acme", "/home/a/code", "/home/a"], searchedFrom: "/home/a/code/acme" }
@@ -65,7 +65,8 @@ export function searchRoots(prdMainCheckoutPath: string, home: string): SearchRo
   let folder = parent;
   for (let climbed = 0; climbed < 2; climbed++) {
     const above = dirname(folder);
-    if (above === folder || topOfDisk(above) || differentDevice(folder, above)) break;
+    // Never above the home folder: a folder that holds it would walk into it and other people's folders.
+    if (above === folder || topOfDisk(above) || differentDevice(folder, above) || isInside(home, above)) break;
     roots.push(above);
     folder = above;
   }
