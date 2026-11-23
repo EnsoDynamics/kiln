@@ -44,7 +44,7 @@ Claude Code and Codex, through their existing adapters. No new call is made to e
 | Decision | Choice | Rationale |
 |---|---|---|
 | Where a choice comes from | One resolver, in the order of §Resolving a Choice | AC-PICK-01 to 04 and AC-DEFAULT-03 each name a precedence; one function is the only way the row, the launch and the status command stay equal |
-| How Kiln tells a session got its first response | Claude Code: the first `assistant` event that isn't synthetic, top level or subagent. Codex: the first item the model produced in a turn, an agent message with text or a tool call. Kiln saves the time on the session when it arrives | The PRD's terms draw the line at AC-AUTO-05's "refused before the session gets any response", and this is the test that rule already applies to Claude Code. Claude Code's `init` and Codex's accepted turn both arrive before the first request, so neither can be the line |
+| How Kiln tells a session got its first response | The test usage-limit recovery already applies, per agent, shared by both rules so the two lines cannot drift apart. Claude Code: the first `assistant` event that isn't synthetic, top level or subagent. Codex: the first model activity the run records, a completed agent message with text. Kiln saves the time on the session when it arrives | The PRD's terms draw the line at AC-AUTO-05's "refused before the session gets any response", so the start line is that rule's own test, not a second one. Claude Code's `init` and Codex's accepted turn both arrive before the first request, so neither can be the line |
 | What a started activity started on | The agent, model and effort of the session whose response started it, with Claude Code's concrete model as that session's `init` reported it | AC-PICK-04: a carry-on session must run on the same version, not on whatever the family alias names by then |
 | When Claude Code isn't installed (DEF-003) | A row whose resolved first choice is on Claude Code resolves to Model defaults' Fallback column choice for that row, at the moment it is resolved. The saved Model defaults are not rewritten, and the fallback switch plays no part | Nothing is saved, so installing Claude Code later restores the first choices with no step by the person. Saving a detected table would persist a guess, and tying it to the switch would mix what is installed with how much usage is left |
 | Telling a picked model from a filled-in one on a PRD not yet started (KEEP-001) | A saved choice equal to Kiln's current default (Claude Code · `opus` · medium, or Codex · any GPT Sol version · high) is not kept. Any other saved choice is kept, an earlier default such as Opus at high included | The saved record does not say who set a choice, so the value is the only evidence. The person sees every row before Start and can press Use the default |
@@ -53,7 +53,7 @@ Claude Code and Codex, through their existing adapters. No new call is made to e
 | A no-run session record | It takes the choice of the launch that reuses it | Today a record with no run is reused with the model it was made with; a changed choice would otherwise be ignored |
 | Change while the activity's own session is launching | Unavailable, with the reason, until the session responds or ends | A change made in that window could be overtaken by the session's first response, and the row would then show a choice the person didn't just pick |
 | Usage read for a launch | Read for that launch, awaited up to the existing 30-second reading limit. An earlier reading is never used | AC-FALLBACK-02 decides on a reading taken first; a stale 97% must not send a launch to the fallback after the limit reset |
-| Model defaults across running Kilns | Every resolution reads the file as it is; each running Kiln watches it and republishes its page | AC-DEFAULT-03 reaches runs underway, and each PRD is its own Kiln process |
+| Model defaults across running Kilns | Every resolution reads the file as it is; each running Kiln watches the state root for the file's name, since an atomic write replaces the file rather than changing it, and republishes its page | AC-DEFAULT-03 reaches runs underway, and each PRD is its own Kiln process |
 | Model defaults holds only what the person set | A row side the person never set reads Kiln's shipped default | A later release can ship a new default without overwriting anyone's choice |
 | Restore Kiln's defaults | Clears the four rows. The fallback switch and threshold stay | AC-FALLBACK-01: once on, the switch applies until the person turns it off |
 | Commands for Model defaults (CLI-001) | Kept whole, as one `kiln model-defaults` group | Four leaves beside the existing groups, run through the same module as the page, with no controller needed. That meets the stakeholder's condition of not complicating the command line, so AC-DEFAULT-05 is not narrowed |
@@ -98,7 +98,7 @@ Because steps 2 to 4 are evaluated every time, a change to a tier line, a row or
 
 When a session's first model response arrives, Kiln saves its time on the session. If the activity has no start yet, the same save records that session as the one that started it. From then on the activity's row reads **Running on**, its choice is that session's, and it offers no Change.
 
-Every later session of a started activity (a carry-on when the conversation can't be reopened) is created on what the activity started on, whatever the resolver's later steps would say.
+Every later session of a started activity (a carry-on when the conversation can't be reopened) is created on what the activity started on, whatever the resolver's later steps would say. For Claude Code that is the concrete model ID, which the model list carries as an alias entry's resolved model, not as an entry's value; the launch check matches it there. When the account no longer offers that model, the launch stops with the `selection` stop naming it, and no newer version runs in its place (AC-PICK-04).
 
 What a row shows follows from these two facts:
 
@@ -203,6 +203,8 @@ Every write re-reads the file, applies one change and replaces it atomically. A 
 | `POST /api/model-defaults` | One of `{ set: { row, side, agentId, family, effort? } }`, `{ restore: true }`, `{ fallback: { enabled?, threshold? } }`. 200 with the GET body; 400 malformed; 422 with the refusal's reason |
 | `POST /api/model` | `{ target: { phase } \| "audits", choice: ModelChoice \| "default" }`. Before Start it is applied directly. In a run underway it goes through the instruction journal, as other browser controls do. 409 when the activity has started or its session is launching; 422 when the agent's list doesn't offer the model or effort |
 | `POST /api/settings` | Loses `agentId`, `model`, `effort` and `selectionGeneration` |
+| `POST /api/billing/approval`, `POST /api/billing/clear` | Lose `selectionGeneration`: the execution ID and `readingId` bind a request to its reading. A reading is discarded when the set of needed agents changes, in place of a selection change |
+| `POST /api/metadata/refresh` | Refreshes every needed agent; returns `settings` and `agents[]` in place of `billing` |
 | `POST /api/start` | 409 with the reason while a needed-by-an-activity agent isn't ready or a choice can't be used |
 
 The Model defaults page is a client route of the PRD's view, `<base>/model-defaults`, so "Back" returns to the PRD it was opened from.
@@ -270,7 +272,7 @@ settings.modelChoices:
   kept?:  ModelChoice                    written only by the schema 25 migration
 ```
 
-Each activity's facts gain `startedSessionId?`, the session whose response started it. A reset builds new settings, so it returns a PRD's changes to the defaults as it does its other settings.
+Each activity's facts gain `startedSessionId?`, the session whose response started it, and, while it hasn't started, `codexUsageRecovery?`: the one-automatic-attempt record that a started Codex activity keeps on its session (§A Wait Before the Start). A reset builds new settings, so it returns a PRD's changes to the defaults as it does its other settings.
 
 **Session record.**
 
@@ -284,7 +286,7 @@ relaunchOf?: { sessionId, run }          the refused run a launch at the end of 
 
 **Migration to schema 25** runs on load, as earlier ones do, and reads the PRD's saved sessions:
 
-1. For each session with no `firstResponseAt`, derive it once from what is already saved: for Claude Code, the first saved event that is a model response; for Codex, the first saved output line from the model or one of its tool calls. Each activity's `startedSessionId` is its earliest such session.
+1. For each session with no `firstResponseAt`, derive it once from what is already saved, by the same test: for Claude Code, the first saved event that is a model response; for Codex, the earliest model activity its runs recorded. Each activity's `startedSessionId` is its earliest such session.
 2. Apply AC-KEEP-02's table to the saved selected agent's choice: an activity that started sets `kept` to it; no started activity and a choice equal to Kiln's current default sets nothing; no started activity and any other choice sets `kept`.
 3. Remove the three retired fields.
 
@@ -294,7 +296,7 @@ An older Kiln refuses a schema 25 record, as with every earlier schema change.
 
 Each line is added to the earlier section, as `Superseded in part by:`, in the commit that builds the change.
 
-- Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Overview and §Agent boundary (the agent is per activity, not per PRD), §Selection and readiness (readiness for every needed agent; no agent fixed at Start), §Models and Settings (choices resolved per activity; no first-selection GPT Sol pick), §Local API and snapshot changes, §Persisted schema 4 (PRD settings).
+- Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Overview and §Agent boundary (the agent is per activity, not per PRD), §Selection and readiness (readiness for every needed agent; no agent fixed at Start), §Models and Settings (choices resolved per activity; no first-selection GPT Sol pick), §Local API and snapshot changes, §Persisted schema 4 (PRD settings), §Readings and identity (every needed agent is read on the schedule, not only the selected one), §Classification and bounded release (for an activity that hasn't started, the one automatic attempt launches a new session on its current choice instead of resuming the original conversation, and its record is kept for the activity).
 - Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot and §Account and Usage (settings and each phase's model; one account).
 - Replaces in part: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait and §Resume (an activity that hasn't started is launched, not resumed, and its wait watches the launch decision's account).
 - Replaces in part: `docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md`, §Starting a Session at a Stop (Resume and reply on an activity that hasn't started launch a new session).
@@ -340,5 +342,6 @@ Each line is added to the earlier section, as `Superseded in part by:`, in the c
 
 ## Open Questions
 
-1. **The Folder missing setup panel.** Kiln Missing Worktree Recovery's AC-SETUP-01 lists Agent, Model and Effort among the panel's fields, copied from Documents found. This PRD's `Replaces` lines don't name it. The design treats the panel as AC-KEEP-01 treats Documents found: the model lines and links replace the three fields, and a start from the panel keeps the PRD's per-phase changes. The PRD needs a `Replaces in part` line for that criterion, and no conflict check has run yet, so others may exist; the check that runs with the design's refinement should confirm this one and look for more.
+1. **The Folder missing setup panel.** Kiln Missing Worktree Recovery's AC-SETUP-01 lists Agent, Model and Effort among the panel's fields, copied from Documents found. This PRD's `Replaces` lines don't name it. The design treats the panel as AC-KEEP-01 treats Documents found: the model lines and links replace the three fields, and a start from the panel keeps the PRD's per-phase changes. The PRD needs a `Replaces in part` line for that criterion, and no conflict check has run yet, so others may exist; the check that runs with the design's refinement should confirm this one and look for more. Earlier criteria that name one model or one agent for the PRD and that no `Replaces` line covers yet: AC-RUN-02, AC-WATCH-07 and AC-WATCH-06 in Kiln v1; AC-MODEL-01, AC-VIEW-01 and AC-USAGE-02 in Codex support for Kiln; AC-SEE-02 in Kiln Bot Control; AC-CONTINUE-08 in Kiln Continue Added Phases; AC-RUN-01 in Kiln Billing Safeguards.
 2. **DEF-001 and DEF-002 are still open** (Sonnet at medium, GPT Astra at high, and whether only the Audits fallback gets extra high). The shipped defaults are one table of data, so either answer changes a value and nothing in this design.
+3. **Should a Codex tool call count as a response?** Codex's recorded model activity, which both the start line and usage-limit recovery's "refused before any response" read, counts only a completed agent message with text. A Codex run that ran tools but wrote no message before a refusal therefore counts as not started and may relaunch on another choice. Check in a real Codex session how often a turn's first item is a tool call rather than a message; if it is common, add tool-call items to that one record, which moves both lines together and changes AC-AUTO-05's behavior for Codex.
