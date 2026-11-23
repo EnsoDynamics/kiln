@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Phase Model Tiers
 
-Started: 2026-11-22   Current pass: 4 (complete)   Status: In progress
+Started: 2026-11-22   Current pass: 5 (complete)   Status: In progress
 Branch: feature/kiln-phase-model-tiers
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 4139 · growth baseline 4139
@@ -21,6 +21,7 @@ Last updated: 2026-11-22
 | 2 | 14 | 12 (Q12 + Q14–Q24) | 12 | 0 | 3 | 0 | 0 |
 | 3 | 6 (+4 from pass-2 conformance) | 12 (Q25–Q36) | 12 | 0 | 1 | 0 | 0 |
 | 4 | 4 (+1 from pass-3 conformance) | 6 (Q37–Q42) | 5 | 1 | 0 | 0 | 0 |
+| 5 | 3 (+1 from pass-4 conformance) | 4 (Q43–Q46) | 4 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -67,9 +68,20 @@ Last updated: 2026-11-22
 | Q40 | 4 | A continuation of a PRD that finished before this change copies the migrated `kept` choice, so added phases ignore their tiers; should they? | Business | MEDIUM | 70 → 90 | Assumption | KEEP-003; PRD AC-KEEP-02 (+Replaces AC-CONTINUE-08); TD §Data Models, §Changes |
 | Q41 | 4 | Planned Preflight row has no model contract; "none before Start" sentence contradicts mockup 1 | Technical | LOW | 85 → 92 | Resolved | TD §When an Activity Starts, §Snapshot |
 | Q42 | 4 | Several counted limits at or above the threshold: which one does the decision record? | Technical | LOW | 85 → 95 | Resolved | TD §The launch decision, §Data Models |
-| Q43 | 4 | On the Continue offer's plan (build-preflight design draws a planned Preflight row there), which model form do the Preflight and phase rows use: plain as before Start? | Technical | LOW | 85 → 85 | Pending | — |
+| Q43 | 4 | On the Continue offer's plan (build-preflight design draws a planned Preflight row there), which model form do the Preflight and phase rows use: plain as before Start? | Technical | LOW | 85 → 90 | Resolved | TD The planned Preflight row |
+| Q44 | 5 | Continued PRD: rows of phases finished in the earlier execution — Ran on from archived sessions, or No model recorded? | Technical | LOW | 65 → 75 | Resolved by decision | TD §When an Activity Starts, §Data Models, §Snapshot |
+| Q45 | 5 | `kiln model` / `kiln model-defaults set` with effort omitted for a model that takes effort: what is saved? | Technical | LOW | 75 → 85 | Resolved by decision | TD §Command line, §Model defaults file |
+| Q46 | 5 | `kiln model` in `kiln status`'s controls: when available, with what reason? | Technical | LOW | 85 → 85 | Resolved by decision | TD §Command line |
+| Q47 | 5 | Folder missing restart from the base branch: a phase started but unfinished in the archived execution reruns on the resolver's choice or what it started on (AC-PICK-04)? | Technical | MEDIUM | 75 → 75 | Pending | — |
+| Q48 | 5 | Continue offer: does Continue check readiness for the agents the added phases' tiers resolve to, as AC-AGENTS-01 does at Start? | Technical | MEDIUM | 80 → 80 | Pending | — |
 
 ## Question notes
+
+### Pass 5 conformance
+Fixed: Coverage AC-PICK-02 cites earlier-execution rows; POST /api/model 400 (malformed, empty effort) and 422 (omitted effort can't be filled); §Changes bot-control §Scope and concurrency; continue-added-phases §Data Models and Migration (reads each retained execution once per process). No PRD Replaces needed. Raised Q47, Q48. Not taken: moving the omitted-effort rule to the top of §Interfaces (reads fine; consolidation can revisit).
+
+### Q43–Q46
+Answered (90/75/85/85; Q44–Q46 folded as decisions), folded. Q43: Continue offer's Preflight row plain, the continuation's resolved choice with the kept test applied (Complete.svelte:142; snapshot.ts:1507-1514). Q44: phases finished in an earlier execution show Ran on from that phase's sessions in retained executions (same response test, matched by phase id), else No model recorded; read once per process, cached; unreadable archive → No model recorded with "Historical execution is unavailable or damaged."; migration step 1 covers retained executions' sessions (ExecutionHistory.svelte; local-server.ts:245; continuation-state.ts:81-95). Q45: omitted effort → agent's reported default if listed (family: newest version's), else refused "Choose an effort for <Model>; no supported default was reported."; Claude choices that take effort must name one; no-effort model refuses an effort; empty effort malformed (engine.ts:2760-2769). Q46: `model` control available in a run underway not complete, busy only like `settings`; reasons before Start / complete / disconnected; PLANNED_CONTROLS gains model (projection.ts:41,269; engine.ts:625-665).
 
 ### Pass 4 conformance
 Fixed: build-preflight §Changes bullet (§The Preflight Session, §Interfaces, §Display Contract; preflight.planned gains model); merged duplicate "plan account with no windows" rule; continuation paragraph drops source-file pointer and covers the audits/preflight/PR taking the Audits row; PRD AC-KEEP-02 KEEP-003 sentence and AC-CONTINUE-08 line cover a continuation's activities; KEEP-003 title/assumption/evidence aligned ("a finished PRD set up before this change"); TD OQ2 reworded; Coverage cites the planned Preflight row. Raised Q43. Placement doubt on KEEP-003 (above vs below the line) settled by the orchestrator: Impact is LOW by assumptions-document-writing's definition (a person can change any row before it starts; nothing irreversible), so below the line stands; AC-CONTINUE-08 was written when one choice covered the whole PRD, which the entry's Evidence already names.
@@ -178,6 +190,8 @@ Observations (not criteria): Codex-support and usage-limit-recovery Out of Scope
 Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as Technical questions · 2 stay business (DEF-001, DEF-002, both below the line). Second reviewer doubted neither. Folded: DEF-001's "If they choose otherwise" line and boxes lack "Mechanical ships at Sonnet · high" (the stakeholder's Sonnet reluctance is the main argument against it); add it.
 
 ## Noticed, out of scope
+- Claude Code installed partway through a run on a Codex-only computer moves every not-started phase to its Claude first choice at the next refresh; Claude billing then reads pending and can stop the next launch on approval (consequence of the "restores with no step" rule).
+- On Paused or with nothing current, the account panel's "in use" mark has no stated owner; `kiln account` uses the next activity's agent and the panel could do the same.
 - `kiln model` receipt outcome name and effect fields unspecified; the journal pattern settles them.
 - Whether `kiln model` works before Start is unspecified; the PRD requires it only in a run underway.
 - An older Claude session with no saved initModel carries on with its saved model alias.
@@ -198,4 +212,4 @@ Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 s
 |---|---|---|
 
 ## Next action
-Pass 4 committed. Pass 5: discovery (carry Q43 Pending first).
+Pass 5 committed. Pass 6: discovery (carry Q47, Q48 Pending first).
