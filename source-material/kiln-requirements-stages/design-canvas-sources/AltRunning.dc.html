@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Running, after the method changed</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.circle{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;box-sizing:border-box;border:1px dashed rgba(237,232,221,.24);color:#8c8577}
+.circle.done{border:1px solid rgba(156,196,154,.45);background:rgba(156,196,154,.09);color:#9cc49a;font-weight:600}
+.circle.now{border:1px solid #e2694f;background:#e2694f;color:#12110e;font-weight:600}
+.circle.next{border:1px solid rgba(237,232,221,.4);color:#ede8dd}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.you{border-color:rgba(226,105,79,.6);color:#f0866e;font-weight:500}
+.tag.new{border-color:rgba(237,232,221,.4);color:#ede8dd;font-weight:500}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;border:1px solid transparent}
+.pill.done{background:rgba(156,196,154,.09);color:#9cc49a;border-color:rgba(156,196,154,.45)}
+.pill.now{background:#e2694f;color:#12110e;border-color:#e2694f}
+.pill.next{border-color:rgba(237,232,221,.4);color:#ede8dd}
+.pill.planned{border-style:dashed;border-color:rgba(237,232,221,.24);color:#8c8577}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;box-sizing:border-box}
+.lab{font-size:12.5px;color:#8c8577}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.title{font-size:16px;font-weight:500}
+.what{font-size:13.5px;color:#bdb6a8}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.facts{font-size:13px;color:#8c8577;white-space:nowrap}
+.small{font-size:12.5px;color:#8c8577;line-height:1.5}
+</style>
+</helmet>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="display: inline-flex; align-items: baseline; gap: 18px"><span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span><a href="Main.dc.html" style="font-size: 13.5px">All work in this repository</a></span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>PRD folder <span class="mono" style="color: #ede8dd">docs/prds/gift-card-balance-lookup/</span></span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">Gift card balance lookup</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span class="pill now" style="padding: 8px 16px; font-size: 14px">Writing the technical design</span><span style="color: #bdb6a8">3 of 7 requirements stages done. Kiln stops next at the final review.</span></div>
+</div>
+
+<section aria-labelledby="chg-h" style="border: 1px solid rgba(237,232,221,.4); border-radius: 18px; padding: 22px 26px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px 28px">
+<div style="flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<h2 id="chg-h" class="eyebrow">The plan changed at 2:10 PM</h2>
+<span style="font-size: 17px; font-weight: 600">The Enso Method was updated on this computer at 2:08 PM</span>
+<span class="what">The updated method reviews and refines the design in one stage where the old one had two, so the plan below has 7 stages where it had 8. Nothing already done is affected, and Kiln carries on.</span>
+</div>
+<button type="button" class="btn">Dismiss</button>
+</section>
+
+<section style="border: 1px solid rgba(226,105,79,.55); border-radius: 18px; background: #0d0c0a; padding: 28px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px 24px">
+<div style="display: flex; align-items: center; gap: 16px; min-width: 0"><span class="circle now mono">R4</span><div style="display: flex; flex-direction: column; gap: 2px"><span class="eyebrow">Now · requirements stage 4 of 7</span><span style="font-size: 20px; font-weight: 600">Technical design</span><span style="font-size: 14px; color: #bdb6a8">Claude Code · Fable 5.2 · high effort · started 2:10 PM · 18 min · running <span class="mono" style="font-size: 12.5px">technical-design-writing-standards</span></span></div></div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px"><button type="button" class="btn">Message Claude</button><button type="button" class="btn">Pause now</button></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 12px 32px; padding-top: 18px; border-top: 1px solid rgba(237,232,221,.12)">
+<div style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span class="lab">How Kiln chose this stage</span><span class="what">The session before it ended by saying the method puts the technical design next. This session checked where the PRD stands and agreed.</span></div>
+<div style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span class="lab">What comes next</span><span class="what">Review and refine the design, by the plan below. This session confirms it when it ends.</span></div>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+<section aria-labelledby="plan-h" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="plan-h" class="eyebrow">Requirements plan</h2><span style="font-size: 13px; color: #8c8577">3 of 7 done · read from the Enso Method as updated today, 2:08 PM</span></div>
+<ol style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li class="row"><span class="circle done mono">R1</span><span class="names"><span class="title">Write the PRD</span><span class="what">Ran <span class="mono" style="font-size: 12.5px">prd-writing-standards</span></span></span><span class="right"><span class="facts">38m · pushed 7c2e4f1</span><span class="pill done">Done</span></span></li>
+
+<li class="row"><span class="circle done mono">R2</span><span class="names"><span class="title">Refine the PRD</span><span class="what">Ran <span class="mono" style="font-size: 12.5px">autonomous-prd-refinement</span></span></span><span class="right"><span class="facts">3h 12m · pushed b81d220</span><span class="pill done">Done</span></span></li>
+
+<li class="row"><span class="circle done mono">R3</span><span class="names"><span class="title">Early stakeholder review</span><span class="what">You sent feedback at 1:05 PM. Worked in and pushed at 1:52 PM.</span></span><span class="right"><span class="facts">17m · pushed 0fa3c9e</span><span class="pill done">Done</span></span></li>
+
+<li class="row"><span class="circle now mono">R4</span><span class="names"><span class="title">Technical design</span><span class="what">Running <span class="mono" style="font-size: 12.5px">technical-design-writing-standards</span></span></span><span class="right"><span class="facts">18m</span><span class="pill now">Writing</span></span></li>
+
+<li class="row"><span class="circle next mono">R5</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Review and refine the design</span><span class="tag new">Now on your default model</span></span><span class="what">Will run <span class="mono" style="font-size: 12.5px">technical-design-refinement</span>. It was two stages, Design review and Refine the design. It runs on your default, because your saved choice of Opus was for Refine the design, which the updated method no longer has. <a href="#">Change</a></span></span><span class="right"><span class="pill next">Next</span></span></li>
+
+<li class="row"><span class="circle mono">R6</span><span class="names"><span class="title" style="color: #bdb6a8">Phase plan</span><span class="what">Will run <span class="mono" style="font-size: 12.5px">phase-split</span></span></span><span class="right"><span class="pill planned">Planned</span></span></li>
+
+<li class="row"><span class="circle mono">R7</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title" style="color: #bdb6a8">Final stakeholder review</span><span class="tag you">Kiln always stops here</span></span></span><span class="right"><span class="pill planned">Planned</span></span></li>
+
+<li class="row" style="border-bottom: 0"><span class="circle mono">B</span><span class="names"><span class="title" style="color: #bdb6a8">Build</span><span class="what">Phases appear once the phase plan is written. You start it from the final review.</span></span><span class="right"><span class="pill planned">After the plan</span></span></li>
+</ol>
+</section>
+
+<section class="card" aria-labelledby="set-h" style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 14px">
+<h2 id="set-h" class="eyebrow">Settings for this PRD</h2>
+<div style="display: flex; flex-direction: column; gap: 3px; padding-top: 14px; border-top: 1px solid rgba(237,232,221,.12)"><span class="lab">Enso Method</span><span style="font-size: 14.5px">Updated today, 2:08 PM</span><span class="small">Stages 1 to 3 ran before the update. Each session runs the copy installed when it starts.</span></div>
+<div style="display: flex; flex-direction: column; gap: 3px"><span class="lab">Your review</span><span style="font-size: 14.5px">Kiln waited at the early review</span><span class="small">It stops next at the final review, before the build.</span></div>
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px"><div style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span class="lab">Requirements stages</span><span style="font-size: 14.5px">Claude Code · Fable 5.2 · high</span></div><button type="button" class="btn">Change</button></div>
+<div style="display: flex; flex-direction: column; gap: 3px"><span class="lab">Feature branch</span><span class="mono" style="font-size: 13px">feature/gift-card-balance</span><span class="small">4 commits ahead of <span class="mono">develop</span>, all pushed</span></div>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1600}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

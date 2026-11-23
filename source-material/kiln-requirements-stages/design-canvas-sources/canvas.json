@@ -1,0 +1,121 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "AltReading.dc.html": {
+      "expand": "fill",
+      "h": 1000,
+      "title": "3a. Before Start, while Kiln reads the plan (first time, and after a method update)",
+      "w": 1280,
+      "x": 0,
+      "y": 2060
+    },
+    "AltBeforeStart.dc.html": {
+      "expand": "fill",
+      "h": 1900,
+      "title": "3. Before Start, the plan from the method, a model on every stage",
+      "w": 1280,
+      "x": 1360,
+      "y": 2060
+    },
+    "AltRunning.dc.html": {
+      "expand": "fill",
+      "h": 1600,
+      "title": "4b. Running, after the method changed",
+      "w": 1280,
+      "x": 4080,
+      "y": 2060
+    },
+    "HomeEmpty.dc.html": {
+      "expand": "fill",
+      "h": 1040,
+      "title": "2. Home, nothing found yet",
+      "w": 1280,
+      "x": 1360,
+      "y": 0
+    },
+    "HomeFolder.dc.html": {
+      "expand": "fill",
+      "h": 1760,
+      "title": "2b. Home, from a folder of repositories",
+      "w": 1280,
+      "x": 2720,
+      "y": 0
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 1640,
+      "title": "1. Home (kiln new)",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "ReadyToBuild.dc.html": {
+      "expand": "fill",
+      "h": 2060,
+      "title": "6. Final review, then the build",
+      "w": 1280,
+      "x": 6800,
+      "y": 2060
+    },
+    "Refining.dc.html": {
+      "expand": "fill",
+      "h": 1900,
+      "title": "4. While the PRD is refined",
+      "w": 1280,
+      "x": 2720,
+      "y": 2060
+    },
+    "YourReview.dc.html": {
+      "expand": "fill",
+      "h": 1700,
+      "title": "5. Early review, before the design",
+      "w": 1280,
+      "x": 5440,
+      "y": 2060
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-11-23T01:40:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "noteOrder": [
+    "t-start",
+    "t-stages"
+  ],
+  "notes": {
+    "t-stages": {
+      "kind": "title1",
+      "maxW": 8080,
+      "text": "From source material to the build",
+      "w": 240,
+      "x": 0,
+      "y": 1760
+    },
+    "t-start": {
+      "kind": "title1",
+      "maxW": 4000,
+      "text": "Starting: one home screen",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "HomeEmpty.dc.html",
+    "HomeFolder.dc.html",
+    "AltReading.dc.html",
+    "AltBeforeStart.dc.html",
+    "Refining.dc.html",
+    "AltRunning.dc.html",
+    "YourReview.dc.html",
+    "ReadyToBuild.dc.html"
+  ],
+  "pages": [],
+  "title": "Kiln requirements stages"
+}
