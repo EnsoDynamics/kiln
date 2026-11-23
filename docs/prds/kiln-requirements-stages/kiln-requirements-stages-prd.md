@@ -81,7 +81,7 @@ A person sees every stage Kiln intends to run before pressing Start, as they see
 
   | Session | The report says |
   |---|---|
-  | Every session | What it ran, in the method's own name; what the method puts next, and which milestone (AC-PLAN-08) that step is expected to reach; which milestones the PRD has now reached; what it did with each message it read |
+  | Every stage or feedback session | What it ran, in the method's own name; what the method puts next, and which milestone (AC-PLAN-08) that step is expected to reach; which milestones the PRD has now reached; what it did with each message it read |
   | The session that drafted the PRD | The few statements the PRD hangs on, and what it leaves out (AC-NOTE-01) |
   | A session that applied feedback | What changed (AC-EARLY-04) |
 
@@ -143,7 +143,7 @@ A person can catch a wrong turn minutes after the draft, before hours of refinem
 
 There is one rule for the person: say it whenever it comes to mind, and never stop anything to say it.
 
-- [ ] **AC-TALK-01 — The running screen takes feedback during every requirements stage.** A message sent while a stage's session is running is delivered to that session, which works it into its stage as the method directs for feedback. The screen shows when the session read it. A message the stage's report (AC-PLAN-06) says was not worked in is applied as AC-TALK-02 says.
+- [ ] **AC-TALK-01 — The running screen takes feedback during every requirements stage.** A message sent while a stage's session is running is delivered to that session, which works it into its stage as the method directs for feedback. The screen shows when the session read it. A message too long to deliver to a running session, as a pasted review reply often is, and one the stage's report (AC-PLAN-06) says was not worked in, are applied as AC-TALK-02 says.
   - Replaces in part: AC-MSG-01 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (feedback to a requirements session carries one line naming the message before the person's text; the rest remains).
 - [ ] **AC-TALK-02 — Feedback with no session to read it is applied before the next stage.** When no session is running, or a message can't be delivered to the running one, a fresh session applies the feedback before the next stage starts. The screen shows each message as waiting, sent, read or applied, and as read only when the session confirms it.
   - Replaces in part: AC-MSG-02, AC-MSG-03 and AC-MSG-05 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (feedback to a requirements session whose delivery is uncertain shows as waiting, takes no hold and is applied by a fresh session; the rest remains).
