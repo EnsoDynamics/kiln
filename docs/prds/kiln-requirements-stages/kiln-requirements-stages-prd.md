@@ -38,6 +38,7 @@ Six terms recur below:
 A person points Kiln at what they have, and Kiln works out what comes next. There is no separate mode for requirements.
 
 - [ ] **AC-BEGIN-01 — `kiln run` accepts source material.** `kiln run` followed by a source material folder opens Kiln's browser view on that work, as it does for a PRD folder today. A planned PRD is started from the home screen, or from a terminal by naming its initiative and the PRD.
+  - Replaces in part: AC-START-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (`kiln run` also accepts a source material folder, and an initiative with one planned PRD named; the rest remains).
 - [ ] **AC-BEGIN-02 — Kiln starts only from source material it can name.** Kiln starts from the three kinds in the table until a PRD or initiative is written from them (AC-HOME-13), and `kiln run` on source material Kiln started a PRD from opens that run. Otherwise it opens nothing, and says in the terminal either which document is missing or which PRD or initiative was written from the material.
 
   | Kind | What Kiln looks for |
@@ -48,9 +49,16 @@ A person points Kiln at what they have, and Kiln works out what comes next. Ther
 
 - [ ] **AC-BEGIN-03 — Source material must be committed on the shared branch.** When the source material is not committed on the shared branch, Kiln says so in the same way, names what to commit and does not start.
 - [ ] **AC-BEGIN-04 — A PRD started by hand continues from where it stands.** `kiln run` on a PRD folder whose requirements are not finished shows where the PRD stands, as the home screen does (AC-HOME-04, AC-HOME-13), and Start continues from there. The first session finds the next stage (AC-PLAN-06), so no stage whose result is already in the documents runs again.
+  - Replaces in part: AC-START-02 and AC-START-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a PRD folder whose requirements are unfinished isn't stopped for a missing design or phase documents, and before Start shows where the PRD stands in place of the phase plan; the rest remains).
+  - Replaces in part: AC-FROM-02 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (before Start, a PRD whose requirements are unfinished shows where it stands in place of the phase plan; the rest remains).
 - [ ] **AC-BEGIN-05 — A PRD that already has its phase plan starts as it does today.** For a PRD whose phase plan was written before Kiln was pointed at it, Kiln shows today's screen before Start, has no stakeholder review made and adds no stage or stop.
 - [ ] **AC-BEGIN-06 — Source material gets its feature branch when the PRD draft starts.** Kiln cuts the feature branch and its worktree from the shared branch as the first stage starts. The branch is named from the source material's folder, or from a planned PRD's directory, and the person can change the name before Start, as today. Once cut, the branch and worktree keep their names, and the run stays with the PRD when the method renames the PRD's folder. Every requirements stage and every build phase lands on that branch, and one pull request closes it.
+  - Replaces in part: AC-START-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a start from source material is named from the source folder or the planned PRD's directory; the rest remains).
+  - Replaces in part: AC-SPACE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a start from source material is named from the source folder or the planned PRD's directory; the rest remains).
+  - Replaces in part: AC-FROM-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (a start from source material always cuts a new branch; the rest remains).
 - [ ] **AC-BEGIN-07 — Before Start shows what Kiln found.** For source material, the screen before Start lists the documents Kiln will write the PRD from, the commit they are at and the feature branch it will cut. Nothing runs until Start.
+  - Replaces in part: AC-START-04 in `docs/prds/kiln-v1/kiln-v1-prd.md` (for source material, the screen before Start shows what Kiln found in place of the PRD's documents and phase plan; the rest remains).
+  - Replaces in part: AC-FROM-02 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (for source material, the screen before Start shows what Kiln found in place of the phase plan; the rest remains).
 - [ ] **AC-BEGIN-08 — A PRD started on a branch of its own continues on it.** For a PRD whose documents are on a branch that hasn't merged, such as the branch the method makes for a PRD started by hand, the screen before Start has that branch selected under **Start from**, and every stage and phase lands on it.
   - Replaces in part: AC-FROM-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (which branch is selected first; the rest remains).
 
@@ -61,8 +69,11 @@ A person points Kiln at what they have, and Kiln works out what comes next. Ther
 A person sees every stage Kiln intends to run before pressing Start, as they see every phase of a build today. The list comes from the installed method, so it is right for the method the person actually has.
 
 - [ ] **AC-PLAN-01 — The requirements plan lists every stage, then the build.** Before Start and while running, the plan shows each requirements stage in order, with the method's name for the skill it runs, followed by one row for the build. The two stops are marked on the stages they follow. Where the method makes no stakeholder review at a stop, the review Kiln has made there (AC-PLAN-08) is a row of its own.
+  - Replaces in part: AC-WATCH-01 and AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the plan gains requirements-stage rows and Kiln's review rows before the build, and the changed screens follow this PRD's mockups; the rest remains).
+  - Replaces in part: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the changed screens follow this PRD's mockups; the rest remains).
 - [ ] **AC-PLAN-02 — The plan comes from the installed method, not from Kiln.** Kiln holds no list of the Enso Method's requirements stages or skills. With an installed method whose stages differ from today's, such as two stages merged into one or a skill renamed, Kiln shows and runs that method's stages with no change to Kiln.
 - [ ] **AC-PLAN-03 — The plan is read once and kept until the installed method changes.** Kiln starts reading the plan when the home screen opens or `kiln run` starts, whichever is first. On a metered route needing billing approval, it waits until the person approves billing for a PRD before Start. Kiln reuses it for every PRD, and reads it again when the installed method changes. The screen says the plan was read from the installed method and when that method was last updated, never a version number. **Read again** reads it on request.
+  - Replaces in part: AC-START-03 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a session that reads the requirements plan may run before Start; nothing works on the PRD until Start; the rest remains).
 - [ ] **AC-PLAN-04 — While the plan is being read, the screen says so.** It shows that Kiln is reading the plan and how long it has taken, and states what holds whatever the plan turns out to be: the wait at the early review, the stop at the final review, and that the build never starts by itself.
 - [ ] **AC-PLAN-05 — Start never waits for the plan.** Start works while the plan is being read. When it can't be read, Kiln says so and why, Start still works, and the plan fills in as stages run.
 - [ ] **AC-PLAN-06 — Each stage's session decides what runs, and reports it.** Each stage's session finds where the PRD stands with the installed method and runs the next requirements stage, never a step that comes before the PRD is written (Out of Scope). It ends with a report in a form Kiln owns, holding what the table lists. When what it ran or what comes next differs from the plan, Kiln corrects the plan and says what changed.
@@ -97,19 +108,26 @@ Each requirements stage runs like a build phase: one fresh session, in the featu
   | At Needs you, **Check again** finds everything committed, whether or not the person finished the stage themselves | Moves on; the next session finds where the PRD stands (AC-PLAN-06) |
   | Any other way | **Needs you**, as a phase does |
 
-- [ ] **AC-STAGE-03 — The running screen shows every stage's state.** Each finished stage shows how long it took and the commit it pushed. The running stage shows the skill it is running, its model and how long it has run. The stages still to come are listed after it.
+  - Replaces in part: AC-GIT-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Kiln pushes the feature branch after each requirements stage; the rest remains).
+- [ ] **AC-STAGE-03 — The running screen shows every stage's state.** Each finished stage shows how long it took and the commit it pushed. The running stage shows the skill it is running, its model and how long it has run. The stages still to come are listed after it. The PRD's totals count, from Start, every requirements session Kiln runs for it as running time, and the time it stands at either review as waiting, as at Needs you. A plan read serves every PRD and counts toward none.
+  - Replaces in part: AC-WATCH-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the header names the requirements stage running, or the review it waits at; the rest remains).
+  - Replaces in part: AC-TOTAL-02 in `docs/changes/kiln-prd-time-totals/kiln-prd-time-totals-prd.md` (the counted sessions include the requirements sessions, and waiting time includes both review stops; the rest remains).
 - [ ] **AC-STAGE-04 — A stage session gets what a phase session gets.** Each control and safeguard in the table works for a requirements stage as it does for a phase.
 
   | Today, for a phase | For a requirements stage |
   |---|---|
-  | **Message Claude** | Delivers a message to the running stage's session |
+  | **Message Claude** | Delivers a message to the running stage's session as feedback (AC-TALK-01) |
   | **Pause now** | Stops the stage's session so it can be resumed |
   | **Needs you**, with the reply box, the takeover command and **Resume** | The same screen. On **Resume** with everything committed, Kiln goes on and the reply is feedback (AC-TALK-02). With work left, Kiln names what to commit at a review (AC-EARLY-03), and elsewhere resumes the stopped session with the reply |
   | A usage limit reached | The same wait or fallback, by the person's settings |
   | The terminal closed or Ctrl+C | `kiln run` again continues from the stage that was running |
   | Billing checked before each launch, and approved before Start | Covers every session Kiln starts for the requirements, reading the plan (AC-PLAN-03) and applying feedback included |
 
+  - Replaces in part: AC-AUTO-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a requirements session that hits a usage limit waits too, not only a phase or pull-request session; the rest remains).
+  - Replaces in part: AC-RETURN-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (for a requirements stage, Resume with everything committed goes on without a separate advance, and the reply becomes feedback; the rest remains).
+  - Replaces in part: AC-ACT-02 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (for a requirements stage, Resume with everything committed goes on without a separate advance, and the reply becomes feedback; the rest remains).
 - [ ] **AC-STAGE-05 — The terminal shows and controls the same things.** `kiln status` shows the requirements stage a PRD is at and either review it is waiting at. Sending feedback, continuing past the early review and starting the build each have a command that does what the screen's control does.
+  - Replaces in part: AC-ACT-01, AC-ACT-03, AC-SEE-01, AC-SEE-02 and AC-SEE-07 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (`kiln feedback` and `kiln start-build` join the commands, `kiln settings` takes the early review setting and `kiln model` a stage; `kiln continue` also continues past the early review; status and run commands take any path `kiln run` accepts, list a run from source material by its start path, and show the requirements stage, the review waited at and the feedback; the rest remains).
 - [ ] **AC-STAGE-06 — The build never starts by itself.** No setting and no command given earlier starts the build; only the person does (AC-FINAL-04, AC-BEGIN-05).
 
 ### Show what the PRD hangs on, without waiting
@@ -124,7 +142,9 @@ A person can catch a wrong turn minutes after the draft, before hours of refinem
 There is one rule for the person: say it whenever it comes to mind, and never stop anything to say it.
 
 - [ ] **AC-TALK-01 — The running screen takes feedback during every requirements stage.** A message sent while a stage's session is running is delivered to that session, which works it into its stage as the method directs for feedback. The screen shows when the session read it. A message the stage's report (AC-PLAN-06) says was not worked in is applied as AC-TALK-02 says.
+  - Replaces in part: AC-MSG-01 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (feedback to a requirements session carries one line naming the message before the person's text; the rest remains).
 - [ ] **AC-TALK-02 — Feedback with no session to read it is applied before the next stage.** When no session is running, or a message can't be delivered to the running one, a fresh session applies the feedback before the next stage starts. The screen shows each message as waiting, read or applied.
+  - Replaces in part: AC-MSG-03 and AC-MSG-05 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (feedback to a requirements session whose delivery is uncertain takes no hold and is applied by a fresh session; the rest remains).
 - [ ] **AC-TALK-03 — Sending feedback never stops the run.** Feedback does not pause the run or hold back the running stage.
 - [ ] **AC-TALK-04 — Feedback reaches every document already written.** The session that applies feedback works on all of the PRD's requirements documents that exist, so a change made after the technical design or the phase plan is written reaches them too. The requirements plan shows the commit that applied it.
 
@@ -135,8 +155,10 @@ The early review comes after the PRD is refined and before any design work, when
 - [ ] **AC-EARLY-01 — Kiln has the early review made, opens it and waits.** When the PRD is refined (AC-PLAN-08), Kiln opens the stakeholder review made from it for the person and waits. While it waits, no session runs.
 - [ ] **AC-EARLY-02 — The screen says this is the early review.** It says the review comes before the technical design, links to the review, says since when it has been ready, and says the review comes back at the end as the final review.
 - [ ] **AC-EARLY-03 — The person answers in one of three ways.** They send feedback, pasted from the review's reply or in their own words. Or they continue to the technical design without feedback. Or they open a session of their own with the command shown, commit their changes and press **Resume** (AC-STAGE-04), which counts as feedback: Kiln has the review refreshed if that session changed what it is made from, then goes on as after feedback (AC-EARLY-04, AC-FINAL-03).
+  - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Send feedback and Continue join the browser view's controls; the rest remains).
 - [ ] **AC-EARLY-04 — One round of feedback, then on.** A fresh session works the feedback into the PRD, its assumptions and its mockups, refreshes the review and shows what changed. Kiln then carries on to the technical design without waiting, unless the person asked, when sending the feedback, to stop there again.
 - [ ] **AC-EARLY-05 — One setting turns the wait off.** **Wait for me at the early review** is on by default, is set before Start and can be changed until the PRD's refinement finishes. When it is off, Kiln still has the early review made and carries on to the technical design, and feedback is taken whenever it comes (AC-TALK-02).
+  - Replaces in part: AC-START-06, AC-VIEW-08 and AC-WATCH-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a new setting, Wait for me at the early review, changeable until the PRD's refinement finishes; the rest remains).
 
 ### Stop at the final review, and start the build from it
 
@@ -144,12 +166,17 @@ The final review is the last thing in the requirements and the place the build s
 
 - [ ] **AC-FINAL-01 — Kiln always stops before the build.** When the requirements are finished (AC-PLAN-08), Kiln stops at the final review (AC-STAGE-06), and the review it shows reflects the requirements as the last stage left them.
 - [ ] **AC-FINAL-02 — The final review, the phase plan and Start are one screen.** The screen links to the refreshed review, which shows only what is still open, as the method makes it. It offers the same three ways to answer as the early review (AC-EARLY-03), and shows the phase plan with each phase's model and **Start the build**, as the screen before Start does for a build today.
+  - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Start the build joins the browser view's controls; the rest remains).
 - [ ] **AC-FINAL-03 — Feedback here comes back to the same screen.** A fresh session works the feedback into the PRD, the design and the phase plan and refreshes the review. Kiln then shows this screen again with the phase plan as it now stands.
 - [ ] **AC-FINAL-04 — Starting the build is how the person says the review is done.** **Start the build** begins the build on the same feature branch, as Start does today. The build goes ahead on any assumption still unconfirmed, and the screen says how many there are.
+  - Replaces in part: AC-PREFLIGHT-01 and AC-PREFLIGHT-08 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (when Kiln runs the requirements, the preflight comes at Start the build, not at Start, and its row sits just above the build; the rest remains).
 - [ ] **AC-FINAL-05 — Kiln doesn't ask whether the PRD was refined when it ran the refinements.** Kiln asks for today's confirmation only when it didn't run every refinement the method called for on this PRD.
+  - Replaces in part: AC-START-05 in `docs/prds/kiln-v1/kiln-v1-prd.md` (asked only when Kiln didn't run every refinement the method called for; the rest remains).
 - [ ] **AC-FINAL-06 — A PRD with no phase plan is built in one session.** When the requirements finish without phase documents, because phase planning found the work fits one session or the method let a small change skip the design and the phase plan, the final review shows one build row for the whole PRD in place of the phase plan, with the model a phase with no rating gets, **Change** and **Start the build** (SCOPE-001). The build is one session on the feature branch, with what a phase session gets (AC-STAGE-04). Kiln then finishes it as it finishes a split PRD, except that no delivery audit runs, as the method skips it.
-  - Replaces in part: AC-START-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a PRD whose requirements finished without phase documents, or without a technical design, is built, not stopped; the rest remains).
-  - Replaces in part: AC-AUDIT-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a PRD built in one session with no phase plan gets no delivery audit; the rest remains).
+  - Replaces in part: AC-START-02 and AC-WATCH-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a PRD whose requirements finished without phase documents, or without a technical design, is built, not stopped, and its plan shows one build row with no phase document; the rest remains).
+  - Replaces in part: AC-AUDIT-01, AC-TEST-01, AC-TEST-03 and AC-AUDIT-04 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (a PRD built in one session with no phase plan gets no delivery audit: its test audit starts without one, a test-audit fix gets no fresh delivery audit, and completion needs no current delivery audit; the rest remains).
+  - Replaces in part: AC-LAST-03 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (for a PRD built in one session with no delivery audit, the test audit comes first and no delivery audit checks its changes; the rest remains).
+  - Replaces in part: AC-DONE-01 and AC-DONE-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a PRD built in one session has no phase document to close, so it is done when its session reports it finished, everything is committed and the branch is pushed; the rest remains).
 
   Added in refinement.
 
@@ -165,10 +192,11 @@ The design refinement is the longest stage and can use up a subscription's allow
   | Requirements stages | Every requirements stage not on the row below, and the sessions that read the plan and apply feedback | Claude Code · Fable · high | Codex · GPT Astra · high |
   | Refining the design | From the stage that the plan, or the latest stage's report, expects to make the design ready (AC-PLAN-08), until a report says it is | Claude Code · Opus · high | Codex · GPT Sol · extra high |
 
-  - Replaces in part: AC-DEFAULT-02 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (the page shows six rows, not four; the rest remains).
+  - Replaces in part: AC-DEFAULT-01, AC-DEFAULT-02 and AC-OTHER-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (Model defaults gains two rows, so the page shows six, not four; requirements stages and the sessions that read the plan or apply feedback run on those rows, not on the Audits choice; the rest remains).
 - [ ] **AC-MODEL-03 — A changed stage can be remembered for every PRD.** When changing a stage, the person can tick **Use this for {skill} on every PRD**, naming the skill the method names for that stage. Kiln remembers the choice against that skill and applies it to each stage the plan or the latest report says runs it, on every PRD on the computer.
 - [ ] **AC-MODEL-04 — A remembered choice that no longer matches falls back, and says so.** When no stage in the plan runs the skill a remembered choice was saved against, the choice is not applied. A stage that replaced it runs on its row's default (AC-MODEL-02), and its row says a saved choice no longer applies, with Change beside it.
 - [ ] **AC-MODEL-05 — Stage models can be changed from a terminal.** A stage's model, either requirements row of Model defaults and a remembered choice can each be set by a command.
+  - Replaces in part: AC-ACT-01 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (the stage model, remember and forget commands join the commands; the rest remains).
 - [ ] **AC-MODEL-06 — Requirements stages follow the rules a phase follows for its model.** A choice that can't be used stops the run and nothing runs in its place, and the fallback to the other agent applies to a stage that hasn't started, as Kiln Phase Model Tiers states for a phase.
 
 ### A home screen for everything Kiln can work on
@@ -176,8 +204,9 @@ The design refinement is the longest stage and can use up a subscription's allow
 A person opens Kiln without knowing a folder name and sees what is ready, what is under way and what is waiting for them.
 
 - [ ] **AC-HOME-01 — `kiln new`, or `kiln` with nothing named, opens the home screen.** It opens Kiln's browser view on the home screen for where the command was run.
+  - Replaces in part: AC-ACT-01 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (`kiln` with no arguments, or `kiln new`, opens the home screen instead of pointing to `kiln --help`; the rest remains).
 - [ ] **AC-HOME-02 — Ready to start lists source material nothing was written from yet.** Each item shows a name taken from the source material itself, which of the three kinds it is (AC-BEGIN-02) and where it is, with **Review and start**, which opens the screen before Start. A planned PRD is ready to start whatever it depends on, and its line says when its build has to wait for another PRD.
-- [ ] **AC-HOME-03 — Not ready yet says why.** Each line names the one step left: committing the source material on the shared branch, or writing the intake record for material brought in.
+- [ ] **AC-HOME-03 — Not ready yet says why.** Each line names the one step left: committing the source material on the shared branch, bringing the local shared branch up to date when the material is committed only on the remote's copy of it, or writing the intake record for material brought in.
 - [ ] **AC-HOME-04 — Under way lists every unfinished PRD, at the stage it reached.** Each line says the stage reached; where the documents can't tell two stages apart, such as a PRD drafted or refined, it names the documents that exist. It also says whether the PRD was started by hand. Under way comes first, with anything waiting for the person at the top.
 - [ ] **AC-HOME-13 — Each item is listed in one place, read from file names and Git.** Kiln reads only its own record of the PRDs it has run, the checkout and its worktrees, and Git on every branch, never the wording of commit subjects. It places each item by the first row that fits. A planned PRD's name is the directory its row gives.
 
@@ -194,7 +223,7 @@ A person opens Kiln without knowing a folder name and sees what is ready, what i
   Added in refinement.
 
 - [ ] **AC-HOME-05 — Each PRD opens in a Kiln of its own.** **Review and start**, **Review and continue** and **Open** each show the PRD in its own Kiln, at the PRD's own address, as `kiln run` would. The home screen stays open and starts nothing itself. Each Under way line shows its Kiln's state: working, waiting for the person, paused or not running. When a running Kiln's state can't be read, the line gives the address and says its state could not be read.
-  - Replaces in part: AC-MULTI-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a PRD opened from the home screen needs no terminal of its own; the rest remains).
+  - Replaces in part: AC-MULTI-01, AC-KEEP-01 and AC-START-01 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a PRD opened from the home screen needs no terminal of its own: its Kiln prints in the terminal the home screen runs in, so `kiln run` is no longer the only way to start; the rest remains).
 - [ ] **AC-HOME-06 — The screen explains how to bring source material in.** A panel says what source material is, that other folders under `source-material/` are not listed (HOME-004), how much is enough, and that bringing it in is a conversation held in the person's own agent session. It gives a short prompt to paste there, with a copy button. The prompt names the Enso Method and asks the session to bring the material into `source-material/`, commit it on the shared branch and stop. The panel says the item then appears under Ready to start and Kiln takes it from the PRD on.
 - [ ] **AC-HOME-07 — The list keeps itself current.** Source material committed while the home screen is open appears under Ready to start without the person reloading.
 - [ ] **AC-HOME-08 — In a repository, the home screen covers the whole repository.** It lists the same items wherever in the repository the command was run.

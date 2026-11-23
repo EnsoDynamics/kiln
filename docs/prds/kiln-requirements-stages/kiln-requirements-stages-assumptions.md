@@ -33,7 +33,7 @@
 
 **Assumption**: Yes. When phase planning finds the work fits **one session**, or the method lets a small change skip the design and the phase plan, the final review shows, in place of the phase plan, **one row** for building the whole PRD, with its model, which the person can change, and **Start the build**. Kiln builds it in **one session** on the feature branch, with the usual stops and recovery, then the test audit and the **pull request**. It runs **no delivery audit**, as the method skips it for a PRD built in one session.
 
-The cost of yes is **a second way of building**. Today Kiln refuses a PRD with no phase plan: its checks before a build, its record of finished work and its audits all read the phase documents, which the method writes and Kiln is not allowed to. All three must work without them.
+The cost of yes is **a second way of building**, which Kiln carries and keeps working as the method changes. Today Kiln refuses to build a PRD with no phase plan.
 
 **If they choose otherwise**: The final review ends with a short prompt to paste into the person's own session. Kiln's build stays as it is, and the person looks after a build of several hours, through its stops and usage limits, and opens the pull request: about **15 to 30 minutes** of attention spread over those hours (our estimate).
 
