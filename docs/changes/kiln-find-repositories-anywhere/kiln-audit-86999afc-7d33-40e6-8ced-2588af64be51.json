@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "86999afc-7d33-40e6-8ced-2588af64be51",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "First session of test fixes for the whole PRD. It raised both high-risk rows, AC-ASK-03 and AC-ASK-04, from Weak to Adequate, and a fresh reviewer confirmed both grades. New tests cover a bare repository or a folder inside a checkout given as the answer, worktree and wrong-origin answers refused end to end with nothing remembered, and a fresh search after a remembered folder fails. Each new test was seen to fail with the behavior broken. The full suite is green. 11 Weak rows remain in test-audit.md, starting with AC-SEE-05.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [
+    {"id": "item-1", "how": "AC-ASK-03 is now Adequate (10 of 10 stated parts) at a802a4d. New tests cover a bare repository and a folder inside a checkout, plus worktree and wrong-origin answers refused end to end with nothing remembered. Each was seen red and re-graded by a fresh reviewer."},
+    {"id": "item-2", "how": "AC-ASK-04 is now Adequate (5 of 5) at a802a4d. A new test proves that after a remembered folder fails, Kiln forgets it, searches again and uses a checkout the search reaches. It was seen red and re-graded by a fresh reviewer."}
+  ],
+  "changedImplementation": false,
+  "raised": ["AC-ASK-03", "AC-ASK-04"]
+}
