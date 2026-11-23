@@ -8,8 +8,9 @@ process.env.TZ = "America/New_York";
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
-import { handBackSnapshot, needsYouMessageSnapshot, RUNNING_NOW } from "../../../src/test-support/sample-snapshots.js";
+import { handBackSnapshot, needsYouMessageSnapshot, pausedHoldSnapshot, RUNNING_NOW } from "../../../src/test-support/sample-snapshots.js";
 import NeedsYou from "./NeedsYou.svelte";
+import PausedHold from "./PausedHold.svelte";
 import PhaseHandoff from "./PhaseHandoff.svelte";
 
 const strip = (markup: string) => markup.replace(/<!--[\s\S]*?-->/g, "");
@@ -86,5 +87,35 @@ describe("a session's request on the hand-back page (technical design, \"Screens
     const words = text(strip(render(PhaseHandoff, { props: { snapshot, now: RUNNING_NOW, page: { key: "2b", draft: "", choice: false, unsent: false } } }).body));
     expect(words).toContain("Kiln couldn’t find a checkout of acme-labs/inventory. It searched outward from ~/code/acme/, never above your home folder. Where is it on this computer? Use this folder Kiln remembers this on this computer only. Nothing is written to any repository. The session can ask for it again once the phase resumes.");
     expect(words.indexOf("Last message from")).toBeLessThan(words.indexOf("Kiln couldn’t find a checkout of acme-labs/inventory"));
+  });
+});
+
+describe("a session's request on a held Pause now page (AC-SEE-05)", () => {
+  const QUESTION = "Kiln couldn’t find a checkout of acme-labs/inventory";
+  const held = (snapshot: Snapshot) => text(strip(render(PausedHold, { props: { snapshot, now: RUNNING_NOW, page: { key: "2b", draft: "", choice: false, unsent: false } } }).body));
+  const asking = (snapshot: Snapshot) => { snapshot.needsYou!.locate = [{ ...INVENTORY, phaseFile: undefined } as never]; return snapshot; };
+
+  it("shows the question below the paused facts and above the carry-on and take-over sections", () => {
+    const words = held(asking(pausedHoldSnapshot()));
+    expect(words.split(QUESTION)).toHaveLength(2);
+    const at = ["Paused partway", "Last thing Claude said", QUESTION, "The session can ask for it again once the phase resumes.", "Let Kiln carry on", "Resume phase 2b", "Or take it over yourself"].map((part) => words.indexOf(part));
+    expect(at.every((index) => index >= 0), words).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+
+  it("shows it above the heading over the carry-on and fresh-terminal cards", () => {
+    const snapshot = asking(pausedHoldSnapshot({}, { history: { state: "unavailable", reason: "missing" } }));
+    Object.assign(snapshot.needsYou!, { reopen: { state: "unavailable", reason: "missing" }, carryOn: { available: true, endsHold: "takeover" } });
+    const words = held(snapshot);
+    expect(words.split(QUESTION)).toHaveLength(2);
+    const at = [QUESTION, "How would you like to resolve this?", "Reply here and let Kiln carry on", "Start a fresh session in your terminal"].map((part) => words.indexOf(part));
+    expect(at.every((index) => index >= 0), words).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  });
+
+  it("keeps the paused card whole when no question is asked", () => {
+    const words = held(pausedHoldSnapshot());
+    expect(words).not.toContain(QUESTION);
+    expect(words.indexOf("Last thing Claude said")).toBeLessThan(words.indexOf("Let Kiln carry on"));
   });
 });

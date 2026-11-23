@@ -1668,7 +1668,7 @@ export class Engine {
   /** Why Start is unavailable while a row asks (find repositories anywhere "Asking Before Start"). */
   get startBlockedBy(): string | undefined {
     // A named repository Kiln couldn't check holds Start, named on the page as a failed check.
-    if (this.record.startedAt === undefined && this.repositoryProblems.length > 0) return "Fix what failed, then reload.";
+    if (this.record.startedAt === undefined && (this.repositoryProblems.length > 0 || this.resetCheckFailing)) return "Fix what failed, then reload.";
     const asking = this.locatingRepositories;
     if (asking.length === 0) return undefined;
     if (asking.length > 1) return `Tell Kiln where ${asking.length} repositories are to start.`;
@@ -2696,10 +2696,26 @@ export class Engine {
   resetDocuments(): DocumentsFound | undefined {
     if (!this.resetStart || this.record.startedAt !== undefined) return undefined;
     const checkout = this.paths.suppliedCheckoutPath ?? this.paths.mainCheckoutPath;
+    return startCheckDocuments(join(checkout, this.paths.prdDirectoryFromRoot), this.paths.folderName, this.resetStart.report, this.paths.repositoryName, this.paths.prdDirectoryFromRoot, this.resetAdoptsCheckout());
+  }
+
+  /** Whether the selection adopts the checkout `kiln run` was run from, so its uncommitted files don't fail a check. */
+  private resetAdoptsCheckout(): boolean {
+    const checkout = this.paths.suppliedCheckoutPath ?? this.paths.mainCheckoutPath;
     const real = (path: string) => { try { return realpathSync.native(expandHome(path)); } catch { return path; } };
     const prd = this.startPreview?.from === "existing" ? this.startPreview.repositories.find(repository => repository.kind === "prd") : undefined;
-    const adopts = !!prd?.worktree?.adopted && real(prd.worktree.path) === real(checkout);
-    return startCheckDocuments(join(checkout, this.paths.prdDirectoryFromRoot), this.paths.folderName, this.resetStart.report, this.paths.repositoryName, this.paths.prdDirectoryFromRoot, adopts);
+    return !!prd?.worktree?.adopted && real(prd.worktree.path) === real(checkout);
+  }
+
+  /**
+   * A start check failing on a page a reset built, as `resetDocuments` counts them: Kiln reports
+   * it, and asks about no repository until a reload finds every check passing (AC-ASK-01).
+   */
+  get resetCheckFailing(): boolean {
+    const report = this.resetStart?.report;
+    if (!report || this.record.startedAt !== undefined) return false;
+    if (report.missingDocuments.length > 0) return true;
+    return report.problems.some((problem) => problem !== report.uncommitted || !this.resetAdoptsCheckout());
   }
 
   /**
@@ -7318,6 +7334,8 @@ export class Engine {
    */
   async locateRepository(repository: string, folder: string): Promise<{ ok: true; repository: string; folder: string } | { ok: false; status: 409 | 422; reason: string }> {
     if (this.record.startedAt !== undefined || this.settingUp) return { ok: false, status: 409, reason: `No stop is asking where ${repository} is.` };
+    // A failing start check on a page a reset built is reported first; the question waits until it passes (AC-ASK-01).
+    if (this.resetCheckFailing) return { ok: false, status: 409, reason: "Fix what failed, then reload." };
     const row = this.locatingRepositories.find((one) => sameAddressPath(one.question!.repository, repository));
     if (!row) return { ok: false, status: 409, reason: `Documents found isn’t asking where ${repository} is.` };
     const question = row.question!;
@@ -7343,6 +7361,7 @@ export class Engine {
   /** `POST /api/repository-location/change`: puts a row whose checkout came from a remembered answer back to asking, before Start (AC-ASK-05). */
   async changeRepositoryLocation(repository: string): Promise<CommandResult> {
     if (this.record.startedAt !== undefined || this.settingUp) return refuse("A repository's checkout is fixed once Start is pressed.");
+    if (this.resetCheckFailing) return refuse("Fix what failed, then reload.");
     const row = this.namedRows.find((one) => one.found?.located === "answer" && sameAddressPath(one.addressPath, repository));
     if (!row) return refuse(`Kiln isn’t using a remembered answer for ${repository}.`);
     this.changingLocations.add(row.addressPath.toLowerCase());

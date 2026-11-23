@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot, findRepositoriesSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import { accountLines, assumptionsLine, designLine, effortDisabled, modelOptions, planCountLine, planRows, prdLine, startState } from "./documents-found.js";
 
 describe("what Documents found says it found (AC-START-04)", () => {
@@ -58,6 +58,13 @@ describe("the settings fields", () => {
 
 describe("Start (AC-START-05)", () => {
   const ready = documentsFoundSnapshot();
+
+  it("draws the note amber only when it is a question's words (find repositories anywhere AC-SEE-04)", () => {
+    expect(startState(findRepositoriesSnapshot(2), true, true)).toEqual({ enabled: false, note: "Tell Kiln where acme-labs/storefront is to start.", asks: true });
+    const failing = findRepositoriesSnapshot(2);
+    failing.settings.startBlockedBy = "Fix what failed, then reload.";
+    expect(startState(failing, true, true)).toEqual({ enabled: false, note: "Fix what failed, then reload." });
+  });
 
   it("stays unavailable until the person confirms refinement", () => {
     expect(startState(ready, false, true)).toEqual({ enabled: false, note: "Confirm refinement to start." });

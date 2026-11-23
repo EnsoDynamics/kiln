@@ -318,7 +318,7 @@
               <li>
                 <div class="repo-line">
                   <span class="repo-text">
-                    <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.label}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}{#if existing && startRepository(row.name)?.hasBranch}<span class="tag">PR into</span>{/if}{#if row.located === "answer" && !row.question}<span class="told">You told Kiln where this is · <button type="button" class="change" disabled={fixedLocked} onclick={() => change(row)}>Change</button></span>{/if}</span>
+                    <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.label}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}{#if existing && startRepository(row.name)?.hasBranch}<span class="tag">PR into</span>{/if}{#if row.located === "answer" && !row.question}<span class="told">You told Kiln where this is · <button type="button" class="change" disabled={fixedLocked || documents.checksFailed} onclick={() => change(row)}>Change</button></span>{/if}</span>
                     <span class="where"><span class="mono">{row.addressPath}</span>{#if row.checkoutFolder}<span class="dot">{" · "}</span><span class="mono">{row.checkoutFolder}</span>{/if}</span>
                   </span>
                   {#if row.question}
@@ -463,7 +463,8 @@
     <div class="column end">
       <button type="button" class="start" class:ready={startNow.enabled} class:busy={pressing} aria-busy={pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
       {#if pressing}<BusyStatus text={`Setting up the run and launching ${settings.agent}.`} />{/if}
-      {#if closedLine || startNow.note}<span class="help">{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
+      {#if startNow.asks && closedLine}<span class="help">{closedLine} <span class="asks">{startNow.note}</span></span>
+      {:else if closedLine || startNow.note}<span class="help" class:asks={startNow.asks}>{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
       {#if documents.startError}<span class="message">{documents.startError}</span>{:else if startReason}<span class="message">{startReason}</span>{/if}
     </div>
   </section>
@@ -573,6 +574,7 @@
   .told { font-size: 12px; color: var(--dim); white-space: nowrap; }
   .change { padding: 0; border: 0; background: none; font: inherit; line-height: normal; color: var(--red); text-decoration: underline; cursor: pointer; }
   .change:disabled { cursor: not-allowed; opacity: 0.6; }
+  .help.asks, .help .asks { color: var(--amber); }
   .checks .locate { display: inline-flex; align-items: center; gap: 6px; color: var(--amber); }
   .repo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
   .repo-name { font-size: 13px; font-weight: 400; color: var(--text); overflow-wrap: anywhere; }

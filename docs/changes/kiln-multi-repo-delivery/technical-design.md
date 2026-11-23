@@ -72,6 +72,8 @@ No new process, store or dependency. The engine, session runner, local server an
 
 ## Design Decisions
 
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Screens ("One-repository PRD", whose Needs you pages gain the question about a repository a session asked for)
+
 | Decision | Choice | Rationale |
 |---|---|---|
 | Where the list of repositories lives | `PrdRecord.repositories`, one entry per repository, ordered: the PRD's repository, then named repositories in first-mention plan order, then added repositories in the order added | Every per-repository fact needs a home that outlives a plan edit ("a repository Kiln has set up stays among them"); the order is the one every screen and line lists them in |
@@ -130,6 +132,7 @@ Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-ad
 ### Settings before Start (AC-SPACE-01, AC-REPO-03)
 
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Starting From a Branch, Several repositories (a repository that has the chosen branch uses it; existing worktrees fix the workspace folder).
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Asking Before Start (a repository's row can ask, and shows its address path and checkout)
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Worktree and Branch Setup (defaults and field checks, per repository)
 
@@ -381,6 +384,7 @@ For a one-repository PRD the list has one entry and the cross-link paragraph is 
 ### Command line
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (delivery command and enabled completion summaries). Restricted execution behavior remains in force.
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Asking Before Start and §Interfaces, Command line (the summary line, the line under it and the Located line)
 
 - `kiln run <path>`: unchanged, plus the start checks above.
 - `kiln add-repository <name>`: [above](#the-command-ac-add-01-cli-001). The usage text lists both commands.
@@ -491,6 +495,7 @@ SessionRecord (schema 2): adds workingDirectory, the folder the session was laun
 ## Screens (AC-SHOW-01)
 
 Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Needs you Layout (implementation-phase Needs you arrangement).
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Screens (the repository rows, the stop for a repository Kiln can't add)
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §What a Delivered Run Says (the finished page's **Closing audits** and **For you**).
 

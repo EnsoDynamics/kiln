@@ -5,14 +5,14 @@
 // Real git throughout, a temporary home folder, origins reached as github.com through an SSH stand-in.
 
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Snapshot } from "./engine/snapshot.js";
 import { displayPath } from "./engine/worktree-setup.js";
 import { runKilnCommand } from "./kiln-command.js";
 import { readPrdRecord, type PrdRecord } from "./state/records.js";
-import { readRememberedLocation } from "./state/repository-locations.js";
+import { forgetLocation, readRememberedLocation } from "./state/repository-locations.js";
 import { prdStateDirectory, stateRoot } from "./state/state-files.js";
 import { waitFor } from "./test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
@@ -104,6 +104,23 @@ async function api(address: string, token: string, method: string, path: string,
 async function tokenOf(address: string): Promise<string> {
   const html = await (await fetch(address)).text();
   return /<meta name="kiln-token" content="([0-9a-f]+)">/.exec(html)![1]!;
+}
+
+/** A view connecting to the event stream, as a page load does: on a page a reset built, the start checks run again first. */
+async function connectOnce(address: string, token: string): Promise<Snapshot> {
+  const abort = new AbortController();
+  const response = await fetch(`${new URL(address).origin}/api/events?token=${token}`, { signal: abort.signal });
+  const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error("The event stream closed before a snapshot.");
+      buffer += value;
+      const block = buffer.split("\n\n").find((one) => /^event: snapshot$/m.test(one));
+      if (block) return JSON.parse(/^data: (.*)$/m.exec(block)![1]!) as Snapshot;
+    }
+  } finally { abort.abort(); }
 }
 
 const snapshotOf = async (address: string, token: string) => (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
@@ -259,6 +276,59 @@ describe("kiln run on a plan that names repositories by their address path", () 
     again.signals.emit("SIGINT");
     await again.done;
   });
+
+  it("on a page a reset built, reports a failing start check and asks only once a reload finds it passing (AC-ASK-01)", async () => {
+    const f = createFeature({ "phase-3-returns-dashboard.md": "**Repositories:** acme-labs/storefront" }, { "acme-labs/storefront": "volumes/work/storefront" });
+    writeFileSync(f.env.KILN_STANDIN_SCENARIO!, JSON.stringify({ sessions: [{ actions: [{ result: "Waiting for a decision." }] }] }));
+    const storefront = join(f.sandbox.root, "volumes", "work", "storefront");
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/storefront", folder: storefront })).toMatchObject({ status: 200 });
+    await waitFor(async () => { const now = await snapshotOf(address, token); return now.settings.baseCheck !== "checking" && now.repositories.every((row) => row.baseCheck !== "checking"); });
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 200, body: { ok: true } });
+    await waitFor(async () => (await snapshotOf(address, token)).reset?.available === true, 60_000);
+
+    // Another start check fails after the reset: an uncommitted file in the PRD's checkout.
+    writeFileSync(join(f.product, "notes.txt"), "work in progress\n");
+    const before = await snapshotOf(address, token);
+    const reset = await fetch(`${new URL(address).origin}/api/reset`, { method: "POST", headers: { "X-Kiln-Token": token, Origin: new URL(address).origin, "X-Kiln-Status": before.controlToken!, "X-Kiln-Command-Id": "reset-ask-01" } });
+    expect(reset.status, await reset.clone().text()).toBe(200);
+    // Change, which would ask again, waits for the failed check too.
+    expect((await snapshotOf(address, token)).repositories.find((row) => row.name === "storefront")).toMatchObject({ located: "answer" });
+    expect(await api(address, token, "POST", "/api/repository-location/change", { repository: "acme-labs/storefront" })).toEqual({ status: 409, body: { ok: false, reason: "Fix what failed, then reload." } });
+
+    // Kiln no longer remembers the answer, so a reload's checks would ask; the failed check still holds the question.
+    forgetLocation(f.env, "acme-labs/storefront");
+    await connectOnce(address, token);
+    await waitFor(async () => (await snapshotOf(address, token)).repositories.find((row) => row.name === "storefront")!.checkoutFolder === undefined, 30_000);
+
+    // The failed check is reported, and nothing about the repository Kiln would ask about.
+    let snapshot = await snapshotOf(address, token);
+    expect(snapshot.feature.state).toBe("not_started");
+    expect(snapshot.documents!.checksFailed).toBe(true);
+    expect(snapshot.documents!.checks.some((check) => !check.passed && check.name.includes("notes.txt"))).toBe(true);
+    expect(snapshot.documents!.checks.some((check) => check.locate || / to locate$/.test(check.name))).toBe(false);
+    expect(snapshot.repositories.find((row) => row.name === "storefront")).toMatchObject({ addressPath: "acme-labs/storefront" });
+    expect(snapshot.repositories.some((row) => row.question !== undefined)).toBe(false);
+    expect(snapshot.settings.startBlockedBy).toBe("Fix what failed, then reload.");
+    // An answer waits too.
+    expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/storefront", folder: storefront })).toEqual({ status: 409, body: { ok: false, reason: "Fix what failed, then reload." } });
+    expect(readRememberedLocation(f.env, "acme-labs/storefront")).toEqual({ kind: "none" });
+
+    // Fixed, a reload finds every check passing, and the row asks.
+    rmSync(join(f.product, "notes.txt"));
+    await connectOnce(address, token);
+    await waitFor(async () => (await snapshotOf(address, token)).documents!.checksFailed === undefined, 30_000);
+    snapshot = await snapshotOf(address, token);
+    expect(snapshot.documents!.checks.filter((check) => !check.passed)).toEqual([]);
+    expect(snapshot.repositories.find((row) => row.name === "storefront")!.question).toMatchObject({ kind: "where", repository: "acme-labs/storefront" });
+    expect(snapshot.documents!.checks.find((check) => check.locate)).toEqual({ name: "1 repository to locate", passed: true, locate: true });
+    expect(snapshot.settings.startBlockedBy).toBe("Tell Kiln where acme-labs/storefront is to start.");
+    expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/storefront", folder: storefront })).toMatchObject({ status: 200 });
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  }, 120_000);
 
   it("takes a listed checkout picked on the page, as the snapshot gives its folder, and sets that checkout up (AC-ASK-02)", async () => {
     const f = createFeature({ "phase-3-returns-dashboard.md": "**Repositories:** acme-labs/storefront" }, { "acme-labs/storefront": "home/code/acme-labs/storefront" });

@@ -722,12 +722,15 @@ function livePanel(stored: import("./folder-setup.js").SetupPanel, engine: Engin
  */
 function withRepositoriesCheck(found: DocumentsFound, engine: Engine): DocumentsFound {
   const asking = engine.locatingRepositories.length;
+  // While a start check fails on a page a reset built, Kiln says nothing about a repository it would ask about (AC-ASK-01).
+  const held = asking > 0 && engine.resetCheckFailing;
   const named = (name: string) => name === REPOSITORIES_FOUND || / repositor(y|ies) to locate$/.test(name);
   // A named repository Kiln couldn't find or check since kiln run started is a failed check, in the terminal's words.
   const problems = engine.record.startedAt === undefined ? engine.repositoryProblems : [];
   const checks = found.checks.flatMap((check) => {
     if (!check.passed || !named(check.name)) return [check];
     if (problems.length > 0) return problems.map((problem) => ({ name: problem, passed: false, text: problem }));
+    if (held) return [];
     return [asking === 0 ? { name: REPOSITORIES_FOUND, passed: true } : { name: `${asking} ${asking === 1 ? "repository" : "repositories"} to locate`, passed: true, locate: true as const }];
   });
   const plan = found.plan ? { ...found.plan, phases: found.plan.phases.map((phase) => ({ ...phase, repositories: phase.repositories.map((name) => engine.labelOf(name)) })) } : undefined;
@@ -1434,6 +1437,8 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
   if (!notStarted) return rows;
   // A row that asks sits in plan order among the named repositories (find repositories anywhere AC-ASK-01).
   const order = engine.namedRows.map((row) => row.name);
+  // A failing start check on a page a reset built holds each row's question until it passes (AC-ASK-01).
+  const held = engine.resetCheckFailing;
   for (const row of engine.locatingRepositories) {
     const question = row.question!;
     const label = labelOf(row.shortName, row.addressPath);
@@ -1446,7 +1451,7 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
       worktreePath: displayPath(`${expandHome(settings.workspaceFolder)}/${row.name}`),
       fixed: true,
       fieldErrors: {},
-      question: questionView(question, label),
+      ...(held ? {} : { question: questionView(question, label) }),
     };
     if (!order.includes(row.name)) { rows.push(asking); continue; }
     const before = order.slice(0, order.indexOf(row.name)).reverse().find((name) => rows.some((one) => one.name === name));

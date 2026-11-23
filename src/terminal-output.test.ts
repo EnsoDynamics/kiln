@@ -280,6 +280,15 @@ describe("the terminal when a repository needs locating (find repositories anywh
     expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, plain, false, ["a/b", "c/d"]).split("\n")[0]).toBe("● Opened http://127.0.0.1:4700/customer-returns. Tell Kiln where 2 repositories are there, then review it and press Start.");
   });
 
+  it("says so too when Kiln couldn't open a browser, or runs on a remote machine", () => {
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", { kind: "no_opener" }, plain, false, ["acme-labs/storefront"]).split("\n")[0]).toBe("● Kiln’s view is at http://127.0.0.1:4700/x. Open it in your browser, tell Kiln where acme-labs/storefront is there, then review it and press Start.");
+    expect(formatOpenedLine("http://127.0.0.1:4712/x", { kind: "remote" }, plain, false, ["a/b", "c/d"]).split("\n").slice(0, 2)).toEqual([
+      "● Kiln’s view is at http://127.0.0.1:4712/x on this remote machine. Open it from your own computer through an SSH tunnel to port 4712, tell Kiln where 2 repositories are there, then review it and press Start.",
+      "  For example: ssh -N -L 4712:127.0.0.1:4712 <this host>",
+    ]);
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", { kind: "failed", reason: "xdg-open exited with code 3" }, plain, false, ["acme-labs/storefront"]).split("\n")[0]).toBe("● Kiln’s view is at http://127.0.0.1:4700/x. Tell Kiln where acme-labs/storefront is there, then review it and press Start.");
+  });
+
   it("prints one line when an answer is accepted, the rest of it grey", () => {
     const at = new Date(2026, 10, 22, 9, 14);
     expect(formatRepositoryLine(at, "Located acme-labs/storefront", plain, " at /Volumes/work/storefront. Kiln will remember that on this computer.")).toBe(" 9:14  Located acme-labs/storefront at /Volumes/work/storefront. Kiln will remember that on this computer.");

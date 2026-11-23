@@ -186,6 +186,7 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md`, AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md`, AC-PAGE-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` and AC-LOOK-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (the screens this change draws, and the reset line on every screen; the rest of each layout remains).
   - Superseded in part by: AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (in a marked phase, the planned-as-needing-you card comes first on the stopped-phase pages).
   - Superseded in part by: AC-PAUSE-06 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the held page's header and layout for a Pause now hold).
+  - Superseded in part by: AC-SEE-05 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (a stopped phase's page gains the question about a repository a session asked for, below the card for how its session ended)
 
 ## Out of Scope
 

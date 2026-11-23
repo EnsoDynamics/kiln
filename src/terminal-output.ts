@@ -158,11 +158,10 @@ export function formatStartedLine(at: Date, branch: string, baseBranch: string, 
 export function formatOpenedLine(address: string, opening: BrowserOpening, colors: TerminalColors, decisionAbove = false, locating: string[] = []): string {
   const pressStart = (joiner: string) => (decisionAbove ? "" : `${joiner} press Start`);
   // While a repository needs locating, the line says to tell Kiln where it is first (find repositories anywhere AC-SEE-02).
-  const review = locating.length === 0
-    ? ". Review it there and press Start."
-    : locating.length === 1
-      ? `. Tell Kiln where ${locating[0]} is there, then review it and press Start.`
-      : `. Tell Kiln where ${locating.length} repositories are there, then review it and press Start.`;
+  // On every way the view is reached: opened, opened by hand, or through a tunnel from another computer.
+  const where = locating.length === 1 ? `where ${locating[0]} is` : `where ${locating.length} repositories are`;
+  const review = locating.length === 0 ? ". Review it there and press Start." : `. Tell Kiln ${where} there, then review it and press Start.`;
+  const thenPressStart = (joiner: string) => (locating.length === 0 ? `${pressStart(joiner)}.` : `, tell Kiln ${where} there, then review it and press Start.`);
   const viewAt = (rest: string) => `${colors.red("●")} Kiln’s view is at ${colors.red(address)}${colors.grey(rest)}`;
   let lines: string[];
   switch (opening.kind) {
@@ -173,12 +172,12 @@ export function formatOpenedLine(address: string, opening: BrowserOpening, color
       lines = [...(decisionAbove ? [] : [viewAt(review)]), `${colors.amber("✗")} Couldn’t open the browser: ${opening.reason}. Open ${address} yourself.`];
       break;
     case "no_opener":
-      lines = [viewAt(`. Open it in your browser${pressStart(" and")}.`)];
+      lines = [viewAt(`. Open it in your browser${thenPressStart(" and")}`)];
       break;
     case "remote": {
       const port = new URL(address).port;
       lines = [
-        viewAt(` on this remote machine. Open it from your own computer through an SSH tunnel to port ${port}${pressStart(", then")}.`),
+        viewAt(` on this remote machine. Open it from your own computer through an SSH tunnel to port ${port}${thenPressStart(", then")}`),
         colors.grey(`  For example: ssh -N -L ${port}:127.0.0.1:${port} <this host>`),
       ];
       break;

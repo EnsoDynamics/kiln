@@ -99,3 +99,25 @@ describe("Documents found's repository rows as the mockup draws them (find repos
     });
   }
 });
+
+describe("the note under Start while a row asks, as the mockup draws it (AC-SEE-04)", () => {
+  const NOTE = { 2: "Tell Kiln where acme-labs/storefront is to start.", 3: "Tell Kiln which checkout of acme-labs/storefront to use to start." } as const;
+  const style = (text: string) => `(() => { const note = [...document.querySelectorAll("span")].find((e) => e.textContent.trim() === ${JSON.stringify(text)} && ![...e.children].length); if (!note) return null; const s = getComputedStyle(note); return [s.color, s.fontSize, s.fontWeight]; })()`;
+  for (const state of [2, 3] as const) {
+    it(`state ${state}`, async () => {
+      const mockup = await chrome.open(MOCKUP);
+      let drawnStyle: string[] | null;
+      try {
+        await mockup.waitFor(`document.readyState === "complete"`);
+        drawnStyle = await mockup.evaluate<string[] | null>(style(NOTE[state]));
+      } finally { await mockup.close(); }
+      const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: findRepositoriesSnapshot(state) });
+      const page = await chrome.open(server.address, { width: 1400 });
+      try {
+        await page.waitFor(`document.querySelector('ul[aria-labelledby="repos-h"]')`);
+        expect(drawnStyle).toEqual(["rgb(230, 180, 80)", "12.5px", "400"]);
+        expect(await page.evaluate<string[] | null>(style(NOTE[state]))).toEqual(drawnStyle);
+      } finally { await page.close(); await server.close(); }
+    });
+  }
+});

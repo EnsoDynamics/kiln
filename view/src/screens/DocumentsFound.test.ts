@@ -181,6 +181,8 @@ describe("Documents found finding repositories anywhere (docs/changes/kiln-find-
     expect(shown).toContain("Dependencies point backward 1 repository to locate Working tree of product is clean");
     expect(shown).toContain("storefront acme-labs/storefront — Kiln couldn’t find a checkout of acme-labs/storefront . It searched outward from ~/code/acme/ , never above your home folder. Where is it on this computer? Use this folder Kiln remembers this on this computer only. Nothing is written to any repository.");
     expect(shown).toContain("Tell Kiln where acme-labs/storefront is to start.");
+    // The note under Start is drawn amber while a row asks (AC-SEE-04).
+    expect(page).toMatch(/<span class="[^"]*\basks\b[^"]*">Tell Kiln where acme-labs\/storefront is to start\.<\/span>/);
     expect(page).toMatch(/<span class="locate[^"]*"><svg[^>]*stroke="var\(--amber\)"/);
     expect(page).toMatch(/<select id="base-storefront"[^>]*disabled/);
   });
@@ -200,6 +202,7 @@ describe("Documents found finding repositories anywhere (docs/changes/kiln-find-
     expect(shown).toContain("Tell Kiln which checkout to use, then review and start.");
     expect(shown).toContain("Kiln found two checkouts of acme-labs/storefront . Which should it use? ~/code/acme-labs/storefront git@github.com:acme-labs/storefront.git ~/code/archive/storefront git@github.com:acme-labs/storefront.git Another folder Kiln remembers this on this computer only. Nothing is written to any repository. Use this checkout");
     expect(shown).toContain("Tell Kiln which checkout of acme-labs/storefront to use to start.");
+    expect(page).toMatch(/<span class="[^"]*\basks\b[^"]*">Tell Kiln which checkout of acme-labs\/storefront to use to start\.<\/span>/);
     expect(page.match(/type="radio" name="checkout-acme-labs\/storefront"/g)).toHaveLength(3);
     expect(page).not.toMatch(/type="radio"[^>]*checked/);
     expect(page).toMatch(/<button type="button" class="use[^"]*" disabled[^>]*>Use this checkout<\/button>/);
@@ -211,6 +214,12 @@ describe("Documents found finding repositories anywhere (docs/changes/kiln-find-
     expect(shown).toContain("storefront You told Kiln where this is · Change acme-labs/storefront · /Volumes/work/storefront develop");
     expect(shown).toContain("Repositories found on this computer");
     expect(page).toMatch(/<button type="button" class="change[^"]*"[^>]*>Change<\/button>/);
+  });
+
+  it("state 4 on a page a reset built with a failing check: Change waits until a reload finds it passing (AC-ASK-01)", () => {
+    const snapshot = findRepositoriesSnapshot(4);
+    snapshot.documents = { ...snapshot.documents!, checksFailed: true };
+    expect(html(snapshot)).toMatch(/<button type="button" class="change[^"]*" disabled[^>]*>Change<\/button>/);
   });
 });
 
