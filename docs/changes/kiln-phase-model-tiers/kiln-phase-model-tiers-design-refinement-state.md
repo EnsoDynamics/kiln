@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Phase Model Tiers
 
-Started: 2026-11-22   Current pass: 3 (complete)   Status: In progress
+Started: 2026-11-22   Current pass: 4 (complete)   Status: In progress
 Branch: feature/kiln-phase-model-tiers
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 4139 · growth baseline 4139
@@ -20,6 +20,7 @@ Last updated: 2026-11-22
 | 1 | 13 | 12 | 12 | 0 | 1 | 0 | 0 |
 | 2 | 14 | 12 (Q12 + Q14–Q24) | 12 | 0 | 3 | 0 | 0 |
 | 3 | 6 (+4 from pass-2 conformance) | 12 (Q25–Q36) | 12 | 0 | 1 | 0 | 0 |
+| 4 | 4 (+1 from pass-3 conformance) | 6 (Q37–Q42) | 5 | 1 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -60,10 +61,27 @@ Last updated: 2026-11-22
 | Q34 | 3 | Wait on a not-started activity: decision names a different choice whose usage can't be read / agent not ready / model unusable | Technical | MEDIUM | 70 → 80 | Resolved by decision | TD §A Wait Before the Start, §The launch decision |
 | Q35 | 3 | Is a change to the Audits choice refused while one Audits activity has started/launching/unknown? | Technical | MEDIUM | 80 → 90 | Resolved | TD §HTTP, §Command line, §Snapshot, §Resolving a Choice |
 | Q36 | 3 | A needed agent that isn't installed: agents[] entry with installed:false for Start's reason and fallback warning? | Technical | MEDIUM | 85 → 92 | Resolved | TD §Snapshot, §Agents |
-| Q37 | 3 | Do not-yet-allocated activities (preflight, audits, PR) count toward "needed" and AC-AGENTS-01's list? | Technical | LOW | 85 → 85 | Deferred | — |
-| Q38 | 3 | `settings.models.fallback.warning` holds one agent; fallbacks can name both agents — one warning per fallback-only agent (array)? | Technical | LOW | 85 → 85 | Pending | — |
+| Q37 | 3 | Do not-yet-allocated activities (preflight, audits, PR) count toward "needed" and AC-AGENTS-01's list? | Technical | LOW | 85 → 92 | Resolved | TD §Agents, Planned rows |
+| Q38 | 3 | `settings.models.fallback.warning` holds one agent; fallbacks can name both agents — one warning per fallback-only agent (array)? | Technical | LOW | 85 → 95 | Resolved | TD §Snapshot |
+| Q39 | 4 | A fallback account with no plan limits (Claude API key / Codex API key) can never be used under "no windows = unreadable"; count it as under the threshold? | Technical | MEDIUM | 70 → 90 | Resolved | TD §The launch decision |
+| Q40 | 4 | A continuation of a PRD that finished before this change copies the migrated `kept` choice, so added phases ignore their tiers; should they? | Business | MEDIUM | 70 → 90 | Assumption | KEEP-003; PRD AC-KEEP-02 (+Replaces AC-CONTINUE-08); TD §Data Models, §Changes |
+| Q41 | 4 | Planned Preflight row has no model contract; "none before Start" sentence contradicts mockup 1 | Technical | LOW | 85 → 92 | Resolved | TD §When an Activity Starts, §Snapshot |
+| Q42 | 4 | Several counted limits at or above the threshold: which one does the decision record? | Technical | LOW | 85 → 95 | Resolved | TD §The launch decision, §Data Models |
+| Q43 | 4 | On the Continue offer's plan (build-preflight design draws a planned Preflight row there), which model form do the Preflight and phase rows use: plain as before Start? | Technical | LOW | 85 → 85 | Pending | — |
 
 ## Question notes
+
+### Pass 4 conformance
+Fixed: build-preflight §Changes bullet (§The Preflight Session, §Interfaces, §Display Contract; preflight.planned gains model); merged duplicate "plan account with no windows" rule; continuation paragraph drops source-file pointer and covers the audits/preflight/PR taking the Audits row; PRD AC-KEEP-02 KEEP-003 sentence and AC-CONTINUE-08 line cover a continuation's activities; KEEP-003 title/assumption/evidence aligned ("a finished PRD set up before this change"); TD OQ2 reworded; Coverage cites the planned Preflight row. Raised Q43. Placement doubt on KEEP-003 (above vs below the line) settled by the orchestrator: Impact is LOW by assumptions-document-writing's definition (a person can change any row before it starts; nothing irreversible), so below the line stands; AC-CONTINUE-08 was written when one choice covered the whole PRD, which the entry's Evidence already names.
+
+### Q37 / Q38 / Q41
+Answered (92/95/92), folded. Q37: unallocated activities count toward needed (leaf phases not finished; preflight while planned or unfinished; audits and PR until the PR session finishes, on the Audits choice); Start's reason names them by plan rows. No setting turns completion audits off (records.ts:651-653; audit-loops.ts:35) — fix "Planned rows" sentence to "When both kinds are closed, only the pull request row shows." Q38: keep one warning object; at most one agent can be fallback-only; rewrite §Snapshot sentence. Q41: planned Preflight row shows the Audits choice (plain before Start, Will run on underway), no Change/Use the default (the Audits line changes it), can carry the heads-up; `preflight.planned` becomes `{ before, model }`; "none before Start" covers only DA/TA/PR rows (mockup 1; progress.ts:30-36; snapshot.ts:1501-1517).
+
+### Q40
+Business, 90% → assumption KEEP-003 (LOW, below the line); folded: added phases on a PRD finished before this change take their tiers unless the saved choice wasn't Kiln's default; PRD AC-KEEP-02 clause + Replaces AC-CONTINUE-08; TD continuation rule + §Changes line. Evidence: KEEP-001 covers PRDs "underway… everything it has left"; continuation-setup.ts:19.
+
+### Q39 / Q42
+Answered (90 / 95), folded. Q39: Codex has no metered route (API-key sign-in is a readiness blocker, codex-metadata.ts:46,151), so only Claude: a no-plan reading with no rate limits reads with no counted limit → as fallback passes the usage test (then billing approval and launch checks); as first choice unchanged; a no-plan reading needs no email/org (readAccount waives that condition, claude-account.ts:189); still fails on sign-in/plan/auth/provider/key-source change; a plan account with no windows stays unreadable. Q42: recorded limit = usage block or used-up attempt first; else highest percent; tie → latest reset (unknown = latest), then reading order; same rule for the fallback's limit in "wasn't used" (usage-limit.ts:38).
 
 ### Pass 3 conformance
 Fixed 11: decision's first step wording; Codex fallback with no stable account not used in a wait; §A Wait wording; Audits change excludes running processes; Design Decisions Change row covers the Audits entry; §Snapshot planned rows (`state: "planned"`, in activities[] only); agents[] not-installed entries have no billing; `kiln model-defaults` read needs no PRD path or controller; §Changes adds run-restart §Command line (help groups) and bot-control `computer_setting`; PRD AC-PICK-02 planned-row sentence clarified. Raised Q38; Q37 still deferred.
@@ -149,7 +167,7 @@ Deferred (12-question cap). Proposed: say the line gives no reason, plus "from t
 
 ## Conflict check
 Pass 1: 2026-11-22 · 20 earlier criteria changed · Replaces lines folded (new lines on AC-PICK-01, -07, DEFAULT-02, -05, FALLBACK-01, AGENTS-01, -04, KEEP-01; merged into existing lines on PICK-07, AGENTS-02, -03, KEEP-01); TD Open Question 1 removed, its panel decision moved to §Changes to Earlier Designs, 4 earlier-design bullets added. AC-WATCH-06, AC-SEE-02, AC-CONTINUE-08, billing AC-RUN-01 checked: not changed · 1 raised as a question (C1, below) · existing lines accurate, 3 stopped short of their chain (closed by the new lines)
-Changed after pass 1: AC-PICK-02 again (pass 3, Q33 + conformance: planned audit/PR rows sentence + Replaces AC-RUN-01), AC-PICK-07 (Replaces lines only: AC-TERMINAL-01, AC-STOP-05 Claude-only, AC-NEXT-01 completion-waivers, AC-TAKE-03 live-session-control, AC-SEE-08 bot-control added in pass 2), AC-PICK-02 (pass 2, Q23: finished rows keyed on whether a session got a response)
+Changed after pass 1: AC-KEEP-02 (pass 4, KEEP-003 sentence + Replaces AC-CONTINUE-08), AC-PICK-02 again (pass 3, Q33 + conformance: planned audit/PR rows sentence + Replaces AC-RUN-01), AC-PICK-07 (Replaces lines only: AC-TERMINAL-01, AC-STOP-05 Claude-only, AC-NEXT-01 completion-waivers, AC-TAKE-03 live-session-control, AC-SEE-08 bot-control added in pass 2), AC-PICK-02 (pass 2, Q23: finished rows keyed on whether a session got a response)
 
 ### C1 (unintended, Business — enters Questions table in pass 1)
 Needs-you-handoff AC-RETURN-01, AC-TERMINAL-01 and live-session-control AC-BACK-02 promise Resume keeps a terminal discussion. A not-started activity (refused before first response, or held by Pause now) offers "Open the conversation in your terminal"; if the person talks there then presses Resume, AC-PICK-07 launches a new session and the discussion is lost. Proposed: a model response in that session, even in the terminal, counts as the start, so AC-PICK-04 applies and Resume reopens it on its original choice. ~85%.
@@ -160,6 +178,10 @@ Observations (not criteria): Codex-support and usage-limit-recovery Out of Scope
 Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as Technical questions · 2 stay business (DEF-001, DEF-002, both below the line). Second reviewer doubted neither. Folded: DEF-001's "If they choose otherwise" line and boxes lack "Mechanical ships at Sonnet · high" (the stakeholder's Sonnet reluctance is the main argument against it); add it.
 
 ## Noticed, out of scope
+- `kiln model` receipt outcome name and effect fields unspecified; the journal pattern settles them.
+- Whether `kiln model` works before Start is unspecified; the PRD requires it only in a run underway.
+- An older Claude session with no saved initModel carries on with its saved model alias.
+- A tier-line edit mid-run shows on the plan only at the next plan read (engine.ts:8091); the launch re-reads the plan.
 - The status token doesn't change when Model defaults change (file outside the record's fingerprint, engine.ts:665); harmless.
 - A family's newest version lacking the saved effort now stops the run, where today's effortFor (model-list.ts:73-78) adjusts it; fits "no silent replace" but changes today's behavior.
 - Concurrent saves to model-defaults.json from several Kilns and the CLI have no lock; one change can be lost (hardening).
@@ -176,4 +198,4 @@ Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 s
 |---|---|---|
 
 ## Next action
-Pass 3 committed. Pass 4: discovery (carry Q37 Deferred and Q38 Pending first).
+Pass 4 committed. Pass 5: discovery (carry Q43 Pending first).

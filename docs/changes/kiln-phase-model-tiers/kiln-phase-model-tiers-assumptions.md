@@ -19,7 +19,7 @@
      when assumptions are validated and moved. NEVER close gaps. -->
 
 **Last Updated**: 2026-11-22
-**Status**: Validated by the stakeholder on 2026-11-22, except the two entries below
+**Status**: Validated by the stakeholder on 2026-11-22, except the three entries below
 
 **Document Purpose**: This document lists the assumptions we're making to proceed with Kiln Phase Model Tiers. We're not waiting for answers—we're proceeding with these assumptions and need stakeholders to validate or correct any that are wrong. Every numbered entry before the Technical Assumptions section is a business assumption.
 
@@ -66,6 +66,27 @@ Against GPT Astra at high: he raised the audits' GPT Sol fallback to "very high 
 - [ ] Wrong — corrections: _______________
 
 **Confidence**: 70% | **Impact**: 🟢 LOW
+
+### KEEP-003. Let added phases on a finished PRD set up before this change take their tiers, unless the person had picked its model? — ⏳ PENDING (Added 2026-11-22 — new question; 90% confidence)
+
+**Assumption**: **Yes.** When a PRD set up before this change has finished and is continued with added phases, those phases are treated like a PRD **not yet started**. A saved choice equal to Kiln's current default (**Claude Code · Opus · medium**, or **Codex · any GPT Sol version · high**) is dropped, so each added phase takes **its tier's model** from Model defaults, and the audits after them take the **Audits** choice. Any other saved choice is kept and marked **Changed by you** on each added phase.
+
+**Depends on**: KEEP-001
+
+**If they choose otherwise**: Every added phase runs on the PRD's **old single choice** and shows Changed by you, whatever its tier; the person presses **Use the default** on each row to get the tiers.
+
+**Evidence**: KEEP-001 keeps the old choice for a PRD "already underway… on everything it has left". A finished PRD has nothing left, and its added phases have run nothing, so moving them undoes no work. A value equal to Kiln's default is not a pick.
+
+Without this, a PRD set up the day before the upgrade would run its added phases on one model, while one set up the day after gets tiers. Against it: Continue Added Phases says continuations "use the existing agent/model settings" (AC-CONTINUE-08), written when one choice covered the whole PRD.
+
+**Researched**: 2026-11-22; the stakeholder's recorded answers, this PRD and design, Continue Added Phases' PRD and design, the continuation code; no ruling on finished PRDs.
+
+**Confirm or Correct**:
+- [ ] Correct — added phases take their tiers unless the person had picked a model
+- [ ] Wrong — added phases keep the PRD's old choice
+- [ ] Wrong — corrections: _______________
+
+**Confidence**: 90% | **Impact**: 🟢 LOW
 
 ---
 

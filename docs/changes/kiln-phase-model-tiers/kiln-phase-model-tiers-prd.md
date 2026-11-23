@@ -194,7 +194,10 @@ The single agent, model and effort choice goes away, and runs already underway a
   | Had none, and its saved choice is still one Kiln fills in: Claude Code · Opus · medium, or Codex · any GPT Sol version · high | Take their choices from the tiers and Model defaults |
   | Had none, with any other saved choice | Keep it |
 
+  When such a PRD has finished and is continued with added phases, its activities that haven't started follow the "Had none" rows (KEEP-003).
+
   - Replaces in part: AC-EFFORT-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (a PRD whose settings were already saved keeps its effort only as the table says; the rest remains).
+  - Replaces in part: AC-CONTINUE-08 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (a continuation's activities take their choices from their tiers and Model defaults, keeping the PRD's earlier choice only when it isn't Kiln's current default; the rest remains).
 
 ### Explain it where people install Kiln
 
