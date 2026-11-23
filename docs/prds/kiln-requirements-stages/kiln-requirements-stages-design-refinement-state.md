@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Requirements Stages
 
-Started: 2026-11-23   Current pass: 4   Status: In progress
+Started: 2026-11-23   Current pass: 5   Status: In progress
 Branch: feature/kiln-requirements-stages
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 5458 · growth baseline 5458
@@ -18,6 +18,7 @@ Last updated: 2026-11-23
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 21 (11 discovery + 6 conflict + 4 found during investigation) | 12 | 12 | 0 | 9 | 0 | 1 |
+| 4 | 3 | 4 (3 + one LOW) | 5 (+ R5 LOW batch) | 0 | 0 | 0 | 0 |
 | 3 | 10 | 12 (8 carried + Q1–Q4) | 18 (12 taken + Q5–Q10 folded in) | 0 | 0 | 0 | 0 |
 | 2 | 15 (11 discovery + 4 found during investigation) | 12 (9 carried + 3 new) | 15 (12 taken + P7, P8, P10 folded in) | 0 | 8 | 0 | 0 |
 
@@ -70,6 +71,11 @@ Last updated: 2026-11-23
 | Q8 | 3 | Feedback state gaps: sent with no outcome; state of messages handed to a feedback session's prompt | Technical | MEDIUM | 85 → 93 | Resolved | TD §Feedback |
 | Q9 | 3 | First session of a source run with no plan and no report: which row and key? | Technical | LOW | 75 → 85 | Resolved | TD (group A: §Rows, §The driver, §How a stage ends, §Models, §Data Models) |
 | Q10 | 3 | Resume at a review session's Needs you, committed but review still stale | Technical | LOW | 85 → 90 | Resolved | TD §How a stage ends |
+| R1 | 4 | A method plan entry that itself makes the stakeholder review, at the cursor when the driver reaches a review: shown how, does the cursor pass it? | Technical | MEDIUM | 70 → 88 | Resolved | TD §Rows, §Data Models |
+| R2 | 4 | Live messages to a running review session conflict with its "nothing else" prompt and give no What changed | Technical | MEDIUM | 75 → 90 | Resolved (review sessions take no live messages) | TD §What a session is told, §Feedback, §The report, §How a stage ends |
+| R3 | 4 | Home screen placement of a started run whose PRD folder doesn't exist yet | Technical | MEDIUM | 85 → 92 | Resolved | PRD AC-HOME-13 row; TD §What it lists |
+| R5 | 4 | LOW batch from discovery: kiln-plan validity; feedback session's valid report at a passed Needs you; plan kept after a failed re-read; initiative without --prd lists planned PRDs; feedback after a ran-nothing session; feedback has no stage key | Technical | LOW | 85 → 92 | Resolved | TD §Interfaces, §How a stage ends, §Reading it, §What `kiln run` accepts, §Rows, §Data Models |
+| R4 | 4 | Plan read lists steps before the PRD (intake, initiative), giving rows Kiln never runs and false notices | Technical | LOW | 90 → 95 | Resolved | TD §Reading it |
 
 ## Question notes
 
@@ -82,13 +88,15 @@ Conformance pass 2: PRD AC-STAGE-04 pause row aligned with the TD (a stop ends a
 
 Conformance pass 3: §Rows and §What a session is told now read the standing's `next`, so a review report never moves the cursor; §How a stage ends rows scoped by session kind and the PRD-folder row covers a PRD file gone with no rename; readiness and `standsAt` keyed on an unknown standing; `KILN_NO_BROWSER` and the restated v1 opening rules removed for pointers; Changes to Earlier Designs extended. Orchestrator: a feedback session with no valid report makes the standing unknown; the span-open `kiln:next` case is P13's decision, not a new question.
 
+Conformance pass 4: §Feedback and §What a session is told say only stage and feedback sessions take live messages; expected-stage sentence covers a review-at-a-stop `next` with no plan; stage-key sentence untangled; live-session-control line and the Delivery spend line updated; PRD AC-TALK-01 gained the stop's-review case. Orchestrator: a stop's review `next` matching no plan entry keeps Kiln's row and the cursor.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
 
 ## Conflict check
 Pass 1: 2026-11-23 · 48 earlier criteria changed (5 already covered) · 20 Replaces lines written or extended, covering 36 more · 6 raised as questions (C1–C6)
-Changed after pass 1: AC-PLAN-06, AC-TALK-01, AC-STAGE-04 (twice), AC-BEGIN-04, AC-TALK-02, AC-HOME-01, AC-HOME-02, AC-BEGIN-07, AC-HOME-03, AC-FINAL-06, AC-STAGE-03
+Changed after pass 1: AC-HOME-13, AC-TALK-01 (again), AC-PLAN-06, AC-TALK-01, AC-STAGE-04 (twice), AC-BEGIN-04, AC-TALK-02, AC-HOME-01, AC-HOME-02, AC-BEGIN-07, AC-HOME-03, AC-FINAL-06, AC-STAGE-03
 
 Replaces lines folded 2026-11-23: 30 added, 4 amended (PRD 5458 → 6318 words). Writer split BEGIN-04's source-material part onto AC-BEGIN-07 and moved the one-row part onto AC-FINAL-06. Possible gap left: AC-BEGIN-02 vs v1 AC-START-02 for source material.
 
@@ -96,6 +104,9 @@ Replaces lines folded 2026-11-23: 30 added, 4 amended (PRD 5458 → 6318 words).
 Pass 1: 2026-11-23 · 3 open entries · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as Technical questions · 3 stay business (SCOPE-001, HOME-004 above the line; HOME-001 below). Doubt check doubted HOME-004 and HOME-001; re-sorted by the orchestrator: both kept, since each departs from or narrows the brief's own wording, which is theirs to check. SCOPE-001's cost paragraph restated around the product, not Kiln's internals.
 
 ## Noticed, out of scope
+- `kiln` run from inside a Kiln worktree may resolve a different scope than the main checkout (two home screens for one repository)
+- The person's own session at a review stop running alongside a Send-feedback session in the same worktree; Kiln can't see the person's session
+- The `whole` build has no phase document Repositories line; `kiln add-repository` is the only route to other repositories
 - Whether Copy reply works in the sandboxed served review is untested; mockups 8, 9, 12 lead with it (Download reply is the fallback)
 - If phase-split edits the PRD or design, every final review needs a refresh session; correct, affects time only
 - `Cross-Origin-Opener-Policy: same-origin` on the view's pages would add defence in depth for the served review; not needed here
@@ -113,4 +124,4 @@ Pass 1: 2026-11-23 · 3 open entries · 0 moved to design · 0 written up · 0 s
 | Kiln Phase Model Tiers exists only as a design; its contracts can be checked against its design, not code | Any question on the resolver, start line, launch decision, Model defaults | Tiers built and merged (TD §Delivery) |
 
 ## Next action
-Pass 4: discovery. No Deferred questions remain. P13 note from discovery: §Models' span vs kiln:next at step 3 disagree when a design refinement is finished by hand while the span is open.
+Pass 5: discovery. LOW items folded as R5; left: PRD-differs check for a by-hand PRD on a new branch vs local shared tip; no kiln:early row when no plan entry reaches prd_refined (both for final verification to judge).
