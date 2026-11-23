@@ -11,17 +11,32 @@ a{color:#e2694f}a:hover{color:#f0866e}
 .mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
 .eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
 .card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.circle{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;box-sizing:border-box;border:1px dashed rgba(237,232,221,.24);color:#8c8577}
+.circle.you{border:1px solid #e2694f;color:#e2694f}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.you{border-color:rgba(226,105,79,.6);color:#f0866e;font-weight:500}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;box-sizing:border-box}
+.sel{height:44px;padding:0 10px;border-radius:10px;border:1px solid rgba(237,232,221,.18);background:#12110e;color:#ede8dd;font:inherit;font-size:14px;box-sizing:border-box;width:100%}
+.lab{font-size:12.5px;color:#8c8577}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.title{font-size:16px;font-weight:500}
+.file{font-size:12.5px;color:#8c8577}
 .what{font-size:13.5px;color:#bdb6a8}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.model{font-size:13.5px;color:#bdb6a8}
+.set{display:flex;flex-direction:column;gap:3px;padding-top:16px;border-top:1px solid rgba(237,232,221,.12)}
 .small{font-size:12.5px;color:#8c8577;line-height:1.5}
-.bar{height:14px;border-radius:999px;background:rgba(237,232,221,.08)}
+.stop{margin:0 -14px;padding:14px;border-radius:12px;border:1px solid rgba(226,105,79,.45);background:#12110e}
 .point{display:flex;gap:14px;align-items:flex-start;padding:14px 0;border-bottom:1px solid rgba(237,232,221,.12)}
 .dot{flex:0 0 auto;width:10px;height:10px;margin-top:7px;border-radius:999px;border:1px solid #e2694f}
+.bar{height:14px;border-radius:999px;background:rgba(237,232,221,.08)}
 </style>
 </head>
 <body>
 <div style="min-height: 100%; background: #12110e">
 <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
-<span style="display: inline-flex; align-items: baseline; gap: 18px"><span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span><a href="kiln-requirements-stages-1-home.html" style="font-size: 13.5px">All work in this repository</a></span>
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
 <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
 </header>
 <main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
@@ -29,37 +44,91 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <div style="display: flex; flex-direction: column; gap: 14px">
 <div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>Source material <span class="mono" style="color: #ede8dd">source-material/gift-card-balance/</span></span></div>
 <h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">Gift card balance lookup</h1>
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(237,232,221,.4); font-size: 14px; font-weight: 600">Not started</span><span style="color: #bdb6a8">Kiln is working out the plan. Nothing else runs until you press Start.</span></div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(237,232,221,.4); font-size: 14px; font-weight: 600">Not started</span><span style="color: #bdb6a8">No PRD yet. Kiln is still reading the plan, and you can start now.</span></div>
 </div>
 
 <div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
 
-<section class="card" aria-labelledby="read-h" aria-busy="true" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 22px">
-<div style="display: flex; flex-direction: column; gap: 8px">
-<h2 id="read-h" class="eyebrow">Requirements plan</h2>
-<span style="font-size: 20px; font-weight: 600">Reading the plan from the Enso Method installed here</span>
-<span class="what">A short session reads the method's own map of what comes after source material and lists the stages, with the skill each one runs. About a minute, the first time and again only after the method installed here is updated. Otherwise the plan shows at once.</span>
+<section class="card" aria-labelledby="found-h" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+<h2 id="found-h" class="eyebrow">What Kiln found</h2>
+
+<div style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">Brief</span><span class="mono" style="font-size: 12.5px; color: #8c8577">gift-card-balance-brief.md</span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">Prototype</span><span class="mono" style="font-size: 12.5px; color: #8c8577">prototype/</span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">Committed</span><span class="mono" style="font-size: 12.5px; color: #8c8577">4e1a9c2</span><span class="what">on develop, yesterday at 4:12 PM</span></div>
 </div>
 
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-weight: 500">Requirements plan</span>
+
+<div aria-busy="true" style="display: flex; flex-direction: column; gap: 14px; padding: 16px 18px; border-radius: 12px; background: #12110e; border: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 16px; font-weight: 600">Reading the plan from the Enso Method installed here</span>
+<span class="what">A short session reads the method's own map of what comes after source material and lists the stages, with the skill each one runs. About a minute, the first time and again only after the method installed here is updated. Otherwise the plan shows at once.</span>
+</div>
 <div style="display: flex; flex-direction: column; gap: 6px">
 <div style="display: flex; justify-content: space-between; font-size: 13px; color: #8c8577"><span>Enso Method, updated here Nov 19</span><span>40 seconds so far</span></div>
 <div style="height: 6px; border-radius: 999px; background: rgba(237,232,221,.12)"><div style="width: 62%; height: 6px; border-radius: 999px; background: #ede8dd"></div></div>
 </div>
-
-<div aria-hidden="true" style="display: flex; flex-direction: column; gap: 22px; padding-top: 8px">
+<div aria-hidden="true" style="display: flex; flex-direction: column; gap: 18px; padding-top: 4px">
 <div style="display: flex; gap: 16px; align-items: center"><span style="width: 34px; height: 34px; border-radius: 999px; border: 1px dashed rgba(237,232,221,.24)"></span><div style="flex: 1 1 0; display: flex; flex-direction: column; gap: 8px"><div class="bar" style="width: 34%"></div><div class="bar" style="width: 62%; height: 10px"></div></div></div>
 <div style="display: flex; gap: 16px; align-items: center"><span style="width: 34px; height: 34px; border-radius: 999px; border: 1px dashed rgba(237,232,221,.24)"></span><div style="flex: 1 1 0; display: flex; flex-direction: column; gap: 8px"><div class="bar" style="width: 28%"></div><div class="bar" style="width: 54%; height: 10px"></div></div></div>
 <div style="display: flex; gap: 16px; align-items: center"><span style="width: 34px; height: 34px; border-radius: 999px; border: 1px dashed rgba(237,232,221,.24)"></span><div style="flex: 1 1 0; display: flex; flex-direction: column; gap: 8px"><div class="bar" style="width: 40%"></div><div class="bar" style="width: 48%; height: 10px"></div></div></div>
 </div>
+</div>
+
+<span class="small">Start doesn't wait for it. Each stage's session finds the next stage itself, and the plan fills in here once it is read.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 2px; padding-top: 18px; border-top: 1px solid rgba(237,232,221,.12)">
+<span class="eyebrow" style="margin-bottom: 6px">What Kiln already knows</span>
+<div class="point"><span class="dot"></span><span style="font-size: 14.5px">It waits for you at the early stakeholder review, once the PRD is refined, unless you turn that off.</span></div>
+<div class="point"><span class="dot"></span><span style="font-size: 14.5px">It always stops at the final stakeholder review, at the end of the requirements.</span></div>
+<div class="point" style="border-bottom: 0"><span class="dot"></span><span style="font-size: 14.5px">It never starts the build by itself.</span></div>
+</div>
 </section>
 
-<section class="card" aria-labelledby="own-h" style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 6px">
-<h2 id="own-h" class="eyebrow">What Kiln already knows</h2>
-<span class="what" style="margin-bottom: 6px">These are Kiln's own and hold whatever the method's stages turn out to be.</span>
-<div class="point"><span class="dot"></span><span style="font-size: 14.5px">It waits for you at the early stakeholder review, once the PRD is refined, unless you turn that off.</span></div>
-<div class="point"><span class="dot"></span><span style="font-size: 14.5px">It always stops at the final stakeholder review, once the phase plan is written.</span></div>
-<div class="point" style="border-bottom: 0"><span class="dot"></span><span style="font-size: 14.5px">It never starts the build by itself.</span></div>
-<span class="small" style="padding-top: 10px">If the plan can't be read, Kiln says so here and can still start: each session finds the next stage itself.</span>
+<section class="card" aria-labelledby="how-h" style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+<h2 id="how-h" class="eyebrow">How Kiln will run it</h2>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span class="lab">Models</span>
+<span style="font-size: 14.5px">Chosen for each stage</span>
+<span class="small">Each stage on your default for requirements stages, Fable at high effort, except the one the plan says will make the design ready, which runs on Opus at high effort. Your saved choice for <span class="mono">review-technical-design</span> applies to any stage the plan or a stage's report says runs it. Change any stage once the plan shows it.</span>
+<a href="kiln-requirements-stages-10-model-defaults.html" style="font-size: 13px; margin-top: 2px">Model defaults</a>
+</div>
+
+<div class="set" style="gap: 10px">
+<span class="lab">Your review</span>
+<label style="display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f"><span>Wait for me at the early review</span></label>
+<span class="small">Turn it off for an overnight run. Kiln always stops at the final review.</span>
+</div>
+
+<div class="set">
+<span class="lab">If usage is nearly out</span>
+<span style="font-size: 14.5px">Fallback on</span>
+<span class="small">At 95% a stage that hasn't started launches on its row's fallback. Set in <a href="kiln-requirements-stages-10-model-defaults.html">Model defaults</a>.</span>
+</div>
+
+<div class="set">
+<span class="lab">Billing</span>
+<span style="font-size: 14.5px">Claude Code · Claude subscription</span>
+<span class="small">alex@example.com</span>
+<span style="font-size: 14.5px; margin-top: 6px">Codex, the fallback · ChatGPT subscription</span>
+<span class="small">alex@example.com</span>
+</div>
+
+<div class="set">
+<span class="lab">Feature branch</span>
+<span class="mono" style="font-size: 13px">feature/gift-card-balance</span>
+<span class="small">Cut from <span class="mono">develop</span> when the PRD draft starts, and kept whatever the PRD's folder is named.</span>
+<a href="#" style="font-size: 13px; margin-top: 2px">Change</a>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px; padding-top: 18px; border-top: 1px solid rgba(237,232,221,.12)">
+<button type="button" style="min-height: 48px; border-radius: 999px; border: 1px solid #ede8dd; background: #ede8dd; color: #12110e; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer">Start</button>
+<span class="small" style="text-align: center">Starts with the PRD. Stops at the early review, and at the final review before the build.</span>
+</div>
 </section>
 
 </div>

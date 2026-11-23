@@ -50,9 +50,9 @@ a{color:#e2694f}a:hover{color:#f0866e}
 </div>
 
 <div role="group" aria-label="Repositories" style="display: flex; flex-wrap: wrap; gap: 10px">
-<button type="button" class="chip on" aria-pressed="true">All repositories <span class="n">9</span></button>
-<button type="button" class="chip" aria-pressed="false">acme-shop <span class="n">6</span></button>
-<button type="button" class="chip" aria-pressed="false">acme-admin <span class="n">2</span></button>
+<button type="button" class="chip on" aria-pressed="true">All repositories <span class="n">13</span></button>
+<button type="button" class="chip" aria-pressed="false">acme-shop <span class="n">11</span></button>
+<button type="button" class="chip" aria-pressed="false">acme-admin <span class="n">1</span></button>
 <button type="button" class="chip" aria-pressed="false">acme-mobile <span class="n">1</span></button>
 <span style="align-self: center; font-size: 13px; color: #8c8577">Nothing found in <span class="mono">acme-docs</span> or <span class="mono">acme-infra</span></span>
 </div>
@@ -66,62 +66,90 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
 
 <li class="item">
-<span class="names"><span class="title">Purchase approvals</span><span class="file mono"><b>acme-admin</b> · docs/prds/purchase-approvals/</span><span class="detail">Requirements. The early stakeholder review has been ready since 12:47 PM.</span></span>
-<span class="right"><span class="pill now">Waiting for your review</span><button type="button" class="btn">Open</button></span>
+<span class="names"><span class="title">Purchase approvals</span><span class="file mono"><b>acme-shop</b> · docs/prds/purchase-approvals/</span><span class="detail">Requirements. The early stakeholder review has been ready since 12:47 PM.</span></span>
+<span class="right"><span class="pill now">Waiting for your review</span><a href="kiln-requirements-stages-8-early-review.html" class="btn" style="text-decoration: none">Open</a></span>
 </li>
 
 <li class="item">
 <span class="names"><span class="title">Data audit viewer</span><span class="file mono"><b>acme-shop</b> · docs/prds/data-audit-viewer/</span><span class="detail">Requirements done, with a phase plan of 4. The final stakeholder review has been ready since 6:32 PM.</span></span>
-<span class="right"><span class="pill now">Waiting for your review</span><button type="button" class="btn">Open</button></span>
+<span class="right"><span class="pill now">Waiting for your review</span><a href="kiln-requirements-stages-9-final-review-and-start.html" class="btn" style="text-decoration: none">Open</a></span>
 </li>
 
 <li class="item">
-<span class="names"><span class="title">Customer returns</span><span class="file mono"><b>acme-shop</b> · docs/prds/customer-returns/</span><span class="detail">Build. 2 of 5 phases done. Also changes <span class="mono" style="font-size: 12.5px">acme-admin</span>, and is listed once, under the repository that holds its documents.</span></span>
+<span class="names"><span class="title">Customer returns</span><span class="file mono"><b>acme-shop</b> · docs/prds/customer-returns/</span><span class="detail">Build. 2 of 5 phases done. Also changes <span class="mono" style="font-size: 12.5px">acme-admin</span>.</span></span>
 <span class="right"><span class="pill next">Implementing phase 3</span><button type="button" class="btn">Open</button></span>
 </li>
 
+<li class="item">
+<span class="names"><span class="title">Order history export</span><span class="file mono"><b>acme-shop</b> · docs/changes/order-history-export/</span><span class="detail">Build. 1 of 2 phases done.</span></span>
+<span class="right"><span class="pill next">Implementing phase 2</span><button type="button" class="btn">Open</button></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="title">Wholesale invoices</span><span class="file mono"><b>acme-admin</b> · docs/changes/wholesale-invoices/</span><span class="detail">Build. 2 of 3 phases done. Kiln couldn't read its state. Its Kiln is at <span class="mono" style="font-size: 12.5px">http://127.0.0.1:4321/wholesale-invoices</span>. Open goes there.</span></span>
+<span class="right"><span class="pill planned">State not read</span><a href="#" class="btn" style="text-decoration: none">Open</a></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="title">Return labels</span><span class="file mono"><b>acme-shop</b> · docs/changes/return-labels/</span><span class="detail">Started by hand, on the branch <span class="mono" style="font-size: 12.5px">prd/return-labels</span>, not merged yet. PRD written, no technical design yet. Kiln continues from there, with the early review once the PRD is refined.</span></span>
+<span class="right"><span class="pill planned">Not running</span><button type="button" class="btn">Review and continue</button></span>
+</li>
+
 <li class="item" style="border-bottom: 0">
-<span class="names"><span class="title">Push notification settings</span><span class="file mono"><b>acme-mobile</b> · docs/changes/push-notification-settings/</span><span class="detail">Started by hand. The PRD is written and refined, and there is no technical design yet.</span></span>
+<span class="names"><span class="title">Push notification settings</span><span class="file mono"><b>acme-mobile</b> · docs/changes/push-notification-settings/</span><span class="detail">Started by hand, on the branch <span class="mono" style="font-size: 12.5px">prd/push-notification-settings</span>, not merged yet. PRD written, no technical design yet. Kiln continues from there, with the early review once the PRD is refined.</span></span>
 <span class="right"><span class="pill planned">Not running</span><button type="button" class="btn">Review and continue</button></span>
 </li>
 </ul>
-<details style="padding: 14px 0 0; font-size: 13.5px; color: #bdb6a8"><summary style="cursor: pointer">Older · 5 PRDs with no phase plan, unchanged for more than 30 days</summary><span class="small" style="display: block; padding-top: 6px">Kiln can't tell a small PRD that was built by hand from one left unfinished, so these stay out of the list above. Open one to continue it.</span></details>
 </section>
 
 <section aria-labelledby="ready-h" style="display: flex; flex-direction: column; gap: 6px">
-<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="ready-h" class="eyebrow">Ready to start</h2><span style="font-size: 13px; color: #8c8577">Source material on each repository's shared branch, with no PRD yet</span></div>
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="ready-h" class="eyebrow">Ready to start</h2><span style="font-size: 13px; color: #8c8577">Source material on each repository's shared branch, with no PRD or initiative yet</span></div>
 <ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
 
 <li class="item">
-<span class="names"><span class="line"><span class="title">Gift card balance lookup</span><span class="tag">Brief</span></span><span class="file mono"><b>acme-shop</b> · source-material/gift-card-balance/gift-card-balance-brief.md</span><span class="detail">1,240 words, and a prototype with 6 screens beside it</span></span>
+<span class="names"><span class="line"><span class="title">Gift card balance lookup</span><span class="tag">Brief</span></span><span class="file mono"><b>acme-shop</b> · source-material/gift-card-balance/gift-card-balance-brief.md</span></span>
+<span class="right"><a href="kiln-requirements-stages-4-before-start.html" class="btn primary" style="text-decoration: none">Review and start</a></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="line"><span class="title">Wholesale price lists</span><span class="tag">Intake record</span></span><span class="file mono"><b>acme-shop</b> · source-material/wholesale-price-lists/wholesale-price-lists-requirements-intake.md</span></span>
 <span class="right"><button type="button" class="btn primary">Review and start</button></span>
 </li>
 
 <li class="item">
-<span class="names"><span class="line"><span class="title">Wholesale price lists</span><span class="tag">Intake record</span></span><span class="file mono"><b>acme-admin</b> · source-material/wholesale-price-lists/wholesale-price-lists-requirements-intake.md</span><span class="detail">38 decisions recorded from 4 meeting transcripts</span></span>
-<span class="right"><button type="button" class="btn primary">Review and start</button></span>
-</li>
-
-<li class="item">
-<span class="names"><span class="line"><span class="title">Loyalty program: Points earning</span><span class="tag">Planned PRD</span></span><span class="file mono"><b>acme-shop</b> · docs/initiatives/loyalty-program/loyalty-program-initiative-prds.md</span><span class="detail">Second of 4 in the Loyalty program initiative</span></span>
+<span class="names"><span class="line"><span class="title">Loyalty program: Points earning</span><span class="tag">Planned PRD</span></span><span class="file mono"><b>acme-shop</b> · docs/initiatives/loyalty-program/loyalty-program-initiative-prds.md</span></span>
 <span class="right"><button type="button" class="btn primary">Review and start</button></span>
 </li>
 
 <li class="item" style="border-bottom: 0">
-<span class="names"><span class="line"><span class="title">Loyalty program: Redemption</span><span class="tag">Planned PRD</span></span><span class="file mono"><b>acme-shop</b> · docs/initiatives/loyalty-program/loyalty-program-initiative-prds.md</span><span class="detail">Third of 4. Its requirements can be written now. Its build waits for Points earning.</span></span>
+<span class="names"><span class="line"><span class="title">Loyalty program: Redemption</span><span class="tag">Planned PRD</span></span><span class="file mono"><b>acme-shop</b> · docs/initiatives/loyalty-program/loyalty-program-initiative-prds.md</span><span class="detail">Its build waits for Points earning.</span></span>
 <span class="right"><button type="button" class="btn primary">Review and start</button></span>
 </li>
 </ul>
 </section>
 
 <section aria-labelledby="notyet-h" style="display: flex; flex-direction: column; gap: 6px">
-<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="notyet-h" class="eyebrow">Not ready yet</h2><span style="font-size: 13px; color: #8c8577">Found, but Kiln can't start from it as it is</span></div>
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="notyet-h" class="eyebrow">Not ready yet</h2><span style="font-size: 13px; color: #8c8577">One step from ready to start</span></div>
 <ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+<li class="item">
+<span class="names"><span class="line"><span class="title">Store locator</span><span class="tag dash">Intake not finished</span></span><span class="file mono"><b>acme-shop</b> · source-material/store-locator/</span><span class="detail">Material brought in under <span class="mono" style="font-size: 12.5px">received/</span>, and its intake record isn't written yet. When it is, this moves up.</span></span>
+</li>
 <li class="item" style="border-bottom: 0">
-<span class="names"><span class="line"><span class="title">Store locator</span><span class="tag dash">No brief or intake record</span></span><span class="file mono"><b>acme-shop</b> · source-material/store-locator/</span><span class="detail">5 files, and neither of the two documents Kiln starts from. The prompt on the right turns them into one.</span></span>
+<span class="names"><span class="line"><span class="title">Email digest</span><span class="tag dash">Not committed</span></span><span class="file mono"><b>acme-shop</b> · source-material/email-digest/</span><span class="detail">A brief not yet committed on <span class="mono" style="font-size: 12.5px">develop</span>. Commit it there and it moves up.</span></span>
 </li>
 </ul>
 </section>
+
+<details style="font-size: 13.5px; color: #bdb6a8"><summary style="cursor: pointer">5 PRDs with requirements but no phase plan</summary>
+<span style="display: block; padding-top: 6px; font-size: 12.5px; color: #8c8577">Kiln can't tell from the files whether these were built by hand or left unfinished. Newest change first.</span>
+<ul style="list-style: none; margin: 6px 0 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+<li class="item"><span class="names"><span class="title">Saved addresses</span><span class="file mono"><b>acme-shop</b> · docs/changes/saved-addresses/</span><span class="detail">PRD written, no technical design. Last changed 18 Nov.</span></span><span class="right"><button type="button" class="btn">Open</button></span></li>
+<li class="item"><span class="names"><span class="title">Supplier contacts</span><span class="file mono"><b>acme-admin</b> · docs/changes/supplier-contacts/</span><span class="detail">Technical design written, no phase plan. Last changed 9 Nov.</span></span><span class="right"><button type="button" class="btn">Open</button></span></li>
+<li class="item"><span class="names"><span class="title">Coupon expiry emails</span><span class="file mono"><b>acme-shop</b> · docs/changes/coupon-expiry-emails/</span><span class="detail">Technical design written, no phase plan. Last changed 2 Nov.</span></span><span class="right"><button type="button" class="btn">Open</button></span></li>
+<li class="item"><span class="names"><span class="title">Dark mode</span><span class="file mono"><b>acme-mobile</b> · docs/changes/dark-mode/</span><span class="detail">PRD written, no technical design. Last changed 21 Oct.</span></span><span class="right"><button type="button" class="btn">Open</button></span></li>
+<li class="item" style="border-bottom: 0"><span class="names"><span class="title">Stock level badges</span><span class="file mono"><b>acme-shop</b> · docs/changes/stock-level-badges/</span><span class="detail">Technical design written, no phase plan. Last changed 14 Sep.</span></span><span class="right"><button type="button" class="btn">Open</button></span></li>
+</ul>
+</details>
 
 </div>
 
@@ -130,6 +158,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <h2 id="bring-h" class="eyebrow">Not listed?</h2>
 <span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 30px; line-height: 1.15">Bring your source material in</span>
 <p class="help">Source material lives in one repository, the one its PRD will live in, even when the build ends up changing several. Pick that repository first.</p>
+<p class="help">Kiln starts from a brief in your own words, an intake record made from transcripts and documents, or a planned PRD in an initiative. Other folders in <span class="mono" style="font-size: 12.5px">source-material/</span>, such as a stakeholder's feedback, are not listed.</p>
 </div>
 
 <div style="display: flex; flex-direction: column; gap: 16px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,.12)">

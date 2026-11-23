@@ -38,7 +38,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <body>
 <div style="min-height: 100%; background: #12110e">
 <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
-<span style="display: inline-flex; align-items: baseline; gap: 18px"><span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span><a href="kiln-requirements-stages-1-home.html" style="font-size: 13.5px">All work in this repository</a></span>
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
 <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
 </header>
 <main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
@@ -64,10 +64,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 </div>
 
 <div style="display: flex; flex-wrap: wrap; gap: 16px 40px; padding-top: 24px; border-top: 1px solid rgba(237,232,221,.12)">
-<div class="fact"><b>2</b><span class="what">business assumptions still open</span></div>
-<div class="fact"><b>1</b><span class="what">of them raised by the design</span></div>
-<div class="fact"><b>6</b><span class="what">closed since the early review</span></div>
-<div class="fact"><b>4 min</b><span class="what">to read, roughly</span></div>
+<div class="fact"><b>2</b><span class="what">business assumptions not yet confirmed</span></div>
 </div>
 
 <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: stretch">
@@ -87,8 +84,8 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <a href="#how-h" class="btn" style="align-self: flex-start">Go to the phase plan</a>
 <div style="display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(237,232,221,.12)">
 <span style="font-size: 14.5px; font-weight: 500">Rather talk it through?</span>
-<span class="what">Open a session of your own on these documents. Exit it when you're done and press Resume here.</span>
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #12110e; border: 1px solid rgba(237,232,221,.18)"><span class="mono" style="flex: 1 1 180px; min-width: 0; font-size: 12.5px">claude --resume 8b41d07a</span><button type="button" class="btn" style="min-height: 36px; padding: 0 14px">Copy</button></div>
+<span class="what">Open a session of your own on these documents. When you're done, commit your changes, exit it and press Resume. If your session changed the requirements, Kiln refreshes the review, then shows this screen again.</span>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #12110e; border: 1px solid rgba(237,232,221,.18)"><span class="mono" style="flex: 1 1 180px; min-width: 0; font-size: 12.5px">claude --resume 8b41d07a</span><button type="button" class="btn" style="min-height: 36px; padding: 0 14px">Copy</button><button type="button" class="btn" style="min-height: 36px; padding: 0 14px">Resume</button></div>
 </div>
 </div>
 
@@ -96,8 +93,8 @@ a{color:#e2694f}a:hover{color:#f0866e}
 </section>
 
 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding: 16px 22px; border-radius: 14px; border: 1px solid rgba(156,196,154,.3)">
-<div style="display: flex; align-items: center; gap: 14px; min-width: 0"><span class="circle done mono">R</span><span style="font-size: 14.5px">Requirements · 8 of 8 stages done in 9h 20m, all on <span class="mono" style="font-size: 13px">feature/data-audit-viewer</span></span></div>
-<button type="button" class="btn" aria-expanded="false">Show the 8 stages</button>
+<div style="display: flex; align-items: center; gap: 14px; min-width: 0"><span class="circle done mono">R</span><span style="font-size: 14.5px">Requirements · 9 of 9 stages done in 9h 20m, all on <span class="mono" style="font-size: 13px">feature/data-audit-viewer</span></span></div>
+<button type="button" class="btn" aria-expanded="false">Show the 9 stages</button>
 </div>
 
 <div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
@@ -118,7 +115,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <li class="row"><span class="circle mono">1</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Audit record store</span><span class="tag strong">Demanding</span></span><span class="file mono">phase-1-audit-record-store.md</span></span><span class="right"><span class="model">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></li>
 <li class="row"><span class="circle mono">2</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Viewer list and filters</span><span class="tag">Standard</span></span><span class="file mono">phase-2-viewer-list-and-filters.md</span></span><span class="right"><span class="model">Claude Code · Opus 5.5 · medium</span><button type="button" class="btn">Change</button></span></li>
 <li class="row"><span class="circle mono">3</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Record detail and history</span><span class="tag">Standard</span></span><span class="file mono">phase-3-record-detail-and-history.md</span></span><span class="right"><span class="model">Claude Code · Opus 5.5 · medium</span><button type="button" class="btn">Change</button></span></li>
-<li class="row" style="border-bottom: 0"><span class="circle mono">4</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Export to CSV</span><span class="tag">Mechanical</span></span><span class="file mono">phase-4-export-to-csv.md</span></span><span class="right"><span class="model">Claude Code · Sonnet 5.5 · medium</span><button type="button" class="btn">Change</button></span></li>
+<li class="row" style="border-bottom: 0"><span class="circle mono">4</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Export to CSV</span><span class="tag">Mechanical</span></span><span class="file mono">phase-4-export-to-csv.md</span></span><span class="right"><span class="model">Claude Code · Sonnet 5.5 · high</span><button type="button" class="btn">Change</button></span></li>
 </ol>
 </div>
 </section>

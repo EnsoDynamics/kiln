@@ -27,86 +27,93 @@
 
 ---
 
-## Home Screen Assumptions
+## Scope Assumptions
 
-### HOME-001. Should old PRDs with no phase plan be kept out of the main list?
+### SCOPE-001. Does Kiln build a PRD that needs no phase plan, from its final review, in one session?
 
-**Assumption**: Yes: a PRD with **no phase plan and no Kiln run**, whose documents last changed **more than 30 days ago**, is listed under a collapsed **Older** heading and not in Under way. Every other unfinished PRD is in Under way.
+**Assumption**: Yes. When phase planning finds the work fits **one session**, or the method lets a small change skip the design and the phase plan, the final review shows, in place of the phase plan, **one row** for building the whole PRD, with its model, which the person can change, and **Start the build**. Kiln builds it in **one session** on the feature branch, with the usual stops and recovery, then the test audit and the **pull request**. It runs **no delivery audit**, as the method skips it for a PRD built in one session.
 
-A small PRD built by hand in one session never gets a phase plan, and nothing in its documents says it was built. Kiln can't tell it from a PRD someone stopped working on. **9 of the 28** PRD folders in Kiln's own repository are like this, and all nine are built. Without this rule the home screen would open on nine lines that need nothing.
+The cost of yes is **a second way of building**. Today Kiln refuses a PRD with no phase plan: its checks before a build, its record of finished work and its audits all read the phase documents, which the method writes and Kiln is not allowed to. All three must work without them.
 
-**If they choose otherwise**: every PRD without a phase plan would be listed in Under way as waiting for its next requirements stage, however old, and the person would need a way to hide each one.
+**If they choose otherwise**: The final review ends with a short prompt to paste into the person's own session. Kiln's build stays as it is, and the person looks after a build of several hours, through its stops and usage limits, and opens the pull request: about **15 to 30 minutes** of attention spread over those hours (our estimate).
+
+**Evidence**: **9 of the 28** PRD folders in Kiln's own repository have no phase plan. For a PRD like these, the method's next step after the requirements is one build session, nearly the session Kiln already runs for a phase. Doug, 2026-11-23: "Then you completely walk away when you get to the implementation", and the final review is "a cleaner spot to go from there to the whole next phase, which is the implementation".
+
+Against: nothing he has asked for covers such a PRD, and of keeping up with method changes he said "I would rather keep things simple" (Doug, 2026-11-23).
+
+**Researched**: 2026-11-23; the stakeholder's messages, the brief and its screens, Kiln's start checks, plan reading, completion checks and completion audits, the method's entry skill, phase-split, implement-from-requirements and delivery audit, every PRD folder in Kiln's repository; not tried: how other products handle it, judged unable to say what this business wants here.
 
 **Confirm or Correct**:
-- [ ] Correct — older than 30 days goes under Older
-- [ ] Wrong — list them all, and let me hide a line
+- [ ] Correct — Kiln builds it in one session, from the final review
+- [ ] Wrong — stop at the final review; I build it in my own session
 - [ ] Wrong — different approach: _______________
 
-**Confidence**: 50% | **Impact**: 🟡 MEDIUM
+**Confidence**: 65% | **Impact**: 🟡 MEDIUM
+
+---
+
+## Home Screen Assumptions
+
+### HOME-004. Should the home screen's Not ready yet list show only material one step from ready, and leave other folders off?
+
+**Assumption**: Yes. **Not ready yet** is the home screen's list of material Kiln can't start from yet, each line saying why. It shows only **two things**, each cleared by one step:
+
+- **Source material not committed** on the shared branch: commit it.
+- **An intake started and not finished**: material was brought in, and its intake record isn't written yet.
+
+Every other folder under `source-material/` that holds neither a brief nor an intake record, as the method names those files, such as a stakeholder's reply or a handoff package, **is not listed**. Instead, the home screen's **Not listed?** panel, which explains how to bring material in, says what Kiln starts from and that **other folders are not listed**.
+
+**If they choose otherwise**: Of the **15** `source-material/` folders in the **6** repositories checked, all committed, **2** hold a brief or an intake record. The other **13**:
+
+| Answer | What Not ready yet shows |
+|---|---|
+| This one | **1 line**: an intake not finished, which goes once its record is written |
+| List every folder holding neither, with the reason, as the brief says | **13 lines**, of which only the unfinished intake's line ever goes. Most are stakeholder replies, where the reason given, add a brief, would start a new PRD from a reply |
+| One closed line for the other folders | The 1 line above, plus one closed line per repository counting its other folders, with nothing to do about them |
+
+**Evidence**: The brief, agreed 2026-11-23, puts under Not ready yet "a folder under `source-material/` holding neither a brief nor an intake record". This **departs from it**. He approved that wording through screens that never showed what real repositories hold.
+
+Doug, 2026-11-23, on the kinds of source material: "I just want to make sure that these different versions of things that we're labeling (a brief, an intake record, or a planned PRD) are distinct formal things ... Otherwise, I'm not sure how we would support that kind of UI." An unfinished intake is one such formal thing: the method commits the material under `received/` before it writes the record. A folder's name can't tell a reply from a handoff: the method fixes a feedback folder's name but only suggests a handoff's.
+
+Against: a handoff package dropped in **without a brief** is not shown, and the panel's line is the only sign of why.
+
+**Example**: none named; the folders found belong to other projects. An intake not finished is `source-material/{name}/received/` with no `{name}-requirements-intake.md` beside it.
+
+**Researched**: 2026-11-23; the method's rules for `source-material/` in every skill that writes there and in the intake's decision record, every `source-material/` folder in the repositories checked, across checkouts, worktrees and branches, and how each was created, the stakeholder's messages, the brief; not tried: how other products show inputs they don't recognise.
+
+**Confirm or Correct**:
+- [ ] Correct — list only uncommitted material and unfinished intakes; leave other folders off
+- [ ] Wrong — list every folder holding neither, with the reason, as the brief says
+- [ ] Wrong — show the other folders as one closed line with their count
+- [ ] Wrong — different approach: _______________
+
+**Confidence**: 75% | **Impact**: 🟡 MEDIUM
 
 ---
 
 ## Decided by the Project Team
 
-> Business decisions, not technical ones, that the team made because each follows from what stakeholders have said or from the entries above, or is easy to change later.
+> Business decisions, not technical ones, that the team made because each follows from what stakeholders have said or from the entries above, or is easy to change later. A stakeholder can still correct any of them.
 
-### REVIEW-001. Does a PRD whose phase plan was written by hand skip Kiln's final review?
+### HOME-001. Should PRDs that Kiln can't tell are built or unfinished go in one closed list at the end of the home screen?
 
-**Assumption**: Yes: a PRD that already has its phase plan when Kiln is first pointed at it **starts as it does today**. Kiln makes no stakeholder review for it and adds no stop. People who run the requirements by hand and use Kiln only for the build see no change.
+**Assumption**: Yes. Some PRDs have no phase plan, no Kiln run and no sign of work in progress, such as a refinement running or a branch not yet merged. A small PRD **built by hand** in one session looks like that, and so does one **left unfinished**. Kiln puts them all in **one line at the end** of the home screen, closed until clicked, which says Kiln can't tell from the files which they are. Opened, it lists them newest change first, and each opens like any other PRD. Whatever SCOPE-001's answer, a PRD Kiln took to its final review never lands here.
 
-**If they choose otherwise**: Kiln would have a stakeholder review made for every PRD before its build, including ones prepared by hand, and would stop at it.
+**If they choose otherwise**: Left off the home screen, a PRD started by hand on the shared branch could be reached only with `kiln run`. Listed with the work under way, Kiln's own repository would open on **nine lines that need nothing**.
 
-**Confirm or Correct**:
-- [ ] Correct as stated
-- [ ] Wrong — correct answer: _______________
+**Evidence**: **9 of the 28** PRD folders in Kiln's own repository have no phase plan, and all nine are built. Only their commit wording shows they are built, and the brief rules out Kiln reading that wording, since the method may reword its commits. Without that wording, nothing in Git tells a built PRD from an unfinished one when its work changed only documents, as it did for **4** built PRDs in other repositories checked.
 
-**Confidence**: 80% | **Impact**: 🟡 MEDIUM
+Doug, 2026-11-23: "reviewing it is a real tax for humans", which argues against lines that need nothing. Of a PRD started by hand: "Wherever it picks up, it just knows where you left off", which argues against hiding them. None of the products checked, GitHub's branches page among them, mixes such items into the active list.
 
----
-
-### BEGIN-001. Is the feature branch named from the source material's folder?
-
-**Assumption**: Yes: the branch is `feature/` followed by **the source material folder's name**, or a planned PRD's directory name. The branch is cut before the PRD has a title, so it can't be named from one. When the PRD's title gives its folder a different name, the branch keeps the name it was cut with.
-
-**Example**: source material in `source-material/gift-card-balance/` gets the branch `feature/gift-card-balance`. If the PRD is titled "Gift Card Balance Lookup", its folder is `docs/prds/gift-card-balance-lookup/` and the branch is still `feature/gift-card-balance`.
-
-**If they choose otherwise**: Kiln would rename the branch to match the PRD's folder once the draft exists, and the screens would show the new name from then on.
+**Researched**: 2026-11-23; the stakeholder's messages, the method's entry skill and phase-split, Kiln's source and run records, the history of every PRD folder without a phase plan in Kiln's and other repositories, and how other products treat items gone quiet (GitHub, Linear, Jira).
 
 **Confirm or Correct**:
-- [ ] Correct as stated
-- [ ] Wrong — rename the branch to match the PRD's folder after the draft
+- [ ] Correct — one closed list at the end
+- [ ] Wrong — leave them off the home screen
+- [ ] Wrong — list them all with the work under way
 - [ ] Wrong — different approach: _______________
 
-**Confidence**: 70% | **Impact**: 🟢 LOW
-
----
-
-### HOME-002. Is a PRD that another Kiln is running shown but not startable?
-
-**Assumption**: Yes: its line says it is running and gives **the address of the Kiln running it**. It can't be opened for a second run from the home screen. Kiln already refuses to run one PRD twice and points at the running one's address.
-
-**If they choose otherwise**: the home screen would either leave such a PRD out, or open the other Kiln's view of it inside this one.
-
-**Confirm or Correct**:
-- [ ] Correct as stated
-- [ ] Wrong — correct answer: _______________
-
-**Confidence**: 85% | **Impact**: 🟢 LOW
-
----
-
-### MODEL-002. Does refining the design ship at high effort?
-
-**Assumption**: Yes: the **Refining the design** row ships as **Opus at high effort**, with GPT Sol at high effort as its fallback. Business stakeholders set the model on 2026-11-23, one down from the most capable, and did not name an effort. High matches the effort of the other requirements stages.
-
-**If they choose otherwise**: the row would ship at medium effort, the effort Kiln ships for standard phases, and a design refinement would use less of a subscription's allowance.
-
-**Confirm or Correct**:
-- [ ] Correct — high effort
-- [ ] Wrong — medium effort
-- [ ] Wrong — different answer: _______________
-
-**Confidence**: 85% | **Impact**: 🟢 LOW
+**Confidence**: 85% | **Impact**: 🟡 MEDIUM
 
 ---
 
@@ -115,3 +122,10 @@ A small PRD built by hand in one session never gets a phase plan, and nothing in
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
 | MODEL-001 | Requirements stages default to the provider's most capable model, except refining the design, which defaults to one model down. Both are defaults the person can change | 2026-11-23 | Corrected by the stakeholder: "default to the most capable model of the provider for everything except for design refinement (which should be the model down from it)". Now AC-MODEL-02 in the PRD |
+| REVIEW-001 | A PRD that already has its phase plan when Kiln is first pointed at it gets today's screen before Start: no stakeholder review made, no new stop | Written up 2026-11-23 | Research settled it at 95%: done by hand, the method makes or declines the review before the phase plan, and a declined review leaves no file, so making one could override that choice. Today's screen already stops before the build. PRD AC-BEGIN-05 |
+| BEGIN-001 | The branch is named from the source material's folder or a planned PRD's directory, can be changed before Start as today, and is never renamed after | Written up 2026-11-23 | Research settled it at 95%: renaming a pushed branch means deleting it, which Kiln v1 forbids (AC-GIT-01, AC-GIT-02), and the method doesn't promise a source folder and its PRD folder share a name. PRD AC-BEGIN-06 |
+| BEGIN-001 (part) | How a run is kept, and what title it shows, before the PRD's folder exists | Left to the design 2026-11-23 | Kiln keeps a run under its PRD folder's name, and that folder exists only once the draft does. The design finds the draft's folder without relying on its name matching the source folder's, which beat assuming they match, since the method doesn't promise it. The title shown until the draft: the source folder's name, the brief's or intake record's own heading, or the planned PRD's name |
+| HOME-002 | A PRD another Kiln is running is listed with that Kiln's state, opens in that Kiln, and can't be started here | Written up 2026-11-23 | Research settled it at 95%: Doug, 2026-11-23, "often I just have multiple of these things going on in parallel", and leaving the line out would hide work waiting for him. Kiln already reads each running Kiln's state for `kiln status`. PRD AC-HOME-05, which now opens every PRD in a Kiln of its own |
+| HOME-002 (part) | Opening the other Kiln, and keeping its line current | Left to the design 2026-11-23 | A line whose Kiln has stopped by the time it is opened is read again and shows as not running, which beat sending the person to an address that no longer answers. Same tab or a new one, and how often the line is refreshed, are the design's to choose |
+| MODEL-002 | The two new Model defaults rows ship with the choices of the Demanding and Audits rows in Kiln Phase Model Tiers: Fable at high, fallback GPT Astra at high; Opus at high, fallback GPT Sol at extra high | Written up 2026-11-23 | One sensible answer, from the stakeholder's own rulings: Fable at high for demanding work and Opus at high for the audits (2026-11-22), the model down for design refinement (2026-11-23), and the screens he approved on 2026-11-23 drawing Fable · high and Opus · high. Extra high cuts against the reason for one model down, and medium falls below the method's refinement floor of high. The fallbacks are the Tiers rows' own, which that PRD's register asks him about, so they are asked once, there. PRD AC-MODEL-02 |
+| HOME-003 | A folder under `source-material/`, whatever it holds, or a planned PRD leaves the home screen's lists once Kiln has started a PRD from it or a PRD or initiative folder of its name exists on any branch, a planned PRD's name being the directory its row gives; material whose PRD or initiative has another name stays listed | Left to the design 2026-11-23 | Not a business question: what can be detected, then a build choice. Both real briefs or intake records found have a PRD of exactly their name, and the method names an intake folder after its PRD or initiative when that name is known, keeping it if the PRD is later named differently. It beat keeping every hand-written PRD's material listed (a stale line per PRD that invites writing it twice) and a Hide remembered on each computer (a click per PRD, per computer). How a run record keeps the source it started from is the design's, as are the match's rare edges: which branch's PRD list counts when branches differ (a planned PRD renamed before it merges), and whether remote-tracking branches and runs on another computer count. An initiative under the method's older names (`docs/roadmaps/`) is not read. Material sharing a name with an unrelated older PRD or initiative is hidden as a match is, and renaming its folder lists it again. PRD AC-HOME-13, first row |

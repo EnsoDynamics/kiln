@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Needs you, for a requirements stage</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.circle{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;box-sizing:border-box;border:1px dashed rgba(237,232,221,.24);color:#8c8577}
+.circle.done{border:1px solid rgba(156,196,154,.45);background:rgba(156,196,154,.09);color:#9cc49a;font-weight:600}
+.circle.now{border:1px solid #e2694f;background:#e2694f;color:#12110e;font-weight:600}
+.circle.next{border:1px solid rgba(237,232,221,.4);color:#ede8dd}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.you{border-color:rgba(226,105,79,.6);color:#f0866e;font-weight:500}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;border:1px solid transparent}
+.pill.done{background:rgba(156,196,154,.09);color:#9cc49a;border-color:rgba(156,196,154,.45)}
+.pill.now{background:#e2694f;color:#12110e;border-color:#e2694f}
+.pill.next{border-color:rgba(237,232,221,.4);color:#ede8dd}
+.pill.planned{border-style:dashed;border-color:rgba(237,232,221,.24);color:#8c8577}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;box-sizing:border-box}
+.btn.primary{border-color:#ede8dd;background:#ede8dd;color:#12110e}
+.lab{font-size:12.5px;color:#8c8577}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.title{font-size:16px;font-weight:500}
+.what{font-size:13.5px;color:#bdb6a8}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.facts{font-size:13px;color:#8c8577;white-space:nowrap}
+.small{font-size:12.5px;color:#8c8577;line-height:1.5}
+.stmt{display:flex;gap:14px;align-items:baseline;padding:12px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.stmt .n{flex:0 0 auto;font-family:"Instrument Serif",Georgia,serif;font-size:22px;color:#8c8577;width:18px}
+.area{width:100%;min-height:92px;padding:12px 14px;border-radius:12px;border:1px solid rgba(237,232,221,.24);background:#12110e;color:#ede8dd;font:inherit;font-size:14.5px;line-height:1.5;box-sizing:border-box;resize:vertical}
+.pill.need{background:#e6b450;color:#12110e;border-color:#e6b450}
+.step{display:grid;grid-template-columns:36px minmax(0,1fr);gap:0 16px}
+.stepn{width:36px;height:36px;border-radius:999px;border:1px solid rgba(237,232,221,.24);display:inline-flex;align-items:center;justify-content:center;font-family:"Instrument Serif",Georgia,serif;font-size:20px;box-sizing:border-box}
+.check{display:grid;grid-template-columns:20px minmax(0,1fr);gap:0 12px;padding:14px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.ring{width:20px;height:20px;border-radius:999px;border:1px dashed rgba(230,180,80,.5);box-sizing:border-box}
+pre{margin:0;white-space:pre-wrap;font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:13px;line-height:1.7;color:#ede8dd;background:#0d0c0a;border:1px solid rgba(237,232,221,.12);border-radius:12px;padding:14px 16px;overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>PRD folder <span class="mono" style="color: #ede8dd">docs/prds/gift-card-balance-lookup/</span></span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">Gift card balance lookup</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px"><span class="pill need" style="padding: 8px 16px; font-size: 14px">Needs you</span><span style="font-size: 14px; color: #bdb6a8">Requirements stage 4 of 8 · Technical design</span><span aria-hidden="true" style="color: #8c8577">·</span><span style="font-size: 14px; color: #bdb6a8">Stopped 2:51 PM</span></div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 28px">
+
+<section class="card" style="border-color: rgba(230,180,80,.5); display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 40px; line-height: 1.1">Technical design ended before it was done.</h2>
+<p style="margin: 0; font-size: 15.5px; color: #bdb6a8">Kiln doesn't try to interpret why. This is how the session ended.</p>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: #8c8577" class="mono"><span>exit 0</span><span>2:51 PM</span><span>running technical-design-writing-standards</span></div>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span class="eyebrow">Last message from Claude Code</span>
+<div style="font-size: 15px; color: #bdb6a8; line-height: 1.65; display: flex; flex-direction: column; gap: 10px; max-width: 72ch">
+<p style="margin: 0">I can't finish the technical design. Gift card balances come from the <span class="mono" style="font-size: 0.88em; color: #ede8dd">acme-payments</span> repository, and this session can't open it: cloning it fails with "Repository not found".</p>
+<p style="margin: 0">Give this session read access to <span class="mono" style="font-size: 0.88em; color: #ede8dd">acme-payments</span>, or tell me where its balance API is described, and I'll carry on. The draft so far is in <span class="mono" style="font-size: 0.88em; color: #ede8dd">technical-design.md</span>, not committed.</p>
+</div>
+</div>
+<a href="#" style="font-size: 13.5px; font-weight: 600; text-decoration: none; align-self: flex-start">Full session output · 214 lines</a>
+</section>
+
+<section class="card" style="display: flex; flex-direction: column; gap: 18px">
+<span class="eyebrow">Let Kiln carry on</span>
+<div style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 16px; font-weight: 600">Reply and continue in Kiln</span><p style="margin: 0; font-size: 14.5px; color: #bdb6a8; line-height: 1.6">Kiln first checks the work, as Check again does. If anything is not committed, it picks up the same session, with its full history, and sends your reply before it carries on with the technical design. If everything is committed, it goes on, and a fresh session applies your reply as feedback before the next stage starts.</p></div>
+<label style="display: flex; flex-direction: column; gap: 8px"><span style="font-size: 13.5px; color: #bdb6a8">Your reply to Claude <span style="color: #8c8577">Optional</span></span><textarea class="area" rows="3" placeholder="Give instructions, answer its question, or ask what you need to know before it continues."></textarea></label>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><button type="button" class="btn primary" style="font-size: 14.5px; padding: 0 20px">Resume</button><span style="font-size: 13px; color: #8c8577">Close the session first if you opened it in a terminal.</span></div>
+</section>
+
+<section class="card" style="display: flex; flex-direction: column; gap: 18px">
+<span class="eyebrow">Or pick it up yourself</span>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 26px">
+<li class="step"><span class="stepn">1</span><div style="display: flex; flex-direction: column; gap: 12px; padding-top: 5px; min-width: 0">
+<span style="font-size: 16px; font-weight: 600">Open the same Claude Code session in a terminal</span>
+<pre>cd .worktrees/gift-card-balance/acme-shop
+claude --resume 6d3f8a2b-1c7e-4f90-b5a2-9e4d0c7b3a61</pre>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><button type="button" class="btn">Copy command</button><span style="font-size: 13px; color: #8c8577">Full history, right where it stopped. Kiln stays out of it.</span></div>
+</div></li>
+<li class="step"><span class="stepn">2</span><div style="display: flex; flex-direction: column; gap: 8px; padding-top: 5px; min-width: 0">
+<span style="font-size: 16px; font-weight: 600">Finish the technical design with Claude, the way you normally would</span>
+<p style="margin: 0; font-size: 14.5px; color: #bdb6a8; line-height: 1.6">Kiln only looks at the checks on the right.</p>
+</div></li>
+<li class="step"><span class="stepn">3</span><div style="display: flex; flex-direction: column; gap: 8px; padding-top: 5px; min-width: 0">
+<span style="font-size: 16px; font-weight: 600">Come back and check again</span>
+<p style="margin: 0; font-size: 14.5px; color: #bdb6a8; line-height: 1.6">Kiln re-checks Git. Once everything is committed, it pushes the branch and goes on. The next stage's session finds where the PRD stands from the documents, so commit the technical design only when it is finished.</p>
+</div></li>
+</ol>
+</section>
+
+<section class="card" aria-labelledby="fb-h" style="display: flex; flex-direction: column; gap: 14px">
+<h2 id="fb-h" class="eyebrow">Your feedback</h2>
+<div style="display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(237,232,221,.12); background: #12110e">
+<div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12.5px; color: #8c8577">You · 2:58 PM</span>
+<span style="font-size: 14.5px">A balance lookup should also show the card's currency, for the cards sold in Canada.</span>
+<span style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: #bdb6a8"><span class="pill planned" style="padding: 2px 10px; font-size: 12px">Waiting</span>A fresh session applies it before the next stage starts.</span>
+</div>
+</div>
+</section>
+
+</div>
+
+<aside class="card" style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+<span class="eyebrow">Kiln continues when</span>
+<ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+<li class="check" style="border-bottom: 0"><span class="ring"></span><span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="display: flex; justify-content: space-between; gap: 8px; font-size: 14px">Everything committed<span style="font-size: 12px; color: #e6b450">Not yet</span></span><span style="font-size: 12.5px; color: #8c8577">1 file changed on the feature branch, not committed</span></span></li>
+</ul>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<button type="button" class="btn primary" style="width: 100%; font-size: 14.5px">Check again</button>
+<span style="font-size: 12.5px; color: #8c8577">Checked when Kiln stopped, 2:51 PM.</span>
+</div>
+<p class="small" style="margin: 0">The session ended without its report, so this is the one check left. Later stages wait until it passes.</p>
+</aside>
+
+</div>
+</main>
+</div>
+</body>
+</html>
