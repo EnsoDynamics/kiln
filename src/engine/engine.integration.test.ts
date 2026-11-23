@@ -91,7 +91,7 @@ describe("the engine from Start to the pull request", () => {
         "",
         `Work only in this worktree, \`${worktree}\`, on branch \`feature/customer-returns\`. Kiln created this worktree and branch for this PRD; it is not a shared checkout and not a parallel-session worktree. Don't switch branches, create another branch or worktree, or land work on any other branch, whatever other instructions say.`,
         "",
-        `If you need a repository that isn't in this worktree's workspace, run \`kiln add-repository <folder name>\`; Kiln adds a worktree of it on \`feature/customer-returns\` and prints where. Work there, never in a repository's own checkout such as \`${displayPath(h.sandbox.root)}/<folder name>\`. Before you change a repository, read its own \`CLAUDE.md\` and \`AGENTS.md\`, if it has them, and follow them in that repository.`,
+        `If you need a repository that isn't in this worktree's workspace, run \`kiln add-repository <owner>/<repository>\`, the path in the repository's remote address; Kiln adds a worktree of it on \`feature/customer-returns\` and prints where. Work there, never in a repository's own checkout such as \`${displayPath(h.sandbox.root)}/<folder name>\`. Before you change a repository, read its own \`CLAUDE.md\` and \`AGENTS.md\`, if it has them, and follow them in that repository.`,
         "",
         "You are authorized, without asking, to commit to `feature/customer-returns`, push it to origin (`git push -u origin feature/customer-returns`), and run refactor-pass after the feature commit. You are not authorized to open a pull request, merge, deploy, or touch any other branch.",
         "",

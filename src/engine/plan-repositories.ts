@@ -6,7 +6,12 @@
 import type { RepositoryEntry } from "../state/records.js";
 import type { GitContext } from "./git-reads.js";
 import type { FoundRepository } from "./repositories.js";
-import { questionSentence, resolveNames, searchedSentence, type Located, type NamedRepository, type Reached } from "./repository-finding.js";
+import { resolveNames, type Located, type NamedRepository, type Question, type Reached } from "./repository-finding.js";
+import { readinessProblem } from "./stop-questions.js";
+import { extractPreparation } from "./preparation-documents.js";
+import { isAncestorOf } from "../plan/phase-ids.js";
+import type { PlannedPhase } from "../plan/phase-plan.js";
+import type { PlanSource } from "./plan-reconciliation.js";
 import { giveNames, labelAmong, shortNameOf, type Labelled } from "./repository-labels.js";
 import { lastPart, readRepositoryName, sameAddressPath } from "../plan/repository-names.js";
 
@@ -107,13 +112,29 @@ export async function reachRecordNames(git: GitContext, record: { repository: { 
   return result.byName;
 }
 
-/** Kiln's name for what a name reached, or what to report instead: a problem, or the question's words while Kiln would ask (Phase 2 asks). */
-export function reachedName(written: string, prdName: string, reached: PlanReach | undefined): { name: string; row?: NamedRepositoryRow } | { problem: string; unavailable?: true } {
+/**
+ * Kiln's name for what a name reached, or what to report instead: a problem, or, while Kiln would
+ * ask, the question with the words a reader that can't leave it out reports (find repositories
+ * anywhere AC-ASK-07; technical design, "A continuation and a base-branch start").
+ */
+export function reachedName(written: string, prdName: string, reached: PlanReach | undefined): { name: string; row?: NamedRepositoryRow } | { problem: string; unavailable?: true; question?: Question } {
   if (written === prdName || reached === undefined || reached.kind === "prd") return { name: prdName };
   if (reached.kind === "entry") return { name: reached.name };
   if (reached.kind === "problem") return { problem: reached.problem, ...(reached.unavailable ? { unavailable: true as const } : {}) };
-  if (!reached.row.found) return { problem: `${questionSentence(reached.row.question!)} ${searchedSentence(reached.row.question!)}` };
+  if (!reached.row.found) return { problem: readinessProblem(reached.row.question!), question: reached.row.question! };
   return { name: reached.row.name, row: reached.row };
+}
+
+/**
+ * The names as written, lower-cased, that the first phase's preparation reads (Kiln Continue Added Phases
+ * AC-CONTINUE-07): a repository among them that Kiln would ask about stays a problem, since
+ * preparation is bound before Start (find repositories anywhere, "A continuation and a base-branch start").
+ */
+export function preparationReads(source: PlanSource, prdDirectory: string, first: PlannedPhase | undefined, prdName: string): Set<string> {
+  if (!first) return new Set();
+  const names = [...new Set([prdName, ...source.plan.phases.filter((phase) => phase.id === first.id || isAncestorOf(phase.id, first.id)).flatMap((phase) => phase.repositories)])];
+  // Lower-cased, so an address path spelled differently in the preparation and the plan still matches (AC-NAME-01).
+  return new Set(extractPreparation(source, prdDirectory, first, names).instructions.map((instruction) => instruction.repository.toLowerCase()));
 }
 
 /**
@@ -160,4 +181,17 @@ export function repositoryDetails(record: { repository: { name: string; github: 
   const set = recordLabelSet(record, record.plan ?? []);
   const entries = record.repositories.length ? record.repositories.map((entry) => ({ name: entry.name, shortName: shortNameOf(entry), addressPath: entry.github })) : [{ name: record.repository.name, shortName: record.repository.name, addressPath: record.repository.github }];
   return entries.map((entry) => ({ name: entry.name, label: labelAmong(entry, set), address_path: entry.addressPath }));
+}
+
+/**
+ * The label of a repository a question asks about (AC-FOLDER-02): the label of the PRD's
+ * repository it is, else its address path when its short name is one of theirs, else its short name.
+ *
+ *   questionLabel(set, "acme-labs/inventory")  // "inventory"
+ */
+export function questionLabel(set: Labelled[], addressPath: string): string {
+  const one = set.find((repository) => sameAddressPath(repository.addressPath, addressPath));
+  if (one) return labelAmong(one, set);
+  const short = lastPart(addressPath);
+  return set.some((repository) => repository.shortName.toLowerCase() === short.toLowerCase()) ? addressPath : short;
 }

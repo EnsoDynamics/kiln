@@ -40,6 +40,8 @@ import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
 import { labelAmong } from "./repository-labels.js";
 import type { Question } from "./repository-finding.js";
+import type { SavedQuestion } from "../state/records.js";
+import { questionLabel } from "./plan-repositories.js";
 import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
@@ -402,6 +404,8 @@ export interface Snapshot {
   needsYou?: SessionIdentityView & {
     phaseId: string;
     kind: StopKind;
+    /** Each question the stop asks about where a repository is (find repositories anywhere AC-ASK-07); the plan stop's carry `phaseFile`. */
+    locate?: (QuestionView & { phaseFile?: string })[];
     stoppedAt: string;
     /** `stoppedAt` is the interrupted run's last output, since Kiln recorded no interruption time. */
     stoppedAtIsLastOutput?: true;
@@ -835,6 +839,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...preflightStopFacts(engine, phaseKey),
     // Only a phase carries the line; an audit, preflight or final delivery stop never shows the card.
     ...optional("attended", isPhaseKey(phaseKey) ? plan.find(phase => phase.id === judged)?.attended : undefined),
+    ...optional("locate", locateView(engine, retainedStop?.locate ?? hold?.locate)),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
   // Resume, reply and the terminal command read the latest conversation, or the latest launch when none began (run restart "A session record with no run").
@@ -1451,8 +1456,15 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
   return rows;
 }
 
+/** A stop's saved questions as the page shows them, each with its label (find repositories anywhere, "Screens"). */
+function locateView(engine: Engine, questions: SavedQuestion[] | undefined): NonNullable<Snapshot["needsYou"]>["locate"] {
+  if (!questions?.length) return undefined;
+  const set = engine.labelSet();
+  return questions.map((question) => ({ ...questionView({ ...question }, questionLabel(set, question.repository)), ...optional("phaseFile", question.phaseFile) }));
+}
+
 /** A question as the page shows it: folders under `~/`. */
-export function questionView(question: Question, label: string): QuestionView {
+export function questionView(question: Question | SavedQuestion, label: string): QuestionView {
   return {
     kind: question.kind,
     repository: question.repository,
@@ -1461,8 +1473,8 @@ export function questionView(question: Question, label: string): QuestionView {
     ...optional("searchedTo", question.searchedTo === undefined ? undefined : displayPath(question.searchedTo)),
     checkouts: question.checkouts.map((checkout) => ({ folder: displayPath(checkout.folder), remote: checkout.remote, pickable: checkout.pickable, ...(checkout.remembered ? { remembered: true as const } : {}) })),
     found: question.found,
-    ...optional("field", question.field === undefined ? undefined : displayPath(question.field)),
-    ...optional("fieldError", question.fieldError),
+    ...optional("field", !("field" in question) || question.field === undefined ? undefined : displayPath(question.field)),
+    ...optional("fieldError", "fieldError" in question ? question.fieldError : undefined),
   };
 }
 

@@ -1,5 +1,7 @@
 # Phase 2: Ask at a stop after Start
 
+**Closed:** 2026-11-22
+
 **Parent PRD:** docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md
 **Technical design:** docs/changes/kiln-find-repositories-anywhere/technical-design.md — relevant sections: "Names" (a skipped phase's address-path key), "After Start" (all of it), "Interfaces", "Data Models", "Screens", "Testing Approach"
 **Model tier:** standard

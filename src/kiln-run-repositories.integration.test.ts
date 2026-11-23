@@ -258,10 +258,10 @@ describe("kiln run on a PRD across repositories", () => {
     }
     expect(calls[0]!.prompt).toContain(`implement \`product/docs/prds/${FOLDER}/phase-1-return-intake.md\``);
     expect(calls[0]!.prompt).toContain(`Work only in this Kiln workspace, \`${workspace}\``);
-    expect(calls[0]!.prompt).toContain(`- \`returns-api\`: \`${join(workspace, "returns-api")}\`, base \`develop\``);
+    expect(calls[0]!.prompt).toContain(`- \`returns-api\` (\`acme/returns-api\`): \`${join(workspace, "returns-api")}\`, base \`develop\``);
     expect(calls[0]!.prompt).not.toContain("notifications");
     // AC-ADD-03: the added repository joins every later phase.
-    expect(calls[2]!.prompt).toContain(`- \`notifications\`: \`${join(workspace, "notifications")}\`, base \`main\``);
+    expect(calls[2]!.prompt).toContain(`- \`notifications\` (\`acme/notifications\`): \`${join(workspace, "notifications")}\`, base \`main\``);
     // AC-PRS-05, AC-PRS-02: one pull request per repository with commits of its own; storefront has none.
     expect(calls[3]!.prompt).toContain("- `product` (`acme/product`)");
     expect(calls[3]!.prompt).toContain("- `notifications` (`acme/notifications`), worktree");
@@ -545,7 +545,7 @@ describe("kiln run on a PRD across repositories", () => {
     expect(snapshot.needsYou!.resumeCommand).toMatch(new RegExp(`^cd ${displayPath(join(f.sandbox.root, ".worktrees", FOLDER)).replace(/[.]/g, "\\.")}\\nclaude --resume `));
     const workspaceFolder = join(f.sandbox.root, ".worktrees", FOLDER);
     expect(snapshot.needsYou!.freshSessionPrompt).toContain(`Work only in this Kiln workspace, \`${workspaceFolder}\``);
-    expect(snapshot.needsYou!.freshSessionPrompt).toContain(`- \`returns-api\`: \`${join(workspaceFolder, "returns-api")}\`, base \`develop\``);
+    expect(snapshot.needsYou!.freshSessionPrompt).toContain(`- \`returns-api\` (\`acme/returns-api\`): \`${join(workspaceFolder, "returns-api")}\`, base \`develop\``);
 
     // A session can add a repository while its phase is stopped at Needs you.
     const add = await api(address, token, "POST", "/api/repositories", { name: "notifications" });
@@ -711,11 +711,11 @@ describe("kiln run on a PRD across repositories", () => {
     // The first session starts in the worktree, as v1, with the workspace folder writable by mode.
     expect(calls[0]!.cwd).toBe(join(workspace, "product"));
     expect(calls[0]!.args.slice(-2)).toEqual(["--add-dir", workspace]);
-    expect(calls[0]!.prompt).toContain("If you need a repository that isn't in this worktree's workspace, run `kiln add-repository <folder name>`");
+    expect(calls[0]!.prompt).toContain("If you need a repository that isn't in this worktree's workspace, run `kiln add-repository <owner>/<repository>`, the path in the repository's remote address");
     expect(kiln.lines()).toContainEqual(expect.stringMatching(/ 1 +Return intake +added returns-api$/));
     // Once it has an added repository, it is a multi-repository PRD.
     expect(calls[1]!.cwd).toBe(workspace);
-    expect(calls[1]!.prompt).toContain(`- \`returns-api\`: \`${join(workspace, "returns-api")}\`, base \`develop\``);
+    expect(calls[1]!.prompt).toContain(`- \`returns-api\` (\`acme/returns-api\`): \`${join(workspace, "returns-api")}\`, base \`develop\``);
     expect((await snapshotOf(address, token)).feature.multiRepository).toBe(true);
     kiln.signals.emit("SIGINT");
     await kiln.done;
@@ -733,8 +733,8 @@ describe("kiln run on a PRD across repositories", () => {
     const worktree = join(workspace, "product");
     // AC-SPACE-04: the workspace and every one of the PRD's repositories, the added one included.
     expect(needsYou.freshSessionPrompt).toContain(`Work only in this Kiln workspace, \`${workspace}\``);
-    expect(needsYou.freshSessionPrompt).toContain(`- \`product\`: \`${worktree}\`, base \`develop\` (the PRD's repository)`);
-    expect(needsYou.freshSessionPrompt).toContain(`- \`returns-api\`: \`${join(workspace, "returns-api")}\`, base \`develop\``);
+    expect(needsYou.freshSessionPrompt).toContain(`- \`product\` (\`acme/product\`): \`${worktree}\`, base \`develop\` (the PRD's repository)`);
+    expect(needsYou.freshSessionPrompt).toContain(`- \`returns-api\` (\`acme/returns-api\`): \`${join(workspace, "returns-api")}\`, base \`develop\``);
     expect(needsYou.freshSessionPrompt).toContain("check the workspace");
     // Paths are from the folder the session started in, which both commands change to.
     expect(needsYou.freshSessionPrompt).toContain(`\`docs/prds/${FOLDER}/phase-1-return-intake.md\``);
@@ -768,7 +768,7 @@ describe("kiln run on a PRD across repositories", () => {
     expect(lines[added + 1]).toMatch(/ 2b +Store credit +started$/);
     const calls = readJsonLines<{ cwd: string; prompt: string }>(`${f.scenarioPath}.calls.jsonl`);
     expect(calls[1]!.cwd).toBe(workspace);
-    expect(calls[1]!.prompt).toContain(`- \`storefront\`: \`${join(workspace, "storefront")}\`, base \`develop\``);
+    expect(calls[1]!.prompt).toContain(`- \`storefront\` (\`acme/storefront\`): \`${join(workspace, "storefront")}\`, base \`develop\``);
     kiln.signals.emit("SIGINT");
     await kiln.done;
   });

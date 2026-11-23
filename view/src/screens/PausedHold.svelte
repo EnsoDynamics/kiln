@@ -21,6 +21,7 @@
   import PausePanel from "../components/PausePanel.svelte";
   import PhaseCircle from "../components/PhaseCircle.svelte";
   import StateHeader from "../components/StateHeader.svelte";
+  import RequestQuestions from "../components/RequestQuestions.svelte";
   import { carryOn, reopenCheckAgain, resumePhase } from "../lib/api.js";
   import type { PhaseRecoveryPage } from "../lib/phase-recovery-page.js";
   import { capitalized, phaseName, shortQuote } from "../lib/progress.js";
@@ -130,6 +131,7 @@
       </div>
     </section>
   {/if}
+  <RequestQuestions {snapshot} />
   {#if shown !== "pausing"}<PausePanel {snapshot} {connected} />{/if}
   <!-- The phase plan marks the activity Paused (AC-PAUSE-05; mockup frame 3). -->
   <PhasePlan {snapshot} {connected} {now} />

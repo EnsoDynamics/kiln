@@ -272,6 +272,27 @@ describe("a run with several repositories (AC-SETUP-07)", () => {
   });
 });
 
+describe("a repository the base plan names that Kiln would ask about (find repositories anywhere AC-ASK-07)", () => {
+  it("is left out of a base-branch start, neither listed nor a problem, for the stop before its phase to ask", async () => {
+    const h = await twoRepositories();
+    // The plan on the base branch names, for phase 3, a repository nothing on this computer has.
+    const file = join(h.repository, "docs/prds/customer-returns/phase-3-returns-dashboard.md");
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const [title, ...rest] = readFileSync(file, "utf8").split("\n");
+    writeFileSync(file, [title, "", "**Repositories:** acme-labs/ledger", ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 3 names the ledger");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.repositories.map(row => [row.name, row.problem])).toEqual([["acme-shop", undefined], ["returns-api", undefined]]);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.repositories.map(entry => entry.name)).toEqual(["acme-shop", "returns-api"]);
+  });
+});
+
 describe("what can't be checked, and what a base start leaves out (AC-FACTS-03, AC-SAFE-02, AC-SAFE-03)", () => {
   it("offers only Check again when origin can't be reached", async () => {
     const h = await landedThenStopped();

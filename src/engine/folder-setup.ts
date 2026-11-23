@@ -14,7 +14,7 @@ import { observeGitPlan } from "./completed-plan-sources.js";
 import { ancestry, inBaseBranch, type FolderMissingView, type RepositoryRead } from "./folder-facts.js";
 import { worktreeAt } from "./folder-check.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
-import { reachedName, reachRecordNames } from "./plan-repositories.js";
+import { preparationReads, reachedName, reachRecordNames } from "./plan-repositories.js";
 import type { PlanSource } from "./plan-reconciliation.js";
 import { baseBranchChoices, checkWorkspaceFolder, checkWorkspaceFolderPlacement, checkWorktreePath, comparable, defaultBaseBranch, displayPath, expandHome, isWithin, joinNames, realPathOfNearestAncestor } from "./worktree-setup.js";
 import { stillOwnArtifacts, type FolderSetupStart } from "./folder-setup-start.js";
@@ -290,8 +290,11 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const reach = await reachRecordNames(git, record, expandHome(record.repository.mainCheckoutPath), plan.plan.phases);
   const names: string[] = [];
   const set: SetRepository[] = [];
+  // A repository Kiln would ask about is left out and asked about at the stop before its phase, unless the first phase's preparation reads it (find repositories anywhere AC-ASK-07).
+  const prepared = preparationReads(plan, record.prdDirectory, leavesOf(plan.plan.phases).find(phase => !phase.closed), prdRead.name);
   for (const one of written) {
     const reached = reachedName(one, prdRead.name, reach.get(one));
+    if ("question" in reached && !prepared.has(one.toLowerCase())) continue;
     if ("problem" in reached) {
       if (reached.unavailable) return { unavailable: reached.problem, known: false };
       set.push({ name: one, kind: "named", mainCheckoutPath: "", github: "", baseBranch: "", problem: reached.problem }); names.push(one); continue;

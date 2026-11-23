@@ -2,6 +2,7 @@
 // `kiln status`", AC-WAIVE-05, AC-WAIVE-10). Everything here reads the saved record and the
 // marked check results; nothing decides coverage, which belongs to `applyWaivers` alone.
 
+import { displayPath } from "../engine/worktree-setup.js";
 import { activityKeyKind } from "../state/activity-keys.js";
 import type { AuditActivity } from "../audit/contracts.js";
 import type { CheckResult, PrdRecord } from "../state/records.js";
@@ -211,7 +212,7 @@ export function statusPause(liveControl: unknown): { activityKey: string; phase:
  * The progress block `kiln status` prints first in text mode (the mockup's `kiln status` blocks).
  * An activity under Pause now reads "pausing" or "paused" where it says "needs you"; its JSON state stays `needs_you`.
  */
-export function progressText(heading: string, rows: readonly ProgressRow[], pauseNow?: { activityKey: string; phase: "pausing" | "paused" }): string {
+export function progressText(heading: string, rows: readonly ProgressRow[], pauseNow?: { activityKey: string; phase: "pausing" | "paused" }, stopLines: readonly string[] = []): string {
   const labelWidth = Math.max(0, ...rows.map(r => r.label.length)) + 3;
   const titleWidth = rows.some(r => r.title) ? Math.max(...rows.map(r => r.title.length)) + 3 : 0;
   const indent = " ".repeat(labelWidth + titleWidth);
@@ -220,6 +221,8 @@ export function progressText(heading: string, rows: readonly ProgressRow[], paus
     const suffix = row.state === "complete" ? waiverSuffix(row) : undefined;
     lines.push(`${row.label.padEnd(labelWidth)}${titleWidth ? row.title.padEnd(titleWidth) : ""}${pauseNow?.activityKey === row.key && row.state === "needs_you" ? pauseNow.phase : STATE_WORDS[row.state]}${suffix ? ` ${suffix}` : ""}`.trimEnd());
     lines.push(...waiverDetailLines(row, indent));
+    // A stop that asks where a repository is lists its questions under its row, under the title column (find repositories anywhere, mockup state 7).
+    if (row.state === "needs_you") lines.push(...stopLines.map(line => `${" ".repeat(labelWidth)}${line}`));
   }
   return `${lines.join("\n")}\n`;
 }
@@ -306,18 +309,19 @@ const CHANGE_WORDS = { newly_failing: "now fails", newly_passing: "now passes", 
  * for every other receipt, whose text output is unchanged.
  */
 export function receiptLines(answer: Record<string, unknown>, record?: PrdRecord, waiveCommand = false): string[] | undefined {
-  const op = answer.operation as { id: string; action?: string; state: string; outcome: string | null; reason: string | null; updated_at: string; waiver_id?: string; changes?: { check: string; subject: string; change: keyof typeof CHANGE_WORDS; before?: string; after?: string }[]; instruction?: unknown; target?: string } | undefined;
+  const op = answer.operation as { id: string; action?: string; state: string; outcome: string | null; reason: string | null; updated_at: string; waiver_id?: string; located?: { repository: string; folder: string; label?: string; phase?: string; facts?: string[] }; changes?: { check: string; subject: string; change: keyof typeof CHANGE_WORDS; before?: string; after?: string }[]; instruction?: unknown; target?: string } | undefined;
   const preview = answer.mark_complete as Record<string, unknown> | undefined;
   const errors = (answer.errors ?? []) as { code: string; message: string }[];
   if (!op) {
     const refusal = errors[0];
     return refusal && waiveCommand ? [refusalLine(refusal.code, refusal.message)] : undefined;
   }
-  if (op.action !== "waive-and-advance" && !preview && !waiveCommand) return undefined;
+  if (op.action !== "waive-and-advance" && op.action !== "locate-repository" && !preview && !waiveCommand) return undefined;
   if (op.state === "refused") return [refusalLine(op.outcome ?? "refused", op.reason ?? "Kiln refused this instruction.")];
   if (op.state === "accepted" || op.state === "in_progress") return [`Operation ${op.id} accepted.`];
   if (op.state === "indeterminate") return [`Operation ${op.id} is indeterminate. ${op.reason ?? "Inspect its receipt before retrying."}`];
   if (op.state === "failed") return [op.outcome === "check_unavailable" ? `Operation ${op.id} failed: the check could not finish. ${op.reason ?? ""}`.trim() : `Operation ${op.id} failed: ${op.outcome ?? "failed"}. ${op.reason ?? ""}`.trim()];
+  if (op.action === "locate-repository") return locatedLines(op);
   if (preview) {
     const activity = preview.offered === true ? offeredActivity(preview) : "The activity";
     return [`Operation ${op.id} completed. ${activity} is still at Needs you.`, ...previewLines(preview, op.updated_at)];
@@ -338,6 +342,23 @@ export function receiptLines(answer: Record<string, unknown>, record?: PrdRecord
     ];
     default: return [`Operation ${op.id} completed: ${op.outcome ?? "completed"}.`];
   }
+}
+
+/**
+ * `kiln command-status` for an answer to where a repository is (find repositories anywhere, "The command").
+ *
+ *   locatedLines({ id: "op_61a2", outcome: "located_phase_starting", located: { repository: "acme-labs/inventory", folder: "/Volumes/work/inventory", label: "inventory", phase: "Phase 4 · Restock check-in" } })
+ *   // ["Operation op_61a2 completed. acme-labs/inventory is at /Volumes/work/inventory. Kiln will remember that on this computer.",
+ *   //  "Added inventory. Phase 4 · Restock check-in is starting."]
+ */
+export function locatedLines(op: { id: string; outcome: string | null; reason: string | null; located?: { repository: string; folder: string; label?: string; phase?: string; facts?: string[] } }): string[] {
+  const located = op.located;
+  if (op.outcome === "folder_not_accepted") return [`Operation ${op.id} completed. Kiln didn’t accept ${located?.folder ?? "that folder"}: ${op.reason ?? ""}`.trimEnd()];
+  if (!located) return [`Operation ${op.id} completed: ${op.outcome ?? "completed"}.`];
+  const lead = `Operation ${op.id} completed. ${located.repository} is at ${displayPath(located.folder)}. Kiln will remember that on this computer.`;
+  if (op.outcome === "located_phase_starting") return [lead, `Added ${located.label ?? located.repository}. ${located.phase} is starting.`];
+  if (op.outcome === "located_still_stopped") return [lead, `${located.phase} is still at Needs you:`, ...(located.facts ?? []).map((fact) => `  ${fact}`)];
+  return [lead];
 }
 
 function refusalLine(code: string, message: string): string {
@@ -364,4 +385,31 @@ export function personItemsText(items: readonly Record<string, unknown>[] | null
     if (item.waits_on) lines.push(`    What waits on it: ${String(item.waits_on)}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * A stop's questions in `kiln status`'s text form (find repositories anywhere, "The command"):
+ * each question's sentences, the checkouts found, then the controls that answer it.
+ *
+ *   locateText(stop)
+ *   // ["Phase plan reads: Kiln couldn’t find a checkout of acme-labs/inventory.",
+ *   //  "It searched outward from ~/code/acme/, never above your home folder.",
+ *   //  "Controls: locate-repository (available) · waive-and-advance (once a recheck still fails)"]
+ */
+export function locateText(stop: Record<string, unknown> | null | undefined): string[] {
+  const questions = (stop?.locate ?? []) as { kind: string; address_path: string; label: string; phase_file: string | null; searched_from: string; searched_to: string | null; checkouts: { folder: string; remote: string; pickable: boolean }[]; available: boolean; reason: string | null }[];
+  if (!questions.length) return [];
+  const lines: string[] = [];
+  for (const question of questions) {
+    const lead = question.phase_file !== null ? "Phase plan reads: " : `A session asked for ${question.label}: `;
+    const first = question.kind === "which" ? `Kiln found ${question.checkouts.filter(one => !(one as { remembered?: boolean }).remembered).length} checkouts of ${question.address_path}.` : question.checkouts.length ? `Kiln couldn’t find a checkout of ${question.address_path} that it can deliver to.` : `Kiln couldn’t find a checkout of ${question.address_path}.`;
+    lines.push(`${lead}${first}`);
+    lines.push(question.kind === "which" ? "Which should it use?" : `It searched outward from ${displayPath(question.searched_from)}/, ${question.searched_to === null ? "never above your home folder." : `as far as ${displayPath(question.searched_to)}/.`}`);
+    for (const checkout of question.checkouts) lines.push(`  ${displayPath(checkout.folder)}  ${checkout.remote}${checkout.pickable ? "" : "  (not on GitHub)"}`);
+  }
+  const first = questions[0]!;
+  const mark = stop?.mark_complete as { offered?: boolean; reason?: string } | undefined;
+  const waive = mark?.offered ? " · waive-and-advance (available)" : mark?.reason && /no check has run since/i.test(mark.reason) ? " · waive-and-advance (once a recheck still fails)" : "";
+  lines.push(`Controls: locate-repository (${first.available ? "available" : first.reason ?? "unavailable"})${waive}`);
+  return lines;
 }

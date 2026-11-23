@@ -133,6 +133,24 @@ export interface PhaseStop {
    * complete the run with no pull request session.
    */
   holdLeadsTo?: "pull_request_session" | "complete";
+  /** Each question the stop asks about a repository Kiln couldn't place (find repositories anywhere AC-ASK-07; schema 25). */
+  locate?: SavedQuestion[];
+}
+
+/**
+ * A question a stop saves whole (find repositories anywhere, "Data Models"): `phaseFile` on the
+ * plan stop's question, absent on one from a session's request. The label is worked out each time
+ * it is shown and a field message belongs to one answer, so neither is saved.
+ */
+export interface SavedQuestion {
+  kind: "where" | "which";
+  /** The address path, as the plan or the session's request writes it. */
+  repository: string;
+  searchedFrom: string;
+  searchedTo?: string;
+  checkouts: { folder: string; remote: string; pickable: boolean; remembered?: true }[];
+  found: number;
+  phaseFile?: string;
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
@@ -191,6 +209,8 @@ export interface PhaseFacts {
   doneAt?: string;
   finishedByPerson: boolean;
   stop?: PhaseStop;
+  /** A session's requests for a repository Kiln would ask about, once per address path (find repositories anywhere AC-SESSION-01). */
+  repositoryRequests?: { addressPath: string; at: string }[];
   /** Waiting for usage (usage-limit recovery AC-AUTO-01); never beside `stop`. */
   wait?: PhaseWait;
   /** By repository name. */

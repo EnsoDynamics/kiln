@@ -18,7 +18,7 @@ interface CommandStreams {
   stderr: { write(text: string): unknown };
 }
 
-const USAGE = "Usage: kiln add-repository <folder name>";
+const USAGE = "Usage: kiln add-repository <owner>/<repository>, the path in the repository's remote address";
 
 /**
  * Runs `kiln add-repository` and returns its exit code: 0 when the repository is in the
@@ -55,13 +55,19 @@ export async function runAddRepository(args: string[], context: CommandStreams):
     return fail(`Couldn't reach Kiln at 127.0.0.1:${instance.port}: ${(error as Error).message}`);
   }
   const { body } = answer;
+  // Kiln's answer when it would ask a person where the repository is: its own words, nothing added (find repositories anywhere AC-SESSION-01).
+  if (answer.status !== 200 && body.asked === true && typeof body.reason === "string") {
+    context.stderr.write(`${body.reason}\n`);
+    return 1;
+  }
   if (answer.status !== 200) return fail(typeof body.reason === "string" ? body.reason : `Kiln answered ${answer.status}.`);
+  const label = typeof body.label === "string" ? body.label : name;
   if (body.added === false) {
-    context.stdout.write(`${name} is already in the workspace at ${String(body.worktreePath)}.\n`);
+    context.stdout.write(`${label} is already in the workspace at ${String(body.worktreePath)}.\n`);
     return 0;
   }
   context.stdout.write(
-    `Added ${name} at ${String(body.worktreePath)}, on ${String(body.branch)} from ${String(body.baseBranch)}. Read its CLAUDE.md and AGENTS.md, if it has them, before you change it.\n`,
+    `Added ${label} at ${String(body.worktreePath)}, on ${String(body.branch)} from ${String(body.baseBranch)}. Read its CLAUDE.md and AGENTS.md, if it has them, before you change it.\n`,
   );
   return 0;
 }

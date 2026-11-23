@@ -99,8 +99,8 @@ describe("kiln add-repository", () => {
     }
   });
 
-  it("takes exactly one folder name", async () => {
+  it("takes exactly one repository", async () => {
     sandbox = createSandbox();
-    for (const args of [[], ["a", "b"], ["--help"]]) expect(await run(sandbox.root, args)).toEqual({ code: 2, stdout: "", stderr: "Usage: kiln add-repository <folder name>\n" });
+    for (const args of [[], ["a", "b"], ["--help"]]) expect(await run(sandbox.root, args)).toEqual({ code: 2, stdout: "", stderr: "Usage: kiln add-repository <owner>/<repository>, the path in the repository's remote address\n" });
   });
 });

@@ -25,9 +25,9 @@ import { ownResult } from "./spool.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { privateJson, privateBytes, deadlineCheck, safeSelector, type SavedWork } from "./private-state.js";
 import { chooseSession, readHistory, readInspectionSession, newestSession, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
-import { ControlFailure, errorFact, result, type Result } from "./result.js";
+import { commandText, ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
-import { markCompletePreview, progressRows, projectCheck, projectPersonItem, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
+import { markCompletePreview, NEW_COMMAND_ID, progressRows, projectCheck, projectPersonItem, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
 import { checkCounts, effectiveRecordedClosed, type AuditWaiverResult } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 import { statusCompatibility } from "../engine/compatibility-notices.js";
@@ -37,11 +37,11 @@ import { displayPath } from "../engine/worktree-setup.js";
 import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed } from "../state/audit-loops.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
 import { continuationFacts, deliveredFacts } from "./delivered-facts.js";
-import { repositoryDetails } from "../engine/plan-repositories.js";
+import { questionLabel, recordLabelSet, repositoryDetails } from "../engine/plan-repositories.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases", "handoff"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "locate-repository", "check-for-new-phases", "continue-with-phases", "handoff"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
-const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
+const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "locate-repository" ? ["PRD-path", "address-path", "folder", "--only-if-status-matches", "--command-id"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -344,7 +344,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     // A finished run's loops, For you and pull requests, and the offer to continue the finished page shows (AC-LEFT-02, AC-BOT-02).
     delivered: view?.delivered ? deliveredFacts(view.delivered, record) : null,
     continuation: record.completedAt && (view?.continuation?.check ?? record.completedPlanCheck) ? continuationFacts((view?.continuation?.check ?? record.completedPlanCheck)!) : null,
-    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
+    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && { ...stopWaivers(stopDetail as Record<string, unknown>), locate: locateFacts(record, work.canonical, control) },
     progress,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
@@ -488,3 +488,27 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
 /** An epoch is response identity, never a mutation authorization in this read-only release. */
 export const instanceEpoch = () => randomUUID();
 export const recordRevision = (record: SavedWork["record"]) => createHash("sha256").update(JSON.stringify(record)).digest("hex");
+
+/**
+ * A stop's questions about where a repository is, projected for `kiln status --json` from the
+ * saved record (find repositories anywhere, "`kiln status --json`"), never the snapshot's field.
+ */
+export function locateFacts(record: import("../state/records.js").PrdRecord, canonical: string, control: { token: string; controls: { name: string; available: boolean; reason: string | null }[] } | undefined): Record<string, unknown>[] {
+  const stopped = Object.entries(record.phases).find(([, facts]) => facts.stop)?.[0] ?? record.billing?.hold?.phaseKey;
+  if (stopped === undefined) return [];
+  const questions = record.phases[stopped]?.stop?.locate ?? (record.billing?.hold?.phaseKey === stopped ? record.billing.hold.locate : undefined) ?? [];
+  const set = recordLabelSet(record, record.plan ?? []);
+  const command = control?.controls.find(one => one.name === "locate-repository");
+  const argv = (addressPath: string, folder: string) => control ? ["kiln", "locate-repository", canonical, addressPath, folder, "--only-if-status-matches", control.token, "--command-id", NEW_COMMAND_ID] : null;
+  return questions.map(question => {
+    const available = !!command?.available;
+    const next = available ? argv(question.repository, "<folder>") : null;
+    return {
+      kind: question.kind, address_path: question.repository, label: questionLabel(set, question.repository), phase_file: question.phaseFile ?? null,
+      searched_from: question.searchedFrom, searched_to: question.searchedTo ?? null,
+      checkouts: question.checkouts.map(checkout => ({ folder: checkout.folder, remote: checkout.remote, pickable: checkout.pickable, remembered: checkout.remembered === true, ...(checkout.pickable && available ? { next_argv: argv(question.repository, checkout.folder) } : {}) })),
+      available, reason: available ? null : command?.reason ?? "Controller is disconnected; no executable controls.",
+      next_argv: next, next_command: next ? commandText(next) : null,
+    };
+  });
+}

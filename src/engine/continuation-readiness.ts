@@ -18,7 +18,7 @@ const authorityDigest = (value: unknown) => createHash("sha256").update(JSON.str
 import { readPendingAuthority, pendingForProposal, type ContinuationInputObservation } from "./continuation-authority.js";
 import { mergeTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
-import { reachedName, reachRecordNames, recordedName, type PlanReach } from "./plan-repositories.js";
+import { preparationReads, reachedName, reachRecordNames, recordedName, type PlanReach } from "./plan-repositories.js";
 import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
 
 export interface ReadinessPrerequisite { phaseId: string; status: "integrated_verified" | "preparation_available" | "blocked" | "unknown"; evidence: string[]; recovery?: string }
@@ -53,8 +53,11 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
   // Each name reaches its repository first, and the reader works with Kiln's name for it (find repositories anywhere "Names").
   const reach = names.length ? await reachRecordNames(git, record, shared, candidate.plan.phases) : new Map<string, PlanReach>();
   const seen = new Set<string>();
+  // A repository Kiln would ask about is left out: the stop before the phase that names it asks (find repositories anywhere AC-ASK-07), unless the first phase's preparation reads it.
+  const prepared = names.length ? preparationReads(candidate, record.prdDirectory, first, record.repository.name) : new Set<string>();
   for (const written of names) {
     const reached = reachedName(written, record.repository.name, reach.get(written));
+    if ("question" in reached && !prepared.has(written.toLowerCase())) continue;
     if ("problem" in reached) { if (reached.unavailable) throw new Error(`source_unavailable: ${reached.problem} Restore repository access, then check again.`); problems.push(reached.problem); continue; }
     const name = reached.name;
     if (seen.has(name)) continue;

@@ -156,11 +156,13 @@ type CodexHistoryReading = Parameters<typeof applyCodexHistoryReadings>[1][numbe
 import { claudeConfigFolder, findTranscripts, claudeHistoryAvailability, readTranscriptRecords } from "../session/transcripts.js";
 import { firstParentCommits, firstParentCount, listWorktrees, localBranchCommit, originBranches, type GitContext } from "./git-reads.js";
 import { observeGitPlan } from "./completed-plan-sources.js";
-import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, observeActivePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource, type UnfollowedLink } from "./plan-reconciliation.js";
+import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, scopeKey, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, observeActivePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource, type UnfollowedLink } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { repositoriesParent, type FoundRepository } from "./repositories.js";
 import { planNames, recordedName, recordLabelSet, resolvePlanRepositories, type NamedRepositoryRow } from "./plan-repositories.js";
-import { checkAnswer, questionSentence, resolveNames, searchedSentence } from "./repository-finding.js";
+import { checkAnswer, resolveNames, type Question } from "./repository-finding.js";
+import { planStopFact, requestRefusal, savedQuestion, stopNowAsks, withQuestion } from "./stop-questions.js";
+import type { SavedQuestion } from "../state/records.js";
 import { giveNames, labelAmong, shortNameOf, type Labelled } from "./repository-labels.js";
 import { readRepositoryName, sameAddressPath } from "../plan/repository-names.js";
 import { rememberLocation } from "../state/repository-locations.js";
@@ -252,7 +254,14 @@ interface WaiveRequest { offered: CheckResult[]; offeredRun: { id: string; at: s
 
 export type AddRepositoryResult =
   | { ok: true; name: string; worktreePath: string; branch: string; baseBranch: string; added: boolean }
-  | { ok: false; status: 409 | 422; reason: string };
+  | { ok: false; status: 409 | 422; reason: string; asked?: true };
+
+/** What `locate-repository` settles as (find repositories anywhere AC-ASK-06; technical design, "The command"). */
+export type LocateAnswer =
+  | { ok: true; outcome: "located" | "located_phase_starting" | "located_still_stopped" | "folder_not_accepted"; reason?: string; located?: LocatedFacts }
+  | { ok: false; code: string; reason: string; status?: number };
+/** What `kiln command-status` says about an accepted answer: the repository, its folder, and for the plan stop what came of the phase. */
+export interface LocatedFacts { repository: string; folder: string; label?: string; phase?: string; facts?: string[] }
 
 export interface EngineOptions {
   paths: RepositoryPaths & { featureName: string };
@@ -566,6 +575,7 @@ export class Engine {
         if (activity && session?.executionId === target.executionId && session.sessionId === target.providerSessionId && session.runs.some((r, i) => (r.control?.attemptId ?? this.legacyAttempt(session, i)) === target.attemptId)) return "The targeted activity finished before Pause now was accepted. Its successor was not paused.";
         return undefined;
       },
+      admission: instruction => instruction.action === "locate-repository" ? this.locateAdmission(String(instruction.inputs.repository)) : undefined,
       apply: (action, inputs, receipt) => this.applyControl(action, inputs, receipt),
       markCompleteOffer: () => this.markCompleteOffer(),
       reconcile: receipt => this.reconcileControl(receipt), changed: () => { this.changed(); if (this.controlKickPending && !this.commands.busy) { this.controlKickPending = false; this.kick(); } },
@@ -643,6 +653,7 @@ export class Engine {
       "carry-on": this.carryOnControl(true).available && !busy,
       "start-again": this.startAgainControl().available && !busy,
       reset: this.resetControl().available,
+      "locate-repository": !!key && !!this.questionHolder(key)?.locate?.length && !busy,
     };
     // At a preflight stop only Check Preflight again and Mark complete are offered (The Preflight Stop).
     const preflightStop = this.preflightStopKey() !== undefined;
@@ -662,12 +673,13 @@ export class Engine {
       "carry-on": this.carryOnControl(true).reason ?? "Carry on isn't offered here.",
       "start-again": this.startAgainControl().reason ?? "Start again isn't offered here.",
       reset: this.resetControl().reason ?? "Reset isn't available.",
+      "locate-repository": this.record.startedAt === undefined ? `${this.paths.featureName} hasn’t started. Tell Kiln where a repository is on Documents found, in the browser.` : "No stop is asking where a repository is.",
       ...(preflightStop ? { reply: PREFLIGHT_STOP_REASON, resume: PREFLIGHT_STOP_REASON, "carry-on": PREFLIGHT_STOP_REASON, "start-again": PREFLIGHT_STOP_REASON, "verify-and-advance": PREFLIGHT_STOP_REASON } : {}),
       ...(preflightRunning ? { "request-pause": PREFLIGHT_PAUSE_REASON } : {}),
     };
     // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
     const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
-    const fixedReason = (name: Action) => name === "reset" || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
+    const fixedReason = (name: Action) => name === "reset" || name === "locate-repository" && !(key && this.questionHolder(key)?.locate?.length) || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
     const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : fixedReason(name) ? unavailable[name]! : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
     // A Pause now's per-reading reasons (the hold's reason, its rows) stay out of the token, so a pause still pausing doesn't change it every second (Kiln Pause Now, "Interfaces").
@@ -762,7 +774,7 @@ export class Engine {
     if (completed) return { ...receipt, state: "completed", stage: "settled", outcome: "advanced", effects: { ...receipt.effects, plan: "advanced" } };
     if (persisted.controlApplied?.operationId === receipt.id) {
       const outcome = persisted.controlApplied.outcome;
-      return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(["advanced", "marked_complete", "continued", "checks_passed"].includes(outcome) ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}), ...(outcome === "session_started" ? { session: "started" as const } : {}) } };
+      return { ...receipt, ...(persisted.controlApplied.settings ? { settings: persisted.controlApplied.settings } : {}), state: "completed", stage: "settled", outcome, effects: { ...receipt.effects, ...(["advanced", "marked_complete", "continued", "checks_passed", "located_phase_starting"].includes(outcome) ? { plan: "advanced" as const } : {}), ...(outcome === "session_resumed" ? { session: "resumed" as const } : {}), ...(outcome === "session_started" ? { session: "started" as const } : {}) } };
     }
     // Mark complete saves its waiver, completion and outcome in one write; with none of them saved and
     // the stop still in place, an interrupted one applied nothing and settles so control is released.
@@ -852,6 +864,12 @@ export class Engine {
         break;
       case "verify-and-advance": answer = await this.checkAgain({ target, intent: "advance" }); break;
       case "waive-and-advance": return this.markComplete(inputs, receipt);
+      case "locate-repository": {
+        const located = await this.locateAtStop(String(inputs.repository), String(inputs.folder));
+        if (!located.ok) return located;
+        this.record.controlApplied = { operationId: receipt.id, outcome: located.outcome }; this.save();
+        return located;
+      }
       case "carry-on": case "start-again":
         return this.dispatchStarting(receipt, () => action === "carry-on" ? this.carryOn({ ...(target ? { target } : {}), ...(typeof inputs.message === "string" ? { note: inputs.message } : {}) }) : this.startAgain());
       case "reply": case "resume":
@@ -2015,7 +2033,13 @@ export class Engine {
 
   /** Check again: runs the stopped phase's check, or reads the plan again at a `plan` stop (AC-STOP-07). */
   async checkAgain(body: Record<string, unknown> = {}): Promise<CommandResult> {
-    if (this.phaseRecoveryTarget() || "target" in body || "intent" in body) return this.recoverPhase("verify", body) as Promise<CommandResult>;
+    if (this.phaseRecoveryTarget() || "target" in body || "intent" in body) {
+      const stopped = this.stoppedPhaseKey();
+      const answer = await (this.recoverPhase("verify", body) as Promise<CommandResult>);
+      // Check again searches again for the phase's requests on a hand-back stop too (find repositories anywhere, "The stops that ask").
+      if (stopped !== undefined && this.stoppedPhaseKey() === stopped) void this.refreshRequestQuestions(stopped);
+      return answer;
+    }
     const key = this.stoppedPhaseKey();
     if (key === undefined) return refuse("No phase is waiting for Check again.");
     if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
@@ -2029,6 +2053,8 @@ export class Engine {
       this.checking = false;
       this.changed();
     }
+    // Check again searches again for the phase's requests (find repositories anywhere, "The stops that ask").
+    if (this.stoppedPhaseKey() === key) void this.refreshRequestQuestions(key);
     this.kick();
     // A recheck that still fails settles as completion_checks_failed, so its receipt carries the Mark complete preview (AC-WAIVE-05).
     return { ok: true, ...(verdict === "still_stopped" && this.stoppedPhaseKey() === key ? { outcome: "still_stopped" as const } : {}) };
@@ -4517,7 +4543,7 @@ export class Engine {
         if (read.warning) { this.phaseFacts(leaf.id).waiverWarning = read.warning; this.save(); }
         if (!added.ok) {
           this.current = undefined;
-          this.recordStop(leaf.id, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }]);
+          this.recordStop(leaf.id, "plan", [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }], undefined, undefined, undefined, added.locate);
           return;
         }
       }
@@ -5874,6 +5900,7 @@ export class Engine {
     this.record.billing!.hold = { phaseKey, action: cause === "launch" ? "launch" : "resume", sessionId: session.sessionId, reason, observed: structuredClone(observed), at: this.now().toISOString(), run: this.newRun("stop"), checks: markReasonRows(cause === "launch" ? [...rows, { name: "Billing approval", passed: false, facts: [reason] }] : rows) };
     this.checking = false; this.current = undefined; this.unwatchWait();
     this.save(); this.updateKeepAwake(); this.changed();
+    void this.refreshRequestQuestions(phaseKey);
     if (!alreadyNeedsYou) this.emitSessionEvent(phaseKey, "stopped");
     this.emit({ kind: "message", text: `Billing hold: ${reason} Open Kiln's browser address above to review billing and continue.` });
   }
@@ -6260,6 +6287,10 @@ export class Engine {
         if (!added.ok) {
           const checks = [{ name: CHECK_NAMES.plan, passed: false, facts: added.facts }];
           if (await this.markChecks(phaseKey, checks)) return this.clearStop(phaseKey);
+          // The plan stop's questions come from the additions' own search; a request's questions stay (find repositories anywhere, "The stops that ask").
+          const planStop = this.record.phases[phaseKey]!.stop!;
+          const asked = [...(planStop.locate ?? []).filter(question => question.phaseFile === undefined), ...added.locate];
+          if (asked.length) planStop.locate = asked; else delete planStop.locate;
           this.updateStop(phaseKey, checks, false);
           return "still_stopped";
         }
@@ -6691,15 +6722,17 @@ export class Engine {
     this.save();
   }
 
-  private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string): void {
+  private recordStop(phaseKey: string, kind: StopKind, checks: CheckResult[], interrupted?: PhaseStop["interrupted"], limit?: StopLimit, checkedAt?: string, locate?: SavedQuestion[]): void {
     // A real stop replaces the overview with its own recovery controls.
     if (this.restartReview) { this.restartReview = undefined; this.reviewingRestart = false; }
     if (deliveryEnabled(this.record)) ledger(this.record).currentComplete = false;
     const at = this.now().toISOString();
     const facts = this.phaseFacts(phaseKey);
     const alreadyStopped = facts.stop !== undefined || this.record.billing?.hold?.phaseKey === phaseKey;
-    facts.stop = { kind, at, checks: markReasonRows(itemize(checks, phaseKey)), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }) };
+    facts.stop = { kind, at, checks: markReasonRows(itemize(checks, phaseKey)), checkedAt: checkedAt ?? at, run: this.newRun("stop"), ...(interrupted === undefined ? {} : { interrupted }), ...(limit === undefined ? {} : { limit }), ...(locate?.length ? { locate } : {}) };
     this.save();
+    // A session's requests are asked about on any stop its phase reaches, once the search finishes (AC-ASK-07).
+    void this.refreshRequestQuestions(phaseKey);
     this.readStoppedCommits(phaseKey);
     // The one place a stop prints its line (AC-START-09). Replacing a retained stop or a hold is the same Needs you, already said.
     if (!alreadyStopped) this.emitSessionEvent(phaseKey, "stopped");
@@ -7776,6 +7809,7 @@ export class Engine {
     if (underway) return underway;
     const addition = this.additionChain.then(async () => {
       const reached = await this.reachForAddition(name, phaseKey);
+      if ("question" in reached) return this.requestAsks(phaseKey, reached.question);
       return "result" in reached ? reached.result : this.addOne(reached.name, phaseKey, reached.found);
     });
     this.additionsUnderway.set(name, addition);
@@ -7787,30 +7821,172 @@ export class Engine {
   }
 
   /** Adds the repositories a phase about to start, or a split record above it, names that the workspace doesn't have (AC-ADD-04). */
-  private async addNamedRepositories(leaf: PlannedPhase, plan: PhasePlan): Promise<{ ok: true } | { ok: false; facts: string[] }> {
-    const names = namedRepositories(
-      plan.phases.filter((phase) => phase.id === leaf.id || isAncestorOf(phase.id, leaf.id)),
-      this.paths.repositoryName,
-    );
+  private async addNamedRepositories(leaf: PlannedPhase, plan: PhasePlan): Promise<{ ok: true } | { ok: false; facts: string[]; locate: SavedQuestion[] }> {
+    const naming = plan.phases.filter((phase) => phase.id === leaf.id || isAncestorOf(phase.id, leaf.id));
+    const names = namedRepositories(naming, this.paths.repositoryName);
+    // A repository that ends in a question doesn't end the additions: the stop asks every question at once (find repositories anywhere, "The stops that ask").
+    const facts: string[] = [];
+    const locate: SavedQuestion[] = [];
     for (const name of names) {
-      const addition = this.additionChain.then(async () => {
+      const addition = this.additionChain.then(async (): Promise<AddRepositoryResult | { ask: Question }> => {
         const reached = await this.reachForAddition(name, leaf.id);
+        if ("question" in reached) return { ask: reached.question };
         return "result" in reached ? reached.result : this.addOne(reached.name, leaf.id, reached.found);
       });
       this.additionChain = addition.catch(() => undefined);
       const result = await addition;
       if (this.stopping) return { ok: true };
-      if (!result.ok) return { ok: false, facts: [`${name}: ${result.reason}`] };
+      if ("ask" in result) {
+        const phaseFile = naming.find((phase) => phase.repositories.includes(name))?.fileName ?? leaf.fileName;
+        if (locate.some((question) => sameAddressPath(question.repository, result.ask.repository))) continue;
+        locate.push(savedQuestion(result.ask, phaseFile));
+        facts.push(planStopFact(phaseFile, result.ask));
+        continue;
+      }
+      if (!result.ok) return { ok: false, facts: [...facts, `${name}: ${result.reason}`], locate };
     }
-    return { ok: true };
+    return locate.length ? { ok: false, facts, locate } : { ok: true };
+  }
+
+  /**
+   * A session's request that ends in a question (AC-SESSION-01): recorded on its phase once per
+   * address path, and nothing added. A stop already open on that phase gains the question at once.
+   */
+  private requestAsks(phaseKey: string, question: Question): AddRepositoryResult {
+    const facts = this.phaseFacts(phaseKey);
+    const requests = (facts.repositoryRequests ??= []);
+    if (!requests.some((request) => sameAddressPath(request.addressPath, question.repository))) requests.push({ addressPath: question.repository, at: this.now().toISOString() });
+    let reason = requestRefusal(question);
+    const holder = this.stoppedPhaseKey() === phaseKey ? this.questionHolder(phaseKey) : undefined;
+    if (holder) {
+      holder.locate = withQuestion(holder.locate, savedQuestion(question));
+      reason = `${reason} ${stopNowAsks(question)}`;
+    }
+    this.save();
+    return { ok: false, status: 422, reason, asked: true };
+  }
+
+  /** Where a stopped phase's questions are saved: its retained stop, else the billing hold on it. */
+  private questionHolder(phaseKey: string): { locate?: SavedQuestion[] } | undefined {
+    const stop = this.record.phases[phaseKey]?.stop;
+    if (stop) return stop;
+    const hold = this.record.billing?.hold;
+    return hold?.phaseKey === phaseKey ? hold : undefined;
+  }
+
+  /** The check run a stopped phase's search belongs to: the billing hold's while it has rows, else the stop's. */
+  private questionRun(phaseKey: string): string | undefined {
+    const hold = this.record.billing?.hold;
+    if (hold?.phaseKey === phaseKey && hold.checks) return hold.run?.id;
+    return this.record.phases[phaseKey]?.stop?.run?.id;
+  }
+
+  private requestSearchesBegun = 0;
+  private requestSearchSaved = 0;
+
+  /**
+   * Searches again for a stopped phase's recorded requests, without holding the stop up (technical
+   * design, "The stops that ask"): each request that still ends in a question is asked on the
+   * stop, and one that now resolves is dropped without a word. The result is saved only while the
+   * stop is open with the run it had when the search began, and no search begun later has saved.
+   */
+  private refreshRequestQuestions(phaseKey: string): Promise<void> {
+    const requests = this.record.phases[phaseKey]?.repositoryRequests;
+    if (!requests?.length || !this.questionHolder(phaseKey)) return Promise.resolve();
+    const run = this.questionRun(phaseKey);
+    const order = ++this.requestSearchesBegun;
+    const searched = resolveNames({
+      git: this.git,
+      env: this.options.env,
+      prd: { name: this.paths.repositoryName, mainCheckoutPath: this.paths.mainCheckoutPath, github: this.record.repository.github },
+      entries: this.record.repositories,
+      names: requests.map((request) => ({ name: request.addressPath, namedIn: phaseKey })),
+      say: (line) => this.repositoryLine(line),
+      said: this.repositoryLinesSaid,
+    });
+    const work = searched.then((resolution) => {
+      const facts = this.record.phases[phaseKey];
+      const holder = this.questionHolder(phaseKey);
+      if (this.stopping || !facts || !holder || this.questionRun(phaseKey) !== run || order < this.requestSearchSaved) return;
+      this.requestSearchSaved = order;
+      const keep: { addressPath: string; at: string }[] = [];
+      let locate = (holder.locate ?? []).filter((question) => question.phaseFile !== undefined);
+      for (const request of facts.repositoryRequests ?? []) {
+        const reached = resolution.byName.get(request.addressPath);
+        const asked = reached?.kind === "repository" ? reached.repository.question : undefined;
+        if (asked) { keep.push(request); locate = withQuestion(locate, savedQuestion(asked)); continue; }
+        // A request made after the search began, or one Kiln couldn't check, keeps what the stop already asks.
+        if (reached === undefined || reached.kind === "problem") {
+          keep.push(request);
+          const before = holder.locate?.find((question) => question.phaseFile === undefined && sameAddressPath(question.repository, request.addressPath));
+          if (before) locate = withQuestion(locate, before);
+        }
+      }
+      if (keep.length) facts.repositoryRequests = keep; else delete facts.repositoryRequests;
+      if (locate.length) holder.locate = locate; else delete holder.locate;
+      this.save();
+    });
+    return work.catch(() => undefined);
+  }
+
+  /** Why `locate-repository` for this address path is refused at admission, or undefined (find repositories anywhere, "The command"). */
+  private locateAdmission(repository: string): string | undefined {
+    if (this.record.startedAt === undefined) return `${this.paths.featureName} hasn’t started. Tell Kiln where ${repository} is on Documents found, in the browser.`;
+    const key = this.stoppedPhaseKey();
+    const asks = key !== undefined && this.questionHolder(key)?.locate?.some((question) => sameAddressPath(question.repository, repository));
+    return asks ? undefined : `No stop is asking where ${repository} is.`;
+  }
+
+  /**
+   * `kiln locate-repository`, or the stop page's Use this folder, after Start (AC-ASK-06, AC-ASK-07):
+   * an answer to a question an open stop asks. An accepted folder is remembered on this computer;
+   * at the plan stop it is then checked as Check again checks it, which adds the repository.
+   */
+  async locateAtStop(repository: string, folder: string): Promise<LocateAnswer> {
+    const key = this.stoppedPhaseKey();
+    const holder = key === undefined ? undefined : this.questionHolder(key);
+    const question = holder?.locate?.find((one) => sameAddressPath(one.repository, repository));
+    if (key === undefined || !question) return { ok: false, code: "control_unavailable", reason: `No stop is asking where ${repository} is.`, status: 409 };
+    const check = await checkAnswer(this.git, folder, question.repository);
+    if (!check.ok && "unavailable" in check) return { ok: false, code: "check_unavailable", reason: `Couldn't read ${folder}'s checkout: ${check.unavailable}`, status: 503 };
+    if (!check.ok) return { ok: true, outcome: "folder_not_accepted", reason: check.message, located: { repository: question.repository, folder } };
+    // The plan stop's answer is checked as Check again checks the stop: refused before anything is remembered while a check runs.
+    if (question.phaseFile !== undefined && (this.billing.busy || this.deliveryBusy || this.checking || this.driving)) return { ok: false, code: "control_unavailable", reason: "Kiln is already checking. Answer again once it finishes.", status: 409 };
+    rememberLocation(this.options.env, question.repository, check.folder, this.now());
+    this.repositoryLine(`Located ${question.repository}`, ` at ${displayPath(check.folder)}. Kiln will remember that on this computer.`);
+    const located: LocatedFacts = { repository: question.repository, folder: check.folder };
+    if (question.phaseFile === undefined) {
+      const facts = this.record.phases[key];
+      if (facts?.repositoryRequests) {
+        facts.repositoryRequests = facts.repositoryRequests.filter((request) => !sameAddressPath(request.addressPath, question.repository));
+        if (!facts.repositoryRequests.length) delete facts.repositoryRequests;
+      }
+      holder!.locate = holder!.locate!.filter((one) => one !== question);
+      if (!holder!.locate.length) delete holder!.locate;
+      this.save();
+      void this.refreshRequestQuestions(key);
+      return { ok: true, outcome: "located", located };
+    }
+    // The plan stop: checked as Check again checks it, which adds the repository and starts the phase once nothing else holds the stop.
+    let answer: CommandResult;
+    try { answer = await this.checkAgain(); }
+    catch (error) { if (!(error instanceof CompletionCheckUnavailable)) throw error; return { ok: false, code: "check_unavailable", reason: error.message, status: 503 }; }
+    if (!answer.ok) return { ok: false, code: "control_unavailable", reason: answer.reason ?? "Kiln couldn't check the stop again.", status: 409 };
+    const phase = `Phase ${this.judgedId(key)} · ${this.record.plan?.find((one) => one.id === this.judgedId(key))?.title ?? ""}`.replace(/ · $/, "");
+    const stillStopped = this.stoppedPhaseKey() === key;
+    if (stillStopped) {
+      const remaining = (this.record.phases[key]?.stop?.checks ?? []).filter((one) => !one.passed).flatMap((one) => one.facts);
+      return { ok: true, outcome: "located_still_stopped", located: { ...located, phase, facts: remaining } };
+    }
+    return { ok: true, outcome: "located_phase_starting", located: { ...located, label: this.labelOf(question.repository), phase } };
   }
 
   /**
    * Reaches a name for an addition as the plan's names are reached (find repositories anywhere
    * "Names"): an entry Kiln recorded keeps its checkout; a repository found gets its name, given
-   * once against the entries; a question fails as a repository not found does (Phase 2 asks at the stop).
+   * once against the entries; a question is the caller's to ask (find repositories anywhere AC-ASK-07, AC-SESSION-01).
    */
-  private async reachForAddition(written: string, phaseKey: string): Promise<{ name: string; found?: FoundRepository } | { result: AddRepositoryResult }> {
+  private async reachForAddition(written: string, phaseKey: string): Promise<{ name: string; found?: FoundRepository } | { result: AddRepositoryResult } | { question: Question }> {
     const refuse422 = (reason: string) => ({ result: { ok: false as const, status: 422 as const, reason } });
     const read = readRepositoryName(written);
     if (read.kind === "problem") return refuse422(read.problem());
@@ -7837,7 +8013,7 @@ export class Engine {
       const prd = record.repositories.find((entry) => entry.kind === "prd");
       return prd ? { result: { ok: true, name: prd.name, worktreePath: expandHome(prd.worktreePath), branch: record.settings.featureBranch, baseBranch: prd.baseBranch, added: false } } : refuse422(`${written} is the PRD's own repository.`);
     }
-    if (repository.question) return refuse422(`${questionSentence(repository.question)} ${searchedSentence(repository.question)}`);
+    if (repository.question) return { question: repository.question };
     const given = giveNames(record.repositories, [{ shortName: repository.shortName, addressPath: repository.addressPath }]);
     if (!given.ok) return refuse422(given.problem);
     const name = given.names[0]!;
@@ -8020,6 +8196,8 @@ export class Engine {
   private promptRepositories(entries: RepositoryEntry[]): PromptRepository[] {
     return entries.map((entry) => ({
       name: entry.name,
+      label: this.labelOf(entry.name),
+      checkout: displayPath(expandHome(entry.mainCheckoutPath)),
       github: entry.github,
       worktreePath: expandHome(entry.worktreePath),
       baseBranch: entry.baseBranch,
@@ -8343,7 +8521,8 @@ export class Engine {
         // Completed or skipped on a waiver: carried by its waiver, never by evidence it does not have (waivers "Continuation executions").
         const waiverId = owner?.[1].waiverId ?? owner?.[1].skippedByWaiver ?? closedWaiver(this.record.waivers, phase.id)?.waiverId;
         if (owner && !owner[1].doneAt && owner[1].skippedByWaiver) {
-          completions[phase.id] ??= { kind: "kiln", waiverId: owner[1].skippedByWaiver, scopeRepositories: phaseRepositories(active, phase.id) };
+          // A skipped phase records an address path that reaches no entry lower-cased (find repositories anywhere, "Names").
+          completions[phase.id] ??= { kind: "kiln", waiverId: owner[1].skippedByWaiver, scopeRepositories: phaseRepositories(active, phase.id).map(scopeKey) };
           continue;
         }
         if (owner) {
@@ -8463,7 +8642,7 @@ export class Engine {
     const previousControl = { controlRevision: this.record.controlRevision, controlFingerprint: this.record.controlFingerprint, controlApplied: this.record.controlApplied };
     const fingerprint = createHash("sha256").update(JSON.stringify({
       execution: this.record.executionId, pause: this.record.pause, settings: this.record.settings, completed: this.record.completedAt,
-      phases: Object.fromEntries(Object.entries(this.record.phases).map(([key, facts]) => [key, { sessions: facts.sessionIds, doneAt: facts.doneAt, stop: facts.stop?.at, wait: facts.wait }])),
+      phases: Object.fromEntries(Object.entries(this.record.phases).map(([key, facts]) => [key, { sessions: facts.sessionIds, doneAt: facts.doneAt, stop: facts.stop?.at, wait: facts.wait, locate: facts.stop?.locate?.map(question => question.repository.toLowerCase()) }])),
       next: this.record.nextActivityKey, authorization: this.record.developmentAuthorization, billingHold: this.record.billing?.hold,
     })).digest("hex");
     if (this.record.controlFingerprint !== fingerprint) { this.record.controlRevision = (this.record.controlRevision ?? 0) + 1; this.record.controlFingerprint = fingerprint; }

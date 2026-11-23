@@ -23,6 +23,13 @@ section to the new version.
   locating, and Start waits until each is answered.
 - Two repositories with the same name under different organizations get separate worktree
   folders and are shown by their whole path, such as `acme/admin` and `acme-labs/admin`.
+- After Start, `kiln add-repository acme-labs/admin` asks for a repository by the path in its
+  remote address. When Kiln can't tell where it is, it tells the session where it searched and
+  adds nothing, and the phase's next Needs you stop asks you where it is. A phase that comes to
+  name such a repository stops before it starts and asks the same way; once answered, Kiln adds
+  the repository and starts the phase.
+- `kiln locate-repository` answers that question from the command line, and `kiln status`
+  lists it with the command to run.
 
 ### Changed
 
