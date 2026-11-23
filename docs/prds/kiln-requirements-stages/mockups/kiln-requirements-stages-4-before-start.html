@@ -77,7 +77,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 
 <li style="display: flex; flex-direction: column; gap: 14px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)">
 <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
-<span class="circle mono">R6</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Refine the design</span><span class="tag">Your choice for this stage</span></span><span class="file mono">autonomous-design-refinement</span></span><span class="right"><span class="model">Claude Code · Opus 5.5 · high</span><button type="button" class="btn" aria-expanded="true">Done</button></span>
+<span class="circle mono">R6</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Refine the design</span><span class="tag">Default for refining the design</span></span><span class="file mono">autonomous-design-refinement</span></span><span class="right"><span class="model">Claude Code · Opus 5.5 · high</span><button type="button" class="btn" aria-expanded="true">Done</button></span>
 </div>
 <div style="margin-left: 50px; padding: 16px; border-radius: 12px; border: 1px solid rgba(237,232,221,.18); display: flex; flex-direction: column; gap: 14px">
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px">
@@ -85,8 +85,8 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Model</span><select class="sel"><option>Fable 5.2</option><option selected>Opus 5.5</option><option>Sonnet 5.5</option><option>Haiku 5.5</option></select></label>
 <label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Effort</span><select class="sel"><option>Low</option><option>Medium</option><option selected>High</option><option>Extra high</option><option>Max</option></select></label>
 </div>
-<label style="display: flex; align-items: flex-start; gap: 10px; font-size: 14px; cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f"><span>Use this for Refine the design on every PRD</span></label>
-<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px"><span class="small">Fable at high effort is your default for requirements stages.</span><a href="#" style="font-size: 13px">Use the default</a></div>
+<label style="display: flex; align-items: flex-start; gap: 10px; font-size: 14px; cursor: pointer"><input type="checkbox" style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f"><span>Use this for Refine the design on every PRD</span></label>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px"><span class="small">Opus at high effort is your default for refining the design. Every other requirements stage defaults to Fable at high effort.</span><a href="kiln-requirements-stages-10-model-defaults.html" style="font-size: 13px">Model defaults</a></div>
 </div>
 </li>
 
@@ -110,7 +110,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <div style="display: flex; flex-direction: column; gap: 4px">
 <span class="lab">Models</span>
 <span style="font-size: 14.5px">Chosen for each stage</span>
-<span class="small">7 on your default for requirements stages, Fable at high effort. 1 on your own choice. Change any stage in the plan.</span>
+<span class="small">7 on your default for requirements stages, Fable at high effort. Refining the design on its own default, Opus at high effort. Change any stage in the plan.</span>
 <a href="#" style="font-size: 13px; margin-top: 2px">Model defaults</a>
 </div>
 

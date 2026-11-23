@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model defaults, with requirements stages</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.sel{height:40px;padding:0 10px;border-radius:10px;border:1px solid rgba(237,232,221,.18);background:#12110e;color:#ede8dd;font:inherit;font-size:14px;box-sizing:border-box;width:100%}
+.lab{font-size:12.5px;color:#8c8577}
+.tier{display:flex;flex-wrap:wrap;gap:14px 24px;padding:20px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.tier-name{flex:1 1 200px;min-width:0;display:flex;flex-direction:column;gap:4px}
+.choice{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.value{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;font-size:14.5px}
+.help{font-size:12.5px;color:#8c8577;line-height:1.5}
+</style>
+<style>
+.mock-note{margin:0;padding:14px 32px;background:#0d0c0a;border-bottom:1px solid rgba(237,232,221,.18);font-size:14px;color:#bdb6a8;line-height:1.5}
+.mock-note strong{color:#ede8dd;font-weight:600}
+</style>
+</head>
+<body>
+<p class="mock-note"><strong>Model defaults, with the two rows for requirements stages.</strong> The page as Kiln Phase Model Tiers draws it, with <em>Requirements stages</em> and <em>Refining the design</em> added below Audits. Covers AC-MODEL-02.</p>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<a href="#" style="font-size: 14px">Back to Customer returns</a>
+</header>
+<main style="max-width: 920px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px">
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span class="eyebrow">Kiln settings · every PRD on this computer</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 52px; line-height: 1.05">Model defaults</h1>
+<p style="margin: 0; max-width: 640px; color: #bdb6a8">Each phase document says how capable a model its build needs. These are the models Kiln fills in for each tier. You can still change any phase in its plan before it starts.</p>
+</div>
+
+<section class="card" aria-labelledby="tiers-h" style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; flex-wrap: wrap; gap: 14px 24px; padding-bottom: 12px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<h2 id="tiers-h" class="eyebrow" style="flex: 1 1 200px">Tier</h2>
+<span class="eyebrow" style="flex: 1 1 240px">First choice</span>
+<span class="eyebrow" style="flex: 1 1 240px">Fallback</span>
+</div>
+
+<div class="tier">
+<div class="tier-name"><span style="font-size: 16px; font-weight: 500">Demanding</span><span class="help">Hard to get right, and costly if wrong.</span></div>
+<div class="choice"><div class="value"><span>Claude Code · Fable · high</span><button type="button" class="btn">Change</button></div></div>
+<div class="choice"><div class="value"><span>Codex · GPT Astra · high</span><button type="button" class="btn">Change</button></div></div>
+</div>
+
+<div class="tier">
+<div class="tier-name"><span style="font-size: 16px; font-weight: 500">Standard</span><span class="help">Most phases, and any phase with no tier.</span></div>
+<div class="choice">
+<div class="value"><span>Claude Code · Opus · medium</span><button type="button" class="btn" aria-expanded="true">Done</button></div>
+<div style="display: flex; flex-direction: column; gap: 10px; padding: 14px; border-radius: 12px; border: 1px solid rgba(237,232,221,.18)">
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Agent</span><select class="sel"><option selected>Claude Code</option><option>Codex</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Model</span><select class="sel"><option>Fable, latest (5.2)</option><option selected>Opus, latest (5.5)</option><option>Sonnet, latest (5.5)</option><option>Haiku, latest (5.5)</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Effort</span><select class="sel"><option>Low</option><option selected>Medium</option><option>High</option><option>Extra high</option><option>Max</option></select></label>
+</div>
+</div>
+<div class="choice"><div class="value"><span>Codex · GPT Sol · high</span><button type="button" class="btn">Change</button></div></div>
+</div>
+
+<div class="tier">
+<div class="tier-name"><span style="font-size: 16px; font-weight: 500">Mechanical</span><span class="help">Repeats something already built, with nothing left to decide.</span></div>
+<div class="choice"><div class="value"><span>Claude Code · Sonnet · medium</span><button type="button" class="btn">Change</button></div></div>
+<div class="choice"><div class="value"><span>Codex · GPT Sol · high</span><button type="button" class="btn">Change</button></div></div>
+</div>
+
+<div class="tier">
+<div class="tier-name"><span style="font-size: 16px; font-weight: 500">Audits</span><span class="help">The delivery audit and the test audit. The preflight and the pull request session use it too. Not a tier: they check the whole PRD.</span></div>
+<div class="choice"><div class="value"><span>Claude Code · Opus · high</span><button type="button" class="btn">Change</button></div></div>
+<div class="choice"><div class="value"><span>Codex · GPT Sol · extra high</span><button type="button" class="btn">Change</button></div></div>
+</div>
+
+<div class="tier">
+<div class="tier-name"><span style="font-size: 16px; font-weight: 500">Requirements stages</span><span class="help">Writing and refining the PRD, the technical design and its review, the phase plan and the stakeholder reviews. Not a tier: these come before there are phases.</span></div>
+<div class="choice"><div class="value"><span>Claude Code · Fable · high</span><button type="button" class="btn">Change</button></div></div>
+<div class="choice"><div class="value"><span>Codex · GPT Astra · high</span><button type="button" class="btn">Change</button></div></div>
+</div>
+
+<div class="tier" style="border-bottom: 0; padding-bottom: 4px">
+<div class="tier-name"><span style="font-size: 16px; font-weight: 500">Refining the design</span><span class="help">The longest requirements stage, so it starts one model down. Whichever stage refines the technical design, whatever the method calls it.</span></div>
+<div class="choice"><div class="value"><span>Claude Code · Opus · high</span><button type="button" class="btn">Change</button></div></div>
+<div class="choice"><div class="value"><span>Codex · GPT Sol · high</span><button type="button" class="btn">Change</button></div></div>
+</div>
+<span class="help" style="padding-top: 12px">Kiln uses the newest version of each model family each time it launches a step of a run, and a step that has started keeps its version.</span>
+</section>
+
+<section class="card" aria-labelledby="fb-h" style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px">
+<div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 360px; min-width: 0"><h2 id="fb-h" class="eyebrow">Fallback</h2><span style="font-size: 16px; font-weight: 500">Use the fallback when usage is nearly out</span><span class="help">Applies to every PRD on this computer until you turn it off. Checked only when Kiln is about to launch a step of a run. One that has started never switches: if it hits a limit, it waits and picks up again, as it does today.</span></div>
+<label style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #ede8dd; cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin: 0; accent-color: #e2694f">On</label>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12)">
+<label for="threshold" style="font-size: 14.5px">Start on the fallback when a limit on the first choice's account is at or above</label>
+<span style="display: inline-flex; align-items: center; gap: 6px"><input id="threshold" type="number" value="95" min="1" max="100" style="width: 76px; height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,.18); background: #12110e; color: #ede8dd; font: inherit; font-size: 14px; box-sizing: border-box"><span style="font-size: 14.5px">%</span></span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12)">
+<span class="lab">Fallback agent</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px 24px; font-size: 14px"><span style="display: inline-flex; align-items: center; gap: 8px"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9cc49a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3.2L13 4.8"></path></svg>Codex · signed in · skills installed</span></div>
+<span class="help">If the fallback's agent isn't ready, each PRD warns before Start, and a run waits at a limit as if the fallback were off. Each PRD shows the billing for both accounts before it starts.</span>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px"><span class="help">Changes apply to everything that hasn't started, in every PRD, except choices you changed for one PRD.</span><button type="button" class="btn">Restore Kiln's defaults</button></div>
+
+</main>
+</div>
+</body>
+</html>

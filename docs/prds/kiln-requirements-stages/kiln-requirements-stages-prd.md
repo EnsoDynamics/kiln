@@ -6,7 +6,7 @@
 
 **Assumptions:** [Kiln Requirements Stages assumptions](kiln-requirements-stages-assumptions.md)
 
-**Review alongside:** the mockups of [the home screen](mockups/kiln-requirements-stages-1-home.html), [the home screen with nothing found](mockups/kiln-requirements-stages-2-home-nothing-found.html), [the home screen from a folder of repositories](mockups/kiln-requirements-stages-3-home-folder-of-repositories.html), [before Start](mockups/kiln-requirements-stages-4-before-start.html), [before Start while the plan is read](mockups/kiln-requirements-stages-5-before-start-reading-the-plan.html), [running while the PRD is refined](mockups/kiln-requirements-stages-6-running-prd-refinement.html), [running after the method was updated](mockups/kiln-requirements-stages-7-running-after-method-update.html), [the early review](mockups/kiln-requirements-stages-8-early-review.html) and [the final review and Start](mockups/kiln-requirements-stages-9-final-review-and-start.html)
+**Review alongside:** the mockups of [the home screen](mockups/kiln-requirements-stages-1-home.html), [the home screen with nothing found](mockups/kiln-requirements-stages-2-home-nothing-found.html), [the home screen from a folder of repositories](mockups/kiln-requirements-stages-3-home-folder-of-repositories.html), [before Start](mockups/kiln-requirements-stages-4-before-start.html), [before Start while the plan is read](mockups/kiln-requirements-stages-5-before-start-reading-the-plan.html), [running while the PRD is refined](mockups/kiln-requirements-stages-6-running-prd-refinement.html), [running after the method was updated](mockups/kiln-requirements-stages-7-running-after-method-update.html), [the early review](mockups/kiln-requirements-stages-8-early-review.html), [the final review and Start](mockups/kiln-requirements-stages-9-final-review-and-start.html) and [Model defaults](mockups/kiln-requirements-stages-10-model-defaults.html)
 
 ## Summary
 
@@ -123,13 +123,20 @@ The final review is the last thing in the requirements and the place the build s
 
 ### Run each stage on the right model
 
-One model for every requirements stage is not enough. The design refinement is the longest stage and can use up a subscription's allowance on the most capable model, while the PRD stages are where a mistake costs most.
+One model for every requirements stage is not enough. The design refinement is the longest stage and can use up a subscription's allowance on the most capable model, while the PRD stages are where a mistake costs most. Kiln's defaults follow that, and every one of them can be changed.
 
 - [ ] **AC-MODEL-01 — Every stage row shows its model, with Change.** Each requirements stage shows the agent, model and effort it ran on, runs on or will run on. A stage that hasn't started can be changed from its row, exactly as a phase can, and a stage that has started keeps what it started with.
-- [ ] **AC-MODEL-02 — One default covers every requirements stage.** Model defaults has one choice for requirements stages. Kiln comes with it set to the choice it ships for demanding phases (MODEL-001). Changing it reaches every stage that hasn't started and has no choice of its own.
+- [ ] **AC-MODEL-02 — Requirements stages default to the most capable model, and refining the design to one model down.** Model defaults has two more rows, each with a first choice, a fallback and **Change**, like the rows it has today. Until the person changes them they hold the choices in the table (MODEL-002). **Refining the design** applies to the stage that refines the technical design, whatever the installed method names it, including a stage that reviews and refines the design in one. **Requirements stages** applies to every other requirements stage. A changed row reaches every stage that hasn't started and that the person hasn't changed.
+
+  | Row | First choice | Fallback |
+  |---|---|---|
+  | Requirements stages | Claude Code · Fable · high | Codex · GPT Astra · high |
+  | Refining the design | Claude Code · Opus · high | Codex · GPT Sol · high |
+
+  - Replaces in part: AC-DEFAULT-02 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (the page shows six rows, not four; the rest remains).
 - [ ] **AC-MODEL-03 — A changed stage can be remembered for every PRD.** When changing a stage, the person can tick **Use this for {stage} on every PRD**. Kiln remembers the choice against the skill the method names for that stage and applies it to that stage on every PRD on the computer.
-- [ ] **AC-MODEL-04 — A remembered choice that no longer matches falls back, and says so.** When no stage in the plan runs the skill a remembered choice was saved against, the choice is not applied. A stage that replaced it runs on the default, and its row says a saved choice no longer applies, with Change beside it.
-- [ ] **AC-MODEL-05 — Stage models can be changed from a terminal.** A stage's model, the default for requirements stages and a remembered choice can each be set by a command.
+- [ ] **AC-MODEL-04 — A remembered choice that no longer matches falls back, and says so.** When no stage in the plan runs the skill a remembered choice was saved against, the choice is not applied. A stage that replaced it runs on its row's default (AC-MODEL-02), and its row says a saved choice no longer applies, with Change beside it.
+- [ ] **AC-MODEL-05 — Stage models can be changed from a terminal.** A stage's model, either requirements row of Model defaults and a remembered choice can each be set by a command.
 - [ ] **AC-MODEL-06 — Requirements stages follow the rules a phase follows for its model.** A choice that can't be used stops the run and nothing runs in its place, and the fallback to the other agent applies to a stage that hasn't started, as Kiln Phase Model Tiers states for a phase.
 
 ### A home screen for everything Kiln can work on

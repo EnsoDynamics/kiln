@@ -27,25 +27,6 @@
 
 ---
 
-## Model Assumptions
-
-### MODEL-001. Does Kiln ship with every requirements stage on the most capable model?
-
-**Assumption**: Yes: Kiln comes with **one default for all requirements stages**, set to the choice it ships for demanding phases. No stage ships on a cheaper model. A person who wants the design refinement on a cheaper model changes that stage once and ticks **Use this for Refine the design on every PRD**.
-
-The alternative is to ship the design refinement on the standard choice, since it is the longest stage and is normally run on a cheaper model. It lost because Kiln holds no list of the method's stages (AC-PLAN-02): shipping a choice for one stage means shipping that stage's skill name inside Kiln, and a method that renames the stage would drop the choice without anyone having made it.
-
-**If they choose otherwise**: Kiln would come with a remembered choice for the design refinement already saved, on the standard choice, and a first run would use less of a subscription's allowance without any setup.
-
-**Confirm or Correct**:
-- [ ] Correct — one default, every stage on the most capable model until the person changes one
-- [ ] Wrong — ship the design refinement on the standard choice
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 60% | **Impact**: 🟡 MEDIUM
-
----
-
 ## Home Screen Assumptions
 
 ### HOME-001. Should old PRDs with no phase plan be kept out of the main list?
@@ -114,7 +95,23 @@ A small PRD built by hand in one session never gets a phase plan, and nothing in
 
 ---
 
+### MODEL-002. Does refining the design ship at high effort?
+
+**Assumption**: Yes: the **Refining the design** row ships as **Opus at high effort**, with GPT Sol at high effort as its fallback. Business stakeholders set the model on 2026-11-23, one down from the most capable, and did not name an effort. High matches the effort of the other requirements stages.
+
+**If they choose otherwise**: the row would ship at medium effort, the effort Kiln ships for standard phases, and a design refinement would use less of a subscription's allowance.
+
+**Confirm or Correct**:
+- [ ] Correct — high effort
+- [ ] Wrong — medium effort
+- [ ] Wrong — different answer: _______________
+
+**Confidence**: 85% | **Impact**: 🟢 LOW
+
+---
+
 ## Validated Assumptions
 
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
+| MODEL-001 | Requirements stages default to the provider's most capable model, except refining the design, which defaults to one model down. Both are defaults the person can change | 2026-11-23 | Corrected by the stakeholder: "default to the most capable model of the provider for everything except for design refinement (which should be the model down from it)". Now AC-MODEL-02 in the PRD |
