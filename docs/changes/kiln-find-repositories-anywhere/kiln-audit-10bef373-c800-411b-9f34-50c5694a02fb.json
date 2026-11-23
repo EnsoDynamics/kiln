@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "10bef373-c800-411b-9f34-50c5694a02fb",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Repair audit of the whole PRD after Phase 6 (21 criteria, three rounds). Phase 6's repairs are in the code, but 4 criteria are still not fully built. The search can climb above the home folder from a PRD kept outside it. A continuation or a Folder missing start can give a repository the whole-path folder name because of a repository it leaves out. Earlier deliveries, the continuation's preparation line and two waive-and-advance terminal lines still show Kiln's name instead of the label. kiln add-repository's success lines don't match the drawing. Phase 7 builds them. The third round found no new gap.",
+  "completionPhases": ["7"],
+  "needsYou": [],
+  "settled": []
+}
