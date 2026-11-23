@@ -58,7 +58,7 @@ Against: nothing he has asked for covers such a PRD, and of keeping up with meth
 
 **Assumption**: Yes. **Not ready yet** is the home screen's list of material Kiln can't start from yet, each line saying why. It shows only **two things**, each cleared by one step:
 
-- **Source material not committed** on the shared branch: commit it.
+- **Source material not committed** on the shared branch: commit it, or bring the local shared branch up to date when only the remote's copy holds it.
 - **An intake started and not finished**: material was brought in, and its intake record isn't written yet.
 
 Every other folder under `source-material/` that holds neither a brief nor an intake record, as the method names those files, such as a stakeholder's reply or a handoff package, **is not listed**. Instead, the home screen's **Not listed?** panel, which explains how to bring material in, says what Kiln starts from and that **other folders are not listed**.

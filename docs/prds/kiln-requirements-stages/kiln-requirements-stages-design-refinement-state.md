@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Requirements Stages
 
-Started: 2026-11-23   Current pass: 5   Status: In progress
+Started: 2026-11-23   Current pass: 5   Status: Paused: PRD growth (5458 → 7001 words, +28%; 1239 of the 1543 added words are Replaces in part lines)
 Branch: feature/kiln-requirements-stages
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 5458 · growth baseline 5458
@@ -18,6 +18,7 @@ Last updated: 2026-11-23
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 21 (11 discovery + 6 conflict + 4 found during investigation) | 12 | 12 | 0 | 9 | 0 | 1 |
+| 5 | 2 | 2 (+ LOW batch) | 3 | 0 | 0 | 0 | 0 |
 | 4 | 3 | 4 (3 + one LOW) | 5 (+ R5 LOW batch) | 0 | 0 | 0 | 0 |
 | 3 | 10 | 12 (8 carried + Q1–Q4) | 18 (12 taken + Q5–Q10 folded in) | 0 | 0 | 0 | 0 |
 | 2 | 15 (11 discovery + 4 found during investigation) | 12 (9 carried + 3 new) | 15 (12 taken + P7, P8, P10 folded in) | 0 | 8 | 0 | 0 |
@@ -76,6 +77,10 @@ Last updated: 2026-11-23
 | R3 | 4 | Home screen placement of a started run whose PRD folder doesn't exist yet | Technical | MEDIUM | 85 → 92 | Resolved | PRD AC-HOME-13 row; TD §What it lists |
 | R5 | 4 | LOW batch from discovery: kiln-plan validity; feedback session's valid report at a passed Needs you; plan kept after a failed re-read; initiative without --prd lists planned PRDs; feedback after a ran-nothing session; feedback has no stage key | Technical | LOW | 85 → 92 | Resolved | TD §Interfaces, §How a stage ends, §Reading it, §What `kiln run` accepts, §Rows, §Data Models |
 | R4 | 4 | Plan read lists steps before the PRD (intake, initiative), giving rows Kiln never runs and false notices | Technical | LOW | 90 → 95 | Resolved | TD §Reading it |
+| S1 | 5 | Review-at-a-stop rule searches forward without limit, so a follow-on PRD's early review matches the post-design review entry and skips the design stages; no-match left the cursor on the entry that ran | Technical | MEDIUM | 80 → 92 | Resolved (adjacent entry only; otherwise cursor moves past the stage that reached the stop) | TD §Rows |
+| S2 | 5 | Resume at the early review after the person's own session never refreshes a stale review (early review already held) | Technical | MEDIUM | 85 → 92 | Resolved (one-time refreshAsked) | TD §The driver, §The Two Reviews, §Data Models |
+| S4 | 5 | Final conformance: "the one that reached the stop" undefined for a ran-nothing report; no kiln:early row when no plan entry reaches prd_refined | Technical | LOW | 85 → 92 | Resolved | TD §Rows |
+| S3 | 5 | LOW wording: worked_in from stage/feedback reports only; no-plan next row when next names a stop's review; planned rows include the entry at the cursor at a stop | Technical | LOW | 90 → 95 | Resolved | TD §Feedback, §Rows |
 
 ## Question notes
 
@@ -96,14 +101,16 @@ Conformance pass 4: §Feedback and §What a session is told say only stage and f
 
 ## Conflict check
 Pass 1: 2026-11-23 · 48 earlier criteria changed (5 already covered) · 20 Replaces lines written or extended, covering 36 more · 6 raised as questions (C1–C6)
-Changed after pass 1: AC-HOME-13, AC-TALK-01 (again), AC-PLAN-06, AC-TALK-01, AC-STAGE-04 (twice), AC-BEGIN-04, AC-TALK-02, AC-HOME-01, AC-HOME-02, AC-BEGIN-07, AC-HOME-03, AC-FINAL-06, AC-STAGE-03
+Changed after pass 1 (re-checked at completion, then AC-FINAL-06, AC-BEGIN-07 reworded from it): AC-HOME-13, AC-TALK-01 (again), AC-PLAN-06, AC-TALK-01, AC-STAGE-04 (twice), AC-BEGIN-04, AC-TALK-02, AC-HOME-01, AC-HOME-02, AC-BEGIN-07, AC-HOME-03, AC-FINAL-06, AC-STAGE-03
 
 Replaces lines folded 2026-11-23: 30 added, 4 amended (PRD 5458 → 6318 words). Writer split BEGIN-04's source-material part onto AC-BEGIN-07 and moved the one-row part onto AC-FINAL-06. Possible gap left: AC-BEGIN-02 vs v1 AC-START-02 for source material.
+Completion: 2026-11-23 · 12 criteria re-checked · 6 Replaces lines added, 2 corrected, 1 question answered in AC-FINAL-06 (a split one-session build is followed, delivery audit included), AC-BEGIN-07 reworded to fit the plan read before Start
 
 ## Register re-sort
 Pass 1: 2026-11-23 · 3 open entries · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as Technical questions · 3 stay business (SCOPE-001, HOME-004 above the line; HOME-001 below). Doubt check doubted HOME-004 and HOME-001; re-sorted by the orchestrator: both kept, since each departs from or narrows the brief's own wording, which is theirs to check. SCOPE-001's cost paragraph restated around the product, not Kiln's internals.
 
 ## Noticed, out of scope
+- A person's own session at the early stop that writes a technical design skips the early-branch refresh; the method's refresh after design refinement covers it
 - `kiln` run from inside a Kiln worktree may resolve a different scope than the main checkout (two home screens for one repository)
 - The person's own session at a review stop running alongside a Send-feedback session in the same worktree; Kiln can't see the person's session
 - The `whole` build has no phase document Repositories line; `kiln add-repository` is the only route to other repositories
@@ -124,4 +131,4 @@ Pass 1: 2026-11-23 · 3 open entries · 0 moved to design · 0 written up · 0 s
 | Kiln Phase Model Tiers exists only as a design; its contracts can be checked against its design, not code | Any question on the resolver, start line, launch decision, Model defaults | Tiers built and merged (TD §Delivery) |
 
 ## Next action
-Pass 5: discovery. LOW items folded as R5; left: PRD-differs check for a by-hand PRD on a new branch vs local shared tip; no kiln:early row when no plan entry reaches prd_refined (both for final verification to judge).
+Paused for Doug on PRD growth. On continue: reset the growth baseline to 7001, then Phase 7 step 3, final verification (one LOW item for it to judge: PRD-differs check for a by-hand PRD on a new branch vs local shared tip), then completion report, delete this file, completion commit, consolidation.
