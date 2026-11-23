@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Phase Model Tiers mockup: 2. While running: the phase plan</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.circle{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;box-sizing:border-box;border:1px dashed rgba(237,232,221,.24);color:#8c8577}
+.circle.done{border:1px solid rgba(156,196,154,.45);background:rgba(156,196,154,.09);color:#9cc49a;font-weight:600}
+.circle.now{border:1px solid #e2694f;background:#e2694f;color:#12110e;font-weight:600}
+.circle.next{border:1px solid rgba(237,232,221,.4);color:#ede8dd}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.strong{border-color:rgba(237,232,221,.4);color:#ede8dd;font-weight:500}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;border:1px solid transparent}
+.pill.done{background:rgba(156,196,154,.09);color:#9cc49a;border-color:rgba(156,196,154,.45)}
+.pill.now{background:#e2694f;color:#12110e;border-color:#e2694f}
+.pill.next{border-color:rgba(237,232,221,.4);color:#ede8dd}
+.pill.planned{border-style:dashed;border-color:rgba(237,232,221,.24);color:#8c8577}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.info{display:inline-flex;align-items:center;justify-content:center;width:44px;height:28px;margin:-4px -12px;border:0;background:transparent;color:#bdb6a8;cursor:pointer}
+.lab{font-size:12.5px;color:#8c8577}
+.model{font-size:13.5px;color:#bdb6a8}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:16px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.title{font-size:16px;font-weight:500}
+.file{font-size:12.5px;color:#8c8577}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.facts{font-size:13px;color:#8c8577;white-space:nowrap}
+</style>
+<style>
+.mock-note{margin:0;padding:14px 32px;background:#0d0c0a;border-bottom:1px solid rgba(237,232,221,.18);font-size:14px;color:#bdb6a8;line-height:1.5}
+.mock-note strong{color:#ede8dd;font-weight:600}
+</style>
+</head>
+<body>
+<p class="mock-note"><strong>2. While running: the phase plan.</strong> Finished activities say what they ran on, the current one what it is running on, later ones what they will run on. Phase 5 was changed by the person. Phase 4's tier reason is open, and the fallback is off. Covers AC-TIER-02, AC-PICK-02, AC-PICK-03, AC-PICK-04, AC-OTHER-01, AC-FALLBACK-01 and AC-AGENTS-03.</p>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>PRD folder <span class="mono" style="color: #ede8dd">docs/prds/customer-returns/</span></span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">Customer returns</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span class="pill now" style="padding: 8px 16px; font-size: 14px">Implementing phase 3</span><span style="color: #bdb6a8">2 of 5 phases done</span></div>
+</div>
+
+<section style="border: 1px solid rgba(226,105,79,.55); border-radius: 18px; background: #0d0c0a; padding: 28px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 24px">
+<div style="display: flex; align-items: center; gap: 16px; min-width: 0"><span class="circle now mono">3</span><div style="display: flex; flex-direction: column; gap: 2px"><span class="eyebrow">Now implementing · phase 3 of 5</span><span style="font-size: 20px; font-weight: 600">Store credit</span></div></div>
+<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 14px; color: #bdb6a8"><span>Claude Code · Opus 5.5 · medium effort</span><span>Standard phase · started 10:58 AM · 49 min</span></div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+<section aria-labelledby="plan-h" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; justify-content: space-between; align-items: baseline; gap: 12px"><h2 id="plan-h" class="eyebrow">Phase plan</h2><span style="font-size: 13px; color: #8c8577">2 of 5 done</span></div>
+<ol style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li class="row">
+<span class="circle done mono">PF</span>
+<span class="names"><span class="title">Preflight</span><span class="file">Nothing to settle</span><span class="model">Ran on Claude Code · Opus 5.5 · high</span></span>
+<span class="right"><span class="facts">3m</span><span class="pill done">Ready</span></span>
+</li>
+
+<li class="row">
+<span class="circle done mono">1</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Return intake</span><span class="tag">Standard<button type="button" class="info" aria-label="What standard means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-1-return-intake.md</span><span class="model">Ran on Claude Code · Opus 5.5 · medium</span></span>
+<span class="right"><span class="facts">52m · pushed a1c4e09</span><span class="pill done">Done</span></span>
+</li>
+
+<li class="row">
+<span class="circle done mono">2</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Card refunds</span><span class="tag strong">Demanding<button type="button" class="info" aria-label="Why this phase is demanding"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-2-card-refunds.md</span><span class="model">Ran on Claude Code · Fable 5.2 · high</span></span>
+<span class="right"><span class="facts">1h 14m · pushed 5d81b37</span><span class="pill done">Done</span></span>
+</li>
+
+<li class="row">
+<span class="circle now mono">3</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Store credit</span><span class="tag">Standard<button type="button" class="info" aria-label="What standard means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-3-store-credit.md</span><span class="model">Running on Claude Code · Opus 5.5 · medium</span></span>
+<span class="right"><span class="facts">49m</span><span class="pill now">Implementing</span></span>
+</li>
+
+<li class="row" style="position: relative">
+<span class="circle next mono">4</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Return labels for three more carriers</span><span class="tag">Mechanical<button type="button" class="info" aria-label="Why this phase is mechanical" aria-expanded="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-4-more-carrier-labels.md</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px"><span class="model">Will run on Claude Code · Sonnet 5.5 · high</span><button type="button" class="btn">Change</button></span></span>
+<span class="right"><span class="pill next">Next</span></span>
+<div role="tooltip" style="position: absolute; left: 50px; top: 46px; z-index: 2; width: 360px; max-width: calc(100% - 50px); box-sizing: border-box; padding: 14px 16px; border-radius: 12px; background: #0d0c0a; border: 1px solid rgba(237,232,221,.24); box-shadow: 0 12px 32px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600">Why this phase is mechanical</span>
+<span style="font-size: 13px; color: #bdb6a8; line-height: 1.5">Repeats phase 1's label builder (<span class="mono" style="font-size: 12px">src/labels/ups.ts</span>) for three more carriers.</span>
+<span style="font-size: 12.5px; color: #8c8577">From the phase document's Model tier line.</span>
+</div>
+</li>
+
+<li class="row">
+<span class="circle mono">5</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title" style="color: #bdb6a8">Returns report</span><span class="tag" style="border-style: dashed">Not rated<button type="button" class="info" aria-label="What not rated means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-5-returns-report.md</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px"><span class="model">Will run on Claude Code · Fable 5.2 · high</span><span style="font-size: 12.5px; color: #8c8577">Changed by you · <a href="#">Use the default</a></span><button type="button" class="btn">Change</button></span></span>
+<span class="right"><span class="pill planned">Planned</span></span>
+</li>
+
+<li class="row">
+<span class="circle mono">DA</span>
+<span class="names"><span class="title" style="color: #bdb6a8">Delivery audit</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px"><span class="model">Will run on Claude Code · Opus 5.5 · high</span><button type="button" class="btn">Change</button></span></span>
+<span class="right"><span class="pill planned">Planned</span></span>
+</li>
+
+<li class="row">
+<span class="circle mono">TA</span>
+<span class="names"><span class="title" style="color: #bdb6a8">Test audit</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px"><span class="model">Will run on Claude Code · Opus 5.5 · high</span><button type="button" class="btn">Change</button></span></span>
+<span class="right"><span class="pill planned">Planned</span></span>
+</li>
+
+<li class="row" style="border-bottom: 0">
+<span class="circle mono">PR</span>
+<span class="names"><span class="title" style="color: #bdb6a8">Pull request</span><span class="model" style="margin-top: 4px">Will run on Claude Code · Opus 5.5 · high</span></span>
+<span class="right"><span class="pill planned">Planned</span></span>
+</li>
+</ol>
+</section>
+
+<div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+
+<section class="card" aria-labelledby="acct-h" style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 2px"><h2 id="acct-h" class="eyebrow">Claude account</h2><span style="font-size: 15px">alex@example.com</span><span style="font-size: 13px; color: #8c8577">Max plan · usage updated 2 min ago</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 14px; border-top: 1px solid rgba(237,232,221,.12)"><div style="display: flex; justify-content: space-between"><span>5-hour window</span><span style="font-weight: 600">58%</span></div><div style="height: 6px; border-radius: 999px; background: rgba(237,232,221,.12)"><div style="width: 58%; height: 6px; border-radius: 999px; background: #ede8dd"></div></div><span style="font-size: 13px; color: #8c8577">Resets in 1h 12m</span></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><div style="display: flex; justify-content: space-between"><span>Weekly</span><span style="font-weight: 600">41%</span></div><div style="height: 6px; border-radius: 999px; background: rgba(237,232,221,.12)"><div style="width: 41%; height: 6px; border-radius: 999px; background: #ede8dd"></div></div><span style="font-size: 13px; color: #8c8577">Resets in 4d</span></div>
+</section>
+
+<section class="card" aria-labelledby="set-h" style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 4px"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span style="font-size: 13px; color: #8c8577; line-height: 1.5">A phase that has started keeps the model it started with.</span></div>
+<div style="display: flex; flex-direction: column; gap: 3px; padding-top: 14px; border-top: 1px solid rgba(237,232,221,.12)"><span class="lab">Models</span><span style="font-size: 14.5px">Chosen for each phase</span><span style="font-size: 12.5px; color: #8c8577; line-height: 1.5">Change any phase that hasn't started, in the phase plan.</span><a href="kiln-phase-model-tiers-4-model-defaults.html" style="font-size: 13px; margin-top: 2px">Model defaults</a></div>
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px"><div style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span class="lab">Audits</span><span style="font-size: 14.5px">Claude Code · Opus 5.5 · high</span><span style="font-size: 12.5px; color: #8c8577; line-height: 1.5">The preflight and the pull request session use it too.</span></div><button type="button" class="btn">Change</button></div>
+<div style="display: flex; flex-direction: column; gap: 3px"><span class="lab">If usage is nearly out</span><span style="font-size: 14.5px">Wait for the limit</span><span style="font-size: 12.5px; color: #8c8577; line-height: 1.5">No fallback is switched on. Set one up in <a href="kiln-phase-model-tiers-4-model-defaults.html">Model defaults</a>.</span></div>
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px"><div style="display: flex; flex-direction: column; gap: 3px"><span class="lab">Keep awake</span><span style="font-size: 14.5px">While a session works or Kiln waits</span></div><label style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #bdb6a8"><input type="checkbox" checked style="width: 18px; height: 18px; margin: 0; accent-color: #e2694f">On</label></div>
+</section>
+
+</div>
+</div>
+</main>
+</div>
+</body>
+</html>

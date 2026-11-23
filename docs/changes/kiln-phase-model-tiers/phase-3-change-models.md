@@ -1,0 +1,21 @@
+# Phase 3: Change models
+
+**Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
+**Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "Resolving a Choice" (entries, Use the default, the Audits entry); the "Change while a launch of the activity is under way", "Model defaults across running Kilns", "Model defaults holds only what the person set", "Restore Kiln's defaults" and "Commands for Model defaults" decisions; "Model defaults file" (writing it); "HTTP"; `settings.models` in "Snapshot"; "Command line"; "Changes to Earlier Designs"
+**Phase plan:** [Execution order](kiln-phase-model-tiers-phase-plan.md)
+**Model tier:** standard
+
+## Summary
+The person can change the agent, model and effort of any phase that hasn't started, and the Audits choice for one PRD, on Documents found and in a running plan, from the browser or with `kiln model`, and return either to the default. A separate Model defaults page, and `kiln model-defaults` commands, set each tier's and the Audits row's first choice and fallback, restore Kiln's defaults, and turn the fallback switch and its threshold on, off or up and down for every PRD on the computer.
+
+## Acceptance criteria covered
+AC-PICK-03, AC-PICK-05, AC-OTHER-01, AC-KEEP-02, AC-DEFAULT-02, AC-DEFAULT-03, AC-DEFAULT-05, AC-FALLBACK-01, AC-KEEP-01 (also applies to this phase's work)
+
+## Out of scope for this phase
+What the fallback switch does at a launch: the launch decision, the Fallback tag, the card's facts, the terminal line and the heads-up (Phase 4). The public guide (Phase 4).
+
+## Phase dependencies
+1 (the resolver's per-phase and Audits entries, the kept choice from the schema 25 migration, and the delivery panel's model line); 2 (choices on either agent with their readiness and billing, and fresh launches on a changed choice).
+
+## Phase-specific notes
+- One editor and one omitted-effort rule (§Command line) serve the row Change, the Audits line and the Model defaults page; `kiln model` and `kiln model-defaults` join the new **Choose models** help group together.
