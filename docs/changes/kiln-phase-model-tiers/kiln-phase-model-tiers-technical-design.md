@@ -435,6 +435,6 @@ Each line is added to the earlier section, as `Superseded in part by:`, in the c
 
 ## Open Questions
 
-1. **DEF-001 and DEF-002 are still open** (Sonnet at medium, GPT Astra at high, and whether only the Audits fallback gets extra high). The shipped defaults are one table of data, so either answer changes a value and nothing in this design.
+1. **DEF-001 and DEF-002 are still open** (GPT Astra at high for the demanding fallback, and whether only the Audits fallback gets extra high). The shipped defaults are one table of data, so either answer changes a value and nothing in this design.
 2. **KEEP-003 is still open** (when a PRD set up before this change has finished and is continued, its added phases take their tiers unless the person had picked its model). The other answer removes the step that drops `kept` when a continuation is set up, and has an acceptance saved before schema 25 keep any saved choice with a model (§Data Models).
 3. **Which activities' histories are read on load.** §When an Activity Starts reads the sessions' histories on load for an activity with no saved start; §Data Models' migration step 1 runs that derivation on every load for the sessions of an unfinished activity with no start. Whether a finished activity with no saved start has its histories read, which decides whether its row shows **Ran on** or **No model recorded**, needs one answer.

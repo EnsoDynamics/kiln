@@ -110,7 +110,7 @@ Most people never need to touch this. It sits on a page of its own, reached by a
   |---|---|---|
   | Demanding | Claude Code · Fable · high | Codex · GPT Astra · high |
   | Standard, and Not rated | Claude Code · Opus · medium | Codex · GPT Sol · high |
-  | Mechanical | Claude Code · Sonnet · medium | Codex · GPT Sol · high |
+  | Mechanical | Claude Code · Sonnet · high | Codex · GPT Sol · high |
   | Audits (AC-OTHER-01) | Claude Code · Opus · high | Codex · GPT Sol · extra high |
 
 - [ ] **AC-DEFAULT-02 — Model defaults is a page of its own, out of the way.** Documents found's delivery panel and the run's settings each show one line saying the models are chosen for each phase, with a **Model defaults** link; the table itself appears only on that page. The page shows the four rows with their first choice and fallback, a **Change** on each that opens the agent, model family and effort choices, and **Restore Kiln's defaults**. A row can't be saved with its first choice and fallback on the same agent. What the person sets is kept for every PRD in every repository on the computer, across restarts and upgrades.
