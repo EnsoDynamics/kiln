@@ -255,6 +255,34 @@ describe("kiln run on a plan that names repositories by their address path", () 
     snapshot = await snapshotOf(address, token);
     expect(snapshot.repositories.map((row) => row.label)).toEqual(["product", "acme/admin", "acme-labs/admin"]);
     expect(kiln.lines()).toContainEqual(expect.stringMatching(/Started {2}· {2}feature\/customer-returns in 3 repositories$/));
+    // kiln status's heading names each by its label, never Kiln's name for it (AC-FOLDER-02).
+    let status = "";
+    // The heading leads the progress block, which shows once phase 1 has a row.
+    await waitFor(async () => {
+      status = "";
+      await runKilnCommand(["status", join(f.product, "docs", "prds", FOLDER)], { cwd: f.sandbox.root, env: f.env, stdout: { write: (text: string) => (status += text) }, stderr: { write: () => true } });
+      return status.startsWith("Customer returns · ");
+    });
+    expect(status.split("\n")[0]).toBe(`Customer returns · product, acme/admin, acme-labs/admin · docs/prds/${FOLDER}`);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  }, 90_000);
+
+  it("labels a plan folder name by the repository its folder reaches, and the PRD's repository in the header and the clean check (AC-FOLDER-02)", async () => {
+    const f = createFeature(
+      { "phase-1-return-intake.md": "**Repositories:** acme-labs/admin, other/product", "phase-3-returns-dashboard.md": "**Repositories:** admin" },
+      // `admin` beside the PRD's repository is acme/admin; acme-labs/admin, first in plan order, shares its short name.
+      { "acme/admin": "home/code/acme/admin", "acme-labs/admin": "home/code/acme-labs/admin", "other/product": "home/code/other/product" },
+    );
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const snapshot = await snapshotOf(address, await tokenOf(address));
+    const phases = snapshot.documents!.plan!.phases;
+    expect(phases.find((phase) => phase.id === "1")!.repositories).toEqual(["acme-labs/admin", "other/product"]);
+    expect(phases.find((phase) => phase.id === "3")!.repositories).toEqual(["acme/admin"]);
+    // The PRD's repository shares its short name with other/product, so it is shown by its address path.
+    expect(snapshot.feature).toMatchObject({ repositoryName: "product", repositoryLabel: "acme/product" });
+    expect(snapshot.documents!.checks.map((check) => check.name)).toContain("Working tree of acme/product is clean");
     kiln.signals.emit("SIGINT");
     await kiln.done;
   }, 90_000);

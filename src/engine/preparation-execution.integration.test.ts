@@ -440,6 +440,16 @@ nativeIt("holds a changed pinned source after successful verification and pause"
   expect(h.engine.latestSession("9")!.runs).toHaveLength(1); expect(h.engine.record.preparation!.reason).toContain("moved");
   expect(h.engine.record.preparation!.attempts.map(row => row.id)).toEqual([attempt]); expect(h.engine.record.phases["9"]?.doneAt).toBeUndefined();
 });
+nativeIt("names the repository by its label when a preparation source must be restored (find repositories anywhere AC-FOLDER-02)", async () => {
+  await fixture();
+  const file = join(h.repository, COMET_DIRECTORY, "phase-9-catalog.md");
+  writeFileSync(file, readFileSync(file, "utf8").replace("`wt/catalog-accessibility`", "`unavailable-source`"));
+  git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: unavailable preparation source"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  // A recorded repository sharing the PRD's short name, so the PRD's repository is labelled by its address path.
+  h.engine.record.repositories.push({ name: "other+comet-library", shortName: "comet-library", kind: "added", mainCheckoutPath: join(h.sandbox.root, "other", "comet-library"), github: "other/comet-library", baseBranch: "develop", worktreePath: join(h.sandbox.root, "other-worktree") });
+  const check = await h.engine.checkCompletedPlan();
+  expect(check.result?.proposal?.problems.join(" ")).toMatch(/restore source unavailable-source at [0-9a-f]{40} in fictional\/comet-library; the branch/);
+});
 nativeIt("honors existing Claude tool restrictions before any native project check", async () => {
   const f = await fixture("printf 'should not run\\n' > check-ran.txt");
   const { mkdirSync, existsSync } = await import("node:fs"); const root = h.env.CLAUDE_CONFIG_DIR!; mkdirSync(root, { recursive: true });

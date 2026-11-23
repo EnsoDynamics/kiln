@@ -159,7 +159,7 @@ import { observeGitPlan } from "./completed-plan-sources.js";
 import { PLAN_NORMALIZER_VERSION, PlanBaselineWriteFailure, PlanCapacityError, phaseRepositories, scopeKey, completedPhaseScopeUnchanged, comparisonBaseline, BASELINE_LIMIT, addedLeaves, completedScopeProblems, observePlan, observeActivePlan, readBaseline, retainBaseline, type PlanBaseline, type PlanSource, type UnfollowedLink } from "./plan-reconciliation.js";
 import { judgedPhase, nextLeaf, readPlanAt, recordedLeaves, recordedPlan, type PlanRead } from "./plan-reading.js";
 import { repositoriesParent, type FoundRepository } from "./repositories.js";
-import { planNames, recordedName, recordLabelSet, resolvePlanRepositories, type NamedRepositoryRow } from "./plan-repositories.js";
+import { besideAddressPath, planNames, recordedName, recordLabelSet, resolvePlanRepositories, type NamedRepositoryRow } from "./plan-repositories.js";
 import { checkAnswer, resolveNames, type Question } from "./repository-finding.js";
 import { planStopFact, requestRefusal, savedQuestion, stopNowAsks, withQuestion } from "./stop-questions.js";
 import type { SavedQuestion } from "../state/records.js";
@@ -2667,7 +2667,7 @@ export class Engine {
     const stays = await Promise.all(entries.map(async entry => {
       const main = expandHome(entry.mainCheckoutPath);
       const unknown: string[] = [];
-      const out: ResetPreview["stays"][number] = { repository: entry.name, branch, pullRequests: [], unknown };
+      const out: ResetPreview["stays"][number] = { repository: entry.name, label: this.labelOf(entry.name), branch, pullRequests: [], unknown };
       const tipRead = await runGit(this.git, main, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]);
       const tip = tipRead.exitCode === 0 ? tipRead.stdout.trim() : undefined;
       const own = tip ? await runGit(this.git, main, ["rev-list", "--count", `refs/remotes/origin/${entry.baseBranch}..${tip}`]) : undefined;
@@ -2700,7 +2700,7 @@ export class Engine {
   resetDocuments(): DocumentsFound | undefined {
     if (!this.resetStart || this.record.startedAt !== undefined) return undefined;
     const checkout = this.paths.suppliedCheckoutPath ?? this.paths.mainCheckoutPath;
-    return startCheckDocuments(join(checkout, this.paths.prdDirectoryFromRoot), this.paths.folderName, this.resetStart.report, this.paths.repositoryName, this.paths.prdDirectoryFromRoot, this.resetAdoptsCheckout());
+    return startCheckDocuments(join(checkout, this.paths.prdDirectoryFromRoot), this.paths.folderName, this.resetStart.report, this.labelOf(this.paths.repositoryName), this.paths.prdDirectoryFromRoot, this.resetAdoptsCheckout());
   }
 
   /** Whether the selection adopts the checkout `kiln run` was run from, so its uncommitted files don't fail a check. */
@@ -3655,7 +3655,7 @@ export class Engine {
         try { this.writeContinuationMetadata(() => writePendingAuthority(this.stateDirectory, authority)); }
         catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
       };
-      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, observeInput });
+      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, observeInput, label: (name) => this.labelOf(name) });
     }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
@@ -3863,7 +3863,7 @@ export class Engine {
     return {
       git: this.git, record: this.record, view, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, prdFolder: this.paths.folderName,
       completedByRun, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
-      model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id), label: name => this.labelOf(name),
+      model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id), label: name => this.labelOf(name), labelWritten: name => this.labelOfWritten(name),
       ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
       ...(leftOver?.runs.at(-1)?.pid !== undefined ? { stopsLeftOver: leftOver.runs.at(-1)!.pid! } : {}), ...(busy ? { busy } : {}),
       originIdentity: async path => { const origin = parseGithubOrigin((await runGit(this.git, path, ["config", "--get", "remote.origin.url"])).stdout); return origin ? `${origin.owner}/${origin.name}` : undefined; },
@@ -4099,7 +4099,7 @@ export class Engine {
     const first = leavesOf(source.plan).find(leaf => !leaf.closed);
     const problems: string[] = [];
     const repositories = intent.repositories.map(repository => ({ name: repository.name, identity: repository.github, path: expandHome(repository.mainCheckoutPath), baseBranch: repository.baseBranch, baseRevision: repository.baseCommit! }));
-    const bound = await bindPreparation({ git: this.git, record: this.record, candidate: source, first, repositories, problems });
+    const bound = await bindPreparation({ git: this.git, record: this.record, candidate: source, first, repositories, problems, label: (name) => this.labelOf(name), labelWritten: (name) => this.labelOfWritten(name) });
     if (problems.length) throw new Error(problems.join(" "));
     if (!bound.preparation.length) return undefined;
     return newPreparationState({ firstEligiblePhase: first!.id, preparation: bound.preparation, id: previewId } as unknown as Parameters<typeof newPreparationState>[0]);
@@ -7394,13 +7394,54 @@ export class Engine {
     return recordLabelSet(this.record, this.plan?.phases ?? []);
   }
 
-  /** The label a repository is shown by, given Kiln's name for it (or a name as the plan writes it). */
+  /**
+   * The label a repository is shown by, given Kiln's name for it. A name as a phase document
+   * writes it goes through {@link labelOfWritten}, since Kiln's names are matched first here.
+   */
   labelOf(name: string): string {
     const set = this.labelSet();
+    const read = readRepositoryName(name);
+    const byPath = (addressPath: string | undefined) => addressPath === undefined ? undefined : set.find((repository) => sameAddressPath(repository.addressPath, addressPath));
     const one = set.find((repository) => repository.name === name)
-      ?? (() => { const read = readRepositoryName(name); return read.kind === "folder" ? set.find((repository) => repository.shortName === name) : undefined; })()
-      ?? (() => { const read = readRepositoryName(name); return read.kind === "path" ? set.find((repository) => sameAddressPath(repository.addressPath, read.addressPath)) : undefined; })();
+      ?? (read.kind === "folder" ? this.folderLabelled(name, set, byPath) : undefined)
+      ?? (read.kind === "path" ? byPath(read.addressPath) : undefined);
     return one ? labelAmong(one, set) : name;
+  }
+
+  /**
+   * The label of a name as a phase document writes it (AC-FOLDER-02): the repository it reaches,
+   * so a folder name is never taken for an entry Kiln named the same whose checkout is elsewhere.
+   *
+   *   labelOfWritten("admin")  // "acme/admin", the folder beside the PRD's repository, though the entry `admin` is acme-labs/admin
+   */
+  labelOfWritten(name: string): string {
+    const read = readRepositoryName(name);
+    if (read.kind === "problem" || name === this.paths.repositoryName) return this.labelOf(name);
+    const set = this.labelSet();
+    const byPath = (addressPath: string | undefined) => addressPath === undefined ? undefined : set.find((repository) => sameAddressPath(repository.addressPath, addressPath));
+    const one = read.kind === "path" ? byPath(read.addressPath) : this.folderLabelled(name, set, byPath);
+    // A name that reaches nothing Kiln knows is shown as written, never as an entry Kiln named the same.
+    return one ? labelAmong(one, set) : name;
+  }
+
+  /**
+   * The repository a plan folder name reaches, for its label (AC-FOLDER-02): by the address path
+   * its folder beside the PRD's repository has, never another repository sharing its short name.
+   */
+  private folderLabelled<T extends Labelled & { name?: string }>(name: string, set: T[], byPath: (addressPath: string | undefined) => T | undefined): T | undefined {
+    if (this.record.startedAt === undefined) {
+      const row = this.namedRows.find((one) => one.written.includes(name));
+      if (row) return set.find((repository) => repository.name === row.name) ?? byPath(row.addressPath);
+    }
+    const mainCheckoutPath = this.record.repository.mainCheckoutPath;
+    const reached = mainCheckoutPath === undefined ? undefined : byPath(besideAddressPath(mainCheckoutPath, name));
+    if (reached) return reached;
+    // A folder Kiln can't read or that is gone: the entry recorded at it, else the plan's own name for it.
+    const beside = join(this.parentFolder, name);
+    const recorded = this.record.repositories.find((entry) => entry.name === name && expandHome(entry.mainCheckoutPath) === beside);
+    if (recorded) return set.find((repository) => repository.name === recorded.name);
+    const unnamed = set.filter((repository) => repository.name === undefined && repository.shortName === name);
+    return unnamed.length === 1 ? unnamed[0] : undefined;
   }
 
   checkBase(): void {

@@ -88,7 +88,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const baseRevision = await remoteBase(git, path, repo.baseBranch, true, revision => input.observeInput?.({ kind: "base", repository: name, branch: repo.baseBranch, revision }));
     repositories.push({ name, ...(repo.shortName === undefined ? {} : { shortName: repo.shortName }), identity: repo.github, path, baseBranch: repo.baseBranch, baseRevision });
   }
-  const extracted = await bindPreparation({ git, record, candidate, first, repositories, problems, ...(input.observeInput ? { observeInput: input.observeInput } : {}) });
+  const extracted = await bindPreparation({ git, record, candidate, first, repositories, problems, label: shown, ...(input.observeInput ? { observeInput: input.observeInput } : {}) });
   const preparation = extracted.preparation;
   for (const row of accounting.leaves) {
     if (row.classification === "new_unfinished") continue;
@@ -176,19 +176,21 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
  * continuation readiness and a base-branch start from the Folder missing page (missing worktree
  * recovery, "Start", From the base branch, step 3). Problems are appended to `input.problems`.
  */
-export async function bindPreparation(input: { git: GitContext; record: PrdRecord; candidate: PlanSource; first: import("../plan/phase-plan.js").PlannedPhase | undefined; repositories: ContinuationProposal["repositories"]; problems: string[]; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<{ preparation: PreparationBinding[]; extractedProblems: string[] }> {
+export async function bindPreparation(input: { git: GitContext; record: PrdRecord; candidate: PlanSource; first: import("../plan/phase-plan.js").PlannedPhase | undefined; repositories: ContinuationProposal["repositories"]; problems: string[]; observeInput?: (observation: ContinuationInputObservation) => void; /** What a repository is shown by (find repositories anywhere AC-FOLDER-02). */ label?: (name: string) => string; /** What a name as a phase document writes it is shown by; `label` when absent. */ labelWritten?: (name: string) => string }): Promise<{ preparation: PreparationBinding[]; extractedProblems: string[] }> {
   const { git, record, candidate, first, repositories, problems } = input;
+  const label = input.label ?? ((name: string) => name);
+  const labelWritten = input.labelWritten ?? label;
   const preparation: PreparationBinding[] = [];
   const extracted = first ? extractPreparation(candidate, record.prdDirectory, first, [...new Set([record.repository.name, ...candidate.plan.phases.filter(phase => phase.id === first.id || isAncestorOf(phase.id, first.id)).flatMap(phase => phase.repositories)])]) : { instructions: [], problems: [] };
   problems.push(...extracted.problems);
   for (const instruction of extracted.instructions) {
     const problemCount = problems.length;
     const repository = repositories.find(one => one.name === instruction.repository);
-    if (!repository) { problems.push(`Preparation repository ${instruction.repository} is unavailable.`); continue; }
+    if (!repository) { problems.push(`Preparation repository ${labelWritten(instruction.repository)} is unavailable.`); continue; }
     const resolved = await runGit(git, repository.path, ["rev-parse", "--verify", "--end-of-options", `${instruction.sourceRef}^{commit}`]);
     if (resolved.exitCode === 0) input.observeInput?.({ kind: "source", repository: repository.name, sourceRef: instruction.sourceRef, revision: resolved.stdout.trim() });
     const pinned = await runGit(git, repository.path, ["rev-parse", "--verify", "--end-of-options", `${instruction.revision}^{commit}`]);
-    if (resolved.exitCode !== 0 || pinned.exitCode !== 0 || resolved.stdout.trim() !== pinned.stdout.trim()) { problems.push(`Phase ${instruction.phaseId}: restore source ${instruction.sourceRef} at ${instruction.revision} in ${repository.name}; the branch and immutable revision must agree.`); continue; }
+    if (resolved.exitCode !== 0 || pinned.exitCode !== 0 || resolved.stdout.trim() !== pinned.stdout.trim()) { problems.push(`Phase ${instruction.phaseId}: restore source ${instruction.sourceRef} at ${instruction.revision} in ${label(repository.name)}; the branch and immutable revision must agree.`); continue; }
     const binding: PreparationBinding = { ...instruction, sourceRevision: pinned.stdout.trim(), repositoryIdentity: repository.identity, baseBranch: repository.baseBranch, baseRevision: repository.baseRevision, authorization: instruction.destination === "assigned_feature" ? "phase_preparation" : "delivery_target", valid: false };
     preparation.push(binding);
     if (repository.name === record.repository.name) {

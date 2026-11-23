@@ -272,6 +272,30 @@ describe("which repository a name reaches (AC-NAME-02, AC-FIND-03, AC-FIND-04)",
     expect(resolution.problems).toEqual([`storefront in ${join(h.home, "code", "acme")}/ is a link to ${elsewhere}; Kiln needs the checkout itself there.`]);
   });
 
+  it("reaches an entry beside the PRD's repository only by its folder's exact spelling (AC-FIND-04)", async () => {
+    const h = homeWithProduct();
+    const admin = checkout("home/code/acme/admin", "git@github.com:acme/admin.git");
+    const entry: RepositoryEntry = { name: "admin", kind: "named", mainCheckoutPath: admin, github: "acme/admin", baseBranch: "develop", worktreePath: "/w/admin", setupCompletedAt: "2026-11-22T00:00:00Z" };
+    expect((await resolveNames(input(h, [{ name: "admin", namedIn: "phase-1-x.md" }], [entry]))).byName.get("admin")).toEqual({ kind: "entry", name: "admin" });
+    // `Admin` fails today's listing check before Start, so it fails after Start too, whatever the file system's case rules.
+    const resolution = await resolveNames(input(h, [{ name: "Admin", namedIn: "phase-1-x.md" }], [entry]));
+    expect(resolution.entries).toEqual([]);
+    expect(resolution.problems).toEqual([`phase-1-x.md names Admin, which isn’t in ${join(h.home, "code", "acme")}/.`]);
+  });
+
+  it("reaches an entry whose setup was left unfinished by a folder name with its address path, never a second repository (AC-NAME-02)", async () => {
+    const h = homeWithProduct();
+    const recorded = checkout("home/archive/admin", "git@github.com:acme/admin.git");
+    checkout("home/code/acme/admin-copy", "git@github.com:acme/admin.git");
+    // Its addition stopped before setup finished, its checkout elsewhere.
+    const entry: RepositoryEntry = { name: "admin", kind: "added", mainCheckoutPath: recorded, github: "acme/admin", baseBranch: "develop", worktreePath: "/w/admin", addedInPhase: "1" };
+    const resolution = await resolveNames(input(h, [{ name: "admin-copy", namedIn: "phase-1-x.md" }, { name: "acme/admin", namedIn: "phase-2-x.md" }], [entry]));
+    expect(resolution.byName.get("admin-copy")).toEqual({ kind: "entry", name: "admin" });
+    expect(resolution.byName.get("acme/admin")).toEqual({ kind: "entry", name: "admin" });
+    expect(resolution.entries).toEqual(["admin"]);
+    expect(resolution.repositories).toEqual([]);
+  });
+
   it("keeps a folder name to the folder beside the PRD's repository, as today, with no search", async () => {
     const h = homeWithProduct();
     checkout("home/code/acme-labs/storefront", "git@github.com:acme-labs/storefront.git");

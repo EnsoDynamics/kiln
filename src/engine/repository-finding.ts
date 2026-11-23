@@ -4,8 +4,8 @@
 // Kiln recorded, a folder beside the PRD's repository, or a checkout found by its `origin`; when
 // Kiln can't tell which checkout, the result is a question for the person.
 
-import { existsSync, lstatSync, readlinkSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { existsSync, lstatSync, readdirSync, readlinkSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseGithubOrigin } from "../github-origin.js";
 import { lastPart, parseRemoteAddress, readRepositoryName, sameAddressPath } from "../plan/repository-names.js";
 import { forgetLocation, readRememberedLocation } from "../state/repository-locations.js";
@@ -83,6 +83,7 @@ export interface ResolveInput {
 }
 
 const real = (path: string) => { try { return realpathSync.native(path); } catch { return resolve(path); } };
+const listed = (parent: string, name: string) => { try { return readdirSync(parent).includes(name); } catch { return false; } };
 const isLink = (path: string) => { try { return lstatSync(path).isSymbolicLink(); } catch { return false; } };
 const samePath = (a: string, b: string) => (process.platform === "linux" ? real(a) === real(b) : real(a).toLowerCase() === real(b).toLowerCase());
 
@@ -124,14 +125,19 @@ export async function resolveNames(input: ResolveInput): Promise<Resolution> {
     // elsewhere, such as one set up from a search under that short name, is never reached by it.
     const besideFolder = join(parent, name);
     // A link there is never an entry's checkout: step 3 refuses it, as it refuses any link.
-    const besideEntry = isLink(besideFolder) ? undefined : input.entries.find((entry) => samePath(besideFolder, expandHome(entry.mainCheckoutPath)));
+    // Spelled exactly, as the start checks match a folder name: in the parent folder's listing,
+    // or in the recorded checkout once the folder is gone. On macOS and Windows a path compared
+    // without case would otherwise let `Admin` reach the entry recorded as `admin`.
+    const spelled = existsSync(besideFolder) ? listed(parent, name) : true;
+    const besideEntry = isLink(besideFolder) || !spelled ? undefined : input.entries.find((entry) => basename(expandHome(entry.mainCheckoutPath)) === name && samePath(besideFolder, expandHome(entry.mainCheckoutPath)));
     if (besideEntry) { reachEntry(besideEntry, index); continue; }
     // Step 3: today's four checks beside the PRD's repository.
     const lookup = await findRepository(input.git, parent, name, namedIn);
     if (!lookup.ok) { problem(lookup.problem, lookup.unavailable); continue; }
     if (sameAddressPath(lookup.repository.github, input.prd.github)) { reachPrd(); continue; }
-    const setUp = input.entries.find((entry) => entry.setupCompletedAt !== undefined && sameAddressPath(entry.github, lookup.repository.github));
-    if (setUp) { reachEntry(setUp, index); continue; }
+    // Any recorded entry, its setup finished or not, so one repository never gets a second entry.
+    const recorded = input.entries.find((entry) => sameAddressPath(entry.github, lookup.repository.github));
+    if (recorded) { reachEntry(recorded, index); continue; }
     const same = repositories.find((repository) => sameAddressPath(repository.addressPath, lookup.repository.github));
     if (same) { same.written.push(name); reachRepository(same); continue; }
     const repository: NamedRepository = { written: [name], shortName: name, addressPath: lookup.repository.github, found: { ...lookup.repository, located: "beside" } };

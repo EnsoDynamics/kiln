@@ -65,8 +65,8 @@ The path-on-one-computer problem gives the form `<owner>/<repository>`, not an e
 **Which repository a name reaches.** In this order, before Start and after it:
 
 1. The PRD's repository: its folder name, compared exactly as today, or its address path.
-2. A repository in the PRD's record, set up or with its setup unfinished: a folder name whose folder beside the PRD's repository is that entry's own checkout, or an address path equal to the entry's. Its checkout is the entry's, never searched for again, so an interrupted addition finishes in the checkout it started in.
-3. A folder name no entry's checkout answers to gets today's four checks beside the PRD's repository, which read its address path. When that address path is a set-up entry's, the name means that repository, whose checkout stays as set up.
+2. A repository in the PRD's record, set up or with its setup unfinished: a folder name whose folder beside the PRD's repository is that entry's own checkout, the folder spelled exactly as the parent folder lists it (or, once it is gone, as the entry's checkout records it), or an address path equal to the entry's. Its checkout is the entry's, never searched for again, so an interrupted addition finishes in the checkout it started in.
+3. A folder name no entry's checkout answers to gets today's four checks beside the PRD's repository, which read its address path. When that address path is an entry's, set up or with its setup unfinished, the name means that repository, whose checkout stays as recorded.
 4. Otherwise a repository not yet set up. An address path that a folder name of the plan already reaches is that repository, and its folder is the checkout; Kiln doesn't search for it. Two folder names with one address path are one repository, and the first in plan order is its checkout.
 5. An address path nothing above reaches is found as [Finding a checkout](#finding-a-checkout-ac-find-01-to-ac-find-04) gives.
 

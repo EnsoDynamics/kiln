@@ -67,6 +67,7 @@
   const fixedLocked = $derived(!connected || documents.starting === true);
   const multi = $derived(snapshot.feature.multiRepository);
   const repositoryName = $derived(snapshot.feature.repositoryName);
+  const prdLabel = $derived(snapshot.feature.repositoryLabel);
   // The PRD's repository's row: its base is fixed once Start set it up.
   const prdRow = $derived(snapshot.repositories.find((row) => row.kind === "prd"));
   const startFrom = $derived(documents.start);
@@ -166,7 +167,7 @@
 </script>
 
 <main>
-  <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name}>
+  <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name}>
     <span class="pill">Not started</span>
     <span class="lead">{lead}</span>
   </FeatureHeader>
@@ -250,7 +251,7 @@
       </ul>
       <div class="checks">
         {#each documents.checks as passed (passed.name)}
-          {@const named = passed.name.split(` ${repositoryName}`)}
+          {@const named = passed.name.split(` ${prdLabel}`)}
           {#if passed.locate}
             <span class="locate"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 4.8v3.8M8 11.2v.2"></path></svg><span>{passed.name}</span></span>
           {:else if !passed.passed}
@@ -259,7 +260,7 @@
           {:else if passed.name === "Repositories found on this computer"}
             <span class="passed">{@render check(12)}<span>{passed.name}</span></span>
           {:else if multi && named.length === 2 && (named[1] === "" || named[1]!.startsWith(" "))}
-            <span class="passed">{@render check(12)}<span>{named[0]} <span class="mono check-name">{repositoryName}</span>{named[1]}</span></span>
+            <span class="passed">{@render check(12)}<span>{named[0]} <span class="mono check-name">{prdLabel}</span>{named[1]}</span></span>
           {:else}
             <span class="passed">{@render check(12)}{passed.name}</span>
           {/if}

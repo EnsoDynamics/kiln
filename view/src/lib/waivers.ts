@@ -113,14 +113,14 @@ export function changedNote(changes: readonly ItemChange[]): string {
  *
  *   againstText(item, check, checkpoints)  // "example-app · dev · merge eae98b13", "example-app · head 4c1a9e07"
  */
-export function againstText(item: Pick<CheckItem, "kind" | "subject" | "against">, check: string, checkpoints: readonly Pick<DeliveryCheckpoint, "id" | "target">[] = []): string {
+export function againstText(item: Pick<CheckItem, "kind" | "subject" | "against">, check: string, checkpoints: readonly Pick<DeliveryCheckpoint, "id" | "target">[] = [], label: (name: string) => string = (name) => name): string {
   const short = (sha: string) => /^[0-9a-f]{12,}$/.test(sha) ? sha.slice(0, 8) : sha;
-  const heads = (against: string) => against.split(",").map(pair => { const [name = "", head = ""] = pair.split("="); return `${name} · head ${short(head)}`; }).join(", ");
+  const heads = (against: string) => against.split(",").map(pair => { const [name = "", head = ""] = pair.split("="); return `${label(name)} · head ${short(head)}`; }).join(", ");
   switch (item.kind) {
     case "phase_closed": return `Phase ${item.subject}, as a leaf of the plan`;
     case "repository_work": {
       const [head = "", dirty = ""] = item.against.split(":");
-      return `${item.subject} · head ${short(head)}${dirty && dirty !== "clean" ? " with uncommitted changes" : ""}`;
+      return `${label(item.subject)} · head ${short(head)}${dirty && dirty !== "clean" ? " with uncommitted changes" : ""}`;
     }
     case "known_problem": return check === "Completion audit readiness" ? "The saved completion audit state" : "The phase plan";
     case "development_requirement": {

@@ -72,8 +72,9 @@ async function ancestor(git: GitContext, path: string, from: string, to: string)
 }
 
 /** Completion is bound to the immutable scope, never to today's Closed line alone. */
-export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<Omit<CompletionAccounting, "id">> {
+export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; observeInput?: (observation: ContinuationInputObservation) => void; /** What a repository is shown by (find repositories anywhere AC-FOLDER-02). */ label?: (name: string) => string }): Promise<Omit<CompletionAccounting, "id">> {
   const { record, baseline, candidate, git, shared, verifiedAt } = input;
+  const label = input.label ?? ((name: string) => name);
   const extracted = externalCompletionReferences(candidate, record.prdDirectory);
   const prdName = record.repository.name;
   const leaves: AccountedLeaf[] = [];
@@ -135,7 +136,7 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
     for (const name of names) {
       const refs = references.filter(ref => ref.repository === name);
       if (!refs.length || new Set(refs.map(ref => ref.revision)).size !== 1) {
-        row.problems.push(`Phase ${phase.id}: ${name} needs one unambiguous immutable work revision under External completion evidence in the PRD or design.`); continue;
+        row.problems.push(`Phase ${phase.id}: ${label(name)} needs one unambiguous immutable work revision under External completion evidence in the PRD or design.`); continue;
       }
       let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(entry => entry.name === name);
       if (!repo) {
@@ -143,18 +144,18 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
         const found = reachedRow?.found ? { ok: true as const, repository: reachedRow.found } : await findRepository(git, repositoriesParent(shared), name, phase.fileName);
         if (!found.ok) { if (found.unavailable) throw new Error(`source_unavailable: ${found.problem} Restore repository access, then check again.`); row.problems.push(`Phase ${phase.id}: ${found.problem}`); continue; }
         const baseBranch = record.settings.bases[name];
-        if (!baseBranch) { row.problems.push(`Phase ${phase.id}: configure the delivery base for ${name} before its completion can be verified.`); continue; }
+        if (!baseBranch) { row.problems.push(`Phase ${phase.id}: configure the delivery base for ${label(name)} before its completion can be verified.`); continue; }
         repo = { ...found.repository, baseBranch };
       }
       const path = name === prdName ? shared : expandHome(repo.mainCheckoutPath);
       const origin = parseGithubOrigin(await gitRead(git, path, ["config", "--get", "remote.origin.url"]));
       input.observeInput?.({ kind: "repository", repository: name, identity: origin ? `${origin.owner}/${origin.name}` : null });
-      if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { row.problems.push(`Phase ${phase.id}: ${name} origin no longer identifies ${repo.github}. Restore the recorded repository before checking again.`); continue; }
+      if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { row.problems.push(`Phase ${phase.id}: ${label(name)} origin no longer identifies ${repo.github}. Restore the recorded repository before checking again.`); continue; }
       let base = bases.get(name);
       if (!base) { base = { path, branch: repo.baseBranch, revision: await remoteBase(git, path, repo.baseBranch, true, revision => input.observeInput?.({ kind: "base", repository: name, branch: repo.baseBranch, revision })) }; bases.set(name, base); }
       const revision = refs[0]!.revision;
       const exists = await runGit(git, path, ["cat-file", "-t", revision]);
-      if (exists.exitCode !== 0 || exists.stdout.trim() !== "commit") { row.problems.push(`Phase ${phase.id}: restore immutable commit ${revision} in ${name}, then check again.`); continue; }
+      if (exists.exitCode !== 0 || exists.stdout.trim() !== "commit") { row.problems.push(`Phase ${phase.id}: restore immutable commit ${revision} in ${label(name)}, then check again.`); continue; }
       if (name === prdName) {
         const original = await observeGitPlan(git, path, record.prdDirectory, revision);
         const originalPhase = leavesOf(original.plan).find(p => p.id === phase.id);
@@ -176,7 +177,7 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
           }
         }
       }
-      if (evidence.integration !== "integrated_verified") row.problems.push(`Phase ${phase.id}: ${name} work ${revision} is not verified in origin/${repo.baseBranch}. Supply verified integration evidence or reconcile an explicit preparation step in the dependent phase; a Closed line or closed PR is insufficient.`);
+      if (evidence.integration !== "integrated_verified") row.problems.push(`Phase ${phase.id}: ${label(name)} work ${revision} is not verified in origin/${repo.baseBranch}. Supply verified integration evidence or reconcile an explicit preparation step in the dependent phase; a Closed line or closed PR is insufficient.`);
     }
     // Accounting runs before the continuation starts, so every leaf it accepts was Closed before that run (AC-DEV-03).
     if (record.developmentAuthorization?.enabled && owesDevelopmentEvidence(record, phase.id, true)) checkDevelopment(record, candidate, phase, row.problems);

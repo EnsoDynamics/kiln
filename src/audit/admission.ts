@@ -120,7 +120,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
   if (body.reportPath !== activity.reportPath) throw new AuditRefusal("outside_execution", "Only the assigned audit report path may be submitted.", 403);
   let path: string; let bytes: string;
   try {
-    path = assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath);
+    path = assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath, context.label?.(context.record.repository.name));
     if (statSync(path).size > REPORT_LIMIT) throw new AuditRefusal("report_too_large", `Maximum report size is ${REPORT_LIMIT} bytes.`, 413);
     bytes = readFileSync(path, "utf8");
   } catch (error) {
@@ -187,7 +187,7 @@ export async function auditCurrentness(context: AdmissionContext, activity: Audi
   requireAudit(effective, "Audit result has not been accepted.", "missing_evidence");
   const checked = effective.snapshot();
   if (effective.reportDigest !== undefined) {
-    const portable = readFileSync(assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath), "utf8");
+    const portable = readFileSync(assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath, context.label?.(context.record.repository.name)), "utf8");
     requireAudit(hashBytes(portable) === effective.reportDigest, "Latest portable audit report changed.", "stale_snapshot");
   }
   const current = await captureSnapshot({ ...context, activity, now: new Date().toISOString(), retainedClassification: true }, checked.testPaths);

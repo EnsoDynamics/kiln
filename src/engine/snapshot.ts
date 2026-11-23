@@ -331,6 +331,8 @@ export interface Snapshot {
   feature: {
     name: string;
     repositoryName: string;
+    /** The label the PRD's repository is shown by (find repositories anywhere AC-FOLDER-02). */
+    repositoryLabel: string;
     /** More than one repository (multi-repo AC-SPACE-03): the screens then show them. */
     multiRepository: boolean;
     prdFolder: string;
@@ -600,6 +602,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     feature: {
       name: engine.paths.featureName,
       repositoryName: engine.paths.repositoryName,
+      repositoryLabel: engine.labelOf(engine.paths.repositoryName),
       multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
       state,
@@ -733,7 +736,7 @@ function withRepositoriesCheck(found: DocumentsFound, engine: Engine): Documents
     if (held) return [];
     return [asking === 0 ? { name: REPOSITORIES_FOUND, passed: true } : { name: `${asking} ${asking === 1 ? "repository" : "repositories"} to locate`, passed: true, locate: true as const }];
   });
-  const plan = found.plan ? { ...found.plan, phases: found.plan.phases.map((phase) => ({ ...phase, repositories: phase.repositories.map((name) => engine.labelOf(name)) })) } : undefined;
+  const plan = found.plan ? { ...found.plan, phases: found.plan.phases.map((phase) => ({ ...phase, repositories: phase.repositories.map((name) => engine.labelOfWritten(name)) })) } : undefined;
   return { ...found, checks, ...(plan ? { plan } : {}), ...(problems.length > 0 ? { checksFailed: true as const } : {}) };
 }
 
@@ -1374,7 +1377,7 @@ function gitDocumentsFound(preview: StartPreview, engine: Engine): DocumentsFoun
   const assumptionsFile = pick("assumptions.md");
   const read = (name: string) => contents[`${directory}/${name}`] ?? "";
   const repositories = preview.repositories.filter(repository => repository.kind !== "prd").map(repository => ({ name: repository.name, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github }));
-  return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.paths.repositoryName, read);
+  return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.labelOf(engine.paths.repositoryName), read);
 }
 
 /** A catch-up offer with each repository's label beside its name (find repositories anywhere AC-FOLDER-02). */

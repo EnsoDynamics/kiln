@@ -447,7 +447,7 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   const engine = makeEngine(run, record, write, { prdTree, plan: report.plan, repositories: report.repositories, named: report.named });
   for (const text of run.repositoryLinesSaid) engine.repositoryLinesSaid.add(text);
   if (startError !== undefined) engine.startError = startError;
-  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, { ...report.found, repositories: report.repositories, namedCount: report.named.length }, location.repositoryName);
+  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, { ...report.found, repositories: report.repositories, namedCount: report.named.length }, engine.labelOf(location.repositoryName));
   const outColors = terminalColors(context.stdout, context.env);
   for (const text of report.lines) write(formatRepositoryLine(new Date(), text, outColors));
   const locating = engine.locatingRepositories.map((row) => row.question!.repository);

@@ -43,3 +43,17 @@ it("names each repository of the audit card on Phase detail by its label", () =>
   expect(words).toContain("acme-labs/admin: a1b2c3d");
   expect(words).not.toContain("acme-labs+admin");
 });
+
+it("names the PRD's repository by its label in the page header and the clean-checkout check (Phase 6)", () => {
+  const snapshot = documentsFoundSnapshot();
+  const row = snapshot.repositories[0]!;
+  // The PRD's acme-shop shares its short name with other/acme-shop, so it is shown as acme/acme-shop.
+  snapshot.feature = { ...snapshot.feature, repositoryName: "acme-shop", repositoryLabel: "acme/acme-shop", multiRepository: true };
+  snapshot.repositories = [{ ...row, name: "acme-shop", label: "acme/acme-shop" }, { ...row, name: "other+acme-shop", label: "other/acme-shop", kind: "named", github: "github.com/other/acme-shop" }];
+  snapshot.documents!.checks = [{ name: "Repositories found on this computer", passed: true }, { name: "Working tree of acme/acme-shop is clean", passed: true }];
+  const html = render(DocumentsFound, { props: { snapshot, config: { token: "fixture-token", base: "/customer-returns" }, connected: true, now: Date.now() } }).body;
+  expect(text(html.split(/class="where[^"]*"/)[1]!.split("</div>")[0]!)).toContain("Repository acme/acme-shop");
+  // Redrawn with the label in its own name span, as the check names it.
+  expect(html).toMatch(/<span class="mono check-name[^"]*">acme\/acme-shop<\/span>/);
+  expect(text(html)).toContain("Working tree of acme/acme-shop is clean");
+});

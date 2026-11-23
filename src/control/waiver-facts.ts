@@ -169,9 +169,9 @@ export function terminalWaivers(record: PrdRecord, key: string, readAudit?: Audi
 }
 
 /** The subject a waived item is named by in the terminal: a checkpoint and requirement, a repository, or its check. */
-function itemName(check: string, item: { kind: string | null; subject: string | null }): string {
+function itemName(check: string, item: { kind: string | null; subject: string | null }, label: (name: string) => string): string {
   if (item.kind === "development_requirement" && item.subject) return item.subject.split("/").join(" / ");
-  if (item.kind === "repository_work" && item.subject) return `${check} · ${item.subject}`;
+  if (item.kind === "repository_work" && item.subject) return `${check} · ${label(item.subject)}`;
   return check;
 }
 
@@ -179,12 +179,12 @@ function itemName(check: string, item: { kind: string | null; subject: string | 
  * The detail lines under an activity's terminal line: its warnings, its counts and each waived item
  * (the mockup's `kiln status` blocks), already indented by `indent`.
  */
-export function waiverDetailLines(row: Pick<ActivityWaivers, "warnings" | "counts" | "checks" | "waived_checks">, indent: string): string[] {
+export function waiverDetailLines(row: Pick<ActivityWaivers, "warnings" | "counts" | "checks" | "waived_checks">, indent: string, label: (name: string) => string = (name) => name): string[] {
   if (!row.waived_checks && !row.warnings.length) return [];
   const lines = row.warnings.map(w => `${indent}! ${w.text}`);
   if (row.counts && row.waived_checks) lines.push(`${indent}${countsText(row.counts)}`);
   for (const check of row.checks ?? []) for (const item of check.items) if (item.waived) {
-    lines.push(`${indent}waived  ${itemName(check.name, item)}`);
+    lines.push(`${indent}waived  ${itemName(check.name, item, label)}`);
     lines.push(`${indent}        ${item.text}`);
   }
   return lines;
@@ -195,7 +195,19 @@ const STATE_WORDS: Record<ProgressRow["state"], string> = { complete: "complete"
 /** "Example feature · example-app · docs/prds/example-feature", from a status result. */
 export function progressHeading(answer: Record<string, unknown>): string {
   const prd = answer.prd as { name?: string; directory?: string } | undefined;
-  return [prd?.name, ((answer.repositories ?? []) as string[]).join(", "), prd?.directory].filter(Boolean).join(" · ");
+  const label = statusLabels(answer);
+  return [prd?.name, ((answer.repositories ?? []) as string[]).map(label).join(", "), prd?.directory].filter(Boolean).join(" · ");
+}
+
+/**
+ * The label each repository is shown by, from a status result's `repository_details`
+ * (find repositories anywhere AC-FOLDER-02); a name it doesn't list is shown as it is.
+ *
+ *   statusLabels({ repository_details: [{ name: "acme+admin", label: "acme/admin" }] })("acme+admin")  // "acme/admin"
+ */
+export function statusLabels(answer: Record<string, unknown>): (name: string) => string {
+  const details = (answer.repository_details ?? []) as { name: string; label: string }[];
+  return (name) => details.find((one) => one.name === name)?.label ?? name;
 }
 
 /**
@@ -213,7 +225,7 @@ export function statusPause(liveControl: unknown): { activityKey: string; phase:
  * The progress block `kiln status` prints first in text mode (the mockup's `kiln status` blocks).
  * An activity under Pause now reads "pausing" or "paused" where it says "needs you"; its JSON state stays `needs_you`.
  */
-export function progressText(heading: string, rows: readonly ProgressRow[], pauseNow?: { activityKey: string; phase: "pausing" | "paused" }, stopLines: readonly string[] = []): string {
+export function progressText(heading: string, rows: readonly ProgressRow[], pauseNow?: { activityKey: string; phase: "pausing" | "paused" }, stopLines: readonly string[] = [], label: (name: string) => string = (name) => name): string {
   const labelWidth = Math.max(0, ...rows.map(r => r.label.length)) + 3;
   const titleWidth = rows.some(r => r.title) ? Math.max(...rows.map(r => r.title.length)) + 3 : 0;
   const indent = " ".repeat(labelWidth + titleWidth);
@@ -221,7 +233,7 @@ export function progressText(heading: string, rows: readonly ProgressRow[], paus
   for (const row of rows) {
     const suffix = row.state === "complete" ? waiverSuffix(row) : undefined;
     lines.push(`${row.label.padEnd(labelWidth)}${titleWidth ? row.title.padEnd(titleWidth) : ""}${pauseNow?.activityKey === row.key && row.state === "needs_you" ? pauseNow.phase : STATE_WORDS[row.state]}${suffix ? ` ${suffix}` : ""}`.trimEnd());
-    lines.push(...waiverDetailLines(row, indent));
+    lines.push(...waiverDetailLines(row, indent, label));
     // A stop that asks where a repository is lists its questions under its row, under the title column (find repositories anywhere, mockup state 7).
     if (row.state === "needs_you") lines.push(...stopLines.map(line => `${" ".repeat(labelWidth)}${line}`));
   }

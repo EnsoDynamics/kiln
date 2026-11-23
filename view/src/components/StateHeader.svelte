@@ -24,7 +24,7 @@
   const look = $derived(LOOKS[state.kind]);
 </script>
 
-<FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
+<FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
   <Pill tone={look.tone} icon={look.icon} spin={state.kind === "implementing" || state.kind === "pausing"} large>{snapshot.continuation?.acceptance?.state === "preparing" ? "Preparing additional work" : snapshot.continuation?.acceptance?.state === "blocked" ? "Preparation needs attention" : snapshot.feature.state === "complete" && snapshot.continuation?.check && !["unchanged", "awaiting_merge"].includes(snapshot.continuation.check.status) ? snapshot.continuation.check.status === "checking" ? "Checking for new phases" : snapshot.continuation.check.status === "failed" ? "Could not check for new phases" : snapshot.continuation.check.result?.added.length ? "New phases found" : "Plan needs reconciliation" : state.label}</Pill>
   {#each state.facts as fact, index (index)}{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}<span class="fact">{fact}</span>{/each}
   {#if state.totals}

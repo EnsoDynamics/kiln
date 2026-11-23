@@ -12,7 +12,7 @@ import type { PauseNowView } from "../live/pause-now.js";
 export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot["settings"]>; documents?: Partial<NonNullable<Snapshot["documents"]>> } & Partial<Omit<Snapshot, "settings" | "documents">> = {}): Snapshot {
   const { settings, documents, ...rest } = overrides;
   return {
-    feature: { name: "Customer returns", repositoryName: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
+    feature: { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
     documents: {
       prd: { file: "customer-returns-prd.md", criteriaCount: 14, firstLabel: "AC-RET-01", lastLabel: "AC-RET-14" },
       design: { file: "technical-design.md", criteriaCited: 14 },
@@ -160,7 +160,7 @@ function underway(rest: Partial<Snapshot> & Pick<Snapshot, "feature" | "phases">
   return { settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, models: documentsFoundSnapshot().models!, pause: { pending: false, active: false }, account: ACCOUNT, ...rest };
 }
 
-const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
+const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
 
 /** Running and Phase detail: phase 2b, Store credit, at Deliverable review, its reviewer working. */
 export function runningSnapshot(): Snapshot {
@@ -336,7 +336,7 @@ export function completeSnapshot(): Snapshot {
 // (docs/changes/kiln-multi-repo-delivery/mockups/).
 
 const WORKSPACE = "~/devel/acme/.worktrees/customer-returns";
-const MULTI_FEATURE = { ...FEATURE, repositoryName: "product", multiRepository: true };
+const MULTI_FEATURE = { ...FEATURE, repositoryName: "product", repositoryLabel: "product", multiRepository: true };
 
 function multiRow(name: string, kind: RepositoryRow["kind"], baseBranch: string, extra: Partial<RepositoryRow> = {}): RepositoryRow {
   return { name, label: name, addressPath: `acme/${name}`, checkoutFolder: `~/devel/acme/${name}`, kind, baseBranch, worktreePath: `${WORKSPACE}/${name}`, fixed: true, fieldErrors: {}, ...extra };
@@ -349,7 +349,7 @@ export function documentsFoundRepositoriesSnapshot(): Snapshot {
   const documents = snapshot.documents!;
   return {
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     documents: {
       ...documents,
       plan: { ...documents.plan!, phases: documents.plan!.phases.map((phase) => ({ ...phase, repositories: repositories[phase.id]! })) },
@@ -474,7 +474,7 @@ export function runningRepositoriesSnapshot(): Snapshot {
   const snapshot = runningSnapshot();
   return multiUnderway({
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     phases: [MULTI_PHASE_1, PHASE_2, MULTI_PHASE_2A, ...snapshot.phases.slice(3)],
     current: {
       ...snapshot.current!,
@@ -492,7 +492,7 @@ export function needsYouRepositoriesSnapshot(): Snapshot {
   const complete = completeRepositoriesSnapshot();
   return multiUnderway({
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     phases: [...complete.phases.slice(0, 4), { ...PHASE_3, state: "needs_you", sessionStartedAt: "2026-10-17T16:17:00Z" }, PHASE_4],
     needsYou: {
       ...snapshot.needsYou!,
@@ -875,7 +875,7 @@ export function folderMissingSnapshot(which: FolderMissingCase): Snapshot {
   const multi = which === "multi";
   cases[which].panel = folderMissingPanel(which);
   return underway({
-    feature: { name: "Invoice evidence collection", repositoryName: "harbor-ledger", multiRepository: multi, prdFolder: "docs/prds/invoice-evidence-collection/", state: "folder_missing", phasesDone: 4, phasesTotal: 5, startedAt: OCT23 },
+    feature: { name: "Invoice evidence collection", repositoryName: "harbor-ledger", repositoryLabel: "harbor-ledger", multiRepository: multi, prdFolder: "docs/prds/invoice-evidence-collection/", state: "folder_missing", phasesDone: 4, phasesTotal: 5, startedAt: OCT23 },
     phases: ["1", "2", "3", "4"].map(id => ({ id, title: `Phase ${id} work`, file: `phase-${id}.md`, state: "done" as const, doneAt: OCT24, finishedByPerson: false })),
     folderMissing: { checkedAt: new Date(FOLDER_MISSING_NOW).toISOString(), factsId: "f".repeat(64), ...cases[which] },
   });

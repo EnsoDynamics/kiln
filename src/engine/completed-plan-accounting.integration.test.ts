@@ -242,3 +242,11 @@ it("asks no development-delivery evidence of an externally closed phase no Kiln 
   const passed = await h.engine.checkCompletedPlan();
   expect(passed.result?.leaves?.find(p => p.id === "8")).toMatchObject({ classification: "externally_verified", provenance: "not_applicable", problems: [] });
 });
+
+it("names the repository by its label in the completed plan's problems (find repositories anywhere AC-FOLDER-02)", async () => {
+  const f = await createCometContinuation(); h = f.h;
+  // A recorded repository sharing the PRD's short name, so the PRD's repository is labelled by its address path.
+  h.engine.record.repositories.push({ name: "other+comet-library", shortName: "comet-library", kind: "added", mainCheckoutPath: join(h.sandbox.root, "other", "comet-library"), github: "other/comet-library", baseBranch: "develop", worktreePath: join(h.sandbox.root, "other-worktree") });
+  const blocked = await h.engine.checkCompletedPlan();
+  expect(blocked.result?.problems.join(" ")).toContain(`Phase 8: fictional/comet-library work ${f.externalRevision} is not verified in origin/develop`);
+});
