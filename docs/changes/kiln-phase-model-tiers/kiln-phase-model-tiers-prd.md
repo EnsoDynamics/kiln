@@ -64,6 +64,9 @@ Nothing about the model is hidden or decided silently. Every row says what it ra
   | Was finished, and a session of it got a response from the model | **Ran on** and that session's recorded agent, model and effort; with several such sessions, the latest one's |
   | Was finished, and no session of it got a response from the model | **No model recorded**, in place of a model choice |
 
+  In a run underway, the plan also shows a planned row for each audit still due and one for the pull request session, each until Kiln allocates that activity.
+  - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (in a run underway, a planned Delivery audit, Test audit and pull request row each show before Kiln allocates that activity, and the allocated activity's row takes its place, where AC-RUN-01 added the final-session row only after the required audits; the rest remains).
+
 - [ ] **AC-PICK-03 — The person can change any phase that hasn't started.** On Documents found before Start, and in the run's plan while Kiln works, waits, is paused or is stopped, each phase that hasn't started offers **Change**, with the agent, model and effort choices Kiln offers today (AC-MODEL-01 in Codex support for Kiln). A changed phase covers that phase of that PRD only. It is marked **Changed by you**, keeps its choice whatever its tier or Model defaults later say, including across a restart, and, until it starts, offers **Use the default** to return to its tier's choice.
   - Replaces in part: AC-MODEL-03 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (model and effort are changed for each activity that hasn't started, not once for the PRD's next session).
 

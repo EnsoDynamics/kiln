@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Phase Model Tiers
 
-Started: 2026-11-22   Current pass: 2 (complete)   Status: In progress
+Started: 2026-11-22   Current pass: 3 (complete)   Status: In progress
 Branch: feature/kiln-phase-model-tiers
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 4139 · growth baseline 4139
@@ -19,6 +19,7 @@ Last updated: 2026-11-22
 |---|---|---|---|---|---|---|---|
 | 1 | 13 | 12 | 12 | 0 | 1 | 0 | 0 |
 | 2 | 14 | 12 (Q12 + Q14–Q24) | 12 | 0 | 3 | 0 | 0 |
+| 3 | 6 (+4 from pass-2 conformance) | 12 (Q25–Q36) | 12 | 0 | 1 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -47,15 +48,43 @@ Last updated: 2026-11-22
 | Q22 | 2 | Migration step 2 decides "started" from saved events only, before the history read; accept and say so? | Technical | LOW | 80 → 90 | Resolved | TD §Data Models |
 | Q23 | 2 | PRD AC-PICK-02 "No model recorded" row vs TD (no session got a response); align PRD wording | Technical | LOW | 85 → 95 | Resolved | PRD AC-PICK-02 |
 | Q24 | 2 | How long the "why the fallback wasn't used" row note stays | Technical | LOW | 80 → 85 | Resolved by decision | TD §The launch decision |
-| Q25 | 2 | Help group/heading and contract entries for `kiln model` and `kiln model-defaults` | Technical | LOW | 80 → 80 | Deferred | — |
-| Q26 | 2 | Codex start found only in thread history: which time is saved as firstResponseAt | Technical | LOW | 85 → 85 | Deferred | — |
-| Q27 | 2 | A changed phase that its session splits: does the second child inherit the Change? (proposed no) | Technical | LOW | 90 → 90 | Deferred | — |
-| Q28 | 2 | A Codex choice used up by the one-attempt record "counts as blocked for usage"; the card would say "ordinary usage blocked" — give the record its own label? | Technical | LOW | 80 → 80 | Pending | — |
-| Q29 | 2 | `kiln account` when `agent` is null: today's fields null, every needed agent in other_agents[]? | Technical | LOW | 85 → 85 | Pending | — |
-| Q30 | 2 | Change during a takeover hold on a not-started activity (person in the terminal conversation): unavailable while the hold is in place? | Technical | MEDIUM | 65 → 65 | Pending | — |
-| Q31 | 2 | Heads-up on an activity whose start is unknown: skip it like a started activity? | Technical | LOW | 85 → 85 | Pending | — |
+| Q25 | 2 | Help group/heading and contract entries for `kiln model` and `kiln model-defaults` | Technical | LOW | 80 → 80 | Resolved by decision | TD §Command line, §Design Decisions |
+| Q26 | 2 | Codex start found only in thread history: which time is saved as firstResponseAt | Technical | LOW | 85 → 90 | Resolved | TD §When an Activity Starts, §Data Models |
+| Q27 | 2 | A changed phase that its session splits: does the second child inherit the Change? (proposed no) | Technical | LOW | 90 → 92 | Resolved | TD §Resolving a Choice |
+| Q28 | 2 | A Codex choice used up by the one-attempt record "counts as blocked for usage"; the card would say "ordinary usage blocked" — give the record its own label? | Technical | LOW | 80 → 90 | Resolved | TD §The launch decision, §Data Models |
+| Q29 | 2 | `kiln account` when `agent` is null: today's fields null, every needed agent in other_agents[]? | Technical | LOW | 85 → 90 | Resolved | TD §Command line, §Agents |
+| Q30 | 2 | Change during a takeover hold on a not-started activity (person in the terminal conversation): unavailable while the hold is in place? | Technical | MEDIUM | 65 → 85 | Resolved by decision | TD §When an Activity Starts, §Design Decisions |
+| Q31 | 2 | Heads-up on an activity whose start is unknown: skip it like a started activity? | Technical | LOW | 85 → 85 | Resolved by decision | TD §The launch decision |
+| Q32 | 3 | Fallback whose agent lacks the activity's skill or fails Codex launch settings: still used? where is the skill resolved? | Technical | HIGH | 72 → 88 | Resolved by decision | TD §The launch decision, §Agents |
+| Q33 | 3 | Planned Delivery audit / Test audit / Pull request rows before allocation (mockups 2 and 3 draw them)? | Technical | MEDIUM | 65 → 88 | Resolved by decision | TD §When an Activity Starts (Planned rows), §Changes, Coverage; PRD AC-PICK-02; mockup 3 |
+| Q34 | 3 | Wait on a not-started activity: decision names a different choice whose usage can't be read / agent not ready / model unusable | Technical | MEDIUM | 70 → 80 | Resolved by decision | TD §A Wait Before the Start, §The launch decision |
+| Q35 | 3 | Is a change to the Audits choice refused while one Audits activity has started/launching/unknown? | Technical | MEDIUM | 80 → 90 | Resolved | TD §HTTP, §Command line, §Snapshot, §Resolving a Choice |
+| Q36 | 3 | A needed agent that isn't installed: agents[] entry with installed:false for Start's reason and fallback warning? | Technical | MEDIUM | 85 → 92 | Resolved | TD §Snapshot, §Agents |
+| Q37 | 3 | Do not-yet-allocated activities (preflight, audits, PR) count toward "needed" and AC-AGENTS-01's list? | Technical | LOW | 85 → 85 | Deferred | — |
+| Q38 | 3 | `settings.models.fallback.warning` holds one agent; fallbacks can name both agents — one warning per fallback-only agent (array)? | Technical | LOW | 85 → 85 | Pending | — |
 
 ## Question notes
+
+### Pass 3 conformance
+Fixed 11: decision's first step wording; Codex fallback with no stable account not used in a wait; §A Wait wording; Audits change excludes running processes; Design Decisions Change row covers the Audits entry; §Snapshot planned rows (`state: "planned"`, in activities[] only); agents[] not-installed entries have no billing; `kiln model-defaults` read needs no PRD path or controller; §Changes adds run-restart §Command line (help groups) and bot-control `computer_setting`; PRD AC-PICK-02 planned-row sentence clarified. Raised Q38; Q37 still deferred.
+
+### Q25 / Q26 / Q27
+Answered (80 decision / 90 / 92), folded. Q25: new contracts group `models`, heading "Choose models" after "Message, pause or take over"; `kiln model` change; `model-defaults` read; set/restore/fallback new side effect `computer_setting` (no safety flags, no PRD path, no controller) (help.ts:3,35,82-101; client.ts:136-154). Q26: Codex history start time = item startedAtMs / completedAtMs for agentMessage, else turn startedAt, else read time; startedSessionId = first session in creation order with a response (records.ts:190; codex-recovery-output.ts:31-35). Q27: other split children resolve on their own; parent's change doesn't carry over; split before start → parent no longer an activity (engine.ts:8071-8075; phase-split SKILL.md:101,254).
+
+### Q28 / Q29 / Q31
+Answered (90/90/85), folded. Q28: label "one automatic attempt used", no percent, in launch.fallback.limit.label, snapshot fallback/forecast limit and the "wasn't used" reason; the record only matches a reading where Codex reports usage allowed (codex-usage.ts:44-50). Q29: with agent null, today's fields read unavailable (reason: no activity current or next), every needed agent in other_agents[] (empty once all finished); last_attempt/original_attempt as today (projection.ts:160-185); §Agents wording "an unfinished activity's fallback". Q31: no row carries the heads-up when the current activity's start is unknown or the search reaches one; settles with the read.
+
+### Q30
+Answered 85% (decision), folded. No takeover-hold gate on Change: AC-PICK-03 requires Change while paused, and a hold lasts until hand-back. A not-started activity reaches a held pause only after an attempt ended with no response (acceptTakeover needs a running process; engine.ts:1163-1180). The Change's own history read refuses it if the terminal already answered; after a Change the reopen command is withdrawn (snapshot.ts:875); a later terminal answer starts the activity on the session's choice, shown from the next read, at the latest the hand-back's dispatch; Kiln launches nothing meanwhile. Design Decisions row: a process of its session is one Kiln launched or adopted; a person's terminal isn't, and a hold alone doesn't make Change unavailable. Unverified: claude --resume writes the same transcript file the history read checks.
+
+### Q33 / Q36
+Answered (88% decision / 92%), folded (AC-PR-05 line not added: that part is already superseded by completion-audits AC-RUN-01, whose line now covers it). Q33: in a run underway, planned Delivery audit / Test audit rows (per auditStepAfterSettled, engine.ts:4947) and a planned pull request row after the last row; Will run on the Audits choice; audit rows offer Change (PRD's Audits entry), PR row doesn't; allocated row replaces it; no steps/timing/details; phase count excludes them; none before Start (mockup 1); heads-up can sit on one. Evidence: validated FALL-002 ("next phase or audit"), mockup 3 draws a planned DA row with the heads-up. PRD: AC-PICK-02 gains one sentence + Replaces AC-RUN-01 (completion-audits) and AC-PR-05 (v1). TD §Changes: completion-audits §Progress and Detail Contract. Mockup 3 lacks the PR row mockup 2 draws → redraw. Q36: agents[] also carries each needed agent that isn't installed (installed:false, no models/account, readinessErrors naming the install remedy; Claude message "Claude Code is not on PATH. Install Claude Code <min> or later and sign in."); fallback warning reads the fallback agent's entry; §Agents: a missing agent is needed by the same rule (DEF-003 substitutes only a Model defaults first choice). Executables looked up again at each refresh (kiln-command.ts:181,266; codex-metadata.ts:105).
+
+### Q32
+Answered 88% (decision); folded. Fallback used only when every agent-specific launch check passes on its agent (readiness incl. METHOD_SKILLS, model list + auto mode, Claude billing, the activity's own skill, Codex launch settings, preparation-permissions read); run only when the first choice is over the threshold; failure keeps the first choice, reason names the check. Skills resolved at allocation against the resolver's agent; re-resolved per launch against the decided agent. Heads-up skips launch-only checks. Evidence: audit/workflow.ts:105-160; engine.ts:4511-4535,4585-4626,4960-4970,5111-5180; codex-session.ts:75,89.
+
+### Q34 / Q35
+Answered (80% decision / 90%), folded. Q34: §A Wait row 3 rewritten — Claude: ends at no counted limit at 100% or unreadable; 100% keeps waiting with a reading at reset; Codex: today's release rules on that choice's account bounded by the one-attempt record. A reading naming an unusable choice (known before launch) ends the wait in the selection stop; launch checks at the end of a wait stop as found-at-launch; "Resume after a usage limit" off → no wait. Q19 paragraph: Codex first choice with no stable account → wait stops at Needs you, as today (engine.ts:7100,5897; codex-usage.ts:40-44). Orchestrator addition: a first choice with a known-before-launch problem stops with selection before the decision runs; the fallback never replaces an unusable first choice (AC-PICK-06, AC-FALLBACK-02 "nothing but a usage reading"). Q35: the Audits change is never refused for an activity's state; reaches Audits activities with no start, no launch, no process; launching/running keep the saved decision; unknown start takes it only if the next read finds no start; a row's Change follows its own state; one activity at a time (completion-audits TD:48).
 
 ### Pass 2 conformance
 Fixed: AC-PICK-07 Replaces chain ends (AC-NEXT-01, AC-TAKE-03, AC-SEE-08 added; AC-STOP-05 Claude-only); §Changes gains completion-waivers §Display Contract and live-session-control §Terminal Ownership and Hand-back; start-unknown row in the row table; §A Wait wording for a used-up first choice; GET/`kiln model-defaults` read readiness on demand, readinessErrors optional; POST /api/model-defaults 409 while unreadable; Restore row refuses newer schema; Criteria Coverage updated. Raised Q28–Q31 as Pending for pass 3.
@@ -120,7 +149,7 @@ Deferred (12-question cap). Proposed: say the line gives no reason, plus "from t
 
 ## Conflict check
 Pass 1: 2026-11-22 · 20 earlier criteria changed · Replaces lines folded (new lines on AC-PICK-01, -07, DEFAULT-02, -05, FALLBACK-01, AGENTS-01, -04, KEEP-01; merged into existing lines on PICK-07, AGENTS-02, -03, KEEP-01); TD Open Question 1 removed, its panel decision moved to §Changes to Earlier Designs, 4 earlier-design bullets added. AC-WATCH-06, AC-SEE-02, AC-CONTINUE-08, billing AC-RUN-01 checked: not changed · 1 raised as a question (C1, below) · existing lines accurate, 3 stopped short of their chain (closed by the new lines)
-Changed after pass 1: AC-PICK-07 (Replaces lines only: AC-TERMINAL-01, AC-STOP-05 Claude-only, AC-NEXT-01 completion-waivers, AC-TAKE-03 live-session-control, AC-SEE-08 bot-control added in pass 2), AC-PICK-02 (pass 2, Q23: finished rows keyed on whether a session got a response)
+Changed after pass 1: AC-PICK-02 again (pass 3, Q33 + conformance: planned audit/PR rows sentence + Replaces AC-RUN-01), AC-PICK-07 (Replaces lines only: AC-TERMINAL-01, AC-STOP-05 Claude-only, AC-NEXT-01 completion-waivers, AC-TAKE-03 live-session-control, AC-SEE-08 bot-control added in pass 2), AC-PICK-02 (pass 2, Q23: finished rows keyed on whether a session got a response)
 
 ### C1 (unintended, Business — enters Questions table in pass 1)
 Needs-you-handoff AC-RETURN-01, AC-TERMINAL-01 and live-session-control AC-BACK-02 promise Resume keeps a terminal discussion. A not-started activity (refused before first response, or held by Pause now) offers "Open the conversation in your terminal"; if the person talks there then presses Resume, AC-PICK-07 launches a new session and the discussion is lost. Proposed: a model response in that session, even in the terminal, counts as the start, so AC-PICK-04 applies and Resume reopens it on its original choice. ~85%.
@@ -131,6 +160,8 @@ Observations (not criteria): Codex-support and usage-limit-recovery Out of Scope
 Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as Technical questions · 2 stay business (DEF-001, DEF-002, both below the line). Second reviewer doubted neither. Folded: DEF-001's "If they choose otherwise" line and boxes lack "Mechanical ships at Sonnet · high" (the stakeholder's Sonnet reluctance is the main argument against it); add it.
 
 ## Noticed, out of scope
+- The status token doesn't change when Model defaults change (file outside the record's fingerprint, engine.ts:665); harmless.
+- A family's newest version lacking the saved effort now stops the run, where today's effortFor (model-list.ts:73-78) adjusts it; fits "no silent replace" but changes today's behavior.
 - Concurrent saves to model-defaults.json from several Kilns and the CLI have no lock; one change can be lost (hardening).
 - On a Codex-only computer a row's first choice can't move to Codex (its fallback would need Claude Code's unreadable list); only the Fallback column is editable.
 - With Codex uninstalled, a not-started activity with Codex sessions sits at "start unknown" until reinstall, Mark complete or Reset.
@@ -145,4 +176,4 @@ Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 s
 |---|---|---|
 
 ## Next action
-Pass 2 committed. Pass 3: discovery (carry Q28–Q31 Pending and Q25–Q27 Deferred first).
+Pass 3 committed. Pass 4: discovery (carry Q37 Deferred and Q38 Pending first).
