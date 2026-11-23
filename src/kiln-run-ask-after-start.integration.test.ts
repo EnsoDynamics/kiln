@@ -277,6 +277,19 @@ describe("asking where a repository is after Start", () => {
     const text = (await kiln(f, ["status", f.prdPath])).stdout;
     expect(text).toContain("Phase plan reads: Kiln couldn’t find a checkout of acme-labs/inventory.");
     expect(text).toContain("Phase plan reads: Kiln couldn’t find a checkout of acme-labs/ledger.");
+    const searchedFrom = displayPath(join(f.home, "code", "acme"));
+    for (const repository of ["inventory", "ledger"]) {
+      expect(text).toMatch(new RegExp(`\\n( +)Phase plan reads: Kiln couldn’t find a checkout of acme-labs/${repository}\\.\\n\\1It searched outward from ${escaped(searchedFrom)}/, never above your home folder\\.\\n`));
+    }
+    expect(text).toMatch(/\n {11}Controls: locate-repository \(available\) · waive-and-advance \(once a recheck still fails\)\n/);
+    // On a terminal, the question lines light grey and the Controls line grey, as state 7 draws (AC-SEE-05).
+    let coloured = "";
+    await runKilnCommand(["status", f.prdPath], { cwd: f.sandbox.root, env: { ...f.env, NO_COLOR: "" }, stdout: { isTTY: true, write: (chunk: string) => (coloured += chunk) }, stderr: { write: () => true } });
+    const colors = terminalColors({ isTTY: true }, {});
+    expect(coloured).toContain(`           ${colors.lightGrey("Phase plan reads: Kiln couldn’t find a checkout of acme-labs/inventory.")}\n`);
+    expect(coloured).toContain(`           ${colors.lightGrey(`It searched outward from ${searchedFrom}/, never above your home folder.`)}\n`);
+    const controls = /\n {11}(Controls: locate-repository \(available\)[^\n]*)\n/.exec(text)![1]!;
+    expect(coloured).toContain(`\n           ${colors.grey(controls)}\n`);
 
     // Check again with no answer searches again: a checkout cloned where the search reaches clears that question.
     addCheckout(f, "acme-labs/inventory", "home/code/acme-labs/inventory");

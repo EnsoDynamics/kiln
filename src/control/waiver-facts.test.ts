@@ -181,6 +181,12 @@ describe("the command line's Mark complete preview", () => {
     expect(changed[0]).toContain("nothing was waived"); expect(changed[1]).toBe("  Pushed · example-app: now fails — 4c1a9e0 isn't on origin yet");
   });
 
+  it("prints a locate-repository answer not yet settled as accepted, as mockup state 7 draws it (find repositories anywhere AC-SEE-05)", () => {
+    for (const state of ["accepted", "in_progress"]) {
+      expect(receiptLines({ operation: { id: "op_61a2", action: "locate-repository", state, outcome: null, reason: null, updated_at: "" } })).toEqual(["Operation op_61a2 accepted."]);
+    }
+  });
+
   it("words refusals as the mockup does", () => {
     const refused = (reason: string) => receiptLines({ operation: { id: "op", action: "waive-and-advance", state: "refused", outcome: "mark_complete_not_offered", reason, updated_at: "" } })![0];
     expect(refused("No check has run since Phase 3 stopped.")).toBe("Refused: no check has run since Phase 3 stopped. Run without --confirm to check again first.");

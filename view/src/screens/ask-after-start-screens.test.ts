@@ -119,3 +119,34 @@ describe("a session's request on a held Pause now page (AC-SEE-05)", () => {
     expect(words.indexOf("Last thing Claude said")).toBeLessThan(words.indexOf("Let Kiln carry on"));
   });
 });
+
+describe("a session's request on the other Needs you stops that ask (AC-SEE-05)", () => {
+  const QUESTION = "Kiln couldn’t find a checkout of acme-labs/inventory";
+  const RESUMES = "The session can ask for it again once the phase resumes.";
+  const ATTENDED = "Approve the card processor's sandbox webhook in its dashboard.";
+  const CATCH_UP = { repositories: [{ name: "acme-shop", branch: "feature/customer-returns", base: "develop", behind: 4 }] };
+  const LAUNCH = { ran: "claude" as const, folder: "/w", sentence: "Kiln ran `claude` in the worktree, and the computer couldn't start it.", error: "Couldn't start claude in ~/work/.worktrees/customer-returns/acme-shop: spawn claude EAGAIN", at: "2026-10-17T15:52:00Z" };
+  const asking = (snapshot: Snapshot, stop: Record<string, unknown>) => { Object.assign(snapshot.needsYou!, stop, { locate: [{ ...INVENTORY, phaseFile: undefined }] }); return snapshot; };
+  /** Where each part shows in the page's text, in the order given; every one present once and in that order. */
+  const inOrder = (words: string, parts: string[]) => {
+    expect(words.split(QUESTION), words).toHaveLength(2);
+    const at = parts.map((part) => words.indexOf(part));
+    expect(at.every((index) => index >= 0), `${parts.filter((_, i) => at[i] === -1).join(" | ")}\n${words}`).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+  };
+
+  it("on a stop Kiln run restart reads, it sits below the card for the latest launch and above the catch-up offer and Start again", () => {
+    const snapshot = asking(needsYouMessageSnapshot(), { case: "could_not_start", launchFailure: LAUNCH, startAgain: { available: true }, resumeOffered: false, catchUp: CATCH_UP, attended: ATTENDED });
+    inOrder(text(needsYou(snapshot)), [`This phase was planned as needing you ${ATTENDED}`, "What Kiln found", "spawn claude EAGAIN", QUESTION, RESUMES, "This branch is 4 commits behind develop.", "Start Phase 2b again"]);
+  });
+
+  it("on the standard stop, build preflight's attended card stays above how the session ended, and the question sits above the catch-up offer and the ways to resolve it", () => {
+    const snapshot = asking(needsYouMessageSnapshot(), { attended: ATTENDED, resumeOffered: true, catchUp: CATCH_UP });
+    inOrder(text(needsYou(snapshot)), [`This phase was planned as needing you ${ATTENDED}`, "Last message from", QUESTION, RESUMES, "This branch is 4 commits behind develop.", "Let Kiln carry on", "Or pick it up yourself"]);
+  });
+
+  it("on a billing hold, it sits below how the session ended and above the heading over the way to continue", () => {
+    const snapshot = asking(needsYouMessageSnapshot(), { kind: "billing", resumeOffered: false });
+    inOrder(text(needsYou(snapshot)), ["Last message from", QUESTION, RESUMES, "Continue this execution"]);
+  });
+});
