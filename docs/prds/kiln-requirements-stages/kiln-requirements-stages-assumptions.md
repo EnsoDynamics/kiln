@@ -27,31 +27,6 @@
 
 ---
 
-## Scope Assumptions
-
-### SCOPE-001. Does Kiln build a PRD that needs no phase plan, from its final review, in one session?
-
-**Assumption**: Yes. When phase planning finds the work fits **one session**, or the method lets a small change skip the design and the phase plan, the final review shows, in place of the phase plan, **one row** for building the whole PRD, with its model, which the person can change, and **Start the build**. Kiln builds it in **one session** on the feature branch, with the usual stops and recovery, then the test audit and the **pull request**. It runs **no delivery audit**, as the method skips it for a PRD built in one session.
-
-The cost of yes is **a second way of building**, which Kiln carries and keeps working as the method changes. Today Kiln refuses to build a PRD with no phase plan.
-
-**If they choose otherwise**: The final review ends with a short prompt to paste into the person's own session. Kiln's build stays as it is, and the person looks after a build of several hours, through its stops and usage limits, and opens the pull request: about **15 to 30 minutes** of attention spread over those hours (our estimate).
-
-**Evidence**: **9 of the 28** PRD folders in Kiln's own repository have no phase plan. For a PRD like these, the method's next step after the requirements is one build session, nearly the session Kiln already runs for a phase. Doug, 2026-11-23: "Then you completely walk away when you get to the implementation", and the final review is "a cleaner spot to go from there to the whole next phase, which is the implementation".
-
-Against: nothing he has asked for covers such a PRD, and of keeping up with method changes he said "I would rather keep things simple" (Doug, 2026-11-23).
-
-**Researched**: 2026-11-23; the stakeholder's messages, the brief and its screens, Kiln's start checks, plan reading, completion checks and completion audits, the method's entry skill, phase-split, implement-from-requirements and delivery audit, every PRD folder in Kiln's repository; not tried: how other products handle it, judged unable to say what this business wants here.
-
-**Confirm or Correct**:
-- [ ] Correct — Kiln builds it in one session, from the final review
-- [ ] Wrong — stop at the final review; I build it in my own session
-- [ ] Wrong — different approach: _______________
-
-**Confidence**: 65% | **Impact**: 🟡 MEDIUM
-
----
-
 ## Home Screen Assumptions
 
 ### HOME-004. Should the home screen's Not ready yet list show only material one step from ready, and leave other folders off?
@@ -97,7 +72,7 @@ Against: a handoff package dropped in **without a brief** is not shown, and the 
 
 ### HOME-001. Should PRDs that Kiln can't tell are built or unfinished go in one closed list at the end of the home screen?
 
-**Assumption**: Yes. Some PRDs have no phase plan, no Kiln run and no sign of work in progress, such as a refinement running or a branch not yet merged. A small PRD **built by hand** in one session looks like that, and so does one **left unfinished**. Kiln puts them all in **one line at the end** of the home screen, closed until clicked, which says Kiln can't tell from the files which they are. Opened, it lists them newest change first, and each opens like any other PRD. Whatever SCOPE-001's answer, a PRD Kiln took to its final review never lands here.
+**Assumption**: Yes. Some PRDs have no phase plan, no Kiln run and no sign of work in progress, such as a refinement running or a branch not yet merged. A small PRD **built by hand** in one session looks like that, and so does one **left unfinished**. Kiln puts them all in **one line at the end** of the home screen, closed until clicked, which says Kiln can't tell from the files which they are. Opened, it lists them newest change first, and each opens like any other PRD. A PRD Kiln took to its final review never lands here, and once the method writes a phase document for every PRD it builds (SCOPE-001), a PRD built by hand after that shows as built, so the group holds PRDs left unfinished and ones built before that change.
 
 **If they choose otherwise**: Left off the home screen, a PRD started by hand on the shared branch could be reached only with `kiln run`. Listed with the work under way, Kiln's own repository would open on **nine lines that need nothing**.
 
@@ -121,6 +96,7 @@ Doug, 2026-11-23: "reviewing it is a real tax for humans", which argues against 
 
 | ID | Assumption | Validated | Notes |
 |----|------------|-----------|-------|
+| SCOPE-001 | Kiln builds only from phase documents. The method writes at least one phase document for every PRD it builds, even one that fits one session, so there is one way of building; a PRD that reaches its final review with none is not built by Kiln, and the person writes its phase plan in a session of their own, then resumes | 2026-11-23 | Corrected by the stakeholder's review: "just to be consistent, you should write out one phase anyway, and most things are going to be more than one phase ... the value of the consistency that we write out phases no matter what outweighs the benefit of just not bothering". Needs a method change, proposed on its own: phase planning writes a single phase document when the work fits one session, and a small change that skips the design still gets one before its build. It also lets a PRD built by hand show it is built, by its Closed line. Now AC-FINAL-06 in the PRD |
 | MODEL-001 | Requirements stages default to the provider's most capable model, except refining the design, which defaults to one model down. Both are defaults the person can change | 2026-11-23 | Corrected by the stakeholder: "default to the most capable model of the provider for everything except for design refinement (which should be the model down from it)". Now AC-MODEL-02 in the PRD |
 | REVIEW-001 | A PRD that already has its phase plan when Kiln is first pointed at it gets today's screen before Start: no stakeholder review made, no new stop | Written up 2026-11-23 | Research settled it at 95%: done by hand, the method makes or declines the review before the phase plan, and a declined review leaves no file, so making one could override that choice. Today's screen already stops before the build. PRD AC-BEGIN-05 |
 | BEGIN-001 | The branch is named from the source material's folder or a planned PRD's directory, can be changed before Start as today, and is never renamed after | Written up 2026-11-23 | Research settled it at 95%: renaming a pushed branch means deleting it, which Kiln v1 forbids (AC-GIT-01, AC-GIT-02), and the method doesn't promise a source folder and its PRD folder share a name. PRD AC-BEGIN-06 |

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Final review of a PRD with no phase plan</title>
+<title>Final review, phase plan missing</title>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
 <style>
 body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
@@ -47,7 +47,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <div style="display: flex; flex-direction: column; gap: 14px">
 <div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>PRD folder <span class="mono" style="color: #ede8dd">docs/changes/order-notes/</span></span></div>
 <h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">Order notes</h1>
-<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span class="pill now" style="padding: 8px 16px; font-size: 14px">Waiting for your final review</span><span style="color: #bdb6a8">The requirements are done, with no phase plan. This is the last stop before the build.</span></div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span class="pill now" style="padding: 8px 16px; font-size: 14px">Waiting for your final review</span><span style="color: #bdb6a8">The requirements are done, but there is no phase plan. Kiln builds from phase documents, so the build can't start yet.</span></div>
 </div>
 
 <section aria-labelledby="rev-h" style="border: 1px solid rgba(226,105,79,.55); border-radius: 18px; background: #0d0c0a; padding: 32px; display: flex; flex-direction: column; gap: 28px">
@@ -81,15 +81,11 @@ a{color:#e2694f}a:hover{color:#f0866e}
 </div>
 
 <div class="choice">
-<div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 17px; font-weight: 600">Nothing to change</span><span class="what">Check the build and its model below, then start the build. It goes ahead on the 1 open assumption unless you answer it.</span></div>
-<a href="#found-h" class="btn" style="align-self: flex-start">Go to the build</a>
+<div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 17px; font-weight: 600">Write the phase plan</span><span class="what">The requirements finished without a phase plan, and Kiln builds only from phase documents. Open a session of your own on these documents and write the phase plan there. One phase document is enough for work that fits one session.</span></div>
 <div style="display: flex; flex-direction: column; gap: 8px; margin-top: auto; padding-top: 14px; border-top: 1px solid rgba(237,232,221,.12)">
-<span style="font-size: 14.5px; font-weight: 500">Rather talk it through?</span>
-<span class="what">Open a session of your own on these documents. When you're done, commit your changes, exit it and press Resume. If your session changed the requirements, Kiln refreshes the review, then shows this screen again.</span>
+<span class="what">When you're done, commit the phase plan, exit the session and press Resume. Kiln then shows this screen again with the phase plan, ready to start the build.</span>
 <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #12110e; border: 1px solid rgba(237,232,221,.18)"><span class="mono" style="flex: 1 1 180px; min-width: 0; font-size: 12.5px">claude --resume 2e9c47b1</span><button type="button" class="btn" style="min-height: 36px; padding: 0 14px">Copy</button><button type="button" class="btn" style="min-height: 36px; padding: 0 14px">Resume</button></div>
 </div>
-</div>
-
 </div>
 </section>
 
@@ -106,7 +102,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <li class="row"><span class="circle done mono">R5</span><span class="names"><span class="title">Design review</span><span class="what">Ran <span class="mono" style="font-size: 12.5px">review-technical-design</span></span><span class="what">Claude Code · Sonnet 5.5 · medium</span></span><span class="right"><span class="facts">12m · pushed 19ca6b4</span></span></li>
 <li class="row"><span class="circle done mono">R6</span><span class="names"><span class="title">Refine the design</span><span class="what">Ran <span class="mono" style="font-size: 12.5px">autonomous-design-refinement</span></span><span class="what">Claude Code · Opus 5.5 · high</span></span><span class="right"><span class="facts">52m · pushed e8f4071</span></span></li>
 <li class="row"><span class="circle done mono">R7</span><span class="names"><span class="title">Stakeholder review, refreshed</span><span class="what">Ran <span class="mono" style="font-size: 12.5px">stakeholder-review-package</span></span><span class="what">Claude Code · Fable 5.2 · high</span></span><span class="right"><span class="facts">8m · pushed 5b3d9e2</span></span></li>
-<li class="row"><span class="circle done mono">R8</span><span class="names"><span class="title">Phase plan</span><span class="what">Ran <span class="mono" style="font-size: 12.5px">phase-split</span> · fits one session, no phase documents</span><span class="what">Claude Code · Fable 5.2 · high</span></span><span class="right"><span class="facts">11m · nothing to commit</span></span></li>
+<li class="row"><span class="circle done mono">R8</span><span class="names"><span class="title">Phase plan</span><span class="what">Ran <span class="mono" style="font-size: 12.5px">phase-split</span> · found it fits one session and wrote no phase document</span><span class="what">Claude Code · Fable 5.2 · high</span></span><span class="right"><span class="facts">11m · nothing to commit</span></span></li>
 <li class="row" style="border-bottom: 0"><span class="circle done mono">R9</span><span class="names"><span class="title">Final stakeholder review</span><span class="what">The review from R7 is current, so no refresh was needed</span></span><span class="right"><span class="facts">no session</span></span></li>
 </ol></section>
 
@@ -123,11 +119,8 @@ a{color:#e2694f}a:hover{color:#f0866e}
 </div>
 
 <div style="display: flex; flex-direction: column; gap: 4px">
-<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px"><span style="font-weight: 500">Build <span class="mono" style="font-size: 12.5px; color: #8c8577; font-weight: 400; margin-left: 8px">no phase documents</span></span><span style="font-size: 13px; color: #8c8577">Phase planning found it fits one session</span></div>
-<ol style="list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
-<li class="row"><span class="circle mono">PF</span><span class="names"><span class="title" style="color: #bdb6a8">Preflight</span></span><span class="right"><span class="model">Claude Code · Opus 5.5 · high</span></span></li>
-<li class="row" style="border-bottom: 0"><span class="circle mono">1</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Order notes, the whole PRD</span><span class="tag">Not rated</span></span><span class="file">One session, with no phase plan</span></span><span class="right"><span class="model">Claude Code · Opus 5.5 · medium</span><button type="button" class="btn">Change</button></span></li>
-</ol>
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px"><span style="font-weight: 500">Phase plan <span class="mono" style="font-size: 12.5px; color: #8c8577; font-weight: 400; margin-left: 8px">no phase documents</span></span><span style="font-size: 13px; color: #8c8577">Kiln builds only from phase documents</span></div>
+<p class="what" style="margin: 8px 0 0; padding-top: 14px; border-top: 1px solid rgba(237,232,221,.12)">No phase plan yet. Write it in a session of your own, commit it and press Resume in the review above. Its phases then show here, each with its model.</p>
 </div>
 </section>
 
@@ -136,13 +129,13 @@ a{color:#e2694f}a:hover{color:#f0866e}
 
 <div style="display: flex; flex-direction: column; gap: 4px">
 <span class="lab">Models</span>
-<span style="font-size: 14.5px">Chosen for the build</span>
-<span class="small">With no phase document, the build has no rating, so it runs on the standard choice. Change it in its row.</span>
+<span style="font-size: 14.5px">Chosen for each phase</span>
+<span class="small">Shown once the phase plan is written.</span>
 <a href="#" style="font-size: 13px; margin-top: 2px">Model defaults</a>
 </div>
 
 <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12)">
-<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span class="lab">Audits</span><span style="font-size: 14.5px">Claude Code · Opus 5.5 · high</span><span class="small">The test audit, the preflight and the pull request session use it. No delivery audit: the method skips it for a PRD built in one session.</span></div>
+<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span class="lab">Audits</span><span style="font-size: 14.5px">Claude Code · Opus 5.5 · high</span><span class="small">The preflight and the pull request session use it too.</span></div>
 <button type="button" class="btn">Change</button>
 </div>
 
@@ -159,8 +152,8 @@ a{color:#e2694f}a:hover{color:#f0866e}
 </div>
 
 <div style="display: flex; flex-direction: column; gap: 10px; padding-top: 18px; border-top: 1px solid rgba(237,232,221,.12)">
-<button type="button" style="min-height: 48px; border-radius: 999px; border: 1px solid #ede8dd; background: #ede8dd; color: #12110e; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer">Start the build</button>
-<span class="small" style="text-align: center">Starting the build is how you say the review is done. From here on, Kiln comes back to you only if the build needs you.</span>
+<button type="button" disabled aria-describedby="start-why" style="min-height: 48px; border-radius: 999px; border: 1px dashed rgba(237,232,221,.24); background: transparent; color: #8c8577; font: inherit; font-size: 15px; font-weight: 600; cursor: not-allowed">Start the build</button>
+<span id="start-why" class="small" style="text-align: center">Unavailable: no phase documents in <span class="mono">docs/changes/order-notes/</span>. Write the phase plan, commit it and press Resume.</span>
 </div>
 </section>
 
