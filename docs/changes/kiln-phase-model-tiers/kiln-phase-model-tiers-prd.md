@@ -24,7 +24,7 @@ A long run can also use up one account. Kiln waits for the limit to reset today,
 
 Five terms recur below:
 
-- An **activity** is one row of the run's plan: the preflight, a phase, a delivery audit, a test audit or the final pull request session.
+- An **activity** is one row of the run's plan: the preflight, a phase, a delivery audit, a test audit or the final pull request session; an activity belongs to one run, so a phase run again in a fresh run (a PRD continued with added phases, or started again from its base branch) is a new activity.
 - A **tier** is the rating in a phase document's `**Model tier:**` line.
 - A **model choice** is an agent, a model and an effort, such as Claude Code · Opus · medium.
 - An activity **starts** when one of its sessions gets its first response from the model, the line Kiln Usage-Limit Recovery draws for a run "refused before the session gets any response" (AC-AUTO-05). A session that ends before any response, because the agent didn't run or the account refused the model or was at a limit, leaves the activity not started, whatever the agent had reported by then.
@@ -166,7 +166,7 @@ One PRD's activities can now run on different agents. Kiln checks, bills and rep
   - Replaces in part: AC-AGENT-05 in `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-prd.md` (an agent below its minimum matters when an activity will run on it or a fallback names it, not only when it is selected for the PRD; the rest remains).
 
 - [ ] **AC-AGENTS-02 — Billing is shown and approved for each agent the run can use.** Documents found shows the billing summary for each agent AC-AGENTS-01 checks, and the existing approval rules (Kiln Billing Safeguards) apply to each. A missing approval counts as an agent that isn't ready, with the effect on Start that AC-AGENTS-01's table gives. The check before every launch uses the agent of the activity about to launch.
-  - Replaces in part: AC-CODEX-05 and AC-RUN-02 in `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-prd.md` (before Start the summary covers each agent the run can use, not one selected agent, and an unapproved metered route on an agent that only a fallback names leaves Start available, with that fallback unused until approved; the rest remains).
+  - Replaces in part: AC-CODEX-05 and AC-RUN-02 in `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-prd.md` (before Start the summary covers each agent the run can use, not one selected agent, during a run each agent's summary identifies the account recorded at that agent's own last launch, and an unapproved metered route on an agent that only a fallback names leaves Start available, with that fallback unused until approved; the rest remains).
 
 - [ ] **AC-AGENTS-03 — The account panel shows each agent's account.** Wherever Kiln shows account and usage, it shows them for the current activity's agent as today, marked as in use, and also for any other agent AC-AGENTS-01 checks. Both are read on the existing schedule (AC-USAGE-02 in Codex support for Kiln). With the fallback on, a limit at or above the threshold is marked as above it.
   - Replaces in part: AC-USAGE-01 and AC-USAGE-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (account and usage are read and shown for every agent the run can use, not only one selected agent's; the rest remains).

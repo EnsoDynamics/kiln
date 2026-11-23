@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Phase Model Tiers
 
-Started: 2026-11-22   Current pass: 5 (complete)   Status: In progress
+Started: 2026-11-22   Current pass: 6 (complete)   Status: In progress
 Branch: feature/kiln-phase-model-tiers
 Existing code posture: Preserve (source: TD §Existing Code)
 PRD words: at start 4139 · growth baseline 4139
@@ -22,6 +22,7 @@ Last updated: 2026-11-22
 | 3 | 6 (+4 from pass-2 conformance) | 12 (Q25–Q36) | 12 | 0 | 1 | 0 | 0 |
 | 4 | 4 (+1 from pass-3 conformance) | 6 (Q37–Q42) | 5 | 1 | 0 | 0 | 0 |
 | 5 | 3 (+1 from pass-4 conformance) | 4 (Q43–Q46) | 4 | 0 | 0 | 0 | 0 |
+| 6 | 5 (+2 from pass-5 conformance, +1 from pass-6 conformance) | 8 (Q47–Q54) | 8 | 0 | 0 | 0 | 0 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -72,10 +73,28 @@ Last updated: 2026-11-22
 | Q44 | 5 | Continued PRD: rows of phases finished in the earlier execution — Ran on from archived sessions, or No model recorded? | Technical | LOW | 65 → 75 | Resolved by decision | TD §When an Activity Starts, §Data Models, §Snapshot |
 | Q45 | 5 | `kiln model` / `kiln model-defaults set` with effort omitted for a model that takes effort: what is saved? | Technical | LOW | 75 → 85 | Resolved by decision | TD §Command line, §Model defaults file |
 | Q46 | 5 | `kiln model` in `kiln status`'s controls: when available, with what reason? | Technical | LOW | 85 → 85 | Resolved by decision | TD §Command line |
-| Q47 | 5 | Folder missing restart from the base branch: a phase started but unfinished in the archived execution reruns on the resolver's choice or what it started on (AC-PICK-04)? | Technical | MEDIUM | 75 → 75 | Pending | — |
-| Q48 | 5 | Continue offer: does Continue check readiness for the agents the added phases' tiers resolve to, as AC-AGENTS-01 does at Start? | Technical | MEDIUM | 80 → 80 | Pending | — |
+| Q47 | 5 | Folder missing restart from the base branch: a phase started but unfinished in the archived execution reruns on the resolver's choice or what it started on (AC-PICK-04)? | Technical | MEDIUM | 75 → 92 | Resolved | TD §When an Activity Starts; PRD terms (activity) |
+| Q48 | 5 | Continue offer: does Continue check readiness for the agents the added phases' tiers resolve to, as AC-AGENTS-01 does at Start? | Technical | MEDIUM | 80 → 88 | Resolved by decision | TD §Agents, The planned Preflight row |
+| Q49 | 6 | Codex's billing summary has no place in agents[] and the one saved lastLaunch summary is shared by both agents | Technical | MEDIUM | 85 → 92 | Resolved | TD §Agents, §Snapshot, §Command line, §Data Models, §Changes |
+| Q50 | 6 | Saved settings copies in side files (continuation acceptance, Folder missing start intents) skip the schema 25 migration | Technical | MEDIUM | 75 → 90 | Resolved | TD §Data Models, §Changes |
+| Q51 | 6 | POST /api/model / kiln model --phase for a finished phase, a parent (split) phase or an unknown id | Technical | LOW | 90 → 92 | Resolved | TD §HTTP, §Command line |
+| Q52 | 6 | What settings.models.tiers holds (counts per tier?) | Technical | LOW | 85 → 90 | Resolved | TD §Snapshot |
+| Q53 | 6 | A row and its launch when the agent's model list can't be read | Technical | LOW | 88 → 90 | Resolved | TD §A choice that can't be used, §The launch decision, §Resolving a Choice, §HTTP |
+| Q54 | 6 | Fallback-only agent whose model list can't be read: show the AC-AGENTS-01 / FALL-003 warning before Start? | Technical | LOW | 92 → 92 | Resolved | TD §Agents Before Start, The fallback's launch checks |
 
 ## Question notes
+
+### Pass 6 conformance
+Fixed 8: PRD activity clause uses "run" not "execution"; AC-AGENTS-02 AC-CODEX-05 parenthetical covers per-agent last launch; planned Preflight row wording; §Agents Continue bullet applies the kept test; Folder missing intent paragraph trimmed; Coverage (AC-PICK-04, AC-DEFAULT-01–03, AC-KEEP-02); OQ2 KEEP-003 scope. Raised Q54; settled by the orchestrator from AC-AGENTS-01 row 2 (an agent only a fallback names that isn't ready gets the warning): an unreadable model list counts as not ready for that warning.
+
+### Q49 / Q50
+Answered (92/90), folded. Q49: every needed agent's billing shown; Codex's presentation only (codex.ts:6-20); only Claude has a reading and approval; `billing.lastLaunch` → `{ [agentId]: BillingSummary }` (also fixes Claude's view showing a Codex launch, authority.ts:69); migration step 4 keys the old value by its agent; kiln account billing reads each agent's own. Q50: continuation acceptance converted on read (step 2 with no activity started → KEEP-003 "Had none" rows; step 3); Folder missing intent's settings copy never reaches a record (rebuilt at every Start, engine.ts:3928-3976,4046,4067); draft seeds only non-model fields; formatVersion unchanged (older Kiln refuses the schema 25 record first, records.ts:578; instance lock).
+
+### Q51 / Q52 / Q53
+Answered (92/90/90), folded. Q51: 409 for a finished phase; 422 for an id that isn't a leaf of the current plan (checked before journaling, as /api/settings loop limits, local-server.ts:441,468-471); CLI exit 3 / target_not_found exit 2 (result.ts:21-26). Q52: tiers = counts of leaf phases per tier, closed or not; Documents found prints them (mockup 1:117-119), run settings don't (mockup 2:138). Q53: unreadable model list = known before launch (engine.ts:1520,1688,4515-4526,6183-6195); row shows the family with problem = modelListError; fallback whose list can't be read fails its launch checks.
+
+### Q47 / Q48
+Answered (92 / 88 decision), folded. Q47: an activity belongs to one execution; a phase rerun in a fresh execution (Folder missing base-branch Start, continuation) is a new activity on the resolver's choice; PRD terms list gains the clause (engine.ts:3504,4015-4047; continue-added-phases TD:211,314). Q48: Continue isn't Start for AC-AGENTS-01/02; it gates on the proposal's readiness as today; each launch checks its agent; an unapproved metered route holds the launch at Needs you (engine.ts:3316,3398-3420,4516; continuation-execution.integration.test.ts:172).
 
 ### Pass 5 conformance
 Fixed: Coverage AC-PICK-02 cites earlier-execution rows; POST /api/model 400 (malformed, empty effort) and 422 (omitted effort can't be filled); §Changes bot-control §Scope and concurrency; continue-added-phases §Data Models and Migration (reads each retained execution once per process). No PRD Replaces needed. Raised Q47, Q48. Not taken: moving the omitted-effort rule to the top of §Interfaces (reads fine; consolidation can revisit).
@@ -179,7 +198,7 @@ Deferred (12-question cap). Proposed: say the line gives no reason, plus "from t
 
 ## Conflict check
 Pass 1: 2026-11-22 · 20 earlier criteria changed · Replaces lines folded (new lines on AC-PICK-01, -07, DEFAULT-02, -05, FALLBACK-01, AGENTS-01, -04, KEEP-01; merged into existing lines on PICK-07, AGENTS-02, -03, KEEP-01); TD Open Question 1 removed, its panel decision moved to §Changes to Earlier Designs, 4 earlier-design bullets added. AC-WATCH-06, AC-SEE-02, AC-CONTINUE-08, billing AC-RUN-01 checked: not changed · 1 raised as a question (C1, below) · existing lines accurate, 3 stopped short of their chain (closed by the new lines)
-Changed after pass 1: AC-KEEP-02 (pass 4, KEEP-003 sentence + Replaces AC-CONTINUE-08), AC-PICK-02 again (pass 3, Q33 + conformance: planned audit/PR rows sentence + Replaces AC-RUN-01), AC-PICK-07 (Replaces lines only: AC-TERMINAL-01, AC-STOP-05 Claude-only, AC-NEXT-01 completion-waivers, AC-TAKE-03 live-session-control, AC-SEE-08 bot-control added in pass 2), AC-PICK-02 (pass 2, Q23: finished rows keyed on whether a session got a response)
+Changed after pass 1: AC-AGENTS-02 (pass 6, AC-CODEX-05 parenthetical), PRD terms (activity, pass 6), AC-KEEP-02 (pass 4, KEEP-003 sentence + Replaces AC-CONTINUE-08), AC-PICK-02 again (pass 3, Q33 + conformance: planned audit/PR rows sentence + Replaces AC-RUN-01), AC-PICK-07 (Replaces lines only: AC-TERMINAL-01, AC-STOP-05 Claude-only, AC-NEXT-01 completion-waivers, AC-TAKE-03 live-session-control, AC-SEE-08 bot-control added in pass 2), AC-PICK-02 (pass 2, Q23: finished rows keyed on whether a session got a response)
 
 ### C1 (unintended, Business — enters Questions table in pass 1)
 Needs-you-handoff AC-RETURN-01, AC-TERMINAL-01 and live-session-control AC-BACK-02 promise Resume keeps a terminal discussion. A not-started activity (refused before first response, or held by Pause now) offers "Open the conversation in your terminal"; if the person talks there then presses Resume, AC-PICK-07 launches a new session and the discussion is lost. Proposed: a model response in that session, even in the terminal, counts as the start, so AC-PICK-04 applies and Resume reopens it on its original choice. ~85%.
@@ -190,6 +209,12 @@ Observations (not criteria): Codex-support and usage-limit-recovery Out of Scope
 Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 settled by lookup · 0 moved to technical · 0 raised as Technical questions · 2 stay business (DEF-001, DEF-002, both below the line). Second reviewer doubted neither. Folded: DEF-001's "If they choose otherwise" line and boxes lack "Mechanical ships at Sonnet · high" (the stakeholder's Sonnet reluctance is the main argument against it); add it.
 
 ## Noticed, out of scope
+- A model picked on the old Folder missing panel in a Start that failed before the upgrade is lost after the upgrade (the new panel has no model field).
+- Archived executions keep the old settings shape and can't be rewritten (hash-named, checked on read); nothing reads their agent fields.
+- "Check Preflight again" on a started preflight reruns on what it started on, not a later Audits change (AC-PICK-04); a guide line might help.
+- `kiln status` doesn't say whether its activity list includes planned audit/PR rows.
+- AC-AGENTS-03 marks every limit at or above the threshold, including a model-scoped window the launch decision doesn't count.
+- An agent-readiness warning and billing summary on the Continue offer would be new UI and new proposal inputs; follow-up, not refinement.
 - Claude Code installed partway through a run on a Codex-only computer moves every not-started phase to its Claude first choice at the next refresh; Claude billing then reads pending and can stop the next launch on approval (consequence of the "restores with no step" rule).
 - On Paused or with nothing current, the account panel's "in use" mark has no stated owner; `kiln account` uses the next activity's agent and the panel could do the same.
 - `kiln model` receipt outcome name and effect fields unspecified; the journal pattern settles them.
@@ -212,4 +237,4 @@ Pass 1: 2026-11-22 · 2 open entries · 0 moved to design · 0 written up · 0 s
 |---|---|---|
 
 ## Next action
-Pass 5 committed. Pass 6: discovery (carry Q47, Q48 Pending first).
+Pass 6 committed. Pass 7: discovery. If it surfaces fewer than 3 new, go to Phase 7 (completion).
