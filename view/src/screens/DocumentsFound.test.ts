@@ -196,6 +196,22 @@ describe("Documents found finding repositories anywhere (docs/changes/kiln-find-
     expect(page).toMatch(/<div class="option unpickable[^"]*">/);
   });
 
+  it("two rows asking at once: each asks its own question, one searched only as far as a folder, and Start waits on both (AC-ASK-01)", () => {
+    const snapshot = findRepositoriesSnapshot(2);
+    const ledger = { ...snapshot.repositories[2]!, name: "ledger", label: "ledger", addressPath: "acme-labs/ledger", question: { kind: "where" as const, repository: "acme-labs/ledger", label: "ledger", searchedFrom: "~/code/acme", searchedTo: "~/code", checkouts: [], found: 0 } };
+    snapshot.repositories.push(ledger);
+    snapshot.settings = { ...snapshot.settings, startBlockedBy: "Tell Kiln where 2 repositories are to start." };
+    snapshot.documents = { ...snapshot.documents!, checks: snapshot.documents!.checks.map((check) => (check.locate ? { ...check, name: "2 repositories to locate" } : check)) };
+    const page = html(snapshot);
+    const shown = text(page);
+    expect(shown).toContain("Tell Kiln where two repositories are, then review and start.");
+    expect(shown).toContain("Dependencies point backward 2 repositories to locate Working tree of product is clean");
+    expect(shown).toContain("storefront acme-labs/storefront — Kiln couldn’t find a checkout of acme-labs/storefront . It searched outward from ~/code/acme/ , never above your home folder. Where is it on this computer?");
+    expect(shown).toContain("ledger acme-labs/ledger — Kiln couldn’t find a checkout of acme-labs/ledger . It searched outward from ~/code/acme/ , as far as ~/code/ . Where is it on this computer?");
+    expect(page).toMatch(/<span class="[^"]*\basks\b[^"]*">Tell Kiln where 2 repositories are to start\.<\/span>/);
+    expect(page.match(/>Use this folder</g)).toHaveLength(2);
+  });
+
   it("state 3: the row asks which checkout to use, lists both with their remote addresses, and picks neither (AC-ASK-02)", () => {
     const page = html(findRepositoriesSnapshot(3));
     const shown = text(page);

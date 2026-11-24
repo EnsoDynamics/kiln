@@ -191,7 +191,7 @@ describe("the Repositories line (multi-repo AC-REPO-01)", () => {
     expect(problems("**Repositories:** a,,b")).toEqual(["phase-1-x.md has an empty name on its Repositories line."]);
     expect(problems("**Repositories:** acme//storefront")).toEqual(["phase-1-x.md has an empty name on its Repositories line."]);
     const onOneComputer = (name: string) => `phase-1-x.md names ${name}, a path on one computer. Name the repository by the path in its remote address, <owner>/<repository>.`;
-    for (const name of ["/Volumes/work/storefront", "~/code/storefront", "../storefront", "..", "C:\\code\\storefront", "acme\\storefront"]) expect(problems(`**Repositories:** ${name}`)).toEqual([onOneComputer(name)]);
+    for (const name of ["/Volumes/work/storefront", "~/code/storefront", "../storefront", "..", "C:\\code\\storefront", "C:/code/storefront", "D:storefront", "acme\\storefront"]) expect(problems(`**Repositories:** ${name}`)).toEqual([onOneComputer(name)]);
     expect(problems("**Repositories:** git@github.com:acme-labs/storefront.git")).toEqual(["phase-1-x.md names git@github.com:acme-labs/storefront.git, a full remote address. Name the repository by the path in it, acme-labs/storefront."]);
     expect(problems("**Repositories:** https://github.com/acme-labs/storefront")).toEqual(["phase-1-x.md names https://github.com/acme-labs/storefront, a full remote address. Name the repository by the path in it, acme-labs/storefront."]);
     expect(problems("**Repositories:** git.example.com:acme-labs/storefront")).toEqual(["phase-1-x.md names git.example.com:acme-labs/storefront. Kiln delivers only to GitHub, so it can’t deliver a repository on git.example.com."]);

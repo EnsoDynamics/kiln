@@ -293,6 +293,13 @@ describe("the terminal when a repository needs locating (find repositories anywh
     const at = new Date(2026, 10, 22, 9, 14);
     expect(formatRepositoryLine(at, "Located acme-labs/storefront", plain, " at /Volumes/work/storefront. Kiln will remember that on this computer.")).toBe(" 9:14  Located acme-labs/storefront at /Volumes/work/storefront. Kiln will remember that on this computer.");
   });
+
+  it("colours each line as state 5 draws it: the separators grey, the count amber, the Opened suffix grey, the Located time and rest grey (AC-SEE-04)", () => {
+    const c = terminalColors({ isTTY: true }, {});
+    expect(formatDocumentsFound("Customer returns", found, c, 3, 1)).toBe(`Customer returns${c.grey("  ·  PRD, technical design, assumptions, 6 phase docs, 3 repositories  ·  ")}${c.amber("1 repository to locate")}`);
+    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, c, false, ["acme-labs/storefront"]).split("\n")[0]).toBe(`${c.red("●")} Opened ${c.red("http://127.0.0.1:4700/customer-returns")}${c.grey(". Tell Kiln where acme-labs/storefront is there, then review it and press Start.")}`);
+    expect(formatRepositoryLine(new Date(2026, 10, 22, 9, 14), "Located acme-labs/storefront", c, " at /Volumes/work/storefront. Kiln will remember that on this computer.")).toBe(`${c.grey(" 9:14  ")}Located acme-labs/storefront${c.grey(" at /Volumes/work/storefront. Kiln will remember that on this computer.")}`);
+  });
 });
 
 describe("terminal lines show a repository by its label (find repositories anywhere AC-FOLDER-02)", () => {

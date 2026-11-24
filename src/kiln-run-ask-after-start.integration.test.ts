@@ -200,6 +200,25 @@ describe("asking where a repository is after Start", () => {
     expect(JSON.parse((await kiln(f, ["command-status", f.prdPath, "--command-id", "c-relative", "--json"])).stdout).operation).toMatchObject({ state: "completed", outcome: "folder_not_accepted", reason: "Enter a full path, starting with / or ~.", effects: { plan: "not_advanced", session: "not_started" } });
     expect(readRememberedLocation(f.env, "acme-labs/ledger")).toEqual({ kind: "none" });
 
+    // A folder whose checkout Git can't read fails as check_unavailable (exit 4); nothing is remembered and the question stays.
+    const broken = join(f.sandbox.root, "volumes", "broken", "ledger");
+    mkdirSync(broken, { recursive: true });
+    git(f.sandbox, broken, "init", "-q");
+    writeFileSync(join(broken, ".git", "config"), "[[[\n");
+    status = await statusOf(f);
+    const brokenArgs = ["locate-repository", f.prdPath, "acme-labs/ledger", broken, "--only-if-status-matches", status.status_token, "--command-id", "c-broken", "--json"];
+    expect((await kiln(f, brokenArgs)).code).toBe(0);
+    await waitFor(async () => JSON.parse((await kiln(f, ["command-status", f.prdPath, "--command-id", "c-broken", "--json"])).stdout).operation.state === "failed");
+    // Reading the receipt is a successful read; the command itself, replayed by its id, reports the failure.
+    const read = await kiln(f, ["command-status", f.prdPath, "--command-id", "c-broken", "--json"]);
+    expect(read.code).toBe(0);
+    expect(JSON.parse(read.stdout).operation).toMatchObject({ state: "failed", outcome: "check_unavailable", reason: `Couldn't read ${broken}'s checkout: fatal: bad config line 1 in file .git/config`, effects: { plan: "not_advanced", session: "not_started" } });
+    answer = await kiln(f, brokenArgs);
+    expect(answer.code).toBe(4);
+    expect(JSON.parse(answer.stdout).errors[0]).toMatchObject({ code: "check_unavailable", message: `Couldn't read ${broken}'s checkout: fatal: bad config line 1 in file .git/config` });
+    expect(readRememberedLocation(f.env, "acme-labs/ledger")).toEqual({ kind: "none" });
+    expect(recordOf(f).phases["1"]!.stop!.locate).toHaveLength(1);
+
     // A checkout the search doesn't reach, answered from the command line: remembered, the request dropped, the question closed.
     const ledger = addCheckout(f, "acme-labs/ledger", "volumes/work/ledger");
     status = await statusOf(f);
@@ -220,10 +239,18 @@ describe("asking where a repository is after Start", () => {
     expect(status.status_token).not.toBe(before);
     expect(status.stop.locate).toEqual([]);
     expect(recordOf(f).phases["1"]!.stop!.kind).toBe("done_check");
-    // A retry with the same command id replays its receipt.
-    expect((await kiln(f, ["locate-repository", f.prdPath, "Acme-Labs/Ledger", ledger, "--only-if-status-matches", before, "--command-id", "bot-0412", "--json"])).code).toBe(0);
+    // A retry with the same command id replays its receipt: the same operation, and no second effect.
+    const operationId = JSON.parse((await kiln(f, ["command-status", f.prdPath, "--command-id", "bot-0412", "--json"])).stdout).operation.id;
+    const replay = await kiln(f, ["locate-repository", f.prdPath, "Acme-Labs/Ledger", ledger, "--only-if-status-matches", before, "--command-id", "bot-0412", "--json"]);
+    expect(replay.code).toBe(0);
+    expect(JSON.parse(replay.stdout).operation).toMatchObject({ id: operationId, state: "completed", outcome: "located" });
+    expect(run.lines().filter((line) => line.includes("Located acme-labs/ledger"))).toHaveLength(1);
     run.signals.emit("SIGINT");
     await run.done;
+    // With Kiln no longer running, the command is refused: no live controller to answer it (exit 4).
+    const stopped = await kiln(f, ["locate-repository", f.prdPath, "acme-labs/ledger", ledger, "--only-if-status-matches", before, "--command-id", "bot-after", "--json"]);
+    expect(stopped.code).toBe(4);
+    expect(JSON.parse(stopped.stdout).errors[0]).toMatchObject({ code: "controller_unreachable", message: "Changing work requires its matching live controller." });
   }, 120_000);
 
   it("lets a phase whose session asked for a repository it can't place land with no stop (AC-ASK-07, ASK-003)", async () => {
@@ -279,10 +306,13 @@ describe("asking where a repository is after Start", () => {
     expect(recordOf(f).phases["1"]!.stop!.locate).toMatchObject([{ kind: "which", repository: "acme-labs/ledger", found: 2 }]);
     const status = await statusOf(f);
     expect(status.status_token).not.toBe(before);
-    expect(status.stop.locate[0]).toMatchObject({ kind: "which", address_path: "acme-labs/ledger", checkouts: [{ folder: join(f.home, "code", "acme-labs", "ledger"), pickable: true }, { folder: copy, pickable: true, next_argv: expect.arrayContaining([copy]) }] });
-    // The page's Use this checkout answers it through the same action.
-    const picked = await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/ledger", folder: copy });
-    expect(picked).toMatchObject({ status: 200, body: { repository: "acme-labs/ledger", folder: copy, outcome: "located" } });
+    const pick = ["kiln", "locate-repository", f.prdPath, "acme-labs/ledger", copy, "--only-if-status-matches", status.status_token, "--command-id", "<new-command-id>"];
+    expect(status.stop.locate[0]).toMatchObject({ kind: "which", address_path: "acme-labs/ledger", checkouts: [{ folder: join(f.home, "code", "acme-labs", "ledger"), pickable: true }, { folder: copy, pickable: true, next_argv: pick }] });
+    // AC-ASK-06: a bot picks one of the checkouts found by running that checkout's command line.
+    const picked = await kiln(f, [...pick.slice(1, -1), "bot-pick", "--json"]);
+    expect(picked.code).toBe(0);
+    await waitFor(async () => JSON.parse((await kiln(f, ["command-status", f.prdPath, "--command-id", "bot-pick", "--json"])).stdout).operation.state === "completed");
+    expect(JSON.parse((await kiln(f, ["command-status", f.prdPath, "--command-id", "bot-pick", "--json"])).stdout).operation).toMatchObject({ outcome: "located", located: { repository: "acme-labs/ledger", folder: copy } });
     expect(readRememberedLocation(f.env, "acme-labs/ledger")).toMatchObject({ kind: "remembered", location: { folder: copy } });
     expect((await snapshotOf(address, token)).needsYou!.locate).toBeUndefined();
     // With no stop asking, the page's answer is refused.

@@ -374,6 +374,43 @@ describe("kiln run on a plan that names repositories by their address path", () 
     await kiln.done;
   }, 120_000);
 
+  it("asks about two repositories at once and keeps Start unavailable until both are answered (AC-ASK-01)", async () => {
+    const f = createFeature(
+      { "phase-3-returns-dashboard.md": "**Repositories:** acme-labs/storefront, acme-labs/ledger" },
+      { "acme-labs/storefront": "volumes/work/storefront", "acme-labs/ledger": "volumes/work/ledger" },
+    );
+    const storefront = join(f.sandbox.root, "volumes", "work", "storefront");
+    const ledger = join(f.sandbox.root, "volumes", "work", "ledger");
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    await waitFor(() => kiln.lines().length >= 2);
+    expect(kiln.lines()[0]).toBe("Customer returns  ·  PRD, technical design, assumptions, 5 phase docs, 3 repositories  ·  2 repositories to locate");
+    expect(kiln.lines()[1]).toBe(`● Opened ${address}. Tell Kiln where 2 repositories are there, then review it and press Start.`);
+    let snapshot = await snapshotOf(address, token);
+    expect(snapshot.repositories.map((row) => [row.addressPath, row.question?.kind])).toEqual([["acme/product", undefined], ["acme-labs/storefront", "where"], ["acme-labs/ledger", "where"]]);
+    expect(snapshot.documents!.checks.find((check) => check.locate)).toEqual({ name: "2 repositories to locate", passed: true, locate: true });
+    expect(snapshot.settings.startBlockedBy).toBe("Tell Kiln where 2 repositories are to start.");
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 409, body: { ok: false, reason: "Tell Kiln where 2 repositories are to start." } });
+
+    // One answered: Start still waits, now on the other.
+    expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/storefront", folder: storefront })).toMatchObject({ status: 200 });
+    snapshot = await snapshotOf(address, token);
+    expect(snapshot.documents!.checks.find((check) => check.locate)).toEqual({ name: "1 repository to locate", passed: true, locate: true });
+    expect(snapshot.settings.startBlockedBy).toBe("Tell Kiln where acme-labs/ledger is to start.");
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 409, body: { ok: false, reason: "Tell Kiln where acme-labs/ledger is to start." } });
+
+    // Both answered: Start goes.
+    expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/ledger", folder: ledger })).toMatchObject({ status: 200 });
+    snapshot = await snapshotOf(address, token);
+    expect(snapshot.settings.startBlockedBy).toBeUndefined();
+    expect(snapshot.documents!.checks.some((check) => check.locate)).toBe(false);
+    await waitFor(async () => { const now = await snapshotOf(address, token); return now.settings.baseCheck !== "checking" && now.repositories.every((row) => row.baseCheck !== "checking"); });
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 200, body: { ok: true } });
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  }, 90_000);
+
   it("takes a listed checkout picked on the page, as the snapshot gives its folder, and sets that checkout up (AC-ASK-02)", async () => {
     const f = createFeature({ "phase-3-returns-dashboard.md": "**Repositories:** acme-labs/storefront" }, { "acme-labs/storefront": "home/code/acme-labs/storefront" });
     const archive = join(f.home, "code", "archive", "storefront");
@@ -384,6 +421,9 @@ describe("kiln run on a plan that names repositories by their address path", () 
     const token = await tokenOf(address);
     const question = (await snapshotOf(address, token)).repositories.find((row) => row.question)!.question!;
     expect(question).toMatchObject({ kind: "which", found: 2 });
+    // AC-ASK-01: while the row asks which, Start stays unavailable and says why.
+    expect((await snapshotOf(address, token)).settings.startBlockedBy).toBe("Tell Kiln which checkout of acme-labs/storefront to use to start.");
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 409, body: { ok: false, reason: "Tell Kiln which checkout of acme-labs/storefront to use to start." } });
     const picked = question.checkouts.find((one) => one.folder === displayPath(archive))!;
     expect(picked.pickable).toBe(true);
     expect(await api(address, token, "POST", "/api/repository-location", { repository: question.repository, folder: picked.folder })).toMatchObject({ status: 200 });

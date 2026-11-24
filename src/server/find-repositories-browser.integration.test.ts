@@ -120,4 +120,24 @@ describe("the note under Start while a row asks, as the mockup draws it (AC-SEE-
       } finally { await page.close(); await server.close(); }
     });
   }
+
+  // The check that counts the repositories to locate, in the checks under Start: amber in its colour and type, as drawn.
+  for (const state of [2, 3] as const) {
+    it(`state ${state}'s "1 repository to locate" check`, async () => {
+      const check = "1 repository to locate";
+      const mockup = await chrome.open(MOCKUP);
+      let drawnStyle: string[] | null;
+      try {
+        await mockup.waitFor(`document.readyState === "complete"`);
+        drawnStyle = await mockup.evaluate<string[] | null>(style(check));
+      } finally { await mockup.close(); }
+      const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: findRepositoriesSnapshot(state) });
+      const page = await chrome.open(server.address, { width: 1400 });
+      try {
+        await page.waitFor(`document.querySelector('ul[aria-labelledby="repos-h"]')`);
+        expect(drawnStyle?.[0]).toBe("rgb(230, 180, 80)");
+        expect(await page.evaluate<string[] | null>(style(check))).toEqual(drawnStyle);
+      } finally { await page.close(); await server.close(); }
+    });
+  }
 });
