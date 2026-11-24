@@ -5,7 +5,8 @@
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { SetupPanel } from "../../../src/engine/folder-setup.js";
-import type { Snapshot } from "../../../src/engine/snapshot.js";
+import type { AgentView, Snapshot } from "../../../src/engine/snapshot.js";
+import type { BillingSummary } from "../../../src/billing/inspection.js";
 import { folderMissingSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import FolderSetupPanel from "./FolderSetupPanel.svelte";
 
@@ -16,6 +17,8 @@ const withPanel = (change: Partial<SetupPanel>, snapshot = folderMissingSnapshot
   snapshot.folderMissing!.panel = { ...(snapshot.folderMissing!.panel as SetupPanel), ...change };
   return snapshot;
 };
+/** The sample's one agent, Claude Code. */
+const claude = (snapshot: Snapshot): AgentView => snapshot.agents[0]!;
 
 describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-KEEP-01)", () => {
   it("says models are chosen for each phase, with no Agent, Model or Effort to set", () => {
@@ -27,20 +30,20 @@ describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-K
 
   it("shows the model list's error under the model line", () => {
     const snapshot = withPanel({});
-    snapshot.settings.modelListError = "Claude Code couldn’t list its models.";
+    claude(snapshot).modelListError = "Claude Code couldn’t list its models.";
     expect(text(html(snapshot))).toContain("Chosen for each phase alex@acme-shop.dev");
     expect(text(html(snapshot))).toContain("Claude Code couldn’t list its models.");
   });
 
   it("shows the account's error, or its usage error, under the model line", () => {
     const failed = withPanel({});
-    failed.account = { ...failed.account!, error: "Claude Code isn’t signed in." } as Snapshot["account"];
+    claude(failed).account = { ...claude(failed).account!, error: "Claude Code isn’t signed in." };
     const failedWords = text(html(failed));
     expect(failedWords).toContain("Claude Code isn’t signed in.");
     // The error replaces the account and usage lines, as on Documents found.
-    expect(failedWords).not.toContain(failed.account!.email!);
+    expect(failedWords).not.toContain(claude(failed).account!.email!);
     const usage = withPanel({});
-    usage.account = { ...usage.account!, limitsError: "Usage couldn’t be read." } as Snapshot["account"];
+    claude(usage).account = { ...claude(usage).account!, limitsError: "Usage couldn’t be read." };
     expect(text(html(usage))).toContain("Usage couldn’t be read.");
   });
 });
@@ -49,7 +52,7 @@ describe("the rest of Documents found's fields (Phase 5 of missing worktree reco
   it("shows keep-awake's error under its switch, and the readiness errors after the model line", () => {
     const snapshot = withPanel({});
     snapshot.settings.keepAwakeError = "Kiln couldn’t keep this computer awake.";
-    snapshot.settings.readinessErrors = ["Codex needs a newer CLI."];
+    claude(snapshot).readinessErrors = ["Codex needs a newer CLI."];
     const words = text(html(snapshot));
     expect(words).toMatch(/Kiln picks up where it left off afterwards\. Kiln couldn’t keep this computer awake\. Resume after a usage limit/);
     expect(words).toMatch(/Chosen for each phase[^]*Codex needs a newer CLI\. Refresh agent information/);
@@ -60,18 +63,16 @@ describe("the rest of Documents found's fields (Phase 5 of missing worktree reco
     const refresh = (snapshot: Snapshot) => /<button type="button" class="button"( disabled="")?[^>]*>Refresh agent information/.exec(html(snapshot))?.[1] !== undefined;
     expect(refresh(withPanel({}))).toBe(false);
     const metadata = withPanel({});
-    metadata.settings.metadataPending = true;
+    claude(metadata).pending = true;
     expect(refresh(metadata)).toBe(true);
     const billing = withPanel({});
-    billing.billing = { ...(billing.billing ?? {}), pending: true } as Snapshot["billing"];
+    claude(billing).billing = { executionId: "e", pending: true, canLaunch: false };
     expect(refresh(billing)).toBe(true);
   });
 
   it("shows the Codex account panel after Refresh agent information for a Codex run, and none for Claude Code", () => {
     const codex = withPanel({});
-    codex.settings.agentId = "codex";
-    codex.settings.agent = "Codex";
-    codex.account = { ...codex.account!, agentId: "codex" } as Snapshot["account"];
+    codex.agents = [{ ...claude(codex), agentId: "codex", agent: "Codex", account: { ...claude(codex).account!, agentId: "codex" } }];
     const words = text(html(codex));
     expect(words).toMatch(/Refresh agent information Codex account[\s\S]*Keep this computer awake/);
     expect(text(html(withPanel({})))).not.toContain("Claude account");
@@ -215,8 +216,8 @@ describe("the panel's early-merges and billing panels (AC-SETUP-01)", () => {
   it("shows the billing panel with the billing the run saved", () => {
     const snapshot = withPanel({});
     snapshot.feature.state = "folder_missing" as Snapshot["feature"]["state"];
-    const launch = { agentId: "claude_code", route: "subscription", sources: [], email: "alex@acme-shop.dev", observedAt: "2026-10-24T13:12:00Z", diagnostics: [], approved: false } as const;
-    snapshot.billing = { executionId: "e", selectionGeneration: 0, pending: false, lastLaunch: launch, next: { ...launch, readingId: "r", canApprove: false, canClear: false }, canLaunch: true } as unknown as Snapshot["billing"];
+    const launch: BillingSummary = { agentId: "claude_code", route: "subscription", sources: [], email: "alex@acme-shop.dev", observedAt: "2026-10-24T13:12:00Z", diagnostics: [], approved: false };
+    claude(snapshot).billing = { executionId: "e", pending: false, lastLaunch: launch, next: { ...launch, readingId: "r", canApprove: false, canClear: false }, canLaunch: true };
     const words = text(html(snapshot));
     expect(words).toContain("Billing used to launch this session");
     expect(words).toContain("Billing follows your Claude account settings.");

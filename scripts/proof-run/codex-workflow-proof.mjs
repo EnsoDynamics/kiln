@@ -49,7 +49,7 @@ const output = (sessionId, lines) => {
 };
 engine.onOutput(output);
 // Every activity runs on Codex · GPT Sol · high, as a PRD whose saved choice was kept (Kiln Phase Model Tiers AC-KEEP-02).
-engine.record.settings.modelChoices.kept = { agentId: 'codex', model: 'gpt-6.1-sol', effort: 'high' }; engine.modelChoicesChanged(); await engine.agents.refresh();
+engine.record.settings.modelChoices.kept = { agentId: 'codex', model: 'gpt-6.1-sol', effort: 'high' }; engine.modelChoicesChanged(); await engine.refreshAgents();
 let server = await serverFor(engine);
 writeFileSync(join(root, 'workflow-proof.json'), JSON.stringify({ root, repository, stateDirectory, address: server.address, purpose: 'isolated production Codex workflow proof' }), { mode: 0o600 });
 console.log('PROOF_ROOT', root); console.log('BROWSER', server.address);
@@ -64,7 +64,7 @@ try {
   writeFileSync(join(root, 'interrupted-snapshot.json'), JSON.stringify(buildSnapshot(engine)), { mode: 0o600 });
   // Next-session settings differ; recovery must retain the original pair.
   const saved = readPrdRecord(stateDirectory); saved.settings.modelChoices.kept.effort = 'low';
-  engine = make(saved); engine.onOutput(output); await engine.agents.refresh();
+  engine = make(saved); engine.onOutput(output); await engine.refreshAgents();
   server = await serverFor(engine);
   const decision = await engine.decide(); console.log('RESTART', JSON.stringify(decision));
   if (decision.kind !== 'resume') throw new Error('Interrupted proof could not resume: ' + JSON.stringify(buildSnapshot(engine).needsYou));
@@ -97,7 +97,7 @@ async function resumeExisting(folder) {
   engine.onOutput((sessionId, lines) => { for (const line of lines) console.log(JSON.stringify({ sessionId, line: line.line, source: line.source, text: line.text.slice(0,180) })); });
   const server = await startLocalServer({ engine, port: 41448, folderName: paths.folderName, featureName: paths.featureName, token: record.token });
   try {
-    await engine.agents.refresh(); await engine.prepare();
+    await engine.refreshAgents(); await engine.prepare();
     const decision = await engine.decide(); console.log('RESTART', JSON.stringify(decision));
     let recovery;
     if (decision.kind === 'resume') { recovery = 'automatic'; await engine.continue(); }

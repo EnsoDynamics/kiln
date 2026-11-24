@@ -295,7 +295,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const handoff=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
     expect(handoff.code,handoff.stdout).toBe(0);expect(handoff.json().data).toMatchObject({resume_command:browser.resumeCommand,continuation_prompt:browser.resumePrompt??null,working_directory:h.engine.worktreePath,resumable:true});
     const account=(await command(['account',path,'--json'],h.env,h.sandbox.root)).json().data as Record<string,unknown>;
-    expect(account.next_attempt).toMatchObject({observed_at:h.engine.agents.state.account!.updatedAt,state:'current'});
+    expect(account.next_attempt).toMatchObject({observed_at:h.engine.readers.claude_code.state.account!.updatedAt,state:'current'});
     const calls=h.claudeCalls().length;await command(['account',path,'--refresh','--json'],h.env,h.sandbox.root);expect(h.claudeCalls()).toHaveLength(calls);
     expect((await command(['status','--json'],h.env)).json().counts).toEqual({live_controllers:1,working:0,waiting:0,needs_you:1,paused:0,stopped_unfinished:0,unknown:0});
     const facts=h.engine.record.phases['1']!;const stop=facts.stop!;delete facts.stop;
@@ -356,7 +356,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     f.record.phases['1a']!.stop={kind:'done_check',at:'2026-01-03T00:00:00Z',checkedAt:'2026-01-03T00:00:00Z',checks:[]};
     f.record.billing!.lastLaunch={codex:{agentId:'codex',route:'subscription',sources:[],email:'last@example.invalid',observedAt:'2026-01-02T00:00:00Z',diagnostics:[],approved:false}};writePrdRecord(f.directory,f.record);
     const next={agentId:'codex',email:'next@example.invalid',plan:'Next plan',startedAt:'2026-01-04T00:00:00Z',updatedAt:'2026-01-04T00:00:01Z',limitsObservedAt:'2026-01-04T00:00:00Z',limits:[{id:'five-hour',kind:'session',label:'5-hour',shortLabel:'5h',percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300,nearLimit:false}],stale:true};
-    writeJsonAtomically(join(f.directory,'inspection-view.json'),{version:1,execution_id:f.record.executionId,observed_at:'2026-01-04T00:00:01Z',snapshot:{feature:{state:'needs_you',currentPhaseId:'1a',phasesDone:0,phasesTotal:2},account:next}});
+    writeJsonAtomically(join(f.directory,'inspection-view.json'),{version:1,execution_id:f.record.executionId,observed_at:'2026-01-04T00:00:01Z',snapshot:{feature:{state:'needs_you',currentPhaseId:'1a',phasesDone:0,phasesTotal:2},agents:[{agentId:'codex',agent:'Codex',installed:true,pending:false,inUse:true,neededBy:{activities:['Phase 1a'],fallbackOnly:false},account:next}]}});
     const answer=(await command(['status',f.path,'--detail','full','--json'])).json();
     expect(answer).toMatchObject({agent:'codex',requested_model:{model:'gpt-model'},effective_model:{model:'effective-provider-model'},phases:{completed:0,total:2},activity:{phase_id:'1a',title:'Nested intake'}});
     expect(answer.account).toMatchObject({last_attempt:{value:{email:'attempt@example.invalid'},observed_at:'2026-01-02T02:00:00Z',state:'stale'},original_attempt:{value:{email:'original@example.invalid'}},next_attempt:{value:{email:'next@example.invalid'},observed_at:'2026-01-04T00:00:01Z',state:'stale'},usage:{value:[{percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300}],state:'stale'}});
@@ -511,7 +511,7 @@ it.each(['claude_code', 'codex'] as const)('preserves independent %s billing obs
   saved.record.runs.at(-1)!.codex = { intentAt: at, account: { at, plan: 'pro' }, requested: { model: 'saved' }, profile: { version: '0.162.1', cwd: f.repository, writableRoots: [], repositories: [], skills: [] }, modelActivityAt: [], humanRequests: [] };
   saved.record.codex = { originalAccount: { at }, launchIntent: saved.record.runs.at(-1)!.codex!.profile }; writeSessionRecord(f.directory, saved.record);
   const billing = { agentId: agent, route: 'settings' as const, observedAt: billingAt, sources: [], diagnostics: [], approved: false };
-  const snapshot = { account: { agentId: agent, email: 'known@example.invalid', plan: 'pro', startedAt: at, updatedAt: at, limitsObservedAt: at, limits: [{ id: 'reported-window', kind: 'reported-window', label: 'Reported', shortLabel: 'Reported', nearLimit: false }] }, billing: { executionId: f.record.executionId, selectionGeneration: 0, pending: false, next: { ...billing, readingId: 'private-authority-id', canApprove: true, canClear: true }, lastLaunch: { ...billing, observedAt: '2026-01-02T00:00:00.000Z' }, canLaunch: true, hold: { phaseKey: '1a', action: 'resume', sessionId: saved.record.sessionId, reason: 'Approval is required for this context.', at: billingAt, observed: billing } } } as unknown as Snapshot;
+  const snapshot = { agents: [{ agentId: agent, agent: agent === 'codex' ? 'Codex' : 'Claude Code', installed: true, pending: false, inUse: true, neededBy: { activities: ['Phase 1a'], fallbackOnly: false }, account: { agentId: agent, email: 'known@example.invalid', plan: 'pro', startedAt: at, updatedAt: at, limitsObservedAt: at, limits: [{ id: 'reported-window', kind: 'reported-window', label: 'Reported', shortLabel: 'Reported', nearLimit: false }] }, billing: { executionId: f.record.executionId, selectionGeneration: 0, pending: false, next: { ...billing, readingId: 'private-authority-id', canApprove: true, canClear: true }, lastLaunch: { ...billing, observedAt: '2026-01-02T00:00:00.000Z' }, canLaunch: true, hold: { phaseKey: '1a', action: 'resume', sessionId: saved.record.sessionId, reason: 'Approval is required for this context.', at: billingAt, observed: billing } } }] } as unknown as Snapshot;
   const history = readHistory(f.work());
   try {
     const live = accountFacts(f.work(), snapshot, true, history);
@@ -581,7 +581,8 @@ it('removes the CLI response spool after a real HTTP body fails mid-read', async
 
 it('withholds a restart handoff throughout asynchronous preflight before a current process exists', async () => {
   sandbox = createSandbox(); const gateFile = join(sandbox.root, 'never-finish');
-  h = await createHarness({ sessions: [{ actions: [{ waitForFile: gateFile }] }, { actions: [{ result: 'Resumed once' }] }] });
+  // The model has responded before the stop, so the phase has started and Kiln resumes it (Kiln Phase Model Tiers AC-PICK-04).
+  h = await createHarness({ sessions: [{ actions: [{ text: 'Working.' }, { waitForFile: gateFile }] }, { actions: [{ result: 'Resumed once' }] }] });
   await h.engine.start({ refinementConfirmed: true }); await waitFor(() => !!h!.engine.current?.processRunning && !!h!.engine.current?.session?.initModel);
   await h.engine.stop('sigint'); await h.engine.settled(); const saved = h.engine.latestSession('1')!; h.engine.close();
   let release!: () => void; let entered = false; const gate = new Promise<void>(resolve => { release = resolve; });

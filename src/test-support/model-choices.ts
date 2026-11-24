@@ -20,7 +20,7 @@ export const CODEX_CHOICE: ModelChoice = { agentId: "codex", model: "gpt-6.1-sol
 export async function runPrdOn(engine: Engine, choice: ModelChoice = CODEX_CHOICE, refresh = true): Promise<void> {
   engine.record.settings.modelChoices.kept = { ...choice };
   engine.modelChoicesChanged();
-  if (refresh) await engine.agents.refresh();
+  if (refresh) await engine.refreshAgents();
 }
 
 /** Writes Model defaults for every PRD on the test's computer: the rows given, the rest Kiln's own. */

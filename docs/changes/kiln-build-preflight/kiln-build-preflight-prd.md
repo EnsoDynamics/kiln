@@ -59,6 +59,7 @@ The preflight runs once, at the start, while the person is still there. A clean 
 
 - AC-PREFLIGHT-04 — retired before the build. It was a setting to turn the preflight off; there is none (AC-PREFLIGHT-01).
 - [ ] **AC-PREFLIGHT-05 — An older method is not an error.** When the run's agent finds no `build-preflight` skill in the installed method, the plan shows no Preflight row and the run starts as it does today.
+  - Superseded in part by: AC-AGENTS-04 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (the agent whose installed method is checked is the preflight's own agent, from its Audits choice, not one agent for the run; the rest remains).
 - [ ] **AC-PREFLIGHT-06 — A preflight with no report does not hold up the run.** When the session ends without either opening line, Kiln goes on to the activity the preflight came before, as after a clean preflight. The Preflight row shows **No report** as a warning where a clean row shows Ready, with "Ended without a report" beneath it, and opening the row shows how the session ended (AC-STOP-02 in Kiln v1); when no session ran, the row says why instead. A session Kiln will resume after a usage limit has not ended.
   - Replaces in part: AC-AUTO-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (a preflight session that hits a usage limit waits too, not only a phase or pull-request session)
 - AC-PREFLIGHT-07 — retired before the build. It showed the report's stops on the items page; the phase markers are the only heads-up (AC-ATTEND-01, RUN-002).

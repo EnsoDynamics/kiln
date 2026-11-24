@@ -196,7 +196,7 @@ it("renders all-delivered completion without an invented final session or review
   expect(text).not.toContain("Ready for review");
   expect(text).not.toContain("Final pull request");
   expect(text).not.toContain("Finalize delivery");
-  expect(text).toContain(snapshot.settings.agent);
+  expect(text).toContain("Claude Code");
   expect(text).toContain("Store credit");
   expect(text).toContain(snapshot.settings.worktreePath);
   expect(text).toContain("Kiln keeps it until you remove it");
@@ -223,7 +223,7 @@ it("renders mixed repositories with separate historical merges and current revie
   expect(text).toContain("Remaining work ready for review");
   expect(text).toContain("Finalize delivery");
   expect(text).not.toContain("Final pull request");
-  expect(text).toContain(snapshot.settings.agent);
+  expect(text).toContain("Claude Code");
   expect(text).toContain("Store credit");
   expect(text).toContain("customer-returns");
   expect(text).toContain("Kiln keeps the folder and its worktrees until you remove them");

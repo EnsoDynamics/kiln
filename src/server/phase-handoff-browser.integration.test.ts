@@ -1,3 +1,4 @@
+import { inUse, useAgent } from "../test-support/sample-snapshots.js";
 import { writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { needsYouMessageSnapshot, PHASE_DETAIL_LINES } from "../test-support/sample-snapshots.js";
@@ -19,8 +20,8 @@ function fixture(agent: "Claude Code" | "Codex") {
   stop.finalMessage = "Should I keep <optional> exactly as written?\n\nNo changes yet.";
   stop.resumePrompt = "Retired saved-conversation recovery instructions.";
   stop.resumeCommand = agent === "Codex" ? "cd '/saved worktree' && codex resume 'saved-thread'" : "cd '/saved worktree' && claude --resume 'saved-session'";
-  snapshot.settings.agentId = stop.agentId;
-  snapshot.billing = { executionId: "fixture", pending: false, canLaunch: true, lastLaunch: { agentId: stop.agentId, route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
+  useAgent(snapshot, stop.agentId ?? "claude_code");
+  inUse(snapshot).billing = { executionId: "fixture", pending: false, canLaunch: true, lastLaunch: { agentId: stop.agentId, route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
   return snapshot;
 }
 
@@ -180,7 +181,7 @@ it("shows no workspace controls in either recovery layout", async () => {
 it("advances without creating a persistent verification success notice", async () => {
   const snapshot = fixture("Claude Code");
   const target = snapshot.needsYou!.phaseRecovery!.target;
-  snapshot.billing!.executionId = target.executionId;
+  inUse(snapshot).billing!.executionId = target.executionId;
   const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, respond: async () => ({ status: 200, body: { ok: true, outcome: "advanced", target } }) });
   const page = await chrome.open(server.address, { width: 1200, height: 900 });
   try {

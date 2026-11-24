@@ -75,7 +75,7 @@ writeFileSync(join(root, 'terminal-discussion.txt'), terminalOutput, { mode: 0o6
 let server;
 try {
   assert.equal((await engine.prepare()).ok, true);
-  for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+  for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
   for (let port = agentId === "codex" ? 41940 : 41950; port < (agentId === "codex" ? 41950 : 41960); port++) if (await isPortFree(port)) { server = await startLocalServer({ engine, port, folderName: 'handoff-proof', featureName: 'Handoff proof', token: record.token }); server.proofOrigin = `http://127.0.0.1:${port}`; break; }
   assert.ok(server);
   const post = async (path, body) => { const response = await globalThis.fetch(`${server.proofOrigin}/api/${path}`, { method: 'POST', headers: { Origin: server.proofOrigin, 'X-Kiln-Token': record.token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const result = await response.json(); console.log(JSON.stringify({ path, result })); assert.equal(response.status, 200, JSON.stringify(result)); return result; };

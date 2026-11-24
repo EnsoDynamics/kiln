@@ -7,11 +7,12 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Part, PanelFields, SetupPanel, StartKind } from "../../../src/engine/folder-setup.js";
   import AccountPanel from "./AccountPanel.svelte";
-  import BillingPanel from "./BillingPanel.svelte";
+  import BillingPanels from "./BillingPanels.svelte";
   import DevelopmentDelivery from "./DevelopmentDelivery.svelte";
   import { changeFolderPanel, checkFolders, startFolderSetup, type PageConfig } from "../lib/api.js";
   import CodeText from "./CodeText.svelte";
-  import { accountLines } from "../lib/documents-found.js";
+  import { accountLines, agentsHoldStart } from "../lib/documents-found.js";
+  import { neededAgents } from "../lib/agents.js";
   import { day } from "../lib/folder-missing.js";
   import { addedLabel } from "../lib/progress.js";
 
@@ -22,7 +23,11 @@
   const view = $derived(snapshot.folderMissing!);
   const panel = $derived(view.panel && !("blocked" in view.panel) ? view.panel as SetupPanel : undefined);
   const blocked = $derived(view.panel && "blocked" in view.panel ? view.panel.blocked : undefined);
-  const account = $derived(accountLines(snapshot.account));
+  // Each agent the run can use, as on Documents found (Kiln Phase Model Tiers AC-AGENTS-01 to 03).
+  const agents = $derived(neededAgents(snapshot));
+  const fallbackWarning = $derived(snapshot.settings.models.fallback.warning);
+  const readiness = $derived(agents.filter((agent) => agent.readinessErrors?.length && agent.agentId !== fallbackWarning?.agentId));
+  const agentsHold = $derived(agentsHoldStart(snapshot));
   const baseName = $derived(view.plans.base.branch);
   const fixed = (field: string) => panel?.fixed.includes(field) === true;
 
@@ -170,12 +175,17 @@
       <div class="field">
         <span class="label">Models</span>
         <span class="value">Chosen for each phase</span>
-        <span class="help">{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
-        {#if snapshot.settings.modelListError}<span class="message">{snapshot.settings.modelListError}</span>{/if}
+        {#each agents as agent (agent.agentId)}
+          {@const account = accountLines(agent.account)}
+          <span class="help">{#if agents.length > 1}{agent.agent}<br />{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
+          {#if agent.modelListError}<span class="message">{agent.modelListError}</span>{/if}
+        {/each}
+        {#if snapshot.settings.models.problem}<span class="message">{snapshot.settings.models.problem}</span>{/if}
+        {#if fallbackWarning}<span class="help"><strong>The fallback’s agent, {fallbackWarning.agent}, isn’t ready</strong><br /><span class="message">{fallbackWarning.problem} {fallbackWarning.remedy} Until then, this run waits at a usage limit as if the fallback were off.</span></span>{/if}
       </div>
-      {#if snapshot.settings.readinessErrors?.length}<p class="message">{snapshot.settings.readinessErrors.join(" ")}</p>{/if}
-      <button type="button" class="button" disabled={!connected || snapshot.settings.metadataPending || snapshot.billing?.pending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
-      {#if snapshot.account && snapshot.settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={snapshot.settings.agent} paused={false} notStarted={true} {now} />{/if}
+      {#each readiness as agent (agent.agentId)}<p class="message">{agent.readinessErrors!.join(" ")}</p>{/each}
+      <button type="button" class="button" disabled={!connected || agents.some((agent) => agent.pending || agent.billing?.pending)} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
+      {#each agents as agent (agent.agentId)}{#if agent.account && agent.agentId === "codex"}<AccountPanel account={agent.account} agent={agent.agent} paused={false} notStarted={true} markInUse={agents.length > 1} threshold={snapshot.settings.models.fallback.enabled ? snapshot.settings.models.fallback.threshold : undefined} {now} />{/if}{/each}
       <label class="check"><input type="checkbox" checked={panel.fields.keepAwake} disabled={!connected} onchange={(event) => change(panel.selected, { keepAwake: event.currentTarget.checked })} /> <span>Keep this computer awake while a session works or Kiln waits<span class="help block">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span>{#if snapshot.settings.keepAwakeError}<span class="message block">{snapshot.settings.keepAwakeError}</span>{/if}</span></label>
       <label class="check"><input type="checkbox" checked={panel.fields.resumeAfterUsageLimit} disabled={!connected} onchange={(event) => change(panel.selected, { resumeAfterUsageLimit: event.currentTarget.checked })} /> <span>Resume after a usage limit<span class="help block">Switch off to finish the phase yourself; Needs you then shows how.</span></span></label>
       <dl class="fixed">
@@ -183,7 +193,7 @@
         <dt>Ends at</dt><dd>{snapshot.settings.developmentDeployments?.enabled ? "Confirmed development deliveries and any remaining review PRs" : panel.multi ? "One PR in each repository that changed, ready for review. Kiln won’t merge." : "One PR, ready for review. Kiln won’t merge."}</dd>
       </dl>
       {#if snapshot.settings.developmentDeployments?.enabled}<DevelopmentDelivery {snapshot} {config} {connected} />{/if}
-      <BillingPanel {snapshot} {connected} />
+      <BillingPanels {snapshot} {connected} />
     </div>
 
     <div class="run before">
@@ -193,9 +203,9 @@
           <ul class="allowed">{#each panel.preview.lets as row, index (index)}<li class:muted={!row.allowed}>{row.allowed ? "✓" : "✕"} {@render parts(row.parts)}</li>{/each}</ul>
         </div>
         <div class="go">
-          <button type="button" class="primary" class:busy={starting} aria-busy={starting} disabled={!connected || pressing || settling || !!panel.busy || Object.keys(panel.fieldErrors).length > 0} onclick={pressStart}>{panel.preview.startLabel}</button>
+          <button type="button" class="primary" class:busy={starting} aria-busy={starting} disabled={!connected || pressing || settling || !!panel.busy || !!agentsHold || Object.keys(panel.fieldErrors).length > 0} onclick={pressStart}>{panel.preview.startLabel}</button>
           {#if starting}<BusyStatus text="Setting up the worktree and starting the run." />{/if}
-          {#if panel.busy}<p class="help">{panel.busy}</p>{:else}<p class="help">Earlier phases, sessions and delivery links stay in this run’s history.</p>{/if}
+          {#if panel.busy}<p class="help">{panel.busy}</p>{:else if agentsHold}<p class="help">{agentsHold}</p>{:else}<p class="help">Earlier phases, sessions and delivery links stay in this run’s history.</p>{/if}
         </div>
       </div>
       {#if view.startProgress}

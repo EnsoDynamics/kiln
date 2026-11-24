@@ -109,6 +109,8 @@ Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`kiln merge` and `kiln exit`).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session (`reply` and `resume` settle `started` for an activity that hasn't started).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |
@@ -163,6 +165,8 @@ Errors contain `{ code, message, retryable, next_command, next_argv }`; `next_*`
 Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Folder Check (a run whose folder is missing reports `folder_missing` and offers no resume or continuation).
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (with no session, status's agent and requested model are the reported activity's `model.choice`; handoff facts follow the activity's agent, and `resume_command` and `resume_argv` for an activity that hasn't started are present only while its current choice is the one that session ran on).
 
 Targeted status always includes execution/PRD/repository identity, controller reachability, current work state/activity (phase, audit round or delivery), phase counts, agent/requested/effective model, start/latest activity times, pending pause, usage wait, completion outcome and recorded PR links. The complete stop includes its exact final message or explicit absence, reason, failed checks and their check times, human requests and browser recovery instructions. No quiet-time heuristic claims healthy or stuck. Disconnected facts retain their last-known dates; no executable controls or current status token are returned.
 
@@ -251,6 +255,8 @@ Each page has the common result identity/time plus `session_id`, `snapshot_id`, 
 A cursor fixes snapshot and exclusive endpoint; repeated requests with the same cursor and presentation/options return the same text, while response collection time may change. `--max-lines` may change only the preceding page size. Cursor/session mismatch is exit 2. Beginning-of-history is successful with `has_older: false` and null next fields. No session/no output is successful with an explicit reason. Missing, corrupted or unreadable output is `saved_output_unavailable`, exit 4. Traverse pages backward, sort fragments by their recorded offsets and concatenate their `text` to reconstruct each saved record exactly, without inserted separators or dropped prefixes.
 
 ## Account and Usage Facts
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (account facts cover every needed agent, the activity's in today's fields and the others in `other_agents[]`).
 
 `account` and full status separate `last_attempt`/`original_attempt` provenance from `next_attempt` current authentication. Each account, plan, billing route, usage bucket and permission observation retains its own timestamp/state/reason. Codex preserves provider window IDs, duration and account identity; five-hour and weekly names are only assigned when provider data supports them. Claude preserves provider-specific weekly scoped rows. Missing usage is not 0%, and credit balance is not ordinary usage permission. Refresh uses provider metadata, never an inference request. Concurrency joins identical display refreshes; a required prelaunch check starts freshly after older reads settle.
 

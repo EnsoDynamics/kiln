@@ -1,3 +1,4 @@
+import { inUse } from "../test-support/sample-snapshots.js";
 // AC-DISPLAY-01/02/03: built browser bundle + real Chrome + SSE under Kiln's CSP.
 // Engine/Git correctness is proved separately; this test catches missing client-side rendering.
 import { afterEach, expect, it } from "vitest";
@@ -58,7 +59,7 @@ it("renders saved authority and observed activity, then distinct merged and revi
   expect(result).toContain("Review #218");
   expect(result).toContain("Remaining work ready for review");
   expect(result).toContain("Kiln keeps the folder and its worktrees until you remove them");
-  expect(result).toContain(complete.settings.agent);
+  expect(result).toContain(inUse(complete).agent);
   expect(result).not.toContain("Finalize delivery");
   expect(result).not.toContain("Final pull request");
   const links = await page.evaluate<string[]>("[...document.querySelectorAll('a')].map(link => link.href)");

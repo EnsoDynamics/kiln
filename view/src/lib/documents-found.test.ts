@@ -34,7 +34,7 @@ describe("what Documents found says it found (AC-START-04)", () => {
 describe("the settings fields", () => {
 
   it("shows the account and its usage as one line each, or the not-signed-in line alone", () => {
-    expect(accountLines(documentsFoundSnapshot().account)).toEqual({ line: "alex@acme-shop.dev · Max plan", usage: "Used: 5-hour 13% · weekly 22% · Fable 0%" });
+    expect(accountLines(documentsFoundSnapshot().agents[0]!.account)).toEqual({ line: "alex@acme-shop.dev · Max plan", usage: "Used: 5-hour 13% · weekly 22% · Fable 0%" });
     expect(accountLines({ startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." })).toEqual({ error: "Not signed in to Claude Code. Run `claude auth login`." });
     expect(accountLines({ email: "a@b.dev", startedAt: "", updatedAt: "", limits: [], limitsError: "Claude Code didn't report this plan's usage limits." })).toEqual({ line: "a@b.dev", usageError: "Claude Code didn't report this plan's usage limits." });
     expect(accountLines(undefined)).toEqual({});
@@ -52,7 +52,9 @@ describe("Start (AC-START-05)", () => {
   it("is held by a field message, but not by the model-list or keep-awake messages", () => {
     expect(startState(documentsFoundSnapshot({ settings: { fieldErrors: { featureBranch: "That isn’t a valid branch name." } } }), true, true).enabled).toBe(false);
     expect(startState(documentsFoundSnapshot({ settings: { fieldErrors: { model: "Haiku 4.5 can’t run unattended on this account; it needs auto mode." } } }), true, true).enabled).toBe(false);
-    expect(startState(documentsFoundSnapshot({ settings: { modelListError: "Couldn’t load Claude Code’s models: timed out", keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available." } }), true, true).enabled).toBe(true);
+    const listFailed = documentsFoundSnapshot({ settings: { keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available." } });
+    listFailed.agents[0]!.modelListError = "Couldn’t load Claude Code’s models: timed out";
+    expect(startState(listFailed, true, true).enabled).toBe(true);
   });
 
   it("says what Kiln is doing while it checks the base branch or sets up, setting up first (UI-010 item 4)", () => {

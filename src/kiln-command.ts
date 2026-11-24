@@ -117,7 +117,7 @@ class StopControl {
   exit(): void {
     if (this.cause !== undefined) return;
     this.cause = "EXIT";
-    this.engine?.agents.close();
+    this.engine?.closeReaders();
     const stopped = this.engine ? this.engine.stop("sigterm") : Promise.resolve(this.fallback);
     void stopped.then(async (report) => {
       await this.server?.close();
@@ -134,7 +134,7 @@ class StopControl {
       return;
     }
     this.cause = signal;
-    this.engine?.agents.close();
+    this.engine?.closeReaders();
     const stopped = this.engine ? this.engine.stop(cause) : Promise.resolve(this.fallback);
     void stopped.then(async (report) => {
       // Step 5 of the stop: keep-awake was released by the engine; the server closes next.

@@ -1,5 +1,7 @@
 # Phase 2: Both agents in one run
 
+**Closed:** 2026-11-24
+
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "Agents"; "An activity that hasn't started goes on in a new session"; "A Wait Before the Start"; the "What a stop on a not-started activity names" and "A launch on Claude Code and the Codex wait record" decisions; `agents[]` in "Snapshot"; `kiln account` and `kiln status` in "Command line"; "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-phase-model-tiers-phase-plan.md)

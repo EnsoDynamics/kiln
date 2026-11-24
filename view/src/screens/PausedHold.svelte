@@ -10,7 +10,8 @@
   import { pausedSentence } from "../../../src/live/pause-now.js";
   import { activityKeyKind } from "../../../src/state/activity-keys.js";
   import AttendedCard from "../components/AttendedCard.svelte";
-  import BillingPanel from "../components/BillingPanel.svelte";
+  import BillingPanels from "../components/BillingPanels.svelte";
+  import { activityAgent, billingHolds } from "../lib/agents.js";
   import BusyStatus from "../components/BusyStatus.svelte";
   import CarryOnCard from "../components/CarryOnCard.svelte";
   import CopyButton from "../components/CopyButton.svelte";
@@ -39,14 +40,16 @@
   const cardName = $derived(/^Phase /.test(live.label) ? live.label : live.label.charAt(0).toLowerCase() + live.label.slice(1));
   const row = $derived((snapshot.activities ?? snapshot.phases).find(one => one.id === id));
   const isAudit = $derived(activityKeyKind(id) === "audit");
-  const agent = $derived(stop.agent ?? snapshot.settings.agent);
+  // The session that ran, else the activity's own agent; Resume launches on the activity's (Kiln Phase Model Tiers AC-AGENTS-04).
+  const nextAgent = $derived(activityAgent(snapshot, stop.phaseId));
+  const agent = $derived(stop.agent ?? nextAgent.agent);
   const connected = $derived(connection?.connected ?? false);
   const reviewing = $derived(!!stop.sessionId && !!live.reviewRequired?.length);
   const heldCarryOn = $derived(!!live.takeover?.history && !!stop.carryOn && !!stop.reopen);
   // Which of the precedence list applies (technical design "The Paused Page"), each replacing what follows it.
   const shown = $derived(reviewing ? "review" : pauseNow.phase === "pausing" ? "pausing" : heldCarryOn ? "carry" : "card");
   const busy = $derived(!!page.pending || !!stop.checking || !connected || !!live.reviewRequired?.length);
-  const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
+  const resumeBlocked = $derived(busy || billingHolds(snapshot, nextAgent.agentId));
   const eyebrow = $derived(isAudit ? `Paused partway · ${row && (row.kind === "delivery_audit" || row.kind === "test_audit") ? rowAuditName(row).sentence : name}` : `Paused partway · phase ${id} of ${snapshot.feature.phasesTotal}`);
   const circle = $derived(row?.kind === "delivery_audit" ? "DA" : row?.kind === "test_audit" ? "TA" : id);
   const terminalInUse = $derived(pauseNow.obstacle?.code === "terminal_in_use");
@@ -95,7 +98,7 @@
     <p>Exit {agent} first if it is open on this conversation. While it is, or while work the paused session started is still running, neither choice below is available, and Kiln says why.</p>
     <div class="peer-choices">
       <CarryOnCard {agent} activity={cardName} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={!connected || !!page.pending} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
-      <FreshTerminalCard {agent} activity={cardName} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held blocked={live.takeover?.carryOnObstacle} />
+      <FreshTerminalCard agent={nextAgent.agent} activity={cardName} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held blocked={live.takeover?.carryOnObstacle} />
     </div>
   {:else}
     <section class="card paused-card" aria-label="Paused partway">
@@ -108,7 +111,7 @@
       <div class="columns">
         <section aria-label="Let Kiln carry on">
           <h3>Let Kiln carry on</h3>
-          <p>Picks up in the same conversation, where it stopped. Whenever you’re ready; nothing is waiting on you.</p>
+          <p>{#if stop.newSession}Starts a new {nextAgent.agent} session on this activity’s model, since it never got a response.{:else}Picks up in the same conversation, where it stopped.{/if} Whenever you’re ready; nothing is waiting on you.</p>
           <label for="paused-note">Note for Claude <span class="optional">(optional)</span></label>
           <textarea id="paused-note" rows="3" maxlength="4000" placeholder="Anything to tell Claude before it carries on" bind:value={page.draft}></textarea>
           {#if page.unsent && page.draft}<p class="warning">Your note has not been sent.</p>{/if}
@@ -134,7 +137,7 @@
   <!-- The phase plan marks the activity Paused (AC-PAUSE-05; mockup frame 3). -->
   <PhasePlan {snapshot} {connected} {now} />
   {#if stop.sessionId}<a class="output" href={outputLink} onclick={event => routedClick(event, router, outputLink)}>Full session output{#if stop.outputLineCount !== undefined}{" "}· {stop.outputLineCount} lines{/if}</a>{/if}
-  <BillingPanel {snapshot} {connected} />
+  <BillingPanels {snapshot} {connected} />
   <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>
 

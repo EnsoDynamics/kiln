@@ -268,7 +268,7 @@ describe("audit development owners", () => {
     const repair: DeliveryOwner = { kind: "phase", phaseId: "2" }; const at = new Date(Date.parse(firstAudit.createdAt) + 1_000).toISOString();
     f.record.phases = { "2": { sessionIds: [], finishedByPerson: false, repositories: {}, outsideConfirmations: [], stop: { kind: "done_check", at, checkedAt: at, checks: [] } } };
     f.record.developmentAuthorization = { revision: 1, enabled: false, grants: [] };
-    const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.agents.refresh();
+    const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.refreshAgents();
     expect(engine.authorizeDevelopmentTarget({ executionId: f.record.executionId, authorizationRevision: 1, target: f.checkpoint.target, confirmedNonProduction: true })).toEqual({ ok: true });
     expect(f.record.developmentAuthorization.activationRecovery?.owners).toEqual([{ kind: "phase", phaseId: "1" }, f.owner, repair]);
     f.record.developmentAuthorization = { revision: 1, enabled: false, grants: [] };
@@ -282,7 +282,7 @@ describe("audit development owners", () => {
   it("authenticates the delivery CLI, persists owner/revision before acknowledgement, and rolls back real save failures", async () => {
     const f = await fixture();
     const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: { ...f.h.tools, gh: f.context.gh }, env: f.context.env });
-    cleanups.push(async () => engine.close()); await engine.agents.refresh(); writePrdRecord(f.h.stateDirectory, f.record);
+    cleanups.push(async () => engine.close()); await engine.refreshAgents(); writePrdRecord(f.h.stateDirectory, f.record);
     const hosted = await startFixtureController({ engine, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token });
     const server = hosted.server; cleanups.push(async () => hosted.release()); cleanups.push(() => server.close());
     const address = new URL(server.address).origin;
@@ -331,7 +331,7 @@ describe("audit development owners", () => {
 
   it("shows the stopped audit's retained owner in the real first-grant browser control", async () => {
     const f = await fixture(); f.record.developmentAuthorization = { revision: 1, enabled: false, grants: [] }; f.record.developmentDelivery!.assessments = [];
-    const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.agents.refresh(); writePrdRecord(f.h.stateDirectory, f.record);
+    const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.refreshAgents(); writePrdRecord(f.h.stateDirectory, f.record);
     const hosted = await startFixtureController({ engine, folderName: "customer-returns", featureName: "Audit development proof", token: f.record.token });
     const server = hosted.server; cleanups.push(async () => hosted.release()); cleanups.push(() => server.close());
     const chrome = await launchChrome(); cleanups.push(() => chrome.close()); const page = await chrome.open(server.address);
@@ -348,13 +348,13 @@ describe("audit development owners", () => {
     f.record.developmentAuthorization = { revision: 1, enabled: false, grants: [] };
     f.record.developmentDelivery!.assessments = [];
     const sessionId = randomUUID(); const key = `audit-${f.activity.activityId}`;
-    const session: SessionRecord = { schemaVersion: SCHEMA_VERSION, sessionId, activityId: f.activity.activityId, phaseId: "", kind: "delivery_audit", agentId: "claude_code", createdAt: f.activity.createdAt, model: "sonnet", modelDisplayName: "Sonnet", runs: [{ cause: "launch", pid: 99999999, startedAt: f.activity.createdAt, endedAt: f.activity.createdAt }], sleeps: [], steps: [] };
+    const session: SessionRecord = { schemaVersion: SCHEMA_VERSION, sessionId, activityId: f.activity.activityId, phaseId: "", kind: "delivery_audit", agentId: "claude_code", createdAt: f.activity.createdAt, model: "sonnet", modelDisplayName: "Sonnet", firstResponseAt: f.activity.createdAt, runs: [{ cause: "launch", pid: 99999999, startedAt: f.activity.createdAt, endedAt: f.activity.createdAt }], sleeps: [], steps: [] };
     f.record.phases[key]!.sessionIds = [sessionId]; f.activity.sessionIds = [sessionId]; writeSessionRecord(f.h.stateDirectory, session);
     // This case exercises a resumable conversation's authority prompt. Keep
     // actual usable provider history; a PID alone cannot establish resumption.
     const history = join(f.h.env.CLAUDE_CONFIG_DIR!, "projects", "manual-audit-authority"); mkdirSync(history, { recursive: true, mode: 0o700 });
     writeFileSync(join(history, `${sessionId}.jsonl`), JSON.stringify({ type: "user", sessionId, uuid: randomUUID(), parentUuid: null, timestamp: session.createdAt, message: { role: "user", content: "Review the recorded audit with current authority." } }) + "\n", { mode: 0o600 });
-    const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.agents.refresh();
+    const engine = new Engine({ record: f.record, stateDirectory: f.h.stateDirectory, paths: f.h.engine.paths, tools: f.h.tools, env: f.h.env }); cleanups.push(async () => engine.close()); await engine.refreshAgents();
     const authority = { executionId: f.record.executionId, authorizationRevision: 1, target: f.checkpoint.target, confirmedNonProduction: true };
     expect(engine.authorizeDevelopmentTarget(authority)).toEqual({ ok: true });
     expect(engine.deliveryStatus().activationRecovery?.map(one => one.owner)).toEqual([{ kind: "phase", phaseId: "1" }, f.owner]);

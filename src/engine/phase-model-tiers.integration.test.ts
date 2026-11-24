@@ -41,7 +41,7 @@ async function fixture(sessions: ScenarioSession[], files = tieredFiles()) {
   if (!read.ok) throw new Error(read.problem);
   harness.engine.record.plan = recordedPlan(read.plan);
   harness.engine.modelChoicesChanged();
-  await harness.engine.agents.refresh();
+  await harness.engine.refreshAgents();
   return harness;
 }
 
@@ -117,14 +117,6 @@ describe("Model defaults reach every activity that hasn't started (AC-PICK-01)",
     expect(answer).toEqual({ ok: false, status: 409, reason: "Phase 1 runs on Claude Code · Mythos · high from Model defaults (Demanding row): Claude Code doesn't offer Mythos on this account. Change the Demanding row in Model defaults." });
     expect(h.claudeCalls()).toEqual([]);
   });
-
-  it("refuses Start while the plan's activities resolve to both agents, until Kiln checks both", async () => {
-    const h = await fixture(allPhases());
-    writeModelDefaults(h.env, { mechanical: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "sonnet", effort: "high" } } });
-    h.engine.modelChoicesChanged();
-    expect(h.engine.neededAgents().sort()).toEqual(["claude_code", "codex"]);
-    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, reason: expect.stringContaining("run on both Claude Code and Codex") });
-  });
 });
 
 describe("a computer without Claude Code (AC-DEFAULT-04)", () => {
@@ -144,7 +136,7 @@ describe("a computer without Claude Code (AC-DEFAULT-04)", () => {
     expect(notStarted("pr")).toMatchObject({ agentId: "codex", modelName: "GPT Sol", effort: "xhigh", row: "audits" });
     expect(harness.engine.agentOf("1")).toBe("codex");
     expect(harness.engine.agentOf("pr")).toBe("codex");
-    expect(harness.engine.agents.state.agentId).toBe("codex");
+    expect(Object.keys(harness.engine.neededBy())).toEqual(["codex"]);
   });
 });
 

@@ -71,12 +71,12 @@ describe("a schema 1 record read by this Kiln", () => {
     // finish afterward. Establish the stale-usage precondition through real reads,
     // rather than relying on which startup/dispatch read happens to finish last.
     await harness.engine.refreshBilling();
-    await harness.engine.agents.refresh();
-    const usageAt = harness.engine.agents.state.account!.limitsObservedAt;
+    await harness.engine.refreshAgents();
+    const usageAt = harness.engine.readers.claude_code.state.account!.limitsObservedAt;
     expect(usageAt).toEqual(expect.any(String));
-    await harness.engine.agents.refreshClaudeForLaunch(harness.engine.worktreePath, harness.env, AbortSignal.timeout(10_000));
+    await harness.engine.readers.claude_code.refreshClaudeForLaunch(harness.engine.worktreePath, harness.env, AbortSignal.timeout(10_000));
     const before = buildSnapshot(harness.engine);
-    expect(before.account?.limitsObservedAt).toBe(usageAt);
+    expect(before.agents.find(entry => entry.inUse)!.account?.limitsObservedAt).toBe(usageAt);
     expect(before.needsYou).toBeDefined();
     const engine = reopenAsSchemaOne(harness);
     // Settle auth-only startup before the independent fresh usage read. Phase 6
@@ -84,32 +84,32 @@ describe("a schema 1 record read by this Kiln", () => {
     // Startup's own account read is joined first, since a refresh during it joins it
     // rather than reading again; its launch read may finish after it and mark the
     // retained usage stale. Only the read started after both is fresh.
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     await engine.refreshBilling();
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     // The next kiln run checks the stop again, reading its commits from Git, as v1 does.
     expect(await engine.decide()).toEqual({ kind: "needs_you", phaseKey: "1", again: true });
     await engine.settled();
     const after = buildSnapshot(engine);
-    expect(before.account?.limitsStale).toBe(true);
-    expect(after.account?.limitsStale).toBeUndefined();
+    expect(before.agents.find(entry => entry.inUse)!.account?.limitsStale).toBe(true);
+    expect(after.agents.find(entry => entry.inUse)!.account?.limitsStale).toBeUndefined();
     // AC-SEE-03: usage completes before its final corroborating authentication read.
-    expect(Date.parse(after.account!.limitsObservedAt!)).toBeLessThan(Date.parse(after.account!.updatedAt));
-    expect(Date.parse(after.account!.limitsObservedAt!)).toBeGreaterThan(Date.parse(before.account!.limitsObservedAt!));
-    const priorAccount = { ...before.account }; delete priorAccount.limitsStale;
-    expect(after.account).toEqual({ ...priorAccount, ...(before.account?.extraUsage ? { extraUsage: { ...before.account.extraUsage, observedAt: expect.any(String) } } : {}), startedAt: expect.any(String), updatedAt: expect.any(String), limitsObservedAt: expect.any(String) });
+    expect(Date.parse(after.agents.find(entry => entry.inUse)!.account!.limitsObservedAt!)).toBeLessThan(Date.parse(after.agents.find(entry => entry.inUse)!.account!.updatedAt));
+    expect(Date.parse(after.agents.find(entry => entry.inUse)!.account!.limitsObservedAt!)).toBeGreaterThan(Date.parse(before.agents.find(entry => entry.inUse)!.account!.limitsObservedAt!));
+    const priorAccount = { ...before.agents.find(entry => entry.inUse)!.account }; delete priorAccount.limitsStale;
+    expect(after.agents.find(entry => entry.inUse)!.account).toEqual({ ...priorAccount, ...(before.agents.find(entry => entry.inUse)!.account?.extraUsage ? { extraUsage: { ...before.agents.find(entry => entry.inUse)!.account!.extraUsage, observedAt: expect.any(String) } } : {}), startedAt: expect.any(String), updatedAt: expect.any(String), limitsObservedAt: expect.any(String) });
     // A stopped run keeps accruing waiting time during the restart; all other timing facts survive migration.
     const advanceWaiting = (earlier: Timing, later: Timing): Timing => ({ ...earlier, asOf: later.asOf, waitingMs: earlier.waitingMs + Date.parse(later.asOf) - Date.parse(earlier.asOf) });
     expect(after).toEqual({
       ...before,
-      billing: after.billing,
+      // Each agent's account and billing are read afresh after the restart.
+      agents: after.agents,
       // Schema 1–4 deliberately receive revision-0 restricted authority. The new grant
       // control must use that revision without changing the historical execution view.
       developmentDelivery: after.developmentDelivery,
       feature: { ...before.feature, timing: advanceWaiting(before.feature.timing!, after.feature.timing!) },
       activities: before.activities!.map((activity, index) => activity.timing ? { ...activity, timing: advanceWaiting(activity.timing, after.activities![index]!.timing!) } : activity),
       phases: before.phases.map((phase, index) => phase.timing ? { ...phase, timing: advanceWaiting(phase.timing, after.phases[index]!.timing!) } : phase),
-      account: after.account,
       // The next kiln run's check of the stop is a recheck, so Mark complete is now offered on it (waivers "Check Runs"),
       // and its rows are the completion checks (checks at a stop AC-STOPCHECK-03).
       needsYou: { ...before.needsYou, checkedAt: after.needsYou!.checkedAt, checkRun: after.needsYou!.checkRun, markComplete: after.needsYou!.markComplete, rowsAreCompletionChecks: true },
@@ -130,8 +130,8 @@ describe("a schema 1 record read by this Kiln", () => {
     const before = buildSnapshot(harness.engine);
     expect(before.feature.state).toBe("complete");
     const engine = reopenAsSchemaOne(harness);
-    await engine.agents.refresh();
-    expect(buildSnapshot(engine)).toEqual({ ...before, billing: buildSnapshot(engine).billing, auditHistoryUnavailable: true, account: buildSnapshot(engine).account });
+    await engine.refreshAgents();
+    expect(buildSnapshot(engine)).toEqual({ ...before, agents: buildSnapshot(engine).agents, auditHistoryUnavailable: true });
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
     expect(await engine.changeSettings({ keepAwake: !engine.record.settings.keepAwake })).toMatchObject({ ok: true });

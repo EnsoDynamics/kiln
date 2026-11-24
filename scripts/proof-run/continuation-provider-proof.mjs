@@ -71,7 +71,7 @@ const engine = new Engine({ paths, tools: { git: 'git', gh: 'gh', claude: 'claud
 let server;
 try {
   assert.equal((await engine.prepare()).ok, true);
-  for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+  for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
   const check = await engine.checkCompletedPlan(); assert.equal(check.status, 'available', JSON.stringify(check));
   for (let port = agentId === 'codex' ? 41960 : 41970; port < (agentId === 'codex' ? 41970 : 41980); port++) if (await isPortFree(port)) { server = await startLocalServer({ engine, port, folderName: paths.folderName, featureName: paths.featureName, token: record.token }); server.proofOrigin = `http://127.0.0.1:${port}`; break; }
   assert.ok(server);

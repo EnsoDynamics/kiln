@@ -114,6 +114,8 @@ The session page takes its pill, back link, phase circle and pause panel from th
 
 ## The Paused Page
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session and §Snapshot (for an activity that hasn't started, **Resume {activity}** launches a new session on its current choice and gives it any note, instead of calling the takeover resume of the same conversation, and the terminal column's released command reopens the saved conversation only while its current choice is the one that session ran on, otherwise it is the fresh-session command for its current choice's agent).
+
 Replaces in part: `docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md`, §A Held Phase That Can't Be Reopened (for a Pause now hold, the page's header is the Paused header and the page shows no checks).
 
 Replaces in part: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Display Contract (the hand-back page bullet does not apply to a Pause now hold's page).

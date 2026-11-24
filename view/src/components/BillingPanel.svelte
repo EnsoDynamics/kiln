@@ -1,12 +1,14 @@
 <script lang="ts">
-  import type { Snapshot } from "../../../src/engine/snapshot.js";
+  // One agent's billing (Kiln Phase Model Tiers AC-AGENTS-02): Claude Code's with its approval
+  // controls; Codex's a summary only, its canApprove and canClear always false.
+  import type { AgentView, Snapshot } from "../../../src/engine/snapshot.js";
   import type { BillingSummary } from "../../../src/billing/inspection.js";
   import { billingApproval, refreshMetadata } from "../lib/api.js";
   import { viewContext } from "../lib/view-context.js";
-  let { snapshot, connected = true }: { snapshot: Snapshot; connected?: boolean } = $props();
+  let { snapshot, agent, connected = true }: { snapshot: Snapshot; agent: AgentView; connected?: boolean } = $props();
   const { config } = viewContext();
-  const billing = $derived(snapshot.billing);
-  const codex = $derived(snapshot.settings.agentId === "codex");
+  const billing = $derived(agent.billing);
+  const codex = $derived(agent.agentId === "codex");
   const history = $derived(snapshot.feature.state !== "not_started" && billing?.lastLaunch);
   let pressing = $state(false);
   let reason = $state<string | undefined>();

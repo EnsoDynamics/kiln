@@ -147,7 +147,7 @@ describe("a launch stop on a phase that has not run (AC-WAIVE-02, AC-WAIVE-04, A
     // After a restart, 2b stays complete and is not relaunched once a model is chosen again.
     writeFileSync(modelsPath, JSON.stringify(recorded));
     const reopened = h.reopenFromDisk();
-    await reopened.agents.refresh();
+    await reopened.refreshAgents();
     await reopened.prepare();
     expect(await reopened.decide()).toEqual({ kind: "start_phase", phaseId: "3" });
     // 2b, closed only by its waiver, counts as done in the terminal summary and in a disconnected status.
@@ -498,7 +498,7 @@ describe("a billing hold on a phase that has not run (AC-WAIVE-04)", () => {
   it("marks the unstarted phase complete with its Closed item waived, never launches it, and keeps holding the next launch", async () => {
     harness = await createHarness({ sessions: [landingSession(), landingSession("src/credit.txt")] });
     const h = harness;
-    await h.engine.refreshBilling(); await waitFor(() => !h.engine.agents.state.pending);
+    await h.engine.refreshBilling(); await waitFor(() => !h.engine.readers.claude_code.state.pending);
     // The launch environment changes as setup finishes: phase 1 is held before any model run.
     const off = h.engine.onChange(() => { if (h.engine.record.setupCompletedAt) h.env.ANTHROPIC_API_KEY = "waiver-hold-canary"; });
     await h.engine.start({ refinementConfirmed: true });
@@ -528,7 +528,7 @@ describe("a billing hold on a phase that has not run (AC-WAIVE-04)", () => {
 
     // A restarted Kiln keeps phase 1 complete and goes on to 2b, never relaunching phase 1.
     const reopened = h.reopenFromDisk();
-    await reopened.agents.refresh();
+    await reopened.refreshAgents();
     await reopened.prepare();
     expect(reopened.record.phases["1"]).toMatchObject({ doneAt: saved.phases["1"]!.doneAt, waiverId: waiver.waiverId });
     expect(reopened.latestSession("1")?.runs ?? []).toEqual([]);

@@ -64,6 +64,8 @@ Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-pre
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Exit Kiln (on a finished run Exit Kiln also ends a merge or push session's wait).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §A Wait Before the Start (an activity that hasn't started is launched, not resumed, and its wait watches the launch decision's account).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Where a Feature Stands (the engine loop's verdict and the reconcile), §Interruptions, sleep and resume ("Kiln never resumes one that ended on its own"), §Account and Usage ("Kiln never waits for a reset")
 
 **Starting it.** After a session ends on its own, the engine runs the check as v1 does (the done check, or the pull-request check). A pass is Done. A fail with `limitRefusal` on the latest run, the setting on, and nothing in [Seam With Multi-Repo Delivery](#seam-with-multi-repo-delivery) ruling it out, records `phases.<id>.wait` with the check's results, prints the terminal line, and only then asks for a reading. Any other fail is Needs you as v1, carrying `stop.limit` when the run was refused (AC-LIMIT-01 to 03). Recording any stop that carries `limit` also asks for a reading at once, so the account card shows one taken after the refusal. No other phase starts during a wait, and a pending pause stays pending through it as through Needs you (v1 AC-VIEW-03); the waiting screen shows no pause control, and `POST /api/pause` is refused with 409, as at Needs you.
@@ -106,6 +108,8 @@ Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audi
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (saved authority and current enabled completion prechecks). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex saved identity, original pair, explicit repair and cleanup reconciliation; Claude behavior retained).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session (an activity that hasn't started is launched, not resumed, and its wait watches the launch decision's account).
 
 **The command.** `resume({ note? })`, reached by `POST /api/resume`, is allowed at a Needs you whose `resumeOffered` is true and during a wait (Resume now, which takes no note), and refused with 409 at every other state. From a press of Resume or Resume now, or the start of the end-of-wait resume, until the resumed run starts or a stop or Done is recorded, Resume, Resume now and Check again are unavailable, as during Check again's own check: `POST /api/resume` and `POST /api/check-again` return 409, and `checking` stays set so the view shows work under way.
 

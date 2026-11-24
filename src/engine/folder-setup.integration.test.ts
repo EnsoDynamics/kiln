@@ -1595,7 +1595,7 @@ describe("the limits Start keeps (AC-SAFE-03)", () => {
     const h = await landedThenStopped();
     h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
     await h.engine.refreshBilling();
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending);
     const oldId = h.engine.record.executionId!;
     h.engine.record.billing!.approval = { executionId: oldId, contextFingerprint: h.engine.record.billing!.current!.fingerprint, approvedAt: "2026-10-01T10:00:00Z", contractVersion: BILLING_CONTRACT };
     writePrdRecord(h.stateDirectory, h.engine.record);
@@ -1619,7 +1619,7 @@ describe("the limits Start keeps (AC-SAFE-03)", () => {
     h.engine.record.developmentAuthorization = authorization;
     h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
     await h.engine.refreshBilling();
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending);
     const billing = h.engine.record.billing!;
     billing.approval = { executionId: h.engine.record.executionId!, contextFingerprint: billing.current!.fingerprint, approvedAt: "2026-10-01T10:00:00Z", contractVersion: BILLING_CONTRACT };
     const approval = structuredClone(billing.approval);
@@ -1876,7 +1876,7 @@ describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", (
       const startTime = await processStartTime(child.pid!);
       // The next Kiln over the same record: its session is one an earlier Kiln left, still running.
       h.reopen();
-      await h.engine.agents.refresh();
+      await h.engine.refreshAgents();
       let session = h.engine.latestSession("2b")!;
       if (leftOver === "a Codex session") session.agentId = "codex";
       else {
@@ -1974,7 +1974,7 @@ describe("the limits Start keeps, on the cases still open (AC-SAFE-03)", () => {
     const h = await landedThenStopped();
     h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
     await h.engine.refreshBilling();
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending);
     expect(h.engine.record.billing!.approval).toBeUndefined();
     landStoppedPhase(h);
     const saved = h.engine.worktreePath;

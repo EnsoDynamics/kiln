@@ -481,7 +481,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return result.ok ? c.json({ settings: snapshot().settings }) : commandRefused(c, result);
   });
 
-  app.post("/api/metadata/refresh", async (c) => { await engine.agents.refresh(); await engine.refreshBilling(); return c.json({ settings: snapshot().settings, billing: snapshot().billing }); });
+  app.post("/api/metadata/refresh", async (c) => { await engine.refreshAgents(); await engine.refreshBilling(); return c.json({ settings: snapshot().settings, agents: snapshot().agents }); });
   for (const action of ["approval", "clear"] as const) app.post(`/api/billing/${action}`, async c => {
     try {
       const reader = c.req.raw.body?.getReader();

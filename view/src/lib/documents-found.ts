@@ -3,7 +3,8 @@
 // AC-START-06; assumptions UI-010 items 4 and 12, UI-011).
 
 import { fiveHourNotReported, FIVE_HOUR_NOT_REPORTED } from "./claude-usage.js";
-import type { Snapshot } from "../../../src/engine/snapshot.js";
+import type { AgentView, Snapshot } from "../../../src/engine/snapshot.js";
+import { neededAgents } from "./agents.js";
 import type { Effort } from "../../../src/state/records.js";
 
 type Documents = NonNullable<Snapshot["documents"]>;
@@ -152,17 +153,29 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (documents?.checksFailed) return { enabled: false, note: "Fix what failed, then reload." };
   if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
-  if (snapshot.billing?.pending) return { enabled: false, note: snapshot.settings.agentId === "codex" ? "Checking Codex information…" : "Checking Claude settings…" };
-  if (snapshot.billing && !snapshot.billing.canLaunch) return { enabled: false, note: snapshot.billing.next?.readinessError ?? "Review billing before starting." };
-  if (settings.metadataPending) return { enabled: false, note: "Reading agent information…" };
-  // Every activity's choice must be one its agent offers (Kiln Phase Model Tiers AC-PICK-06).
-  if (settings.models.problem) return { enabled: false, note: settings.models.problem };
+  const agents = agentsHoldStart(snapshot);
+  if (agents) return { enabled: false, note: agents };
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };
   if (!connected) return { enabled: false, note: "Not connected to Kiln." };
   const held = heldBy(snapshot);
   if (held.length === 1) return { enabled: false, note: `${held[0]!.field}: ${held[0]!.message}` };
   if (held.length > 1) return { enabled: false, note: `Fix the ${held.length} fields marked above to start.` };
   return { enabled: true };
+}
+
+/**
+ * Why the agents hold Start, if they do (Kiln Phase Model Tiers AC-AGENTS-01, AC-AGENTS-02): any
+ * needed agent still being read, Claude Code's billing when an activity runs on it, or an agent an
+ * activity needs that isn't ready. An agent only a fallback names never holds it once read.
+ */
+export function agentsHoldStart(snapshot: Snapshot): string | undefined {
+  const agents = neededAgents(snapshot);
+  const pending = agents.find((agent) => agent.pending || agent.billing?.pending);
+  if (pending) return pending.agentId === "codex" ? "Checking Codex information…" : pending.billing?.pending ? "Checking Claude settings…" : `Reading ${pending.agent} information…`;
+  const claude = agents.find((agent) => agent.agentId === "claude_code" && !agent.neededBy.fallbackOnly);
+  if (claude?.billing && !claude.billing.canLaunch) return claude.billing.next?.readinessError ?? "Review billing before starting.";
+  // Names the agent, what to do and the activities that need it, or a choice its agent doesn't offer (AC-PICK-06).
+  return snapshot.settings.models.problem;
 }
 
 const FIELD_LABELS: Record<string, string> = { workspaceFolder: "Workspace folder", worktreePath: "Worktree", featureBranch: "Feature branch", baseBranch: "Base branch", model: "Model" };
@@ -181,7 +194,7 @@ function heldBy(snapshot: Snapshot): { field: string; message: string }[] {
 }
 
 /** Documents found's account lines under Agent: the email and plan, then the usage line. */
-export function accountLines(account: Snapshot["account"]): { line?: string; usage?: string; error?: string; usageError?: string } {
+export function accountLines(account: AgentView["account"]): { line?: string; usage?: string; error?: string; usageError?: string } {
   if (account === undefined) return {};
   if (account.error !== undefined) return { error: account.error };
   const line = account.agentId === "codex"

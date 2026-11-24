@@ -30,6 +30,7 @@ export const SCHEMA_VERSION = 26;
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
 export const AGENT_NAMES: Record<AgentId, string> = { claude_code: "Claude Code", codex: "Codex" };
+export const AGENT_IDS: readonly AgentId[] = ["claude_code", "codex"];
 export interface AgentChoice { model: string; effort?: string }
 export type { ModelChoice } from "../models/model-defaults.js";
 export const EFFORT_LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
@@ -195,6 +196,12 @@ export interface PhaseFacts {
   sessionIds: string[];
   /** The session whose first model response started this activity (Kiln Phase Model Tiers, "When an Activity Starts"); only ever added. */
   startedSessionId?: string;
+  /**
+   * While the activity hasn't started, Codex's one-automatic-attempt record (Kiln Phase Model
+   * Tiers, "A Wait Before the Start"): a session's `codex.usageRecovery` shape, its fingerprint
+   * leaving out the conversation. Removed when the activity starts.
+   */
+  codexUsageRecovery?: CodexUsageRecovery;
   doneAt?: string;
   finishedByPerson: boolean;
   stop?: PhaseStop;
@@ -553,6 +560,8 @@ export interface SessionRecord {
   initModel?: string;
   /** When the session got its first response from the model (Kiln Phase Model Tiers, "When an Activity Starts"). */
   firstResponseAt?: string;
+  /** The refused run a launch at the end of a wait follows (Kiln Phase Model Tiers, "A Wait Before the Start"). */
+  relaunchOf?: { sessionId: string; run: number };
   modelDisplayName: string;
   /** The --effort Kiln passed; absent when it passed none. */
   effort?: Effort;

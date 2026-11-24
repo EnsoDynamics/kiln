@@ -1,6 +1,6 @@
 <script lang="ts">
   import BusyStatus from "../components/BusyStatus.svelte";
-  import BillingPanel from "../components/BillingPanel.svelte";
+  import BillingPanels from "../components/BillingPanels.svelte";
   // Waiting for usage (docs/changes/kiln-usage-limit-recovery/mockups/kiln-screen-waiting-for-usage.html):
   // the limit the session stopped at and its reset, counting down (usage-limit recovery
   // AC-LIMIT-01), how the session ended (v1 AC-STOP-02), how to go sooner on another account with
@@ -25,14 +25,17 @@
   import { earlier, limitTime } from "../lib/time.js";
   import { atLimitLine, automaticResumeStatus, waitingCopy } from "../lib/usage-limit.js";
   import { viewContext } from "../lib/view-context.js";
+  import { activityAgent, billingHolds, shortAgentName } from "../lib/agents.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
   const { config, router, connection } = viewContext();
   const waiting = $derived(snapshot.waiting!);
   const settings = $derived(snapshot.settings);
   const nowDate = $derived(new Date(now));
+  // The agent the activity goes on with, which the wait watches (Kiln Phase Model Tiers AC-AGENTS-04).
+  const next = $derived(activityAgent(snapshot, waiting.phaseId));
   // Worked out from the view's clock, so the countdown keeps counting while the screen is open (AC-LIMIT-01).
-  const copy = $derived(waitingCopy(waiting.phaseId, waiting.limit, nowDate, waiting.agent ?? snapshot.settings.agent));
+  const copy = $derived(waitingCopy(waiting.phaseId, waiting.limit, nowDate, waiting.agent ?? next.agent));
   const atLimit = $derived(atLimitLine(waiting.limit, nowDate));
   const resume = $derived(automaticResumeStatus(waiting.limit, waiting.since, nowDate, settings.resumeAfterUsageLimit, waiting.checking === true));
   const ending = $derived(waiting.signal ?? (waiting.exitCode === undefined ? undefined : `exit ${waiting.exitCode}`));
@@ -78,7 +81,7 @@
         {/if}
         {#if waiting.finalMessage !== undefined}
           <div class="message-block">
-            <span class="eyebrow">Last message from {waiting.agent ?? settings.agent}</span>
+            <span class="eyebrow">Last message from {waiting.agent ?? next.agent}</span>
             <div class="final">{@html finalMessageHtml(waiting.finalMessage)}</div>
           </div>
         {:else if waiting.lastLines && waiting.lastLines.length > 0}
@@ -95,23 +98,23 @@
           <li>
             <span class="number">1</span>
             <div class="step">
-              <span class="step-title">Sign in to another {(waiting.agent ?? settings.agent) === "Codex" ? "Codex" : "Claude"} account in a terminal</span>
+              <span class="step-title">Sign in to another {shortAgentName(next.agent)} account in a terminal</span>
               <p>Use an account that has usage left.</p>
-              <SwitchAccountCommand agentId={snapshot.settings.agentId} />
+              <SwitchAccountCommand agentId={next.agentId} />
             </div>
           </li>
           <li>
             <span class="number">2</span>
             <div class="step">
               <span class="step-title">Then press Resume now</span>
-              <p>It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks {reads} first, then picks up the same session. If you don’t, Kiln resumes by itself {waiting.agentId === "codex" ? "when fresh provider permission allows an attempt" : "at the first reading that shows usage left"}.</p>
+              <p>It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks {reads} first, then {waiting.newSession ? `starts a new ${next.agent} session, since this activity never got a response` : "picks up the same session"}. If you don’t, Kiln resumes by itself {next.agentId === "codex" ? "when fresh provider permission allows an attempt" : "at the first reading that shows usage left"}.</p>
               <LimitAccount limit={waiting.limit} footnote={copy.footnote} />
               <div class="actions">
                 <!-- The amber line never holds Resume now (AC-LIMIT-03); a resume or check under way does. -->
-                <button type="button" class="button solid" class:busy={pressing} aria-busy={pressing} disabled={pressing || waiting.checking === true || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResumeNow}><Icon name="play" size={15} />Resume now</button>
+                <button type="button" class="button solid" class:busy={pressing} aria-busy={pressing} disabled={pressing || waiting.checking === true || billingHolds(snapshot, next.agentId)} onclick={pressResumeNow}><Icon name="play" size={15} />Resume now</button>
                 {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
               </div>
-              {#if pressing}<BusyStatus text={`Checking ${reads}, then resuming the same ${waiting.agent ?? snapshot.settings.agent} session.`} />{/if}
+              {#if pressing}<BusyStatus text={waiting.newSession ? `Checking ${reads}, then starting a new ${next.agent} session.` : `Checking ${reads}, then resuming the same ${next.agent} session.`} />{/if}
               {#if reason}<span class="reason">{reason}</span>{/if}
             </div>
           </li>
@@ -140,7 +143,7 @@
   <!-- A merge or push session waiting for usage on a finished run also offers Exit Kiln (Kiln After Delivery AC-EXIT-01). -->
   {#if snapshot.exit}<section class="exit-row" aria-label="Exit Kiln"><ExitKiln {snapshot} connected={connection?.connected ?? false} /></section>{/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
-  <BillingPanel {snapshot} />
+  <BillingPanels {snapshot} />
 </main>
 
 <style>

@@ -46,8 +46,9 @@ function limitStop(change: Partial<NonNullable<Snapshot["needsYou"]>>, limit: Pa
 describe("Claude without a reported five-hour meter (AC-USAGE-03)", () => {
   it.each([documentsFoundSnapshot, runningSnapshot, pausedSnapshot])("shows N/A alongside the real weekly percentage", (makeSnapshot) => {
     const snapshot = makeSnapshot();
-    snapshot.account!.limits = snapshot.account!.limits.filter(row => row.kind !== "session");
-    snapshot.account!.limitsObservedAt = snapshot.account!.updatedAt;
+    const account = snapshot.agents[0]!.account!;
+    account.limits = account.limits.filter(row => row.kind !== "session");
+    account.limitsObservedAt = account.updatedAt;
     const component = snapshot.documents ? DocumentsFound : snapshot.current ? Running : Paused;
     const words = text(render(component, { props: { snapshot, now: USAGE_LIMIT_NOW, connected: true, lastSeenAt: USAGE_LIMIT_NOW } }).body);
     expect(words).toContain("5-hour: N/A (not reported)");
@@ -68,7 +69,7 @@ describe("Claude without a reported five-hour meter (AC-USAGE-03)", () => {
   it("keeps unknown, stale and Codex readings distinct from a missing Claude meter", () => {
     for (const change of [{ limitsError: "Usage unavailable" }, { limitsObservedAt: undefined }, { stale: true }, { limitsStale: true }, { agentId: "codex" as const }]) {
       const snapshot = runningSnapshot();
-      snapshot.account = { ...snapshot.account!, limits: [], ...change };
+      snapshot.agents[0]!.account = { ...snapshot.agents[0]!.account!, limits: [], ...change };
       expect(text(render(Running, { props: { snapshot, now: USAGE_LIMIT_NOW, connected: true, lastSeenAt: USAGE_LIMIT_NOW } }).body)).not.toContain("5-hour: N/A");
     }
   });

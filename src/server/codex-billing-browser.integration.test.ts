@@ -1,3 +1,4 @@
+import { inUse, useAgent } from "../test-support/sample-snapshots.js";
 // Real server, engine, Git, metadata process pipes and Chrome; no paid inference.
 import { writeFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
@@ -36,10 +37,10 @@ it("shows neutral optional credits, preserves all usage rows, rejects API/provid
       expect(await page.evaluate(`${panel}.classList.contains('held')`)).toBe(false);
       expect(await page.evaluate(`${panel}.querySelector('a').href`)).toBe("https://chatgpt.com/codex/settings/usage");
       expect(await page.evaluate(`document.querySelector('button.start').disabled`)).toBe(false);
-      const windows = h.engine.agents.state.account!.limits.map(row => row.label);
+      const windows = h.engine.readers.codex.state.account!.limits.map(row => row.label);
       for (const label of windows) expect(await page.evaluate(`document.body.innerText`)).toContain(label);
       const usage = { accountId: "fixture-account", ordinaryUsageAllowed: false, rateLimitsByLimitId: { a: { credits: { balance: "50", hasCredits: true, unlimited: true, privateField: "credit-secret-canary" }, primary: { usedPercent: 12, windowDurationMins: 1440 } }, b: { credits: { hasCredits: false, unlimited: false }, secondary: { usedPercent: 45 } } } };
-      f.set({ usage }); await h.engine.agents.refresh();
+      f.set({ usage }); await h.engine.refreshAgents();
       await page.waitFor(`${panel}.innerText.includes('credits [a]: 50')`);
       expect(await page.evaluate(`${panel}.textContent`)).toContain("credits [b]: None reported");
       expect(await page.evaluate(`${panel}.textContent`)).not.toMatch(/unlimited|auto-reload|enabled/);
@@ -49,22 +50,22 @@ it("shows neutral optional credits, preserves all usage rows, rejects API/provid
       expect(JSON.stringify(h.engine.record)).not.toContain("credit-secret-canary");
       expect(await page.evaluate(`document.documentElement.scrollWidth <= innerWidth`)).toBe(true);
       writeFileSync(`/tmp/kiln-codex-billing-${width}.png`, await page.screenshot());
-      f.set({ accounts: [{ account: { type: "chatgpt" } }] }); await h.engine.agents.refresh();
+      f.set({ accounts: [{ account: { type: "chatgpt" } }] }); await h.engine.refreshAgents();
       await page.waitFor(`${panel}.textContent.includes('Account identity unavailable') && ${panel}.textContent.includes('Plan unavailable')`);
       expect(await page.evaluate(`document.querySelector('button.start').disabled`)).toBe(false);
-      f.set({ apiKey: true }); await h.engine.agents.refresh();
+      f.set({ apiKey: true }); await h.engine.refreshAgents();
       await page.waitFor(`${panel}.innerText.includes('codex login')`);
       expect(await page.evaluate(`document.querySelector('button.start').disabled`)).toBe(true);
       expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull();
-      f.set({ provider: "other" }); await h.engine.agents.refresh();
+      f.set({ provider: "other" }); await h.engine.refreshAgents();
       await page.waitFor(`${panel}.innerText.includes('OpenAI provider')`);
       expect(await page.evaluate(`document.querySelector('button.start').disabled`)).toBe(true);
-      f.set({ configError: true }); await h.engine.agents.refresh();
+      f.set({ configError: true }); await h.engine.refreshAgents();
       await page.waitFor(`${panel}.textContent.includes('Could not inspect Codex provider and hooks')`);
       expect(await page.evaluate(`document.querySelector('button.start').disabled`)).toBe(true);
       const origin = new URL(server.address).origin;
       const denied = await fetch(`${origin}/api/billing/approval`, { method: "POST", headers: { "X-Kiln-Token": record.token, origin, "Content-Type": "application/json" }, body: JSON.stringify({ approved: true }) });
-      expect(denied.status).toBe(400); expect(await denied.text()).toContain("Codex has no API billing approval");
+      expect(denied.status).toBe(400); expect(await denied.text()).toContain("No activity of this run uses Claude Code");
       await runPrdOn(h.engine, { agentId: "claude_code", model: "opus", effort: "medium" }); await h.engine.refreshBilling();
       await page.waitFor(`document.querySelector('[aria-label="Claude billing"]')`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("fixture@example.test");
@@ -77,17 +78,17 @@ it("shows neutral optional credits, preserves all usage rows, rejects API/provid
 });
 
 it("keeps launched identity/credits separate from the next account and freezes them on disconnect", async () => {
-  const snapshot = runningSnapshot(); snapshot.settings.agentId = "codex"; snapshot.settings.agent = "Codex";
+  const snapshot = runningSnapshot(); useAgent(snapshot, "codex");
   for (const phase of snapshot.phases) if (phase.details) Object.assign(phase.details, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol" });
   Object.assign(snapshot.current!, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol", effort: "high" });
   const at = new Date().toISOString();
-  snapshot.account = { agentId: "codex", startedAt: at, updatedAt: at, email: "next@example.test", accountId: "next-workspace", plan: "pro", limits: [
+  inUse(snapshot).account = { agentId: "codex", startedAt: at, updatedAt: at, email: "next@example.test", accountId: "next-workspace", plan: "pro", limits: [
     { id: "codex:primary", kind: "codex:primary", label: "Daily inference · primary", shortLabel: "Daily inference · primary", durationMinutes: 1440, percent: 31, nearLimit: false },
     { id: "other:secondary", kind: "other:secondary", label: "Other allowance · secondary", shortLabel: "Other allowance · secondary", percent: 12, nearLimit: false },
   ] };
   const lastLaunch = codexBillingSummary({ startedAt: at, updatedAt: at, limits: [], email: "launch@example.test", plan: "business", accountId: "launch-workspace", credits: [{ scope: "workspace", bucketId: "codex", accountId: "launch-workspace", observedAt: at, balance: "50" }] });
   const next = { ...lastLaunch }; delete next.credits;
-  snapshot.billing = { executionId: "fixture", pending: false, canLaunch: true, lastLaunch, next: { ...next, email: "next@example.test", accountId: "next-workspace", readingId: "", canApprove: false, canClear: false } };
+  inUse(snapshot).billing = { executionId: "fixture", pending: false, canLaunch: true, lastLaunch, next: { ...next, email: "next@example.test", accountId: "next-workspace", readingId: "", canApprove: false, canClear: false } };
   chrome = await launchChrome();
   for (const width of [360, 1280]) {
     const fixture = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
@@ -102,8 +103,8 @@ it("keeps launched identity/credits separate from the next account and freezes t
       expect(rendered).not.toMatch(/Fable|Opus/);
       writeFileSync(`/tmp/kiln-codex-billing-running-${width}.png`, await page.screenshot());
       const creditOnly = structuredClone(snapshot);
-      creditOnly.billing!.next = { ...lastLaunch, credits: [{ ...lastLaunch.credits![0]!, balance: "75" }], readingId: "", canApprove: false, canClear: false };
-      creditOnly.account!.email = "launch@example.test"; creditOnly.account!.accountId = "launch-workspace";
+      inUse(creditOnly).billing!.next = { ...lastLaunch, credits: [{ ...lastLaunch.credits![0]!, balance: "75" }], readingId: "", canApprove: false, canClear: false };
+      inUse(creditOnly).account!.email = "launch@example.test"; inUse(creditOnly).account!.accountId = "launch-workspace";
       fixture.send("snapshot", creditOnly);
       await page.waitFor(`${panel}.textContent.includes('credits [codex]: 75')`);
       expect(await page.evaluate(`${panel}.textContent`)).toContain("credits [codex]: 50");

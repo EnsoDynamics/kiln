@@ -260,7 +260,7 @@ it.each(["deleted_ref", "merge_deleted_ref", "rebase_deleted_ref", "clean_partia
   const { recoveryRequest } = await import("../test-support/phase-recovery-request.js");
   const f = await deliveryFixture(mode === "rebase_deleted_ref" ? "rebase" : mode === "merge_deleted_ref" ? "merge" : "squash"); h = f.h; f.synchronize();
   h.tools.gh = f.context.gh; Object.assign(h.env, f.context.env);
-  const engine = h.reopen(); await engine.agents.refresh();
+  const engine = h.reopen(); await engine.refreshAgents();
   await engine.checkAgain(recoveryRequest(engine, "verify")); await engine.settled();
   expect(engine.currentlyComplete).toBe(true);
   const active = engine.worktreePath;

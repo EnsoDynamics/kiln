@@ -74,17 +74,16 @@ describe("Documents found", () => {
   });
 
   it("shows each field message under its field in amber, and git's error under Start", () => {
-    const page = html(
-      documentsFoundSnapshot({
-        settings: {
-          fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one.", baseBranch: "develop isn’t on origin." },
-          models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode." },
-          modelListError: "Couldn’t load Claude Code’s models: timed out",
-          keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available.",
-        },
-        documents: { startError: "Couldn’t set up the worktree: fatal: could not create directory" },
-      }),
-    );
+    const snapshot = documentsFoundSnapshot({
+      settings: {
+        fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one.", baseBranch: "develop isn’t on origin." },
+        models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode.", fallback: { enabled: false, threshold: 95 } },
+        keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available.",
+      },
+      documents: { startError: "Couldn’t set up the worktree: fatal: could not create directory" },
+    });
+    snapshot.agents[0]!.modelListError = "Couldn’t load Claude Code’s models: timed out";
+    const page = html(snapshot);
     for (const message of [
       "That folder already exists and isn’t empty. Choose a new one.",
       "develop isn’t on origin.",
@@ -98,7 +97,9 @@ describe("Documents found", () => {
   });
 
   it("shows the not-signed-in line in place of the account and usage", () => {
-    const page = html(documentsFoundSnapshot({ account: { startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." } }));
+    const snapshot = documentsFoundSnapshot();
+    snapshot.agents[0]!.account = { startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." };
+    const page = html(snapshot);
     const words = text(page);
     expect(words).toContain("Models Chosen for each phase 4 not rated. Not signed in to Claude Code. Run claude auth login . Listed models");
     // The command is drawn as code, not with its backticks (UI-010 item 7).

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { PREFLIGHT_LIVE_REASON } from "../../../src/engine/preflight.js";
-  import BillingPanel from "../components/BillingPanel.svelte";
+  import BillingPanels from "../components/BillingPanels.svelte";
   // Running (docs/design/mockups/kiln-screen-running.html): the current phase at the top, the
   // phase plan, the Claude account, the settings, Pause Kiln and the Kiln panel (PRD
   // AC-WATCH-01 to 08, AC-VIEW-03). Once the view has lost Kiln it becomes the Disconnected
@@ -8,7 +8,7 @@
   // this layout with no current-phase panel (UI-006; technical design, "Connection"), as does a
   // wait for usage, its phase labeled last known (live-session control AC-LIVE-02).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
-  import AccountPanel from "../components/AccountPanel.svelte";
+  import AccountPanels from "../components/AccountPanels.svelte";
   import CurrentPhase from "../components/CurrentPhase.svelte";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import KilnPanel from "../components/KilnPanel.svelte";
@@ -43,11 +43,11 @@
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} now={shownNow} /></div>
     <div class="column-side">
-      {#if connected && snapshot.account}<AccountPanel account={snapshot.account} paused={false} pullRequest={isPr} {now} />{/if}
+      {#if connected}<AccountPanels {snapshot} paused={false} pullRequest={isPr} {now} />{/if}
       <SettingsPanel {snapshot} {connected} />
       {#if connected && snapshot.current && !isPr && !isPreflight}<PausePanel {snapshot} />{/if}
       <KilnPanel {connected} text={kilnText} />
-      <BillingPanel {snapshot} {connected} />
+      <BillingPanels {snapshot} {connected} />
     </div>
   </div>
 </main>

@@ -71,7 +71,7 @@ writePrdRecord(stateDirectory, record);
 const engine = new Engine({ paths, tools: { git: 'git', gh: 'gh', claude: 'claude', codex: 'codex' }, env: process.env, stateDirectory, record, onTerminal: event => events.push(event), sleepReader: { next: async () => [] }, originRetryMs: 0 });
 
 assert.equal((await engine.prepare()).ok, true);
-for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
 const lock = await takeInstanceLock(stateRoot(process.env), stateDirectory, { range: { first: 41960, last: 41979 } });
 assert.ok(lock.taken);
 const server = await startLocalServer({ engine, port: lock.port, folderName: 'handoff-proof', featureName: 'Bot control proof', token: record.token });

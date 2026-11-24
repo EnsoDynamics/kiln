@@ -582,7 +582,7 @@ it.each([false, true])("holds the next final/audit activity before launch (audit
     await again.continue();
     expect(h.claudeCalls()).toHaveLength(1);
     expect(buildSnapshot(again).feature.state).toBe("paused");
-    await again.agents.refresh();
+    await again.refreshAgents();
     expect(await again.start()).toEqual({ ok: true }); await again.settled();
     expect(h.claudeCalls()).toHaveLength(2);
     expect(again.restartReview).toBeUndefined();

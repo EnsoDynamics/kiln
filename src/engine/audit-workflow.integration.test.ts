@@ -72,7 +72,7 @@ describe("automatic completion activities", () => {
       expect(current.engine.record.billing!.hold).toBeDefined();
       delete current.engine.record.billing!.hold;
       writePrdRecord(current.stateDirectory, current.engine.record);
-      current.reopenFromDisk(); await current.engine.agents.refresh();
+      current.reopenFromDisk(); await current.engine.refreshAgents();
       await current.engine.decide(); await current.engine.settled();
       expect(current.engine.record.phases[key]!.stop).toBeDefined();
       expect(current.engine.record.completionAudits!.activities.at(-1)!.sessionIds).toEqual(sessionIds);
@@ -176,7 +176,7 @@ describe("automatic completion activities", () => {
     writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [], auditSessions: [{ actions: [{ touch: marker }, { work: "audit verification" }] }] }));
     await current.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
     await current.engine.stop("sigint");
-    current.reopenFromDisk(); await current.engine.agents.refresh();
+    current.reopenFromDisk(); await current.engine.refreshAgents();
     const key = auditKey(current.engine.record.completionAudits!.activities[0]!);
     const submit = vi.spyOn(auditAdmission, "submitAudit").mockRejectedValue(new AuditRefusal("evidence_unavailable", "Unavailable original audit history.", 503));
     try {
@@ -205,7 +205,7 @@ describe("automatic completion activities", () => {
       await waitFor(() => existsSync(marker));
       await current.engine.stop("sigint");
       current.reopenFromDisk();
-      await current.engine.agents.refresh();
+      await current.engine.refreshAgents();
     } else if (entry !== "completed") {
       await current.engine.start({ refinementConfirmed: true });
       await current.engine.settled();
@@ -302,7 +302,7 @@ describe("automatic completion activities", () => {
         writeFileSync(join(process.env.KILN_SCREENSHOTS, "completion-for-you-after-delivery.png"), await page.screenshot());
       }
     } finally { await chrome.close(); }
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     expect((await again.decide()).kind).toBe("complete");
     expect(buildSnapshot(again).delivered!.forYou.afterDelivery).toEqual(remaining);
   });
@@ -311,7 +311,7 @@ describe("automatic completion activities", () => {
     // AC-BILL-05 covers actual audit routing as well as implementation phases.
     // The synthetic model process is paired with the real passive SDK/auth proof.
     h.env.ANTHROPIC_API_KEY = "synthetic-audit-billing-canary";
-    await h.engine.refreshBilling(); await waitFor(() => !h.engine.agents.state.pending);
+    await h.engine.refreshBilling(); await waitFor(() => !h.engine.readers.claude_code.state.pending);
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false });
     expect(h.claudeCalls()).toHaveLength(0);
     await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, readingId: h.engine.billing.view.next!.readingId, approved: true });
@@ -336,12 +336,12 @@ describe("automatic completion activities", () => {
     audit.acceptedResult = store.put(historical);
     expect(buildSnapshot(h.engine).activities!.find(a => a.kind === "delivery_audit")!.audit!.checks).toEqual(original.checks);
     expect(store.read<AuditResult>(audit.acceptedResult).checks).toEqual(historical.checks);
-    const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
+    const again = h.reopenFromDisk(); await again.refreshAgents(); expect((await again.decide()).kind).toBe("complete");
     expect(h.claudeCalls()).toHaveLength(3);
   });
   it("reinspects changed billing between delivery audit, test audit and final delivery", async () => {
     const current = await fixture(); current.env.ANTHROPIC_API_KEY = "initial-audit-context";
-    await current.engine.refreshBilling(); await waitFor(() => !current.engine.agents.state.pending);
+    await current.engine.refreshBilling(); await waitFor(() => !current.engine.readers.claude_code.state.pending);
     const approve = () => current.engine.billingCommand("approval", { executionId: current.engine.record.executionId, readingId: current.engine.billing.view.next!.readingId, approved: true });
     await approve(); let accepted = 0;
     const off = current.engine.onChange(() => {
@@ -415,7 +415,7 @@ describe("automatic completion activities", () => {
     expect(h.claudeCalls()[2]!.prompt).toContain('Test work remains for another session.');
     expect(buildSnapshot(h.engine).activities!.filter(a => a.kind === "test_audit").map(a => [a.title, a.file])).toEqual([["Test audit", "Loop 1 of 4"], ["Fixing tests", "From test audit loop 1 · session 1"]]);
     expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ title: "Fixing tests", line: "From test audit loop 1 · session 1" });
-    const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
+    const again = h.reopenFromDisk(); await again.refreshAgents(); expect((await again.decide()).kind).toBe("complete");
     expect(h.claudeCalls()).toHaveLength(4);
   // Four sessions include full test-audit red/restore evidence and real Git work.
   });
@@ -449,7 +449,7 @@ describe("automatic completion activities", () => {
     const pending=h.engine.record.completionAudits!.activities.at(-1)!;
     expect(pending).toMatchObject({kind:"test_audit",round:1,continuationIndex:2,sessionIds:[]});
     expect(h.engine.record.nextActivityKey).toBe(auditKey(pending));expect(h.claudeCalls()).toHaveLength(2);
-    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.agents.refresh();
+    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.refreshAgents();
     server=await startLocalServer({engine:again,port,folderName:"proof",featureName:"Audit value",token:again.record.token});
     expect((await again.decide()).kind).toBe("paused");await again.start();await again.settled();
     expect(again.record.completedAt,JSON.stringify(again.record.phases)).toBeTruthy();expect(again.record.completionAudits!.activities).toHaveLength(3);
@@ -568,7 +568,7 @@ describe("automatic completion activities", () => {
     const old = structuredClone(h.engine.record); old.schemaVersion = 5; old.completedAt = timestamp; old.phases = {};
     delete old.completionAudits; delete old.activities; delete old.nextActivityKey;
     writeFileSync(join(h.stateDirectory,"prd.json"), JSON.stringify(old));
-    const historical = h.reopenFromDisk(); await historical.agents.refresh();
+    const historical = h.reopenFromDisk(); await historical.refreshAgents();
     expect((await historical.decide()).kind).toBe("complete");
     expect(historical.record.completedAt).toBe(timestamp); expect(historical.record.completionAudits!.policy).toBe("legacy_complete");
     expect(buildSnapshot(historical).auditHistoryUnavailable).toBe(true);
@@ -577,7 +577,7 @@ describe("automatic completion activities", () => {
     // An unfinished saved execution is migrated and driven, not a fresh unrelated record.
     delete old.completedAt; writeFileSync(join(h.stateDirectory,"prd.json"), JSON.stringify(old));
     const port=Number(new URL(server!.address).port); await server!.close();
-    const unfinished=h.reopenFromDisk(); await unfinished.agents.refresh();
+    const unfinished=h.reopenFromDisk(); await unfinished.refreshAgents();
     server=await startLocalServer({engine:unfinished,port,folderName:"proof",featureName:"Audit value",token:unfinished.record.token});
     expect(unfinished.record.completionAudits!.policy).toBe("required");
     expect((await unfinished.decide()).kind).toBe("start_audit"); await unfinished.continue();
@@ -593,7 +593,7 @@ describe("automatic completion activities", () => {
     const original = h.engine.record.completionAudits!.activities[0]!;
     const stopped = h.engine.stop("sigint"); writeFileSync(marker, "continue"); await stopped;
     await server!.close(); server = undefined;
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     server = await startLocalServer({ engine: again, port, folderName: "proof", featureName: "Audit value", token: again.record.token });
     const decision = await again.decide();
     expect(decision.kind).toBe("start_audit");
@@ -618,7 +618,7 @@ describe("automatic completion activities", () => {
     old.developmentAuthorization = { revision: 1, enabled: true, grants: [{ target: { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "audit-fixture-dev" }, confirmedAt: historicalAt, source: "start" }] };
     writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(old));
     const port = Number(new URL(server!.address).port); await server!.close();
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     server = await startLocalServer({ engine: again, port, folderName: "proof", featureName: "Audit value", token: again.record.token });
     expect(again.record.completionAudits!.policy).toBe("legacy_complete");
     expect(await again.decide()).toMatchObject({ kind: "needs_you", phaseKey: "1" });
@@ -834,7 +834,7 @@ describe("automatic completion activities", () => {
     await runPrdOn(h.engine,{agentId:"claude_code",model:"sonnet",effort:"high"},false);writePrdRecord(h.stateDirectory,h.engine.record);
     const stopping=h.engine.stop("sigint");writeFileSync(finish,"continue");await stopping;
     const path=join(h.stateDirectory,"prd.json");const old=JSON.parse(readFileSync(path,"utf8"));old.schemaVersion=5;delete old.completionAudits;delete old.activities;delete old.nextActivityKey;writeFileSync(path,JSON.stringify(old));
-    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.agents.refresh();
+    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.refreshAgents();
     server=await startLocalServer({engine:again,port,folderName:"proof",featureName:"Audit value",token:again.record.token});
     expect(await again.decide()).toMatchObject({kind:"resume",phaseKey:"1",sessionId:original.sessionId});
     expect(again.record.completionAudits!.activities).toEqual([]);await again.continue();

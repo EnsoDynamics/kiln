@@ -134,7 +134,7 @@ async function api(address: string, token: string, method: string, path: string,
   if (method === "POST" && (path === "/api/start" || path === "/api/settings" && body && typeof body === "object" && "keepAwake" in body)) {
     await waitFor(async () => {
       const current = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
-      return current.settings.metadataPending === false;
+      return current.agents.every(agent => !agent.pending);
     });
   }
   const origin = new URL(address).origin;
@@ -216,8 +216,9 @@ describe("kiln run on a feature not started", () => {
     const view = await connectView(address, token);
     await waitFor(() => view.snapshots.length > 0);
     await waitFor(async () => {
-      const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as { account?: unknown; models?: unknown; settings: { baseCheck?: string; metadataPending?: boolean } };
-      return snapshot.account !== undefined && snapshot.models !== undefined && snapshot.settings.baseCheck === "ok" && snapshot.settings.metadataPending === false;
+      const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
+      const claude = snapshot.agents.find(agent => agent.inUse);
+      return claude?.account !== undefined && claude.models !== undefined && snapshot.settings.baseCheck === "ok" && snapshot.agents.every(agent => !agent.pending);
     });
     const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
     expect(snapshot.feature).toMatchObject({ name: "Customer returns", repositoryName: "acme-shop", prdFolder: "docs/prds/customer-returns/", state: "not_started" });
@@ -242,8 +243,8 @@ describe("kiln run on a feature not started", () => {
       { name: "Dependencies point backward", passed: true },
       { name: "Working tree is clean", passed: true },
     ]);
+    expect(snapshot.agents.find(entry => entry.inUse)?.agent).toBe("Claude Code");
     expect(snapshot.settings).toMatchObject({
-      agent: "Claude Code",
       // Models are chosen for each phase, not once for the PRD (Kiln Phase Model Tiers AC-KEEP-01).
       models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 } },
       worktreePath: expect.stringMatching(/\.worktrees[/\\]customer-returns[/\\]acme-shop$/),
@@ -257,14 +258,14 @@ describe("kiln run on a feature not started", () => {
     expect(snapshot.repositories).toEqual([
       { name: "acme-shop", github: "github.com/acme/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", worktreePath: snapshot.settings.worktreePath, fixed: false, fieldErrors: {} },
     ]);
-    expect(snapshot.models!.map((model) => model.displayName)).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"]);
-    expect(snapshot.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });
-    expect(snapshot.account!.limits.map((limit) => `${limit.shortLabel} ${limit.percent}%`)).toEqual(["5-hour 5%", "weekly 42%", "Fable 0%"]);
+    expect(snapshot.agents.find(entry => entry.inUse)?.models!.map((model) => model.displayName)).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"]);
+    expect(snapshot.agents.find(entry => entry.inUse)?.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });
+    expect(snapshot.agents.find(entry => entry.inUse)?.account!.limits.map((limit) => `${limit.shortLabel} ${limit.percent}%`)).toEqual(["5-hour 5%", "weekly 42%", "Fable 0%"]);
 
     // AC-BILL-03 brackets usage; AC-RUN-01 also reads required readiness in the launch context.
     await waitFor(async () => {
       const latest = await api(address, token, "GET", "/api/snapshot");
-      return !!(latest.body as unknown as Snapshot).billing?.next && !(latest.body as unknown as Snapshot).billing?.pending;
+      return !!(latest.body as unknown as Snapshot).agents.find(entry => entry.inUse)?.billing?.next && !(latest.body as unknown as Snapshot).agents.find(entry => entry.inUse)?.billing?.pending;
     });
     const helpers = readJsonLines<{ kind: string; cwd: string }>(`${f.scenarioPath}.helpers.jsonl`);
     expect(helpers.map((call) => call.kind).sort()).toEqual(["account", "account", "account", "models", "models", "skills", "skills", "usage"]);

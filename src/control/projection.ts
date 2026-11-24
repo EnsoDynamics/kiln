@@ -1,3 +1,4 @@
+import { AGENT_NAMES } from "../state/records.js";
 import { activityKeyKind } from "../state/activity-keys.js";
 import { auditSentenceStart, recordedAuditName } from "../audit/audit-names.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
@@ -14,7 +15,7 @@ import { sessionStorageKey } from "../state/records.js";
 import type { SessionRecord } from "../state/records.js";
 import type { OutputLine } from "../session/session-output.js";
 import type { Engine } from "../engine/engine.js";
-import { buildSnapshot, codexResumeCommand, resumeCommand, codexCommand, claudeCommand, type Snapshot, type LimitView } from "../engine/snapshot.js";
+import { buildSnapshot, codexResumeCommand, resumeCommand, codexCommand, claudeCommand, type AgentView, type Snapshot, type LimitView } from "../engine/snapshot.js";
 import { freshSessionPrompt, resumePrompt, auditRecoveryPrompt, pullRequestSessionPrompt, codexSessionPrompt } from "../session/prompts.js";
 import { claudeHistoryAvailability } from "../session/transcripts.js";
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
@@ -159,7 +160,9 @@ function cached(work: SavedWork, deadline = Date.now() + 5000): InspectionCache 
 }
 export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, reachable: boolean, history: History): Record<string, unknown> {
   const cache = snapshot ? null : cached(work); const view = snapshot ?? cache?.snapshot;
-  const account = view?.account;
+  // The agent of the activity status reports takes today's fields; every other needed agent is listed after it (Kiln Phase Model Tiers, "Command line").
+  const needed = (view?.agents ?? []).filter(entry => entry.neededBy.activities.length > 0 || entry.neededBy.fallbackOnly);
+  const reported = needed.find(entry => entry.inUse);
   const observed = (value: unknown, at: string | null, reason: string | null, stale = false) => ({ value: value ?? null, observed_at: at, state: value == null ? "unavailable" : stale || !reachable ? "stale" : "current", reason: reason ?? (!reachable ? "Controller disconnected; last-known observation." : null) });
   const lastSession = history.complete ? newestSession(history, true)?.record : undefined;
   const lastRun = lastSession?.runs.at(-1);
@@ -168,16 +171,29 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
   // Legacy run.account has no observation time or plan and cannot supply these.
   const attemptAccount = (lastRun?.codex?.account ? publicProvenance(lastRun.codex.account) : null) ?? (lastRun?.billing ? publicBilling(lastRun.billing, !reachable) : null);
   const attemptAt = lastRun?.codex?.account?.at ?? lastRun?.billing?.observedAt ?? null;
-  const next = account && (account.agentId !== "codex" || account.email || account.accountId || account.routingAccountId) ? publicAccount(account, !reachable || !!account.stale) : null;
-  const usageAt = account?.limitsObservedAt ?? null;
+  const fallback = view?.settings?.models?.fallback;
+  const facts = (entry: AgentView | undefined) => {
+    if (!entry) {
+      const reason = "No activity is current or next.";
+      return { next_attempt: observed(null, null, reason), usage: observed(null, null, reason), recovery: observed(null, null, reason), billing: billingFacts(undefined, undefined, reachable, reason) };
+    }
+    const account = entry.account;
+    const next = account && (account.agentId !== "codex" || account.email || account.accountId || account.routingAccountId) ? publicAccount(account, !reachable || !!account.stale) : null;
+    const usageAt = account?.limitsObservedAt ?? null;
+    return {
+      next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? entry.readinessErrors?.join(" ") ?? (!next ? "Current provider identity is unavailable." : null), account?.stale || !!account?.error),
+      usage: observed(usageAt ? account?.limits.map(limit => ({ ...(publicUsage(limit) as object), ...(fallback?.enabled ? { over_threshold: (limit as { overThreshold?: true }).overThreshold === true } : {}) })) : null, usageAt, account?.limitsError ?? account?.limitsUnavailable ?? (!usageAt ? "Dated usage for this account is unavailable." : account?.limitsStale ? "Usage was retained without a fresh usage read." : null), account?.limitsStale || account?.stale || !!account?.limitsError),
+      recovery: observed(account?.codexUsageObservedAt ? account.codexUsage : null, account?.codexUsageObservedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
+      billing: billingFacts(entry.billing, account, reachable),
+    };
+  };
   return {
-    agent: view?.settings?.agentId ?? account?.agentId ?? null,
+    agent: reported?.agentId ?? null,
     last_attempt: observed(attemptAccount, attemptAt, !history.complete ? "Saved attempt history is incomplete; last-attempt account provenance is unavailable." : attemptAccount ? null : "Dated account provenance was not recorded for the last attempt."),
     original_attempt: observed(lastSession?.codex?.originalAccount ? publicProvenance(lastSession.codex.originalAccount) : null, lastSession?.codex?.originalAccount?.at ?? null, lastSession?.codex?.originalAccount ? null : "Original account provenance unavailable."),
-    next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? (!next ? "Current provider identity is unavailable." : null), account?.stale || !!account?.error),
-    usage: observed(usageAt ? account?.limits.map(publicUsage) : null, usageAt, account?.limitsError ?? account?.limitsUnavailable ?? (!usageAt ? "Dated usage for this account is unavailable." : account?.limitsStale ? "Usage was retained without a fresh usage read." : null), account?.limitsStale || account?.stale || !!account?.limitsError),
-    recovery: observed(account?.codexUsageObservedAt ? account.codexUsage : null, account?.codexUsageObservedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
-    billing: billingFacts(view?.billing, account, reachable),
+    ...facts(reported),
+    other_agents: needed.filter(entry => entry !== reported).map(entry => ({ agent: entry.agentId, ...facts(entry) })),
+    ...(fallback?.enabled ? { fallback: { enabled: true, threshold: fallback.threshold } } : {}),
     resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit,
   };
 }
@@ -186,7 +202,7 @@ function publicBilling(b: import("../billing/inspection.js").BillingSummary | un
   const summary = publicBillingSummary(b, stale);
   return { ...summary, agent: b.agentId, account_id: b.accountId ?? null };
 }
-function billingFacts(view: BillingView | undefined, account: AgentAccount | undefined, reachable: boolean): unknown {
+function billingFacts(view: BillingView | undefined, account: AgentAccount | undefined, reachable: boolean, unavailableReason?: string): unknown {
   const observation = (value: unknown, at?: string, reason?: string, stale = false) => ({ value: value ?? null, observed_at: at ?? null,
     state: value == null || !at ? "unavailable" : !reachable || stale ? "stale" : "current",
     reason: reason ?? (!at || value == null ? "Dated billing observation is unavailable." : !reachable ? "Controller disconnected; last-known billing observation." : null) });
@@ -195,7 +211,7 @@ function billingFacts(view: BillingView | undefined, account: AgentAccount | und
   const unavailable = codex && (!account || !!account.error && !account.stale);
   const summaryFields = (summary: BillingView["lastLaunch"]) => summary ? { ...summary, ...publicBillingSummary(summary, !reachable) } : {};
   return { ...(view ? { executionId: view.executionId, pending: view.pending } : {}), observed_at: next?.observedAt ?? null, state: !next || unavailable ? "unavailable" : !reachable || account?.stale || view?.pending ? "stale" : "current",
-    reason: !next || unavailable ? "Current billing observation is unavailable." : !reachable ? "Controller disconnected; last-known billing observation." : account?.error ?? (view?.pending ? "Billing refresh is pending; previous observation retained." : null),
+    reason: !next || unavailable ? unavailableReason ?? "Current billing observation is unavailable." : !reachable ? "Controller disconnected; last-known billing observation." : account?.error ?? (view?.pending ? "Billing refresh is pending; previous observation retained." : null),
     next: { ...summaryFields(next), ...observation(unavailable ? null : publicBilling(next, !reachable), next?.observedAt, codex ? account?.error : undefined, account?.stale || view?.pending), canApprove: reachable ? next?.canApprove ?? false : false, canClear: reachable ? next?.canClear ?? false : false },
     lastLaunch: { ...summaryFields(view?.lastLaunch), ...observation(publicBilling(view?.lastLaunch, !reachable), view?.lastLaunch?.observedAt) },
     hold: { ...(view?.hold ? { ...view.hold, observed: publicBillingSummary(view.hold.observed, !reachable) } : {}), ...observation(view?.hold ? { phase_key: view.hold.phaseKey, action: view.hold.action, session_id: view.hold.sessionId ?? null, reason: view.hold.reason, observed: publicBilling(view.hold.observed, !reachable) } : null, view?.hold?.at), ...(view?.hold ? { reason: view.hold.reason, observation_reason: !reachable ? "Controller disconnected; last-known billing hold." : null } : {}) },
@@ -418,7 +434,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   if (folders) {
     // No resume command, continuation prompt or fresh-session instructions from a folder that is gone (AC-GONE-01).
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
-      session_id: null, provider_session_id: null, agent: engine?.agents.state.agentId ?? null, phase_key: null, working_directory: null,
+      session_id: null, provider_session_id: null, agent: view0AgentId(engine), phase_key: null, working_directory: null,
       resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical),
       provider_history: { state: "unavailable", observed_at: null, reason: "This run’s folder is missing." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null, fresh_session_instructions: null,
@@ -435,7 +451,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     const cwd = stop && view ? engine?.sessionFolder ?? expandHome(view.feature.multiRepository ? view.settings.workspaceFolder : view.settings.worktreePath) : null;
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
       // With no session, the facts follow the activity's current choice (Kiln Phase Model Tiers AC-AGENTS-04).
-      session_id: null, provider_session_id: null, agent: (stop && engine ? engine.agentOf(stop.phaseId) : undefined) ?? view?.settings?.agentId ?? null,
+      session_id: null, provider_session_id: null, agent: (stop && engine ? engine.agentOf(stop.phaseId) : undefined) ?? view?.agents?.find(entry => entry.inUse)?.agentId ?? null,
       phase_key: stop?.phaseId ?? null, working_directory: cwd, resumable: false, reason: "No saved session.", active_under_kiln: false,
       provider_history: { state: "unavailable", observed_at: null, reason: "No saved session." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null,
@@ -478,15 +494,28 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     available = false;
     reason = !engine ? "Controller disconnected; reconnect to establish safe terminal release." : hold?.reason ?? reason;
   }
+  // An activity that hasn't started reopens a saved conversation only while its current choice is the one that session ran on (Kiln Phase Model Tiers AC-PICK-07).
+  const choiceMoved = !!engine && !engine.reopenMatchesChoice(selected.phase, session);
+  if (choiceMoved && instructions.fresh_session_instructions) {
+    // The fresh session runs on the activity's current choice, so its command names that agent.
+    const nextAgent = engine!.agentOf(selected.phase);
+    instructions.fresh_session_instructions = { ...instructions.fresh_session_instructions, command: nextAgent === "codex" ? codexCommand(cwd) : claudeCommand(cwd) };
+  }
+  if (available && choiceMoved) {
+    available = false;
+    reason = `This activity hasn't started, and its model choice is no longer the one this conversation ran on, so it isn't reopened. Start a fresh ${AGENT_NAMES[engine.agentOf(selected.phase)]} session with the instructions below.`;
+  }
   const argv = session.agentId === "codex" ? ["codex", "resume", provider!, "--model", session.model, ...(session.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(session.effort)}`] : [])] : ["claude", "--resume", provider!];
   return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { session_id: session.sessionId, provider_session_id: provider ?? null, agent: session.agentId ?? "claude_code", phase_key: selected.phase,
     takeover: heldSession ? hold : null, terminal_readiness: requiresRelease ? { ready: available, observed_at: heldSession ? hold.observedAt : view?.liveControl?.observedAt ?? null, reason } : null,
     working_directory: cwd, resumable: available, reason, active_under_kiln: owned,
     provider_history: { state: available ? "available" : owned ? "unknown" : "unavailable", observed_at: new Date().toISOString(), reason },
     resume_command: available ? currentStop?.resumeCommand ?? (session.agentId === "codex" ? codexResumeCommand(cwd, session) : resumeCommand(cwd, session.sessionId)) : null,
-    resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, instructions_availability: { state: instructionReason ? "unavailable" : "available", reason: instructionReason, continuation: instructions.continuation_prompt ? "available" : instructionsRecorded ? "not_required" : "unavailable" }, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: requiresRelease && !available && !heldFresh ? null : instructions.fresh_session_instructions } }, [...history.errors, ...(instructionReason ? [errorFact("state_unavailable", instructionReason)] : []), ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
+    resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, instructions_availability: { state: instructionReason ? "unavailable" : "available", reason: instructionReason, continuation: instructions.continuation_prompt ? "available" : instructionsRecorded ? "not_required" : "unavailable" }, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: requiresRelease && !available && !heldFresh && !choiceMoved ? null : instructions.fresh_session_instructions } }, [...history.errors, ...(instructionReason ? [errorFact("state_unavailable", instructionReason)] : []), ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
   } finally { history.dispose(); }
 }
+/** The agent of the activity status reports, from the controller. */
+function view0AgentId(engine: Engine | undefined): string | null { return engine ? engine.inUseAgent(undefined) ?? null : null; }
 /** An epoch is response identity, never a mutation authorization in this read-only release. */
 export const instanceEpoch = () => randomUUID();
 export const recordRevision = (record: SavedWork["record"]) => createHash("sha256").update(JSON.stringify(record)).digest("hex");

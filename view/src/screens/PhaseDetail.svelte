@@ -29,6 +29,7 @@
   import { routedClick } from "../lib/router.svelte.js";
   import { clockTime, elapsed, timingText } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
+  import { inUseAgent } from "../lib/agents.js";
 
   let { snapshot, phaseId, connected, now, lastSeenAt }: { snapshot: Snapshot; phaseId: string; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
   const { config, router } = viewContext();
@@ -89,7 +90,7 @@
       <h2>{isPreflight ? PREFLIGHT_HEADING : row?.title ?? ""}</h2>
       {#if paused}<Pill tone="strong-outline" icon="pause">Paused</Pill>{:else if pausing && connected}<Pill tone="amber-outline" icon="spinner" spin>Pausing</Pill>{:else if pausing}<Pill tone="amber-outline">Last known: Pausing</Pill>{:else if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done" && donePill?.warning}<Pill tone="amber-outline" icon="warning">{donePill.text}</Pill>{#if row.waivedChecks}<WaivedStatus {row} />{/if}{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">{donePill?.text ?? (row.waivedChecks ? "Complete" : "Done")}</Pill>{#if row.waivedChecks || row.warnings?.length}<WaivedStatus {row} />{/if}{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
-    <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span>{#if loopLabel}<span class="dot" aria-hidden="true">·</span><span class="loop">{loopLabel}</span>{/if}<span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? snapshot.settings.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
+    <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span>{#if loopLabel}<span class="dot" aria-hidden="true">·</span><span class="loop">{loopLabel}</span>{/if}<span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? row?.model?.choice?.agent ?? inUseAgent(snapshot)?.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
   </section>
   {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={live && !stopped} total={session.total} {now} executionId={row?.executionId} />{/key}
   {#if mergeRunning}<section class="card"><p>{MERGE_LIVE_REASON}</p></section>{/if}

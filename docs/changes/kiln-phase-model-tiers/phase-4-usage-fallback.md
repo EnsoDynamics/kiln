@@ -20,3 +20,8 @@ Nothing beyond the PRD's own Out of Scope.
 ## Phase-specific notes
 - Real-session proof from Delivery owned here: a launch decided for the fallback starts and reports there, with the usage reading supplied at the reader's boundary; the evidence states that no live reading at the threshold was taken.
 - The guide covers every phase's work: where the tier comes from, Change and Model defaults in the browser and from a terminal, and the fallback.
+
+## Carried forward from Phase 2
+- **Where the decision goes.** Every launch of a not-started activity reaches `launchSession`, which takes its choice from `launchChoice(key)`; Kiln's own resume, the person's Resume or reply and the end of a wait reach it through `launchFresh`. The launch decision belongs immediately before the existing launch checks in `launchReadiness`, and must save its result on the session (`launch`) before the process starts.
+- **What already exists for it.** `fallbackOf(key)` (none on the same agent), `countedFor(limit, model)` for Claude Code's model-scoped windows, `agents[].account.limits[].overThreshold`, `kiln account`'s `over_threshold` and `fallback`, and the activity's one-attempt record (`activityUsageRelease`, `automaticAttempt` in `runCodexSession`), which already bounds an automatic Codex launch ending a wait whichever choice it is on. A wait's handlers (`claudeReadingForOtherChoice`, `codexReadingBeforeStart`) watch `waitAgent(key)`, the current choice's agent; the fallback row of "A Wait Before the Start" adds the decision there. A fallback-only Claude Code with an unapproved metered route leaves Start available today; the decision must not use it until approved.
+

@@ -310,7 +310,7 @@ describe("the press from the page (AC-MERGE-02)", () => {
       f.configureEnvironment(h!.env);
       f.set({ dynamicRecord: true, stateDirectory: h!.stateDirectory });
       h!.engine.record.settings.modelChoices.kept = { ...CODEX_CHOICE };
-      h!.reopen(); await h!.engine.agents.refresh();
+      h!.reopen(); await h!.engine.refreshAgents();
       expect(h!.engine.selectionError).toBeUndefined();
       await h!.engine.checkCompletedPlan();
       expect(await control("merge")).toMatchObject({ state: "completed", outcome: "merge_started" });

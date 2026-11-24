@@ -18,7 +18,7 @@ async function setup() {
   h = await createHarness({ sessions: [] }); const fixture = installCodexMetadataFixture(h.sandbox);
   const record = h.engine.record; const paths = h.engine.paths; h.engine.close();
   h.engine = new Engine({ paths, record, tools: { ...h.tools, codex: fixture.executable }, env: fixture.env, stateDirectory: h.stateDirectory });
-  await h.engine.agents.refresh();
+  await h.engine.refreshAgents();
   return fixture;
 }
 describe("agent selection before work", () => {
@@ -31,8 +31,8 @@ describe("agent selection before work", () => {
     writeFileSync(accountPath, JSON.stringify({ loggedIn: true, email: "new-account@example.com", subscriptionType: "team" }));
     h.env.KILN_STANDIN_MODELS = modelsPath; h.env.KILN_STANDIN_ACCOUNT = accountPath;
     await h.engine.claude!.refreshAccount();
-    await waitFor(() => !h.engine.agents.state.pending && h.engine.agents.state.account?.email === "new-account@example.com");
-    expect(h.engine.agents.state.models?.map(m => m.value)).toEqual(["sonnet"]);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && h.engine.readers.claude_code.state.account?.email === "new-account@example.com");
+    expect(h.engine.readers.claude_code.state.models?.map(m => m.value)).toEqual(["sonnet"]);
     expect(h.engine.record.settings.modelChoices).toEqual({ phases: {} });
     expect(h.engine.selectionError).toMatch(/opus/i);
     expect(h.claudeCalls()).toEqual([]);
@@ -66,7 +66,7 @@ describe("agent selection before work", () => {
     writeModelDefaults(h.env, { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "medium" } } });
     await waitFor(() => h.engine.notStartedChoice("2b").model === "sonnet");
     await page.evaluate(`([...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Refresh agent information')).click()`);
-    await waitFor(() => !h.engine.agents.state.pending);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending);
     // Refresh now includes the independent billing reading; wait for the real control to unlock.
     await page.waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Check again' && !b.disabled)`);
     await page.evaluate(`([...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Check again')).click()`);
@@ -83,7 +83,7 @@ describe("agent selection before work", () => {
   it("refuses Start for a Codex choice the account doesn't offer, and keeps a second PRD independent", async () => {
     const fixture = await setup();
     await runPrdOn(h.engine);
-    expect(h.engine.agents.state.agentId).toBe("codex");
+    expect(h.engine.agentOf("1")).toBe("codex");
     expect(h.engine.selectionError).toBeUndefined();
     // AC-AGENT-03 now permits integrated Codex work. Invalid choices still allocate no session.
     await runPrdOn(h.engine, { agentId: "codex", model: "retired-sol", effort: "low" });
@@ -95,30 +95,30 @@ describe("agent selection before work", () => {
   });
   it("excludes late provider reads and preserves invalid saved settings through metadata failure", async () => {
     const fixture = await setup(); fixture.set({ delayMs: 150 });
-    await runPrdOn(h.engine, CODEX_CHOICE, false); const oldRead = h.engine.agents.refresh();
+    await runPrdOn(h.engine, CODEX_CHOICE, false); const oldRead = h.engine.refreshAgents();
     await runPrdOn(h.engine, { agentId: "claude_code", model: "opus", effort: "medium" }); await oldRead;
-    expect(buildSnapshot(h.engine).account?.email).toBe("alex@acme-shop.dev");
-    expect(buildSnapshot(h.engine).models?.some(m => m.value.startsWith("gpt"))).toBe(false);
+    expect(buildSnapshot(h.engine).agents.find(entry => entry.inUse)?.account?.email).toBe("alex@acme-shop.dev");
+    expect(buildSnapshot(h.engine).agents.find(entry => entry.inUse)?.models?.some(m => m.value.startsWith("gpt"))).toBe(false);
     fixture.set({}); await runPrdOn(h.engine);
     await runPrdOn(h.engine, { agentId: "codex", model: "retired-sol", effort: "ultra" }); expect(h.engine.selectionError).toContain("retired-sol");
-    fixture.set({ modelsError: true }); await h.engine.agents.refresh();
-    expect(buildSnapshot(h.engine).models).toBeUndefined();
+    fixture.set({ modelsError: true }); await h.engine.refreshAgents();
+    expect(buildSnapshot(h.engine).agents.find(entry => entry.inUse)?.models).toBeUndefined();
     expect(h.engine.record.settings.modelChoices.kept).toEqual({ agentId: "codex", model: "retired-sol", effort: "ultra" });
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409 });
     expect(h.claudeCalls()).toEqual([]);
   });
   it("never carries former or contradictory account allowances into a new Codex reading", async () => {
     const fixture = await setup(); await runPrdOn(h.engine);
-    expect(h.engine.agents.state.account?.limits[0]?.percent).toBe(82);
-    fixture.set({ accountId: "new-account", email: "new-account@example.test", usageError: true }); await h.engine.agents.refresh();
-    expect(h.engine.agents.state.account).toMatchObject({ email: "new-account@example.test", routingAccountId: "new-account", limits: [], limitsError: expect.stringContaining("unknown") });
-    expect(h.engine.agents.state.account?.stale).toBeUndefined();
+    expect(h.engine.readers.codex.state.account?.limits[0]?.percent).toBe(82);
+    fixture.set({ accountId: "new-account", email: "new-account@example.test", usageError: true }); await h.engine.refreshAgents();
+    expect(h.engine.readers.codex.state.account).toMatchObject({ email: "new-account@example.test", routingAccountId: "new-account", limits: [], limitsError: expect.stringContaining("unknown") });
+    expect(h.engine.readers.codex.state.account?.stale).toBeUndefined();
     expect(h.engine.selectionError).toBeUndefined(); // Missing usage alone never blocks metadata readiness.
-    fixture.set({}); await h.engine.agents.refresh();
-    fixture.set({ routingAccountId: "different-context" }); await h.engine.agents.refresh();
-    expect(h.engine.agents.state.account).toMatchObject({ routingAccountId: "different-context", limits: [], limitsError: expect.stringContaining("changed") });
-    expect(h.engine.agents.state.account?.accountId).toBeUndefined(); // Uncorroborated usage identity is not current authentication.
-    expect(h.engine.agents.state.account?.stale).toBeUndefined();
+    fixture.set({}); await h.engine.refreshAgents();
+    fixture.set({ routingAccountId: "different-context" }); await h.engine.refreshAgents();
+    expect(h.engine.readers.codex.state.account).toMatchObject({ routingAccountId: "different-context", limits: [], limitsError: expect.stringContaining("changed") });
+    expect(h.engine.readers.codex.state.account?.accountId).toBeUndefined(); // Uncorroborated usage identity is not current authentication.
+    expect(h.engine.readers.codex.state.account?.stale).toBeUndefined();
     expect(h.engine.selectionError).toBeUndefined();
     expect(fixture.calls().every(c => !/^(thread|turn)\//.test(c.method))).toBe(true);
   });
@@ -130,8 +130,8 @@ describe("agent selection before work", () => {
     server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
     chrome = await launchChrome(); const page = await chrome.open(server.address, { timeZone: "America/New_York" });
     await page.waitFor(`document.body.textContent.includes('fixture@example.test')`);
-    const successfulAt = h.engine.agents.state.account!.limitsObservedAt!;
-    const identityAt = h.engine.agents.state.account!.updatedAt;
+    const successfulAt = h.engine.readers.codex.state.account!.limitsObservedAt!;
+    const identityAt = h.engine.readers.codex.state.account!.updatedAt;
     const successfulText = await page.evaluate<string>(`document.body.textContent`);
     expect(successfulText).toContain("fixture@example.test"); expect(successfulText).toContain("pro");
     expect(successfulText).toContain("codex · primary"); expect(successfulText).toContain("codex · secondary");
@@ -145,12 +145,12 @@ describe("agent selection before work", () => {
     expect(h.engine.record.startedAt).toBeUndefined();
     expect(h.claudeCalls()).toEqual([]);
 
-    fixture.set({ usageError: true }); await h.engine.agents.refresh();
+    fixture.set({ usageError: true }); await h.engine.refreshAgents();
     await page.waitFor(`document.body.textContent.includes('Stale usage reading')`);
     expect(await page.evaluate<string>(`document.body.textContent`)).toContain("82%");
-    expect(h.engine.agents.state.account!.limitsObservedAt).toBe(successfulAt);
-    expect(Date.parse(h.engine.agents.state.account!.updatedAt)).toBeGreaterThan(Date.parse(identityAt));
-    expect(h.engine.agents.state.account!.stale).toBeUndefined();
+    expect(h.engine.readers.codex.state.account!.limitsObservedAt).toBe(successfulAt);
+    expect(Date.parse(h.engine.readers.codex.state.account!.updatedAt)).toBeGreaterThan(Date.parse(identityAt));
+    expect(h.engine.readers.codex.state.account!.stale).toBeUndefined();
     const retainedTimestamp = await page.evaluate<string>(`new Date(${JSON.stringify(successfulAt)}).toLocaleString()`);
     expect(await page.evaluate<string>(`document.body.textContent`)).toContain(`Stale usage reading · last successful usage update ${retainedTimestamp}`);
     if (process.env.KILN_SCREENSHOTS) writeFileSync(`${process.env.KILN_SCREENSHOTS}/codex-agent-selection.png`, await page.screenshot());

@@ -279,9 +279,9 @@ describe("a delivery of several pull requests and the merge's other faces (AC-ME
     expect(header(both)).toContain("Merged");
   });
 
-  it("names the run's agent on the press: Merge with Codex", () => {
+  it("names the merge session's agent on the press: Merge with Codex", () => {
     const snapshot = finished({ offer: { kind: "offered", available: true, note: NOTE.replace("Merge with Claude Code", "Merge with Codex") } });
-    snapshot.settings = { ...snapshot.settings, agent: "Codex" };
+    snapshot.agents = [{ agentId: "codex", agent: "Codex", installed: true, pending: false, inUse: true, neededBy: { activities: ["merge"], fallbackOnly: false } }];
     const markup = render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body;
     expect(markup).toContain(">Merge with Codex</button>");
     expect(markup).not.toContain("Merge with Claude Code");

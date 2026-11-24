@@ -429,8 +429,9 @@ export interface NeedsYouCopy {
   notePlaceholder: string;
 }
 
-export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false, developmentDelivery = false): NeedsYouCopy {
-  const copy = stopCopy(stop, settings, now, multiRepository, developmentDelivery);
+/** `agent` is the activity's own agent (AC-AGENTS-04), for a stop whose session identity names none. */
+export function needsYouCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository = false, developmentDelivery = false, agent = "Claude Code"): NeedsYouCopy {
+  const copy = stopCopy(stop, settings, now, multiRepository, developmentDelivery, agent);
   if (stop.rowsAreCompletionChecks) return activityKeyKind(stop.phaseId) === "merge" || activityKeyKind(stop.phaseId) === "plan_push" ? copy : { ...copy, sideHeading: "Completion checks" };
   // Rows saved at the stop read Why Kiln stopped, and wording that calls them the completion checks waits until they are (AC-STOPCHECK-01).
   const rowsAsChecks = new Set(["This is the same check Kiln runs after every phase. Later phases wait until it passes.", "This is the check Kiln runs after the pull-request session.", "These are the current delivery finalization checks."]);
@@ -447,7 +448,8 @@ export function activityInSentence(id: string, snapshot: Snapshot): string {
   return namedActivity(id) ? phaseName(id, snapshot) : id === PR_ID ? "final delivery" : `Phase ${id}`;
 }
 
-function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository: boolean, developmentDelivery: boolean): NeedsYouCopy {
+function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, multiRepository: boolean, developmentDelivery: boolean, activityAgent: string): NeedsYouCopy {
+  const by = (stop.agent ?? activityAgent) === "Claude Code" ? "Claude" : stop.agent ?? activityAgent;
   const isPr = stop.phaseId === PR_ID;
   const name = activityKeyKind(stop.phaseId) === "audit" ? "This audit" : activityKeyKind(stop.phaseId) === "preflight" ? "The preflight" : capitalized(phaseName(stop.phaseId));
   const copy: NeedsYouCopy = {
@@ -456,7 +458,7 @@ function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, mul
     showFacts: true,
     firstStep: "resume",
     freshLink: true,
-    finishTitle: isPr && developmentDelivery ? "Finish the remaining delivery and review work" : isPr ? `Open the pull request with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would` : `Finish the phase with ${(stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent}, the way you normally would`,
+    finishTitle: isPr && developmentDelivery ? "Finish the remaining delivery and review work" : isPr ? `Open the pull request with ${by}, the way you normally would` : `Finish the phase with ${by}, the way you normally would`,
     finishText: developmentDelivery ? "Use the saved target authority and current checks on the right. Confirm required merge, deployment and artifact verification evidence; finalization accounts for every repository’s delivered and remaining review work." : isPr
       ? multiRepository
         ? `Each changed repository needs a ready pull request from ${settings.featureBranch} into its intended base, or proof that its current feature commit is already merged into that base.`
@@ -479,13 +481,12 @@ function stopCopy(stop: NeedsYou, settings: Snapshot["settings"], now: Date, mul
   // A stopped merge session (Kiln After Delivery AC-MERGE-06, mockup state 4): GitHub decides, and nothing starts a fresh merge session.
   if (activityKeyKind(stop.phaseId) === "merge" && stop.kind !== "selection" && stop.kind !== "billing") {
     const closed = stop.checks.filter(check => !check.passed && check.facts.some(fact => fact.includes("was closed on GitHub without merging")));
-    const agent = (stop.agent ?? settings.agent) === "Claude Code" ? "Claude" : stop.agent ?? settings.agent;
     return {
       ...copy,
       headline: "The merge session stopped before merging.",
       line: closed.length ? closed.flatMap(check => check.facts).join(" ") : `${multiRepository ? "The pull requests not yet merged are" : "The pull request is"} unchanged on GitHub.`,
       freshLink: false,
-      finishTitle: `Merge with ${agent}, the way you normally would`,
+      finishTitle: `Merge with ${by}, the way you normally would`,
       finishText: "GitHub decides: once every pull request shows merged into its base branch, the merge is done.",
       checkAgainText: "Kiln reads each pull request on GitHub. Once every one shows merged, Kiln shows Merged and checks for new phases.",
       sideHeading: "Kiln shows Merged when",

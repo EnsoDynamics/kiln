@@ -109,7 +109,7 @@ const hanging = (started: string): ScenarioSession => ({ actions: [{ touch: star
 /** The next `kiln run`: a new engine over the record on disk, prepared and judged, with the restart review. */
 async function kilnRun(): Promise<Awaited<ReturnType<Engine["decide"]>>> {
   h!.engine = h!.reopenFromDisk();
-  await h!.engine.agents.refresh();
+  await h!.engine.refreshAgents();
   expect(await h!.engine.prepare()).toEqual({ ok: true });
   const decision = await h!.engine.decide({ review: true });
   await h!.engine.continue();

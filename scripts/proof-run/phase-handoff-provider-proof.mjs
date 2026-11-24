@@ -67,7 +67,7 @@ const engine = new Engine({ paths, tools: { git: 'git', gh: 'gh', claude: 'claud
 let server;
 try {
   assert.equal((await engine.prepare()).ok, true);
-  for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+  for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
   // The operating system assigns the port, so this proof can't collide with another listener (AC-CI-01).
   server = await startLocalServer({ engine, port: 0, folderName: 'handoff-proof', featureName: 'Handoff proof', token: record.token });
   server.proofOrigin = new URL(server.address).origin;

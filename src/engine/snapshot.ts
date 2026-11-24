@@ -13,7 +13,8 @@ import type { WorkSnapshot } from "../audit/contracts.js";
 import { simpleCommands } from "../session/bash-command.js";
 import { DELIVERY_CHECK, deliveryEnabled, finishedBy } from "./development-delivery.js";
 import { sameOwner, type DevelopmentSettings } from "../state/development-delivery.js";
-import { AGENT_NAMES, type AgentId } from "../state/records.js";
+import { AGENT_IDS, AGENT_NAMES, type AgentId } from "../state/records.js";
+import { readModelDefaults } from "../models/model-defaults.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { readSessionRecord } from "../state/records.js";
 import type { ModelView, TierView } from "./activity-models.js";
@@ -47,7 +48,7 @@ import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
-import { sessionChoice, tierView } from "./activity-models.js";
+import { PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
 import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
 export const PR_TITLE = "Final pull request";
@@ -327,7 +328,12 @@ export interface Snapshot {
   continuation?: { preparation?: ReturnType<Engine["preparationStatus"]>; acceptance?: ReturnType<Engine["continuationAcceptance"]>; executions?: Omit<import("./continuation-state.js").ExecutionSummary, "archiveId">[]; check?: import("./completed-plan-discovery.js").CompletedPlanCheck; handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
   controlToken?: string;
   unsentReplies?: { id: string; text: string }[];
-  billing?: BillingView;
+  /**
+   * One entry per installed agent, plus one per needed agent that isn't installed (Kiln Phase Model
+   * Tiers, "Snapshot"): models for every installed one; readiness, account and billing for each
+   * needed one; the current activity's agent marked as in use.
+   */
+  agents: AgentView[];
   activities?: PhaseView[];
   /** A preflight the next Start, Continue or Resume would run, or one due and not yet allocated (build preflight "Interfaces"). */
   preflight?: { planned?: { before: string; model?: ModelView } };
@@ -366,16 +372,12 @@ export interface Snapshot {
   reset?: { available: boolean; reason?: string };
   settings: {
     developmentDeployments?: DevelopmentSettings;
-    /** The agent the run reads now (until each agent has its own reader). */
-    agent: string;
-    agentId?: AgentId;
-    metadataPending?: boolean;
-    readinessErrors?: string[];
-    modelListError?: string;
     /** Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01): the phases carrying each tier, closed or not. */
     models: { tiers: { demanding: number; standard: number; mechanical: number; notRated: number };
-      /** Why Start is unavailable for the models: a choice that can't be used, or a plan on two agents (AC-PICK-06). */
-      problem?: string };
+      /** Why Start is unavailable for the models: an agent an activity needs isn't ready, or a choice can't be used (AC-AGENTS-01, AC-PICK-06). */
+      problem?: string;
+      /** The fallback switch, and the warning for an agent only a fallback names that isn't ready (AC-AGENTS-01). */
+      fallback: { enabled: boolean; threshold: number; warning?: { agent: string; agentId: AgentId; problem: string; remedy: string } } };
     keepAwake: boolean;
     keepAwakeError?: string;
     /** Usage-limit recovery AC-AUTO-04. */
@@ -393,8 +395,6 @@ export interface Snapshot {
   };
   /** The PRD's repositories in list order: the PRD's repository, named, then added. */
   repositories: RepositoryRow[];
-  /** The Model list's entries, once Claude Code's list has loaded (Startup order). */
-  models?: { value: string; displayName: string }[];
   phases: PhaseView[];
   /** Every saved waiver, oldest first (AC-WAIVE-08), for the tags and the delivery panel. */
   waivers?: WaiverView[];
@@ -448,6 +448,8 @@ export interface Snapshot {
     checking?: true;
     /** Resume, with its note, is offered (usage-limit recovery AC-RESUME-01). */
     resumeOffered: boolean;
+    /** The activity hasn't started: Resume and a reply launch a new session on its current choice, not the same conversation (AC-PICK-07). */
+    newSession?: true;
     resumeCommand?: string;
     /** Send in the reopened conversation before working, so older instructions receive current authority. */
     resumePrompt?: string;
@@ -516,6 +518,8 @@ export interface Snapshot {
    */
   waiting?: SessionIdentityView & {
     phaseId: string;
+    /** The activity hasn't started: the end of the wait launches a new session on its current choice (AC-PICK-07). */
+    newSession?: true;
     since: string;
     limit: LimitView;
     sessionId: string;
@@ -537,8 +541,6 @@ export interface Snapshot {
   };
   pause: { pending: boolean; active: boolean };
   restartReview?: { activityKey: string; action: "start" | "resume" | "wait" };
-  /** The signed-in account and its usage, once the first calls return (Startup order). */
-  account?: AgentAccount;
   /** Every pull request, in list order, once the PRD is complete (multi-repo AC-PRS-03). */
   pullRequests?: PullRequestFacts[];
   mergedBranches?: MergedBranchFacts[];
@@ -595,7 +597,6 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
   const waiting = state === "waiting" ? waitingView(engine, waitingKey!) : undefined;
   const current = state === "implementing" ? currentView(engine, reads) : undefined;
   const settings = record.settings;
-  const metadata = engine.agents.state;
 
   const views = phaseViews(engine, state, includeTiming);
   const snapshot: Snapshot = {
@@ -636,12 +637,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...(stoppedKey !== undefined || deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),
-      agent: AGENT_NAMES[metadata.agentId],
-      agentId: metadata.agentId,
-      metadataPending: metadata.pending,
-      readinessErrors: metadata.blockers,
-      ...optional("modelListError", metadata.modelListError),
-      models: { tiers: tierCounts(engine), ...(state === "not_started" ? optional("problem", engine.modelsProblem) : {}) },
+      models: { tiers: tierCounts(engine), ...(state === "not_started" ? optional("problem", engine.modelsProblem) : {}), fallback: fallbackSettings(engine) },
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
       resumeAfterUsageLimit: settings.resumeAfterUsageLimit,
@@ -658,13 +654,11 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       fieldErrors: engine.currentFieldErrors,
     },
     repositories: repositoryRows(engine, state),
-    ...optional("models", metadata.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
     phases: views,
     ...(record.waivers?.length ? { waivers: record.waivers.map(waiver => waiverView(engine, waiver)) } : {}),
     ...optional("restartReview", engine.restartReview),
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
-    ...optional("account", metadata.account),
-    billing: metadata.agentId === "claude_code" ? engine.billing.view : codexBillingView(metadata, record.executionId!, record.billing?.lastLaunch?.codex),
+    agents: agentViews(engine, needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
     ...optional("pullRequests", record.pullRequests),
     ...optional("mergedBranches", record.mergedBranches),
     ...optional("deliveryHistory", record.deliveryHistory),
@@ -771,7 +765,7 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
   if (!session) {
     // Until its session exists, the card takes the row's choice (Kiln Phase Model Tiers, "Snapshot").
     const choice = engine.activityModel(current.phaseKey, { finished: false }).choice;
-    return { phaseId: current.phaseKey, ...tier, ...optional("choice", choice), model: choice?.modelName ?? "", ...optional("effort", choice?.effort), steps: engine.auditActivity(current.phaseKey) || isPreflightKey(current.phaseKey) ? [] : stepStates([], choice?.agentId ?? engine.agents.state.agentId), repositories: [] };
+    return { phaseId: current.phaseKey, ...tier, ...optional("choice", choice), model: choice?.modelName ?? "", ...optional("effort", choice?.effort), steps: engine.auditActivity(current.phaseKey) || isPreflightKey(current.phaseKey) ? [] : stepStates([], choice?.agentId ?? engine.agentOf(current.phaseKey)), repositories: [] };
   }
   const followUp = session.runs.some((run, index) => run.cause === "person_resume" && (run.note !== undefined || session.runs[index - 1]?.limitRefusal === undefined));
   const steps = sessionSteps(engine, current.phaseKey, session).map(step => followUp && step.state === "current" ? { ...step, state: "observed" as const } : step);
@@ -844,6 +838,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(phaseRecovery ? { phaseRecovery, ...optional("checkedAt", retainedStop?.checkedAt) } : { checkedAt: stop.checkedAt }),
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
+    ...(engine.launchesNewSession(phaseKey) ? { newSession: true as const } : {}),
     ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
     // A bookkeeping stop has no session to restart or carry on: the work is done.
     ...(bookkeeping ? { bookkeeping } : restartFacts(engine, phaseKey, checkRun)),
@@ -880,8 +875,11 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
           })
         : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran);
 
-  const prompts = (ran: boolean) => session?.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(originalPrompts(ran), session.codex.launchIntent.skills) : originalPrompts(ran);
-  const freshSessionCommand = (session?.agentId ?? engine.agentOf(phaseKey)) === "codex" ? codexCommand(folder) : claudeCommand(folder);
+  // The fresh-session command and its prompt name the agent the activity's next session runs on:
+  // what it started on, or for one that hasn't started its current choice (Kiln Phase Model Tiers AC-PICK-07).
+  const nextAgent = engine.agentOf(phaseKey);
+  const prompts = (ran: boolean) => nextAgent === "codex" && session?.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(originalPrompts(ran), session.codex.launchIntent.skills) : originalPrompts(ran);
+  const freshSessionCommand = nextAgent === "codex" ? codexCommand(folder) : claudeCommand(folder);
   if (!session) return { ...base, stoppedAt: stop.at, freshSessionPrompt: prompts(false), freshSessionCommand };
 
   const run = session.runs.at(-1);
@@ -933,7 +931,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const messageRun = engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : run;
   const finalMessage = interrupted === undefined && messageRun?.result?.text?.trim() ? messageRun.result.text : undefined;
   // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
-  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released" || record.liveControl.takeover.kind !== "delivery_recovery" && record.liveControl.takeover.releasedAt !== undefined);
+  // For an activity that hasn't started, only while its current choice is the one that session ran on (AC-PICK-07).
+  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenMatchesChoice(phaseKey, recovery!) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released" || record.liveControl.takeover.kind !== "delivery_recovery" && record.liveControl.takeover.releasedAt !== undefined);
   // A held Pause now keeps its command from the release on, whatever later readings find (Kiln Pause Now, "The Paused Page").
   const resumeFolder = engine.workingDirectoryOf(recovery!);
   return {
@@ -1061,6 +1060,7 @@ function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
   return {
     phaseId: judgedKeyFor(engine.record.plan ?? [], phaseKey),
     ...(session ? sessionIdentity(session) : {}),
+    ...(engine.launchesNewSession(phaseKey) ? { newSession: true as const } : {}),
     since: wait.since,
     limit: limitView(engine, phaseKey, undefined, true),
     sessionId: wait.sessionId,
@@ -1092,12 +1092,13 @@ function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined
   const label = stop?.label ?? refusal?.label ?? "A usage limit";
   const resetsAt = refusal?.resetsAt ?? stop?.resetsAt;
   const view: LimitView = { label, ...optional("resetsAt", resetsAt), resetPassed: resetsAt !== undefined && now >= Date.parse(resetsAt) };
-  if (found?.session.agentId === "codex") {
+  // The account the wait watches: a started activity's refused one; one that hasn't started, its current choice's (AC-AGENTS-04).
+  if (found && engine.waitAgent(phaseKey) === "codex") {
     view.agentId = "codex";
     view.allowancesObservation = { observedAt: null, state: "unavailable", reason: "No dated Codex usage reading is available after the refusal." };
-    const release = found.session.codex?.usageRecovery?.release;
+    const release = (found.session.agentId === "codex" && engine.startedSessionOf(phaseKey) ? found.session.codex?.usageRecovery : engine.record.phases[phaseKey]?.codexUsageRecovery ?? found.session.codex?.usageRecovery)?.release;
     if (release) view.recovery = { state: release.state, reason: release.reason };
-    const current = engine.agents.state.account;
+    const current = engine.readers.codex.state.account;
     if (current && Date.parse(current.startedAt) >= Date.parse(refusal!.at)) {
       view.account = { ...optional("email", current.email), ...optional("plan", current.plan), ...optional("error", current.error ?? current.limitsError), at: current.updatedAt };
       const usageAt = current.limitsObservedAt;
@@ -1733,10 +1734,6 @@ function rowModel(engine: Engine, key: string, finished: boolean): ModelView {
   return engine.activityModel(key, { finished, liveSession: live });
 }
 
-/** The key a planned row resolves its choice under: an audit key with no facts, so the Audits choice (AC-OTHER-01). */
-const PLANNED_AUDITS_KEY = "audit-planned";
-/** The key the planned Preflight row resolves its choice under: a preflight key with no facts. */
-const PLANNED_PREFLIGHT_KEY = "preflight-planned";
 
 /**
  * The planned rows (Kiln Phase Model Tiers, "Planned rows"): in a run underway, after the last
@@ -1765,7 +1762,7 @@ function plannedRows(engine: Engine, state: FeatureState, rows: PhaseView[]): Ph
  */
 function preflightPlanned(engine: Engine, state: FeatureState, documents?: DocumentsFound): Pick<Snapshot, "preflight"> {
   const { record } = engine;
-  if (!engine.agents.state.optionalSkills?.buildPreflight) return {};
+  if (!engine.readers[engine.auditsAgent].state.optionalSkills?.buildPreflight) return {};
   const unallocated = !record.preflight?.activities.some(activity => !record.phases[preflightKeyOf(activity)]?.doneAt);
   const due = !!record.preflight?.due && unallocated;
   const nextStart = state === "not_started"
@@ -1858,4 +1855,63 @@ function personItemFields(engine: Engine, store?: Pick<AuditStore, "read">): Pic
     const delivered = forYou && { loops: closingAudits(engine.record), forYou, pullRequests: (engine.record.pullRequests ?? []).map(pull => ({ repository: pull.repository, number: pull.number, url: pull.url })) };
     return { ...(items?.length ? { items } : {}), ...(delivered ? { delivered } : {}) };
   } catch (error) { if (store) throw error; return {}; }
+}
+
+/** A needed agent's entry in `Snapshot.agents` (Kiln Phase Model Tiers, "Snapshot"). */
+export interface AgentView {
+  agentId: AgentId;
+  agent: string;
+  installed: boolean;
+  pending: boolean;
+  /** The agent the current activity runs on, or else the next one's (AC-AGENTS-03). */
+  inUse?: true;
+  readinessErrors?: string[];
+  neededBy: { activities: string[]; fallbackOnly: boolean };
+  models?: { value: string; displayName: string }[];
+  modelListError?: string;
+  /** Today's account view, the one the current activity runs on marked in use, and each limit at or above the fallback's threshold marked. */
+  account?: AgentAccount & { inUse?: true; limits: (AgentAccount["limits"][number] & { overThreshold?: true })[] };
+  billing?: BillingView;
+}
+
+/** `settings.models.fallback`: the switch as Model defaults says now, and the fallback-only agent's warning. */
+function fallbackSettings(engine: Engine): Snapshot["settings"]["models"]["fallback"] {
+  const read = readModelDefaults(engine.modelDefaultsFile);
+  const fallback = read.ok ? read.defaults.fallback : { enabled: false, threshold: 95 };
+  const warning = fallback.enabled ? engine.fallbackWarning() : undefined;
+  return { enabled: fallback.enabled, threshold: fallback.threshold, ...(warning ? { warning } : {}) };
+}
+
+/**
+ * `Snapshot.agents` (AC-AGENTS-01 to 03): each installed agent with its model list; each needed one
+ * with its readiness, account and billing, the latter at that agent's own latest launch. The
+ * current activity's agent, or else the next one's, is in use.
+ */
+function agentViews(engine: Engine, currentKey: string | undefined): AgentView[] {
+  const needs = engine.neededBy();
+  const read = readModelDefaults(engine.modelDefaultsFile);
+  const threshold = read.ok && read.defaults.fallback.enabled ? read.defaults.fallback.threshold : undefined;
+  const inUse = engine.inUseAgent(currentKey);
+  const views: AgentView[] = [];
+  for (const agentId of AGENT_IDS) {
+    const need = needs[agentId];
+    const installed = engine.installed(agentId);
+    if (!installed && !need) continue;
+    const metadata = engine.readers[agentId].state;
+    const view: AgentView = { agentId, agent: AGENT_NAMES[agentId], installed, pending: installed && metadata.pending, ...(need && inUse === agentId ? { inUse: true as const } : {}), neededBy: need ?? { activities: [], fallbackOnly: false } };
+    if (installed) {
+      if (metadata.models) view.models = metadata.models.map(model => ({ value: model.value, displayName: model.displayName }));
+      if (metadata.modelListError) view.modelListError = metadata.modelListError;
+    }
+    if (need) {
+      const problem = installed ? metadata.blockers : [engine.agentProblem(agentId)!];
+      if (problem.length) view.readinessErrors = problem;
+      if (installed && metadata.account) {
+        view.account = { ...metadata.account, ...(inUse === agentId ? { inUse: true as const } : {}), limits: metadata.account.limits.map(limit => threshold !== undefined && limit.percent !== undefined && limit.percent >= threshold ? { ...limit, overThreshold: true as const } : limit) };
+      }
+      if (installed) view.billing = agentId === "claude_code" ? engine.billing.view : codexBillingView(metadata, engine.record.executionId!, engine.record.billing?.lastLaunch?.codex);
+    }
+    views.push(view);
+  }
+  return views;
 }

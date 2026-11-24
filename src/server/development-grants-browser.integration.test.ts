@@ -20,7 +20,7 @@ describe("current PRD targets and grant browser controls", () => {
     h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
     h.engine.close();
     engine = new Engine({ paths: h.engine.paths, record: h.engine.record, stateDirectory: h.stateDirectory, tools: h.tools, env: h.env, prdTree: git(h.sandbox, h.repository, "rev-parse", `HEAD:${h.engine.paths.prdDirectoryFromRoot}`).trim(), namedRepositories: named, originRetryMs: 0, sleepReader: { next: () => Promise.resolve([]) } });
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     const plan = readPlanAt(h.repository, engine.paths.prdDirectoryFromRoot); if (!plan.ok) throw new Error(plan.problem);
     const documents = documentsFound(join(h.repository, engine.paths.prdDirectoryFromRoot), "customer-returns", plan.plan, { designFile: "technical-design.md", phaseDocCount: 1, repositories: named }, "acme-shop");
     server = await startLocalServer({ engine, documents, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: engine.record.token });

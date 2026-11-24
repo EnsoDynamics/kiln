@@ -1,12 +1,13 @@
 <script lang="ts">
   import BusyStatus from "../components/BusyStatus.svelte";
-  import BillingPanel from "../components/BillingPanel.svelte";
+  import BillingPanels from "../components/BillingPanels.svelte";
   // Paused (docs/design/mockups/kiln-screen-paused.html): Kiln holds between phases until Start
   // (PRD AC-VIEW-03), with the next phase named, the account to switch before it (AC-WATCH-08),
   // and the settings to change first (AC-VIEW-08). Before the pull request it says "the pull
   // request" (technical design, "Paused before the pull request").
   import type { Snapshot } from "../../../src/engine/snapshot.js";
-  import AccountPanel from "../components/AccountPanel.svelte";
+  import AccountPanels from "../components/AccountPanels.svelte";
+  import { activityAgent, billingHolds } from "../lib/agents.js";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import Icon from "../components/Icon.svelte";
   import KilnPanel from "../components/KilnPanel.svelte";
@@ -24,6 +25,8 @@
   const next = $derived(snapshot.restartReview ? (snapshot.activities ?? snapshot.phases).find(row => row.id === snapshot.restartReview!.activityKey) : nextPhase(snapshot));
   const nextIsPr = $derived(next?.id === PR_ID);
   const nextName = $derived(next ? phaseName(next.id, snapshot) : "");
+  // Start launches the next activity on its own agent (Kiln Phase Model Tiers AC-AGENTS-04).
+  const nextAgent = $derived(activityAgent(snapshot, next?.id));
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
 
@@ -51,16 +54,16 @@
       </p>
       {#if reason}<span class="message">{reason}</span>{/if}
     </div>
-    <button type="button" class="button solid start" class:busy={pressing} aria-busy={pressing} disabled={!connected || pressing || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressStart}><Icon name="arrow" size={15} strokeWidth={1.8} />{snapshot.restartReview ? "Resume Kiln" : nextIsPr ? "Start the pull request" : `Start ${nextName}`}</button>
-    {#if pressing}<div class="busy-row"><BusyStatus text={`Launching ${snapshot.settings.agent} for ${snapshot.restartReview || !nextName ? "the next session" : nextIsPr ? "the pull request" : nextName}.`} /></div>{/if}
+    <button type="button" class="button solid start" class:busy={pressing} aria-busy={pressing} disabled={!connected || pressing || billingHolds(snapshot, nextAgent.agentId)} onclick={pressStart}><Icon name="arrow" size={15} strokeWidth={1.8} />{snapshot.restartReview ? "Resume Kiln" : nextIsPr ? "Start the pull request" : `Start ${nextName}`}</button>
+    {#if pressing}<div class="busy-row"><BusyStatus text={`Launching ${nextAgent.agent} for ${snapshot.restartReview || !nextName ? "the next session" : nextIsPr ? "the pull request" : nextName}.`} /></div>{/if}
   </section>
   <div class="columns-main">
     <div class="column-wide"><PhasePlan {snapshot} {connected} {now} /></div>
     <div class="column-side">
-      {#if connected && snapshot.account}<AccountPanel account={snapshot.account} paused {now} />{/if}
+      {#if connected}<AccountPanels {snapshot} paused {now} />{/if}
       <SettingsPanel {snapshot} {connected} />
       <KilnPanel {connected} text="Kiln is waiting in your terminal. Keep it open; Ctrl+C there closes Kiln, and kiln run picks up where it left off." />
-      <BillingPanel {snapshot} {connected} />
+      <BillingPanels {snapshot} {connected} />
     </div>
   </div>
 </main>

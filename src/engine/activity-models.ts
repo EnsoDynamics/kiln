@@ -9,6 +9,25 @@ import { AGENT_NAMES, PR_PHASE_KEY, type AgentId, type PrdRecord, type RecordedP
 import { isPhaseKey } from "../state/activity-keys.js";
 import { startingSession } from "../models/start-line.js";
 import { effectiveRecordedClosed } from "./waivers.js";
+import { requirement } from "../agents/tooling-minimums.js";
+
+/** The key a planned row resolves its choice under: an audit key with no facts, so the Audits choice (AC-OTHER-01). */
+export const PLANNED_AUDITS_KEY = "audit-planned";
+/** The key the planned Preflight row resolves its choice under: a preflight key with no facts. */
+export const PLANNED_PREFLIGHT_KEY = "preflight-planned";
+
+/** Why an agent is needed (Kiln Phase Model Tiers, "Agents"): the plan rows that run on it, and whether only a fallback names it. */
+export interface AgentNeed { activities: string[]; fallbackOnly: boolean }
+
+/** What a person does about an agent that isn't installed: today's Codex message, and Claude Code's. */
+export function installRemedy(agentId: AgentId): string {
+  return agentId === "codex" ? `Codex is not on PATH. Install ${requirement("codex")} and sign in with codex login.` : `Claude Code is not on PATH. Install ${requirement("claudeCode")} and sign in.`;
+}
+
+/** "Phase 1", "Phase 1 and the test audit", "Phase 1, Phase 2 and the test audit". */
+export function listWords(words: string[]): string {
+  return words.length <= 1 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
 
 /** What a phase row's tag says (AC-TIER-02). */
 export interface TierView { value: Tier | "not_rated"; reason?: string }
@@ -145,4 +164,17 @@ export function modelView(context: ModelContext, key: string, state: RowState): 
 /** Whether a phase row has finished, as its row shows it. */
 export function phaseFinished(record: PrdRecord, phase: RecordedPlanPhase, key: string | undefined): boolean {
   return !!(key && record.phases[key]?.doneAt) || effectiveRecordedClosed(record, phase);
+}
+
+/**
+ * Whether a usage window counts for the model about to run (AC-FALLBACK-02's counted limit, and a
+ * wait on a changed Claude Code choice): every window except one scoped to another model. Claude
+ * Code scopes a window by model name, which belongs to the model when it is one of the
+ * hyphen-separated parts of its ID.
+ *
+ *   countedFor({ scope: { by: "model", name: "Opus" } }, "claude-sonnet-5-5")  // false
+ */
+export function countedFor(limit: { scope?: { by: "model" | "surface"; name: string } | undefined }, model: string): boolean {
+  if (limit.scope?.by !== "model") return true;
+  return model.toLowerCase().split("-").includes(limit.scope.name.toLowerCase());
 }

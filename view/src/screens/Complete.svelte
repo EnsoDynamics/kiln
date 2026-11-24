@@ -28,6 +28,7 @@
   import StateHeader from "../components/StateHeader.svelte";
   import { deliveryGroups, deliveryTime } from "../lib/delivery-history.js";
   import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
+  import { agentsThatRan, mergeAgent as mergeAgentOf } from "../lib/agents.js";
 
   let { snapshot, connected, now, lastSeenAt, config }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined; config?: import("../lib/api.js").PageConfig } = $props();
   const multi = $derived(snapshot.feature.multiRepository);
@@ -75,6 +76,8 @@
   const readingOf = (pull: { repository: string; number: number }) => after?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number);
   const ordinal = (n: number) => ["first", "second", "third", "fourth", "fifth"][n - 1] ?? `${n}th`;
   const mergeRow = $derived((snapshot.activities ?? snapshot.phases).find(row => row.kind === "merge"));
+  // The merge session's own agent (Kiln Phase Model Tiers AC-AGENTS-04).
+  const mergeAgent = $derived(mergeAgentOf(snapshot));
   // Continue's push of the plan (Kiln After Delivery AC-BACK-05, mockup state 5): its session runs on the finished page.
   const planPush = $derived(after?.planPush && after.planPush.state !== "done" ? after.planPush : undefined);
   const pushRow = $derived(planPush ? (snapshot.activities ?? snapshot.phases).find(row => row.id === planPush.key) : undefined);
@@ -117,7 +120,7 @@
 {#snippet mergePart(url?: string)}
   {#if mergeOpen && mergeActivity}
     <div class="merge-session">
-      <p class="merge-line"><span class="eyebrow">Merge session</span> {snapshot.settings.agent}{mergeRow?.details?.model ? ` · ${mergeRow.details.model}` : ""}</p>
+      <p class="merge-line"><span class="eyebrow">Merge session</span> {mergeAgent}{mergeRow?.details?.model ? ` · ${mergeRow.details.model}` : ""}</p>
       {#if mergeActivity.startedAt}<p class="note">Started {clockTime(mergeActivity.startedAt, new Date(now), { afterWord: true })} in <span class="mono">{mergeActivity.folder}</span></p>{/if}
       {#if mergeActivity.state === "interrupted"}
         <div class="open"><button class="button solid" type="button" disabled={!connected || !config || resuming} onclick={pressResume}>{resuming ? "Resuming…" : "Resume"}</button></div>
@@ -137,7 +140,7 @@
     {#if panelShown && !planPush && checkInCard}<CompletedPlanCheck inCard {now} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   {:else if after?.offer.note}
     <div class="open">
-      <button class="button solid" type="button" disabled={!connected || !config || merging || !after.offer.available} title={after.offer.available ? undefined : after.offer.reason} onclick={pressMergeButton}>{merging ? "Starting…" : `Merge with ${snapshot.settings.agent}`}</button>
+      <button class="button solid" type="button" disabled={!connected || !config || merging || !after.offer.available} title={after.offer.available ? undefined : after.offer.reason} onclick={pressMergeButton}>{merging ? "Starting…" : `Merge with ${mergeAgent}`}</button>
       {#if url}<a class="button" href={url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>{/if}
     </div>
     <p class="note">{after.offer.note}</p>
@@ -283,7 +286,7 @@
       <section class="card" aria-labelledby="set-h">
         <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="sub">Set before the first phase.</span></div>
         <dl>
-          <div><dt>Agent</dt><dd class="value">{snapshot.settings.agent}</dd><dd class="help">Each phase’s Details show the model and effort it ran with.</dd></div>
+          <div><dt>Agent</dt><dd class="value">{agentsThatRan(snapshot)}</dd><dd class="help">Each phase’s Details show the model and effort it ran with.</dd></div>
           {#if multi}
             <div>
               <dt>Workspace folder</dt>

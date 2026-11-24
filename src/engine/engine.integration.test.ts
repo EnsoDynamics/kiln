@@ -621,7 +621,7 @@ describe("pausing between phases", () => {
     expect(h.claudeCalls()).toHaveLength(1);
     expect(buildSnapshot(reopened).feature.state).toBe("paused");
 
-    await h.engine.agents.refresh();
+    await h.engine.refreshAgents();
     expect(await h.engine.start()).toEqual({ ok: true });
     await waitFor(() => h.claudeCalls().length === 2);
     await h.engine.settled();
@@ -1070,7 +1070,7 @@ describe("kiln run on a feature underway", () => {
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "paused", beforePhaseKey: "pr" });
     h.setPulls([{ number: 12, title: "t", url: "u", isDraft: false, isCrossRepository: false, headRefName: "feature/customer-returns", baseRefName: "develop", additions: 1, deletions: 0, commits: [] }]);
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     expect(await engine.start()).toEqual({ ok: true });
     await engine.settled();
     expect(engine.record.pullRequests?.map(pull => pull.number)).toEqual([12]);

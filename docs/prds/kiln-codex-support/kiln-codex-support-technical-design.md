@@ -69,6 +69,8 @@ The existing private ownership helper owns the five-second deadline on its OS pr
 
 ### Selection and readiness
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (readiness for every needed agent; no agent fixed at Start).
+
 `kiln run` performs the common document/Git/GitHub checks before opening Documents found. It discovers agent executables without requiring either one, so a Codex-only installation reaches the chooser. A new PRD initially selects Claude Code; a missing initial Claude installation is a selection-specific readiness message with Start disabled, not a terminal startup failure.
 
 Agent change before Start loads that agent's catalogue, account and readiness together. The selection generation is persisted and increases on agent changes, so restarting Kiln cannot make an older editor current again. Each asynchronous result carries agent ID and a selection generation; a result for an older selection cannot update the current snapshot. Clear the former agent's current account panel immediately. A refresh failure leaves an explicitly stale reading only for the same agent/account context.
@@ -143,6 +145,8 @@ A normal session ends at its parent turn's terminal state, after tracked child t
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (saved authority in every continuation). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Check Runs and When Mark Complete Is Offered (a known cleanup failure is waivable like any failing check).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session and §Snapshot (an activity that hasn't started is launched in a new session on its current choice, not resumed, and the `codex resume` command is offered only while its current choice is the one that session ran on).
 
 Before every resume, stop any still-owned process using PID plus start-time verification, run the existing completion/workspace checks, and refresh account metadata. A passing completion check finishes the work without resuming. Automatic interruption/usage recovery requires a passing workspace check; failed or incomplete evidence goes to Needs you. Explicit manual Resume remains available when Codex can resume the saved conversation, including while outside work is unconfirmed or the workspace audit is inconclusive. It sends the person's note and the identified outside-work repair instructions before the carry-on instruction. An inconclusive audit also names the evidence that must be recovered or made readable; resuming, confirming repairs or starting another session does not erase that obligation or make it pass.
 
@@ -227,6 +231,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Output and progress
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Codex Account and Credit Contract (additive attributed workspace-credit observations; recovery permission is unchanged).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (every needed agent is read on the schedule, not only the selected one).
+
 Call `account/read` and `account/rateLimits/read` without a model turn. Use a freshly started bounded metadata process when refreshing to observe terminal login changes; never assume a session server's cached credentials reflect them. Each snapshot carries agent, reading start/finish times, known account identity, field-level unknowns and errors. Keep a last successful reading only with its original timestamp and stale indication. A fresh session records the account before work; each resume attempt records its own account without rewriting the session's original account.
 
 Prefer `rateLimitsByLimitId`; use the legacy single-bucket payload only when the map is absent and identify it explicitly. Flatten every reported bucket/window into a collection keyed by reported limit ID plus window role. Store reported label/ID, duration, percent used, reset time and available model scope. Primary/secondary are identifiers, not names for fixed durations. Missing windows/percent/reset/account fields remain unknown, including an empty map. Warn at 80% for known percentages. Do not show credit balances as usage percentages or assume paid credits authorize automatic spending.
@@ -244,6 +250,8 @@ Anthropic confirms that verified Ultra accounts have no five-hour limit and reta
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Account and Usage (optional Claude five-hour readings; other parsing and recovery rules retained).
 
 ### Classification and bounded release
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §A Wait Before the Start (for an activity that hasn't started, the one automatic attempt launches a new session on its current choice instead of resuming the original conversation, and while the activity hasn't started its one-attempt record lives on the activity, with a fingerprint that leaves out the conversation, and is removed when the activity starts; a repeat refusal is before model activity only when the attempt's run has no first response, and any item the model issued counts, a tool call included, not only an agent message).
 
 A confirmed Codex usage stop requires a structured terminal `usageLimitExceeded` provider error for that attempt, with no subsequent successful model activity in that attempt. `rateLimitExceeded`, HTTP 429 alone, network errors, retry notifications, prose and old failures are not usage stops. Preserve `willRetry`; do not classify an intermediate error while Codex is still retrying. Administrative/spend-control failures remain distinct even if accompanied by quota information.
 
@@ -272,6 +280,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (additive development target, checkpoint and result facts). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Interfaces (PRD settings).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot and §Agents (readiness, models, account and billing are carried for each needed agent in `agents[]`, not for one selected agent).
 
 All endpoints retain current loopback, Host, Origin and token checks. Existing controls keep their state locking and no-double-submit behavior.
 

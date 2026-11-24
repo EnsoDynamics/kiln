@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { codexUsagePermission } from "../agents/codex-metadata.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import type { SessionRecord, SessionRun } from "../state/records.js";
-import { codexUsageRefusal, codexUsageRelease, consumeCodexUsage } from "./codex-usage.js";
+import { activityUsageRelease, codexUsageRefusal, codexUsageRelease, consumeCodexUsage } from "./codex-usage.js";
+import type { CodexUsageRecovery } from "../state/records.js";
 
 const at = "2026-10-23T19:00:00Z";
 // Phase 7 requires a known bracketed identity; a usage ID alone is insufficient.
@@ -67,5 +68,32 @@ describe("pinned Codex refusal and semantic release", () => {
     expect(ajv.validate(fixture.schemas.ErrorNotification.schema, { threadId: "thread", turnId: "turn", error: { message: "The requested model is unavailable on this account.", codexErrorInfo: "unauthorized", additionalDetails: null }, willRetry: false })).toBe(true);
     const schema = fixture.schemas.GetAccountRateLimitsResponse.schema;
     for (const ordinaryUsageAllowed of [true, false, null]) expect(ajv.validate(schema, { rateLimits: {}, rateLimitsByLimitId: {}, accountId: "A", ordinaryUsageAllowed })).toBe(true);
+  });
+});
+
+// Kiln Phase Model Tiers, "A Wait Before the Start": while an activity hasn't started, its one
+// automatic attempt is recorded on the activity, with no conversation in the fingerprint.
+describe("an activity's own one-attempt record", () => {
+  const sol = { model: "gpt-6.2-sol", effort: "high" };
+  it("allows one attempt, and an unchanged reading buys no second", () => {
+    const recovery: CodexUsageRecovery = { generation: 0 };
+    const first = activityUsageRelease(recovery, sol, at, reading());
+    expect(first).toMatchObject({ state: "allowed", accountId: "A", fingerprint: expect.any(String) });
+    consumeCodexUsage(recovery, first);
+    expect(activityUsageRelease(recovery, sol, at, reading())).toMatchObject({ state: "blocked", suppressed: true, reason: expect.stringContaining("One automatic attempt used") });
+  });
+  it("allows one more attempt for a changed model or effort, a different stable account, or a blocked-to-allowed change", () => {
+    const recovery: CodexUsageRecovery = { generation: 0 };
+    consumeCodexUsage(recovery, activityUsageRelease(recovery, sol, at, reading()));
+    expect(activityUsageRelease(recovery, { ...sol, effort: "low" }, at, reading()).state).toBe("allowed");
+    expect(activityUsageRelease(recovery, sol, at, reading("B")).state).toBe("allowed");
+    expect(activityUsageRelease(recovery, sol, at, reading("A", "blocked")).state).toBe("blocked");
+    expect(activityUsageRelease(recovery, sol, at, reading()).state).toBe("allowed");
+  });
+  it("can't release on a reading that names no stable account, or one taken before the refusal", () => {
+    const recovery: CodexUsageRecovery = { generation: 0 };
+    expect(activityUsageRelease(recovery, sol, at, { ...reading(), accountId: " " }).state).toBe("unknown");
+    expect(activityUsageRelease(recovery, sol, "2026-10-23T19:00:05Z", reading()).state).toBe("unknown");
+    expect(activityUsageRelease(recovery, sol, at, undefined).state).toBe("unknown");
   });
 });

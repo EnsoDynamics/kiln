@@ -36,8 +36,8 @@ const PARAMETER_DETAIL = "exec_command parameter environment_id is not recognise
 /** A Claude-selected engine whose agent metadata has been read with the stand-in at `version`. */
 async function claudeReady(h: Harness, version: string) {
   h.env.KILN_STANDIN_VERSION = version;
-  await h.engine.agents.refresh(); await h.engine.refreshBilling();
-  await waitFor(() => !h.engine.agents.state.pending);
+  await h.engine.refreshAgents(); await h.engine.refreshBilling();
+  await waitFor(() => !h.engine.readers.claude_code.state.pending);
 }
 
 describe("Codex command evidence compatibility notice (AC-AGENT-04)", () => {
@@ -122,7 +122,7 @@ describe("outdated Claude Code starts no session (AC-AGENT-05)", () => {
   it("refuses Start at 2.1.310 with the version reason and starts at 2.1.312", async () => {
     h = await createHarness({ sessions: [stoppingSession] });
     await claudeReady(h, "2.1.310 (Claude Code)");
-    expect(h.engine.agents.state.blockers).toContain(CLAUDE_TOO_OLD);
+    expect(h.engine.readers.claude_code.state.blockers).toContain(CLAUDE_TOO_OLD);
     expect(h.engine.selectionError).toContain(CLAUDE_TOO_OLD);
     const refused = await h.engine.start({ refinementConfirmed: true });
     expect(refused).toMatchObject({ ok: false }); expect((refused as { reason: string }).reason).toContain(CLAUDE_TOO_OLD);
@@ -130,7 +130,7 @@ describe("outdated Claude Code starts no session (AC-AGENT-05)", () => {
     expect(h.claudeCalls()).toEqual([]);
 
     await claudeReady(h, "2.1.312 (Claude Code)");
-    expect(h.engine.agents.state.blockers).not.toContain(CLAUDE_TOO_OLD);
+    expect(h.engine.readers.claude_code.state.blockers).not.toContain(CLAUDE_TOO_OLD);
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1);
   });
@@ -144,9 +144,9 @@ describe("outdated Claude Code starts no session (AC-AGENT-05)", () => {
     expect(h.claudeCalls()).toEqual([]);
     expect(h.engine.record.startedAt).toBeUndefined();
     // The browser's readiness line and Model field name the version read at launch …
-    const settings = buildSnapshot(h.engine).settings;
-    expect(settings.readinessErrors).toContain(CLAUDE_TOO_OLD);
-    expect(settings.fieldErrors.model).toContain(CLAUDE_TOO_OLD);
+    const snapshot = buildSnapshot(h.engine);
+    expect(snapshot.agents.find(agent => agent.agentId === "claude_code")!.readinessErrors).toContain(CLAUDE_TOO_OLD);
+    expect(snapshot.settings.fieldErrors.model).toContain(CLAUDE_TOO_OLD);
     // … and so does Start's own refusal, rather than a billing reason.
     expect(result).toMatchObject({ ok: false }); expect((result as { reason: string }).reason).toContain(CLAUDE_TOO_OLD);
   });
@@ -167,7 +167,7 @@ describe("outdated Claude Code starts no session (AC-AGENT-05)", () => {
     expect(h.engine.record.billing!.hold).toMatchObject({ phaseKey: "1", action: "resume", sessionId: stopped.sessionId });
     expect(h.engine.record.billing!.hold!.reason).toContain(CLAUDE_TOO_OLD);
     // Shown as the selected agent's readiness and in the terminal's billing-hold message.
-    expect(buildSnapshot(h.engine).settings.readinessErrors).toContain(CLAUDE_TOO_OLD);
+    expect(buildSnapshot(h.engine).agents.find(agent => agent.agentId === "claude_code")!.readinessErrors).toContain(CLAUDE_TOO_OLD);
     expect(h.events).toContainEqual(expect.objectContaining({ kind: "message", text: expect.stringContaining(CLAUDE_TOO_OLD) }));
 
     // Back on a supported version, the same conversation resumes.
@@ -186,12 +186,12 @@ describe("an unselected agent's version blocks nothing (AC-AGENT-05)", () => {
     Object.assign(h.tools, { codex: codex.executable }); h.env.KILN_CODEX_METADATA = codex.env.KILN_CODEX_METADATA;
     h.env.KILN_STANDIN_VERSION = "2.1.310 (Claude Code)";
     // Claude selected, the same stand-in blocks: the version reading is live, not ignored.
-    await h.engine.agents.refresh();
-    expect(h.engine.agents.state.blockers).toContain(CLAUDE_TOO_OLD);
-    await runPrdOn(h.engine); await waitFor(() => !h!.engine.agents.state.pending);
-    expect(h.engine.agents.state.agentId).toBe("codex");
-    expect(h.engine.agents.state.blockers.join(" ")).not.toContain("Claude Code");
-    expect(h.engine.agents.state.blockers).toEqual([]);
+    await h.engine.refreshAgents();
+    expect(h.engine.readers.claude_code.state.blockers).toContain(CLAUDE_TOO_OLD);
+    await runPrdOn(h.engine); await waitFor(() => !h!.engine.readers.claude_code.state.pending);
+    // Every activity on Codex: Claude Code isn't needed, so its blocker blocks nothing (Kiln Phase Model Tiers AC-AGENTS-01).
+    expect(Object.keys(h.engine.neededBy())).toEqual(["codex"]);
+    expect(h.engine.modelsProblem).toBeUndefined();
     expect(h.engine.selectionError).toBeUndefined();
   });
 
@@ -200,15 +200,15 @@ describe("an unselected agent's version blocks nothing (AC-AGENT-05)", () => {
     Object.assign(h.tools, { codex: codex.executable }); h.env.KILN_CODEX_METADATA = codex.env.KILN_CODEX_METADATA;
     codex.set({ version: "0.162.0" });
     // Codex selected, the same fixture blocks: the version reading is live, not ignored.
-    await runPrdOn(h.engine); await waitFor(() => !h!.engine.agents.state.pending);
-    expect(h.engine.agents.state.blockers).toContain(CODEX_TOO_OLD);
+    await runPrdOn(h.engine); await waitFor(() => !h!.engine.readers.claude_code.state.pending);
+    expect(h.engine.readers.codex.state.blockers).toContain(CODEX_TOO_OLD);
     delete h.engine.record.settings.modelChoices.kept; h.engine.modelChoicesChanged();
     await claudeReady(h, "2.1.312 (Claude Code)");
-    expect(h.engine.agents.state.agentId).toBe("claude_code");
-    expect(h.engine.agents.state.blockers.join(" ")).not.toContain("Codex");
-    expect(h.engine.agents.state.blockers).toEqual([]);
+    expect(h.engine.readers.claude_code.state.agentId).toBe("claude_code");
+    expect(h.engine.readers.claude_code.state.blockers.join(" ")).not.toContain("Codex");
+    expect(h.engine.readers.claude_code.state.blockers).toEqual([]);
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1);
-    expect(h.engine.agents.state.blockers.join(" ")).not.toContain("Codex");
+    expect(h.engine.readers.claude_code.state.blockers.join(" ")).not.toContain("Codex");
   });
 });

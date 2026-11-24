@@ -55,7 +55,36 @@ export function codexUsageRelease(session: SessionRecord, refusal: LimitRefusal,
   return result;
 }
 
-export function consumeCodexUsage(session: SessionRecord, release: CodexRelease): NonNullable<CodexUsageRecovery["consumed"]> {
-  if (release.state !== "allowed" || !release.fingerprint || !release.accountId || !session.codex?.usageRecovery) throw new Error("Fresh Codex permission is required before automatic usage recovery.");
-  return session.codex.usageRecovery.consumed = { fingerprint: release.fingerprint, accountId: release.accountId, at: new Date().toISOString() };
+/**
+ * The one-automatic-attempt rule for an activity that hasn't started (Kiln Phase Model Tiers, "A
+ * Wait Before the Start"): the activity's own record, whatever agent's refusal began the wait. The
+ * fingerprint is the model, effort, account and generation, with no conversation, since each
+ * launch makes a new one. A reading changes the record only through a different stable account, or
+ * a blocked-to-allowed change on the same account; a different model or effort allows one attempt.
+ *
+ *   activityUsageRelease(facts.codexUsageRecovery ??= { generation: 0 }, { model: "gpt-6.2-sol", effort: "high" }, refusal.at, reading)  // { state: "allowed", fingerprint, accountId }
+ */
+export function activityUsageRelease(recovery: CodexUsageRecovery, choice: { model: string; effort?: string | undefined }, refusalAt: string, reading: AgentAccount | undefined): CodexRelease {
+  let result: CodexRelease;
+  if (!reading || reading.agentId !== "codex" || reading.error || !Number.isFinite(Date.parse(reading.startedAt)) || Date.parse(reading.startedAt) < Date.parse(refusalAt) || !reading.accountId?.trim() || reading.routingAccountId !== undefined && reading.routingAccountId !== reading.accountId) {
+    result = { state: "unknown", reason: "A fresh, consistent Codex usage reading taken after the refusal is required." };
+  } else {
+    const permission = reading.codexUsage;
+    result = { ...(permission ?? { state: "unknown", reason: "Codex ordinary-usage permission is unavailable; resume manually when ready." }), accountId: reading.accountId };
+    if (result.state === "blocked" && !result.administrative) recovery.blockedAccountId = reading.accountId;
+    if (result.state === "allowed") {
+      if (recovery.blockedAccountId === reading.accountId) { recovery.generation++; delete recovery.blockedAccountId; }
+      const fingerprint = createHash("sha256").update(JSON.stringify([choice.model, choice.effort, reading.accountId, recovery.generation])).digest("hex");
+      if (recovery.consumed?.fingerprint === fingerprint) result = { state: "blocked", accountId: reading.accountId, suppressed: true, reason: "One automatic attempt used: the automatic attempt was refused before model activity. Unchanged permission cannot retry; a blocked-to-allowed transition or a different stable account is required." };
+      else result.fingerprint = fingerprint;
+    }
+  }
+  recovery.release = { state: result.state, reason: result.reason, ...(result.accountId ? { accountId: result.accountId } : {}), at: reading?.updatedAt ?? refusalAt };
+  return result;
+}
+
+export function consumeCodexUsage(session: SessionRecord | CodexUsageRecovery, release: CodexRelease): NonNullable<CodexUsageRecovery["consumed"]> {
+  const recovery = "generation" in session ? session : session.codex?.usageRecovery;
+  if (release.state !== "allowed" || !release.fingerprint || !release.accountId || !recovery) throw new Error("Fresh Codex permission is required before automatic usage recovery.");
+  return recovery.consumed = { fingerprint: release.fingerprint, accountId: release.accountId, at: new Date().toISOString() };
 }

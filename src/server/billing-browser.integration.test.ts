@@ -35,7 +35,7 @@ describe("Claude billing browser controls", () => {
     const account = join(h.sandbox.root, "billing-presentation-account.json");
     writeFileSync(account, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: example.provider, email: "subscription@example.test" }));
     h.env.KILN_STANDIN_ACCOUNT = account;
-    await h.engine.agents.refresh(); await h.engine.refreshBilling(); const page = await open();
+    await h.engine.refreshAgents(); await h.engine.refreshBilling(); const page = await open();
     await page.waitFor(`${panel}.querySelector('input[type=checkbox]')`);
     expect(await page.evaluate(`${panel}.querySelector('.billing-title').textContent`)).toBe(example.title);
     expect(await page.evaluate(`${panel}.querySelector('label.choice').textContent.trim()`)).toBe(example.choice);
@@ -56,7 +56,7 @@ describe("Claude billing browser controls", () => {
     h = await createHarness({ sessions: [{ actions: [{ result: "Saved conversation." }] }] }); h.env.KILN_STANDIN_VERSION = "2.1.312";
     const usage = join(h.sandbox.root, "no-meters.jsonl"); h.env.KILN_STANDIN_USAGE = usage;
     const report = (enabled?: boolean) => writeFileSync(usage, JSON.stringify({ usage_report: { rate_limits: { limits: null, ...(enabled === undefined ? {} : { extra_usage: { is_enabled: enabled } }) } } }));
-    report(true); await h.engine.agents.refresh(); await h.engine.refreshBilling(); const page = await open(360);
+    report(true); await h.engine.refreshAgents(); await h.engine.refreshBilling(); const page = await open(360);
     await page.waitFor(`${panel}.innerText.includes('Paid usage is enabled')`);
     expect(await page.evaluate(`${panel}.querySelector('a[href="https://claude.ai/settings/usage"]') !== null`)).toBe(true);
     // AC-BILL-03: the full factual notice is amber, rather than an approval warning.
@@ -66,12 +66,12 @@ describe("Claude billing browser controls", () => {
     expect(h.engine.billing.view.canLaunch).toBe(true); expect(h.engine.billing.view.next?.overflow?.enabled).toBe(true);
     writeFileSync("/tmp/kiln-billing-no-meters-360.png", await page.screenshot());
     for (const enabled of [false, undefined]) {
-      report(enabled); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+      report(enabled); await h.engine.refreshAgents(); await h.engine.refreshBilling();
       await page.waitFor(`!${panel}.innerText.includes('Paid usage is enabled')`);
       expect(h.engine.billing.view.canLaunch).toBe(true);
       expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull();
     }
-    report(true); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    report(true); await h.engine.refreshAgents(); await h.engine.refreshBilling();
     await waitFor(() => h!.engine.baseCheck === "ok");
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     expect(h.engine.latestSession("1")!.runs[0]!.billing).toMatchObject({ route: "subscription", approved: false, overflow: { enabled: true, observedAt: expect.any(String) } });
@@ -125,7 +125,7 @@ describe("Claude billing browser controls", () => {
     const base = readFileSync(new URL("../../test/fixtures/proof-gate-1/usage-report-idle.jsonl", import.meta.url), "utf8");
     const lines = base.trim().split("\n").map(line => { const e = JSON.parse(line); if (e.usage_report?.rate_limits) e.usage_report.rate_limits.extra_usage = { is_enabled: true }; return JSON.stringify(e); });
     writeFileSync(usage, lines.join("\n")); h.env.KILN_STANDIN_USAGE = usage;
-    await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    await h.engine.refreshAgents(); await h.engine.refreshBilling();
     const page = await open(1280);
     await page.waitFor(`${panel}.innerText.includes('Claude subscription')`);
     expect(await page.evaluate(`${panel}.querySelector('.billing-title').nextElementSibling.textContent`)).toBe("alex@acme-shop.dev");
@@ -175,14 +175,14 @@ describe("Claude billing browser controls", () => {
     const checking = h.engine.refreshBilling(); await page.waitFor(`${panel}.textContent.includes('Checking Claude settings…')`);
     writeFileSync(release, ""); await checking; delete h.env.KILN_STANDIN_VERSION_WAIT;
     const account = join(h.sandbox.root, "signed-out-account.json"); writeFileSync(account, JSON.stringify({ loggedIn: false })); h.env.KILN_STANDIN_ACCOUNT = account;
-    await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    await h.engine.refreshAgents(); await h.engine.refreshBilling();
     await page.waitFor(`${panel}.textContent.includes('claude auth login')`);
     expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull(); expect(h.engine.billing.view.canLaunch).toBe(false);
     writeFileSync(account, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", email: "alex@acme-shop.dev" }));
     // Real metadata transport failure: raw helper stderr must not enter snapshots or HTTP errors.
     const failureFile = join(h.sandbox.root, "private-helper-failure.json");
     writeFileSync(failureFile, JSON.stringify({ fail: "metadata-secret-canary" })); h.env.KILN_STANDIN_MODELS = failureFile;
-    await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    await h.engine.refreshAgents(); await h.engine.refreshBilling();
     const response = await fetch(`${origin}/api/snapshot`, { headers: { "X-Kiln-Token": h.engine.record.token } });
     const safe = await response.text();
     expect(safe).not.toContain("metadata-secret-canary"); expect(safe).toContain("Could not inspect enabled Claude Code skills"); expect(safe).toContain("Couldn’t load Claude Code’s models");
@@ -200,7 +200,7 @@ describe("Claude billing browser controls", () => {
     const recorded = readFileSync(new URL("../../test/fixtures/proof-gate-1/usage-report-idle.jsonl", import.meta.url), "utf8");
     writeFileSync(usage, recorded.trim().split("\n").map(line => { const event = JSON.parse(line); if (event.usage_report?.rate_limits) event.usage_report.rate_limits.extra_usage = { is_enabled: true }; return JSON.stringify(event); }).join("\n"));
     h.env.KILN_STANDIN_USAGE = usage; h.env.KILN_STANDIN_VERSION = "2.1.312";
-    await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    await h.engine.refreshAgents(); await h.engine.refreshBilling();
     await page.waitFor(`${panel}.textContent.includes('Billing for the next run') && ${panel}.textContent.includes('Paid usage is enabled')`);
     const historicalTitle = route === "subscription" ? "Claude subscription" : "Claude Code settings";
     expect(await page.evaluate(`${panel}.querySelector('.billing-title').textContent`)).toBe(historicalTitle);
@@ -227,7 +227,7 @@ describe("Claude billing browser controls", () => {
     h = await createHarness({ sessions: [] });
     const account = join(h.sandbox.root, "identity-account.json"); h.env.KILN_STANDIN_ACCOUNT = account;
     const writeAccount = (email?: string) => writeFileSync(account, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", orgId: "reliable-org", ...(email ? { email } : {}) }));
-    writeAccount("neutral@example.test"); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    writeAccount("neutral@example.test"); await h.engine.refreshAgents(); await h.engine.refreshBilling();
     const page = await open();
     for (const width of [1280, 360]) {
       const current = width === 1280 ? page : await chrome!.open(server!.address, { width });
@@ -239,7 +239,7 @@ describe("Claude billing browser controls", () => {
     }
     h.env.KILN_STANDIN_VERSION = "2.1.312";
     h.env.AWS_ENDPOINT_URL = "https://unrelated-aws.example.test"; h.env.ANTHROPIC_VERTEX_BASE_URL = "https://inactive.example.test";
-    writeAccount(); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+    writeAccount(); await h.engine.refreshAgents(); await h.engine.refreshBilling();
     await page.waitFor(`${panel}.textContent.includes('Claude subscription') && !${panel}.textContent.includes('neutral@example.test')`);
     expect(await page.evaluate(`${panel}.querySelector('.billing-title').nextElementSibling.textContent`)).toBe("Account identity unavailable");
     expect(await page.evaluate(`${panel}.innerText`)).toContain("Organization: reliable-org");

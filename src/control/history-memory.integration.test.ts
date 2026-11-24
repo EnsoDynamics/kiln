@@ -63,9 +63,9 @@ it('spools complete large histories through actual CLI and HTTP text/JSON under 
     const engine = new Engine({ paths: ${JSON.stringify(h.engine.paths)}, tools: ${JSON.stringify(h.tools)}, env: process.env, stateDirectory: directory, record: saved.record, sleepReader: { next: async () => [] } });
     // Complete constructor metadata work before serving. Its change events would
     // otherwise queue a large cache write during the CLI's authentication probe.
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     await engine.refreshBilling();
-    if (engine.agents.state.pending || engine.billing.pending || engine.billing.busy) throw new Error('Controller metadata is not ready.');
+    if (engine.readers.claude_code.state.pending || engine.billing.pending || engine.billing.busy) throw new Error('Controller metadata is not ready.');
     const server = await startLocalServer({ engine, port: ${port}, folderName: ${JSON.stringify(FOLDER)}, featureName: 'Returns', token: engine.record.token });
     process.on('message', async message => {
       if(message === 'stop-record') { engine.record.phases['1'].stop = { kind: 'done_check', at: new Date().toISOString(), checkedAt: new Date().toISOString(), checks: [] }; writePrdRecord(directory, engine.record); process.send('stop-recorded'); }

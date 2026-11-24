@@ -1,3 +1,4 @@
+import { inUse } from "../test-support/sample-snapshots.js";
 // The browser view in a real browser (technical design, Testing Approach, "The view"): each
 // mockup screen rendered by headless Chrome from a fixture Snapshot carrying that mockup's
 // sample data, v1's and the multi-repo delivery change's (multi-repo AC-SHOW-01), under Kiln's own Content Security Policy, with its copy checked against the
@@ -1850,8 +1851,8 @@ describe("the look, beyond the progress screen (AC-LOOK-04)", () => {
 describe("optional Claude five-hour meter in a real browser", () => {
   it("keeps weekly usage visible and shows N/A without a five-hour meter", async () => {
     const snapshot = runningSnapshot();
-    snapshot.account!.limits = snapshot.account!.limits.filter(row => row.kind !== "session");
-    snapshot.account!.limitsObservedAt = snapshot.account!.updatedAt;
+    inUse(snapshot).account!.limits = inUse(snapshot).account!.limits.filter(row => row.kind !== "session");
+    inUse(snapshot).account!.limitsObservedAt = inUse(snapshot).account!.updatedAt;
     const { server, page } = await openScreen(snapshot);
     try {
       await page.waitFor(`document.body.innerText.includes("5-hour: N/A (not reported)")`);

@@ -153,6 +153,7 @@ When a phase fails the done check, Kiln stops and gives the person everything ne
   - Superseded in part by: AC-RECOVER-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex resume command and saved context).
   - Superseded in part by: AC-SPACE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the workspace in place of the one worktree)
   - Superseded in part by: AC-OUTSIDE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (no resume command for a session whose transcript Kiln can't find)
+  - Superseded in part by: AC-PICK-07 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (for an activity that hasn't started, Claude Code's copyable command that reopens its session is offered only while its current choice is the one that session ran on, otherwise the command for a fresh session on its current choice's agent; the rest remains).
 - [ ] **AC-STOP-06 — A fresh-session prompt is there when the session can't be opened.** The Needs you screen also offers a copyable prompt for a fresh session that points at the phase document, for when the session can't be reopened, for example because its transcript is gone.
   - Superseded in part by: AC-RECOVER-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex fresh-session and explicit repair prompts).
   - Superseded in part by: AC-SPACE-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (the workspace in place of the one worktree)

@@ -72,7 +72,7 @@ let server;
 const result = { agentId, root };
 try {
   assert.equal((await engine.prepare()).ok, true);
-  for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+  for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
   server = await startLocalServer({ engine, port: 0, folderName: 'restart-proof', featureName: 'Restart proof', token: record.token });
   const origin = new URL(server.address).origin;
   const act = async (path, body) => {

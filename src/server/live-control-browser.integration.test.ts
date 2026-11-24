@@ -1,3 +1,4 @@
+import { useAgent } from "../test-support/sample-snapshots.js";
 // Built Svelte view in real Chrome; HTTP engine safety is covered by takeover.integration.
 import { writeFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -128,7 +129,7 @@ it("uses a new instruction after a conclusive busy refusal while preserving the 
 it("explains Claude-only live controls for running Codex while preserving deferred pause", async () => {
   const snapshot = runningSnapshot();
   snapshot.current!.agent = "Codex";
-  snapshot.settings.agent = "Codex";
+  useAgent(snapshot, "codex");
   delete snapshot.liveControl;
   const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot, output: PHASE_DETAIL_LINES });
   const page = await chrome.open(`${server.address}/phase/2b`, { width: 390, height: 1000 });

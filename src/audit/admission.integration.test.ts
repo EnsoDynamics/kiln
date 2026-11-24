@@ -398,7 +398,7 @@ describe("version-2 audit admission", () => {
     const f = await fixture(); f.saveReport(); writePrdRecord(f.stateDirectory, f.record);
     const tools = { git: "git", ...installStandIns(join(f.sandbox.root, "bin")) };
     const engine = new Engine({ paths: { mainCheckoutPath: f.root, repositoryName: "proof", folderName: "proof", prdDirectoryFromRoot: directory, featureName: "Audit proof" }, tools, env: f.sandbox.env, stateDirectory: f.stateDirectory, record: f.record });
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     let server: LocalServer | undefined; let release: (() => void) | undefined;
     try {
       const hosted = await startFixtureController({ engine, folderName: "proof", featureName: "Audit proof", token: f.record.token });

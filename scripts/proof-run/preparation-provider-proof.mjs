@@ -67,7 +67,7 @@ const lock = await takeInstanceLock(stateRoot(env), stateDirectory, { range: { f
 let server; console.log(JSON.stringify({ root, agentId, stateDirectory }));
 try {
   server = await startLocalServer({ engine, port: lock.port, folderName: paths.folderName, featureName: paths.featureName, token: record.token });
-  await engine.prepare(); for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy || engine.billing.pending); i++) await delay(250);
+  await engine.prepare(); for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy || engine.billing.pending); i++) await delay(250);
   const check = await engine.checkCompletedPlan(); assert.equal(check.status, 'available', JSON.stringify(check));
   const oldExecution = record.executionId;
   const body = { proposalId: check.result.proposal.id, commandId: `preparation-${agentId}`, executionId: oldExecution, statusToken: engine.controlView().token };

@@ -128,7 +128,7 @@ try {
   assert.match(result.futureRefusal, /Activation recovery|current judged leaf/);
   assert.ok(engine.record.phases['2'].stop); assert.equal(engine.record.phases['3'], undefined);
   writePrdRecord(stateDirectory, record); engine.close();
-  engine = new Engine({ ...options, record: readPrdRecord(stateDirectory) }); await engine.agents.refresh();
+  engine = new Engine({ ...options, record: readPrdRecord(stateDirectory) }); await engine.refreshAgents();
   assert.deepEqual(engine.record.phases['1'], history); assert.deepEqual(engine.record.developmentAuthorization, result.authorization);
   assert.equal(engine.authorizeDevelopmentTarget(payload).ok, true);
   assert.deepEqual(engine.record.developmentAuthorization, result.authorization);

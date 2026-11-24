@@ -13,6 +13,7 @@
   import { phaseName } from "../lib/progress.js";
   import { clockTime } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
+  import { inUseAgent } from "../lib/agents.js";
 
   let { snapshot, connected, now, lastSeenAt }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined } = $props();
   const { config } = viewContext();
@@ -105,7 +106,7 @@
     </details>
   {/if}
 
-  <footer class="footer"><span>{snapshot.settings.agent} · {lastRan ? `nothing has run since ${day(lastRan)}` : "nothing is running"}</span><span>Earlier phase results stay in this run’s history.</span></footer>
+  <footer class="footer"><span>{inUseAgent(snapshot)?.agent ?? "Claude Code"} · {lastRan ? `nothing has run since ${day(lastRan)}` : "nothing is running"}</span><span>Earlier phase results stay in this run’s history.</span></footer>
 </main>
 
 <style>

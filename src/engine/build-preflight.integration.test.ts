@@ -118,7 +118,7 @@ describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01
   it("a Start that ends a pause runs another preflight, though one already reported ready", async () => {
     harness = await createHarness({ sessions: [], preflight: true });
     const release = join(harness.sandbox.root, "phase-one-release");
-    const sessions = [{ actions: [{ waitForFile: release }, ...landingSession("src/one.txt").actions] }, ...allPhases.slice(1)];
+    const sessions = [{ actions: [{ text: "Starting Phase 1." }, { waitForFile: release }, ...landingSession("src/one.txt").actions] }, ...allPhases.slice(1)];
     const h = await fixture([ready, ready], sessions);
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => h.claudeCalls().length === 2);
@@ -259,13 +259,13 @@ describe("Resume runs a preflight only while none has settled (AC-PREFLIGHT-01, 
   async function interruptedRun(preflightSessions: ScenarioSession[]) {
     harness = await createHarness({ sessions: [], preflight: true });
     const release = join(harness.sandbox.root, "phase-one-release");
-    const sessions = [{ actions: [{ waitForFile: release }, ...landingSession("src/one.txt").actions] }, { actions: landingSession("src/one.txt").actions }, ...allPhases.slice(1)];
+    const sessions = [{ actions: [{ text: "Starting Phase 1." }, { waitForFile: release }, ...landingSession("src/one.txt").actions] }, { actions: landingSession("src/one.txt").actions }, ...allPhases.slice(1)];
     const h = await fixture(preflightSessions, sessions);
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => h.claudeCalls().length === 2 && h.engine.current?.processRunning === true && h.engine.current.phaseKey === "1");
     await h.engine.stop("sigterm");
     writeFileSync(release, "");
-    h.reopenFromDisk(); await h.engine.agents.refresh();
+    h.reopenFromDisk(); await h.engine.refreshAgents();
     await h.engine.decide({ review: true });
     return h;
   }
@@ -277,7 +277,7 @@ describe("Resume runs a preflight only while none has settled (AC-PREFLIGHT-01, 
     const key = h.engine.preflightStopKey()!;
     expect(h.engine.preflightActivity(key)).toMatchObject({ before: "1" });
     expect(buildSnapshot(h.engine).needsYou!.preflight!.line).toContain("Kiln resumes Phase 1");
-    h.reopenFromDisk(); await h.engine.agents.refresh();
+    h.reopenFromDisk(); await h.engine.refreshAgents();
     expect(await h.engine.decide({ review: true })).toMatchObject({ kind: "needs_you", phaseKey: key });
     await h.engine.continue();
     const offer = h.engine.markCompleteOffer();
@@ -343,7 +343,7 @@ describe("more entry points and the preflight stop across a restart (AC-PREFLIGH
     await waitFor(() => h.claudeCalls().length === 2 && h.engine.current?.processRunning === true && h.engine.current.phaseKey === "1");
     await h.engine.stop("sigterm");
     writeFileSync(release, "");
-    h.reopenFromDisk(); await h.engine.agents.refresh();
+    h.reopenFromDisk(); await h.engine.refreshAgents();
     expect((await h.engine.decide({ resume: true })).kind).toBe("resume");
     expect(h.engine.record.preflight!.due).toMatchObject({ trigger: "resume" });
     await h.engine.continue();
@@ -356,7 +356,7 @@ describe("more entry points and the preflight stop across a restart (AC-PREFLIGH
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     const key = h.engine.preflightStopKey()!;
-    h.reopenFromDisk(); await h.engine.agents.refresh();
+    h.reopenFromDisk(); await h.engine.refreshAgents();
     expect(await h.engine.decide({ review: true })).toMatchObject({ kind: "needs_you", phaseKey: key });
     await h.engine.continue();
     expect(h.engine.preflightStopKey()).toBe(key);
@@ -413,13 +413,13 @@ describe("hardening: a preflight's session across interruptions, limits and Cont
   async function interruptedPreflight(first: ScenarioSession, second: ScenarioSession) {
     harness = await createHarness({ sessions: [], preflight: true });
     const release = join(harness.sandbox.root, "preflight-release");
-    const h = await fixture([{ ...first, actions: [{ waitForFile: release }, ...first.actions] }, second]);
+    const h = await fixture([{ ...first, actions: [{ text: "Reading the plan." }, { waitForFile: release }, ...first.actions] }, second]);
     await h.engine.start({ refinementConfirmed: true });
     // The session has its prompt and is working when Kiln is stopped.
     await waitFor(() => h.claudeCalls().length === 1 && h.engine.current?.processRunning === true && isPreflightKey(h.engine.current.phaseKey));
     await h.engine.stop("sigterm");
     writeFileSync(release, "");
-    h.reopenFromDisk(); await h.engine.agents.refresh();
+    h.reopenFromDisk(); await h.engine.refreshAgents();
     return h;
   }
 
@@ -511,7 +511,7 @@ describe("hardening: Continue runs a preflight before the first added phase (AC-
     installPreflightSkill(h.sandbox.root);
     h.engine.close();
     h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     const before = h.claudeCalls().length;
     const check = await h.engine.checkCompletedPlan();
     expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: AUDITS_PLANNED } });
@@ -570,7 +570,7 @@ describe("test audit: where the row sits and what opening it shows (AC-PREFLIGHT
   ])("Documents found plans the row above %s", async (_name, closed, before) => {
     harness = await createHarness({ sessions: [], preflight: true, files: closing(...closed) });
     const h = await fixture([]);
-    await h.engine.agents.refresh();
+    await h.engine.refreshAgents();
     expect(buildSnapshot(h.engine, found(h)).preflight).toEqual({ planned: { before, model: AUDITS_PLANNED } });
   });
 
@@ -686,7 +686,7 @@ describe("test audit, second fixing chat: Folder missing Starts, Resume after Ma
     await waitFor(() => h.claudeCalls().length === 2 && h.engine.current?.processRunning === true && h.engine.current.phaseKey === "1");
     await h.engine.stop("sigterm");
     writeFileSync(release, "");
-    h.reopenFromDisk(); await h.engine.agents.refresh();
+    h.reopenFromDisk(); await h.engine.refreshAgents();
     await deleteFolder(h);
     const execution = h.engine.record.executionId;
     expect(await folderStart(h, "branch")).toEqual({ ok: true, status: 200 });
@@ -750,7 +750,7 @@ describe("test audit, second fixing chat: Folder missing Starts, Resume after Ma
     await waitFor(() => h.claudeCalls().length === 2 && h.engine.current?.processRunning === true && h.engine.current.phaseKey === "1");
     await h.engine.stop("sigterm");
     writeFileSync(release, "");
-    h.reopenFromDisk(); await h.engine.agents.refresh();
+    h.reopenFromDisk(); await h.engine.refreshAgents();
     await h.engine.decide({ review: true });
     expect(h.engine.restartReview).toBeDefined();
     expect(buildSnapshot(h.engine).preflight).toBeUndefined();

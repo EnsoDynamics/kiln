@@ -117,7 +117,7 @@ describe("Documents found's plan (AC-PICK-01, AC-PICK-06, AC-KEEP-01)", () => {
 
   it("carries a choice that can't be used on its row, and holds Start with the reason", () => {
     const problem = "Phase 2a runs on Claude Code · Fable · high from Model defaults (Demanding row): Claude Code doesn't offer Fable on this account. Change the Demanding row in Model defaults.";
-    const page = found(phases => { const phase = phases.find(one => one.id === "2a")!; Object.assign(phase, { tier: { value: "demanding" }, model: { state: "will_run_on", choice: choice("Claude Code", "Fable", "high"), problem: "Claude Code doesn't offer Fable on this account." } }); }, { models: { tiers: { demanding: 1, standard: 0, mechanical: 0, notRated: 3 }, problem } });
+    const page = found(phases => { const phase = phases.find(one => one.id === "2a")!; Object.assign(phase, { tier: { value: "demanding" }, model: { state: "will_run_on", choice: choice("Claude Code", "Fable", "high"), problem: "Claude Code doesn't offer Fable on this account." } }); }, { models: { tiers: { demanding: 1, standard: 0, mechanical: 0, notRated: 3 }, problem, fallback: { enabled: false, threshold: 95 } } });
     expect(text(page)).toContain("Claude Code · Fable · high Claude Code doesn't offer Fable on this account.");
     expect(text(page)).toContain(problem);
     expect(page).toMatch(/<button type="button" class="start[^"]*"[^>]* disabled/);

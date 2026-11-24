@@ -36,7 +36,7 @@ const turns = (fixture: ReturnType<typeof codexWorkFixture>) => fixture.calls().
 describe("an older method under Codex is not an error (AC-PREFLIGHT-05)", () => {
   it("with no build-preflight skill in Codex's list, the plan shows no Preflight row and the first session is Phase 1", async () => {
     const { h, f } = await codexRun([]);
-    expect(h.engine.agents.state.optionalSkills).toEqual({ buildPreflight: false });
+    expect(h.engine.readers.codex.state.optionalSkills).toEqual({ buildPreflight: false });
     expect(buildSnapshot(h.engine).preflight).toBeUndefined();
     h.engine.start({ refinementConfirmed: true }).catch(() => {});
     await waitFor(() => turns(f).length >= 1);
@@ -49,7 +49,7 @@ describe("an older method under Codex is not an error (AC-PREFLIGHT-05)", () => 
 
   it("with the skill in Codex's list, the plan shows the Preflight row and the preflight is the first session", async () => {
     const { h, f } = await codexRun(["build-preflight"]);
-    expect(h.engine.agents.state.optionalSkills).toEqual({ buildPreflight: true });
+    expect(h.engine.readers.codex.state.optionalSkills).toEqual({ buildPreflight: true });
     // With no Documents found passed, the planned row has no activity to sit above.
     // It reads Will run on with the PRD's Codex choice (Kiln Phase Model Tiers AC-PICK-02).
     expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: { state: "will_run_on", from: "changed", choice: { agentId: "codex", agent: "Codex", model: "gpt-6.1-sol", modelName: "GPT-6.1-Sol", effort: "high" } } } });

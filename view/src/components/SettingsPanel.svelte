@@ -18,6 +18,7 @@
   import { changeSettings } from "../lib/api.js";
   import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
   import { viewContext } from "../lib/view-context.js";
+  import { mergeAgent } from "../lib/agents.js";
   import AuditLoopSettings from "./AuditLoopSettings.svelte";
   import { shownLoopSettings } from "../lib/audit-loops.js";
 
@@ -84,7 +85,7 @@
       </div>
       <div class="more">
         <dt>In each repository</dt>
-        <dd>{repositoriesStatement(snapshot.settings.agent, !!snapshot.developmentDelivery?.authorization.enabled)}</dd>
+        <dd>{repositoriesStatement(mergeAgent(snapshot), !!snapshot.developmentDelivery?.authorization.enabled)}</dd>
       </div>
     {:else}
       <div class="fixed">

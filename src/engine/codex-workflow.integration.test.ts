@@ -123,9 +123,9 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   expect(session.runs[0]?.billing).toMatchObject({ agentId: "codex", email: "proof@example.invalid", accountId: "proof-account", credits: [{ balance: "50", scope: "workspace" }] });
   expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch?.codex).toEqual(session.runs[0]?.billing);
   set({ email: "next@example.test", accountId: "next-workspace" });
-  h.reopenFromDisk(); await h.engine.agents.refresh();
-  expect(buildSnapshot(h.engine).billing?.lastLaunch?.email).toBe("proof@example.invalid");
-  expect(buildSnapshot(h.engine).billing?.next?.email).toBe("next@example.test");
+  h.reopenFromDisk(); await h.engine.refreshAgents();
+  expect(buildSnapshot(h.engine).agents.find(entry => entry.inUse)?.billing?.lastLaunch?.email).toBe("proof@example.invalid");
+  expect(buildSnapshot(h.engine).agents.find(entry => entry.inUse)?.billing?.next?.email).toBe("next@example.test");
   expect((await h.engine.decide()).kind).toBe("needs_you");
   expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the saved context." })).toMatchObject({ ok: true }); await h.engine.settled();
   const resumed = h.engine.latestSession("1")!;
@@ -226,13 +226,14 @@ it("removes resume actions for unavailable conversations while retaining the fre
 });
 
 it("interrupts a live Codex turn and checks before automatically resuming the same conversation", async () => {
-  await setup({ hang: true }); await h.engine.start({ refinementConfirmed: true });
+  // The model issued an item, so the phase has started and keeps its conversation (Kiln Phase Model Tiers AC-PICK-04).
+  await setup({ hang: true, itemFirst: true }); await h.engine.start({ refinementConfirmed: true });
   await waitFor(() => f.calls().some(call => call.method === "turn/start"));
   const report = await h.engine.stop("sigint"); await h.engine.settled();
   expect(report.grey).toContain("Independently detached");
   const original = h.engine.latestSession("1")!;
   expect(original.runs[0]).toMatchObject({ interruptedBy: "sigint", codex: { cleanup: "tracked_processes_stopped" } });
-  set({}); h.reopenFromDisk(); await h.engine.agents.refresh();
+  set({}); h.reopenFromDisk(); await h.engine.refreshAgents();
   expect((await h.engine.decide()).kind).toBe("resume");
   await h.engine.continue();
   expect(h.engine.latestSession("1")?.conversation?.threadId).toBe(original.conversation?.threadId);
@@ -301,24 +302,27 @@ it("follows a phase's own split through fresh Codex conversations and the final 
 });
 
 // AC-MODEL-01/03: schema-valid provider refusal, not an actual entitlement/quota proof.
-it("shows model access refusal without substituting a model or conversation on launch and resume", async () => {
+it("shows model access refusal without substituting a model, and launches the reply in a new session on the changed choice", async () => {
   const error = { message: "The requested model is unavailable on this account.", codexErrorInfo: "unauthorized", additionalDetails: null };
   await setup({ terminalError: error }); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const original = h.engine.latestSession("1")!;
   expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
   expect(original.runs[0]?.codex?.terminal).toEqual(expect.objectContaining({ status: "failed", error }));
   expect(h.engine.outputLines(original).some(line => line.source === "exit" && line.text.includes(error.message))).toBe(true);
-  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
-  h.reopenFromDisk(); await h.engine.agents.refresh();
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" }); writePrdRecord(h.stateDirectory, h.engine.record);
+  h.reopenFromDisk(); await h.engine.refreshAgents();
+  // Refused before any response, the phase hasn't started: Resume with a reply launches a new
+  // session on its current choice and gives it the reply (Kiln Phase Model Tiers AC-PICK-07).
   expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the original requested model." })).toMatchObject({ ok: true }); await h.engine.settled();
-  const resumed = h.engine.latestSession("1")!;
+  const relaunched = h.engine.latestSession("1")!;
   expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
-  expect(resumed.sessionId).toBe(original.sessionId);
-  expect(resumed.conversation?.threadId).toBe(original.conversation?.threadId);
-  expect(resumed.runs[1]?.codex?.terminal).toMatchObject({ status: "failed", error });
-  expect(resumed.runs.map(run => run.codex?.requested)).toEqual([{ model: "gpt-6.1-sol", effort: "high" }, { model: "gpt-6.1-sol", effort: "high" }]);
-  expect(f.calls().filter(call => call.method === "thread/start")).toHaveLength(1);
-  expect(f.calls().filter(call => call.method === "turn/start").map(call => [call.params?.model, call.params?.effort])).toEqual([["gpt-6.1-sol", "high"], ["gpt-6.1-sol", "high"]]);
+  expect(relaunched.sessionId).not.toBe(original.sessionId);
+  expect(relaunched.conversation?.threadId).not.toBe(original.conversation?.threadId);
+  expect(relaunched.runs[0]).toMatchObject({ cause: "launch", codex: { terminal: { status: "failed", error } } });
+  expect([original, relaunched].map(one => one.runs[0]?.codex?.requested)).toEqual([{ model: "gpt-6.1-sol", effort: "high" }, { model: "gpt-6.1-sol", effort: "low" }]);
+  expect(f.calls().filter(call => call.method === "thread/start")).toHaveLength(2);
+  expect(f.calls().filter(call => call.method === "turn/start").map(call => [call.params?.model, call.params?.effort])).toEqual([["gpt-6.1-sol", "high"], ["gpt-6.1-sol", "low"]]);
+  expect(JSON.stringify(f.calls().filter(call => call.method === "turn/start").at(-1)?.params)).toContain("Keep the original requested model.");
   expect(h.claudeCalls()).toEqual([]);
   server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
   chrome = await launchChrome(); const page = await chrome.open(server.address);

@@ -48,7 +48,7 @@ const engine = new Engine({ record, stateDirectory, paths: { mainCheckoutPath: r
 const lock = await takeInstanceLock(stateRoot(env), stateDirectory); if (!lock.taken) throw new Error('No proof instance lock');
 let server;
 try {
-  await engine.agents.refresh();
+  await engine.refreshAgents();
   server = await startLocalServer({ engine, port: lock.port, folderName: 'owner-proof', featureName: record.featureName, token: record.token });
   const owner = { kind: 'audit', activityId: activity.activityId };
   const context = { record, stateDirectory, prdWorktree: repository, prdDirectory: directory };

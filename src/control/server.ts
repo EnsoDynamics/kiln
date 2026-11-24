@@ -1,3 +1,4 @@
+import { AGENT_NAMES } from "../state/records.js";
 import { spoolResult, releaseResult } from "./spool.js";
 import { strictJson } from "../audit/storage.js";
 /** Versioned inspection and durable control API, behind the local server's unchanged authentication middleware. */
@@ -76,11 +77,14 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
           if (!(await reader.read()).done || expired) throw new ControlFailure("invalid_input", "Account refresh accepts no inputs and must finish within five seconds.", 2);
         } finally { clearTimeout(timeout); await reader.cancel(); reader.releaseLock(); }
       }
-      await Promise.all([current().agents.refresh(), current().refreshBilling()]);
+      await current().refreshAgents(); await current().refreshBilling();
       const saved = work(); const status = statusProjection(saved, current(), true);
       releaseResult(status);
       const facts = (status.account ?? null) as Record<string, unknown> | null;
-      const errors = current().agents.state.account?.error || current().agents.state.account?.limitsError || !current().agents.state.account?.limitsObservedAt || !current().agents.state.account ? [{ code: "provider_unavailable", message: "Provider account refresh is unavailable.", retryable: false, next_command: null, next_argv: null }] : [];
+      // `--refresh` reads every needed agent; provider_unavailable names each whose account or usage couldn't be read.
+      const engine = current();
+      const errors = (Object.keys(engine.neededBy()) as import("../state/records.js").AgentId[]).filter(id => { const account = engine.readers[id].state.account; return !engine.installed(id) || !account || !!account.error || !!account.limitsError || !account.limitsObservedAt; })
+        .map(id => ({ code: "provider_unavailable", message: `${AGENT_NAMES[id]} account refresh is unavailable.`, retryable: false, next_command: null, next_argv: null }));
       return send(c, result({ prd_path: saved.canonical, execution_id: saved.record.executionId!, data: facts }, [...status.errors, ...errors]));
     } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); }
   });

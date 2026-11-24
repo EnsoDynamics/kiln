@@ -1,3 +1,4 @@
+import { inUse, useAgent } from "../test-support/sample-snapshots.js";
 // Real browser rendering of Phase 6's presentation gaps (AC-VIEW-01/04, AC-USAGE-03).
 // Snapshot fixtures inject missing metadata; provider/protocol behavior is proved elsewhere.
 import { afterAll, beforeAll, expect, it } from "vitest";
@@ -10,9 +11,7 @@ let chrome: HeadlessChrome;
 beforeAll(async () => { chrome = await launchChrome(); });
 afterAll(async () => { await chrome?.close(); });
 const codex = (snapshot: Snapshot): Snapshot => {
-  snapshot.settings.agentId = "codex";
-  snapshot.settings.agent = "Codex";
-  return snapshot;
+  return useAgent(snapshot, "codex");
 };
 
 it("Complete shows the selected agent in single and multiple repositories, including when disconnected", async () => {
@@ -22,7 +21,7 @@ it("Complete shows the selected agent in single and multiple repositories, inclu
     try {
       for (const make of [completeSnapshot, completeRepositoriesSnapshot]) {
         for (const agent of ["Codex", "Claude Code"]) {
-          const snapshot = make(); snapshot.settings.agent = agent; snapshot.settings.agentId = agent === "Codex" ? "codex" : "claude_code";
+          const snapshot = make(); useAgent(snapshot, agent === "Codex" ? "codex" : "claude_code");
           server.send("snapshot", snapshot);
           await page.waitFor(`document.querySelector('.pr') && [...document.querySelectorAll('dl > div')].some(row => row.querySelector('dt')?.textContent === 'Agent' && row.querySelector('.value')?.textContent === ${JSON.stringify(agent)})`);
           // Scope the layout assertion to the changed settings card, not the existing phase rows.
@@ -58,7 +57,7 @@ it("Documents found and both recovery screens explicitly label each missing Code
           const account = { ...(email ? { email } : {}), ...(plan ? { plan } : {}), at: new Date(USAGE_LIMIT_NOW).toISOString() };
           let selector: string;
           if (snapshot.feature.state === "not_started") {
-            snapshot.account = { ...account, agentId: "codex", startedAt: account.at, updatedAt: account.at, limits: [] };
+            inUse(snapshot).account = { ...account, agentId: "codex", startedAt: account.at, updatedAt: account.at, limits: [] };
             selector = ".agent .sub";
           } else {
             const recovery = snapshot.waiting ?? snapshot.needsYou!;
@@ -80,7 +79,7 @@ it("Documents found and both recovery screens explicitly label each missing Code
 it("keeps Codex session facts, next choices and account guidance distinct across running, paused and disconnected screens", async () => {
   const running = codex(runningSnapshot());
   // The PRD-wide next Model and effort row and "Agent fixed for this PRD" are gone: each row shows its own model (Kiln Phase Model Tiers AC-KEEP-01).
-  running.account = { agentId: "codex", startedAt: "2026-10-17T15:40:00Z", updatedAt: "2026-10-17T15:40:00Z", email: "codex-screen@example.test", plan: "pro", limits: [] };
+  inUse(running).account = { agentId: "codex", startedAt: "2026-10-17T15:40:00Z", updatedAt: "2026-10-17T15:40:00Z", email: "codex-screen@example.test", plan: "pro", limits: [] };
   Object.assign(running.current!, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol", effort: "high", sessionId: "codex-local-screen", providerSessionId: "codex-native-screen", requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" }, observed: [{ turnId: "screen-turn", model: "gpt-6.1-sol", effort: "high", cwd: "/assigned" }], latestLine: { line: 4, at: "2026-10-17T15:46:00Z", source: "codex", text: "Codex screen final" } });
   const output = [
     { line: 1, at: "2026-10-17T15:45:00Z", source: "claude" as const, text: "Historical Claude output" },
@@ -94,7 +93,7 @@ it("keeps Codex session facts, next choices and account guidance distinct across
     try {
       await page.waitFor(`document.querySelector('.now .meta')?.textContent.includes('Codex')`);
       expect(await page.evaluate(`document.querySelector('.now .meta').textContent`)).toContain("GPT-6.1-Sol · high effort");
-      expect(await page.evaluate(`document.querySelector('#acct-h').textContent`)).toBe("Codex account");
+      expect(await page.evaluate(`document.querySelector('[id$="-acct-h"]').textContent`)).toBe("Codex account");
       const detail = await chrome.open(server.address + "/phase/2b", { width, clock: USAGE_LIMIT_NOW, timeZone: "America/New_York" });
       try {
         await detail.waitFor(`document.querySelectorAll('.output [data-source]').length === 4`);
@@ -107,13 +106,13 @@ it("keeps Codex session facts, next choices and account guidance distinct across
         expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output [data-source]'),e=>e.getAttribute('aria-label')).at(-1)`)).toBe("Codex entry");
         expect(detail.problems).toEqual([]);
       } finally { await detail.close(); }
-      const paused = codex(pausedSnapshot()); paused.account = running.account;
+      const paused = codex(pausedSnapshot()); inUse(paused).account = inUse(running).account!;
       server.send("snapshot", paused);
       const held = await chrome.open(server.address, { width, clock: USAGE_LIMIT_NOW });
       try {
         await held.waitFor(`document.querySelector('.account .switch')`);
         expect(await held.evaluate(`document.querySelector('.account .switch').textContent`)).toContain("codex login");
-        expect(await held.evaluate(`document.querySelector('#acct-h').textContent`)).toBe("Codex account");
+        expect(await held.evaluate(`document.querySelector('[id$="-acct-h"]').textContent`)).toBe("Codex account");
         expect(await held.evaluate(`document.querySelector('.account').textContent`)).not.toContain("claude auth login");
         expect(await held.evaluate(`document.body.textContent`)).toContain("Nothing is running.");
         // Finish the page's asset loads before deliberately taking its server down.

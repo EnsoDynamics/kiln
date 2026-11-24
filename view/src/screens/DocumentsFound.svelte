@@ -1,7 +1,7 @@
 <script lang="ts">
   import { mergeAllowedLine, NEVER_LINE, pushAllowedLine } from "../../../src/engine/authority-statement.js";
   import BusyStatus from "../components/BusyStatus.svelte";
-  import BillingPanel from "../components/BillingPanel.svelte";
+  import BillingPanels from "../components/BillingPanels.svelte";
   // Documents found (docs/design/mockups/kiln-screen-documents-found.html): what Kiln found
   // beside the PRD (PRD AC-START-04), the PRD's settings, changeable before Start and saved as
   // they are made (AC-START-06), the refinement confirmation (AC-START-05), what Kiln may and
@@ -28,6 +28,7 @@
   import type { ModelView, TierView } from "../../../src/engine/activity-models.js";
   import { rowModelLine, tierCountsLine } from "../lib/models.js";
   import AccountPanel from "../components/AccountPanel.svelte";
+  import { inUseAgent, mergeAgent, neededAgents } from "../lib/agents.js";
   import CodeText from "../components/CodeText.svelte";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
@@ -61,7 +62,11 @@
   // The planned Preflight row, above the activity it comes before, or after the phases (build preflight AC-PREFLIGHT-08).
   const preflightBefore = $derived(snapshot.preflight?.planned?.before);
   const planHas = (list: typeof rows, id: string): boolean => list.some(row => row.id === id || planHas(row.children, id));
-  const account = $derived(accountLines(snapshot.account));
+  // Each agent the run can use, its account and readiness (Kiln Phase Model Tiers AC-AGENTS-01 to 03).
+  const agents = $derived(neededAgents(snapshot));
+  const fallbackWarning = $derived(settings.models.fallback.warning);
+  // A fallback-only agent's problem is told by the warning instead.
+  const readiness = $derived(agents.filter((agent) => agent.readinessErrors?.length && agent.agentId !== fallbackWarning?.agentId));
   // Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01): the tier counts, under "Chosen for each phase".
   const tierLine = $derived(tierCountsLine(settings.models.tiers));
   const preflightModel = $derived(snapshot.preflight?.planned?.model);
@@ -340,14 +345,18 @@
         <span class="label">Models</span>
         <span class="value">Chosen for each phase</span>
         {#if tierLine}<span class="help">{tierLine}</span>{/if}
-        <span class="agent">{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
+        {#each agents as agent (agent.agentId)}
+          {@const account = accountLines(agent.account)}
+          <span class="agent">{#if agents.length > 1}<span class="sub">{agent.agent}</span>{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
+          {#if agent.modelListError}<span class="message">{agent.modelListError}</span>{/if}
+        {/each}
         {#if settings.models.problem}<span class="message">{settings.models.problem}</span>{/if}
-        {#if settings.modelListError}<span class="message">{settings.modelListError}</span>{/if}
+        {#if fallbackWarning}<span class="fallback-warning"><strong>The fallback’s agent, {fallbackWarning.agent}, isn’t ready</strong><span class="message">{fallbackWarning.problem} {fallbackWarning.remedy} Until then, this run waits at a usage limit as if the fallback were off.</span></span>{/if}
         <span class="help">Listed models do not guarantee account access.</span>
       </div>
-      {#if settings.readinessErrors?.length}<p class="message">{settings.readinessErrors.join(" ")}</p>{/if}
-      <button type="button" class="button" disabled={!connected || settings.metadataPending || snapshot.billing?.pending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
-      {#if snapshot.account && settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={settings.agent} paused={false} notStarted={true} {now} />{/if}
+      {#each readiness as agent (agent.agentId)}<p class="message">{agent.readinessErrors!.join(" ")}</p>{/each}
+      <button type="button" class="button" disabled={!connected || agents.some((agent) => agent.pending || agent.billing?.pending)} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
+      {#each agents as agent (agent.agentId)}{#if agent.account && agent.agentId === "codex"}<AccountPanel account={agent.account} agent={agent.agent} paused={false} notStarted={true} markInUse={agents.length > 1} threshold={settings.models.fallback.enabled ? settings.models.fallback.threshold : undefined} {now} />{/if}{/each}
 
 
       <label for="awake" class="awake">
@@ -370,7 +379,7 @@
         <dt>Ends at</dt><dd>{settings.developmentDeployments?.enabled ? "Confirmed development deliveries and any remaining review PRs" : multi ? "One PR in each repository that changed, ready for review. Kiln won’t merge." : "One PR, ready for review. Kiln won’t merge."}</dd>
       </dl>
       <DevelopmentDelivery {snapshot} {config} {connected} editable />
-      <BillingPanel {snapshot} {connected} />
+      <BillingPanels {snapshot} {connected} />
     </section>
   </div>
 
@@ -400,7 +409,7 @@
           <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Early merges may happen on approved repository branches; remaining work stays open for review{:else if pullRequest && "number" in pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, <a href={pullRequest.url}>#{pullRequest.number}</a>, once every phase closes{:else if pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, or open one, once every phase closes. {pullRequest.unknown}{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
         {/if}
         <!-- After delivery: the merge and, in the PRD's repository, the plan push (Kiln After Delivery AC-MERGE-08). -->
-        <li>{@render check(14, true)}<span>{mergeAllowedLine(settings.agent)}</span></li>
+        <li>{@render check(14, true)}<span>{mergeAllowedLine(mergeAgent(snapshot))}</span></li>
         <li>{@render check(14, true)}<span>{multi ? `In the PRD’s repository, p${pushAllowedLine(settings.baseBranch).slice(1)}` : pushAllowedLine(settings.baseBranch)}</span></li>
         <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Early merges only into approved repository branches; no unrelated or destructive actions" : NEVER_LINE}</span></li>
       </ul>
@@ -408,7 +417,7 @@
 
     <div class="column end">
       <button type="button" class="start" class:ready={startNow.enabled} class:busy={pressing} aria-busy={pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
-      {#if pressing}<BusyStatus text={`Setting up the run and launching ${settings.agent}.`} />{/if}
+      {#if pressing}<BusyStatus text={`Setting up the run and launching ${inUseAgent(snapshot)?.agent ?? "Claude Code"}.`} />{/if}
       {#if closedLine || startNow.note}<span class="help">{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
       {#if documents.startError}<span class="message">{documents.startError}</span>{:else if startReason}<span class="message">{startReason}</span>{/if}
     </div>
@@ -528,6 +537,7 @@
   .sessions { padding-top: 2px; }
   .agent { min-height: 44px; display: flex; flex-direction: column; justify-content: center; font-size: 14.5px; color: var(--text); }
   .sub { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
+  .fallback-warning { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text); }
   legend { padding: 0; margin-bottom: 8px; }
   .awake { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; cursor: pointer; }
   .awake input, .refined input { width: 18px; height: 18px; margin: 2px 0 0; }

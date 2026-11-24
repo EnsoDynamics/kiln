@@ -92,7 +92,7 @@ if (mode === 'seed') {
     const starting = !latest.feature.startedAt;
     await api('/api/metadata/refresh', {});
     latest = await api('/api/snapshot');
-    assert.equal(latest.settings.agentId, 'codex');
+    assert.equal(latest.agents.find(agent => agent.inUse)?.agentId, 'codex');
     const rows = [...(latest.phases ?? []), ...(latest.documents?.plan?.phases ?? [])];
     const solChoice = starting ? rows.find(row => row.model?.choice)?.model.choice : undefined;
     if (starting) {

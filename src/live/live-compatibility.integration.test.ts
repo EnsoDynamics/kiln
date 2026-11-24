@@ -253,7 +253,7 @@ for (const when of ["still running", "exited"] as const) {
     const optionsPath = file("controller-options.json");
     writeFileSync(optionsPath, JSON.stringify({ paths: h.engine.paths, tools: h.tools, record: h.engine.record, stateDirectory: h.stateDirectory, prdTree: git(h.sandbox, h.repository, "rev-parse", "HEAD:docs/prds/customer-returns").trim() }), { mode: 0o600 });
     const enginePath = fileURLToPath(new URL("../../dist/engine/engine.js", import.meta.url));
-    const code = `import{readFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();const result=await engine.start({refinementConfirmed:true});if(!result.ok)throw new Error(JSON.stringify(result));`;
+    const code = `import{readFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.refreshAgents();const result=await engine.start({refinementConfirmed:true});if(!result.ok)throw new Error(JSON.stringify(result));`;
     const controller = spawn(process.execPath, ["--input-type=module", "-e", code, optionsPath], { env: h.env, stdio: ["ignore", "pipe", "pipe"] }); const exited = once(controller, "exit");
     let diagnostic = ""; controller.stderr!.on("data", chunk => { diagnostic += String(chunk); });
     try {
