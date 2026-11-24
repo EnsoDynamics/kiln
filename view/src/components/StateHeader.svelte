@@ -35,7 +35,7 @@
   });
 </script>
 
-<FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
+<FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
   <Pill tone={look.tone} icon={look.icon} spin={state.kind === "implementing" || state.kind === "pausing"} large>{snapshot.continuation?.acceptance?.state === "preparing" ? "Preparing additional work" : snapshot.continuation?.acceptance?.state === "blocked" ? "Preparation needs attention" : planCheckLabel ?? state.label}</Pill>
   {#each state.facts as fact, index (index)}{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}<span class="fact">{fact}</span>{/each}
   {#if state.totals}

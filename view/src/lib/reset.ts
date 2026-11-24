@@ -36,7 +36,7 @@ export function stayLines(preview: ResetPreview): ResetLine[] {
   const multi = preview.stays.length > 1;
   const lines: ResetLine[] = [];
   for (const stay of preview.stays) {
-    const where = multi ? `In ${stay.repository}, ` : "";
+    const where = multi ? `In ${stay.label ?? stay.repository}, ` : "";
     lines.push({ ...(multi ? {} : { code: stay.branch }), text: multi ? `${where}${stay.branch}${stay.ownCommits === undefined ? ", whose commits of its own Kiln couldn't count" : `, which has ${commits(stay.ownCommits)}`}` : stay.ownCommits === undefined ? ", whose commits of its own Kiln couldn't count" : `, which has ${commits(stay.ownCommits)}` });
     if (stay.worktree !== undefined) lines.push({ text: `${where}${multi ? "the" : "The"} worktree folder, ${stay.uncommittedFiles === undefined ? "whose uncommitted files Kiln couldn't count" : `with ${files(stay.uncommittedFiles)}`}` });
     if (stay.unknown.includes("pullRequests")) lines.push({ text: `${where}${multi ? "any" : "Any"} pull request; Kiln couldn't read them` });

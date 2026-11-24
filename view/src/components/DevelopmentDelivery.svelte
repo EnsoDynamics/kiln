@@ -91,10 +91,10 @@
     {/if}
     {#if saved.enabled}
       <div class="merge-targets">
-        {#each snapshot.repositories as row (row.name)}
+        {#each snapshot.repositories.filter((one) => !one.question) as row (row.name)}
           {@const candidate = saved.targets.find(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch)}
           {#if !legacyChoices || candidate}
-            <EarlyMergeTarget name={row.name} repository={row.github} branch={row.baseBranch} mode="summary" disabled={!connected || saving || !!snapshot.documents?.starting} legacyEnvironment={saved.targets.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch).map(one => one.target.environment).filter(Boolean).join(", ") || undefined} />
+            <EarlyMergeTarget name={row.label} repository={row.github} branch={row.baseBranch} mode="summary" disabled={!connected || saving || !!snapshot.documents?.starting} legacyEnvironment={saved.targets.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch).map(one => one.target.environment).filter(Boolean).join(", ") || undefined} />
           {/if}
         {/each}
       </div>
@@ -129,7 +129,7 @@
       </article>
     {/each}
     </details>{/if}
-    {#each delivery.repositoryResults as result}<p><strong>{result.repository}: {result.state}</strong>{#if result.reviewPullRequest}{" · "}<a href={result.reviewPullRequest.url} target="_blank" rel="noreferrer">Review #{result.reviewPullRequest.number}</a>{/if}{#each result.reasons as reason}<span>{" · "}{reason}</span>{/each}</p>{/each}
+    {#each delivery.repositoryResults as result}<p><strong>{result.label ?? result.repository}: {result.state}</strong>{#if result.reviewPullRequest}{" · "}<a href={result.reviewPullRequest.url} target="_blank" rel="noreferrer">Review #{result.reviewPullRequest.number}</a>{/if}{#each result.reasons as reason}<span>{" · "}{reason}</span>{/each}</p>{/each}
     {#if delivery.checkedAt}<p>Last checked {new Date(delivery.checkedAt).toLocaleString()}</p>{/if}
   {/if}
   {#if !editable && snapshot.needsYou && delivery?.executionId}
@@ -140,7 +140,7 @@
       {#each snapshot.repositories as row (row.name)}
         {@const grants = delivery.authorization.grants.filter(one => one.target.repository === row.github && one.target.baseBranch === row.baseBranch)}
         {@const authorized = grants.some(one => one.target.environment === undefined)}
-        <EarlyMergeTarget name={row.name} repository={row.github} branch={row.baseBranch} mode="grant" disabled={!connected || !!snapshot.needsYou.checking || granting} {authorized} legacyEnvironment={authorized ? undefined : grants.map(one => one.target.environment).join(", ") || undefined} onauthorize={() => grant(row)} />
+        <EarlyMergeTarget name={row.label} repository={row.github} branch={row.baseBranch} mode="grant" disabled={!connected || !!snapshot.needsYou.checking || granting} {authorized} legacyEnvironment={authorized ? undefined : grants.map(one => one.target.environment).join(", ") || undefined} onauthorize={() => grant(row)} />
       {/each}
     </div>
     {#if delivery.activationRecovery?.some(one => !one.passed)}<p>Recovery assessments required for earlier/stopped work: {delivery.activationRecovery.filter(one => !one.passed).map(one => one.owner?.kind === "audit" ? `audit ${one.owner.activityId}` : one.phaseId).join(", ")}. Resume or manual recovery can supply them; Check again only checks evidence.</p>{/if}

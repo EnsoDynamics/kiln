@@ -192,11 +192,11 @@ export function assertDevelopmentState(record: { developmentAuthorization?: Deve
   for (const result of state.repositoryResults) require(object(result) && text(result.repository) && ["unchanged", "delivered", "review", "mixed", "unresolved"].includes(result.state) && texts(result.deliveredCheckpointIds) && result.deliveredCheckpointIds.every(id => ids.has(id)) && texts(result.reasons), "repository delivery result");
 }
 
-/** Every repository's current result, including retained merged PR links. */
-export function developmentDeliverySummary(record: { developmentDelivery?: DevelopmentLedger }): string {
+/** Every repository's current result by its label, including retained merged PR links. */
+export function developmentDeliverySummary(record: { developmentDelivery?: DevelopmentLedger }, label: (name: string) => string = (name) => name): string {
   const state = record.developmentDelivery;
   return state?.repositoryResults.map(result => {
     const delivered = result.deliveredCheckpointIds.flatMap(id => { const checkpoint = state.checkpoints.find(one => one.id === id); return checkpoint?.merge ? [`delivered ${checkpoint.merge.url} to ${checkpoint.target.environment}`] : []; });
-    return [`${result.repository}: ${result.state}`, ...delivered, ...(result.reviewPullRequest ? [`review ${result.reviewPullRequest.url}`] : [])].join(" · ");
+    return [`${label(result.repository)}: ${result.state}`, ...delivered, ...(result.reviewPullRequest ? [`review ${result.reviewPullRequest.url}`] : [])].join(" · ");
   }).join(" · ") || "Delivery evidence unresolved";
 }

@@ -17,7 +17,7 @@ const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(valu
 /** What the reset confirmation shows, read when it opens (technical design "The confirmation"). */
 export interface ResetPreview {
   forgets: ResetForgets;
-  stays: { repository: string; branch: string; ownCommits?: number; worktree?: string; uncommittedFiles?: number; pullRequests: { number: number; url: string }[]; unknown: string[] }[];
+  stays: { repository: string; /** What it is shown by (find repositories anywhere AC-FOLDER-02). */ label?: string; branch: string; ownCommits?: number; worktree?: string; uncommittedFiles?: number; pullRequests: { number: number; url: string }[]; unknown: string[] }[];
   /** Leaves Closed in the plan on the feature branch, PRD's repository. */
   closedOnBranch?: number;
 }

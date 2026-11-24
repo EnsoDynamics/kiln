@@ -23,7 +23,7 @@ import { assertPreflightState } from "../engine/preflight.js";
 import { MERGE_KEY, preflightKey } from "./activity-keys.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -135,6 +135,24 @@ export interface PhaseStop {
    * complete the run with no pull request session.
    */
   holdLeadsTo?: "pull_request_session" | "complete";
+  /** Each question the stop asks about a repository Kiln couldn't place (find repositories anywhere AC-ASK-07; schema 26). */
+  locate?: SavedQuestion[];
+}
+
+/**
+ * A question a stop saves whole (find repositories anywhere, "Data Models"): `phaseFile` on the
+ * plan stop's question, absent on one from a session's request. The label is worked out each time
+ * it is shown and a field message belongs to one answer, so neither is saved.
+ */
+export interface SavedQuestion {
+  kind: "where" | "which";
+  /** The address path, as the plan or the session's request writes it. */
+  repository: string;
+  searchedFrom: string;
+  searchedTo?: string;
+  checkouts: { folder: string; remote: string; pickable: boolean; remembered?: true }[];
+  found: number;
+  phaseFile?: string;
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
@@ -193,6 +211,8 @@ export interface PhaseFacts {
   doneAt?: string;
   finishedByPerson: boolean;
   stop?: PhaseStop;
+  /** A session's requests for a repository Kiln would ask about, once per address path (find repositories anywhere AC-SESSION-01). */
+  repositoryRequests?: { addressPath: string; at: string }[];
   /** Waiting for usage (usage-limit recovery AC-AUTO-01); never beside `stop`. */
   wait?: PhaseWait;
   /** By repository name. */
@@ -282,7 +302,13 @@ export interface CreatedBranch {
  * `setupCompletedAt`; before that it holds what a setup under way, or a failed one, left.
  */
 export interface RepositoryEntry {
+  /** Kiln's name for it: the record key and its worktree folder's name, fixed once written. */
   name: string;
+  /**
+   * Its short name, kept only when it differs from `name`, which is then the whole-path form
+   * (find repositories anywhere AC-FOLDER-01, schema 26).
+   */
+  shortName?: string;
   kind: RepositoryKind;
   mainCheckoutPath: string;
   /** `<owner>/<name>`. */
@@ -635,7 +661,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -702,6 +728,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   // Schema 25: a check result saved under the old rules is dropped, so no stale "Plan needs reconciliation"
   // or waiting panel renders before the first new check (Kiln After Delivery "Data Models and Upgrade").
   if (record.schemaVersion < 25) delete record.completedPlanCheck;
+  // Schema 26 adds a repository's optional `shortName` (find repositories anywhere "Data Models"); every earlier entry was named by folder, so it is read as it was.
   if (record.continuationBaselineId !== undefined && !/^[a-f0-9]{64}$/.test(record.continuationBaselineId)) throw new Error("Malformed continuation baseline reference.");
   // Schema 23 adds `preflight`; a record from earlier has none, so its preflight is not settled (build preflight "Upgrade").
   assertPreflightState(record.preflight);

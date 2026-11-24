@@ -21,8 +21,8 @@ export function auditDeliveryScope(context: DeliveryContext, owner: DeliveryOwne
   if (snapshot.executionId !== context.record.executionId || snapshot.activityId !== owner.activityId) throw new Error("Audit development snapshot belongs to other work.");
   const repo = repositoryFor(context.record, snapshot.requirements.repository);
   // Read the criteria as they are now: an audit may write pointer lines under them, and sessions no longer issue snapshots.
-  const manifest = requirementManifest(repo.name, snapshot.requirements.path, snapshot.requirements.criteria[0]?.blob ?? "", readFileSync(assignedPath(repo, snapshot.requirements.path), "utf8"));
-  const documentsDigest = hashValue(snapshot.documents.map(reference => [reference.repository, reference.path, phaseScope(readFileSync(assignedPath(repositoryFor(context.record, reference.repository), reference.path), "utf8"))]));
+  const manifest = requirementManifest(repo.name, snapshot.requirements.path, snapshot.requirements.criteria[0]?.blob ?? "", readFileSync(assignedPath(repo, snapshot.requirements.path, context.label?.(repo.name)), "utf8"));
+  const documentsDigest = hashValue(snapshot.documents.map(reference => [reference.repository, reference.path, phaseScope(readFileSync(assignedPath(repositoryFor(context.record, reference.repository), reference.path, context.label?.(reference.repository)), "utf8"))]));
   return { activity, manifest, documentsDigest, requirementManifestDigest: manifest.id };
 }
 

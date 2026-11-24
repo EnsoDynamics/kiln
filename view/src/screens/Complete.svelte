@@ -27,7 +27,7 @@
   import PhasePlan from "../components/PhasePlan.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import { deliveryGroups, deliveryTime } from "../lib/delivery-history.js";
-  import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
+  import { addedLabel, folderShown, repositoriesLine, repositoryLabel } from "../lib/progress.js";
 
   let { snapshot, connected, now, lastSeenAt, config }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined; config?: import("../lib/api.js").PageConfig } = $props();
   const multi = $derived(snapshot.feature.multiRepository);
@@ -41,6 +41,7 @@
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
   const number = (value: number) => value.toLocaleString("en-US");
   const commitCount = (pullRequest: PullRequestFacts) => `${pullRequest.commits >= 100 ? "100+" : number(pullRequest.commits)} ${pullRequest.commits === 1 ? "commit" : "commits"}`;
+  const labelOf = (repository: string) => repositoryLabel(snapshot, repository);
   // While the delivery waits to merge (Kiln After Delivery AC-WAIT-02): no check panel, one line in the pull request card.
   // The HTTP answer is applied at once; the event stream may bring the same check later (the newer one wins).
   let answered = $state<import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck>();
@@ -196,7 +197,7 @@
         {#each pullRequests as pullRequest (pullRequest.repository)}
           {@const tag = tagFor(pullRequest.repository)}
           <li>
-            <div class="repo"><span class="mono repo-name">{pullRequest.repository}</span><span class="repo-sub"><span class="mono repo-number">#{pullRequest.number}</span>{#if readingOf(pullRequest)?.order}<span class="tag">merges {ordinal(readingOf(pullRequest)!.order!.position)}</span>{/if}{#if tag}<span class="tag">{tag}</span>{/if}</span></div>
+            <div class="repo"><span class="mono repo-name">{pullRequest.label ?? labelOf(pullRequest.repository)}</span><span class="repo-sub"><span class="mono repo-number">#{pullRequest.number}</span>{#if readingOf(pullRequest)?.order}<span class="tag">merges {ordinal(readingOf(pullRequest)!.order!.position)}</span>{/if}{#if tag}<span class="tag">{tag}</span>{/if}</span></div>
             <div class="what">
               <span class="pr-title">{pullRequest.title}</span>
               <span class="pr-line"><span class="mono pr-branches">{pullRequest.head} → {pullRequest.base}</span><span class="sep" aria-hidden="true">·</span><span>{commitCount(pullRequest)}</span><span class="sep" aria-hidden="true">·</span><span>+{number(pullRequest.additions)} −{number(pullRequest.deletions)}</span>{#if readingOf(pullRequest)?.state === "merged" || readingOf(pullRequest)?.state === "closed" || readingOf(pullRequest)?.conflicts}<span class="sep" aria-hidden="true">·</span>{@render pullFacts(pullRequest)}{/if}</span>
@@ -231,7 +232,7 @@
       <ul class="prs">
         {#each mergedBranches as branch (branch.repository)}
           <li>
-            <div class="repo"><span class="mono repo-name">{branch.repository}</span></div>
+            <div class="repo"><span class="mono repo-name">{labelOf(branch.repository)}</span></div>
             <div class="what"><span class="pr-title">Already merged into {branch.base}</span><span class="mono pr-branches">{branch.head}</span></div>
           </li>
         {/each}
@@ -250,7 +251,7 @@
     {#if snapshot.deliveryHistory}
       {#each histories as history (history.repository)}
         <div class="history-repo">
-          <div class="history-heading"><h3 class="mono repo-name">{history.repository}</h3><span class="sub">{history.primary.length} {history.primary.length === 1 ? "delivery" : "deliveries"} · Newest first</span></div>
+          <div class="history-heading"><h3 class="mono repo-name">{labelOf(history.repository)}</h3><span class="sub">{history.primary.length} {history.primary.length === 1 ? "delivery" : "deliveries"} · Newest first</span></div>
           <ul class="prs primary-deliveries" id={`deliveries-${history.repository}`}>
             {#each history.primary.slice(0, expanded[history.repository] ? undefined : 3) as event (`${event.kind}:${event.number ?? event.commit}`)}
               {@render historyRow(event)}

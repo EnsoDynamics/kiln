@@ -18,7 +18,7 @@ export function newAcceptance(record: PrdRecord, directory: string, proposal: Co
   const workspaceFolder = realPathOfNearestAncestor(join(dirname(expandHome(record.settings.workspaceFolder)), `${folder}-continue-${uuid}`));
   const featureBranch = `feature/${folder}-continue-${uuid}`;
   const settings = { ...structuredClone(record.settings), workspaceFolder, featureBranch, worktreePath: join(workspaceFolder, record.repository.name), developmentDeployments: { enabled: false, targets: [] } };
-  const repositories = proposal.repositories.map(repo => ({ name: repo.name, kind: repo.name === record.repository.name ? "prd" as const : "named" as const, mainCheckoutPath: repo.path, github: repo.identity, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision, worktreePath: join(workspaceFolder, repo.name) }));
+  const repositories = proposal.repositories.map(repo => ({ name: repo.name, ...(repo.shortName === undefined ? {} : { shortName: repo.shortName }), kind: repo.name === record.repository.name ? "prd" as const : "named" as const, mainCheckoutPath: repo.path, github: repo.identity, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision, worktreePath: join(workspaceFolder, repo.name) }));
   settings.bases = Object.fromEntries(repositories.filter(repo => repo.kind !== "prd").map(repo => [repo.name, repo.baseBranch]));
   settings.baseBranch = repositories.find(repo => repo.kind === "prd")!.baseBranch;
   return { formatVersion: 1, id: receipt.id, operationId: receipt.id, commandId: receipt.command_id, proposalId: proposal.id, completedExecutionId: record.executionId!, newExecutionId: uuid, ...(pending ? { pendingAuthorityId: pending.id, authorization: structuredClone(pending.authorization) } : {}), acceptedAt: at, candidateId, archiveId: retainExecution(directory, record), proposal, settings, repositories, canonicalWorkspace: realPathOfNearestAncestor(workspaceFolder), state: "preparing" };
@@ -38,13 +38,15 @@ export async function validatePreparedWorkspace(git: GitContext, acceptance: Con
   if (head !== entry.baseCommit || status.trim()) throw new Error(`User work or a moved branch is present in ${entry.worktreePath}. Nothing was reset or overwritten; reconcile it before retrying preparation.`);
   return true;
 }
-export async function prepareWorkspaces(git: GitContext, acceptance: ContinuationAcceptance, save: () => void, now: () => string): Promise<void> {
-  const placement = await checkWorkspaceFolderPlacement(git, acceptance.repositories, acceptance.settings.workspaceFolder);
+export async function prepareWorkspaces(git: GitContext, acceptance: ContinuationAcceptance, save: () => void, now: () => string, label: (name: string) => string = (name) => name): Promise<void> {
+  // Messages name each repository by its label (find repositories anywhere AC-FOLDER-02).
+  const labelled = acceptance.repositories.map(repo => ({ name: repo.name, mainCheckoutPath: repo.mainCheckoutPath, label: label(repo.name) }));
+  const placement = await checkWorkspaceFolderPlacement(git, labelled, acceptance.settings.workspaceFolder);
   if (placement) throw new Error(placement);
   if (!acceptance.repositories.some(repo => repo.setupCompletedAt)) {
     const existingOwned = await Promise.all(acceptance.repositories.map(repo => validatePreparedWorkspace(git, acceptance, repo.name)));
     if (!existingOwned.some(Boolean)) {
-      const error = await checkWorkspaceFolder(git, acceptance.repositories, acceptance.settings.workspaceFolder);
+      const error = await checkWorkspaceFolder(git, labelled, acceptance.settings.workspaceFolder);
       if (error) throw new Error(error);
     }
   }
@@ -52,7 +54,7 @@ export async function prepareWorkspaces(git: GitContext, acceptance: Continuatio
     if (!await validatePreparedWorkspace(git, acceptance, entry.name)) {
       const error = await checkWorktreePath(git, entry.mainCheckoutPath, entry.worktreePath);
       if (error) throw new Error(error);
-      const outcome = await addEntryWorktree(git, entry, acceptance.settings.featureBranch, "then Retry preparation.");
+      const outcome = await addEntryWorktree(git, entry, acceptance.settings.featureBranch, "then Retry preparation.", true, label(entry.name));
       if (!outcome.ok) throw new Error(outcome.error);
       if (!await validatePreparedWorkspace(git, acceptance, entry.name)) throw new Error(`Setup could not establish the recorded workspace ${entry.worktreePath}.`);
     }

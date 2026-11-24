@@ -43,6 +43,10 @@ import type { Engine, RepositoryCommits } from "./engine.js";
 import type { ExecutionSummary } from "./continuation-state.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
+import { labelAmong } from "./repository-labels.js";
+import type { Question } from "./repository-finding.js";
+import type { SavedQuestion } from "../state/records.js";
+import { questionLabel } from "./plan-repositories.js";
 import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
@@ -140,7 +144,8 @@ export interface DocumentsFound {
   /** Links in the requirements Kiln won't follow, when there are any: neither a passed nor a failed check (Kiln Linked Documents AC-LINK-04). */
   unfollowedLinks?: { target: string; from: string; reason: string }[];
   /** A failed row, on a page a reset built, names the check in `kiln run`'s words (run restart AC-RESET-04). */
-  checks: { name: string; passed: boolean; text?: string }[];
+  /** `locate`: the unpassed "<n> repository to locate", which a question answers rather than a fix (find repositories anywhere AC-SEE-01). */
+  checks: { name: string; passed: boolean; text?: string; locate?: true }[];
   /** On a page a reset built: a start check failed, so Start is unavailable until a reload finds them all passing. */
   checksFailed?: true;
   /** Where Kiln starts from (run restart AC-FROM-01 to 05, AC-CURRENT-01); absent until the first preview finishes. */
@@ -183,7 +188,7 @@ export interface PhaseView {
   continuationIndex?: number;
   /** A session of test fixes: the test audit loop that started its chain and its place in that chain, from 1. */
   fixing?: { loop?: number; session: number };
-  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[];
+  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; label?: string; revision: string }[]; blockers: string[]; pendingActions: string[];
     /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
     personItems?: { count: number; waiting: boolean };
     /** Items this audit settled, each as "<problem> Listed by <audit>, settled by <audit>: <how>". */
@@ -253,6 +258,8 @@ export interface CheckCounts { passed: number; waived: number; failed: number }
 
 export interface RepositoryDetails {
   name: string;
+  /** What it is shown by (find repositories anywhere AC-FOLDER-02). */
+  label?: string;
   /** The judged leaf it was added in, for an added repository. */
   addedInPhase?: string;
   worktree: string;
@@ -261,10 +268,40 @@ export interface RepositoryDetails {
   latestCommit: string;
 }
 
+/**
+ * What Documents found asks about a repository (find repositories anywhere AC-ASK-01, AC-ASK-02;
+ * technical design, "Snapshot"). Folders are shown under `~/`.
+ */
+export interface QuestionView {
+  kind: "where" | "which";
+  /** The address path, as the plan writes it. */
+  repository: string;
+  label: string;
+  searchedFrom: string;
+  searchedTo?: string;
+  checkouts: { folder: string; remote: string; pickable: boolean; remembered?: true }[];
+  /** How many checkouts the search itself found. */
+  found: number;
+  /** Change, when the search found nothing: the remembered folder, already in the field. */
+  field?: string;
+  fieldError?: string;
+}
+
 /** One of the PRD's repositories, as Documents found and the settings list them (multi-repo AC-REPO-03, AC-PRS-04). */
 export interface RepositoryRow {
   github?: string;
+  /** Kiln's name for it: the key `bases` takes. */
   name: string;
+  /** What it is shown by: its short name, or its address path while another of the PRD's repositories shares the short name (AC-FOLDER-02). */
+  label: string;
+  /** Its address path, as its origin spells it, or as the plan writes it while the row asks (AC-SEE-01). */
+  addressPath: string;
+  /** Its own checkout's folder; absent while the row asks. */
+  checkoutFolder?: string;
+  /** How its checkout was found, before Start only: `answer` offers Change (AC-ASK-05). */
+  located?: "beside" | "search" | "answer";
+  /** The row's question, while Kiln can't tell where its checkout is (AC-ASK-01). */
+  question?: QuestionView;
   kind: RepositoryKind;
   /** The judged leaf it was added in, for an added repository. */
   addedInPhase?: string;
@@ -336,6 +373,8 @@ export interface Snapshot {
   feature: {
     name: string;
     repositoryName: string;
+    /** The label the PRD's repository is shown by (find repositories anywhere AC-FOLDER-02). */
+    repositoryLabel: string;
     /** More than one repository (multi-repo AC-SPACE-03): the screens then show them. */
     multiRepository: boolean;
     prdFolder: string;
@@ -357,6 +396,8 @@ export interface Snapshot {
   reset?: { available: boolean; reason?: string };
   settings: {
     developmentDeployments?: DevelopmentSettings;
+    /** The reason under Start while a repository row asks (find repositories anywhere "Asking Before Start"). */
+    startBlockedBy?: string;
     agent: string;
     agentId?: AgentId;
     agentFixed?: boolean;
@@ -409,6 +450,8 @@ export interface Snapshot {
   needsYou?: SessionIdentityView & {
     phaseId: string;
     kind: StopKind;
+    /** Each question the stop asks about where a repository is (find repositories anywhere AC-ASK-07); the plan stop's carry `phaseFile`. */
+    locate?: (QuestionView & { phaseFile?: string })[];
     stoppedAt: string;
     /** `stoppedAt` is the interrupted run's last output, since Kiln recorded no interruption time. */
     stoppedAtIsLastOutput?: true;
@@ -529,7 +572,7 @@ export interface Snapshot {
   /** The signed-in account and its usage, once the first calls return (Startup order). */
   account?: AgentAccount;
   /** Every pull request, in list order, once the PRD is complete (multi-repo AC-PRS-03). */
-  pullRequests?: PullRequestFacts[];
+  pullRequests?: (PullRequestFacts & { label?: string })[];
   mergedBranches?: MergedBranchFacts[];
   deliveryHistory?: DeliveryHistory;
   deliveryHistoryPending?: boolean;
@@ -591,8 +634,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
   const snapshot: Snapshot = {
     ...(record.continuation || record.completedPlanCheck || record.planReconciliation?.handback || record.planReconciliation?.check?.status === "failed" ? { continuation: {
       ...(record.preparation ? { preparation: engine.preparationStatus(record.executionId, record.preparation.phaseId) } : {}),
-      ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }) } : {}),
-      ...(record.completedPlanCheck ? { check: record.completedPlanCheck } : {}),
+      ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return labelledExecution(engine, row); }) } : {}),
+      ...(record.completedPlanCheck ? { check: labelledPlanCheck(engine, record.completedPlanCheck) } : {}),
       ...(record.planReconciliation?.handback ? { handback: record.planReconciliation.handback } : {}),
       // An in-progress plan's "Plan needs reconciliation" notice is never rendered on a finished run (Kiln After Delivery AC-BACK-01).
       ...(record.planReconciliation?.check?.status === "failed" && !record.completedAt ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
@@ -607,6 +650,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     feature: {
       name: engine.paths.featureName,
       repositoryName: engine.paths.repositoryName,
+      repositoryLabel: engine.labelOf(engine.paths.repositoryName),
       multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
       state,
@@ -626,6 +670,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...(stoppedKey !== undefined || deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),
+      ...(state === "not_started" ? optional("startBlockedBy", engine.startBlockedBy) : {}),
       agent: AGENT_NAMES[settings.agentId],
       agentId: settings.agentId,
       agentFixed: engine.agentFixed,
@@ -662,7 +707,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
     ...optional("account", metadata.account),
     billing: record.settings.agentId === "claude_code" ? engine.billing.view : codexBillingView(metadata, record.executionId!, record.billing?.lastLaunch),
-    ...optional("pullRequests", record.pullRequests),
+    ...optional("pullRequests", record.pullRequests?.map((pull) => ({ ...pull, label: engine.labelOf(pull.repository) }))),
     ...optional("mergedBranches", record.mergedBranches),
     ...optional("deliveryHistory", record.deliveryHistory),
     deliveryHistoryPending: engine.deliveryHistoryPending,
@@ -685,7 +730,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     const found = fromGit ? { ...fromGit, checks: [...resetRows!, ...documents.checks.filter(check => !check.passed)], ...(documents.checksFailed ? { checksFailed: true as const } : {}) } : documents;
     // The page says where the plan was read only over documents read there (AC-FROM-02): the start commit's, or a base the checkout matches.
     const readAtStart = preview?.from === "existing" ? fromGit !== undefined : preview !== undefined && engine.baseDocumentsMatched === preview.previewId;
-    snapshot.documents = { ...found, ...(preview ? { start: startView(engine, preview, readAtStart) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
+    snapshot.documents = { ...withRepositoriesCheck(found, engine), ...(preview ? { start: startView(engine, preview, readAtStart) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
   }
   return snapshot;
 }
@@ -723,6 +768,31 @@ function livePanel(stored: import("./folder-setup.js").SetupPanel, engine: Engin
 }
 
 /** A plan phase as Documents found lists it. */
+/**
+ * The repositories' passed check as the named rows stand now: "Repositories found on this
+ * computer", or, while a row asks, the unpassed "<n> repository to locate" (AC-SEE-01). Each
+ * phase's repositories are shown by label (AC-FOLDER-02).
+ */
+function withRepositoriesCheck(found: DocumentsFound, engine: Engine): DocumentsFound {
+  const asking = engine.locatingRepositories.length;
+  // While a start check fails on a page a reset built, Kiln says nothing about a repository it would ask about (AC-ASK-01).
+  const held = asking > 0 && engine.resetCheckFailing;
+  const named = (name: string) => name === REPOSITORIES_FOUND || / repositor(y|ies) to locate$/.test(name);
+  // A named repository Kiln couldn't find or check since kiln run started is a failed check, in the terminal's words.
+  const problems = engine.record.startedAt === undefined ? engine.repositoryProblems : [];
+  const checks = found.checks.flatMap((check) => {
+    if (!check.passed || !named(check.name)) return [check];
+    if (problems.length > 0) return problems.map((problem) => ({ name: problem, passed: false, text: problem }));
+    if (held) return [];
+    return [asking === 0 ? { name: REPOSITORIES_FOUND, passed: true } : { name: `${asking} ${asking === 1 ? "repository" : "repositories"} to locate`, passed: true, locate: true as const }];
+  });
+  const plan = found.plan ? { ...found.plan, phases: found.plan.phases.map((phase) => ({ ...phase, repositories: phase.repositories.map((name) => engine.labelOfWritten(name)) })) } : undefined;
+  return { ...found, checks, ...(plan ? { plan } : {}), ...(problems.length > 0 ? { checksFailed: true as const } : {}) };
+}
+
+/** The passed check once every named repository is found (find repositories anywhere AC-SEE-01). */
+export const REPOSITORIES_FOUND = "Repositories found on this computer";
+
 function documentsPhase(phase: PlannedPhase): NonNullable<DocumentsFound["plan"]>["phases"][number] {
   return { id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories, ...optional("attended", phase.attended), ...optional("earlyMerge", phase.earlyMerge) };
 }
@@ -768,7 +838,7 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
     ...(followUp ? { followUp: true } : {}),
     ...optional("seenInSession", seen),
     ...optional("latestLine", current.latestLine),
-    repositories: current.commits,
+    repositories: labelled(engine, current.commits),
     ...(current.processRunning && current.reader?.reviewerWorking ? { reviewerWorking: true } : {}),
   };
 }
@@ -825,6 +895,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...preflightStopFacts(engine, phaseKey),
     // Only a phase carries the line; an audit, preflight or final delivery stop never shows the card.
     ...optional("attended", isPhaseKey(phaseKey) ? plan.find(phase => phase.id === judged)?.attended : undefined),
+    ...optional("locate", locateView(engine, retainedStop?.locate ?? hold?.locate)),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
   // Resume, reply and the terminal command read the latest conversation, or the latest launch when none began (run restart "A session record with no run").
@@ -866,7 +937,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     model: session.modelDisplayName,
     ...optional("effort", session.effort),
     ...optional("sessionStartedAt", session.runs[0]?.startedAt),
-    repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
+    repositories: labelled(engine, engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : []),
   };
   const everStarted = session.runs.some((candidate) => candidate.pid !== undefined);
   const lines = engine.outputLines(session);
@@ -1019,7 +1090,7 @@ function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | und
     ...(began ? { reopen: engine.reopenCheck(phaseKey) } : {}),
     ...optional("carryOn", carryOn),
     ...(start.offered ? { startAgain: { available: start.available, ...optional("reason", start.reason) } } : {}),
-    ...optional("catchUp", engine.stoppedCatchUp?.phaseKey === phaseKey ? engine.stoppedCatchUp.offer : undefined),
+    ...optional("catchUp", labelledCatchUp(engine, engine.stoppedCatchUp?.phaseKey === phaseKey ? engine.stoppedCatchUp.offer : undefined)),
   };
 }
 
@@ -1052,7 +1123,7 @@ function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
     ...optional("sessionStartedAt", session?.runs[0]?.startedAt),
     ...optional("sessionEndedAt", run?.endedAt),
     ...(session ? { steps: sessionSteps(engine, phaseKey, session) } : {}),
-    repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
+    repositories: labelled(engine, engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : []),
   };
 }
 
@@ -1409,7 +1480,7 @@ export function documentsFound(
   prdDirectory: string,
   folderName: string,
   plan: PhasePlan,
-  found: StartCheckReport["found"] & { repositories: StartCheckReport["repositories"] },
+  found: StartCheckReport["found"] & { repositories: StartCheckReport["repositories"]; namedCount?: number },
   repositoryName: string,
   read: (name: string) => string = (name) => readFileSync(join(prdDirectory, name), "utf8"),
 ): DocumentsFound {
@@ -1431,9 +1502,9 @@ export function documentsFound(
     checks: [
       { name: "Every phase cites its criteria", passed: true },
       { name: "Dependencies point backward", passed: true },
-      ...(found.repositories.length > 0
+      ...(found.repositories.length > 0 || (found.namedCount ?? 0) > 0
         ? [
-            { name: `Named repositories found beside ${repositoryName}`, passed: true },
+            { name: REPOSITORIES_FOUND, passed: true },
             { name: `Working tree of ${repositoryName} is clean`, passed: true },
           ]
         : [{ name: "Working tree is clean", passed: true }]),
@@ -1461,7 +1532,7 @@ export function startCheckDocuments(prdDirectory: string, folderName: string, re
   const assumptions = readable(report.found.assumptionsFile);
   const plan = report.plan && report.plan.problems.length === 0 ? report.plan : undefined;
   const leaves = plan ? leavesOf(plan) : [];
-  const cleanName = report.repositories.length > 0 ? `Working tree of ${repositoryName} is clean` : "Working tree is clean";
+  const cleanName = report.named.length > 0 ? `Working tree of ${repositoryName} is clean` : "Working tree is clean";
   return {
     prd: { file: prdFile, criteriaCount: criteria.count, ...optional("firstLabel", criteria.firstLabel), ...optional("lastLabel", criteria.lastLabel) },
     ...(design !== undefined ? { design: { file: report.found.designFile!, criteriaCited: countDesignCitations(design, criteria.labels) } } : {}),
@@ -1470,7 +1541,7 @@ export function startCheckDocuments(prdDirectory: string, folderName: string, re
     ...(report.found.unfollowedLinks?.length ? { unfollowedLinks: report.found.unfollowedLinks.filter((link, index, all) => all.findIndex(other => other.from === link.from && other.target === link.target) === index).map(link => ({ target: link.target, from: link.from, reason: link.reason })) } : {}),
     checks: [
       ...(plan ? [{ name: "Every phase cites its criteria", passed: true }, { name: "Dependencies point backward", passed: true }] : []),
-      ...(report.repositories.length > 0 && !report.problems.some(problem => problem.includes("repositor")) ? [{ name: `Named repositories found beside ${repositoryName}`, passed: true }] : []),
+      ...(report.named.length > 0 && !report.problems.some(problem => problem.includes("repositor")) ? [{ name: REPOSITORIES_FOUND, passed: true }] : []),
       // Uncommitted files an adopted worktree holds are counted on the page, never shown as a clean tree.
       ...(report.uncommitted !== undefined || report.problems.some(problem => problem.startsWith("Couldn't read the checkout's status")) ? [] : [{ name: cleanName, passed: true }]),
       ...failed.map(text => ({ name: text, passed: false, text })),
@@ -1492,7 +1563,7 @@ function startView(engine: Engine, preview: StartPreview, readAtStart: boolean):
     closedCount: preview.closedCount,
     // The closed marks belong to the plan read at the start commit, so Start at Phase N waits for it too.
     ...optional("startAt", readAtStart ? preview.startAt : undefined),
-    ...optional("catchUp", preview.catchUp),
+    ...optional("catchUp", labelledCatchUp(engine, preview.catchUp)),
   };
 }
 
@@ -1506,15 +1577,26 @@ function gitDocumentsFound(preview: StartPreview, engine: Engine): DocumentsFoun
   const assumptionsFile = pick("assumptions.md");
   const read = (name: string) => contents[`${directory}/${name}`] ?? "";
   const repositories = preview.repositories.filter(repository => repository.kind !== "prd").map(repository => ({ name: repository.name, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github }));
-  return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.paths.repositoryName, read);
+  return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.labelOf(engine.paths.repositoryName), read);
+}
+
+/** A catch-up offer with each repository's label beside its name (find repositories anywhere AC-FOLDER-02). */
+function labelledCatchUp(engine: Engine, offer: CatchUpOffer | undefined): CatchUpOffer | undefined {
+  return offer && { repositories: labelled(engine, offer.repositories) };
 }
 
 /** Each repository's commits and latest commit in a phase: what its Done recorded, or what Kiln read for its stop. */
+
+/** Each repository's label beside its name (find repositories anywhere AC-FOLDER-02). */
+function labelled<T extends { name: string }>(engine: Engine, list: T[]): (T & { label: string })[] {
+  return list.map((one) => ({ ...one, label: engine.labelOf(one.name) }));
+}
+
 function repositoryDetails(engine: Engine, facts: { repositories: Record<string, { startCommit: string; pushedSha?: string; commitCount?: number }> }, stopped: RepositoryCommits[] | undefined): RepositoryDetails[] {
   const rows: RepositoryDetails[] = [];
   for (const entry of engine.setUpRepositories) {
     const added = entry.kind === "added" && entry.addedInPhase !== undefined ? { addedInPhase: engine.judgedId(entry.addedInPhase) } : {};
-    const base = { name: entry.name, ...added, worktree: displayPath(expandHome(entry.worktreePath)), branch: engine.record.settings.featureBranch };
+    const base = { name: entry.name, label: engine.labelOf(entry.name), ...added, worktree: displayPath(expandHome(entry.worktreePath)), branch: engine.record.settings.featureBranch };
     if (stopped) {
       const commits = stopped.find((repository) => repository.name === entry.name)?.commits ?? [];
       if (commits.length > 0) rows.push({ ...base, commitCount: commits.length, latestCommit: commits[0]!.sha });
@@ -1527,21 +1609,30 @@ function repositoryDetails(engine: Engine, facts: { repositories: Record<string,
   return rows;
 }
 
-/** The PRD's repositories as rows: before Start the planned list with its bases and messages, after it the set-up entries. */
+/** The PRD's repositories as rows: before Start the planned list with its bases and messages, and each row that asks; after it the set-up entries. */
 function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
   const notStarted = state === "not_started";
   const { settings } = engine.record;
   const multi = engine.multiRepository;
+  const labels = engine.labelSet();
+  const labelOf = (shortName: string, addressPath: string) => labelAmong({ shortName, addressPath }, labels);
+  const located = new Map(notStarted ? engine.namedRows.flatMap((row) => (row.found ? [[row.found.name, row.found.located] as const] : [])) : []);
   const repositories = notStarted ? engine.plannedRepositories : engine.setUpRepositories.map((entry) => ({ ...entry, entry }));
-  return repositories.map((repository) => {
+  const rows: RepositoryRow[] = repositories.map((repository) => {
     const entry = repository.entry;
     const isPrd = repository.kind === "prd";
     const fixed = !notStarted || entry?.setupCompletedAt !== undefined || (engine.workspaceFixed && entry?.createdBranch !== undefined);
     const message = isPrd ? engine.currentFieldErrors.baseBranch : engine.baseErrors[repository.name];
     const choices = isPrd ? engine.baseBranches : engine.repositoryBaseBranches[repository.name];
     const worktreePath = entry?.setupCompletedAt !== undefined ? expandHome(entry.worktreePath) : isPrd && !multi ? engine.worktreePath : `${expandHome(settings.workspaceFolder)}/${repository.name}`;
+    const shortName = repository.shortName ?? entry?.shortName ?? repository.name;
+    const how = located.get(repository.name);
     return {
       name: repository.name,
+      label: labelOf(shortName, repository.github),
+      addressPath: repository.github,
+      checkoutFolder: displayPath(expandHome(repository.mainCheckoutPath)),
+      ...(how === undefined ? {} : { located: how }),
       github: `github.com/${repository.github}`.toLowerCase(),
       kind: repository.kind,
       ...(entry?.kind === "added" && entry.addedInPhase !== undefined ? { addedInPhase: engine.judgedId(entry.addedInPhase) } : {}),
@@ -1552,6 +1643,53 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
       fieldErrors: message === undefined ? {} : { baseBranch: message },
     };
   });
+  if (!notStarted) return rows;
+  // A row that asks sits in plan order among the named repositories (find repositories anywhere AC-ASK-01).
+  const order = engine.namedRows.map((row) => row.name);
+  // A failing start check on a page a reset built holds each row's question until it passes (AC-ASK-01).
+  const held = engine.resetCheckFailing;
+  for (const row of engine.locatingRepositories) {
+    const question = row.question!;
+    const label = labelOf(row.shortName, row.addressPath);
+    const asking: RepositoryRow = {
+      name: row.name,
+      label,
+      addressPath: question.repository,
+      kind: "named",
+      baseBranch: "",
+      worktreePath: displayPath(`${expandHome(settings.workspaceFolder)}/${row.name}`),
+      fixed: true,
+      fieldErrors: {},
+      ...(held ? {} : { question: questionView(question, label) }),
+    };
+    if (!order.includes(row.name)) { rows.push(asking); continue; }
+    const before = order.slice(0, order.indexOf(row.name)).reverse().find((name) => rows.some((one) => one.name === name));
+    const at = before === undefined ? rows.findIndex((one) => one.kind !== "prd") : rows.findIndex((one) => one.name === before) + 1;
+    rows.splice(at === -1 ? rows.length : at, 0, asking);
+  }
+  return rows;
+}
+
+/** A stop's saved questions as the page shows them, each with its label (find repositories anywhere, "Screens"). */
+function locateView(engine: Engine, questions: SavedQuestion[] | undefined): NonNullable<Snapshot["needsYou"]>["locate"] {
+  if (!questions?.length) return undefined;
+  const set = engine.labelSet();
+  return questions.map((question) => ({ ...questionView({ ...question }, questionLabel(set, question.repository)), ...optional("phaseFile", question.phaseFile) }));
+}
+
+/** A question as the page shows it: folders under `~/`. */
+export function questionView(question: Question | SavedQuestion, label: string): QuestionView {
+  return {
+    kind: question.kind,
+    repository: question.repository,
+    label,
+    searchedFrom: displayPath(question.searchedFrom),
+    ...optional("searchedTo", question.searchedTo === undefined ? undefined : displayPath(question.searchedTo)),
+    checkouts: question.checkouts.map((checkout) => ({ folder: displayPath(checkout.folder), remote: checkout.remote, pickable: checkout.pickable, ...(checkout.remembered ? { remembered: true as const } : {}) })),
+    found: question.found,
+    ...optional("field", !("field" in question) || question.field === undefined ? undefined : displayPath(question.field)),
+    ...optional("fieldError", "fieldError" in question ? question.fieldError : undefined),
+  };
 }
 
 /** Labels actual tool invocations or observed remote activity, never a prepared intent. */
@@ -1626,7 +1764,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
       const snapshot = audit.snapshots.at(-1) ? store.read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
       const checks = (facts?.stop?.checks ?? attempt?.checks ?? []).filter(check => check.name !== "Stayed in the workspace").map(check => auditCheckTitle(activity.key, check));
-      const repositories = snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [];
+      const repositories = snapshot?.repositories.map(r => ({ name: r.repository, label: engine.labelOf(r.repository), revision: r.head })) ?? [];
       if (report?.schemaVersion === 2) {
         row.audit = { outcome: report.outcome, summary: report.summary, checks, criteria: [], repositories, blockers: report.needsYou.map(item => `${item.problem} ${item.action}`), pendingActions: [] };
         // An audit marked complete with a valid report counts as accepted (AC-ITEM-01), unless Kiln 1.3.0 marked it.
@@ -1793,4 +1931,23 @@ function personItemFields(engine: Engine, store?: Pick<AuditStore, "read">): Pic
     const delivered = forYou && { loops: closingAudits(engine.record), forYou, pullRequests: (engine.record.pullRequests ?? []).map(pull => ({ repository: pull.repository, number: pull.number, url: pull.url })) };
     return { ...(items?.length ? { items } : {}), ...(delivered ? { delivered } : {}) };
   } catch (error) { if (store) throw error; return {}; }
+}
+
+/**
+ * An earlier execution with each delivery's repository label (find repositories anywhere AC-FOLDER-02).
+ * A delivery records Kiln's name, or a development checkpoint's `github.com/<address path>` target.
+ */
+export function labelledExecution<T extends { deliveries: { repository: string; url: string }[] }>(engine: Engine, row: T): T {
+  const nameOf = (repository: string) => repository.toLowerCase().startsWith("github.com/") ? repository.slice("github.com/".length) : repository;
+  return { ...row, deliveries: row.deliveries.map((delivery) => ({ ...delivery, label: engine.labelOf(nameOf(delivery.repository)) })) };
+}
+
+/** A completed-plan check with each repository's label beside Kiln's name for it, for the page (find repositories anywhere AC-FOLDER-02). */
+function labelledPlanCheck(engine: Engine, check: NonNullable<PrdRecord["completedPlanCheck"]>): NonNullable<PrdRecord["completedPlanCheck"]> {
+  const labelled = (result: typeof check.result) => result && {
+    ...result,
+    ...(result.leaves ? { leaves: result.leaves.map((leaf) => ({ ...leaf, repositories: leaf.repositories.map((repository) => ({ ...repository, label: engine.labelOf(repository.repository) })) })) } : {}),
+    ...(result.proposal ? { proposal: { ...result.proposal, preparation: result.proposal.preparation.map((binding) => ({ ...binding, label: engine.labelOf(binding.repository) })) } } : {}),
+  };
+  return { ...check, ...(check.result ? { result: labelled(check.result)! } : {}), ...(check.earlierResult ? { earlierResult: labelled(check.earlierResult)! } : {}) };
 }

@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "../test-support/engine-harness.js";
+import { createGithubOrigin, createRepository } from "../test-support/git-repositories.js";
 import { readPrdRecord } from "../state/records.js";
 import { ScriptedClaude, signedIn, usageRow } from "../test-support/scripted-claude.js";
 import { buildSnapshot } from "./snapshot.js";
@@ -283,4 +284,47 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(h.engine.record.billing?.hold).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(0);
   });
 
+});
+
+describe("a billing hold on a phase holding a session's request (find repositories anywhere, \"The stops that ask\")", () => {
+  const request = { addressPath: "acme-labs/ledger", at: "2026-11-22T12:00:00.000Z" };
+  it("saves the question on a launch hold with no retained stop, shows it after a restart without searching, and takes the answer there", async () => {
+    h = await createHarness({ sessions: [landingSession()] }); await ready();
+    // The phase holds a request a session made earlier; the hold is made as setup finishes.
+    const off = h.engine.onChange(() => {
+      if (!h!.engine.record.setupCompletedAt || h!.engine.record.phases["1"]?.repositoryRequests) return;
+      (h!.engine.record.phases["1"] ??= { sessionIds: [], finishedByPerson: false, repositories: {} }).repositoryRequests = [request];
+      h!.env.ANTHROPIC_API_KEY = "new-post-setup-canary";
+    });
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); off();
+    expect(h.engine.record.billing!.hold).toMatchObject({ phaseKey: "1", action: "launch" });
+    await waitFor(() => h!.engine.record.billing!.hold!.locate !== undefined);
+    expect(h.engine.record.phases["1"]!.stop).toBeUndefined();
+    expect(h.engine.record.billing!.hold!.locate).toMatchObject([{ kind: "where", repository: "acme-labs/ledger", checkouts: [] }]);
+    // A restarted Kiln shows the hold's saved question from the record.
+    h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
+    expect((await h.engine.decide()).kind).toBe("needs_you");
+    expect(buildSnapshot(h.engine).needsYou!.locate).toMatchObject([{ repository: "acme-labs/ledger", label: "ledger" }]);
+    const status = statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine) as unknown as { stop: { locate: { address_path: string; available: boolean }[] } };
+    expect(status.stop.locate).toMatchObject([{ address_path: "acme-labs/ledger", available: true }]);
+    // The hold's phase is the stopped phase, so an answer is accepted there.
+    const origin = createGithubOrigin(h.sandbox, "acme-labs", "ledger");
+    const ledger = createRepository(h.sandbox, "elsewhere/deep/er/still/ledger", origin.url);
+    Object.assign(h.env, h.sandbox.env);
+    expect(await h.engine.locateAtStop("acme-labs/ledger", ledger)).toMatchObject({ ok: true, outcome: "located" });
+    expect(h.engine.record.billing!.hold!.locate).toBeUndefined();
+    expect(h.engine.record.phases["1"]!.repositoryRequests).toBeUndefined();
+  });
+
+  it("saves the question on the retained stop when a Resume is held", async () => {
+    h = await createHarness({ sessions: [{ actions: [{ result: "Please finish the mapping." }] }, landingSession()] }); await ready();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    h.engine.record.phases["1"]!.repositoryRequests = [request];
+    h.env.ANTHROPIC_AUTH_TOKEN = "changed-credential-canary";
+    await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
+    expect(h.engine.record.billing!.hold?.phaseKey).toBe("1");
+    await waitFor(() => h!.engine.record.phases["1"]!.stop!.locate !== undefined);
+    expect(h.engine.record.billing!.hold!.locate).toBeUndefined();
+    expect(buildSnapshot(h.engine).needsYou!.locate).toMatchObject([{ repository: "acme-labs/ledger" }]);
+  });
 });

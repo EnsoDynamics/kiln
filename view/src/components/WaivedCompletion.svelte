@@ -5,6 +5,7 @@
   // each of its own waivers' source, time, items and what they were checked against.
   import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
   import { againstText, countsLine, coverageNote, itemName, sourceText, verdict, waivedText } from "../lib/waivers.js";
+  import { repositoryLabel } from "../lib/progress.js";
   import CheckFacts from "./CheckFacts.svelte";
   import WaivedStatus from "./WaivedStatus.svelte";
   import WarningMarker from "./WarningMarker.svelte";
@@ -36,7 +37,7 @@
       <dt>Source</dt><dd>{sourceText(waiver.source)}</dd>
       <dt>When</dt><dd>{withSeconds(waiver.at)}</dd>
       <dt>Waived</dt><dd>{#each waiver.items as item, index (index)}<span class="item"><code>{item.kind === "development_requirement" ? itemName(item) : item.check}</code> — {waivedText(item)}</span>{/each}</dd>
-      {#if !isAudit}<dt>Checked against</dt><dd>{[...new Set(waiver.items.map(item => againstText(item, item.check, snapshot.developmentDelivery?.checkpoints)))].join("; ")} · check at {new Date(waiver.checkRun.at).toLocaleTimeString()}</dd>{/if}
+      {#if !isAudit}<dt>Checked against</dt><dd>{[...new Set(waiver.items.map(item => againstText(item, item.check, snapshot.developmentDelivery?.checkpoints, (name) => repositoryLabel(snapshot, name))))].join("; ")} · check at {new Date(waiver.checkRun.at).toLocaleTimeString()}</dd>{/if}
     </dl>
     {#if !isAudit}<p class="note">{coverageNote(waiver.items)}</p>{/if}
   {/each}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot, findRepositoriesSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import { accountLines, assumptionsLine, designLine, effortDisabled, modelOptions, planCountLine, planRows, prdLine, startState } from "./documents-found.js";
 
 describe("what Documents found says it found (AC-START-04)", () => {
@@ -59,6 +59,13 @@ describe("the settings fields", () => {
 describe("Start (AC-START-05)", () => {
   const ready = documentsFoundSnapshot();
 
+  it("draws the note amber only when it is a question's words (find repositories anywhere AC-SEE-04)", () => {
+    expect(startState(findRepositoriesSnapshot(2), true, true)).toEqual({ enabled: false, note: "Tell Kiln where acme-labs/storefront is to start.", asks: true });
+    const failing = findRepositoriesSnapshot(2);
+    failing.settings.startBlockedBy = "Fix what failed, then reload.";
+    expect(startState(failing, true, true)).toEqual({ enabled: false, note: "Fix what failed, then reload." });
+  });
+
   it("stays unavailable until the person confirms refinement", () => {
     expect(startState(ready, false, true)).toEqual({ enabled: false, note: "Confirm refinement to start." });
     expect(startState(ready, true, true)).toEqual({ enabled: true });
@@ -106,13 +113,15 @@ describe("Documents found across repositories (multi-repo AC-REPO-03)", () => {
     const ready = documentsFoundRepositoriesSnapshot();
     expect(startState(ready, true, true)).toEqual({ enabled: true });
     const held = documentsFoundRepositoriesSnapshot();
-    held.repositories[1] = { ...held.repositories[1]!, fieldErrors: { baseBranch: "develop isn’t on origin." } };
-    expect(startState(held, true, true)).toEqual({ enabled: false, note: `${held.repositories[1]!.name}’s base branch: develop isn’t on origin.` });
+    // Named by its label, not Kiln's name for it (find repositories anywhere AC-FOLDER-02).
+    held.repositories[1] = { ...held.repositories[1]!, name: "acme-labs+admin", label: "acme-labs/admin", fieldErrors: { baseBranch: "develop isn’t on origin." } };
+    expect(startState(held, true, true)).toEqual({ enabled: false, note: "acme-labs/admin’s base branch: develop isn’t on origin." });
     const prdBase = documentsFoundRepositoriesSnapshot();
     const prdRow = prdBase.repositories.findIndex((row) => row.kind === "prd");
     prdBase.settings.fieldErrors = { baseBranch: "develop isn’t on origin." };
-    prdBase.repositories[prdRow] = { ...prdBase.repositories[prdRow]!, fieldErrors: { baseBranch: "develop isn’t on origin." } };
-    expect(startState(prdBase, true, true)).toEqual({ enabled: false, note: `${prdBase.repositories[prdRow]!.name}’s base branch: develop isn’t on origin.` });
+    // The PRD's repository by its label too, when another repository shares its short name.
+    prdBase.repositories[prdRow] = { ...prdBase.repositories[prdRow]!, name: "shop", label: "acme/storefront", fieldErrors: { baseBranch: "develop isn’t on origin." } };
+    expect(startState(prdBase, true, true)).toEqual({ enabled: false, note: "acme/storefront’s base branch: develop isn’t on origin." });
     const checking = documentsFoundRepositoriesSnapshot();
     checking.repositories[2] = { ...checking.repositories[2]!, baseCheck: "checking" };
     expect(startState(checking, true, true)).toEqual({ enabled: false, note: "Checking the base branches on origin…" });

@@ -230,6 +230,7 @@ The snapshot and the status JSON carry, from the same marked results:
 ## Display Contract
 
 Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Paused Page (the hand-back page bullet does not apply to a Pause now hold's page).
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Screens (the hand-back page and the standard Needs you page gain the question below the card for how their session ended)
 
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts, Nothing to check yet (no checks shown for a phase that built nothing until asked; the sentence above Mark complete).
 

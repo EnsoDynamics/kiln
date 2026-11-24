@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "6208979e-c2a8-418d-9232-79549fd93601",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Delivery audit of the whole PRD (20 criteria, four rounds): 7 criteria are not fully built. After Start, names are reached one at a time, and a folder name can reach a repository found by search. Several screens and terminal lines show Kiln's internal name instead of the label, and the saved short name is lost on Folder missing and continuation restarts. A reset page asks while other start checks fail. The terminal skips the locate line without a browser. Start's note isn't amber, and the paused page places the question below the ways to resolve the stop. Phases 3 and 4 build them. AC-FIND-02 was amended to match the technical design's choice to search a starting folder that is itself a checkout. The fourth round still found a new gap.",
+  "completionPhases": ["3", "4"],
+  "needsYou": [],
+  "settled": []
+}

@@ -74,6 +74,7 @@ There is one way in: point `kiln run` at one PRD. Kiln checks that the documents
   - Superseded in part by: AC-REPO-03, AC-ADD-03 and AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Documents found and the terminal's first line show the repositories; a terminal line when a repository is added; every pull request, and commits by repository)
   - Superseded in part by: AC-LIMIT-05 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (the wait and resume lines)
   - Superseded in part by: AC-PAUSE-03 and AC-PAUSE-05 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (under Pause now, how far the feature has got says "pausing in" or "paused in" the activity, not "needs you", with their ● lines, and the activity's line reads "paused" and prints when the pause completes).
+  - Superseded in part by: AC-SEE-02 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (the terminal's first line and the line under it when a repository needs locating, and a line when an answer is accepted)
 
 ### Implement Each Phase in Its Own Unattended Session
 
@@ -403,6 +404,7 @@ The v1 mockups are the design of record.
   - Superseded in part by: AC-PREFLIGHT-08 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Preflight row in the plan, the header naming the preflight while it runs, and both drawn on screens the mockups predate).
   - Superseded in part by: AC-ATTEND-01 and AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (the Needs you there marker beside a marked phase's name on Documents found and the phase plan, and the planned-as-needing-you card on both Needs you screens).
   - Superseded in part by: AC-LOOP-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Documents found, the run's settings and the loop stop page gain the audit loop sections; the rest of the layout remains).
+  - Superseded in part by: AC-SEE-05 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (a phase's Needs you page gains the question about a repository a session asked for, below the card for how its session ended)
 - [ ] **AC-LOOK-02 — The feature name identifies every browser screen.** The feature name is the largest text except on Phase detail, where it is compact context and the phase title is largest. Phase detail has a clearly outlined back link with a comfortable click target.
   - Superseded in part by: AC-PAGE-02 in [Kiln Needs you handoff](../../changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md) (the phase-focused Needs you headline; feature identity stays visible).
 - [ ] **AC-LOOK-03 — Phase numbers and titles stay put.** Phase titles come from the phase documents word for word. A phase's number stays in its circle in every state.

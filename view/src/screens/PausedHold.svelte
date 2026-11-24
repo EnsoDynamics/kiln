@@ -21,6 +21,7 @@
   import PausePanel from "../components/PausePanel.svelte";
   import PhaseCircle from "../components/PhaseCircle.svelte";
   import StateHeader from "../components/StateHeader.svelte";
+  import RequestQuestions from "../components/RequestQuestions.svelte";
   import { carryOn, reopenCheckAgain, resumePhase } from "../lib/api.js";
   import type { PhaseRecoveryPage } from "../lib/phase-recovery-page.js";
   import { capitalized, phaseName, rowAuditName, shortQuote } from "../lib/progress.js";
@@ -51,6 +52,8 @@
   const circle = $derived(row?.kind === "delivery_audit" ? "DA" : row?.kind === "test_audit" ? "TA" : id);
   const terminalInUse = $derived(pauseNow.obstacle?.code === "terminal_in_use");
   const outputLink = $derived(phasePath(config.base, id));
+  // A session's request for a repository sits below the paused facts and above the ways to resolve the stop (find repositories anywhere AC-SEE-05).
+  const asks = $derived((stop.locate ?? []).some((question) => question.phaseFile === undefined));
 
   /** Resume {activity}: today's takeover hand-back, with the note as its reply when it has text (PAUSE-007). */
   async function resume() {
@@ -91,6 +94,7 @@
   {:else if shown === "pausing"}
     <PausePanel {snapshot} {connected} />
   {:else if shown === "carry" && stop.carryOn && stop.reopen}
+    <RequestQuestions {snapshot} />
     <h2>How would you like to resolve this?</h2>
     <p>Exit {agent} first if it is open on this conversation. While it is, or while work the paused session started is still running, neither choice below is available, and Kiln says why.</p>
     <div class="peer-choices">
@@ -105,31 +109,14 @@
       </div>
       <p>{pausedSentence(pauseNow)}{#if pauseNow.lastSaid}{" "}Last thing Claude said: <em>“{shortQuote(pauseNow.lastSaid)}”</em>{/if}</p>
       {#if pauseNow.obstacle && !terminalInUse}<p class="warning" role="status">{pauseNow.obstacle.reason}</p>{/if}
-      <div class="columns">
-        <section aria-label="Let Kiln carry on">
-          <h3>Let Kiln carry on</h3>
-          <p>Picks up in the same conversation, where it stopped. Whenever you’re ready; nothing is waiting on you.</p>
-          <label for="paused-note">Note for Claude <span class="optional">(optional)</span></label>
-          <textarea id="paused-note" rows="3" maxlength="4000" placeholder="Anything to tell Claude before it carries on" bind:value={page.draft}></textarea>
-          {#if page.unsent && page.draft}<p class="warning">Your note has not been sent.</p>{/if}
-          <div class="actions">
-            <button type="button" class="button solid" class:busy={page.pending === "resume" || page.pending === "reply"} aria-busy={page.pending === "resume" || page.pending === "reply"} disabled={resumeBlocked} onclick={resume}>Resume {name}</button>
-            {#if page.feedback}<p class="warning" role="status">{page.feedback}</p>{/if}
-          </div>
-          {#if page.pending === "resume" || page.pending === "reply"}<BusyStatus text={`Checking the work, then reopening the ${agent} conversation.`} />{/if}
-        </section>
-        <section aria-label="Or take it over yourself">
-          <h3>Or take it over yourself</h3>
-          <p>Open the same conversation in your terminal. Kiln waits while you work.</p>
-          {#if stop.resumeCommand}<div class="command"><pre>{stop.resumeCommand}</pre><CopyButton text={stop.resumeCommand} label="Copy" compact /></div>{/if}
-          {#if terminalInUse}<p>Claude is open on this conversation; exit it, then press Resume.</p>{/if}
-          <p class="hint">When you’re done, exit Claude and press <strong>Resume</strong>. If you finished {name} there, Kiln sees that and offers to move on instead.</p>
-          <p class="hint">Changed the plan? Ask Claude to record those decisions in the requirements before you exit. No special handoff phrase is needed.</p>
-          <details><summary>Session won’t open? Start a fresh one</summary><pre>{stop.freshSessionCommand}</pre><CopyButton text={stop.freshSessionCommand} label="Copy terminal command" /><pre class="prompt">{stop.freshSessionPrompt}</pre><CopyButton text={stop.freshSessionPrompt} label="Copy fresh-session prompt" /></details>
-        </section>
-      </div>
+      {#if !asks}{@render ways(false)}{/if}
     </section>
+    {#if asks}
+      <RequestQuestions {snapshot} />
+      <section class="card paused-card" aria-label="Ways to resolve the stop">{@render ways(true)}</section>
+    {/if}
   {/if}
+  {#if shown === "review" || shown === "pausing"}<RequestQuestions {snapshot} />{/if}
   {#if shown !== "pausing"}<PausePanel {snapshot} {connected} />{/if}
   <!-- The phase plan marks the activity Paused (AC-PAUSE-05; mockup frame 3). -->
   <PhasePlan {snapshot} {connected} {now} />
@@ -137,6 +124,32 @@
   <BillingPanel {snapshot} {connected} />
   <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>
+
+{#snippet ways(alone: boolean)}
+  <div class="columns" class:alone>
+    <section aria-label="Let Kiln carry on">
+      <h3>Let Kiln carry on</h3>
+      <p>Picks up in the same conversation, where it stopped. Whenever you’re ready; nothing is waiting on you.</p>
+      <label for="paused-note">Note for Claude <span class="optional">(optional)</span></label>
+      <textarea id="paused-note" rows="3" maxlength="4000" placeholder="Anything to tell Claude before it carries on" bind:value={page.draft}></textarea>
+      {#if page.unsent && page.draft}<p class="warning">Your note has not been sent.</p>{/if}
+      <div class="actions">
+        <button type="button" class="button solid" class:busy={page.pending === "resume" || page.pending === "reply"} aria-busy={page.pending === "resume" || page.pending === "reply"} disabled={resumeBlocked} onclick={resume}>Resume {name}</button>
+        {#if page.feedback}<p class="warning" role="status">{page.feedback}</p>{/if}
+      </div>
+      {#if page.pending === "resume" || page.pending === "reply"}<BusyStatus text={`Checking the work, then reopening the ${agent} conversation.`} />{/if}
+    </section>
+    <section aria-label="Or take it over yourself">
+      <h3>Or take it over yourself</h3>
+      <p>Open the same conversation in your terminal. Kiln waits while you work.</p>
+      {#if stop.resumeCommand}<div class="command"><pre>{stop.resumeCommand}</pre><CopyButton text={stop.resumeCommand} label="Copy" compact /></div>{/if}
+      {#if terminalInUse}<p>Claude is open on this conversation; exit it, then press Resume.</p>{/if}
+      <p class="hint">When you’re done, exit Claude and press <strong>Resume</strong>. If you finished {name} there, Kiln sees that and offers to move on instead.</p>
+      <p class="hint">Changed the plan? Ask Claude to record those decisions in the requirements before you exit. No special handoff phrase is needed.</p>
+      <details><summary>Session won’t open? Start a fresh one</summary><pre>{stop.freshSessionCommand}</pre><CopyButton text={stop.freshSessionCommand} label="Copy terminal command" /><pre class="prompt">{stop.freshSessionPrompt}</pre><CopyButton text={stop.freshSessionPrompt} label="Copy fresh-session prompt" /></details>
+    </section>
+  </div>
+{/snippet}
 
 <style>
   .paused-hold { max-width: 1120px; margin: auto; display: flex; flex-direction: column; gap: 20px; }
@@ -148,6 +161,7 @@
   .name { display: flex; align-items: center; gap: 14px; }
   .heading { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; border-top: 1px solid var(--line); padding-top: 22px; }
+  .columns.alone { border-top: 0; padding-top: 0; }
   .columns > section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .columns > section + section { border-left: 1px solid var(--line); padding-left: 32px; }
   label { font-size: 13px; color: var(--dim); } .optional { color: var(--dim); }

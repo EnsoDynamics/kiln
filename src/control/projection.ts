@@ -26,9 +26,9 @@ import { ownResult } from "./spool.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { privateJson, privateBytes, deadlineCheck, safeSelector, type SavedWork } from "./private-state.js";
 import { chooseSession, readHistory, readInspectionSession, newestSession, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
-import { ControlFailure, errorFact, result, type Result } from "./result.js";
+import { commandText, ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
-import { markCompletePreview, progressRows, projectCheck, projectPersonItem, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
+import { markCompletePreview, NEW_COMMAND_ID, progressRows, projectCheck, projectPersonItem, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
 import { checkCounts, effectiveRecordedClosed, type AuditWaiverResult } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 import { statusCompatibility } from "../engine/compatibility-notices.js";
@@ -38,10 +38,11 @@ import { displayPath } from "../engine/worktree-setup.js";
 import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed } from "../state/audit-loops.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
 import { afterDeliveryFacts, continuationFacts, deliveredFacts } from "./delivered-facts.js";
+import { questionLabel, recordLabelSet, repositoryDetails } from "../engine/plan-repositories.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "locate-repository", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
-const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
+const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "locate-repository" ? ["PRD-path", "address-path", "folder", "--only-if-status-matches", "--command-id"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -232,8 +233,11 @@ function failingFolders(record: SavedWork["record"], engine: Engine | undefined,
   const check = checkFoldersSync(git, env, record, deadline);
   return check.passed ? undefined : check;
 }
-function folderFacts(check: FolderCheck, canonical: string): Record<string, unknown> {
-  return { checked_at: check.checkedAt, repositories: check.repositories.map(r => ({ name: r.name, saved_folder: displayPath(r.savedFolder), state: r.state, holds: r.holds ?? null, unknown: r.unknown ?? null })),
+function folderFacts(check: FolderCheck, canonical: string, record: SavedWork["record"]): Record<string, unknown> {
+  // Labels and address paths beside the names (find repositories anywhere "kiln status --json").
+  const details = repositoryDetails(record);
+  const labelled = (name: string) => { const one = details.find(detail => detail.name === name); return { label: one?.label ?? name, address_path: one?.address_path ?? null }; };
+  return { checked_at: check.checkedAt, repositories: check.repositories.map(r => ({ name: r.name, ...labelled(r.name), saved_folder: displayPath(r.savedFolder), state: r.state, holds: r.holds ?? null, unknown: r.unknown ?? null })),
     set_up_again: { description: "Open the run with kiln run to see what Kiln still knows and set it up again.", argv: ["kiln", "run", canonical] } };
 }
 export function statusProjection(work: SavedWork, engine?: Engine, full = false, deadline = Date.now() + 5000): Result {
@@ -324,6 +328,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const activityFacts = (activity: Record<string, unknown> | null | undefined) => activity && { ...activity, ...waived(keyOf(activity)) };
   const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
+    repository_details: repositoryDetails(record),
     controller: reachable ? "reachable" : "stopped", working_sessions: active ? 1 : 0, facts: { state: reachable ? "current" : "stale", observed_at: reachable ? new Date().toISOString() : cache?.observed_at ?? work.observedAt, reason: reachable ? null : "Controller disconnected; only last-known facts are available." },
     state, phases: { completed: view?.feature.phasesDone ?? leaves.filter(p => effectiveRecordedClosed(record, p)).length, total: view?.feature.phasesTotal ?? leaves.length },
     activity: activityFacts((view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? savedActivity) as Record<string, unknown>),
@@ -342,7 +347,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     continuation: record.completedAt && (view?.continuation?.check ?? record.completedPlanCheck) ? continuationFacts((view?.continuation?.check ?? record.completedPlanCheck)!, record.prdDirectory) : null,
     // What GitHub last showed of the delivery's pull requests, and whether it waits to merge (Kiln After Delivery AC-BOT-02).
     after_delivery: afterDeliveryFacts(record, view?.afterDelivery),
-    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
+    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && { ...stopWaivers(stopDetail as Record<string, unknown>), locate: locateFacts(record, work.canonical, control) },
     progress,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
@@ -372,8 +377,9 @@ function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folder
   const reset = control?.controls.find(one => one.name === "reset");
   return result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
+    repository_details: repositoryDetails(record),
     controller: reachable ? "reachable" : "stopped", working_sessions: engine?.current?.processRunning ? 1 : 0, facts: { state: "current", observed_at: folders.checkedAt, reason: null },
-    state: "folder_missing", folder_missing: folderFacts(folders, work.canonical), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
+    state: "folder_missing", folder_missing: folderFacts(folders, work.canonical, record), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
     progress: [], started_at: record.startedAt ?? null, completion: { completed_at: null, pull_requests: [], merged_branches: [] },
     // Reset is the one control left while a folder is missing (run restart "Availability"), so a running Kiln returns its status token.
     status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: requiredInputs(name), invocation: null }), unsent_replies: [],
@@ -415,7 +421,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     // No resume command, continuation prompt or fresh-session instructions from a folder that is gone (AC-GONE-01).
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
       session_id: null, provider_session_id: null, agent: engine?.record.settings.agentId ?? work.record.settings.agentId, phase_key: null, working_directory: null,
-      resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical),
+      resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical, engine?.record ?? work.record),
       provider_history: { state: "unavailable", observed_at: null, reason: "This run’s folder is missing." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null, fresh_session_instructions: null,
     } });
@@ -485,3 +491,27 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
 /** An epoch is response identity, never a mutation authorization in this read-only release. */
 export const instanceEpoch = () => randomUUID();
 export const recordRevision = (record: SavedWork["record"]) => createHash("sha256").update(JSON.stringify(record)).digest("hex");
+
+/**
+ * A stop's questions about where a repository is, projected for `kiln status --json` from the
+ * saved record (find repositories anywhere, "`kiln status --json`"), never the snapshot's field.
+ */
+export function locateFacts(record: import("../state/records.js").PrdRecord, canonical: string, control: { token: string; controls: { name: string; available: boolean; reason: string | null }[] } | undefined): Record<string, unknown>[] {
+  const stopped = Object.entries(record.phases).find(([, facts]) => facts.stop)?.[0] ?? record.billing?.hold?.phaseKey;
+  if (stopped === undefined) return [];
+  const questions = record.phases[stopped]?.stop?.locate ?? (record.billing?.hold?.phaseKey === stopped ? record.billing.hold.locate : undefined) ?? [];
+  const set = recordLabelSet(record, record.plan ?? []);
+  const command = control?.controls.find(one => one.name === "locate-repository");
+  const argv = (addressPath: string, folder: string) => control ? ["kiln", "locate-repository", canonical, addressPath, folder, "--only-if-status-matches", control.token, "--command-id", NEW_COMMAND_ID] : null;
+  return questions.map(question => {
+    const available = !!command?.available;
+    const next = available ? argv(question.repository, "<folder>") : null;
+    return {
+      kind: question.kind, address_path: question.repository, label: questionLabel(set, question.repository), phase_file: question.phaseFile ?? null,
+      searched_from: question.searchedFrom, searched_to: question.searchedTo ?? null,
+      checkouts: question.checkouts.map(checkout => ({ folder: checkout.folder, remote: checkout.remote, pickable: checkout.pickable, remembered: checkout.remembered === true, ...(checkout.pickable && available ? { next_argv: argv(question.repository, checkout.folder) } : {}) })),
+      available, reason: available ? null : command?.reason ?? "Controller is disconnected; no executable controls.",
+      next_argv: next, next_command: next ? commandText(next) : null,
+    };
+  });
+}

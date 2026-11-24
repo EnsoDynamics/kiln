@@ -141,10 +141,15 @@ export function modelOptions(snapshot: Snapshot): { value: string; displayName: 
   return models.some((model) => model.value === saved.value) ? models : [...models, saved];
 }
 
+/** The note while a start check fails, grey whatever else holds Start. */
+const FIX_WHAT_FAILED = "Fix what failed, then reload.";
+
 export interface StartState {
   enabled: boolean;
-  /** The grey note under Start, when one applies. */
+  /** The note under Start, when one applies: grey, or amber while a row asks (`asks`). */
   note?: string;
+  /** The note says to tell Kiln where a repository is, drawn amber (find repositories anywhere AC-SEE-04). */
+  asks?: true;
 }
 
 /**
@@ -157,7 +162,9 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   const multi = snapshot.feature.multiRepository;
   if (documents?.starting) return { enabled: false, note: multi ? "Setting up the worktrees…" : "Setting up the worktree…" };
   // On a page a reset built, a failed start check holds Start until a reload finds them all passing (run restart AC-RESET-04).
-  if (documents?.checksFailed) return { enabled: false, note: "Fix what failed, then reload." };
+  if (documents?.checksFailed) return { enabled: false, note: FIX_WHAT_FAILED };
+  // A row that asks where its repository is holds Start, and says which (find repositories anywhere AC-ASK-01).
+  if (settings.startBlockedBy) return { enabled: false, note: settings.startBlockedBy, ...(settings.startBlockedBy !== FIX_WHAT_FAILED && repositories.some((row) => row.question !== undefined) ? { asks: true as const } : {}) };
   if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
   if (snapshot.billing?.pending) return { enabled: false, note: snapshot.settings.agentId === "codex" ? "Checking Codex information…" : "Checking Claude settings…" };
@@ -179,10 +186,11 @@ const FIELD_LABELS: Record<string, string> = { workspaceFolder: "Workspace folde
  */
 function heldBy(snapshot: Snapshot): { field: string; message: string }[] {
   const multi = snapshot.feature.multiRepository;
-  const prdName = snapshot.repositories.find((row) => row.kind === "prd")?.name;
+  // The PRD's repository by its label (find repositories anywhere AC-FOLDER-02).
+  const prdName = snapshot.repositories.find((row) => row.kind === "prd")?.label;
   const label = (key: string) => (key === "baseBranch" && multi && prdName ? `${prdName}’s base branch` : FIELD_LABELS[key] ?? key);
   const fields = Object.entries(snapshot.settings.fieldErrors).flatMap(([key, message]) => (message === undefined ? [] : [{ field: label(key), message }]));
-  const rows = snapshot.repositories.flatMap((row) => (row.kind !== "prd" && row.fieldErrors.baseBranch !== undefined ? [{ field: `${row.name}’s base branch`, message: row.fieldErrors.baseBranch }] : []));
+  const rows = snapshot.repositories.flatMap((row) => (row.kind !== "prd" && row.fieldErrors.baseBranch !== undefined ? [{ field: `${row.label}’s base branch`, message: row.fieldErrors.baseBranch }] : []));
   return [...fields, ...rows];
 }
 

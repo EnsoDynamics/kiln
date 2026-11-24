@@ -301,6 +301,8 @@ export function rowFacts(row: PhaseView, state: RowState, now: number): string |
 /** The phase's commits in one repository, as a current-phase panel lists them. */
 export interface RepositoryCommitsView {
   name: string;
+  /** What it is shown by (find repositories anywhere AC-FOLDER-02). */
+  label?: string;
   addedInPhase?: string;
   commits: { sha: string; subject: string }[];
 }
@@ -352,11 +354,16 @@ export function repositoryCommitsLine(count: number, latest: string): string {
 }
 
 /** The phase's commits by repository, each with its added-in-phase label from the PRD's repositories. */
-export function commitsByRepository(snapshot: Snapshot, repositories: { name: string; commits: { sha: string; subject: string }[] }[]): RepositoryCommitsView[] {
+export function commitsByRepository(snapshot: Snapshot, repositories: { name: string; label?: string; commits: { sha: string; subject: string }[] }[]): RepositoryCommitsView[] {
   return repositories.map((repository) => {
     const addedInPhase = snapshot.repositories.find((row) => row.name === repository.name)?.addedInPhase;
-    return { name: repository.name, ...(addedInPhase === undefined ? {} : { addedInPhase }), commits: repository.commits };
+    return { name: repository.name, ...(repository.label === undefined ? {} : { label: repository.label }), ...(addedInPhase === undefined ? {} : { addedInPhase }), commits: repository.commits };
   });
+}
+
+/** What a repository is shown by: its label, once another of the PRD's repositories shares its short name (find repositories anywhere AC-FOLDER-02). */
+export function repositoryLabel(snapshot: Snapshot, name: string): string {
+  return snapshot.repositories.find((row) => row.name === name)?.label ?? name;
 }
 
 /** "added in phase 2b" (multi-repo AC-ADD-03). */
@@ -365,6 +372,9 @@ export function addedLabel(phaseId: string): string {
 }
 
 const COUNT_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
+
+/** A count in a sentence the page writes: a word up to ten, digits above. */
+export const countWord = (count: number): string => COUNT_WORDS[count] ?? String(count);
 
 /**
  * The repositories' count under the workspace folder, with the ones sessions added (multi-repo

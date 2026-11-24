@@ -81,7 +81,7 @@ describe("migrating a schema 1 record", () => {
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     expect(record.settings).not.toHaveProperty("model");
     expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(25);
+    expect(SCHEMA_VERSION).toBe(26);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -202,7 +202,7 @@ describe("schema 24: a loop is one run of an audit (Kiln Deliver When Audit Loop
 
   it("keeps the limits as recorded, drops the third setting, and rebuilds the loops as audit runs with only start epochs", () => {
     const migrated = migrateRecord(released());
-    expect(migrated.schemaVersion).toBe(25);
+    expect(migrated.schemaVersion).toBe(26);
     expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 2, testLimit: 5 });
     expect(migrated.auditLoops).toEqual({
       epochs: [{ kind: "delivery", at, cause: "start", loopsBefore: 0 }, { kind: "test", at, cause: "start", loopsBefore: 0 }],
@@ -277,7 +277,7 @@ describe("schema 25: the delivery reading and the carried-finished set (Kiln Aft
       old.completedAt = "2026-10-01T12:00:00Z";
       old.completedPlanCheck = { status, attemptedAt: "2026-11-20T01:00:00Z", errors: [] };
       const migrated = migrateRecord(old);
-      expect(migrated.schemaVersion).toBe(25);
+      expect(migrated.schemaVersion).toBe(26);
       expect(migrated.completedPlanCheck).toBeUndefined();
       expect(migrated.afterDelivery).toBeUndefined();
       expect(migrated.continuationBaselineId).toBeUndefined();
@@ -289,5 +289,18 @@ describe("schema 25: the delivery reading and the carried-finished set (Kiln Aft
     expect(migrateRecord(current).completedPlanCheck?.status).toBe("unchanged");
     current.continuationBaselineId = "not-a-digest";
     expect(() => migrateRecord(current)).toThrow("Malformed continuation baseline reference.");
+  });
+});
+
+describe("schema 26: names that work everywhere (find repositories anywhere \"Data Models\")", () => {
+  it("reads a schema 25 record as schema 26 with every entry as it was: each was named by folder, so its name is its short name", () => {
+    const record = migrateRecord(schemaOne({ startedAt: "2026-11-20T10:00:00.000Z", setupCompletedAt: "2026-11-20T10:00:00.000Z" }));
+    record.schemaVersion = 25;
+    record.repositories.push({ name: "storefront", kind: "named", mainCheckoutPath: "/home/a/acme/storefront", github: "acme/storefront", baseBranch: "develop", worktreePath: "~/acme/.worktrees/x/storefront", setupCompletedAt: "2026-11-20T10:00:00.000Z" });
+    const before = structuredClone(record.repositories);
+    const migrated = migrateRecord(record);
+    expect(migrated.schemaVersion).toBe(26);
+    expect(migrated.repositories).toEqual(before);
+    expect(migrated.repositories.some((entry) => entry.shortName !== undefined)).toBe(false);
   });
 });

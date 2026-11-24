@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "968ed176-35a4-49e4-b059-b2c63084e3eb",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Repair audit of the whole PRD after Phases 3 and 4 (20 criteria, four rounds): 5 criteria are still not fully built. Several more screens, messages and terminal lines show Kiln's internal name instead of a repository's label: early merges, the catch-up offer, audit facts, Folder missing text, Documents found messages and setup errors. A take-over or hand-back stop doesn't ask a session's repository question until Check again. A link beside the PRD's repository can reach a recorded checkout. One Start can give two repositories the same worktree folder when a folder name contains '+'. The kiln status locate lines lack the drawn colours. Phase 5 builds them. The fourth round still found a new gap.",
+  "completionPhases": ["5"],
+  "needsYou": [],
+  "settled": []
+}

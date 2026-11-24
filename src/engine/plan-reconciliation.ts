@@ -1,4 +1,5 @@
 /** Coherent saved-document observations and immutable accepted scope for active runs. */
+import { readRepositoryName } from "../plan/repository-names.js";
 import MarkdownIt from "markdown-it";
 import { createHash } from "node:crypto";
 import { existsSync, statSync, lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
@@ -276,8 +277,19 @@ export function planSourceFromDocuments(path: string, prdDirectory: string, docu
 export function phaseRepositories(source: PlanSource, id: string): string[] {
   return [...new Set(source.plan.phases.filter(phase => phase.id === id || isAncestorOf(phase.id, id)).flatMap(phase => phase.repositories))].sort();
 }
+/**
+ * A name in a completed phase's scope as it is compared: an address path lower-cased, without a
+ * host, so every spelling of it matches; a folder name as written (find repositories anywhere, "Names").
+ *
+ *   scopeKey("github.com:Acme-Labs/Ledger")  // "acme-labs/ledger"
+ */
+export function scopeKey(name: string): string {
+  const read = readRepositoryName(name);
+  return read.kind === "path" ? read.addressPath.toLowerCase() : name;
+}
 export function completedPhaseScopeUnchanged(previous: PlanSource, current: PlanSource, id: string, scopeRepositories = phaseRepositories(previous, id)): boolean {
-  const currentRepositories = new Set(phaseRepositories(current, id));
+  // An address path is compared without case, as a skipped phase records it lower-cased (find repositories anywhere, "Names").
+  const currentRepositories = new Set(phaseRepositories(current, id).map(scopeKey));
   // Ancestor prose is not leaf scope. Its ordered split identities are: in particular,
   // a parent's historical session must still judge the same first descendant.
   const splitStructureIntact = previous.plan.phases.filter(phase => isAncestorOf(phase.id, id) && phase.splitInto).every(parent => {
@@ -285,7 +297,7 @@ export function completedPhaseScopeUnchanged(previous: PlanSource, current: Plan
     const after = current.plan.phases.find(phase => phase.id === parent.id)?.splitInto;
     return after && after[0] === before[0] && before.every((child, index) => after.includes(child) && (index === 0 || after.indexOf(child) > after.indexOf(before[index - 1]!)));
   });
-  return previous.scopes[id] === current.scopes[id] && splitStructureIntact && scopeRepositories.every(name => currentRepositories.has(name));
+  return previous.scopes[id] === current.scopes[id] && splitStructureIntact && scopeRepositories.every(name => currentRepositories.has(scopeKey(name)));
 }
 
 export function completedScopeProblems(previous: PlanSource, current: PlanSource, completions: PlanBaseline["completions"] = {}): string[] {

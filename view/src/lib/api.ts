@@ -52,6 +52,9 @@ async function sendInstruction(config: PageConfig, method: "POST" | "DELETE", pa
 
 export const changeSettings = (config: PageConfig, change: Partial<Settings> & { start?: { from: "new" | "existing"; bringUpToDate: boolean } }) => send(config, "POST", "/api/settings", change);
 /** Start submits the preview the page showed; a preview that changed is refused `start_changed` (run restart "Start"). */
+/** The answer to where a repository is, before Start (find repositories anywhere "HTTP"). */
+export const locateRepository = (config: PageConfig, repository: string, folder: string) => send(config, "POST", "/api/repository-location", { repository, folder });
+export const changeRepositoryLocation = (config: PageConfig, repository: string) => send(config, "POST", "/api/repository-location/change", { repository });
 export const start = (config: PageConfig, refinementConfirmed: boolean, previewId?: string) => send(config, "POST", "/api/start", { ...(refinementConfirmed ? { refinementConfirmed: true } : {}), ...(previewId ? { previewId } : {}) });
 export const pause = (config: PageConfig) => send(config, "POST", "/api/pause");
 export const keepGoing = (config: PageConfig) => send(config, "DELETE", "/api/pause");

@@ -185,13 +185,22 @@ describe("the Repositories line (multi-repo AC-REPO-01)", () => {
     expect(namedRepositories(plan.phases, "product")).toEqual(["returns-api", "storefront"]);
   });
 
-  it("makes a line with no names, an empty name, a path or . or .. a plan problem naming the file", () => {
+  it("makes a line with no names, an empty name, a path on one computer or a full remote address a plan problem naming the file (find repositories anywhere AC-NAME-01)", () => {
     const problems = (line: string) => readPhasePlan([doc("1", line)]).problems;
     expect(problems("**Repositories:**")).toEqual(["phase-1-x.md has a Repositories line that names no repository."]);
     expect(problems("**Repositories:** a,,b")).toEqual(["phase-1-x.md has an empty name on its Repositories line."]);
-    expect(problems("**Repositories:** acme/storefront")).toEqual(["phase-1-x.md names acme/storefront on its Repositories line, which isn't a folder name."]);
-    expect(problems("**Repositories:** ..\\\\storefront")).toEqual(["phase-1-x.md names ..\\\\storefront on its Repositories line, which isn't a folder name."]);
-    expect(problems("**Repositories:** ..")).toEqual(["phase-1-x.md names .. on its Repositories line, which isn't a folder name."]);
+    expect(problems("**Repositories:** acme//storefront")).toEqual(["phase-1-x.md has an empty name on its Repositories line."]);
+    const onOneComputer = (name: string) => `phase-1-x.md names ${name}, a path on one computer. Name the repository by the path in its remote address, <owner>/<repository>.`;
+    for (const name of ["/Volumes/work/storefront", "~/code/storefront", "../storefront", "..", "C:\\code\\storefront", "C:/code/storefront", "D:storefront", "acme\\storefront"]) expect(problems(`**Repositories:** ${name}`)).toEqual([onOneComputer(name)]);
+    expect(problems("**Repositories:** git@github.com:acme-labs/storefront.git")).toEqual(["phase-1-x.md names git@github.com:acme-labs/storefront.git, a full remote address. Name the repository by the path in it, acme-labs/storefront."]);
+    expect(problems("**Repositories:** https://github.com/acme-labs/storefront")).toEqual(["phase-1-x.md names https://github.com/acme-labs/storefront, a full remote address. Name the repository by the path in it, acme-labs/storefront."]);
+    expect(problems("**Repositories:** git.example.com:acme-labs/storefront")).toEqual(["phase-1-x.md names git.example.com:acme-labs/storefront. Kiln delivers only to GitHub, so it can’t deliver a repository on git.example.com."]);
+  });
+
+  it("reads an address path, on any host or with github.com in front, and a folder name, each kept as written (AC-NAME-01)", () => {
+    const plan = readPhasePlan([doc("1", "**Repositories:** acme-labs/storefront, GitHub.com:acme/returns-api, platform/payments/billing, notifications")]);
+    expect(plan.problems).toEqual([]);
+    expect(plan.phases[0]!.repositories).toEqual(["acme-labs/storefront", "GitHub.com:acme/returns-api", "platform/payments/billing", "notifications"]);
   });
 });
 

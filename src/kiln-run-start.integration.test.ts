@@ -3,6 +3,7 @@
 // terminal, and Kiln staying in the foreground until Ctrl+C. Real git throughout, with origin
 // reached as github.com through an SSH stand-in, and the stand-in claude and gh.
 
+import { displayPath } from "./engine/worktree-setup.js";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { Socket } from "node:net";
@@ -253,7 +254,8 @@ describe("kiln run on a feature not started", () => {
       fieldErrors: {},
     });
     expect(snapshot.repositories).toEqual([
-      { name: "acme-shop", github: "github.com/acme/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", worktreePath: snapshot.settings.worktreePath, fixed: false, fieldErrors: {} },
+      // Its label, address path and checkout's folder (find repositories anywhere AC-SEE-01).
+      { name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: displayPath(f.repository), github: "github.com/acme/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", worktreePath: snapshot.settings.worktreePath, fixed: false, fieldErrors: {} },
     ]);
     expect(snapshot.models!.map((model) => model.displayName)).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"]);
     expect(snapshot.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });

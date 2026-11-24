@@ -10,7 +10,7 @@ import type { ItemChange, MarkCompleteOffer } from "../engine/waivers.js";
 import { markCompletePreview } from "./waiver-facts.js";
 import { REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
 
-export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again", "reset", "merge", "exit"] as const;
+export const ACTIONS = ["reply", "resume", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "settings", "outside-confirmation", "take-over", "message", "message-review", "waive-and-advance", "carry-on", "start-again", "reset", "locate-repository", "merge", "exit"] as const;
 /** The actions that start a new session of a stopped phase (run restart AC-CARRY-04; Kiln Audit Loop Limits): their receipts settle `started`, never `resumed`. */
 export const STARTING_ACTIONS: readonly string[] = ["carry-on", "start-again", "allow-more-loops", "accept-and-deliver"];
 /** A receipt is starting when its action is in the starting-action set or it carries `starts_session` (build preflight, Check Preflight again). */
@@ -46,6 +46,8 @@ export interface Receipt {
   branch_catch_up?: { repository: string; branch: string; from: string; to: string; commits: number }[];
   /** `check-again` at a preflight stop: it starts a session, recorded before any dispatch (build preflight "The Preflight Stop"). */
   starts_session?: true;
+  /** `locate-repository` only: the repository and folder an accepted answer remembered, and for the plan stop what came of the phase (find repositories anywhere, "The command"). */
+  located?: import("../engine/engine.js").LocatedFacts;
   /** `reset` only: what the reset discards and the execution it starts, checkpointed before the record changes (run restart "Doing it", step 2). */
   reset?: { forgets: ResetForgets; new_execution_id: string };
 }
@@ -68,7 +70,9 @@ export interface ControlHost {
   journalScope?(): { execution: string; commandIds: string[] } | undefined;
   internalControl?(instruction: Instruction): { available: boolean; reason: string | null; alreadyApplied?: boolean };
   staleReason?(instruction: Instruction): string | undefined;
-  apply(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; outcome?: string; reason?: string; code?: string; waiver_id?: string; changes?: ItemChange[] }>;
+  /** An action whose eligibility turns on its inputs: the refusal, or undefined when admitted (find repositories anywhere AC-ASK-06). */
+  admission?(instruction: Instruction): string | undefined;
+  apply(action: JournalAction, inputs: Record<string, unknown>, receipt: Receipt): Promise<{ ok: boolean; outcome?: string; reason?: string; code?: string; waiver_id?: string; changes?: ItemChange[]; located?: import("../engine/engine.js").LocatedFacts }>;
   /** The one Mark complete predicate the snapshot, CLI and server share (AC-WAIVE-02). */
   markCompleteOffer?(): MarkCompleteOffer;
   reconcile(receipt: Receipt): Receipt | undefined;
@@ -103,7 +107,7 @@ export function validateInstruction(raw: unknown, saved = false): Instruction {
   if (r.action === "settings" && !saved && r.inputs && typeof r.inputs === "object" && "after_last_test_audit_loop" in r.inputs) throw new ControlFailure("removed_command", REMOVED_LOOP_SETTING, 2);
   if (Object.keys(r).sort().join() !== ["action", "command_id", "execution_id", "inputs", "status_token"].join() || typeof r.command_id !== "string" || !/^[\w.-]{1,128}$/.test(r.command_id) || typeof r.execution_id !== "string" || !r.execution_id || typeof r.status_token !== "string" || !r.status_token || r.status_token.length > 512 || !ACTIONS.includes(r.action as Action) || !r.inputs || typeof r.inputs !== "object" || Array.isArray(r.inputs)) throw new ControlFailure("invalid_input", "Invalid command identity, action or inputs.", 2);
   const inputs = r.inputs as Record<string, unknown>; const keys = Object.keys(inputs).sort();
-  const allowed: Record<Action, string[]> = { exit: ["via"], "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], resume: ["live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit", "delivery_audit_loops", "test_audit_loops", ...(saved ? ["after_last_test_audit_loop", "via"] : [])], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "start-again": ["leave_branch", "bring_up_to_date"], reset: [], merge: ["via"] };
+  const allowed: Record<Action, string[]> = { exit: ["via"], "waive-and-advance": ["check_run_id", "by", "via", "live_target", "reviewed_receipt_ids", "without_sending_reply"], reply: ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], resume: ["live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "verify-and-advance": ["without_sending_reply", "live_target", "reviewed_receipt_ids"], "request-pause": [], "cancel-pause": [], continue: [], "check-again": [], settings: ["keep_awake", "resume_after_usage_limit", "delivery_audit_loops", "test_audit_loops", ...(saved ? ["after_last_test_audit_loop", "via"] : [])], "outside-confirmation": ["confirmed", "accept_uncertainty"], "take-over": ["target"], message: ["target", "text"], "message-review": ["target", "receipt_ids"], "carry-on": ["message", "live_target", "reviewed_receipt_ids", "leave_branch", "bring_up_to_date"], "start-again": ["leave_branch", "bring_up_to_date"], reset: [], "locate-repository": ["repository", "folder"], merge: ["via"] };
   if (keys.some(k => !allowed[r.action as Action].includes(k))) throw new ControlFailure("invalid_input", "Unexpected action input.", 2);
   if (inputs.reviewed_receipt_ids !== undefined && (!Array.isArray(inputs.reviewed_receipt_ids) || inputs.reviewed_receipt_ids.length > 50 || !inputs.reviewed_receipt_ids.every(id => typeof id === "string" && /^[\w.-]{1,128}$/.test(id)))) throw new ControlFailure("invalid_input", "Specify exact reviewed receipt IDs.", 2);
   if (inputs.live_target !== undefined && !validLiveTarget(inputs.live_target)) throw new ControlFailure("invalid_input", "Invalid live hand-back target.", 2);
@@ -114,6 +118,10 @@ export function validateInstruction(raw: unknown, saved = false): Instruction {
     inputs.target = canonicalLiveTarget(inputs.target);
     if (r.action === "message" && messageProblem(inputs.text)) throw new ControlFailure("invalid_input", messageProblem(inputs.text)!, 2);
     if (r.action === "message-review" && (!Array.isArray(inputs.receipt_ids) || !inputs.receipt_ids.length || inputs.receipt_ids.length > 50 || !inputs.receipt_ids.every(id => typeof id === "string" && /^[\w.-]{1,128}$/.test(id)))) throw new ControlFailure("invalid_input", "Specify exact uncertain receipt IDs.", 2);
+  } else if (r.action === "locate-repository") {
+    // The address path, lower-cased, and the folder as given (find repositories anywhere, "The command").
+    if (typeof inputs.repository !== "string" || !inputs.repository.trim() || typeof inputs.folder !== "string" || !inputs.folder.trim() || keys.length !== 2) throw new ControlFailure("invalid_input", "locate-repository needs the repository's address path and a folder.", 2);
+    inputs.repository = inputs.repository.trim().toLowerCase();
   } else if (r.action === "waive-and-advance") {
     if (typeof inputs.check_run_id !== "string" || !UUID.test(inputs.check_run_id)) throw new ControlFailure("invalid_input", "Mark complete needs the check run it was offered on.", 2);
     if (inputs.by !== undefined && !validBy(inputs.by)) throw new ControlFailure("invalid_input", "--by takes a name of 1 to 64 printable characters.", 2);
@@ -220,7 +228,7 @@ export function readReceipts(directory: string, executions?: string[]): Receipt[
 }
 export function receiptResult(canonical: string, r: Receipt, state: string, query = false, markComplete?: Record<string, unknown>): Result {
   // A retried Mark complete whose rerun could not finish reports it as an error (exit 4); a receipt query stays a successful read.
-  const unavailable = !query && r.instruction.action === "waive-and-advance" && r.state === "failed" && r.outcome === "check_unavailable";
+  const unavailable = !query && (r.instruction.action === "waive-and-advance" || r.instruction.action === "locate-repository") && r.state === "failed" && r.outcome === "check_unavailable";
   const errors = !query && r.state === "refused" ? [errorFact(r.outcome!, r.reason!, ["kiln", "status", canonical, "--json"])] : !query && r.state === "indeterminate" ? [errorFact("operation_indeterminate", r.reason ?? "Inspect the saved operation before issuing another instruction.", ["kiln", "command-status", canonical, "--command-id", r.command_id, "--json"])] : unavailable ? [errorFact("check_unavailable", r.reason ?? "The completion check could not finish.", ["kiln", "status", canonical, "--json"])] : [];
   // Canonical inputs and their digest stay private. Ordinary reply text is intentionally retrievable.
   const operation: Partial<Receipt> & { action?: JournalAction } = { ...r, action: r.instruction.action }; delete operation.instruction; delete operation.digest;
@@ -384,7 +392,8 @@ export class CommandJournal {
     const refusal = this.busy ? ["busy", "Another accepted instruction owns control; inspect its receipt."] : instruction.execution_id !== this.host.execution() || matchStatusToken && instruction.status_token !== view.token || (["take-over", "cancel-take-over", "message", "message-review"].includes(instruction.action) || instruction.inputs.live_target ? !sameLiveTarget((instruction.inputs.live_target ?? instruction.inputs.target) as import("../live/target.js").LiveTarget, (JSON.parse(view.target) as { live?: import("../live/target.js").LiveTarget }).live) : instruction.status_token !== view.token) ? ["stale_status_token", "The observed execution or control state changed. Refresh status."]
       : waive && offer && !offer.offered ? ["mark_complete_not_offered", offer.reason]
       : waive && offer?.offered && offer.checkRunId !== instruction.inputs.check_run_id ? ["stale_check_run", "Mark complete was offered on an earlier check run. Refresh status."]
-      : !control.available ? [waive && !offer ? "mark_complete_not_offered" : "control_unavailable", control.reason!]
+      : !control.available ? [waive && !offer ? "mark_complete_not_offered" : "control_unavailable", instruction.action === "locate-repository" ? this.host.admission?.(instruction) ?? control.reason! : control.reason!]
+      : this.host.admission?.(instruction) !== undefined ? ["control_unavailable", this.host.admission(instruction)!]
       : (instruction.action === "verify-and-advance" || waive) && unsent.length && instruction.inputs.without_sending_reply !== true ? ["unsent_reply_acknowledgement_required", "A preserved reply was not sent. Explicitly acknowledge it before advancing."] : null;
     if (refusal?.[0] === "stale_status_token") refusal[1] = this.host.staleReason?.(instruction) ?? refusal[1]!;
     const at = new Date().toISOString();
@@ -408,9 +417,10 @@ export class CommandJournal {
       if (!answer.ok) { r.state = "failed"; r.outcome = answer.code ?? "control_unavailable"; r.reason = answer.reason ?? "The existing control refused the action."; }
       else {
         r.state = r.message?.delivery === "uncertain" ? "indeterminate" : "completed"; r.outcome = answer.outcome ?? "completed";
-        if (r.instruction.action === "waive-and-advance" && answer.reason !== undefined) r.reason = answer.reason;
+        if ((r.instruction.action === "waive-and-advance" || r.instruction.action === "locate-repository") && answer.reason !== undefined) r.reason = answer.reason;
+        if (answer.located !== undefined) r.located = answer.located;
         keepUnsentCarryOnReply(r);
-        if (r.outcome === "advanced" || r.instruction.action === "waive-and-advance" && WAIVE_ADVANCING_OUTCOMES.includes(r.outcome)) {
+        if (r.outcome === "advanced" || r.outcome === "located_phase_starting" || r.instruction.action === "waive-and-advance" && WAIVE_ADVANCING_OUTCOMES.includes(r.outcome)) {
           r.effects.plan = "advanced";
           for (const prior of unsent) { prior.acknowledged_by = r.id; this.save(prior); }
         }

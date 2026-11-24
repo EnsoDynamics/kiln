@@ -16,6 +16,7 @@ import { observeGitPlan } from "./completed-plan-sources.js";
 import { ancestry, inBaseBranch, type FolderMissingView, type RepositoryRead } from "./folder-facts.js";
 import { worktreeAt } from "./folder-check.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
+import { preparationReads, reachedName, reachRecordNames } from "./plan-repositories.js";
 import type { PlanSource } from "./plan-reconciliation.js";
 import { baseBranchChoices, checkWorkspaceFolder, checkWorkspaceFolderPlacement, checkWorktreePath, comparable, defaultBaseBranch, displayPath, expandHome, isWithin, joinNames, realPathOfNearestAncestor } from "./worktree-setup.js";
 import { stillOwnArtifacts, type FolderSetupStart } from "./folder-setup-start.js";
@@ -44,7 +45,7 @@ export const emptyDraft = (): PanelDraft => ({ edits: { base: {}, branch: {} }, 
 export interface Part { text?: string; tone?: "code" | "strong"; date?: string }
 /** `holdsAllWork` is absent when a failed read decides it (AC-FACTS-03). */
 export interface StartChoice { sha: string; total: number; done: number; holdsAllWork?: boolean; behindBase: boolean; line: string }
-export interface PanelRepository { name: string; kind: RepositoryKind; baseBranch: string; baseChoices: string[]; problem?: string; leftOut?: true; /** A session-added repository's phase, judged, for Documents found's "added in phase" tag. */ addedInPhase?: string }
+export interface PanelRepository { name: string; /** What the panel shows it as (find repositories anywhere AC-FOLDER-02). */ label?: string; kind: RepositoryKind; baseBranch: string; baseChoices: string[]; problem?: string; leftOut?: true; /** A session-added repository's phase, judged, for Documents found's "added in phase" tag. */ addedInPhase?: string }
 export interface SetupPanel {
   suggested: StartKind;
   selected: StartKind;
@@ -75,6 +76,10 @@ export type PanelView = SetupPanel | { blocked: string };
 /** What the engine knows that the panel reads (never writes). */
 export interface PanelContext {
   git: GitContext;
+  /** The label a repository is shown by, from Kiln's name for it (find repositories anywhere AC-FOLDER-02); its name when absent. */
+  label?: (name: string) => string;
+  /** The label of a name as a phase document writes it (find repositories anywhere AC-FOLDER-02); `label` when absent. */
+  labelWritten?: (name: string) => string;
   record: PrdRecord;
   view: FolderMissingView;
   prdDirectoryFromRoot: string;
@@ -101,11 +106,13 @@ export interface PanelContext {
   judgedId?: (id: string) => string;
 }
 
-interface SetRepository { name: string; kind: RepositoryKind; mainCheckoutPath: string; github: string; baseBranch: string; origin?: OriginBranches; problem?: string; entry?: RepositoryEntry }
+interface SetRepository { name: string; /** A problem row under the name as the plan writes it. */ written?: true; /** Kept when it differs from name (find repositories anywhere AC-FOLDER-01). */ shortName?: string; kind: RepositoryKind; mainCheckoutPath: string; github: string; baseBranch: string; origin?: OriginBranches; problem?: string; entry?: RepositoryEntry }
 
 const digest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const short = (sha: string) => sha.slice(0, 7);
 const leavesOf = (phases: PlannedPhase[]) => phases.filter(phase => phase.splitInto === undefined);
+/** A repository as the panel shows it: its label (find repositories anywhere AC-FOLDER-02). */
+const shown = (context: Pick<PanelContext, "label">, name: string): string => context.label?.(name) ?? name;
 
 /** "Phase 4", "Phases 1–9" for a consecutive run of whole numbers, else "Phases 4, 6 and 7". */
 export function phaseList(ids: string[]): string {
@@ -213,7 +220,7 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
     suggested, selected, choices, multi,
     fields: chosen.fields, fixed: chosen.fixed, fieldErrors, helpLines: chosen.helpLines,
     effortLevels: modelCheck?.effortLevels ?? null, ...(modelCheck?.efforts ? { efforts: modelCheck.efforts } : {}), ...(draft.choiceNotice ? { choiceNotice: draft.choiceNotice } : {}),
-    repositories: multi ? chosen.repositories.map(repository => ({ name: repository.name, kind: repository.kind, baseBranch: repository.baseBranch, baseChoices: repository.origin ? baseBranchChoices(repository.origin) : [repository.baseBranch], ...(repository.problem ? { problem: repository.problem } : {}), ...(repository.entry?.kind === "added" && repository.entry.addedInPhase !== undefined ? { addedInPhase: context.judgedId?.(repository.entry.addedInPhase) ?? repository.entry.addedInPhase } : {}) })).concat(chosen.leftOut.map(name => ({ name, kind: "added" as const, baseBranch: "", baseChoices: [], leftOut: true as const, problem: "Left out: the plan on the base branch doesn’t name it." }))) : [],
+    repositories: multi ? chosen.repositories.map(repository => ({ name: repository.name, label: repository.written && context.labelWritten ? context.labelWritten(repository.name) : shown(context, repository.name), kind: repository.kind, baseBranch: repository.baseBranch, baseChoices: repository.origin ? baseBranchChoices(repository.origin) : [repository.baseBranch], ...(repository.problem ? { problem: repository.problem } : {}), ...(repository.entry?.kind === "added" && repository.entry.addedInPhase !== undefined ? { addedInPhase: context.judgedId?.(repository.entry.addedInPhase) ?? repository.entry.addedInPhase } : {}) })).concat(chosen.leftOut.map(name => ({ name, label: shown(context, name), kind: "added" as const, baseBranch: "", baseChoices: [], leftOut: true as const, problem: "Left out: the plan on the base branch doesn’t name it." }))) : [],
     baseChoices: chosen.repositories[0]?.origin ? baseBranchChoices(chosen.repositories[0].origin) : [chosen.fields.baseBranch],
     preview,
     ...(context.busy ? { busy: context.busy } : {}),
@@ -290,13 +297,29 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     catch { return { unavailable: `the plan on ${prdBase}`, known: false }; }
   }
   baseCommits[prdRead.name] = prdTip;
-  const names = [...new Set([prdRead.name, ...plan.plan.phases.flatMap(phase => phase.repositories)])];
+  const written = [...new Set([prdRead.name, ...plan.plan.phases.flatMap(phase => phase.repositories)])];
+  // Each name reaches its repository first; the panel works with Kiln's name for it (find repositories anywhere "Names").
+  const reach = await reachRecordNames(git, record, expandHome(record.repository.mainCheckoutPath), plan.plan.phases);
+  const names: string[] = [];
   const set: SetRepository[] = [];
-  for (const name of names) {
-    const entry = record.repositories.find(candidate => candidate.name === name && candidate.setupCompletedAt !== undefined);
+  // A repository Kiln would ask about is left out and asked about at the stop before its phase, unless the first phase's preparation reads it (find repositories anywhere AC-ASK-07).
+  const prepared = preparationReads(plan, record.prdDirectory, leavesOf(plan.plan.phases).find(phase => !phase.closed), prdRead.name);
+  for (const one of written) {
+    const reached = reachedName(one, prdRead.name, reach.get(one));
+    if ("question" in reached && !prepared.has(one.toLowerCase())) continue;
+    if ("problem" in reached) {
+      if (reached.unavailable) return { unavailable: reached.problem, known: false };
+      set.push({ name: one, written: true, kind: "named", mainCheckoutPath: "", github: "", baseBranch: "", problem: reached.problem }); names.push(one); continue;
+    }
+    const name = reached.name;
+    if (names.includes(name)) continue;
+    names.push(name);
+    // Any entry of that name, its setup finished or not: its recorded checkout is the repository's ("Names" step 2).
+    const entry = record.repositories.find(candidate => candidate.name === name);
     if (name === prdRead.name) { set.push({ name, kind: "prd", mainCheckoutPath: expandHome(prdRead.entry.mainCheckoutPath), github: prdRead.entry.github, baseBranch: prdBase, origin: prdOrigin.value, entry: prdRead.entry }); continue; }
-    let found: { mainCheckoutPath: string; github: string } | undefined = entry ? { mainCheckoutPath: expandHome(entry.mainCheckoutPath), github: entry.github } : undefined;
+    let found: { mainCheckoutPath: string; github: string; shortName?: string } | undefined = entry ? { mainCheckoutPath: expandHome(entry.mainCheckoutPath), github: entry.github, ...(entry.shortName === undefined ? {} : { shortName: entry.shortName }) } : undefined;
     let problem: string | undefined;
+    if (!found && "row" in reached && reached.row?.found) found = { mainCheckoutPath: reached.row.found.mainCheckoutPath, github: reached.row.found.github, ...(reached.row.found.shortName === undefined ? {} : { shortName: reached.row.found.shortName }) };
     if (!found) {
       const lookup = await findRepository(git, repositoriesParent(expandHome(record.repository.mainCheckoutPath)), name, "The plan on the base branch");
       if (!lookup.ok) { if (lookup.unavailable) return { unavailable: lookup.problem, known: false }; problem = lookup.problem; }
@@ -304,17 +327,17 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     }
     if (!found) { set.push({ name, kind: "named", mainCheckoutPath: "", github: "", baseBranch: "", problem: problem! }); continue; }
     const origin = await originBranches(git, found.mainCheckoutPath);
-    if (!origin.ok) return { unavailable: `origin for ${name}`, known: false };
+    if (!origin.ok) return { unavailable: `origin for ${shown(context, name)}`, known: false };
     if (context.originIdentity) {
       const identity = await context.originIdentity(found.mainCheckoutPath);
-      if (!identity || identity.toLowerCase() !== found.github.toLowerCase()) problem = `Restore the recorded ${found.github} origin for ${name}, then check again.`;
+      if (!identity || identity.toLowerCase() !== found.github.toLowerCase()) problem = `Restore the recorded ${found.github} origin for ${shown(context, name)}, then check again.`;
     }
-    const base = edits.bases?.[name] ?? (entry?.baseBranch ?? record.settings.bases[name] ?? defaultBaseBranch(origin.value));
-    if (!base) problem ??= `Establish a configured delivery base for ${name}, then check again.`;
+    const base = edits.bases?.[name] ?? (entry?.baseBranch || (record.settings.bases[name] ?? defaultBaseBranch(origin.value)));
+    if (!base) problem ??= `Establish a configured delivery base for ${shown(context, name)}, then check again.`;
     const tip = base ? origin.value.branches.get(base) : undefined;
     if (base && !tip) problem ??= `${base} isn’t on origin.`;
     if (tip) { await ensureObjects(git, found.mainCheckoutPath, tip); baseCommits[name] = tip; }
-    set.push({ name, kind: "named", mainCheckoutPath: found.mainCheckoutPath, github: found.github, baseBranch: base, origin: origin.value, ...(problem ? { problem } : {}), ...(entry ? { entry } : {}) });
+    set.push({ name, ...(found.shortName === undefined ? {} : { shortName: found.shortName }), kind: "named", mainCheckoutPath: found.mainCheckoutPath, github: found.github, baseBranch: base, origin: origin.value, ...(problem ? { problem } : {}), ...(entry ? { entry } : {}) });
   }
   const leftOut = record.repositories.filter(entry => entry.setupCompletedAt !== undefined && !names.includes(entry.name)).map(entry => entry.name);
   const multi = set.length > 1;
@@ -365,14 +388,14 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const ownFolder = (path: string) => !!own && Object.values(own.repositories).some(r => comparable(expandHome(r.worktreePath)) === comparable(expandHome(path)));
   if (multi) {
     if (!ownFolder(join(fields.workspaceFolder, prdRead.name))) {
-      const error = await checkWorkspaceFolder(git, set.filter(r => r.mainCheckoutPath), fields.workspaceFolder, clearRecords);
+      const error = await checkWorkspaceFolder(git, set.filter(r => r.mainCheckoutPath).map(r => ({ name: r.name, mainCheckoutPath: r.mainCheckoutPath, label: shown(context, r.name) })), fields.workspaceFolder, clearRecords);
       if (error) fieldErrors.workspaceFolder = error;
     }
   } else if (!ownFolder(fields.worktreePath)) {
     const error = await checkWorktreePath(git, set[0]!.mainCheckoutPath, fields.worktreePath, clearRecords);
     if (error) fieldErrors.worktreePath = error;
   }
-  const branchError = await newBranchError(git, set, fields.featureBranch, own?.settings.featureBranch, taken);
+  const branchError = await newBranchError(git, set, fields.featureBranch, own?.settings.featureBranch, taken, (name) => shown(context, name));
   if (branchError) fieldErrors.featureBranch = branchError;
 
   // What will run (AC-SETUP-03, AC-SAFE-02): a Closed line in the base branch is enough (AC-SETUP-04).
@@ -384,7 +407,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   if (problem) return { unavailable: `${problem.problem}`, known: true };
   // The first leaf's preparation, bound as continuation readiness binds it: a problem it reports is a preview problem (Start, step 3).
   const preparationProblems: string[] = [];
-  await bindPreparation({ git, record, candidate: plan, first: run[0], repositories: set.map(r => ({ name: r.name, identity: r.github, path: r.mainCheckoutPath, baseBranch: r.baseBranch, baseRevision: baseCommits[r.name]! })), problems: preparationProblems });
+  await bindPreparation({ git, record, candidate: plan, first: run[0], repositories: set.map(r => ({ name: r.name, identity: r.github, path: r.mainCheckoutPath, baseBranch: r.baseBranch, baseRevision: baseCommits[r.name]! })), problems: preparationProblems, label: (name) => shown(context, name), ...(context.labelWritten ? { labelWritten: context.labelWritten } : {}) });
   if (preparationProblems.length) return { unavailable: `${[...new Set(preparationProblems)].join(" ")} Then check again.`, known: true };
   // Work this run committed, pushed or not, that the new start leaves out (AC-SAFE-02).
   const runIds = new Set(run.map(leaf => leaf.id));
@@ -458,7 +481,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
     const pushed = !completed?.waived?.includes(prdRead.name);
     const their = again.length === 1 ? "Its" : "Their";
     const withWork = reads.repositories.filter(read => branchWork.get(read.name) === true).map(read => read.name);
-    const tail = multi ? ` ${their} work is on the feature branch in ${withWork.length === reads.repositories.length ? (withWork.length === 2 ? "both repositories" : "every repository") : joinNames(withWork)}, not in ${prdBase}.`
+    const tail = multi ? ` ${their} work is on the feature branch in ${withWork.length === reads.repositories.length ? (withWork.length === 2 ? "both repositories" : "every repository") : joinNames(withWork.map(name => shown(context, name)))}, not in ${prdBase}.`
       : gone ? ` ${their} ${pushed ? "pushed " : ""}work${sha ? ` (${short(sha)})` : ""} was on the deleted branch and isn’t in ${prdBase}.`
       : ` ${their} work${sha ? ` (${short(sha)})` : ""} is on the feature branch, not in ${prdBase}.`;
     add([{ text: lead, tone: "strong" }, { text: tail }]);
@@ -467,12 +490,12 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   if (closedWithout.length) {
     const one = closedWithout.length === 1;
     const sha = one && !multi ? context.completedByRun.get(closedWithout[0]!)?.commits[prdRead.name] : undefined;
-    const where = multi ? ` in ${joinNames([...closedWithoutIn])} isn’t in ${closedWithoutIn.size === 1 ? "its" : "their"} base branch` : `${sha ? ` (${short(sha)})` : ""} isn’t in ${prdBase}`;
+    const where = multi ? ` in ${joinNames([...closedWithoutIn].map(name => shown(context, name)))} isn’t in ${closedWithoutIn.size === 1 ? "its" : "their"} base branch` : `${sha ? ` (${short(sha)})` : ""} isn’t in ${prdBase}`;
     add([{ text: `${phaseList(closedWithout)} ${verb} not run again.`, tone: "strong" }, { text: ` The plan on ${prdBase} already closes ${one ? "it" : "them"}, but ${one ? "its" : "their"} work${where}; it ${gone ? "was only on the deleted branch" : "stays on the earlier feature branch"}.` }]);
   }
   for (const name of leftWork) {
     const phases = leftPhaseIds.get(name)!;
-    add([{ text: `Work this run committed in ${name}${phases.length ? ` (${phaseList(phases)})` : ""} isn’t in its base branch; it stays on that repository’s feature branch.` }]);
+    add([{ text: `Work this run committed in ${shown(context, name)}${phases.length ? ` (${phaseList(phases)})` : ""} isn’t in its base branch; it stays on that repository’s feature branch.` }]);
   }
   // "Holds all work" is withheld while a read of work not in the base branch failed (AC-FACTS-03).
   const missing = [...new Set([...again, ...notInPlan, ...closedWithout, ...[...leftPhaseIds.values()].flat()])].sort((a, b) => rank(a) - rank(b));
@@ -538,7 +561,7 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
   // The checks a worktree path gets at a first Start, for every folder Start creates; git's record of
   // a missing saved folder that Start clears first counts as absent (Path checks with a stale record).
   const fieldErrors: Record<string, string> = {};
-  const runCheckouts = reads.repositories.map(read => ({ name: read.name, mainCheckoutPath: expandHome(read.entry.mainCheckoutPath) }));
+  const runCheckouts = reads.repositories.map(read => ({ name: read.name, mainCheckoutPath: expandHome(read.entry.mainCheckoutPath), label: shown(context, read.name) }));
   for (const read of failing) {
     const path = folders[read.name]!;
     if (ownStartFolder(context, read.name, path)) continue;
@@ -546,14 +569,14 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
     const earlier = context.intent?.repositories.find(row => row.name === read.name);
     if (earlier && ownStartFolder(context, read.name, earlier.worktreePath)) {
       const error = `${branch} is checked out in ${displayPath(expandHome(earlier.worktreePath))}, which an earlier Start made. Use that folder, or move it away and check again.`;
-      if (multi) fieldErrors.workspaceFolder = fieldErrors.workspaceFolder ? `${fieldErrors.workspaceFolder} In ${read.name}: ${error}` : `In ${read.name}: ${error}`;
+      if (multi) fieldErrors.workspaceFolder = fieldErrors.workspaceFolder ? `${fieldErrors.workspaceFolder} In ${shown(context, read.name)}: ${error}` : `In ${shown(context, read.name)}: ${error}`;
       else fieldErrors.worktreePath = error;
       continue;
     }
     const error = await checkWorktreePath(git, expandHome(read.entry.mainCheckoutPath), path, clearRecords)
       ?? (multi ? await checkWorkspaceFolderPlacement(git, runCheckouts, path, clearRecords) : undefined);
     if (error) {
-      if (multi) fieldErrors.workspaceFolder = fieldErrors.workspaceFolder ? `${fieldErrors.workspaceFolder} In ${read.name}: ${error}` : `In ${read.name}: ${error}`;
+      if (multi) fieldErrors.workspaceFolder = fieldErrors.workspaceFolder ? `${fieldErrors.workspaceFolder} In ${shown(context, read.name)}: ${error}` : `In ${shown(context, read.name)}: ${error}`;
       else fieldErrors.worktreePath = error;
     }
   }
@@ -585,8 +608,8 @@ async function branchStart(context: PanelContext, draft: PanelDraft, prdRead: Re
   const left = await branchLeftBehind(context, leaves.map(leaf => leaf.id), run.map(leaf => leaf.id), createLocal);
   if (left.caution.length) caution = [...left.caution, ...(caution ? [{ text: " " }, ...caution] : [])];
   const counts = `${leaves.length} phases, ${done.length === leaves.length ? "all closed" : `${done.length} done`}`;
-  const failingNames = failing.map(read => read.name);
-  const kept = reads.repositories.filter(read => read.check.state === "in_place").map(read => read.name);
+  const failingNames = failing.map(read => shown(context, read.name));
+  const kept = reads.repositories.filter(read => read.check.state === "in_place").map(read => shown(context, read.name));
   // Whether this start is behind the base branch's plan, on its own line whichever start is selected (AC-SETUP-03).
   const behind = behindBase ? ` Behind ${baseName}’s plan.` : "";
   const workLine = left.holdsAllWork === true ? "Has all of this run’s work." : left.holdsAllWork === undefined ? "Couldn’t check whether it has all of this run’s work." : `Missing ${phaseList(left.missing)}’s work.`;
@@ -650,7 +673,7 @@ async function branchLeftBehind(context: PanelContext, leafIds: string[], runIds
   const where = (names: string[]) => {
     const origin = names.every(name => createLocal[name]);
     const copy = origin ? "origin’s copy of the branch, which Kiln starts from" : "the feature branch";
-    return multi ? `${copy.replace(", which Kiln starts from", "")} in ${joinNames(names)}` : copy;
+    return multi ? `${copy.replace(", which Kiln starts from", "")} in ${joinNames(names.map(name => shown(context, name)))}` : copy;
   };
   const caution: Part[] = [];
   const add = (parts: Part[]) => caution.push(...(caution.length ? [{ text: " " }] : []), ...parts);
@@ -668,7 +691,7 @@ async function branchLeftBehind(context: PanelContext, leafIds: string[], runIds
     ? reads.filter(read => createLocal[read.name] && context.stoppedStarts?.[read.name] !== undefined).map(read => read.name) : [];
   if (unseen.length) {
     unknown = true;
-    add([{ text: `Phase ${stopped} runs from origin’s copy of the branch${multi ? ` in ${joinNames(unseen)}` : ""}.`, tone: "strong" }, { text: " Commits it made that weren’t pushed were only on the deleted branch, and Kiln can’t tell whether there were any." }]);
+    add([{ text: `Phase ${stopped} runs from origin’s copy of the branch${multi ? ` in ${joinNames(unseen.map(name => shown(context, name)))}` : ""}.`, tone: "strong" }, { text: " Commits it made that weren’t pushed were only on the deleted branch, and Kiln can’t tell whether there were any." }]);
   }
   return { missing, again, ...(missing.length ? { holdsAllWork: false } : unknown ? {} : { holdsAllWork: true }), caution };
 }
@@ -690,7 +713,7 @@ async function hasCommit(git: GitContext, cwd: string, sha: string): Promise<boo
   return (await runGit(git, cwd, ["cat-file", "-e", `${sha}^{commit}`])).exitCode === 0;
 }
 
-async function newBranchError(git: GitContext, set: SetRepository[], name: string, own: string | undefined, taken: Set<string>): Promise<string | undefined> {
+async function newBranchError(git: GitContext, set: SetRepository[], name: string, own: string | undefined, taken: Set<string>, label: (name: string) => string): Promise<string | undefined> {
   if (name.trim() === "") return "Enter a branch name.";
   const valid = await runGit(git, set[0]!.mainCheckoutPath, ["check-ref-format", "--branch", name]);
   if (valid.exitCode !== 0) return "That isn’t a valid branch name.";
@@ -698,7 +721,7 @@ async function newBranchError(git: GitContext, set: SetRepository[], name: strin
   const existing: string[] = [];
   for (const repository of set) {
     if (!repository.mainCheckoutPath) continue;
-    if (taken.has(name) || repository.origin?.branches.has(name) || await localBranchCommit(git, repository.mainCheckoutPath, name) !== undefined) existing.push(repository.name);
+    if (taken.has(name) || repository.origin?.branches.has(name) || await localBranchCommit(git, repository.mainCheckoutPath, name) !== undefined) existing.push(label(repository.name));
   }
   if (!existing.length) return undefined;
   return set.length > 1 ? `That branch already exists in ${joinNames(existing)}. Choose a name no branch has in any repository.` : "That branch already exists. Choose a name no branch has.";
