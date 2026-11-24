@@ -67,7 +67,7 @@ kiln run docs/prds/<name>
 The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) or the PRD file in it.
 
 1. **Review.** Kiln checks the documents and opens its browser view on what it found, with the phase documents, the base branch and the feature branch it will use. Nothing runs yet.
-2. **Start.** Confirm the PRD has been refined, choose the agent, model and effort, and press **Start**.
+2. **Start.** Confirm the PRD has been refined, check the model each phase will run on, and press **Start**.
 3. **Walk away.** Kiln runs one session per phase in the feature's own worktree and checks in Git that each phase landed. Keep the terminal open. Ctrl+C interrupts the current session, and `kiln run` again picks up where it stopped.
 4. **Come back to pull requests.** When every phase is done and the whole PRD has passed its delivery and test audits, the feature branch is pushed with its pull request waiting for your review.
 
@@ -154,7 +154,7 @@ Each phase runs the same way.
 A few things worth knowing:
 
 - **Interruptions.** Ctrl+C, a closed terminal, a restart or a laptop that slept. Running `kiln run` again checks the saved work and opens the phase overview without starting model work. Review it, then press **Resume Kiln**.
-- **Usage limits.** When a session hits your plan's limit, Kiln waits for usage to come back and resumes that same session.
+- **Usage limits.** When a session hits your plan's limit, Kiln waits for usage to come back and resumes that same session. A session refused before the model ever responded has nothing to resume, so Kiln launches a new one on the activity's current choice. With the [usage fallback](#the-usage-fallback) on, an activity that hasn't started, a waiting one included, can start on your other agent instead.
 - **Background work.** If a subprocess, test run or reviewer is still needed, the session waits for it and carries on. A progress message saying "waiting" does not mean Kiln needs you. The [subprocess completion validation](docs/design/kiln-required-subprocess-completion-validation.md) describes the checks and their limits.
 - **Plans that grow.** Phases appended or split in the assigned worktree join the remaining plan once the current activity passes its checks, with a notice. Changes made in your original checkout or on other branches don't affect a running PRD until you deliberately integrate them into its worktree.
 - **Several repositories.** When a PRD spans repositories, each gets its own worktree, feature branch and pull request.
@@ -164,17 +164,44 @@ A few things worth knowing:
 
 Completion checks use the assigned worktrees' Git state and the audit and delivery receipts. Other checkouts and worktrees can change normally while Kiln runs.
 
+### Choosing models
+
+Kiln picks the agent, model and effort for each phase from the phase document's `**Model tier:**` line, which the Enso Method's phase split writes: **demanding**, **standard** or **mechanical**, with the reason after it. A phase document with no such line is **Not rated** and runs as standard. Each phase row in the plan shows its tier, with the reason behind its information control, and the model it will run on, runs on or ran on. The preflight, the delivery and test audits and the pull request session have no tier: they share one **Audits** choice.
+
+**Model defaults** holds the model behind each tier and Audits, for every PRD on this computer. Kiln ships with these, using the newest version of each model family the agent offers when an activity launches:
+
+| Row | First choice | Fallback |
+|---|---|---|
+| Demanding | Claude Code · Fable · high | Codex · GPT Astra · high |
+| Standard, and Not rated | Claude Code · Opus · medium | Codex · GPT Sol · high |
+| Mechanical | Claude Code · Sonnet · high | Codex · GPT Sol · high |
+| Audits | Claude Code · Opus · high | Codex · GPT Sol · extra high |
+
+On a computer with only Codex installed, every activity whose first choice is on Claude Code runs on its row's Codex fallback, with no setup.
+
+- **Change one phase.** On Documents found, or in the plan while Kiln works, waits, is paused or is stopped, press **Change** on a phase that hasn't started. It is marked **Changed by you** and keeps that choice, whatever its tier or Model defaults later say, until you press **Use the default**. **Change** on a Delivery audit or Test audit row, or the Audits line in the delivery panel or the run's settings, changes this PRD's Audits choice.
+- **Change the defaults.** The **Model defaults** link in the delivery panel or the run's settings opens the page: **Change** on each row's first choice or fallback, and **Restore Kiln's defaults**. A change reaches every activity that hasn't started, in every PRD, runs underway included.
+- **A started activity never switches.** Once a phase, audit or session has had its first response from the model, every later session of it, after a usage limit, a Resume or a carry-on, runs on what it started on. A choice the agent doesn't offer, or an account that refuses the model, stops the run at Needs you; Kiln runs nothing else in its place.
+
+### The usage fallback
+
+Model defaults has a switch, **Use the fallback when usage is nearly out**, off until you turn it on, and a threshold, 95% unless you change it. It applies to every PRD on this computer, runs underway included, until you turn it off.
+
+With it on, each time Kiln is about to launch an activity that hasn't started, it reads both accounts' usage. When a limit on the first choice's account reads at or above the threshold, and the fallback's agent is ready, offers its model, has any billing approval it needs and is itself under the threshold, the activity starts on the fallback instead. Only a usage reading does this: a refused model, a sign-in problem or an error never sends an activity to the fallback. It is decided only at launch, never partway through an activity, and each launch is decided on its own, so the next one returns to its first choice once that account is back under the threshold.
+
+Kiln always says when it happened: the row shows a **Fallback** tag, the card and the phase detail say which limit read what, the terminal prints a line, and the next activity's row warns in advance while it would launch on the fallback. When the fallback couldn't be used, the row says why. **The fallback spends your other agent's account**: it changes which account an activity uses, not how much it may use. If the fallback's agent isn't ready, Documents found warns and a run waits at a usage limit as if the fallback were off.
+
 ### What Kiln may do with your code
 
 By default Kiln commits and pushes only to feature branches and leaves pull requests for your review. It merges them only when you press **Merge with Claude Code** (or Codex) on the finished page, and pushes the PRD's documents to its base branch only when you press **Continue** there. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may then merge there early when a PRD criterion needs deployment or verification, and the repository's existing CI/CD controls the deployment. Required checks and reviews still apply, and remaining work still ends in a review pull request. Other branches, separate release workflows and destructive actions stay unauthorized.
 
 ### Billing in brief
 
-Before every model run, Kiln shows how the next session will be billed, either your Claude subscription or ChatGPT account with its email and plan, or a detected API key or alternate provider. API billing needs your explicit approval for that PRD before any work starts. Kiln never changes your provider settings or spending limits, and it is not a spending cap. [Billing](#billing) below has the details for Claude and Codex.
+Before every model run, Kiln shows how the next session will be billed, either your Claude subscription or ChatGPT account with its email and plan, or a detected API key or alternate provider. API billing needs your explicit approval for that PRD before any work starts. With the [usage fallback](#the-usage-fallback) on, an activity can be billed to your other agent's account; Claude Code on API billing is used as a fallback only once you approve it. Kiln never changes your provider settings or spending limits, and it is not a spending cap. [Billing](#billing) below has the details for Claude and Codex.
 
 ### Driving Kiln from the terminal or a bot
 
-The browser view is the main interface, but every control for existing work is also a command, so a script or a bot on the same machine can report progress and answer stops. Start with `kiln status --json` and `kiln <command> --help`. [Kiln command line and bot control](docs/kiln-command-line-and-bot-control.md) covers command IDs, status tokens, live messages and takeover.
+The browser view is the main interface, but every control for existing work is also a command, so a script or a bot on the same machine can report progress and answer stops. Start with `kiln status --json` and `kiln <command> --help`. `kiln model` changes a phase's model or the Audits choice in a run underway, and `kiln model-defaults` prints and changes Model defaults, the fallback switch and its threshold. [Kiln command line and bot control](docs/kiln-command-line-and-bot-control.md) covers command IDs, status tokens, live messages and takeover.
 
 ## Writing requirements for Kiln
 
@@ -188,7 +215,7 @@ The PRD's own documents, the phase plan, and `Superseded by:` / `Replaces:` poin
 
 ## Billing
 
-Before every model run, Kiln shows how the next session will be billed and blocks separately charged access until you approve it. The details differ by agent.
+Before every model run, Kiln shows how the next session will be billed and blocks separately charged access until you approve it. When a run can use both agents, Documents found shows the billing for each, and with the usage fallback on, either account may be billed for an activity. The details differ by agent.
 
 ### Claude
 

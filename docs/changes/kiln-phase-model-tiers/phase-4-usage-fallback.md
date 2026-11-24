@@ -1,5 +1,7 @@
 # Phase 4: Usage fallback
 
+**Closed:** 2026-11-24
+
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "The launch decision" (including the fallback's launch checks, Skills and the heads-up); "A Wait Before the Start" (the fallback row); the "Telling a model-scoped Codex bucket, and a usage block" and "Usage read for a launch" decisions; `launch` on the session record in "Data Models"; `fallback` and `forecast` in "Snapshot"; "Criteria Coverage" for AC-GUIDE-01
 **Phase plan:** [Execution order](kiln-phase-model-tiers-phase-plan.md)

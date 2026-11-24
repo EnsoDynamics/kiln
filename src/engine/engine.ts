@@ -79,9 +79,10 @@ import { AgentInfo } from "../agents/metadata.js";
 import { AGENT_IDS, AGENT_NAMES, type AgentId, type CodexUsageRecovery, type RecordedPlanPhase } from "../state/records.js";
 import { modelDefaultsPath, readModelDefaults, type ModelChoice } from "../models/model-defaults.js";
 import { checkModelChoice } from "../models/model-defaults-edit.js";
-import { activityFallback, countedFor, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
+import { activityFallback, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
 import { firstResponseInSavedEvents } from "../models/start-line.js";
-import type { ActivityChoice, ModelList } from "../models/resolver.js";
+import type { ActivityChoice, ModelList, ResolvedChoice } from "../models/resolver.js";
+import { choiceWords, decideLaunch, firstOverThreshold, limitWords, type DecisionChoice, type LaunchFallback, type UsageSide } from "../models/launch-decision.js";
 import { claudeHistoryStart, codexHistoryStart } from "../models/history-start.js";
 import { executableAvailable } from "../platform/helper-process.js";
 // The engine: works out where a feature stands, picks the next phase, runs its session, runs
@@ -254,6 +255,16 @@ export type CommandResult =
 /** What `kiln add-repository` gets back (multi-repo AC-ADD-01). */
 /** What Mark complete's rerun and act answer (waivers "Interfaces"). */
 export type WaiveAnswer = { ok: boolean; outcome?: MarkCompleteOutcome | string; reason?: string; code?: string; status?: number; waiver_id?: string; changes?: ItemChange[] };
+/** A launch's decision, saved on the session before its process starts (Kiln Phase Model Tiers, "The launch decision"). */
+interface LaunchDecision {
+  choice: ModelChoice & { modelName: string };
+  launch: NonNullable<SessionRecord["launch"]>;
+  /** Both agents' usage was read for this launch, so the launch checks don't read the decided agent again. */
+  read: boolean;
+  /** The activity's skill, resolved again against the fallback's agent. */
+  skill?: NonNullable<AuditActivity["skill"]>;
+}
+
 interface WaiveRequest { offered: CheckResult[]; offeredRun: { id: string; at: string }; source: WaiverSource; operationId: string; continueInOrder: boolean }
 
 export type AddRepositoryResult =
@@ -1601,7 +1612,15 @@ export class Engine {
   fallbackOf(key: string): ReturnType<typeof activityFallback> { return activityFallback(this.modelContext, key, this.notStartedChoice(key)); }
 
   /** A row's model (AC-PICK-02): what it will run on, runs on or ran on. */
-  activityModel(key: string, state: { finished: boolean; liveSession?: SessionRecord | undefined }): ModelView { return modelView(this.modelContext, key, state); }
+  activityModel(key: string, state: { finished: boolean; liveSession?: SessionRecord | undefined; current?: boolean }): ModelView {
+    // From the moment a launch saves its decision, the row shows the decided choice (Kiln Phase Model Tiers, "When an Activity Starts", the row table).
+    const decided = this.decisions.get(key);
+    if (decided && !state.finished && !state.liveSession && !this.startedSessionOf(key)) {
+      const saved = decided.launch.fallback;
+      return { state: "will_run_on", choice: { agentId: decided.choice.agentId, agent: AGENT_NAMES[decided.choice.agentId], model: decided.choice.model, modelName: decided.choice.modelName, ...(decided.choice.effort ? { effort: decided.choice.effort } : {}) }, ...(saved && (saved.used || state.current) ? { fallback: fallbackView(saved, decided.launch.from) } : {}) };
+    }
+    return modelView(this.modelContext, key, state);
+  }
 
   /**
    * A phase finished in an earlier execution (Kiln Phase Model Tiers, "A phase finished in an
@@ -1654,7 +1673,7 @@ export class Engine {
 
   /** The agent an activity runs on: what it started on, else its current choice's. */
   agentOf(key: string): AgentId {
-    return this.startedSessionOf(key)?.agentId ?? this.notStartedChoice(key).agentId;
+    return this.startedSessionOf(key)?.agentId ?? this.decisions.get(key)?.choice.agentId ?? this.notStartedChoice(key).agentId;
   }
 
   /** The agent of the Audits choice, which the preflight, the audits and the pull request session run on (AC-OTHER-01); their skills are looked up for it. */
@@ -1671,9 +1690,209 @@ export class Engine {
       const agentId = started.agentId ?? "claude_code";
       return { agentId, model: agentId === "claude_code" ? started.initModel ?? started.model : started.model, modelName: started.modelDisplayName, ...(started.effort ? { effort: started.effort } : {}) };
     }
+    const decided = this.decisions.get(key);
+    if (decided) return decided.choice;
     const choice = this.notStartedChoice(key);
     if (!choice.model || choice.problem) throw new Error(choiceStopFact(choice, key));
     return { agentId: choice.agentId, model: choice.model, modelName: choice.modelName, ...(choice.effort ? { effort: choice.effort } : {}) };
+  }
+
+  /** Each activity's launch decision, from its launch checks until its launch ends. */
+  private readonly decisions = new Map<string, LaunchDecision>();
+
+  /**
+   * The launch decision (Kiln Phase Model Tiers AC-FALLBACK-02, "The launch decision"), for an
+   * activity that hasn't started, run immediately before the existing launch checks. Undefined
+   * when the first choice can't be used, known before launch: the `selection` stop that follows
+   * applies, and the fallback never replaces it. With the switch off, or no fallback, the first
+   * choice. Otherwise both agents' usage is read for this launch, and the fallback's launch checks
+   * run only when a counted limit on the first choice's account reads at or above the threshold.
+   * `endsWait`: an automatic launch ending a wait, bounded by the activity's one-attempt record.
+   */
+  private async decideLaunch(key: string, endsWait: boolean): Promise<LaunchDecision | undefined> {
+    const first = this.notStartedChoice(key);
+    if (!first.model || first.problem) return undefined;
+    const firstChoice = toDecisionChoice(first);
+    const base = { from: first.from, ...(first.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}) };
+    const settings = readModelDefaults(this.defaultsPath);
+    const fallback = this.fallbackOf(key);
+    if (!settings.ok || !settings.defaults.fallback.enabled || !fallback) return { choice: firstChoice, launch: base, read: false };
+    const threshold = settings.defaults.fallback.threshold;
+    const [firstAccount, fallbackAccount] = await Promise.all([this.readUsageForLaunch(first.agentId), this.readUsageForLaunch(fallback.agentId)]);
+    const fallbackChoice = toDecisionChoice(fallback);
+    const firstUsage = this.usageSide(key, firstChoice, firstAccount, endsWait);
+    const fallbackUsage = this.usageSide(key, fallbackChoice, fallbackAccount, endsWait);
+    let checks: { problem?: string; skill?: LaunchDecision["skill"] } = {};
+    if (firstOverThreshold(firstUsage, threshold)) checks = await this.fallbackLaunchChecks(key, fallback, fallbackAccount, endsWait);
+    const result = decideLaunch({ threshold, first: firstChoice, fallback: fallbackChoice, firstUsage, fallbackUsage, fallbackProblem: checks.problem });
+    const launch = { ...base, ...(result.fallback ? { fallback: result.fallback } : {}) };
+    if (result.on === "fallback") return { choice: fallbackChoice, launch, read: true, ...(checks.skill ? { skill: checks.skill } : {}) };
+    return { choice: firstChoice, launch, read: true };
+  }
+
+  /**
+   * Runs the launch decision for an activity that hasn't started, unless this launch already has
+   * one: once its histories have been read, so a start found there binds instead ("When an
+   * Activity Starts"), then saves it with the skill for the agent it named. Every launch path
+   * reaches it: the loop's and a wait's launch checks, Start again, a carry-on and Check
+   * Preflight again. False when the activity stopped or Kiln is stopping.
+   */
+  private async ensureDecision(key: string, endsWait: boolean): Promise<boolean> {
+    if (this.decisions.has(key) || !this.choiceActivity(key) || this.startedSessionOf(key)) return !this.stopping;
+    if (this.record.phases[key]?.sessionIds.length) {
+      const start = await this.readStart(key);
+      if (this.stopping) return false;
+      if (start === "unknown") { this.stopOnUnknownStart(key); return false; }
+      if (start === "started") return true;
+    }
+    const decided = await this.decideLaunch(key, endsWait);
+    if (this.stopping) return false;
+    if (!decided) return true;
+    this.decisions.set(key, decided);
+    this.changed();
+    return this.skillForDecision(key, decided);
+  }
+
+  /** One agent's usage, read for this launch and awaited up to the existing reading limit; an earlier reading is never used. */
+  private async readUsageForLaunch(agentId: AgentId): Promise<AgentAccount | undefined> {
+    if (!this.installed(agentId)) return undefined;
+    if (agentId === "codex") {
+      const read = await raceTimeout(this.readers.codex.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]), RESUME_READING_MS);
+      return read && !this.readers.codex.state.pending ? this.readers.codex.state.account : undefined;
+    }
+    const claude = this.claude;
+    if (!claude) return undefined;
+    // The model list is read again too, as every launch's checks read it (AC-WATCH-09).
+    const [read] = await Promise.all([raceTimeout(claude.refreshAccount(), RESUME_READING_MS), this.readers.claude_code.refreshClaudeModels()]);
+    return read && claude.account ? { ...claude.account, agentId: "claude_code" } : undefined;
+  }
+
+  /** One side of the decision; in a wait, a Codex choice whose one automatic attempt is used up counts as blocked. */
+  private usageSide(key: string, choice: DecisionChoice, account: AgentAccount | undefined, endsWait: boolean): UsageSide {
+    return { agentId: choice.agentId, model: choice.model, account, models: this.readers[choice.agentId]?.state.models, ...(endsWait && choice.agentId === "codex" && this.attemptUsed(key, choice, account) ? { attemptUsed: true } : {}) };
+  }
+
+  /** Whether the activity's one-attempt record has used up the automatic attempt for this Codex choice on this reading, read without changing the record. */
+  private attemptUsed(key: string, choice: DecisionChoice, account: AgentAccount | undefined): boolean {
+    const recovery = this.record.phases[key]?.codexUsageRecovery;
+    const refused = this.refusedRun(key);
+    if (!recovery || !refused || !account) return false;
+    const release = activityUsageRelease(structuredClone(recovery), { model: choice.model, effort: choice.effort }, refused.refusal.at, account);
+    return release.state === "blocked" && release.suppressed === true;
+  }
+
+  /**
+   * The fallback's launch checks (technical design, "The fallback's launch checks"), read for
+   * this launch: the agent is ready, its model list offers the model and effort, Claude Code's
+   * billing approval is given, the activity's own skill resolves on that agent, Codex's launch
+   * settings pass, and a prerequisite-preparation turn's permission read passes. The first that
+   * fails is the reason the fallback wasn't used. `forecast`: the heads-up's run, which reads
+   * nothing and leaves out the checks that need a launch.
+   */
+  private async fallbackLaunchChecks(key: string, fallback: ResolvedChoice, account: AgentAccount | undefined, endsWait: boolean): Promise<{ problem?: string; skill?: LaunchDecision["skill"] }> {
+    const quick = this.fallbackReadyProblem(key, fallback, account, endsWait);
+    if (quick !== undefined) return { problem: quick };
+    const choice = toDecisionChoice(fallback);
+    let skill: LaunchDecision["skill"];
+    const skillOptions = { agent: fallback.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal };
+    const audit = this.auditActivity(key);
+    if (audit) {
+      try { skill = await resolveAuditSkill({ ...skillOptions, kind: audit.kind }); }
+      catch (error) { return { problem: (error as Error).message }; }
+    } else if (isPreflightKey(key)) {
+      const resolved = await resolveSkill({ ...skillOptions, name: PREFLIGHT_SKILL });
+      if (resolved.kind !== "found") return { problem: resolved.message };
+      skill = resolved.skill;
+    }
+    if (fallback.agentId === "codex") {
+      try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice }); }
+      catch (error) { return { problem: (error as Error).message }; }
+    }
+    if (this.record.preparation?.phaseId === key) {
+      try { await preparationPermissions({ ...this.preparationContext(), agentId: fallback.agentId }, true); }
+      catch (error) { return { problem: (error as Error).message }; }
+    }
+    return skill ? { skill } : {};
+  }
+
+  /** The fallback's checks that need no launch: readiness, the model list, Claude Code's billing approval, and in a wait a Codex reading naming a stable account. */
+  private fallbackReadyProblem(key: string, fallback: ResolvedChoice, account: AgentAccount | undefined, endsWait: boolean): string | undefined {
+    const agent = this.agentProblem(fallback.agentId);
+    if (agent) return agent;
+    if (fallback.problem) return fallback.problem;
+    const listError = this.readers[fallback.agentId].state.modelListError;
+    if (listError) return listError;
+    if (!fallback.model) return `${AGENT_NAMES[fallback.agentId]}'s model list doesn't offer ${fallback.modelName}.`;
+    if (fallback.agentId === "claude_code") {
+      const view = this.billing?.view;
+      if (!view?.next || view.pending) return "Claude Code's billing setup hasn't been read yet.";
+      const billing = this.billingNotApproved();
+      if (billing) return billing;
+    }
+    // No attempt could be saved for a Codex fallback whose reading names no stable account (Kiln Phase Model Tiers, "A Wait Before the Start").
+    if (endsWait && fallback.agentId === "codex" && !account?.accountId?.trim()) return "Codex's reading names no stable account, so no automatic attempt could be saved for it.";
+    if (isPreflightKey(key) && !this.readers[fallback.agentId].state.optionalSkills?.buildPreflight && this.readers[fallback.agentId].state.optionalSkills) return `Enable exactly one ${PREFLIGHT_SKILL} skill for ${AGENT_NAMES[fallback.agentId]}.`;
+    return undefined;
+  }
+
+  /**
+   * The decision run against the latest scheduled readings, reading nothing, as the heads-up and
+   * a wait's readings use it (AC-FALLBACK-04, "A Wait Before the Start"): the fallback it would
+   * launch on, or undefined. It leaves out Codex's launch-settings check and the
+   * preparation-permissions read, which need a launch.
+   */
+  private forecastDecision(key: string, endsWait: boolean): { choice: DecisionChoice; fallback: LaunchFallback } | undefined {
+    const settings = readModelDefaults(this.defaultsPath);
+    if (!settings.ok || !settings.defaults.fallback.enabled) return undefined;
+    const first = this.notStartedChoice(key);
+    if (!first.model || first.problem) return undefined;
+    const fallback = this.fallbackOf(key);
+    if (!fallback) return undefined;
+    const threshold = settings.defaults.fallback.threshold;
+    const latest = (agentId: AgentId): AgentAccount | undefined => {
+      if (!this.installed(agentId)) return undefined;
+      if (agentId === "codex") return this.readers.codex.state.account;
+      return this.claude?.account ? { ...this.claude.account, agentId: "claude_code" } : undefined;
+    };
+    const firstChoice = toDecisionChoice(first);
+    const fallbackChoice = toDecisionChoice(fallback);
+    const firstUsage = this.usageSide(key, firstChoice, latest(first.agentId), endsWait);
+    const fallbackUsage = this.usageSide(key, fallbackChoice, latest(fallback.agentId), endsWait);
+    if (!firstOverThreshold(firstUsage, threshold)) return undefined;
+    const result = decideLaunch({ threshold, first: firstChoice, fallback: fallbackChoice, firstUsage, fallbackUsage, fallbackProblem: this.fallbackReadyProblem(key, fallback, fallbackUsage.account, endsWait) });
+    return result.on === "fallback" && result.fallback ? { choice: fallbackChoice, fallback: result.fallback } : undefined;
+  }
+
+  /**
+   * The heads-up (AC-FALLBACK-04): the activity Kiln will launch next, when the decision on the
+   * latest readings would launch it on the fallback. That is the current activity when it has no
+   * start and no session of it is launching or running, otherwise the first activity after it with
+   * no start. No row carries it while the start of the one Kiln would launch next is unknown.
+   *
+   *   engine.headsUp()  // { key: "2", forecast: { choice: { agent: "Codex", modelName: "GPT Astra 1", … }, limit: { agent: "Claude Code", label: "Weekly", percent: 97 }, threshold: 95 } }
+   */
+  headsUp(): { key: string; forecast: NonNullable<ModelView["forecast"]> } | undefined {
+    const settings = readModelDefaults(this.defaultsPath);
+    if (!settings.ok || !settings.defaults.fallback.enabled || this.record.completedAt) return undefined;
+    const keys = [...new Set(this.unfinishedActivityKeys().map(row => row.key))].filter(key => this.choiceActivity(key));
+    const currentKey = this.current?.phaseKey ?? this.waitingPhaseKey() ?? this.stoppedPhaseKey();
+    const from = currentKey === undefined ? 0 : Math.max(0, keys.indexOf(currentKey));
+    for (const key of keys.slice(from)) {
+      if (this.unknownStarts.has(key)) return undefined;
+      if (this.startedSessionOf(key) || this.sessionBusy(key)) continue;
+      const forecast = this.forecastDecision(key, this.record.phases[key]?.wait !== undefined);
+      if (!forecast) return undefined;
+      const { agentId, ...limit } = forecast.fallback.limit;
+      return { key, forecast: { choice: { agentId: forecast.choice.agentId, agent: AGENT_NAMES[forecast.choice.agentId], model: forecast.choice.model, modelName: forecast.choice.modelName, ...(forecast.choice.effort ? { effort: forecast.choice.effort } : {}) }, limit: { agent: AGENT_NAMES[agentId], ...limit }, threshold: forecast.fallback.threshold } };
+    }
+    return undefined;
+  }
+
+  /** The fallback facts an activity's phase detail keeps (AC-FALLBACK-03): the decision of the session that started it, or of the latest session while none has. */
+  detailsFallback(key: string): FallbackView | undefined {
+    const session = this.startedSessionOf(key) ?? this.latestSession(key);
+    const saved = session?.launch?.fallback;
+    return saved ? fallbackView(saved, session!.launch!.from) : undefined;
   }
 
   /**
@@ -1864,11 +2083,15 @@ export class Engine {
     // Once the activity starts, on either agent, its one-attempt record goes; a later refusal uses the started session's own.
     delete facts.codexUsageRecovery;
     this.save();
+    // The terminal prints one line when an activity starts on the fallback (AC-FALLBACK-03).
+    const started = this.sessionRecord(key, facts.startedSessionId);
+    const fallback = started?.launch?.fallback;
+    if (started && fallback?.used) this.emit({ kind: "message", text: fallbackStartLine(this.activityName(key), started, fallback) });
   }
 
   /** Whether a launch of the activity is under way or a process of its session runs, one Kiln launched or adopted. */
   sessionBusy(key: string): boolean {
-    return this.launching.has(key) || this.current?.phaseKey === key && this.current.processRunning;
+    return this.launching.has(key) || this.decisions.has(key) || this.current?.phaseKey === key && this.current.processRunning;
   }
 
   /**
@@ -5591,13 +5814,25 @@ export class Engine {
    * read, agent selection and readiness, and Codex launch settings. False when one stopped the
    * activity on its key, or Kiln is stopping.
    */
-  private async launchReadiness(nextKey: string): Promise<boolean> {
+  private async launchReadiness(nextKey: string, options: { endsWait?: boolean } = {}): Promise<boolean> {
+    const ready = await this.launchReadinessNow(nextKey, options);
+    if (!ready) { this.decisions.delete(nextKey); this.changed(); }
+    return ready;
+  }
+
+  private async launchReadinessNow(nextKey: string, options: { endsWait?: boolean }): Promise<boolean> {
+    // Every launch of an activity that hasn't started runs the launch decision first (Kiln Phase Model Tiers AC-FALLBACK-02).
+    this.decisions.delete(nextKey);
+    if (!await this.ensureDecision(nextKey, !!options.endsWait)) return false;
+    const decided = this.decisions.get(nextKey);
     // Each launch checks the agent of the activity about to launch (Kiln Phase Model Tiers AC-AGENTS-04).
     const agentId = this.agentOf(nextKey);
     const reader = this.readers[agentId];
-    // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
-    if (agentId === "codex") await reader.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
-    else { void this.claude?.refreshAccount(); await reader.refreshClaudeModels(); }
+    // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09); the decision may already have read it.
+    if (!decided?.read) {
+      if (agentId === "codex") await reader.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
+      else { void this.claude?.refreshAccount(); await reader.refreshClaudeModels(); }
+    }
     if (this.stopping) return false;
     const selectionError = this.selectionIssue(nextKey, agentId === "claude_code");
     if (selectionError) {
@@ -5619,6 +5854,30 @@ export class Engine {
   }
 
 
+
+  /**
+   * The audit or preflight skill for the agent the decision named (technical design, "Skills"):
+   * the fallback's, resolved by its launch checks, replaces one resolved for the other agent; a
+   * launch back on the first choice after a launch on the other agent resolves it again, today's
+   * outcome applying when it doesn't resolve. False when that stopped the activity.
+   */
+  private async skillForDecision(key: string, decided: LaunchDecision): Promise<boolean> {
+    const audit = this.auditActivity(key);
+    const preflight = audit ? undefined : this.preflightActivity(key);
+    const activity = audit ?? preflight;
+    if (!activity) return true;
+    if (decided.skill) { activity.skill = decided.skill; this.save(); return true; }
+    const sessions = (this.record.phases[key]?.sessionIds ?? []).map(id => this.sessionRecord(key, id));
+    if (!activity.skill || !sessions.some(session => session && (session.agentId ?? "claude_code") !== decided.choice.agentId)) return true;
+    if (preflight) { delete preflight.skill; this.save(); return true; }
+    try { audit!.skill = await resolveAuditSkill({ kind: audit!.kind, agent: decided.choice.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal }); this.save(); return true; }
+    catch (error) {
+      if (this.stopping) return false;
+      this.current = undefined;
+      this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }]);
+      return false;
+    }
+  }
 
   /**
    * The items for a person at a Needs you stop (AC-ITEM-02): on an audit, each entry of its latest
@@ -5664,8 +5923,8 @@ export class Engine {
 
   preflightActivity(key: string): PreflightActivity | undefined { return preflightActivity(this.record, key); }
 
-  private resolvePreflightSkill(): Promise<SkillResolution> {
-    return resolveSkill({ name: PREFLIGHT_SKILL, agent: this.auditsAgent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+  private resolvePreflightSkill(agent: AgentId = this.auditsAgent): Promise<SkillResolution> {
+    return resolveSkill({ name: PREFLIGHT_SKILL, agent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
   }
 
   /**
@@ -5703,9 +5962,13 @@ export class Engine {
         if (resolved.kind === "unresolvable") {
           // A sign-in or readiness problem can make discovery fail: it stops on the preflight's key as a launch check, never as no report.
           if (!await this.launchReadiness(preflightKeyOf(activity))) return "stopped";
-          this.current = undefined;
-          this.finishPreflight(activity, { outcome: "no_report", reason: resolved.message });
-          return "go_on";
+          // A launch the decision sent to the fallback, whose skill resolves there, goes on to run (Kiln Phase Model Tiers, "Skills").
+          if (!activity.skill) {
+            this.decisions.delete(preflightKeyOf(activity));
+            this.current = undefined;
+            this.finishPreflight(activity, { outcome: "no_report", reason: resolved.message });
+            return "go_on";
+          }
         }
       }
     }
@@ -5799,7 +6062,9 @@ export class Engine {
   private async launchPreflightAtStop(key: string, launch: { started?: () => boolean; relaunchOf?: SessionRecord["relaunchOf"] } = {}): Promise<void> {
     const activity = this.preflightActivity(key)!;
     const facts = this.phaseFacts(key);
-    const resolved = await this.resolvePreflightSkill();
+    // The launch decision comes first, so the skill is resolved for the agent it names (Kiln Phase Model Tiers, "Skills").
+    if (!await this.ensureDecision(key, !!launch.relaunchOf)) { this.checking = false; return; }
+    const resolved = await this.resolvePreflightSkill(this.agentOf(key));
     if (this.stopping) { this.checking = false; return; }
     if (resolved.kind !== "found") {
       this.checking = false;
@@ -6495,7 +6760,7 @@ export class Engine {
     // Change is unavailable from the launch's decision until the launch ends (Kiln Phase Model Tiers, "Change while a launch of the activity is under way").
     this.launching.add(phaseKey);
     try { await this.launchSessionNow(phaseKey, kind, prompt, options); }
-    finally { this.launching.delete(phaseKey); this.changed(); }
+    finally { this.launching.delete(phaseKey); this.decisions.delete(phaseKey); this.changed(); }
   }
 
   /** The activities a launch is under way for, from its decision until it ends. */
@@ -6510,6 +6775,8 @@ export class Engine {
     await this.additionChain;
     // The launch decision reads the activity's histories first while it has no saved start; one whose start is unknown launches nothing (Kiln Phase Model Tiers, "When an Activity Starts").
     if (this.choiceActivity(phaseKey) && !this.startedSessionOf(phaseKey) && facts.sessionIds.length && await this.readStart(phaseKey) === "unknown") { this.stopOnUnknownStart(phaseKey); return; }
+    // A launch that didn't come through the launch checks (Start again, a carry-on) decides here (AC-FALLBACK-02).
+    if (!await this.ensureDecision(phaseKey, !!options.relaunchOf)) return;
     // Only the next launch reads the phase's last record, reusing it when it has no run (run restart "A session record with no run").
     let session = this.lastRecord(phaseKey);
     // Each launch runs on its activity's own choice: what it started on, else its current one (Kiln Phase Model Tiers AC-PICK-01, AC-PICK-04).
@@ -6544,6 +6811,12 @@ export class Engine {
       facts.sessionIds.push(session.sessionId);
       if (auditRecord) auditRecord.sessionIds.push(session.sessionId);
       this.save();
+    }
+    // The launch decision is saved on the session before its process starts (Kiln Phase Model Tiers, "The launch decision").
+    const decided = this.decisions.get(phaseKey);
+    if (decided || session.launch) {
+      if (decided) session.launch = decided.launch; else delete session.launch;
+      writeSessionRecord(this.options.stateDirectory, session);
     }
     // Every launch says how its run started, including a reused record a carry-on left (run restart "A session record with no run").
     if (session.startedAs !== options.startedAs) {
@@ -6653,7 +6926,7 @@ export class Engine {
     this.changed();
     // A new session runs the launch checks for the agent its current choice names (AC-AGENTS-04).
     const waiting = facts.wait;
-    if (!await this.launchReadiness(key)) {
+    if (!await this.launchReadiness(key, { endsWait: request?.cause === "limit_resume" })) {
       if (waiting && facts.stop) { delete facts.wait; this.unwatchWait(); this.save(); }
       this.checking = false;
       this.changed();
@@ -7990,6 +8263,7 @@ export class Engine {
     if (this.restartReview) { this.restartReview = undefined; this.reviewingRestart = false; }
     // A merge or push stop leaves the early-merge ledger's completion result as it was (Kiln After Delivery, "Ending").
     if (deliveryEnabled(this.record) && !isAfterDeliveryKey(phaseKey)) ledger(this.record).currentComplete = false;
+    this.decisions.delete(phaseKey);
     const at = this.now().toISOString();
     const facts = this.phaseFacts(phaseKey);
     const alreadyStopped = facts.stop !== undefined || this.record.billing?.hold?.phaseKey === phaseKey;
@@ -8488,6 +8762,7 @@ export class Engine {
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
     if (key === undefined) return;
+    if (this.fallbackEndsWait(key, reading.startedAt)) return;
     const found = this.refusedRun(key);
     if (!found || this.waitAgent(key) !== "codex") return;
     if (Date.parse(reading.startedAt) < Date.parse(found.refusal.at)) { this.askReading(); return; }
@@ -8516,6 +8791,7 @@ export class Engine {
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
     if (key === undefined) return;
+    if (this.fallbackEndsWait(key, reading.startedAt)) return;
     const found = this.refusedRun(key);
     if (!found || this.waitAgent(key) !== "claude_code") return;
     const { session, refusal } = found;
@@ -8575,6 +8851,29 @@ export class Engine {
     this.changed();
     return true;
   }
+
+  /**
+   * A reading, of either agent, taken after the refusal of an activity that hasn't started runs
+   * the launch decision (Kiln Phase Model Tiers, "A Wait Before the Start", the fallback row): one
+   * naming the fallback ends the wait now, and the launch that ends it decides again on readings
+   * taken for it. True when it ended the wait.
+   */
+  private fallbackEndsWait(key: string, readingStartedAt: string): boolean {
+    if (this.record.phases[key]?.wait === undefined || this.waitWatch?.phaseKey !== key || !this.waitsBeforeStart(key)) return false;
+    const refused = this.refusedRun(key);
+    if (!refused || Date.parse(readingStartedAt) < Date.parse(refused.refusal.at)) return false;
+    if (!this.forecastDecision(key, true)) return false;
+    this.waitWatch.readings++;
+    // The launch-only checks run before the wait ends, so a launch that ends it isn't reversed onto the refused choice.
+    if (this.fallbackWaitCheck === key) return true;
+    this.fallbackWaitCheck = key;
+    void this.decideLaunch(key, true).then(decided => {
+      if (this.fallbackWaitCheck === key) this.fallbackWaitCheck = undefined;
+      if (decided?.launch.fallback?.used && this.waitsBeforeStart(key) && this.waitWatch?.phaseKey === key && !this.stopping) void this.resumeWait(key, "limit_resume");
+    }, () => { if (this.fallbackWaitCheck === key) this.fallbackWaitCheck = undefined; });
+    return true;
+  }
+  private fallbackWaitCheck: string | undefined;
 
   /** A wait on an activity that hasn't started (Kiln Phase Model Tiers, "A Wait Before the Start"). */
   private waitsBeforeStart(key: string): boolean {
@@ -9808,6 +10107,23 @@ function runnableSkill(activity: AuditActivity): NonNullable<AuditActivity["skil
 
 function refuse(reason: string): CommandResult {
   return { ok: false, status: 409, reason };
+}
+
+/** A resolved choice as the launch decision takes it. */
+function toDecisionChoice(choice: ResolvedChoice): DecisionChoice {
+  return { agentId: choice.agentId, model: choice.model ?? "", modelName: choice.modelName, ...(choice.effort ? { effort: choice.effort } : {}) };
+}
+
+/**
+ * The terminal's line when an activity starts on the fallback (AC-FALLBACK-03).
+ *
+ *   fallbackStartLine("Phase 2", session, fallback)
+ *   // "Phase 2 started on the fallback, Codex · GPT Astra 1 · high: Claude Code's Weekly read 97%, at or above the 95% threshold, so it didn't start on Claude Code · Fable 5 · high. It finishes on Codex."
+ */
+export function fallbackStartLine(name: string, session: SessionRecord, fallback: LaunchFallback): string {
+  const ran = { agentId: session.agentId ?? "claude_code", modelName: session.modelDisplayName, ...(session.effort ? { effort: session.effort } : {}) };
+  const limit = fallback.limit.percent === undefined ? limitWords(fallback.limit) : `${limitWords(fallback.limit)}, at or above the ${fallback.threshold}% threshold`;
+  return `${name} started on the fallback, ${choiceWords(ran)}: ${limit}${fallback.first ? `, so it didn't start on ${choiceWords(fallback.first)}` : ""}. It finishes on ${AGENT_NAMES[ran.agentId]}.`;
 }
 
 /** True when `promise` settles within `ms`; false on the timeout or when `skip` resolves first. */

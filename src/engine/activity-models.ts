@@ -47,6 +47,40 @@ export interface ModelView {
   change?: { available: boolean; reason?: string };
   /** Where Use the default is offered: the row's choice is Changed by you. */
   useDefault?: true;
+  /** The launch decision a session of it ran on, when a limit read at or above the threshold (AC-FALLBACK-03). */
+  fallback?: FallbackView;
+  /** The heads-up (AC-FALLBACK-04): the next activity would launch on this fallback on the latest readings. */
+  forecast?: { choice: ChoiceView; limit: LimitView; threshold: number };
+}
+
+/** A decision's recorded limit as a row shows it: the agent's name, the window or block, its percent. */
+export interface LimitView { agent: string; label: string; percent?: number }
+
+/** `model.fallback` (technical design, "Snapshot"). */
+export interface FallbackView { used: boolean; limit: LimitView; threshold: number; first?: ChoiceView; reason?: string; /** Where the first choice came from: Model defaults, or a change for this PRD. */ from?: ChoiceSource }
+
+type SavedFallback = NonNullable<NonNullable<SessionRecord["launch"]>["fallback"]>;
+
+/** A saved decision as the row, card and phase detail show it. */
+export function fallbackView(saved: SavedFallback, from?: ChoiceSource): FallbackView {
+  const { agentId, ...limit } = saved.limit;
+  return {
+    ...(from ? { from } : {}),
+    used: saved.used, limit: { agent: AGENT_NAMES[agentId], ...limit }, threshold: saved.threshold,
+    ...(saved.first ? { first: { agentId: saved.first.agentId, agent: AGENT_NAMES[saved.first.agentId], model: saved.first.model, modelName: saved.first.modelName, ...(saved.first.effort ? { effort: saved.first.effort } : {}) } } : {}),
+    ...(saved.reason ? { reason: saved.reason } : {}),
+  };
+}
+
+/**
+ * What a row says of a session's decision: the Fallback tag whenever it used the fallback, and the
+ * "fallback wasn't used" note only while the activity is current and the row shows the choice
+ * that decision kept (Will run on during the launch, then Running on); a Ran on row drops it.
+ */
+function rowFallback(session: SessionRecord, current: boolean | undefined, finished: boolean): { fallback?: FallbackView } {
+  const saved = session.launch?.fallback;
+  if (!saved || !saved.used && (finished || !current)) return {};
+  return { fallback: fallbackView(saved, session.launch?.from) };
 }
 
 /** What the resolver reads for every activity: Model defaults now, whether Claude Code is installed, each agent's model list. */
@@ -140,6 +174,8 @@ export interface RowState {
   finished: boolean;
   /** One of its sessions is launching or its process runs: its recorded choice shows. */
   liveSession?: SessionRecord | undefined;
+  /** It is the current activity, so a "fallback wasn't used" note shows. */
+  current?: boolean;
 }
 
 /**
@@ -155,11 +191,11 @@ export function modelView(context: ModelContext, key: string, state: RowState): 
     const responded = (id: string) => context.firstResponse ? context.firstResponse(key, id) !== undefined : context.session(key, id)?.firstResponseAt !== undefined;
     const id = [...ids].reverse().find(responded);
     const ran = id === undefined ? undefined : context.session(key, id);
-    return ran ? { state: "ran_on", choice: sessionChoice(ran) } : { state: "none_recorded" };
+    return ran ? { state: "ran_on", choice: sessionChoice(ran), ...rowFallback(ran, false, true) } : { state: "none_recorded" };
   }
   const started = startedSession(context, key);
-  if (started) return { state: "running_on", choice: sessionChoice(started) };
-  if (state.liveSession) return { state: "will_run_on", choice: sessionChoice(state.liveSession) };
+  if (started) return { state: "running_on", choice: sessionChoice(started), ...rowFallback(started, state.current, false) };
+  if (state.liveSession) return { state: "will_run_on", choice: sessionChoice(state.liveSession), ...rowFallback(state.liveSession, state.current, false) };
   const choice = notStartedChoice(context, key);
   const view = resolvedView(choice);
   return { state: "will_run_on", ...(view ? { choice: view } : {}), from: choice.from, ...(choice.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}), ...(choice.problem ? { problem: choice.problem } : {}) };
@@ -170,15 +206,4 @@ export function phaseFinished(record: PrdRecord, phase: RecordedPlanPhase, key: 
   return !!(key && record.phases[key]?.doneAt) || effectiveRecordedClosed(record, phase);
 }
 
-/**
- * Whether a usage window counts for the model about to run (AC-FALLBACK-02's counted limit, and a
- * wait on a changed Claude Code choice): every window except one scoped to another model. Claude
- * Code scopes a window by model name, which belongs to the model when it is one of the
- * hyphen-separated parts of its ID.
- *
- *   countedFor({ scope: { by: "model", name: "Opus" } }, "claude-sonnet-5-5")  // false
- */
-export function countedFor(limit: { scope?: { by: "model" | "surface"; name: string } | undefined }, model: string): boolean {
-  if (limit.scope?.by !== "model") return true;
-  return model.toLowerCase().split("-").includes(limit.scope.name.toLowerCase());
-}
+export { countedFor } from "../models/launch-decision.js";

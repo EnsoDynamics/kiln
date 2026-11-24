@@ -27,6 +27,7 @@
   import WaivedStatus from "../components/WaivedStatus.svelte";
   import { addedLabel, capitalized, commitsByRepository, headerState, modelAndEffort, phaseName, phaseOfTotal, preflightPill, PR_ID } from "../lib/progress.js";
   import { routedClick } from "../lib/router.svelte.js";
+  import { fallbackNotUsedNote, fallbackStory } from "../lib/models.js";
   import { clockTime, elapsed, timingText } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
   import { inUseAgent } from "../lib/agents.js";
@@ -71,6 +72,10 @@
   // While pausing, the header shows Pausing {activity} beside the phases done, as on the running overview (AC-PAUSE-03).
   const pausingState = $derived(pausing ? headerState(snapshot, connected, new Date(shownNow)) : undefined);
   const pausingHeader = $derived(pausingState && /^(Last known: )?Pausing /.test(pausingState.label) ? pausingState : undefined);
+  // The phase detail keeps an activity's fallback facts after it finishes (Kiln Phase Model Tiers AC-FALLBACK-03).
+  const decision = $derived(row?.details?.fallback ?? (current?.phaseId === phaseId ? current?.fallback : undefined));
+  const story = $derived(fallbackStory(decision, isPreflight ? "preflight" : isAudit ? "audit" : isPr ? "session" : "phase", row?.model?.choice?.agent ?? identity?.agent));
+  const notUsed = $derived(fallbackNotUsedNote(decision));
 </script>
 
 <main class="page-main detail-page">
@@ -91,6 +96,8 @@
       {#if paused}<Pill tone="strong-outline" icon="pause">Paused</Pill>{:else if pausing && connected}<Pill tone="amber-outline" icon="spinner" spin>Pausing</Pill>{:else if pausing}<Pill tone="amber-outline">Last known: Pausing</Pill>{:else if waiting && connected}<Pill tone="strong-outline" icon="clock">Waiting for usage</Pill>{:else if waiting}<Pill tone="amber-outline">Last known: Waiting for usage</Pill>{:else if stopped}<Pill tone="amber" icon="warning">Needs you</Pill>{:else if live}<Pill tone="red" icon="spinner" spin>{isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if current && !connected}<Pill tone="amber-outline">Last known: {isPreflight ? "Checking" : isAudit ? "Auditing" : "Implementing"}</Pill>{:else if row?.state === "done" && donePill?.warning}<Pill tone="amber-outline" icon="warning">{donePill.text}</Pill>{#if row.waivedChecks}<WaivedStatus {row} />{/if}{:else if row?.state === "done"}<Pill tone="green-tint" icon="check">{donePill?.text ?? (row.waivedChecks ? "Complete" : "Done")}</Pill>{#if row.waivedChecks || row.warnings?.length}<WaivedStatus {row} />{/if}{:else}<Pill tone="amber-outline">Interrupted</Pill>{/if}
     </div>
     <div class="facts"><span>{capitalized(phaseOfTotal(snapshot, phaseId))}</span>{#if loopLabel}<span class="dot" aria-hidden="true">·</span><span class="loop">{loopLabel}</span>{/if}<span class="dot" aria-hidden="true">·</span><span>{identity?.agent ?? row?.model?.choice?.agent ?? inUseAgent(snapshot)?.agent}</span>{#if session.startedAt}<span class="dot" aria-hidden="true">·</span><span>Started {started(true)}</span>{/if}</div>
+    {#if story}<div class="fallback" data-fallback-story><strong>{story.heading}</strong><p>{story.body}</p></div>{/if}
+    {#if notUsed}<p class="fallback-note" data-fallback-not-used>{notUsed}</p>{/if}
   </section>
   {#key session.id}<SessionOutput sessionId={session.id} {live} {connected} recent={live && !stopped} total={session.total} {now} executionId={row?.executionId} />{/key}
   {#if mergeRunning}<section class="card"><p>{MERGE_LIVE_REASON}</p></section>{/if}
@@ -126,6 +133,7 @@
         <dl>
           {#if session.id}<div><dt>Session ID</dt><dd class="mono id">{session.id}</dd></div>{/if}
           <div><dt>Model and effort</dt><dd>{modelAndEffort(session.model, session.effort)}</dd></div>
+          {#if stopped && "choiceSource" in stopped && stopped.choiceSource}<div><dt>Chosen from</dt><dd data-choice-source>{stopped.choiceSource}</dd></div>{/if}
           {#if session.startedAt}<div><dt>Started</dt><dd>{started(false)}</dd></div>{/if}
         </dl>
         {#if identity}<CodexSessionFacts facts={identity} />{/if}
@@ -162,6 +170,10 @@
 {/snippet}
 
 <style>
+  .fallback { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line-strong); }
+  .fallback strong { font-size: 14px; color: var(--text); }
+  .fallback p, .fallback-note { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+  .fallback-note { margin-top: 10px; }
   .detail-page { gap: 20px; padding-top: 24px; }
   .phase { display: flex; flex-direction: column; gap: 12px; }
   .back { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: 6px; font-size: 13.5px; font-weight: 600; color: var(--text); text-decoration: none; align-self: flex-start; }

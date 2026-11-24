@@ -562,6 +562,16 @@ export interface SessionRecord {
   firstResponseAt?: string;
   /** The refused run a launch at the end of a wait follows (Kiln Phase Model Tiers, "A Wait Before the Start"). */
   relaunchOf?: { sessionId: string; run: number };
+  /**
+   * The launch decision this session was launched on (Kiln Phase Model Tiers, "The launch
+   * decision"), saved before its process starts: where the choice came from and, with the usage
+   * fallback on and a limit at or above the threshold, whether the fallback was used.
+   */
+  launch?: {
+    from: "model_defaults" | "changed";
+    claudeCodeMissing?: true;
+    fallback?: { used: boolean; limit: { agentId: AgentId; label: string; percent?: number }; threshold: number; first?: { agentId: AgentId; model: string; modelName: string; effort?: string }; reason?: string };
+  };
   modelDisplayName: string;
   /** The --effort Kiln passed; absent when it passed none. */
   effort?: Effort;

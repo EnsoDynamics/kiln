@@ -1,7 +1,7 @@
 // What the plan rows and the card say about each activity's tier and model (Kiln Phase Model
 // Tiers AC-TIER-02, AC-PICK-02, AC-KEEP-01; mockups 1, 2 and 5).
 
-import type { ChoiceView, ModelView, TierView } from "../../../src/engine/activity-models.js";
+import type { ChoiceView, FallbackView, LimitView, ModelView, TierView } from "../../../src/engine/activity-models.js";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
 
 /** A tag's words. */
@@ -113,4 +113,55 @@ export function startingEffort(option: Pick<EditorOption, "efforts" | "defaultEf
  */
 export function fallbackLine(fallback: { enabled: boolean; threshold: number }): { value: string; help?: string } {
   return fallback.enabled ? { value: `Use the fallback at ${fallback.threshold}%` } : { value: "Wait for the limit", help: "No fallback is switched on. Set one up in" };
+}
+
+/**
+ * A decision's recorded limit in a sentence: a window with its percent, or a usage block or used-up attempt.
+ *
+ *   limitPhrase({ agent: "Claude Code", label: "Weekly", percent: 97 })   // "Claude Code's weekly limit was at 97%"
+ *   limitPhrase({ agent: "Codex", label: "ordinary usage blocked" })      // "Codex reported ordinary usage blocked"
+ */
+export function limitPhrase(limit: LimitView): string {
+  if (limit.percent === undefined) return `${limit.agent} reported ${limit.label}`;
+  const name = limit.label.toLowerCase();
+  return `${limit.agent}'s ${/window$/.test(name) ? name : `${name} limit`} was at ${limit.percent}%`;
+}
+
+/**
+ * The row's note while the current activity's launch kept its first choice although a limit read
+ * at or above the threshold (Kiln Phase Model Tiers, "The launch decision"; mockup 5, state D).
+ *
+ *   fallbackNotUsedNote({ used: false, limit, threshold: 95, reason: "Codex isn't signed in." })
+ *   // "Claude Code's weekly limit was at 96% when this began, but the fallback wasn't used: Codex isn't signed in."
+ */
+export function fallbackNotUsedNote(fallback: FallbackView | undefined): string | undefined {
+  if (!fallback || fallback.used) return undefined;
+  return `${limitPhrase(fallback.limit)} when this began, but the fallback wasn't used: ${fallback.reason ?? "it couldn't be used."}`;
+}
+
+/**
+ * The heads-up line on the next activity's row (AC-FALLBACK-04; mockup 3).
+ *
+ *   forecastLine({ choice, limit: { agent: "Claude Code", label: "Weekly", percent: 97 }, threshold: 95 })
+ *   // "Or on Codex · GPT Sol 6.2 · extra high, if Claude Code is still at or above 95% when it launches."
+ */
+export function forecastLine(forecast: ModelView["forecast"]): string | undefined {
+  if (!forecast) return undefined;
+  const still = forecast.limit.percent === undefined ? `${forecast.limit.agent} still reports ${forecast.limit.label}` : `${forecast.limit.agent} is still at or above ${forecast.threshold}%`;
+  return `Or on ${choiceLine(forecast.choice)}, if ${still} when it launches.`;
+}
+
+/**
+ * The card's and phase detail's account of an activity that started on the fallback
+ * (AC-FALLBACK-03; mockup 3): which limit read what against which threshold when it began,
+ * what the first choice was, and that it finishes on the agent it started on.
+ *
+ *   fallbackStory(fallback, "phase", "Codex")
+ *   // { heading: "This phase started on the fallback", body: "Claude Code's weekly limit was at 97% when the phase began, at or above your 95% threshold. The first choice was Claude Code · Fable 5.2 · high, which you chose. The phase finishes on Codex." }
+ */
+export function fallbackStory(fallback: FallbackView | undefined, noun: string, agent: string | undefined): { heading: string; body: string } | undefined {
+  if (!fallback?.used) return undefined;
+  const limit = fallback.limit.percent === undefined ? `${limitPhrase(fallback.limit)} when the ${noun} began` : `${limitPhrase(fallback.limit)} when the ${noun} began, at or above your ${fallback.threshold}% threshold`;
+  const first = fallback.first ? ` The first choice was ${choiceLine(fallback.first)}${fallback.from === "changed" ? ", which you chose" : ""}.` : "";
+  return { heading: `This ${noun} started on the fallback`, body: `${limit}.${first}${agent ? ` The ${noun} finishes on ${agent}.` : ""}` };
 }

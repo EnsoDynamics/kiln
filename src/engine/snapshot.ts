@@ -17,7 +17,7 @@ import { AGENT_IDS, AGENT_NAMES, type AgentId } from "../state/records.js";
 import { readModelDefaults } from "../models/model-defaults.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { readSessionRecord } from "../state/records.js";
-import type { ChoiceView, ModelView, TierView } from "./activity-models.js";
+import type { ChoiceView, FallbackView, ModelView, TierView } from "./activity-models.js";
 // The Snapshot every screen renders from (technical design, "Snapshot"), built from the
 // engine's record, the plan as last read, what the engine is doing, and the account and model
 // list once they have arrived.
@@ -48,7 +48,7 @@ import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
-import { PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
+import { fallbackView, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
 import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
 export const PR_TITLE = "Final pull request";
@@ -239,6 +239,8 @@ export interface PhaseView {
     sessionId: string;
     /** A multi-repository PRD: each repository with commits in the phase, in list order (AC-PRS-03). */
     repositories?: RepositoryDetails[];
+    /** The launch decision it started on, kept after it finishes (Kiln Phase Model Tiers AC-FALLBACK-03). */
+    fallback?: FallbackView;
   };
 }
 
@@ -409,6 +411,8 @@ export interface Snapshot {
     tier?: TierView;
     /** The choice the activity's row shows (AC-PICK-02). */
     choice?: import("./activity-models.js").ChoiceView;
+    /** The launch decision its session was launched on (AC-FALLBACK-03). */
+    fallback?: FallbackView;
     sessionId?: string;
     model: string;
     effort?: Effort;
@@ -467,6 +471,12 @@ export interface Snapshot {
     sessionId?: string;
     model?: string;
     effort?: Effort;
+    /**
+     * Where the stopped session's choice came from and where to change it (Kiln Phase Model Tiers
+     * AC-PICK-06): Model defaults, a change for this PRD or the fallback, from its saved decision;
+     * for a started activity, what it started on, with no place to change it.
+     */
+    choiceSource?: string;
     sessionStartedAt?: string;
     /** The phase's commits by repository, only those with commits, newest first. */
     repositories?: RepositoryCommits[];
@@ -689,7 +699,39 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     const withModels = found.plan ? { ...found, plan: { ...found.plan, phases: found.plan.phases.map(phase => phase.splitInto === undefined ? { ...phase, model: documentsModel(engine, phase) } : phase) } } : found;
     snapshot.documents = { ...withModels, ...(preview ? { start: startView(engine, preview, readAtStart) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
   }
+  if (state !== "complete" && state !== "folder_missing") placeHeadsUp(engine, snapshot);
+  addFallbackDetails(engine, snapshot);
   return snapshot;
+}
+
+/**
+ * The heads-up (Kiln Phase Model Tiers AC-FALLBACK-04): `model.forecast` on the one row Kiln
+ * will launch next, while the decision on the latest readings would launch it on the fallback.
+ * A planned row stands for the audits and the pull request session, the planned Preflight row
+ * for the preflight.
+ */
+function placeHeadsUp(engine: Engine, snapshot: Snapshot): void {
+  const headsUp = engine.headsUp();
+  if (!headsUp) return;
+  const { key, forecast } = headsUp;
+  if (key === PLANNED_PREFLIGHT_KEY) { if (snapshot.preflight?.planned?.model) snapshot.preflight.planned.model.forecast = forecast; return; }
+  const ids = key === PLANNED_AUDITS_KEY ? ["planned-delivery-audit", "planned-test-audit"] : key === PR_PHASE_KEY ? [PR_PHASE_KEY, "planned-pull-request"] : [key];
+  const rows: { id: string; model?: ModelView }[] = [...(snapshot.documents?.plan?.phases ?? []), ...snapshot.phases, ...(snapshot.activities ?? [])];
+  for (const id of ids) {
+    const matching = rows.filter(row => row.id === id && row.model);
+    if (!matching.length) continue;
+    for (const row of matching) row.model!.forecast = forecast;
+    return;
+  }
+}
+
+/** Each row's phase detail keeps the fallback facts of the session that started it (AC-FALLBACK-03). */
+function addFallbackDetails(engine: Engine, snapshot: Snapshot): void {
+  for (const row of [...snapshot.phases, ...(snapshot.activities ?? [])]) {
+    if (!row.details) continue;
+    const fallback = engine.detailsFallback(row.id);
+    if (fallback) row.details.fallback = fallback;
+  }
 }
 
 function withPlannedRows(engine: Engine, state: FeatureState, rows: PhaseView[]): PhaseView[] {
@@ -782,6 +824,7 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
     phaseId: judgedKeyFor(plan, current.phaseKey),
     ...tier,
     choice: sessionChoice(session),
+    ...optional("fallback", session.launch?.fallback ? fallbackView(session.launch.fallback, session.launch.from) : undefined),
     ...sessionIdentity(session),
     sessionId: session.sessionId,
     model: session.modelDisplayName,
@@ -892,6 +935,7 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     sessionId: session.sessionId,
     model: session.modelDisplayName,
     ...optional("effort", session.effort),
+    ...optional("choiceSource", choiceSource(engine, phaseKey, session)),
     ...optional("sessionStartedAt", session.runs[0]?.startedAt),
     repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
   };
@@ -1743,10 +1787,27 @@ function documentsModel(engine: Engine, phase: { id: string; closed: boolean }):
   return { ...model, ...engine.modelControls(phase.id, `Phase ${phase.id}`, model) };
 }
 
+/**
+ * Where a stopped session's choice came from (Kiln Phase Model Tiers AC-PICK-06, "A choice that
+ * can't be used, found at launch"): from its saved decision while the activity hasn't started.
+ *
+ *   choiceSource(engine, "2", session)  // "The fallback, from Model defaults' Fallback column. Change it in Model defaults."
+ */
+function choiceSource(engine: Engine, key: string, session: SessionRecord): string | undefined {
+  if (!engine.choiceActivity(key)) return undefined;
+  const started = engine.startedSessionOf(key);
+  if (started) return `Started on ${[AGENT_NAMES[started.agentId ?? "claude_code"], started.modelDisplayName, started.effort].filter(Boolean).join(" · ")}, which it finishes on.`;
+  const launch = session.launch;
+  if (!launch) return undefined;
+  if (launch.fallback?.used) return "The fallback, from Model defaults' Fallback column. Change it in Model defaults.";
+  return launch.from === "changed" ? "A change for this PRD. Change it on its row in the phase plan." : "Model defaults. Change it in Model defaults, or on its row in the phase plan.";
+}
+
 /** A row's model (AC-PICK-02): a launching or running session's recorded choice shows until the activity starts. */
 function rowModel(engine: Engine, key: string, finished: boolean): ModelView {
-  const live = engine.current?.phaseKey === key ? engine.current.session : undefined;
-  return engine.activityModel(key, { finished, liveSession: live });
+  const current = engine.current?.phaseKey === key;
+  const live = current ? engine.current!.session : undefined;
+  return engine.activityModel(key, { finished, liveSession: live, current });
 }
 
 

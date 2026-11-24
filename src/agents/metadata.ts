@@ -34,7 +34,7 @@ export interface AgentAccount extends Omit<AccountView, "limits"> {
   routingAccountId?: string;
   stale?: boolean;
   lastSuccessfulAt?: string;
-  limits: { scope?: { by: "model" | "surface"; name: string }; id?: string; kind: string; label: string; shortLabel: string; percent?: number; resetsAt?: string; durationMinutes?: number; nearLimit: boolean }[];
+  limits: { scope?: { by: "model" | "surface"; name: string }; /** A Codex bucket's `normalModelSlug`. */ modelSlug?: string; /** A Codex bucket's `limitName`. */ limitName?: string; id?: string; kind: string; label: string; shortLabel: string; percent?: number; resetsAt?: string; durationMinutes?: number; nearLimit: boolean }[];
 }
 export interface MetadataState {
   agentId: AgentId;
