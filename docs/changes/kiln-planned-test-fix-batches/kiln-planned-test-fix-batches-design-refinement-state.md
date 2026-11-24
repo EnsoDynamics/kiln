@@ -1,6 +1,6 @@
 # Design Refinement State — kiln-planned-test-fix-batches
 
-Started: 2026-11-24   Current pass: 1   Status: In progress
+Started: 2026-11-24   Current pass: 2   Status: In progress
 Branch: feature/kiln-planned-test-fix-batches
 Existing code posture: Preserve (source: TD §Existing Code, itself the default)
 PRD words: at start 1378 · growth baseline 1378, blob 776ed4ddb5cc563abcbe56c546449f45c270965e
@@ -18,6 +18,7 @@ Last updated: 2026-11-24
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
 | 1 | 4 (+2 from conformance) | 6 | 6 | 0 | 0 | 0 | 0 |
+| 2 | 6 (+1 from conformance) | 7 | 6 | 0 | 0 | 0 | 1 |
 
 ## Questions
 | ID | Pass | Question (one line) | Type | Impact | Conf. start → now | Status | Landed in |
@@ -28,8 +29,17 @@ Last updated: 2026-11-24
 | Q4 | 1 | Where the surviving help-text sentences go (reclassified Technical: wording within AC-MAX-02) | Technical | LOW | 70 → 92 | Resolved | TD §Settings Help (intro table; flag descriptions corrected) |
 | Q5 | 1 | `audit_loops` description in kiln-command-contracts.json still says "A loop is one run of an audit" (from conformance) | Technical | LOW | 90 → 95 | Resolved | TD §Settings Help; coverage AC-MAX-02 |
 | Q6 | 1 | Phase Model Tiers Open Question no longer fits the new row order (from conformance) | Technical | LOW | 85 → 92 | Resolved | TD §Open Questions |
+| Q7 | 2 | Paused screen heading/button when a not-started batch reads Next | Technical | MEDIUM | 65 → 90 | Resolved by decision | TD §Names (Paused paragraph) |
+| Q8 | 2 | Step function inputs cover the Next rule (latestTestContinues; "latest audit" includes test-fix sessions) | Technical | MEDIUM | 80 → 95 | Resolved | TD §Reading the Plan item 3 |
+| Q9 | 2 | Real-session proof sees one batch; what it proves | Technical | LOW | 75 → 92 | Resolved | TD §Delivery |
+| Q10 | 2 | Test audit's found/planned numbers in kiln status JSON | Technical | LOW | 75 → 92 | Resolved by decision (no field) | TD §Interfaces |
+| Q11 | 2 | Found/planned clause on one-line headings | Technical | LOW | 80 → 95 | Resolved | TD §Names |
+| Q12 | 2 | Where not-started batches sit in kiln status progress; contract description additions | Technical | LOW | 85 → 95 | Resolved | TD §Interfaces |
+| Q13 | 2 | Should kiln-command-contracts.json gain a `progress` field description so bots discover `planned`? (from conformance) | Technical | LOW | — | Dropped | — |
 
 ## Question notes
+### Q13
+Dropped: the contracts file describes no `kiln status` progress rows today, for any state; adding that description is a pre-existing gap, not something AC-BOT-01 needs (it is met by the JSON values and the design's text/JSON rows). Fails the scope gate.
 
 ## Exploration scripts
 | Script | Question | Finding |
@@ -43,6 +53,9 @@ Changed after pass 1:
 Pass 1: no assumptions register exists; nothing to re-sort.
 
 ## Noticed, out of scope
+- The method doesn't say whether a `stuck` row stays in a batch line; if it does, that batch's session raises nothing and must report passed (test-audit SKILL.md:92). Method question.
+- An allocated audit row reading Next on the Paused screen already shows the doubled name "Next: delivery audit, Delivery audit". Predates this feature.
+- A `kiln status` CLI older than its controller prints "undefined" for the new `planned` state (`STATE_WORDS`); mixed installs only.
 - Mark complete preview (engine.ts:2289) and the planned Preflight row's next activity (engine.ts:2134) name a pending session of test fixes "Test audit"; the Preflight row sits after the PR row (its `before` is "end"). Predates this feature.
 - `auditNext` re-routes on currentness (workflow.ts:71-82), which the chain-open rule doesn't model: after a person edits the work between sessions, rows can show through a delivery audit a new test audit will follow, vanishing when it is allocated. Accepted by the design.
 - `auditStepAfterSettled` (engine.ts:5663) ignores a delivery audit's outcome when naming the Preflight's next activity; existing behavior.
@@ -55,4 +68,4 @@ Pass 1: no assumptions register exists; nothing to re-sort.
 |---|---|---|
 
 ## Next action
-Pass 1 done; next: pass 2 discovery.
+Pass 2 done; next: pass 3 discovery.
