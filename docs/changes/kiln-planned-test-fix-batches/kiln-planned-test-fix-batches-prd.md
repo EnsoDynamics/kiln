@@ -24,6 +24,7 @@ After a test audit, a person looking at the page should see how much fixing is p
 
 - [ ] **AC-BATCH-01 — Every planned batch is a row as soon as the audit ends.** When a test audit ends having planned batches of test fixes, the phase plan shows one row for each batch, in the audit's order, before any of them starts. A batch that has not started shows the way a phase that has not started does.
   - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (each batch of test fixes a test audit planned appears as a row before it starts and is removed if it never starts; other audit and test-fix rows still appear in execution order as they start)
+  - Replaces in part: AC-PICK-02 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (while a test audit's planned batches have rows, they take the place of the planned Test audit row and each reads as that row does; the rest remains)
 - [ ] **AC-BATCH-02 — The audit's row says what it found and planned.** The row of a test audit that planned batches says how many test gaps it found and how many batches it planned, such as "found 13 test gaps and planned them as 1 batch". A test gap is one acceptance criterion the audit put in a batch, so the audit's number is the sum of its batches' numbers.
 - [ ] **AC-BATCH-03 — A batch's row names the batch and its size.** Closing-audit rows read as the table says. An audit Kiln did not count as a loop names no loop, in its own row and in the rows of its test fixes, as today.
 
