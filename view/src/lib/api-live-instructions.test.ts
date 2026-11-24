@@ -2,7 +2,7 @@
 // pressed again after a Cancel is a new instruction (Kiln Pause Now, "Design Decisions").
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LiveTarget } from "../../../src/live/target.js";
-import { cancelTakeOver, takeOver, type PageConfig } from "./api.js";
+import { cancelTakeOver, checkForNewPhases, takeOver, type PageConfig } from "./api.js";
 
 const target: LiveTarget = { executionId: "e", activityId: "a", activityKey: "2b", sessionId: "s", providerSessionId: "s", attemptId: "t" };
 const config: PageConfig = { token: "token", base: "/customer-returns" };
@@ -44,5 +44,14 @@ describe("live instruction identity", () => {
     expect(sent.every(one => one.takeoverInstructionId === "pause-now-2b")).toBe(true);
     expect(sent[1]!.instructionId).not.toBe(sent[0]!.instructionId);
     expect(sent[2]!.instructionId).toBe(sent[1]!.instructionId);
+  });
+});
+
+describe("the check for new phases", () => {
+  it("takes the status token its answer carries, so a press straight after it is not refused as stale", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ check: { status: "unchanged" }, controlToken: "e:after-check" }), { status: 200 })));
+    const page: PageConfig = { token: "token", base: "/customer-returns", controlToken: "e:before-check" };
+    expect((await checkForNewPhases(page, false)).check).toMatchObject({ status: "unchanged" });
+    expect(page.controlToken).toBe("e:after-check");
   });
 });

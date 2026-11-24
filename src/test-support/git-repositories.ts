@@ -24,7 +24,9 @@ export function posixShellPath(path: string): string {
 export function createSandbox(): Sandbox {
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), "kiln-test-")));
   const globalConfig = join(root, "empty.gitconfig");
-  writeFileSync(globalConfig, "");
+  // No automatic maintenance: after a commit of thousands of files git would start a detached `git maintenance`
+  // that keeps repacking .git/objects after the test has ended, and the sandbox then can't be removed.
+  writeFileSync(globalConfig, "[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n");
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_CONFIG_GLOBAL: globalConfig,

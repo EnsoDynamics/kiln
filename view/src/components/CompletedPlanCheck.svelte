@@ -9,8 +9,10 @@
   import { authorizeContinuation, checkForNewPhases, continueFeature, type PageConfig } from "../lib/api.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   // inCard: once every pull request has merged, the answer sits in the pull request card beside Exit Kiln (AC-WAIT-03, mockup state 3).
-  let { check, config, connected, acceptance, prdDirectory, inCard = false, now }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"]; prdDirectory: string; inCard?: boolean; now?: number } = $props();
-  let pending = $state(false);
+  let { check, config, connected, acceptance, prdDirectory, inCard = false, now, loading = false }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"]; prdDirectory: string; inCard?: boolean; now?: number; loading?: boolean } = $props();
+  // loading: the page's own check as it opens (AC-FIND-01), which the screen starts; it reads as checking here until it answers.
+  let refreshing = $state(false);
+  const pending = $derived(refreshing || loading);
   let continuing = $state(false);
   // Continue and Retry preparation, not the early-merge tick, show the busy spinner.
   let accepting = $state(false);
@@ -26,7 +28,7 @@
   // Check for new phases is a person's press (AC-WAIT-01).
   async function refresh() {
     if (!config || !connected || pending) return;
-    pending = true; error = undefined;
+    refreshing = true; error = undefined;
     try {
       const answer = await checkForNewPhases(config, true);
       if (!answer.check || !["unchanged", "available", "blocked", "failed", "awaiting_merge"].includes(answer.check.status)) throw new Error(answer.reason ?? "Could not check the current plan. Try again.");
@@ -34,7 +36,7 @@
       check = answer.check;
       refreshFailure = undefined;
     } catch (failure) { refreshFailure = (failure as Error).message; }
-    finally { pending = false; }
+    finally { refreshing = false; }
   }
   async function grant(target: import("../../../src/state/development-delivery.js").MergeTarget) {
     if (!config || !connected || !result?.proposal || continuing) return;

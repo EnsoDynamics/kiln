@@ -85,7 +85,10 @@ it("Exit Kiln on the finished page ends kiln run with code 0 and its last line, 
       await page.waitFor(`[...document.querySelectorAll("button")].some(b => b.innerText === "Exit Kiln" && !b.disabled)`, 30_000);
       expect(await page.evaluate<string>(text)).toContain("Stops Kiln in its terminal. The pull request and the worktree stay.");
       // The page's own load reads GitHub first; Exit leaves what that saved, and changes nothing after.
-      await page.waitFor(`${text}.includes("Merged it yourself?")`, 30_000);
+      // "Merged it yourself?" can already show from the check kiln run made as it opened, so wait for the page's own: its link reads Checking… until that answers.
+      await page.waitFor(`${text}.includes("Merged it yourself?") && [...document.querySelectorAll("button")].some(b => b.innerText === "Check now" && !b.disabled)`, 30_000);
+      // kiln run reads the delivery history as it opens, and the end of that read changes the status token Exit is admitted against.
+      await page.waitFor(`!${text}.includes("Reading delivery history…")`, 30_000);
       const before = kept(h);
       await page.evaluate(`[...document.querySelectorAll("button")].find(b => b.innerText === "Exit Kiln").click()`);
       await page.waitFor(`${text}.includes("Kiln has exited")`, 15_000);

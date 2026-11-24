@@ -530,8 +530,11 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     if (!keys || keys.some(key => key !== "press") || "press" in (body as object) && (body as { press: unknown }).press !== true) return refuse(c, 400, "Expected {} or { \"press\": true }.");
     try {
       const check = await engine.checkCompletedPlan({ press: keys.includes("press") });
-      if (check.failure) return c.json({ ok: false, ...check.failure, reason: check.errors.join(" "), checks: [], check }, 413);
-      return c.json({ check }, check.status === "failed" ? 503 : 200);
+      // The check's end changes which controls are available, so the answer carries the status token as it is now:
+      // the page shows this answer before the next snapshot, and a press in between must not be refused as stale.
+      const controlToken = engine.controlView().token;
+      if (check.failure) return c.json({ ok: false, ...check.failure, reason: check.errors.join(" "), checks: [], check, controlToken }, 413);
+      return c.json({ check, controlToken }, check.status === "failed" ? 503 : 200);
     }
     catch (error) { return auditError(c, error); }
   });

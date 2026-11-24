@@ -146,7 +146,10 @@ const continuationCommands = new WeakMap<PageConfig, Map<string, { commandId: st
  */
 export async function checkForNewPhases(config: PageConfig, press: boolean): Promise<{ check?: import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck; reason?: string }> {
   const response = await fetch("/api/continuation/check", { method: "POST", headers: { "Content-Type": "application/json", "X-Kiln-Token": config.token }, body: press ? JSON.stringify({ press: true }) : "{}" });
-  return await response.json() as { check?: import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck; reason?: string };
+  const answer = await response.json() as { check?: import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck; reason?: string; controlToken?: string };
+  // The answer is shown before the next snapshot arrives, so it brings the status token that goes with it.
+  if (typeof answer.controlToken === "string") config.controlToken = answer.controlToken;
+  return answer;
 }
 
 export async function continueFeature(config: PageConfig, executionId: string, key: { proposalId: string } | { acceptanceId: string }): Promise<CommandAnswer> {

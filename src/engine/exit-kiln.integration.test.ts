@@ -123,6 +123,8 @@ describe("Exit Kiln on the finished page (AC-EXIT-01, AC-EXIT-02)", () => {
     expect(h!.engine.commands.submit({ command_id: "merge-press", execution_id: h!.engine.record.executionId!, status_token: h!.engine.controlView().token, action: "merge", inputs: {} }).ok).toBe(true);
     await h!.engine.commands.settled();
     await waitFor(() => existsSync(join(h!.engine.worktreePath, "merge-started")));
+    // Kiln's own session launch is an instruction too; a press made before it settles is refused as busy instead.
+    await waitFor(() => !h!.engine.commands.busy);
     expect(exitControl()).toMatchObject({ available: false, reason: RUNNING_REASON });
     expect(buildSnapshot(h!.engine).exit).toMatchObject({ available: false, reason: RUNNING_REASON });
     // A press made anyway is refused, and nothing ends.

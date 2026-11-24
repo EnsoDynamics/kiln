@@ -134,7 +134,7 @@
     {/if}
     <div class="open"><ExitKiln {snapshot} {connected} main line={`Nothing is left for Kiln to do on this PRD. Exiting stops Kiln in its terminal; the ${pullRequests.length > 1 ? "worktrees stay" : "worktree stays"} until you remove ${pullRequests.length > 1 ? "them" : "it"}.`} />{#if url}<a class="button" href={url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>{/if}</div>
     {#if panelShown && !planPush && phasesFound}<p class="note">{addedHeading(phasesFound)}. Continue is at the top of this page.</p>{/if}
-    {#if panelShown && !planPush && checkInCard}<CompletedPlanCheck inCard {now} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
+    {#if panelShown && !planPush && checkInCard}<CompletedPlanCheck inCard {now} loading={checking} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   {:else if after?.offer.note}
     <div class="open">
       <button class="button solid" type="button" disabled={!connected || !config || merging || !after.offer.available} title={after.offer.available ? undefined : after.offer.reason} onclick={pressMergeButton}>{merging ? "Starting…" : `Merge with ${snapshot.settings.agent}`}</button>
@@ -185,7 +185,7 @@
       {/if}
     </section>
   {/if}
-  {#if panelShown && !planPush && !checkInCard}<CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
+  {#if panelShown && !planPush && !checkInCard}<CompletedPlanCheck loading={checking} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}
