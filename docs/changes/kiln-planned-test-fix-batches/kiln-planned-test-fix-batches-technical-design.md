@@ -31,9 +31,9 @@ A change inside the existing Kiln command-line tool and its local page: the repo
 |---|---|---|
 | How Kiln learns the plan | An optional `fixBatches` list on the audit's own report | The report is the one contract between an audit session and Kiln, and it holds outcomes, never method records. A report without the field is already valid, which is AC-BATCH-05 |
 | What a batch carries | The IDs of its criteria; Kiln counts them | A session copies the IDs from the plan it wrote instead of counting them, and a count Kiln makes cannot disagree with the list. `raised` already carries criterion IDs |
-| Who numbers the batches | Kiln, from each session's place in its chain | The report lists only what is left. A session's number then never depends on a session reporting it, and it equals the number the method keeps, since a closing fixing chat leaves the remaining lines their numbers |
+| Who numbers the batches | Kiln, from each session's place in its chain | The report lists only what is left. A session's number then never depends on a session reporting it. While the chain's first result listed batches it equals the number the method keeps, since a closing fixing chat leaves the remaining lines their numbers |
 | Where the plan is kept | Copied onto the audit activity in the write that records its result | A name is built from the record alone, which is what lets the page import the names module and lets every caller name an audit without opening the audit store |
-| When rows that have not started show | While the forecast of Kiln's next test step is a session of test fixes of that chain | AC-BATCH-04 removes them when a new test audit is due. The audit prompt's forecast already states that rule as a pure function, so the page and the prompt cannot disagree |
+| When rows that have not started show | While the forecast of Kiln's next test step is a session of test fixes of that chain | AC-BATCH-04 removes them when a new test audit is due. The audit prompt's forecast already applies that rule; the rule moves out of its prose into one pure step function that the forecast and the chain reading both call, so the page and the prompt cannot disagree |
 | _N_ once the test fixes have ended | The plan's last count | The rows that ran keep saying how many batches were planned. What the batches never started held is under **For you** or in the next test audit's plan |
 | Where the wording lives | One module for row names, status-line text and loops used | AC-MAX-01 says the old wording appears nowhere. One source makes that a single check |
 | A pull request described in the old words | No special handling | The existing **Pull request description** row already sends a session to rewrite a block that no longer matches (§Upgrade) |
@@ -56,7 +56,7 @@ Admission checks the field's own shape with the other contract fields and refuse
 
 Kiln never refuses a report because the field is absent or empty, and compares the list with nothing: not the list before it, not `raised`, not a file in the repository. Whether a session of test fixes made progress is still decided by the existing rules.
 
-**The prompt.** `prompts/audit-session.txt` describes the field in the report's own terms: when the skill left the remaining test work as a list of batches, one for each later session, list them in that order with the criteria in each, leaving out a batch this session worked, and omit the field when the skill planned none. It names no file or marker of the method. The contract summary a refusal quotes, and `kiln audit status` returns, names the field too.
+**The prompt.** `prompts/audit-session.txt` describes the field in the report's own terms: on a `continue_test` report, when the skill left the remaining test work as a list of batches, one for each later session, list them in that order with the criteria in each, leaving out a batch this session worked; omit the field with any other outcome, and when the skill planned none. The outcome rule is in the prompt because the published skill cuts batches whenever rows are left to fix, including when the audit also appends completion phases or stops for a person, and admission refuses the field on those reports. It names no file or marker of the method. The contract summary a refusal quotes, and `kiln audit status` returns, names the field too.
 
 ## The Fix Plan on the Record
 
@@ -71,7 +71,7 @@ AuditActivity (a test audit, or a session of test fixes):
 
 ## Reading the Plan (AC-BATCH-01 to AC-BATCH-05)
 
-A **chain** is a test audit and the sessions of test fixes that follow it without another test audit between them. A delivery audit may run between two of its sessions. One pure function reads a chain from the record, and the rows, the status line and `kiln status` all take their batch facts from it.
+A **chain** is a test audit and the sessions of test fixes that follow it without another test audit between them: on the record, the test audit activities of one `round`, the audit at `continuationIndex` 1 and the session at place _k_ at `continuationIndex` _k_ + 1, as the names module already reads them. A delivery audit may run between two of its sessions, when the test kind is closed. One pure function reads a chain from the record, and the rows, the status line and `kiln status` all take their batch facts from it.
 
 - **Which sessions are batches.** The session at place _k_ in the chain, counted from 1, is batch _k_ when the result before it in the chain listed at least one batch. It took the first one listed, and that batch's number of criteria is its number of gaps for good. Otherwise it is a session with no batch and reads as today (AC-BATCH-05).
 - **What the audit found.** A test audit whose own result lists at least one batch found the sum of their criteria and planned that many batches. These two numbers come from the audit's own result and never change, whatever later sessions re-cut.
@@ -79,7 +79,7 @@ A **chain** is a test audit and the sessions of test fixes that follow it withou
 - **Rows that have not started.** The batches the chain's latest result lists, less the first once a later session of the chain has been allocated, numbered on from the latest session. They show while the chain is **open**:
   1. the latest activity of the chain that has an effective result has `testWork`, so that result counts `continue_test`; and
   2. no later test audit has been allocated; and
-  3. that result does not lead to a new test audit: it reported `changedImplementation` true while both the delivery kind and the test kind still have a loop left. This is the forecast's rule, read from the same function the audit prompt uses.
+  3. that result does not lead to a new test audit: it reported `changedImplementation` true while both the delivery kind and the test kind still have a loop left. This is the rule `nextStepsForecast` writes as prose today (its `recheck` and `afterDelivery` steps). It becomes one exported pure function of the kind, the outcome, `changedImplementation` and the closed kinds that returns the steps in order; the forecast words its result and the chain reading tests it, with the closed kinds from `closedKinds` on the record.
 
   When any of the three stops holding, the rows are gone at the next reading of the record. Nothing is deleted. The work they held is what the existing rules already carry: listed as test items under **For you**, or found again by the next test audit.
 
@@ -146,7 +146,7 @@ audit loops position:
 ```
 
 - A batch has not started while its row's state is `planned`, has finished when it is `complete`, and has started in every other state. That is AC-BOT-01's "whether it has started or finished".
-- A row that has not started names no activity. Its key reads as an audit's to the shared key classifier, so nothing takes it for a phase. No command takes it.
+- A row that has not started names no activity. Its key reads as an audit's to the shared key classifier, so nothing takes it for a phase, and, like the planned Preflight row's `preflight-planned`, it is never resolved to an audit activity: its title, line and `fixing` come from the chain reading, not from the lookup by key that names an allocated row. No command takes it.
 - `kiln status` text prints the same rows in the progress block, a batch that has not started with the word "planned", then the position and count lines of §Names.
 - No command or flag is added, so there is no new controller feature to advertise.
 
@@ -169,7 +169,7 @@ Real temporary Git repositories with bare origins, the engine harness with scrip
 
 | Criteria | Design | Named proof |
 |---|---|---|
-| AC-BATCH-01 | The Fix Plan in the Report; Reading the Plan | A test audit accepted with two batches shows both rows before any session starts, in order, each Planned; a waiting batch behind a running one reads Planned, and Next when the run is paused before it; neither row is counted in phases done; the real session of §Delivery |
+| AC-BATCH-01 | The Fix Plan in the Report; Reading the Plan | A test audit accepted with two batches shows both rows before any session starts, in order, each Planned; a waiting batch behind a running one reads Planned, and Next when the run is paused before it; neither row is counted in phases done; a test audit report with `fixBatches` and `completion_phases` or `needs_you` is refused; the forecast's text is unchanged by the step function it now words; the real session of §Delivery |
 | AC-BATCH-02 | Names | 13 gaps in 1 batch and 31 in 2, with the singular forms; a report naming a criterion in two batches is refused; the line is unchanged after a later session re-cuts |
 | AC-BATCH-03 | Names | Each row of the table on the plan row, the session page, the terminal and `kiln status`; an audit not counted as a loop names none, in its own row and its batches' |
 | AC-BATCH-04 | Reading the Plan | A session that leaves three batches where one was left changes _N_ on every row, the finished one included; rows are removed when a session reports `passed`, when it adds phases, when it is marked complete with no report, and when it reports `changedImplementation` with both kinds open; they stay through a delivery audit when the test kind is closed, and return when a limit lowered to its floor closes it; a finished batch keeps its _N_ after the rows go |
