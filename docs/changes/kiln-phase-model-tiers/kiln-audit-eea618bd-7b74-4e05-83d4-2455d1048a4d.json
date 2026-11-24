@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "95065ee9-8f1d-47ab-8a48-dce65dc38742",
+  "activityId": "eea618bd-7b74-4e05-83d4-2455d1048a4d",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Delivery audit of the whole Kiln Phase Model Tiers PRD at 622a4c7. Three rounds ran. 20 of 26 criteria are fully built. Six are built only in part: AC-AGENTS-02, AC-AGENTS-03, AC-PICK-03, AC-PICK-06, AC-PICK-07 and AC-FALLBACK-03. They miss the billing reason at Start, two account marks, where a stop's choice came from and where to change it, Change at a preflight stop, offline kiln handoff, and the fallback facts after a carry-on session. Phase 5 was added to build them. No criterion was amended and nothing was changed outside the requirements.",
+  "completionPhases": ["5"],
+  "needsYou": [],
+  "settled": []
+}
