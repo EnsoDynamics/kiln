@@ -76,7 +76,7 @@ import { CODEX_NATIVE_CLEANUP_WARNING } from "../session/codex-background-termin
 import { sleepInterruption } from "../session/run-verdict.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
-import { AGENT_NAMES, type AgentId, type AgentSettings, type RecordedPlanPhase } from "../state/records.js";
+import { AGENT_NAMES, type AgentId, type RecordedPlanPhase } from "../state/records.js";
 import { modelDefaultsPath, type ModelChoice } from "../models/model-defaults.js";
 import { activityFallback, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
 import { firstResponseInSavedEvents } from "../models/start-line.js";
@@ -4804,7 +4804,7 @@ export class Engine {
   }
 
   /** The panel's fields as the run's settings: the editable ones and, for the start's folder and branch, its names. */
-  private folderSettings(fields: PanelFields): AgentSettings {
+  private folderSettings(fields: PanelFields): Settings {
     const settings = structuredClone(this.record.settings);
     Object.assign(settings, { workspaceFolder: fields.workspaceFolder, worktreePath: expandHome(fields.worktreePath), featureBranch: fields.featureBranch, baseBranch: fields.baseBranch, bases: fields.bases, keepAwake: fields.keepAwake, resumeAfterUsageLimit: fields.resumeAfterUsageLimit });
     return settings;

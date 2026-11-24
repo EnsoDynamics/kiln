@@ -66,9 +66,6 @@ export interface ModelChoices {
   kept?: ModelChoice;
 }
 
-/** @deprecated The name settings had while they held one agent's choices; they hold model choices now. */
-export type AgentSettings = Settings;
-
 /** A record's settings, with model choices in place, as the new-record path and the migration leave them. */
 export function agentSettings(settings: Omit<Settings, "modelChoices"> & { modelChoices?: ModelChoices }): Settings {
   return { ...settings, modelChoices: settings.modelChoices ?? { phases: {} } };
@@ -380,7 +377,7 @@ export interface PrdRecord {
   prdDirectory: string;
   featureName: string;
   token: string;
-  settings: AgentSettings;
+  settings: Settings;
   refinementConfirmedAt?: string;
   startedAt?: string;
   setupCompletedAt?: string;

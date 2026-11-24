@@ -8,7 +8,7 @@ import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { checkedPath, privateJson } from "../control/private-state.js";
 import { writeDurableMetadata } from "../control/durable-file.js";
-import type { AgentSettings, RepositoryEntry } from "../state/records.js";
+import type { Settings, RepositoryEntry } from "../state/records.js";
 import { checkFolder } from "./folder-check.js";
 import { ensureObjects, gitError, listWorktrees, localBranchCommit, runGit, type GitContext } from "./git-reads.js";
 import { worktreeAt } from "./folder-check.js";
@@ -43,7 +43,7 @@ export interface FolderSetupStart {
   previewId: string;
   createdAt: string;
   /** The panel's, as Start will save them. */
-  settings: AgentSettings;
+  settings: Settings;
   repositories: FolderSetupRepository[];
   steps: { name: string; label: string; state: FolderSetupStepState; error?: string }[];
   state: "in_progress" | "failed" | "superseded" | "activated" | "resumed";
