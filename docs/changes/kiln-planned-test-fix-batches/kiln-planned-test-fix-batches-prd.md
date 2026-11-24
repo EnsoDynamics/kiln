@@ -36,7 +36,7 @@ After a test audit, a person looking at the page should see how much fixing is p
 
   - Replaces in part: AC-AUDIT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the line beneath an audit's row, which reads Loop _n_ · max _limit_, and beneath a session of test fixes; the titles, and "Round" and "Continuation" appearing nowhere, remain)
 - [ ] **AC-BATCH-04 — The rows that have not started are the work still planned.** When a session of test fixes ends having cut the work it left into a different number of batches, the rows that have not started change to match, and _N_ on every row is the plan's current count. When the test fixes end with batches not started, because a session ended that work or a new test audit is due, their rows are removed: what was left is listed under **For you** or found again by the next test audit, as today.
-- [ ] **AC-BATCH-05 — An audit with no batch plan shows as today.** When a test audit saves test work without planning batches, as an earlier version of the method's test audit does and another method's audit may, or when a session of test fixes starts that the plan holds no batch for, each such session appears when it starts and reads "From test audit loop _n_ · session _k_". Kiln never stops or refuses because a plan is missing.
+- [ ] **AC-BATCH-05 — An audit with no batch plan shows as today.** When a test audit saves test work without planning batches, as an earlier version of the method's test audit does and another method's audit may, or when a session of test fixes starts that the plan holds no batch for, each such session appears when it starts and reads as its row in AC-BATCH-03 says. Kiln never stops or refuses because a plan is missing.
 
 ### Say the Limit Is a Maximum
 

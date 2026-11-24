@@ -18,7 +18,7 @@ Everything here is Kiln's. The Enso Method's test audit already plans the batche
 - Kept: routing. `auditNext`, the allocation of a session of test fixes and its requirement of a settled predecessor, the loop count and what closes a kind are untouched. No batch changes whether or when a session starts.
 - Kept: Kiln never reads `test-audit.md` or any other record the installed skill keeps (Kiln Method-Neutral Audits, AC-NEUTRAL-01).
 - Kept: "Round" and "Continuation" appear in no name a person reads; `round` and `continuation_index` stay in JSON as identifiers.
-- Kept: an audit the ledger did not count as a loop names no loop, in its own row and in the rows of its test fixes.
+- Kept: an audit the ledger did not count as a loop names no loop (AC-BATCH-03).
 - Kept: the phase count beside the status line counts phases only. A batch row is never counted in it.
 
 ## Architecture
@@ -33,7 +33,7 @@ A change inside the existing Kiln command-line tool and its local page: the repo
 | What a batch carries | The IDs of its criteria; Kiln counts them | A session copies the IDs from the plan it wrote instead of counting them, and a count Kiln makes cannot disagree with the list. `raised` already carries criterion IDs |
 | Who numbers the batches | Kiln, from each session's place in its chain | The report lists only what is left. A session's number then never depends on a session reporting it. While the chain's first result listed batches it equals the number the method keeps, since a closing fixing chat leaves the remaining lines their numbers |
 | Where the plan is kept | Copied onto the audit activity in the write that records its result | A name is built from the record alone, which is what lets the page import the names module and lets every caller name an audit without opening the audit store |
-| When rows that have not started show | While the forecast of Kiln's next test step is a session of test fixes of that chain | AC-BATCH-04 removes them when a new test audit is due. The audit prompt's forecast already applies that rule; the rule moves out of its prose into one pure step function that the forecast and the chain reading both call, so the page and the prompt cannot disagree |
+| When rows that have not started show | While the forecast of Kiln's next test step is a session of test fixes of that chain | AC-BATCH-04 removes them when a new test audit is due. The audit prompt's forecast already applies that rule; the rule moves out of its prose into the step function of §Reading the Plan, so the page and the prompt cannot disagree |
 | _N_ once the test fixes have ended | The plan's last count | The rows that ran keep saying how many batches were planned. What the batches never started held is under **For you** or in the next test audit's plan |
 | Where the wording lives | One module for row names, status-line text and loops used | AC-MAX-01 says the old wording appears nowhere. One source makes that a single check |
 | A pull request described in the old words | No special handling | The existing **Pull request description** row already sends a session to rewrite a block that no longer matches (§Upgrade) |
