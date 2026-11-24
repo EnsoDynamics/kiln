@@ -30,7 +30,7 @@ describe("the stopped event", () => {
     recordStop(PR_PHASE_KEY, "pull_request_check");
     (h.engine.record as { completionAudits?: unknown }).completionAudits = { revision: 0, policy: "required", evidence: [], activities: [{ activityId: "a1", sequence: 1, kind: "test_audit", round: 2, continuationIndex: 1, createdAt: "2026-11-08T00:00:00Z", sessionIds: [], reportPath: "report.md", snapshots: [], attempts: [] } satisfies AuditActivity] };
     recordStop("audit-a1", "done_check");
-    expect(stopped(h.events)).toMatchObject([{ kind: "pull_request", event: "stopped" }, { kind: "audit", activityId: "a1", label: "Test audit", round: 2, event: "stopped" }]);
+    expect(stopped(h.events)).toMatchObject([{ kind: "pull_request", event: "stopped" }, { kind: "audit", activityId: "a1", title: "Test audit", event: "stopped" }]);
   });
 
   it("is not raised again by a check that still fails", async () => {

@@ -9,6 +9,7 @@
   // person, so it is styled as Paused is. It is the screen alone, as Needs you is: no plan or
   // Claude account panel, no Check again, terminal hand-back or pause (AC-LIMIT-04).
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
+  import ExitKiln from "../components/ExitKiln.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import Icon from "../components/Icon.svelte";
@@ -19,6 +20,7 @@
   import { changeSettings, resumeNow } from "../lib/api.js";
   import { finalMessageHtml } from "../lib/markdown.js";
   import { PR_ID } from "../lib/progress.js";
+  import { activityKeyKind } from "../../../src/state/activity-keys.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { earlier, limitTime } from "../lib/time.js";
   import { atLimitLine, automaticResumeStatus, waitingCopy } from "../lib/usage-limit.js";
@@ -35,6 +37,8 @@
   const resume = $derived(automaticResumeStatus(waiting.limit, waiting.since, nowDate, settings.resumeAfterUsageLimit, waiting.checking === true));
   const ending = $derived(waiting.signal ?? (waiting.exitCode === undefined ? undefined : `exit ${waiting.exitCode}`));
   const outputLink = $derived(phasePath(config.base, waiting.phaseId));
+  // A pull request or merge session's resume reads GitHub first (Kiln After Delivery, "At the stop").
+  const reads = $derived(waiting.phaseId === PR_ID || activityKeyKind(waiting.phaseId) === "merge" ? "GitHub" : "Git");
   let pressing = $state(false);
   let reason = $state<string | undefined>(undefined);
   let settingReason = $state<string | undefined>(undefined);
@@ -100,14 +104,14 @@
             <span class="number">2</span>
             <div class="step">
               <span class="step-title">Then press Resume now</span>
-              <p>It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks {waiting.phaseId === PR_ID ? "GitHub" : "Git"} first, then picks up the same session. If you don’t, Kiln resumes by itself {waiting.agentId === "codex" ? "when fresh provider permission allows an attempt" : "at the first reading that shows usage left"}.</p>
+              <p>It resumes on whichever account is signed in, without waiting for Kiln’s next reading. Kiln checks {reads} first, then picks up the same session. If you don’t, Kiln resumes by itself {waiting.agentId === "codex" ? "when fresh provider permission allows an attempt" : "at the first reading that shows usage left"}.</p>
               <LimitAccount limit={waiting.limit} footnote={copy.footnote} />
               <div class="actions">
                 <!-- The amber line never holds Resume now (AC-LIMIT-03); a resume or check under way does. -->
                 <button type="button" class="button solid" class:busy={pressing} aria-busy={pressing} disabled={pressing || waiting.checking === true || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResumeNow}><Icon name="play" size={15} />Resume now</button>
                 {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
               </div>
-              {#if pressing}<BusyStatus text={`Checking ${waiting.phaseId === PR_ID ? "GitHub" : "Git"}, then resuming the same ${waiting.agent ?? snapshot.settings.agent} session.`} />{/if}
+              {#if pressing}<BusyStatus text={`Checking ${reads}, then resuming the same ${waiting.agent ?? snapshot.settings.agent} session.`} />{/if}
               {#if reason}<span class="reason">{reason}</span>{/if}
             </div>
           </li>
@@ -133,6 +137,8 @@
       </aside>
     </div>
   </div>
+  <!-- A merge or push session waiting for usage on a finished run also offers Exit Kiln (Kiln After Delivery AC-EXIT-01). -->
+  {#if snapshot.exit}<section class="exit-row" aria-label="Exit Kiln"><ExitKiln {snapshot} connected={connection?.connected ?? false} /></section>{/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
   <BillingPanel {snapshot} />
 </main>

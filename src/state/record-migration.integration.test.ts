@@ -121,7 +121,11 @@ describe("a schema 1 record read by this Kiln", () => {
     expect(before.feature.state).toBe("complete");
     const engine = reopenAsSchemaOne(harness);
     await engine.agents.refresh();
-    expect(buildSnapshot(engine)).toEqual({ ...before, billing: buildSnapshot(engine).billing, auditHistoryUnavailable: true, account: buildSnapshot(engine).account });
+    // A schema 1 record never saved when the loop limits were held, so the migration takes the moment the pull request
+    // activity was recorded. The live run read the clock for each separately, so the two can be a millisecond apart.
+    const pullRequestActivity = harness.engine.record.activities!.find(activity => activity.kind === "final_delivery")!;
+    const auditLoops = { ...before.auditLoops!, frozen: { ...before.auditLoops!.frozen!, at: pullRequestActivity.createdAt } };
+    expect(buildSnapshot(engine)).toEqual({ ...before, auditLoops, billing: buildSnapshot(engine).billing, auditHistoryUnavailable: true, account: buildSnapshot(engine).account });
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
     await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" });

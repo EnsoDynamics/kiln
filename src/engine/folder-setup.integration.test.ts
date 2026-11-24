@@ -83,7 +83,7 @@ describe("Start from the base branch (AC-SETUP-02, AC-SETUP-03, AC-SETUP-04)", (
     expect(panel.preview.again).toEqual([]);
     expect(panel.choices.base).toMatchObject({ sha: baseCommit, total: 4, done: 2, holdsAllWork: true });
     expect((panel.choices.base as { line: string }).line).toBe(`origin/develop at ${baseCommit.slice(0, 7)} · 4 phases, 2 done. Has all of this run’s work.`);
-    expect(panel.preview.lets.map(row => text(row.parts))).toEqual(["Commit and push to feature/customer-returns-2", "Open one pull request into develop once every phase closes", "Never merge, deploy, or touch other branches"]);
+    expect(panel.preview.lets.map(row => text(row.parts))).toEqual(["Commit and push to feature/customer-returns-2", "Open one pull request into develop once every phase closes", "Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page", "Push this PRD’s documents to develop only when you press Continue on the finished page", "Never deploy or touch other branches"]);
     // Editing the panel writes nothing (AC-SAFE-01).
     expect((await h.engine.changeFolderPanel({ start: "base", fields: { keepAwake: false } })).ok).toBe(true);
     expect(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).toBe(recordBefore);

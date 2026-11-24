@@ -112,6 +112,49 @@ export function pullRequestSessionPrompt(values: PullRequestPromptValues): strin
 }
 
 /**
+ * The push session's prompt (Kiln After Delivery AC-BACK-05, "Continue and the Push Session"): the
+ * main checkout, the base branch, the commits beyond the remote, and the fixed points.
+ *
+ *   planPushPrompt({ featureName: "Customer returns", prdFile: "docs/prds/customer-returns/customer-returns-prd.md", prdDirectory: "docs/prds/customer-returns", checkout: "/home/me/acme-shop", baseBranch: "develop", commits: [{ sha: "a41c0d2…", subject: "docs(customer returns): add return label phases", onlyDocuments: true }] })
+ */
+export function planPushPrompt(values: { featureName: string; prdFile: string; prdDirectory: string; checkout: string; baseBranch: string; commits: { sha: string; subject: string; onlyDocuments: boolean }[] }): string {
+  const commitList = values.commits.map(commit => `- ${commit.sha.slice(0, 7)} ${commit.subject}${commit.onlyDocuments ? "" : " (touches more than this PRD's documents)"}`).join("\n");
+  return fill(template("plan-push-session.txt"), { featureName: values.featureName, prdFile: values.prdFile, prdDirectory: values.prdDirectory, checkout: values.checkout, baseBranch: values.baseBranch, commitList });
+}
+
+/** How long the merge session waits for a pull request's required checks after its last push (Kiln After Delivery, "The Merge Session"). */
+export const MERGE_CHECK_WAIT_MINUTES = 30;
+
+/** One pull request the merge session merges, in the order it merges them. */
+export interface MergePullRequest {
+  repository: string;
+  /** `<owner>/<name>`. */
+  github: string;
+  number: number;
+  featureBranch: string;
+  baseBranch: string;
+  /** Absolute. */
+  worktreePath: string;
+  /** What GitHub showed at the latest reading, for the resume prompt: `open`, `merged` or `closed`. */
+  state?: "open" | "merged" | "closed";
+}
+
+const mergeList = (pulls: MergePullRequest[], withState: boolean) => pulls
+  .map((pull, index) => `${index + 1}. \`${pull.repository}\` #${pull.number} (\`${pull.github}\`): \`${pull.featureBranch}\` into \`${pull.baseBranch}\`, worktree \`${pull.worktreePath}\`${withState && pull.state ? `, ${pull.state === "open" ? "open" : pull.state === "merged" ? "merged" : "closed without merging"}` : ""}`)
+  .join("\n");
+
+/**
+ * The merge session's prompt (Kiln After Delivery AC-MERGE-02, AC-MERGE-03): the pull requests to
+ * merge in order, what the session may and may not do, and the fixed points of "The Merge Session".
+ *
+ *   mergeSessionPrompt({ featureName: "Customer returns", prdFile: "docs/prds/customer-returns/customer-returns-prd.md", agent: "Claude Code", pullRequests: [{ repository: "acme-shop", github: "acme/acme-shop", number: 218, featureBranch: "feature/customer-returns", baseBranch: "develop", worktreePath: "/w/customer-returns" }] })
+ *   // "You are merging the finished work of Customer returns, … 1. `acme-shop` #218 (`acme/acme-shop`): `feature/customer-returns` into `develop`, worktree `/w/customer-returns` …"
+ */
+export function mergeSessionPrompt(values: { featureName: string; prdFile: string; agent: string; pullRequests: MergePullRequest[] }): string {
+  return fill(template("merge-session.txt"), { featureName: values.featureName, prdFile: values.prdFile, agent: values.agent, pullRequestList: mergeList(values.pullRequests, false), checkWaitMinutes: String(MERGE_CHECK_WAIT_MINUTES) });
+}
+
+/**
  * The fresh-session prompt offered on Needs you (AC-STOP-06): the phase prompt with one
  * sentence added after its first, saying a previous session stopped partway. When nothing ran,
  * that sentence would be untrue, so the prompt is the phase prompt unchanged.
@@ -205,6 +248,10 @@ export interface ResumePromptValues {
   outside?: string;
   /** For the pull-request session: the block Kiln would give now, carried after the carry-on line (AC-LEFT-01). */
   deliveryBlock?: string;
+  /** For the merge session: the delivery's pull requests with the current reading (Kiln After Delivery, "The Merge Session"). */
+  mergeTask?: { pullRequests: MergePullRequest[] };
+  /** For the push session: the main checkout and its base branch (Kiln After Delivery, "Continue and the Push Session"). */
+  planPushTask?: { checkout: string; baseBranch: string };
 }
 
 /**
@@ -231,7 +278,9 @@ export function resumePrompt(values: ResumePromptValues): string {
       ? fill(template("resume-opening-unrecorded.txt"), { time: values.time })
       : fill(template("resume-opening-interrupted.txt"), { time: values.time, cause: INTERRUPT_CAUSES[values.cause] });
   const carryOn =
-    values.preflightTask ? preflightRecoveryPrompt(values.preflightTask) : values.auditTask ? auditRecoveryPrompt(values.auditTask) : values.phaseDoc === undefined
+    values.mergeTask ? fill(template("resume-carry-on-merge.txt"), { pullRequestList: mergeList(values.mergeTask.pullRequests, true), checkWaitMinutes: String(MERGE_CHECK_WAIT_MINUTES) })
+    : values.planPushTask ? fill(template("resume-carry-on-plan-push.txt"), values.planPushTask)
+    : values.preflightTask ? preflightRecoveryPrompt(values.preflightTask) : values.auditTask ? auditRecoveryPrompt(values.auditTask) : values.phaseDoc === undefined
       ? values.deliveryAuthority
         ? template("resume-carry-on-development-finalization.txt")
         : fill(template("resume-carry-on-pull-request.txt"), { pullRequests: values.multiRepository ? "the pull requests" : "the pull request" })
@@ -239,8 +288,8 @@ export function resumePrompt(values: ResumePromptValues): string {
   const before = [...(values.note === undefined ? [] : [fill(template("resume-note.txt"), { note: values.note })]), ...(values.outside === undefined ? [] : [values.outside])];
   // An audit task's instructions already carry the authority block.
   // A pull-request session's resume carries the block Kiln would give now, in place of the first message's (AC-LEFT-01).
-  const block = values.deliveryBlock !== undefined && values.phaseDoc === undefined && !values.auditTask && !values.preflightTask ? [fill(template("resume-delivery-block.txt"), { block: values.deliveryBlock }).trimEnd()] : [];
-  return [...before, ...(values.deliveryAuthority && !values.auditTask?.instructions ? [authorityBlock(values.deliveryAuthority)] : []), `${opening} ${carryOn}`, ...block, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
+  const block = values.deliveryBlock !== undefined && values.phaseDoc === undefined && !values.auditTask && !values.preflightTask && !values.mergeTask && !values.planPushTask ? [fill(template("resume-delivery-block.txt"), { block: values.deliveryBlock }).trimEnd()] : [];
+  return [...before, ...(values.deliveryAuthority && !values.auditTask?.instructions && !values.mergeTask && !values.planPushTask ? [authorityBlock(values.deliveryAuthority)] : []), `${opening} ${carryOn}`, ...block, ...(values.note === undefined ? [] : [template("resume-reply-policy.txt")])].join("\n\n");
 }
 
 /** A checkout outside the workspace that a session changed, as the prompt names it. */

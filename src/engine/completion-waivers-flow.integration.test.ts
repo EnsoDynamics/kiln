@@ -292,7 +292,7 @@ describe("an audit with no usable report marked complete (AC-WAIVE-12, AC-WAIVE-
     // The terminal reads the waived audit as complete · 2 checks waived with its no-report warning, never Audit result recorded.
     const auditDone = h.events.find(event => event.kind === "audit" && event.event === "done" && event.activityId === delivery.activityId)!;
     const [auditLine, auditWarning] = formatTerminalEvent(auditDone, h.engine.record, plain, id => new AuditStore(h.stateDirectory).read<AuditWaiverResult>(id)).split("\n");
-    expect(auditLine).toMatch(/Delivery audit · Round 1 +complete · 2 checks waived \d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+ · browser · \S+$/);
+    expect(auditLine).toMatch(/Delivery audit · Loop 1 of \d +complete · 2 checks waived \d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+ · browser · \S+$/);
     expect(auditLine).not.toContain("Audit result recorded");
     expect(auditWarning!.trim()).toBe(`! ${NO_REPORT_WARNING}`);
 

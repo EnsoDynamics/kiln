@@ -338,7 +338,7 @@ Fields the contract adds are snake_case. `locate-repository` takes the address p
 Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Data Models
 
 ```
-PrdRecord (schema 25; fields not shown are unchanged):
+PrdRecord (schema 26, after Kiln After Delivery took 25; fields not shown are unchanged):
   repositories[]: { …, shortName? }        (kept only when it differs from name: the whole-path form)
   plan[]: { …, repositories: [ name as written ] }
   phases.<id>: { …, repositoryRequests?: [ { addressPath, at } ] }

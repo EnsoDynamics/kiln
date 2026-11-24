@@ -12,32 +12,32 @@ afterAll(async () => { await chrome?.close(); });
 
 const cases = [
   { label: "Phase 2b", key: "2b", kind: "implementation" as const },
-  { label: "Delivery audit · Round 3", key: "audit-delivery-3", kind: "delivery_audit" as const },
-  { label: "Test audit · Round 2", key: "audit-test-2", kind: "test_audit" as const },
+  { label: "Delivery audit loop 3", key: "audit-delivery-3", kind: "delivery_audit" as const },
+  { label: "Test audit loop 2", key: "audit-test-2", kind: "test_audit" as const },
 ].flatMap(activity => [1200, 390].map(width => ({ ...activity, width })));
 
 it.each(cases)("pins the paused page's header, eyebrow, last command and last message, and its Resume, for $label at $width", async ({ key, kind, width }) => {
   const snapshot = needsYouMessageSnapshot(); const stop = snapshot.needsYou!;
   const audit = kind !== "implementation";
   const round = kind === "delivery_audit" ? 3 : 2;
-  // An audit's row carries its title and round apart, as the plan does: "Delivery audit", round 3.
+  // An audit's row carries its title and loop apart, as the plan does: "Delivery audit", Loop 3 of 4 (Kiln After Delivery AC-AUDIT-01).
   // Only the held audit is stopped; the fixture's own stopped phase 2b is otherwise unfinished, as it would be.
   if (audit) snapshot.phases = snapshot.phases.map(p => p.id === "2b" ? { ...p, state: "planned" } : p);
-  if (audit) snapshot.activities = [...snapshot.phases, { ...snapshot.phases.find(p => p.id === "2b")!, id: key, kind, round, title: kind === "delivery_audit" ? "Delivery audit" : "Test audit", state: "needs_you" }];
+  if (audit) snapshot.activities = [...snapshot.phases, { ...snapshot.phases.find(p => p.id === "2b")!, id: key, kind, round, loops: [{ kind: kind === "delivery_audit" ? "delivery" as const : "test" as const, number: round, limit: 4 }], title: kind === "delivery_audit" ? "Delivery audit" : "Test audit", state: "needs_you" }];
   const name = audit ? (kind === "delivery_audit" ? "delivery audit" : "test audit") : "phase 2b";
   const target = { executionId: "execution", activityId: key, activityKey: key, sessionId: stop.sessionId!, providerSessionId: stop.sessionId!, attemptId: "attempt" };
   stop.phaseId = key; stop.agent = "Claude Code"; stop.finalMessage = "The first operation finished. The remaining work is unfinished.";
   stop.phaseRecovery = { target: { executionId: "execution", phaseKey: key, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: target }, completion: "incomplete" };
-  snapshot.liveControl = { target, label: audit ? `${capitalized(name)} · Round ${round}` : "Phase 2b", available: false, reason: "Paused.", observedAt: stop.stoppedAt,
+  snapshot.liveControl = { target, label: audit ? `${capitalized(name)} loop ${round}` : "Phase 2b", available: false, reason: "Paused.", observedAt: stop.stoppedAt,
     takeover: { target, instructionId: "held", operationId: "hold", requestedAt: stop.stoppedAt, releasedAt: stop.stoppedAt, observedAt: stop.stoppedAt, state: "released", reason: "Paused." },
-    pauseNow: { phase: "paused", activityKey: key, label: audit ? `${name} · round ${round}` : name, requestedAt: stop.stoppedAt, releasedAt: stop.stoppedAt, stopped: true, running: [], lastCommand: { tool: "Bash", input: "npm test" }, lastSaid: stop.finalMessage, cancel: { available: false, reason: ALREADY_PAUSED } } };
+    pauseNow: { phase: "paused", activityKey: key, label: audit ? `${name} loop ${round}` : name, requestedAt: stop.stoppedAt, releasedAt: stop.stoppedAt, stopped: true, running: [], lastCommand: { tool: "Bash", input: "npm test" }, lastSaid: stop.finalMessage, cancel: { available: false, reason: ALREADY_PAUSED } } };
   const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
   const page = await chrome.open(server.address, { width, height: 1100 });
   try {
     await page.waitFor(`document.querySelector('.paused-card')`);
     const body = await page.evaluate<string>("document.querySelector('main').innerText");
     expect(body).toContain(`Paused in ${name}`);
-    expect(await page.evaluate("document.querySelector('.paused-card .eyebrow').textContent")).toBe(audit ? `Paused partway · ${name} · round ${round}` : `Paused partway · phase 2b of ${snapshot.feature.phasesTotal}`);
+    expect(await page.evaluate("document.querySelector('.paused-card .eyebrow').textContent")).toBe(audit ? `Paused partway · ${name} loop ${round}` : `Paused partway · phase 2b of ${snapshot.feature.phasesTotal}`);
     expect(await page.evaluate("document.querySelector('.paused-card > p').textContent")).toBe(`Kiln stopped after npm test finished. Nothing is running. Last thing Claude said: “${stop.finalMessage}”`);
     expect(await page.evaluate<string[]>(`Array.from(document.querySelectorAll('.paused-card .columns > section > h3')).map(h=>h.textContent)`)).toEqual(["Let Kiln carry on", "Or take it over yourself"]);
     expect(await page.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()===${JSON.stringify(`Resume ${name}`)})?.disabled`)).toBe(false);
@@ -80,7 +80,7 @@ it.each(cases)("pins output/composer/facts order and both complete pause consequ
   } finally { await page.close(); await server.close(); }
 });
 
-it.each(["Delivery audit · Round 3", "Test audit · Round 2"])("names the finished %s and next activity after deferred pause without resuming the finished session", async label => {
+it.each(["Delivery audit loop 3", "Test audit loop 2"])("names the finished %s and next activity after deferred pause without resuming the finished session", async label => {
   const snapshot = pausedSnapshot();
   const key = label.startsWith("Delivery") ? "audit-delivery-3" : "audit-test-2";
   snapshot.activities = [{ ...snapshot.phases[0]!, id: key, kind: label.startsWith("Delivery") ? "delivery_audit" : "test_audit", title: label, state: "done", doneAt: new Date().toISOString() }, { ...snapshot.phases.find(p => p.id === "2b")!, state: "next" }];

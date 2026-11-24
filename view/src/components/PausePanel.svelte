@@ -8,7 +8,7 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { COMMAND_FOLLOW, LID_SENTENCE, pausingRow } from "../../../src/live/pause-now.js";
   import { cancelTakeOver, keepGoing, pause, takeOver } from "../lib/api.js";
-  import { capitalized, nextActivity, phaseName } from "../lib/progress.js";
+  import { capitalized, nextActivity, phaseName, rowAuditName } from "../lib/progress.js";
   import { liveDraft } from "../lib/live-drafts.svelte.js";
   import { viewContext } from "../lib/view-context.js";
   let { snapshot, connected = true }: { snapshot: Snapshot; connected?: boolean } = $props();
@@ -17,10 +17,10 @@
   // The leaf the running header names, not the launched key a split phase started as (AC-PAUSE-01, AC-PAUSE-03).
   const id = $derived(pauseNow?.activityKey ?? snapshot.current?.phaseId ?? snapshot.liveControl?.target.activityKey ?? snapshot.needsYou?.phaseId ?? "");
   const audit = $derived(activityKeyKind(id) === "audit");
-  // The panel names a phase by its number and an audit by its name and round (AC-PAUSE-01): "delivery audit · round 2",
-  // from the audit row's round when there is no live target (a Codex audit, or a Claude audit between sessions).
+  // The panel names a phase by its number and an audit by its name and loop (AC-PAUSE-01, Kiln After Delivery AC-AUDIT-01):
+  // "delivery audit loop 2", from the audit row when there is no live target (a Codex audit, or a Claude audit between sessions).
   const auditRow = $derived(audit ? (snapshot.activities ?? snapshot.phases).find(one => one.id === id) : undefined);
-  const name = $derived(audit && snapshot.liveControl?.label ? snapshot.liveControl.label.toLowerCase() : auditRow?.round !== undefined ? `${phaseName(id, snapshot)} · round ${auditRow.round}` : phaseName(id, snapshot));
+  const name = $derived(audit && snapshot.liveControl?.label ? snapshot.liveControl.label.toLowerCase() : auditRow && (auditRow.kind === "delivery_audit" || auditRow.kind === "test_audit") ? rowAuditName(auditRow).sentence : phaseName(id, snapshot));
   // The pending end-of-activity pause's sentence keeps its existing words ("Will pause after Phase 2b finishes.").
   const activity = $derived(audit && snapshot.liveControl?.label ? snapshot.liveControl.label : capitalized(name));
   const submitting = $derived(snapshot.liveControl && (liveDraft(snapshot.liveControl.target).submitting || !!liveDraft(snapshot.liveControl.target).instructionId || snapshot.liveControl.messages?.some(m => m.delivery === "submitting")));

@@ -9,14 +9,15 @@
  * covered when listed again. An audit marked complete with no usable report neither adds nor
  * settles, so what was outstanding carries to the next audit.
  *
- *   const ledger = personItems(stateDirectory, record.completionAudits!.activities, activity.sequence);
- *   ledger.outstanding // [{ id: "item-1", kind: "blocker", problem, action, waitsOn, listedBy: "Delivery audit round 1", … }]
+ *   const ledger = personItems(stateDirectory, record, activity.sequence);
+ *   ledger.outstanding // [{ id: "item-1", kind: "blocker", problem, action, waitsOn, listedBy: "Delivery audit loop 1", … }]
  */
 import { PERSON_ITEM_KINDS, type AuditActivity, type AuditReport, type NeedsYouEntry, type PersonItemKind } from "./contracts.js";
 import { acceptedAudit } from "./effective-result.js";
 import { AuditStore } from "./storage.js";
 import type { AuditWaiverResult, Waiver, WaiverRef } from "../engine/waivers.js";
 import { HOLD_CHECK } from "../engine/waivers.js";
+import { auditSentenceStart, recordedAuditName, type NamingRecord } from "./audit-names.js";
 
 export interface PersonItem {
   id: string; problem: string; action: string; listedBy: string; listedByActivityId: string; criterion?: string;
@@ -31,8 +32,8 @@ export interface PersonItem {
 export interface SettledPersonItem extends PersonItem { settledBy: string; settledByActivityId: string; how: string }
 export interface PersonItemLedger { outstanding: PersonItem[]; settled: SettledPersonItem[] }
 
-export const auditName = (activity: Pick<AuditActivity, "kind" | "round" | "continuationIndex">) =>
-  `${activity.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} round ${activity.round}${activity.continuationIndex > 1 ? ` continuation ${activity.continuationIndex}` : ""}`;
+/** The name an item is listed or settled by: "Delivery audit loop 1", "Fixing tests from test audit loop 1, session 2" (Kiln After Delivery AC-AUDIT-01). */
+const listingName = (activity: AuditActivity, names: NamingRecord) => auditSentenceStart(recordedAuditName(names, activity));
 
 /** The report an audit's items are read from, and the audit waiver that covers them when it was marked complete. */
 function itemsReport(stateDirectory: string, activity: AuditActivity, store: Pick<AuditStore, "read">): { report: AuditReport; waiverId?: string } | undefined {
@@ -54,13 +55,17 @@ export function keptFields(entry: Pick<NeedsYouEntry, "kind" | "waitsOn" | "crit
   return { kind, ...(waitsOn ? { waitsOn } : {}), ...(criterion ? { criterion } : {}) };
 }
 
-/** The ledger after every settled audit sequenced before `before` (all of them when omitted). */
-export function personItems(stateDirectory: string, activities: AuditActivity[], before = Infinity, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): PersonItemLedger {
+/**
+ * The ledger after every settled audit sequenced before `before` (all of them when omitted). The
+ * audits are named from `names`, the record whose loop ledger counted them.
+ */
+export function personItems(stateDirectory: string, names: NamingRecord & { completionAudits?: { activities: AuditActivity[] } }, before = Infinity, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): PersonItemLedger {
+  const activities = names.completionAudits?.activities ?? [];
   const outstanding = new Map<string, PersonItem>(); const settled: SettledPersonItem[] = []; let next = 1;
   for (const activity of [...activities].filter(a => a.sequence < before).sort((a, b) => a.sequence - b.sequence)) {
     const read = itemsReport(stateDirectory, activity, store);
     if (read?.report.schemaVersion !== 2) continue;
-    const name = auditName(activity);
+    const name = listingName(activity, names);
     for (const entry of read.report.settled ?? []) {
       const item = outstanding.get(entry.id); if (!item) continue;
       outstanding.delete(entry.id); settled.push({ ...item, settledBy: name, settledByActivityId: activity.activityId, how: entry.how });

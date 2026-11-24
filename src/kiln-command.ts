@@ -84,7 +84,8 @@ class StopControl {
   readonly status: TransientStatus;
   /** What a stop prints when no engine is running yet. */
   fallback: StopReport = { text: "Kiln stopped.", grey: "Nothing was started." };
-  cause: (typeof STOP_SIGNALS)[number] | undefined;
+  /** What is stopping Kiln: a signal, or Exit Kiln on a finished run. */
+  cause: (typeof STOP_SIGNALS)[number] | "EXIT" | undefined;
   private report: StopReport | undefined;
   private resolveDone!: (code: number) => void;
   /** Resolves with the exit code once a stop has finished. */
@@ -109,10 +110,27 @@ class StopControl {
     this.resolveDone(code);
   }
 
+  /**
+   * Exit Kiln, from a finished run's page or `kiln exit` (Kiln After Delivery AC-EXIT-02): the
+   * ordinary stop path, which releases keep-awake and helpers, closes the server and the instance
+   * lock and prints the exit's last line, ending with code 0. A signal already stopping wins.
+   */
+  exit(): void {
+    if (this.cause !== undefined) return;
+    this.cause = "EXIT";
+    this.engine?.agents.close();
+    const stopped = this.engine ? this.engine.stop("sigterm") : Promise.resolve(this.fallback);
+    void stopped.then(async (report) => {
+      await this.server?.close();
+      this.report = report;
+      this.resolveDone(0);
+    });
+  }
+
   private onSignal(signal: (typeof STOP_SIGNALS)[number]): void {
     const cause = signal.toLowerCase() as "sigint" | "sighup" | "sigterm";
     if (this.cause !== undefined) {
-      // A second Ctrl+C skips the rest of the wait.
+      // A second Ctrl+C skips the rest of the wait, an exit's included.
       void this.engine?.stop(cause);
       return;
     }
@@ -284,6 +302,7 @@ function makeEngine(
     },
     keepAwake,
     onReset: (receipt) => afterReset(run, receipt),
+    onExit: () => run.stop.exit(),
     ...(startChecks ? { startChecks } : {}),
   });
   const savedInspection = readWork(stateRoot(context.env), run.stateDirectory);
@@ -545,16 +564,16 @@ function preflightLine(event: Extract<TerminalEvent, { kind: "audit" }>, columns
   return formatPhaseLine(event.at, "PF", PREFLIGHT_TITLE, { kind: "completed", summary: "" }, columns, colors);
 }
 
-/** An audit's title on its terminal line: "Delivery audit · Round 1", with its continuation after the first. */
+/** An audit's title on its terminal line: "Delivery audit · Loop 1 of 4", "Fixing tests · From test audit loop 1 · session 2" (AC-AUDIT-01). */
 function auditTitle(event: Extract<TerminalEvent, { kind: "audit" }>): string {
-  return `${event.label} · Round ${event.round}${(event.continuationIndex ?? 1) > 1 ? ` · Continuation ${event.continuationIndex}` : ""}`;
+  return event.line ? `${event.title} · ${event.line}` : event.title;
 }
 
 function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: TerminalColors, viewAddress?: string): string {
   const columns = planColumns(record.plan ?? []);
   const where = viewAddress === undefined ? {} : { viewAddress };
   switch (event.kind) {
-    case "completed_plan_checked": return formatCompletedPlanCheck(event.check);
+    case "completed_plan_checked": return formatCompletedPlanCheck(event.check, record.prdDirectory);
     case "folder_missing": return formatFolderMissing(event.view, event.address, colors);
     case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
     case "audit":
@@ -587,6 +606,32 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
           ? { kind: "completed", summary: event.summary ?? "Work already merged" }
         : event.event === "opened"
           ? { kind: "opened", number: event.number ?? 0, ...(event.opened ? { opened: event.opened } : {}) }
+          : event.event === "waiting"
+            ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
+            : { kind: event.event, ...where },
+        columns,
+        colors,
+      );
+    case "merge":
+      return formatPhaseLine(
+        event.at,
+        "M",
+        "Merge",
+        event.event === "merged"
+          ? { kind: "completed", summary: event.summary ?? "Merged" }
+          : event.event === "waiting"
+            ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
+            : { kind: event.event, ...where },
+        columns,
+        colors,
+      );
+    case "plan_push":
+      return formatPhaseLine(
+        event.at,
+        "P",
+        "Push the plan",
+        event.event === "pushed"
+          ? { kind: "completed", summary: "Pushed" }
           : event.event === "waiting"
             ? { kind: "waiting", label: event.limit?.label ?? "A usage limit", ...(event.limit?.resetsAt === undefined ? {} : { resetsAt: event.limit.resetsAt }) }
             : { kind: event.event, ...where },

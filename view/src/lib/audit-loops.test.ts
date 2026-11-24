@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LOOP_STOP_LINE, loopSettingsHelp, parsedLimit, positionText, refusalShown, rowLoopLabel } from "./audit-loops.js";
+import { LOOP_STOP_LINE, loopSettingsHelp, parsedLimit, positionText, refusalShown } from "./audit-loops.js";
 import { positionText as enginePositionText } from "../../../src/engine/loop-view.js";
 
 describe("the two limits' help text, from the numbers shown (Kiln Deliver When Audit Loops Run Out AC-CHOICE-01)", () => {
@@ -27,12 +27,6 @@ describe("the two limits' help text, from the numbers shown (Kiln Deliver When A
 });
 
 describe("the loop an audit row is, and where the run is (AC-STOP-05)", () => {
-  it("labels an audit row loop N of L, by the limit in force, with no last-loop mark", () => {
-    expect(rowLoopLabel({ loops: [{ kind: "delivery", number: 2, limit: 4 }] })).toBe("loop 2 of 4");
-    expect(rowLoopLabel({ loops: [{ kind: "test", number: 4, limit: 4 }] })).toBe("loop 4 of 4");
-    expect(rowLoopLabel({})).toBeUndefined();
-  });
-
   it("words the position as the engine and kiln status do", () => {
     const positions = [
       { audit: "delivery", loop: 2, limit: 4 },

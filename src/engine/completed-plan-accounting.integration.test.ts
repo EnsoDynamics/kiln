@@ -27,7 +27,7 @@ it("accounts for seven new leaves and unintegrated external work, then independe
   expect(blocked.result?.leaves?.find(p => p.id === "8")).toMatchObject({ classification: "externally_unverified", provenance: "not_applicable", repositories: [{ revision: f.externalRevision, integration: "blocked" }] });
   expect(blocked.result?.problems.join(" ")).toContain("not verified in origin/develop");
   const output = formatDecisionLine({ kind: "complete" }, h.engine, terminalColors({}, {}));
-  expect(output).toContain("7 new unfinished phases found"); expect(output).toContain("Phase 8 · Catalog capability 8 (completion evidence unresolved)");
+  expect(output).toContain("7 phases were added to this PRD after Kiln finished it: 9, 10, 11, 12, 13, 14, 15"); expect(output).toContain("Phase 8 · Catalog capability 8 (not verified)");
   f.integrate(); writeFileSync(join(h.repository, "unrelated-notes.txt"), "Unrelated local work must survive.\n");
   const passed = await h.engine.checkCompletedPlan();
   expect(passed.status).toBe("available");
@@ -99,12 +99,12 @@ it("shows distinct external accounting above history in the actual browser at de
     for (const width of [1200, 390]) {
       const page = await chrome.open(server.address, { width, height: 1000 });
       try {
-        await page.waitFor("document.body.innerText.includes('7 new unfinished phases.') && document.body.innerText.includes('Completion evidence unresolved.')");
+        await page.waitFor("document.body.innerText.includes('7 phases were added to this PRD after Kiln finished it') && document.body.innerText.includes('Not verified.')");
         await page.waitFor("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Check for new phases') && !b.disabled)");
         await page.waitFor("!document.body.innerText.includes('Showing earlier results.')");
         const text = await page.evaluate<string>("document.body.innerText");
-        expect(text).toContain("7 earlier completed · 7 new unfinished · 1 externally closed");
-        expect(text.indexOf("Work completed outside this run")).toBeLessThan(text.indexOf("Earlier catalog delivery"));
+        expect(text).toContain("Phase 15 · Catalog capability 15 · planned, not built");
+        expect(text.indexOf("Closed outside Kiln")).toBeLessThan(text.indexOf("Earlier catalog delivery"));
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
         expect(await page.evaluate("[...document.querySelectorAll('button')].filter(b => b.textContent.includes('Continue with')).map(b => b.disabled)")).toEqual([true]);
         expect(h.claudeCalls()).toEqual([]);

@@ -6,6 +6,7 @@ import { git } from "./git-repositories.js";
 import { observePlan, retainBaseline } from "../engine/plan-reconciliation.js";
 import { recordedPlan } from "../engine/plan-reading.js";
 import { writePrdRecord } from "../state/records.js";
+import { recordedPullRequest } from "./recorded-pull-requests.js";
 
 export const COMET_DIRECTORY = "docs/prds/library-catalog";
 export const cometPhase = (id: number | string, closed = false) => `# Phase ${id}: Catalog capability ${id}\n\n${closed ? "**Closed:** 2026-10-01\n\n" : ""}## Acceptance criteria covered\nAC-COMET-01\n`;
@@ -32,6 +33,8 @@ export async function createCometContinuation() {
   record.planReconciliation = { baselineId: retainBaseline(h.stateDirectory, { formatVersion: 1, normalizerVersion: 1, prdDirectory: COMET_DIRECTORY, active: source, sources: [], completions: Object.fromEntries(source.plan.phases.map(phase => [phase.id, { kind: "external", revision: initial, doneAt: "2026-10-01T11:00:00Z" }])) }).id };
   record.phases.pr = { doneAt: record.completedAt, sessionIds: [], finishedByPerson: true, outsideConfirmations: [], repositories: { "comet-library": { startCommit: initial, pushedSha: initial } } };
   record.pullRequests = [{ repository: "comet-library", number: 12, title: "Earlier catalog delivery", url: "https://github.com/fictional/comet-library/pull/12", head: "feature/library-catalog", base: "develop", commits: 7, additions: 70, deletions: 0 }];
+  // GitHub shows the earlier delivery merged into develop (Kiln After Delivery AC-WAIT-01).
+  h.setPullRequestViews({ "fictional/comet-library#12": recordedPullRequest("merged", { number: 12, base: "develop", url: "https://github.com/fictional/comet-library/pull/12", mergeCommit: initial }) });
   git(h.sandbox, h.repository, "checkout", "-qb", "wt/catalog-accessibility");
   write("phase-8-catalog.md", cometPhase(8, true));
   writeFileSync(join(h.repository, "catalog.txt"), "Accessible catalog work\n");

@@ -77,6 +77,18 @@ describe("status waiver facts", () => {
     expect(activityWaivers(audit, "4").warnings).toEqual([{ kind: "plan_problem_waived", text: "plan problem waived: Kiln followed its normal order", waiver_id: "w-p" }]);
   });
 
+  it("names the Merge and Push the plan rows as the screens do, in text and JSON (Kiln After Delivery AC-BOT-02)", () => {
+    const after = record({ activities: [{ activityId: "a2", sequence: 1, kind: "implementation", key: "2", createdAt: "" }, { activityId: "m", sequence: 2, kind: "merge", key: "merge", createdAt: "" }, { activityId: "p", sequence: 3, kind: "plan_push", key: "plan-push-op-9", createdAt: "" }] as unknown as NonNullable<PrdRecord["activities"]> });
+    after.phases.merge = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: "2026-11-02T02:00:00.000Z" };
+    const rows = progressRows(after, "plan-push-op-9");
+    expect(rows.filter(r => r.key === "merge" || r.key.startsWith("plan-push-")).map(r => [r.key, r.label, r.title, r.state])).toEqual([["merge", "Merge", "", "complete"], ["plan-push-op-9", "Push the plan", "", "running"]]);
+    const text = progressText("Example feature", rows);
+    expect(text).toContain("Merge");
+    expect(text).toContain("Push the plan");
+    expect(text).not.toContain("Phase merge");
+    expect(text).not.toContain("Phase plan-push");
+  });
+
   it("prints the mockup's kiln status block: complete · 1 check waived with time and source, counts and the waived item", () => {
     const rows = progressRows(record(), "4");
     expect(rows.map(r => [r.key, r.state, r.status_label])).toEqual([["2", "complete", "Complete"], ["3", "complete", "Complete · 1 check waived"], ["4", "running", null]]);
@@ -112,9 +124,9 @@ describe("status waiver facts", () => {
     });
     audit.phases["audit-d1"] = { sessionIds: [], finishedByPerson: true, repositories: {}, doneAt: "2026-11-02T00:34:10.000Z", waiverId: "w-a" };
     const read = (): AuditWaiverResult => ({ kind: "audit_waiver", activityId: "d1", waiverId: "w-a", report: "none", countedOutcome: "passed", snapshotRef: "s" });
-    const line = formatTerminalEvent({ kind: "audit", at: new Date("2026-11-02T00:34:10.000Z"), activityId: "d1", label: "Delivery audit", round: 1, event: "done" } as Parameters<typeof formatTerminalEvent>[0], audit, plain, read);
+    const line = formatTerminalEvent({ kind: "audit", at: new Date("2026-11-02T00:34:10.000Z"), activityId: "d1", title: "Delivery audit", event: "done" } as Parameters<typeof formatTerminalEvent>[0], audit, plain, read);
     const [first, warning] = line.split("\n");
-    expect(first).toMatch(/Delivery audit · Round 1 +complete · 1 check waived 2026-11-01 19:34 EST · browser · alex$/);
+    expect(first).toMatch(/Delivery audit +complete · 1 check waived 2026-11-01 19:34 EST · browser · alex$/);
     expect(first).not.toContain("Audit result recorded");
     expect(warning!.trim()).toBe("! no audit report: Kiln couldn’t tell what this audit found");
   });
@@ -227,5 +239,28 @@ describe("kiln status's question lines on a terminal (find repositories anywhere
       "  ~/archive/ledger  git.example.com/acme-labs/ledger  (not on GitHub)",
       "Controls: locate-repository (available) · waive-and-advance (once a recheck still fails)",
     ]);
+  });
+});
+
+describe("kiln status names each closing audit for what it does (Kiln After Delivery AC-AUDIT-01, AC-BOT-02)", () => {
+  it("titles audit rows Delivery audit, Test audit and Fixing tests with their loop line, and carries a session of test fixes' loop and session", () => {
+    const audit = (activityId: string, kind: "delivery_audit" | "test_audit", round: number, continuationIndex: number) => ({ activityId, sequence: 0, kind, round, continuationIndex, createdAt: "", sessionIds: [], reportPath: "", snapshots: [], attempts: [] });
+    const done = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: "2026-11-01T20:00:00.000Z" };
+    const rows = progressRows(record({
+      activities: [{ activityId: "d1", sequence: 1, kind: "delivery_audit", key: "audit-d1", createdAt: "" }, { activityId: "t1", sequence: 2, kind: "test_audit", key: "audit-t1", createdAt: "" }, { activityId: "t1-2", sequence: 3, kind: "test_audit", key: "audit-t1-2", createdAt: "" }],
+      completionAudits: { revision: 1, policy: "required", evidence: [], activities: [audit("d1", "delivery_audit", 1, 1), audit("t1", "test_audit", 1, 1), audit("t1-2", "test_audit", 1, 2)] },
+      auditLoops: { epochs: [{ kind: "delivery", at: "", cause: "start", loopsBefore: 0 }, { kind: "test", at: "", cause: "start", loopsBefore: 0 }], loops: [{ kind: "delivery", number: 1, startedAt: "", activityKey: "audit-d1" }, { kind: "test", number: 1, startedAt: "", activityKey: "audit-t1" }] },
+      settings: { auditLoops: { deliveryLimit: 3, testLimit: 4 } },
+      phases: { "audit-d1": done, "audit-t1": done, "audit-t1-2": { sessionIds: [], finishedByPerson: false, repositories: {} } },
+      waivers: [],
+    } as unknown as Partial<PrdRecord>), "audit-t1-2");
+    expect(rows.map(row => ({ label: row.label, title: row.title, fixing: row.fixing }))).toEqual([
+      { label: "Delivery audit", title: "Loop 1 of 3", fixing: undefined },
+      { label: "Test audit", title: "Loop 1 of 4", fixing: undefined },
+      { label: "Fixing tests", title: "From test audit loop 1 · session 1", fixing: { loop: 1, session: 1 } },
+    ]);
+    const text = progressText("Example feature", rows);
+    expect(text).toContain("Fixing tests");
+    expect(text).not.toMatch(/Round|Continuation/);
   });
 });

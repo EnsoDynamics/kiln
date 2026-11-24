@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Before Start, the plan from the method with a model on every stage</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.circle{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;box-sizing:border-box;border:1px dashed rgba(237,232,221,.24);color:#8c8577}
+.circle.you{border:1px solid #e2694f;color:#e2694f}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.you{border-color:rgba(226,105,79,.6);color:#f0866e;font-weight:500}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;box-sizing:border-box}
+.sel{height:44px;padding:0 10px;border-radius:10px;border:1px solid rgba(237,232,221,.18);background:#12110e;color:#ede8dd;font:inherit;font-size:14px;box-sizing:border-box;width:100%}
+.lab{font-size:12.5px;color:#8c8577}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:14px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.title{font-size:16px;font-weight:500}
+.file{font-size:12.5px;color:#8c8577}
+.what{font-size:13.5px;color:#bdb6a8}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.model{font-size:13.5px;color:#bdb6a8}
+.set{display:flex;flex-direction:column;gap:3px;padding-top:16px;border-top:1px solid rgba(237,232,221,.12)}
+.small{font-size:12.5px;color:#8c8577;line-height:1.5}
+.stop{margin:0 -14px;padding:14px;border-radius:12px;border:1px solid rgba(226,105,79,.45);background:#12110e}
+</style>
+</helmet>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="display: inline-flex; align-items: baseline; gap: 18px"><span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span><a href="Main.dc.html" style="font-size: 13.5px">All work in this repository</a></span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>Source material <span class="mono" style="color: #ede8dd">source-material/gift-card-balance/</span></span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">Gift card balance lookup</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(237,232,221,.4); font-size: 14px; font-weight: 600">Not started</span><span style="color: #bdb6a8">No PRD yet. Review what Kiln found and what it will write, then start.</span></div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+<section class="card" aria-labelledby="found-h" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+<h2 id="found-h" class="eyebrow">What Kiln found</h2>
+
+<div style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">Brief</span><span class="mono" style="font-size: 12.5px; color: #8c8577">gift-card-balance-brief.md</span><span class="what">1,240 words</span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">Prototype</span><span class="mono" style="font-size: 12.5px; color: #8c8577">prototype/</span><span class="what">6 screens</span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">Committed</span><span class="mono" style="font-size: 12.5px; color: #8c8577">4e1a9c2</span><span class="what">on develop, yesterday at 4:12 PM</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px"><span style="font-weight: 500">Requirements plan <span class="mono" style="font-size: 12.5px; color: #8c8577; font-weight: 400; margin-left: 8px">8 stages</span></span><span style="font-size: 13px; color: #8c8577">Each stage runs on the model shown</span></div>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding: 12px 16px; border-radius: 12px; background: #12110e; border: 1px solid rgba(237,232,221,.12)">
+<span style="flex: 1 1 320px; min-width: 0; font-size: 13.5px; color: #bdb6a8">Read from the Enso Method installed on this computer, <span style="color: #ede8dd">last updated Nov 19</span>. Kiln keeps no list of its own, so this is whatever your copy of the method does.</span>
+<button type="button" class="btn">Read again</button>
+</div>
+
+<ol style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li class="row"><span class="circle mono">R1</span><span class="names"><span class="title">Write the PRD</span><span class="file mono">prd-writing-standards</span></span><span class="right"><span class="model">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></li>
+
+<li class="row" style="border-bottom: 0"><span class="circle mono">R2</span><span class="names"><span class="title">Refine the PRD</span><span class="file mono">autonomous-prd-refinement</span></span><span class="right"><span class="model">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></li>
+
+<li class="row stop"><span class="circle you mono">R3</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Early stakeholder review</span><span class="tag you">Kiln waits for you here</span></span><span class="file mono">stakeholder-review-package</span></span><span class="right"><span class="model">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></li>
+
+<li class="row"><span class="circle mono">R4</span><span class="names"><span class="title">Technical design</span><span class="file mono">technical-design-writing-standards</span></span><span class="right"><span class="model">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></li>
+
+<li class="row"><span class="circle mono">R5</span><span class="names"><span class="title">Design review</span><span class="file mono">review-technical-design</span></span><span class="right"><span class="model">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></li>
+
+<li style="display: flex; flex-direction: column; gap: 14px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
+<span class="circle mono">R6</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Refine the design</span><span class="tag">Your choice for this stage</span></span><span class="file mono">autonomous-design-refinement</span></span><span class="right"><span class="model">Claude Code · Opus 5.5 · high</span><button type="button" class="btn" aria-expanded="true">Done</button></span>
+</div>
+<div style="margin-left: 50px; padding: 16px; border-radius: 12px; border: 1px solid rgba(237,232,221,.18); display: flex; flex-direction: column; gap: 14px">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px">
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Agent</span><select class="sel"><option selected>Claude Code</option><option>Codex</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Model</span><select class="sel"><option>Fable 5.2</option><option selected>Opus 5.5</option><option>Sonnet 5.5</option><option>Haiku 5.5</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Effort</span><select class="sel"><option>Low</option><option>Medium</option><option selected>High</option><option>Extra high</option><option>Max</option></select></label>
+</div>
+<label style="display: flex; align-items: flex-start; gap: 10px; font-size: 14px; cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f"><span>Use this for Refine the design on every PRD</span></label>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px"><span class="small">Fable at high effort is your default for requirements stages.</span><a href="#" style="font-size: 13px">Use the default</a></div>
+</div>
+</li>
+
+<li class="row" style="border-bottom: 0"><span class="circle mono">R7</span><span class="names"><span class="title">Phase plan</span><span class="file mono">phase-split</span></span><span class="right"><span class="model">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></li>
+
+<li class="row stop"><span class="circle you mono">R8</span><span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Final stakeholder review</span><span class="tag you">Kiln always stops here</span></span><span class="file mono">stakeholder-review-package</span></span><span class="right"><span class="model">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></li>
+</ol>
+
+<span class="small">The two stops are Kiln's own and don't depend on the list. When a stage ends, its session says what the method puts next, and Kiln updates this list if the answer differs.</span>
+</div>
+
+<div style="display: flex; align-items: flex-start; gap: 16px; padding: 18px 20px; border-radius: 14px; border: 1px dashed rgba(237,232,221,.24)">
+<span class="circle mono" style="border-style: dashed">B</span>
+<div style="display: flex; flex-direction: column; gap: 2px"><span class="title" style="color: #bdb6a8">Build</span><span class="what">The phases appear here once the phase plan is written. You start the build yourself, from the final review.</span></div>
+</div>
+</section>
+
+<section class="card" aria-labelledby="how-h" style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+<h2 id="how-h" class="eyebrow">How Kiln will run it</h2>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span class="lab">Models</span>
+<span style="font-size: 14.5px">Chosen for each stage</span>
+<span class="small">7 on your default for requirements stages, Fable at high effort. 1 on your own choice. Change any stage in the plan.</span>
+<a href="#" style="font-size: 13px; margin-top: 2px">Model defaults</a>
+</div>
+
+<div class="set" style="gap: 10px">
+<span class="lab">Your review</span>
+<label style="display: flex; align-items: flex-start; gap: 10px; font-size: 14.5px; cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f"><span>Wait for me at the early review</span></label>
+<span class="small">Turn it off for an overnight run. Kiln always stops at the final review.</span>
+</div>
+
+<div class="set">
+<span class="lab">If usage is nearly out</span>
+<span style="font-size: 14.5px">Wait for the limit</span>
+<span class="small">No fallback is switched on. Set one up in <a href="#">Model defaults</a>.</span>
+</div>
+
+<div class="set">
+<span class="lab">Billing</span>
+<span style="font-size: 14.5px">Claude subscription</span>
+<span class="small">alex@example.com</span>
+</div>
+
+<div class="set">
+<span class="lab">Feature branch</span>
+<span class="mono" style="font-size: 13px">feature/gift-card-balance</span>
+<span class="small">Cut from <span class="mono">develop</span> when the PRD is drafted.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px; padding-top: 18px; border-top: 1px solid rgba(237,232,221,.12)">
+<button type="button" style="min-height: 48px; border-radius: 999px; border: 1px solid #ede8dd; background: #ede8dd; color: #12110e; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer">Start</button>
+<span class="small" style="text-align: center">Starts with the PRD. Stops at the early review, and at the final review before the build.</span>
+</div>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

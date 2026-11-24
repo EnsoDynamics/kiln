@@ -30,14 +30,32 @@ section to the new version.
   the repository and starts the phase.
 - `kiln locate-repository` answers that question from the command line, and `kiln status`
   lists it with the command to run.
+- **Merge with {agent}**: when every phase is done and the pull requests are open, one press
+  starts a session that brings the base branch in, resolves conflicts, runs the project's
+  checks, waits for GitHub's required checks and merges each pull request in order. The press
+  authorizes that delivery only. `kiln merge <PRD-path>` does the same.
+- **Exit Kiln** on a finished run's page closes Kiln without Ctrl+C, leaving pull requests,
+  branches, worktrees and records as they are. `kiln exit <PRD-path>` does the same.
+- A finished run whose pull request hasn't merged says it is waiting to merge, with
+  **Merged it yourself? Check now**. Once Kiln sees the merge it checks for new phases
+  itself, and the header reads **Merged** or **New phases found**. `kiln status` shows these
+  states and controls.
 
 ### Changed
 
 - Documents found shows each repository's address path and the folder its checkout is in, and
   its passed check reads "Repositories found on this computer". A full remote address or a
   path on one computer on a `**Repositories:**` line is now refused with the name to use.
+- A finished PRD whose documents gained phases afterwards offers one **Continue**, which
+  pushes the plan before building them, in place of reconciling the documents.
+  `kiln continue-with-phases` pushes too.
+- Closing audits are named **Delivery audit** and **Test audit** with **Loop n of limit**, and
+  the sessions fixing a test audit's findings read **Fixing tests**. "Round" and
+  "Continuation" no longer appear.
 
 ### Fixed
+
+- A finished run whose pull request hasn't merged no longer shows "Plan needs reconciliation".
 
 - When a restarted run's setup can't be finished and Kiln returns to Documents found, Ctrl+C
   no longer leaves that setup's `claude` account and skill reads running after Kiln exits.

@@ -140,7 +140,8 @@ describe("kiln run on a plan that names repositories by their address path", () 
     expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/storefront", folder: storefront })).toMatchObject({ status: 200 });
     const grey = (text: string) => `\x1b[38;2;140;133;119m${text}\x1b[39m`;
     const located = kiln.lines().find((line) => line.includes("Located acme-labs/storefront"))!;
-    const time = /^\x1b\[38;2;140;133;119m( ?\d+:\d\d  )\x1b\[39m/.exec(located)?.[1];
+    // eslint-disable-next-line no-control-regex -- the terminal's grey is an escape sequence
+    const time = /^\x1b\[38;2;140;133;119m( ?\d+:\d\d {2})\x1b\[39m/.exec(located)?.[1];
     expect(time).toBeDefined();
     expect(located).toBe(`${grey(time!)}Located acme-labs/storefront${grey(` at ${storefront}. Kiln will remember that on this computer.`)}`);
     kiln.signals.emit("SIGINT");

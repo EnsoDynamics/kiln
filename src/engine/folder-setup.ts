@@ -4,6 +4,8 @@
 // Starting lets Kiln list (AC-SAFE-01, 03, 04) and the identity Start compares. Everything here
 // only reads: the draft lives in the engine's memory until Start succeeds (AC-SAFE-01).
 
+import { mergeAllowedLine, NEVER_LINE, pushAllowedLine } from "./authority-statement.js";
+import { AGENT_NAMES } from "../state/records.js";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -204,7 +206,11 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
   const pauseFor = pauseCarried(context, selected, chosen);
   if (pauseFor) lets.push({ allowed: true, parts: [{ text: `Kiln will pause after Phase ${pauseFor} is Done` }] });
   for (const path of chosen.clearRecords) lets.push({ allowed: true, parts: [{ text: "Clear git’s record of the missing folder " }, { text: displayPath(path), tone: "code" }] });
-  lets.push({ allowed: false, parts: [{ text: early ? "Early merges only into approved repository branches; no unrelated or destructive actions" : "Never merge, deploy, or touch other branches" }] });
+  // After delivery, the merge and, in the PRD's repository, the plan push (Kiln After Delivery AC-MERGE-08).
+  lets.push({ allowed: true, parts: [{ text: mergeAllowedLine(AGENT_NAMES[record.settings.agentId]) }] });
+  const prdBase = chosen.repositories.find(repository => repository.kind === "prd")?.baseBranch ?? chosen.fields.baseBranch;
+  lets.push({ allowed: true, parts: [{ text: `${multi ? "In the PRD’s repository, p" : "P"}${pushAllowedLine(prdBase).slice(1)}` }] });
+  lets.push({ allowed: false, parts: [{ text: early ? "Early merges only into approved repository branches; no unrelated or destructive actions" : NEVER_LINE }] });
 
   const preview = { ...chosen.preview, lets };
   // Model and Effort as on Documents found: Model's field message, and the efforts the chosen model takes (AC-SETUP-01).

@@ -4,6 +4,7 @@
 // EventSource keeps retrying, and the first snapshot back restores the live view (technical
 // design, "Connection").
 
+import type { ExitNotice } from "../../../src/engine/engine.js";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
 import type { OutputLine, PartialText } from "../../../src/session/session-output.js";
 import type { PageConfig } from "./api.js";
@@ -18,6 +19,8 @@ export class Connection {
   connected = $state(false);
   /** A control result that must survive the screen changing. */
   notice = $state<string | undefined>(undefined);
+  /** Set once Kiln was exited (Kiln After Delivery AC-EXIT-02): the page says so and stops reconnecting. */
+  exited = $state<ExitNotice | undefined>(undefined);
   /** When the last event arrived, for "updated <n>s ago" and, once disconnected, "last seen". */
   lastEventAt = $state<number | undefined>(undefined);
   private source: EventSource | undefined;
@@ -44,6 +47,11 @@ export class Connection {
       const partial = JSON.parse((event as MessageEvent<string>).data) as PartialEvent;
       for (const listener of this.partialListeners) listener(partial);
       this.alive();
+    });
+    source.addEventListener("exited", (event) => {
+      this.exited = JSON.parse((event as MessageEvent<string>).data) as ExitNotice;
+      // Kiln is ending: no reconnecting, so the page never shows the disconnected banner.
+      this.close();
     });
     source.addEventListener("heartbeat", () => this.alive());
     source.addEventListener("error", () => this.lost());

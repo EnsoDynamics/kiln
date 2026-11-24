@@ -71,8 +71,8 @@ it("names each earlier delivery by its label (Phase 7)", () => {
 
 it("names the repository a continuation's preparation integrates in by its label (Phase 7)", () => {
   const preparation = { phaseId: "4", prerequisites: ["1"], repository: "acme-labs+admin", label: "acme-labs/admin", sourceRef: "wt/x", sourceRevision: "a1b2c3d", destination: "assigned_feature", checks: [], repositoryIdentity: "acme-labs/admin", baseBranch: "develop", baseRevision: "b2c3d4e", authorization: "phase_preparation", valid: true };
-  const check = { status: "available", attemptedAt: "2026-11-01T12:00:00Z", sources: [], errors: [], result: { added: [], leaves: [], source: { path: "docs/prds/customer-returns" }, proposal: { id: "p1", readiness: "ready", preparation: [preparation], problems: [], repositories: [], prerequisites: [], authorization: [], grantEligible: false } } } as unknown as Parameters<typeof CompletedPlanCheck>[1]["check"];
-  const words = text(render(CompletedPlanCheck, { props: { check, connected: true } }).body);
+  const check = { status: "available", attemptedAt: "2026-11-01T12:00:00Z", sources: [], errors: [], result: { added: [{ id: "4", title: "Restock", file: "phase-4-restock.md" }], leaves: [], uncommitted: [], source: { path: "docs/prds/customer-returns" }, proposal: { id: "p1", readiness: "ready", preparation: [preparation], problems: [], repositories: [], prerequisites: [], authorization: [], grantEligible: false } } } as unknown as Parameters<typeof CompletedPlanCheck>[1]["check"];
+  const words = text(render(CompletedPlanCheck, { props: { check, connected: true, prdDirectory: "docs/prds/customer-returns" } }).body);
   expect(words).toContain("Phase 4 preparation: integrate Phase 1 in acme-labs/admin from wt/x");
   expect(words).not.toContain("acme-labs+admin");
 });

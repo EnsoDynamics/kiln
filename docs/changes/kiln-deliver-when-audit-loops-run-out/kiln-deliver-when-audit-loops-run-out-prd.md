@@ -121,6 +121,7 @@ With nothing to decide at a limit, the loop stop and its controls go away, and t
 Every control on these screens that a person can press has a command a bot can run, as the controls Kiln already has do.
 
 - [ ] **AC-BOT-01 — Every control on these screens has a command.** Each control in the table can be used from the command line, and `kiln status` lists each among the controls with whether it is available and why not, as it does for the existing commands. Settings chosen before Start, and **Authorize early merges** before a continuation, stay in the browser, as today.
+  - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the command that continues with the offered phases also pushes this PRD's documents first, as Continue does, and `kiln check-for-new-phases` does what the card's Check now does).
 
   | On the page | From the command line |
   |---|---|

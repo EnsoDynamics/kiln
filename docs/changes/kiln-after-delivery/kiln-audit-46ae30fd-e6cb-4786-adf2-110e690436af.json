@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "executionId": "ae01ea9e-0f42-4945-a00d-2b01e33377c0",
+  "activityId": "46ae30fd-e6cb-4786-adf2-110e690436af",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Four of the 19 criteria are not fully built, with six missing parts. On the Merged card, the result of the check after the merge is not shown beside Exit Kiln. With early merges on, the phase count includes the Merge and Push the plan rows. When a closed pull request and an unreadable one occur together, the card never says GitHub could not be read. After Check now on a closed pull request, the header stops reading PR ready for review. kiln status calls the two new rows \"Phase merge\" and \"Phase plan-push-…\", and its text leaves out the message of the commit that added phases. Phase 5 is added to build them. Separately, the line about a finished phase whose document was edited later is deliberately not built while PLAN-001 is reopened.",
+  "completionPhases": ["5"],
+  "needsYou": [
+    {
+      "kind": "other",
+      "problem": "AC-BACK-01 still requires one quiet line when a finished phase's document is edited later. The build left the line out on purpose, because PLAN-001 reopened your 2026-11-21 ruling and proposes saying nothing. The code therefore departs from a criterion that records your ruling.",
+      "action": "Answer PLAN-001 in kiln-after-delivery-assumptions.md. Confirming silence means amending AC-BACK-01 to drop the line. Keeping your original ruling means adding a phase to build the line."
+    }
+  ],
+  "settled": []
+}

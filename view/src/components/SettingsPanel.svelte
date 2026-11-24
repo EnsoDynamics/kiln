@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { repositoriesStatement } from "../../../src/engine/authority-statement.js";
   // The PRD's settings while Kiln works, is paused or is disconnected (PRD AC-WATCH-07,
   // AC-VIEW-08): the model and effort for the next session, with Change; keep-awake, which
   // applies at once (AC-KEEP-07: closing the lid can still sleep); and the worktree, feature
@@ -98,7 +99,7 @@
       </div>
       <div class="more">
         <dt>In each repository</dt>
-        <dd>{snapshot.developmentDelivery?.authorization.enabled ? "Required early merges may reach approved repository branches. Remaining work stays open for review." : "Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It never merges, deploys, or touches other branches."}</dd>
+        <dd>{repositoriesStatement(snapshot.settings.agent, !!snapshot.developmentDelivery?.authorization.enabled)}</dd>
       </div>
     {:else}
       <div class="fixed">

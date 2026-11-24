@@ -22,10 +22,21 @@
     complete: { tone: "green", icon: "pull-request" },
   };
   const look = $derived(LOOKS[state.kind]);
+  // A finished run's check (Kiln After Delivery "Display Contract"): never "Plan needs reconciliation",
+  // and while the delivery waits to merge the check never changes the header. While a pull request is
+  // closed, only a check that finds new phases does: the header keeps PR ready for review (AC-MERGE-07).
+  const planCheckLabel = $derived.by(() => {
+    const check = snapshot.continuation?.check;
+    if (snapshot.feature.state !== "complete" || !check || snapshot.afterDelivery?.waiting || check.status === "awaiting_merge" || snapshot.afterDelivery?.merge && snapshot.afterDelivery.merge.state !== "done") return undefined;
+    if (snapshot.afterDelivery?.pullRequests.some(pull => pull.state === "closed")) return check.result?.added.length && check.status !== "checking" && check.status !== "failed" ? "New phases found" : undefined;
+    if (check.status === "checking") return "Checking for new phases";
+    if (check.status === "failed") return "Could not check for new phases";
+    return check.result?.added.length ? "New phases found" : undefined;
+  });
 </script>
 
 <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
-  <Pill tone={look.tone} icon={look.icon} spin={state.kind === "implementing" || state.kind === "pausing"} large>{snapshot.continuation?.acceptance?.state === "preparing" ? "Preparing additional work" : snapshot.continuation?.acceptance?.state === "blocked" ? "Preparation needs attention" : snapshot.feature.state === "complete" && snapshot.continuation?.check && !["unchanged", "awaiting_merge"].includes(snapshot.continuation.check.status) ? snapshot.continuation.check.status === "checking" ? "Checking for new phases" : snapshot.continuation.check.status === "failed" ? "Could not check for new phases" : snapshot.continuation.check.result?.added.length ? "New phases found" : "Plan needs reconciliation" : state.label}</Pill>
+  <Pill tone={look.tone} icon={look.icon} spin={state.kind === "implementing" || state.kind === "pausing"} large>{snapshot.continuation?.acceptance?.state === "preparing" ? "Preparing additional work" : snapshot.continuation?.acceptance?.state === "blocked" ? "Preparation needs attention" : planCheckLabel ?? state.label}</Pill>
   {#each state.facts as fact, index (index)}{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}<span class="fact">{fact}</span>{/each}
   {#if state.totals}
     <p class="totals"><span class="label">PRD total</span><span><b>{state.totals.running}</b> running</span><span class="dot" aria-hidden="true">·</span><span><b>{state.totals.waiting}</b> waiting</span><span class="dot" aria-hidden="true">·</span><span class="since">{state.totals.since}</span></p>

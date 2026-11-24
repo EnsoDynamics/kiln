@@ -166,7 +166,7 @@ Completion checks use the assigned worktrees' Git state and the audit and delive
 
 ### What Kiln may do with your code
 
-By default Kiln commits and pushes only to feature branches and leaves pull requests for your review. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may then merge there early when a PRD criterion needs deployment or verification, and the repository's existing CI/CD controls the deployment. Required checks and reviews still apply, and remaining work still ends in a review pull request. Other branches, separate release workflows and destructive actions stay unauthorized.
+By default Kiln commits and pushes only to feature branches and leaves pull requests for your review. It merges them only when you press **Merge with Claude Code** (or Codex) on the finished page, and pushes the PRD's documents to its base branch only when you press **Continue** there. Before Start or at Needs you, **Allow early merges** lets you approve a named repository and base branch for this run. Kiln may then merge there early when a PRD criterion needs deployment or verification, and the repository's existing CI/CD controls the deployment. Required checks and reviews still apply, and remaining work still ends in a review pull request. Other branches, separate release workflows and destructive actions stay unauthorized.
 
 ### Billing in brief
 

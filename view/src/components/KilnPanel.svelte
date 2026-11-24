@@ -1,9 +1,11 @@
 <script lang="ts">
   // The Kiln panel: whether the view is connected to the running Kiln, and what its terminal is
   // for (PRD AC-VIEW-07, AC-KEEP-01). Without a live Kiln it reads Disconnected, in amber.
+  import type { Snippet } from "svelte";
   import Icon from "./Icon.svelte";
 
-  let { connected, text }: { connected: boolean; text: string } = $props();
+  // `children`: Exit Kiln on a finished run (Kiln After Delivery AC-EXIT-01).
+  let { connected, text, children }: { connected: boolean; text: string; children?: Snippet } = $props();
   const parts = $derived(text.split("kiln run"));
 </script>
 
@@ -12,6 +14,7 @@
   {#if connected}
     <div class="status connected"><span class="tick"><Icon name="check" /></span>Connected</div>
     <p>{#each parts as part, index (index)}{#if index > 0}<span class="code-inline">kiln run</span>{/if}{part}{/each}</p>
+    {@render children?.()}
   {:else}
     <div class="status"><Icon name="warning" size={18} />Disconnected</div>
     <p>The browser cannot reach Kiln. Work may still be running. Controls come back after reconnecting.</p>

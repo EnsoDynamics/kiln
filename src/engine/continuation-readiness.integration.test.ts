@@ -55,7 +55,7 @@ it.skipIf(process.platform !== "darwin")("offers seven phases with local prepara
   expect(ready.result?.proposal).toMatchObject({ readiness: "ready", firstEligiblePhase: "9", preparation: [{ authorization: "phase_preparation", sourceRevision: revision }], prerequisites: expect.arrayContaining([{ phaseId: "8", status: "preparation_available", evidence: expect.any(Array) }]) });
   expect(ready.result?.added).toHaveLength(7);
   const terminal = formatDecisionLine({ kind: "complete" }, h.engine, terminalColors({}, {}));
-  expect(terminal).toContain("Readiness: Ready"); expect(terminal).toContain("First phase to run: Phase 9"); expect(terminal).toContain("7 new unfinished phases");
+  expect(terminal).toContain("7 phases were added to this PRD after Kiln finished it: 9, 10, 11, 12, 13, 14, 15"); expect(terminal).toContain("Run kiln continue-with-phases to build them."); expect(terminal).not.toContain("Continue isn't available yet");
   expect(ready.result?.leaves?.find(row => row.id === "8")?.classification).toBe("externally_unverified");
   const { startLocalServer } = await import("../server/local-server.js");
   const { launchChrome } = await import("../test-support/headless-chrome.js");
@@ -69,7 +69,7 @@ it.skipIf(process.platform !== "darwin")("offers seven phases with local prepara
         await page.waitFor("[...document.querySelectorAll('button')].some(b => b.textContent.includes('Check for new phases') && !b.disabled) && !document.body.innerText.includes('Showing earlier results.')");
         const text = await page.evaluate<string>("document.body.innerText");
         expect(text).toContain("First phase to run: Phase 9");
-        expect(text).toContain("7 new unfinished phases");
+        expect(text).toContain("7 phases were added to this PRD after Kiln finished it");
         expect(text.indexOf("Readiness: Ready")).toBeLessThan(text.indexOf("Earlier catalog delivery"));
         expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true);
         writeFileSync(`/tmp/kiln-comet-readiness-${width}.png`, await page.screenshot());

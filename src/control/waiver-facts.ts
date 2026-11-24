@@ -3,6 +3,7 @@
 // marked check results; nothing decides coverage, which belongs to `applyWaivers` alone.
 
 import { displayPath } from "../engine/worktree-setup.js";
+import { auditName, auditNameFacts } from "../audit/audit-names.js";
 import { activityKeyKind } from "../state/activity-keys.js";
 import type { AuditActivity } from "../audit/contracts.js";
 import type { CheckResult, PrdRecord } from "../state/records.js";
@@ -30,6 +31,8 @@ export interface ActivityWaivers {
 /** A row of the activity progress `kiln status` prints (the mockup's terminal blocks). */
 export interface ProgressRow extends ActivityWaivers {
   key: string; kind: string; label: string; title: string;
+  /** A session of test fixes: the test audit loop it works from and its session (Kiln After Delivery AC-AUDIT-01). */
+  fixing?: { loop?: number; session: number };
   state: "complete" | "running" | "needs_you" | "waiting" | "skipped" | "not_finished";
   status_label: string | null;
 }
@@ -116,11 +119,15 @@ function activityRowKind(key: string): string {
   return kind === "phase" ? "implementation" : kind;
 }
 
-function rowLabel(record: PrdRecord, key: string, kind: string): { label: string; title: string } {
+function rowLabel(record: PrdRecord, key: string, kind: string): { label: string; title: string; fixing?: { loop?: number; session: number } } {
   const audit = key.startsWith("audit-") ? record.completionAudits?.activities.find(a => `audit-${a.activityId}` === key) : undefined;
-  if (audit) return { label: audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit", title: `Round ${audit.round}${audit.continuationIndex > 1 ? ` · Continuation ${audit.continuationIndex}` : ""}` };
+  // An audit row is named for what it does; a session of test fixes also carries its loop and session (Kiln After Delivery AC-AUDIT-01, AC-BOT-02).
+  if (audit) { const facts = auditNameFacts(record, audit); const name = auditName(facts); return { label: name.title, title: name.line ?? "", ...(facts.fixing ? { fixing: facts.fixing } : {}) }; }
   if (key === "pr" || kind === "final_delivery") return { label: "Final delivery", title: "" };
   if (activityKeyKind(key) === "preflight") return { label: "Preflight", title: "" };
+  // The after-delivery rows read as the screens name them (Kiln After Delivery AC-BOT-02).
+  if (activityKeyKind(key) === "merge") return { label: "Merge", title: "" };
+  if (activityKeyKind(key) === "plan_push") return { label: "Push the plan", title: "" };
   return { label: `Phase ${key}`, title: record.plan?.find(p => p.id === key)?.title ?? "" };
 }
 

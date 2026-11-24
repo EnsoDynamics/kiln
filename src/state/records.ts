@@ -20,10 +20,10 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 import { assertPreflightState } from "../engine/preflight.js";
-import { preflightKey } from "./activity-keys.js";
+import { MERGE_KEY, preflightKey } from "./activity-keys.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -73,7 +73,9 @@ export function assertAgent(agent: unknown): asserts agent is AgentId {
 }
 
 /** `preflight`: a preflight that reported items stops on its key (build preflight "The Preflight Stop"). */
-export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight";
+/** `merge_check`: a merge session ended with a pull request GitHub does not show merged (Kiln After Delivery AC-MERGE-06). */
+/** `plan_push_check`: a push session ended with the plan not in the remote base branch (AC-BACK-05). */
+export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight" | "merge_check" | "plan_push_check";
 
 export interface CheckResult {
   name: string;
@@ -133,7 +135,7 @@ export interface PhaseStop {
    * complete the run with no pull request session.
    */
   holdLeadsTo?: "pull_request_session" | "complete";
-  /** Each question the stop asks about a repository Kiln couldn't place (find repositories anywhere AC-ASK-07; schema 25). */
+  /** Each question the stop asks about a repository Kiln couldn't place (find repositories anywhere AC-ASK-07; schema 26). */
   locate?: SavedQuestion[];
 }
 
@@ -304,7 +306,7 @@ export interface RepositoryEntry {
   name: string;
   /**
    * Its short name, kept only when it differs from `name`, which is then the whole-path form
-   * (find repositories anywhere AC-FOLDER-01, schema 25).
+   * (find repositories anywhere AC-FOLDER-01, schema 26).
    */
   shortName?: string;
   kind: RepositoryKind;
@@ -369,6 +371,13 @@ export interface PrdRecord {
   preparation?: import("../engine/preparation-state.js").PreparationState;
   continuation?: import("../engine/continuation-state.js").ContinuationState;
   completedPlanCheck?: import("../engine/completed-plan-discovery.js").CompletedPlanCheck;
+  /** What GitHub last showed of a finished run's pull requests (schema 25; Kiln After Delivery "The Delivery Reading"). */
+  afterDelivery?: import("../engine/delivery-reading.js").AfterDeliveryState;
+  /**
+   * The retained baseline Continue activated this execution with (schema 25; Kiln After Delivery
+   * "The Plan Check", step 3): its completions with no waiver are this execution's carried-finished set.
+   */
+  continuationBaselineId?: string;
   liveControl?: { version: 1; revision: number; takeover: import("../live/target.js").TakeoverHold };
   planReconciliation?: import("../engine/plan-reconciliation.js").PlanReconciliationState;
   controlEpoch?: string;
@@ -553,7 +562,7 @@ export interface SessionRecord {
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
-  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight";
+  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight" | "merge" | "plan_push";
   createdAt: string;
   /** The chosen alias, as passed to --model. */
   model: string;
@@ -652,7 +661,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -716,6 +725,11 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.schemaVersion < 24) migrateLoops(record);
   assertAuditLoopSettings(record.settings.auditLoops);
   assertLedger(record.auditLoops);
+  // Schema 25: a check result saved under the old rules is dropped, so no stale "Plan needs reconciliation"
+  // or waiting panel renders before the first new check (Kiln After Delivery "Data Models and Upgrade").
+  if (record.schemaVersion < 25) delete record.completedPlanCheck;
+  // Schema 26 adds a repository's optional `shortName` (find repositories anywhere "Data Models"); every earlier entry was named by folder, so it is read as it was.
+  if (record.continuationBaselineId !== undefined && !/^[a-f0-9]{64}$/.test(record.continuationBaselineId)) throw new Error("Malformed continuation baseline reference.");
   // Schema 23 adds `preflight`; a record from earlier has none, so its preflight is not settled (build preflight "Upgrade").
   assertPreflightState(record.preflight);
   // Schema 20 adds `planReadAt`, written with the next plan read; the migration leaves it unset.
@@ -837,5 +851,6 @@ export function sessionStorageKey(record: Pick<SessionRecord, "kind" | "phaseId"
     if (!record.activityId || !/^[a-zA-Z0-9-]+$/.test(record.activityId)) throw new Error("Preflight session needs a safe activity identity.");
     return preflightKey(record.activityId);
   }
+  if (record.kind === "merge") return MERGE_KEY;
   return record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId;
 }

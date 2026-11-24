@@ -30,6 +30,8 @@ export interface ContinuationAcceptance {
   pendingAuthorityId?: string; authorization?: import("../state/development-delivery.js").DevelopmentAuthorization;
   settings: PrdRecord["settings"]; canonicalWorkspace: string; repositories: RepositoryEntry[];
   state: "preparing" | "blocked" | "active" | "superseded"; reason?: string; activatedAt?: string;
+  /** The push of the plan this build follows (Kiln After Delivery, "Data Models"): its row shows Done before the first added phase. */
+  planPushKey?: string;
 }
 export interface AcceptanceSummary {
   id: string; commandId: string; proposalId: string; completedExecutionId: string; newExecutionId: string;

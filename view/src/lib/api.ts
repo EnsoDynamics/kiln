@@ -143,6 +143,18 @@ async function sendHandBack(config: PageConfig, target: PhaseRecoveryTarget, act
 
 const continuationCommands = new WeakMap<PageConfig, Map<string, { commandId: string; statusToken: string }>>();
 /** A lost response retries the exact displayed proposal and original command identity. */
+/**
+ * The check for new phases on a finished run (Kiln After Delivery AC-WAIT-02): the page's one request
+ * when it loads, or a person's Check now or Check for new phases (`press`). Answers the check, or why not.
+ */
+export async function checkForNewPhases(config: PageConfig, press: boolean): Promise<{ check?: import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck; reason?: string }> {
+  const response = await fetch("/api/continuation/check", { method: "POST", headers: { "Content-Type": "application/json", "X-Kiln-Token": config.token }, body: press ? JSON.stringify({ press: true }) : "{}" });
+  const answer = await response.json() as { check?: import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck; reason?: string; controlToken?: string };
+  // The answer is shown before the next snapshot arrives, so it brings the status token that goes with it.
+  if (typeof answer.controlToken === "string") config.controlToken = answer.controlToken;
+  return answer;
+}
+
 export async function continueFeature(config: PageConfig, executionId: string, key: { proposalId: string } | { acceptanceId: string }): Promise<CommandAnswer> {
   if (!config.controlToken) return { ok: false, reason: "Wait for a current status before continuing." };
   let commands = continuationCommands.get(config);
@@ -190,3 +202,6 @@ export async function newerVersion(config: PageConfig): Promise<string | undefin
     return undefined;
   }
 }
+export const merge = (config: PageConfig) => send(config, "POST", "/api/merge");
+/** Exit Kiln on a finished run (Kiln After Delivery AC-EXIT-02): answered once its receipt settles; the page then hears `exited`. */
+export const exitKiln = (config: PageConfig) => send(config, "POST", "/api/exit");

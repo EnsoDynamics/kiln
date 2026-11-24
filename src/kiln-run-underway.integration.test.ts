@@ -260,14 +260,14 @@ describe("kiln run on a feature underway", () => {
 
   it("shows a completed feature and automatically backfills delivery history without starting a session", async () => {
     harness = await createHarness({ sessions: [landingSession("a"), landingSession("b"), landingSession("c"), pullRequestSession(218)] });
-    const h = harness;
+    const h = harness; h.useGithubOrigin();
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     const ghCalls = h.ghCalls().length;
     const modelCalls = h.claudeCalls().length;
     const completedAt = h.engine.record.completedAt;
     const pullRequests = structuredClone(h.engine.record.pullRequests);
-    const result = await kilnRunUntil(h, (stdout) => stdout.includes("Merge it, then check again."), async () => {
+    const result = await kilnRunUntil(h, (stdout) => stdout.includes("It checks as soon as it confirms the merge."), async () => {
       await waitFor(() => readPrdRecord(h.stateDirectory)?.deliveryHistory !== undefined, 10_000);
       const record = readPrdRecord(h.stateDirectory)!;
       expect(record.completedAt).toBe(completedAt);
@@ -275,18 +275,20 @@ describe("kiln run on a feature underway", () => {
       expect(record.deliveryHistory?.repositories[0]?.workCommitCount).toBe(3);
     });
     const lines = result.stdout.trimEnd().split("\n");
-    // The pull request is still open and develop's copy of the PRD folder is unchanged since the
-    // branch forked, so the check reports the feature as waiting for its merge, not a plan to reconcile.
+    // GitHub shows the pull request still open, so the terminal gives the card's waiting sentence, never a plan to reconcile (Kiln After Delivery AC-WAIT-01, AC-WAIT-02).
     expect(lines[0]).toBe("Customer returns  ·  4 of 4 phases done  ·  earlier delivery complete; current plan checked");
-    expect(lines[1]).toContain("The feature is complete. Its work is on feature/customer-returns (pull request #218), which is not in origin/develop yet");
+    expect(lines[1]).toContain("New phases: Kiln can check for them once #218 has merged into develop. It checks as soon as it confirms the merge.");
     expect(lines[1]).not.toContain("Plan needs reconciliation");
     expect(lines[1]).not.toContain("No new phases found");
     expect(lines[1]).toMatch(new RegExp(`${opened}$`));
     expect(lines[2]).toBe("Kiln stopped. Customer returns is complete.");
     expect(result.exitCode).toBe(130);
     expect(h.claudeCalls()).toHaveLength(modelCalls);
-    expect(h.ghCalls().slice(ghCalls)).toHaveLength(3);
-    expect(h.ghCalls().slice(ghCalls).every(args => args[0] === "api" && args.some(arg => arg.includes("/commits/") && arg.endsWith("/pulls?per_page=100")))).toBe(true);
+    // One reading of the pull request, then the delivery history's three commit reads.
+    const calls = h.ghCalls().slice(ghCalls);
+    expect(calls.filter(args => args[0] === "pr" && args[1] === "view")).toEqual([["pr", "view", "218", "--repo", "github.com/acme/acme-shop", "--json", "number,state,mergedAt,mergeCommit,headRefOid,baseRefName,mergeable,mergeStateStatus,body"]]);
+    expect(calls.filter(args => args[0] === "api" && args.some(arg => arg.includes("/commits/") && arg.endsWith("/pulls?per_page=100")))).toHaveLength(3);
+    expect(calls).toHaveLength(4);
   });
 });
 

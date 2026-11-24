@@ -144,7 +144,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     // Kiln captures what the audit left behind; the session never declares a snapshot (AC-NEUTRAL-02).
     const current = await captureSnapshot({ ...context, activity, now: new Date().toISOString() });
     activity.snapshots.push(store.put(current)); snapshotId = current.id;
-    const outstanding = personItems(context.stateDirectory, context.record.completionAudits!.activities, activity.sequence, store).outstanding;
+    const outstanding = personItems(context.stateDirectory, context.record, activity.sequence, store).outstanding;
     const validated = validateReport(raw, { record: context.record, activity, initial: store.read<WorkSnapshot>(activity.snapshots[0]!), current, outstanding, waivers: context.record.waivers ?? [] });
     checks.push({ name: RESULT_CHECK, passed: true, facts: [`Outcome ${validated.report.outcome}: ${validated.report.summary}`.slice(0, 600)] });
     checks.push(...await repositoryChecks(context));

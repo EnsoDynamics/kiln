@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Phase Model Tiers mockup: 1. Before Start: Documents found</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.circle{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;box-sizing:border-box;border:1px dashed rgba(237,232,221,.24);color:#8c8577}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.strong{border-color:rgba(237,232,221,.4);color:#ede8dd;font-weight:500}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.info{display:inline-flex;align-items:center;justify-content:center;width:44px;height:28px;margin:-4px -12px;border:0;background:transparent;color:#bdb6a8;cursor:pointer}
+.sel{height:40px;padding:0 10px;border-radius:10px;border:1px solid rgba(237,232,221,.18);background:#12110e;color:#ede8dd;font:inherit;font-size:14px;box-sizing:border-box;width:100%}
+.lab{font-size:12.5px;color:#8c8577}
+</style>
+<style>
+.mock-note{margin:0;padding:14px 32px;background:#0d0c0a;border-bottom:1px solid rgba(237,232,221,.18);font-size:14px;color:#bdb6a8;line-height:1.5}
+.mock-note strong{color:#ede8dd;font-weight:600}
+</style>
+</head>
+<body>
+<p class="mock-note"><strong>1. Before Start: Documents found.</strong> Every phase shows its tier and the model it will run on, with Change. Phase 2's tier reason is open, and phase 4's model editor is open. The fallback is off. Covers AC-TIER-02, AC-PICK-01, AC-PICK-03, AC-OTHER-01, AC-FALLBACK-01 and AC-KEEP-01.</p>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>PRD folder <span class="mono" style="color: #ede8dd">docs/prds/customer-returns/</span></span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">Customer returns</h1>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px"><span style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(237,232,221,.4); font-size: 14px; font-weight: 600">Not started</span><span style="color: #bdb6a8">Review what Kiln found and how it will deliver, then start.</span></div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+<section class="card" aria-labelledby="found-h" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+<h2 id="found-h" class="eyebrow">What Kiln found</h2>
+
+<div style="display: flex; flex-direction: column; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">PRD</span><span class="mono" style="font-size: 12.5px; color: #8c8577">customer-returns-prd.md</span><span style="font-size: 13.5px; color: #bdb6a8">31 acceptance criteria</span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">Technical design</span><span class="mono" style="font-size: 12.5px; color: #8c8577">technical-design.md</span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline"><span style="font-weight: 500">Assumptions</span><span class="mono" style="font-size: 12.5px; color: #8c8577">assumptions.md</span><span style="font-size: 13.5px; color: #bdb6a8">4 unconfirmed</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px"><span style="font-weight: 500">Phase plan <span class="mono" style="font-size: 12.5px; color: #8c8577; font-weight: 400; margin-left: 8px">5 phase docs</span></span><span style="font-size: 13px; color: #8c8577">Each phase runs on the model shown</span></div>
+
+<ol style="list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span class="circle mono">PF</span>
+<span style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 500; color: #bdb6a8">Preflight</span></span>
+<span style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px"><span style="font-size: 13.5px; color: #bdb6a8">Claude Code · Opus 5.5 · high</span></span>
+</li>
+
+<li style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span class="circle mono">1</span>
+<span style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span style="font-size: 16px; font-weight: 500">Return intake</span><span class="tag">Standard<button type="button" class="info" aria-label="What standard means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="mono" style="font-size: 12.5px; color: #8c8577">phase-1-return-intake.md</span></span>
+<span style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px"><span style="font-size: 13.5px; color: #bdb6a8">Claude Code · Opus 5.5 · medium</span><button type="button" class="btn">Change</button></span>
+</li>
+
+<li style="position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span class="circle mono">2</span>
+<span style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span style="font-size: 16px; font-weight: 500">Card refunds</span><span class="tag strong">Demanding<button type="button" class="info" aria-label="Why this phase is demanding" aria-expanded="true"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="mono" style="font-size: 12.5px; color: #8c8577">phase-2-card-refunds.md</span></span>
+<span style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px"><span style="font-size: 13.5px; color: #bdb6a8">Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span>
+<div role="tooltip" style="position: absolute; left: 50px; top: 62px; z-index: 2; width: 340px; max-width: calc(100% - 50px); box-sizing: border-box; padding: 14px 16px; border-radius: 12px; background: #0d0c0a; border: 1px solid rgba(237,232,221,.24); box-shadow: 0 12px 32px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 13px; font-weight: 600">Why this phase is demanding</span>
+<span style="font-size: 13px; color: #bdb6a8; line-height: 1.5">AC-REF-04 requires one refund when the payment provider retries (repeated work; money).</span>
+<span style="font-size: 12.5px; color: #8c8577">From the phase document's Model tier line.</span>
+</div>
+</li>
+
+<li style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span class="circle mono">3</span>
+<span style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span style="font-size: 16px; font-weight: 500">Store credit</span><span class="tag">Standard<button type="button" class="info" aria-label="What standard means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="mono" style="font-size: 12.5px; color: #8c8577">phase-3-store-credit.md</span></span>
+<span style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px"><span style="font-size: 13.5px; color: #bdb6a8">Claude Code · Opus 5.5 · medium</span><button type="button" class="btn">Change</button></span>
+</li>
+
+<li style="display: flex; flex-direction: column; gap: 14px; padding: 14px 0; border-bottom: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px">
+<span class="circle mono">4</span>
+<span style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span style="font-size: 16px; font-weight: 500">Return labels for three more carriers</span><span class="tag">Mechanical<button type="button" class="info" aria-label="Why this phase is mechanical"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="mono" style="font-size: 12.5px; color: #8c8577">phase-4-more-carrier-labels.md</span></span>
+<span style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px"><span style="font-size: 13.5px; color: #bdb6a8">Claude Code · Sonnet 5.5 · high</span><button type="button" class="btn" aria-expanded="true">Done</button></span>
+</div>
+<div style="margin-left: 50px; padding: 16px; border-radius: 12px; border: 1px solid rgba(237,232,221,.18); display: flex; flex-direction: column; gap: 14px">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px">
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Agent</span><select class="sel"><option selected>Claude Code</option><option>Codex</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Model</span><select class="sel"><option>Fable 5.2</option><option>Opus 5.5</option><option selected>Sonnet 5.5</option><option>Haiku 5.5</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 6px"><span class="lab">Effort</span><select class="sel"><option>Low</option><option>Medium</option><option selected>High</option><option>Extra high</option><option>Max</option></select></label>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px"><span style="font-size: 12.5px; color: #8c8577">Sonnet at high effort is your default for mechanical phases.</span><a href="#" style="font-size: 13px">Use the default</a></div>
+</div>
+</li>
+
+<li style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 14px 0">
+<span class="circle mono">5</span>
+<span style="flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span style="font-size: 16px; font-weight: 500">Returns report</span><span class="tag" style="border-style: dashed">Not rated<button type="button" class="info" aria-label="What not rated means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="mono" style="font-size: 12.5px; color: #8c8577">phase-5-returns-report.md</span></span>
+<span style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px"><span style="font-size: 13.5px; color: #bdb6a8">Claude Code · Opus 5.5 · medium</span><button type="button" class="btn">Change</button></span>
+</li>
+</ol>
+</div>
+</section>
+
+<section class="card" aria-labelledby="how-h" style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+<h2 id="how-h" class="eyebrow">How Kiln will deliver it</h2>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span class="lab">Models</span>
+<span style="font-size: 14.5px">Chosen for each phase</span>
+<span style="font-size: 12.5px; color: #8c8577; line-height: 1.5">1 demanding, 2 standard, 1 mechanical, 1 not rated. Change any phase in the plan.</span>
+<a href="kiln-phase-model-tiers-4-model-defaults.html" style="font-size: 13px; margin-top: 2px">Model defaults</a>
+</div>
+
+<div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12)">
+<div style="display: flex; flex-direction: column; gap: 3px; min-width: 0"><span class="lab">Audits</span><span style="font-size: 14.5px">Claude Code · Opus 5.5 · high</span><span style="font-size: 12.5px; color: #8c8577; line-height: 1.5">The preflight and the pull request session use it too.</span></div>
+<button type="button" class="btn">Change</button>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 3px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12)">
+<span class="lab">If usage is nearly out</span>
+<span style="font-size: 14.5px">Wait for the limit</span>
+<span style="font-size: 12.5px; color: #8c8577; line-height: 1.5">No fallback is switched on. Set one up in <a href="kiln-phase-model-tiers-4-model-defaults.html">Model defaults</a>.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 3px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12)">
+<span class="lab">Billing</span>
+<span style="font-size: 14.5px">Claude subscription</span>
+<span style="font-size: 12.5px; color: #8c8577">alex@example.com</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 3px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12)">
+<span class="lab">Feature branch</span>
+<span class="mono" style="font-size: 13px">feature/customer-returns</span>
+<span style="font-size: 12.5px; color: #8c8577">Branches from, and opens one PR into, <span class="mono">develop</span></span>
+</div>
+
+<label style="display: flex; align-items: flex-start; gap: 10px; padding-top: 16px; border-top: 1px solid rgba(237,232,221,.12); font-size: 14px; cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin: 2px 0 0; accent-color: #e2694f"><span>This PRD has been refined</span></label>
+<button type="button" style="min-height: 48px; border-radius: 999px; border: 1px solid #ede8dd; background: #ede8dd; color: #12110e; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer">Start</button>
+</section>
+
+</div>
+</main>
+</div>
+</body>
+</html>

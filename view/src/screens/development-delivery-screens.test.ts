@@ -13,7 +13,7 @@ describe("current execution development setting",()=>{
     const html=page(false);expect(html).toContain("Allow early merges");expect(html).toContain("existing CI/CD may run before the PRD finishes");const option=html.match(/<label\b[^>]*>(?:(?!<\/label>)[\s\S])*Allow early merges(?:(?!<\/label>)[\s\S])*<\/label>/)?.[0];expect(option).toBeDefined();expect(option).not.toContain('checked=""');
   });
   it("identifies the actual repository and base branch for early merges",()=>{
-    const html=page(true);expect(html).toContain("github.com/acme/acme-shop");expect(html).toContain("May merge into");expect(html).toContain("Early merges may happen on approved repository branches");expect(html).not.toContain("Never merge, deploy, or touch other branches");
+    const html=page(true);expect(html).toContain("github.com/acme/acme-shop");expect(html).toContain("May merge into");expect(html).toContain("Early merges may happen on approved repository branches");expect(html).not.toContain("Never merge, deploy, or touch other branches");expect(html).toContain("Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page");expect(html).toContain("documents to develop only when you press Continue on the finished page");
   });
 });
 
@@ -100,11 +100,13 @@ it.each([false, true])("shows exact saved authority in ongoing settings for mult
   expect(html).toContain("Early merges allowed");
   expect(html).toContain("github.com/acme/returns-api · develop · Existing scope: returns-api-dev");
   expect(html).toContain("Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes");
-  expect(html).not.toContain("never merges, deploys");
+  expect(html).not.toContain("never deploys or touches other branches");
   expect(html).toContain(multi ? "Required early merges may reach approved repository branches" : "approved early merges and any remaining review PRs target");
+  // With early merges on, the merge and the plan push are still stated (Kiln After Delivery AC-MERGE-08).
+  if (multi) expect(html).toContain("Remaining work stays open for review, and Kiln merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page. In the PRD’s repository, it pushes this PRD’s documents to its base only when you press Continue there.");
   const restricted = words(runningPage(multi ? runningRepositoriesSnapshot() : runningSnapshot()));
   expect(restricted).not.toContain("Early merges allowed");
-  expect(restricted).toContain(multi ? "It never merges, deploys, or touches other branches" : "one PR into");
+  expect(restricted).toContain(multi ? "never deploys or touches other branches" : "one PR into");
 });
 
 it.each(["Merging", "Deploying", "Verifying", "Implementing"])("renders observed %s activity independently of historical Push and Follow-up", label => {

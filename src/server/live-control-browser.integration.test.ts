@@ -62,14 +62,14 @@ it.each([1200, 390])("shows the Now and After choices, exact target, and the pau
     expect(JSON.parse(server.commands.find(c => c.startsWith("POST /api/live/cancel-take-over"))!.slice("POST /api/live/cancel-take-over ".length))).toMatchObject({ target, takeoverInstructionId: "i" });
   } finally { await page.close(); await server.close(); }
 });
-it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery audit · Round 3", width: 390 }, { label: "Test audit · Round 2", width: 1200 }, { label: "Test audit · Round 2", width: 390 }])("names $label throughout the paused page at $width and keeps its command once paused, whatever later readings find", async ({ label, width }) => {
+it.each([{ label: "Delivery audit loop 3", width: 1200 }, { label: "Delivery audit loop 3", width: 390 }, { label: "Test audit loop 2", width: 1200 }, { label: "Test audit loop 2", width: 390 }])("names $label throughout the paused page at $width and keeps its command once paused, whatever later readings find", async ({ label, width }) => {
   const snapshot = needsYouMessageSnapshot(); const stop = snapshot.needsYou!;
   const auditTarget = { ...target, activityKey: "audit-activity", sessionId: stop.sessionId! };
-  const [title, round] = label.split(" · Round ") as [string, string];
+  const [title, round] = label.split(" loop ") as [string, string];
   const name = title.toLowerCase();
   // Only the held audit is stopped; the fixture's stopped phase 2b is otherwise unfinished, as it would be.
   snapshot.phases = snapshot.phases.map(p => p.id === "2b" ? { ...p, state: "planned" } : p);
-  snapshot.activities = [...snapshot.phases, { ...snapshot.phases.find(p => p.id === "2b")!, id: auditTarget.activityKey, kind: title.startsWith("Delivery") ? "delivery_audit" : "test_audit", title, round: Number(round), state: "needs_you" }];
+  snapshot.activities = [...snapshot.phases, { ...snapshot.phases.find(p => p.id === "2b")!, id: auditTarget.activityKey, kind: title.startsWith("Delivery") ? "delivery_audit" : "test_audit", title, round: Number(round), loops: [{ kind: title.startsWith("Delivery") ? "delivery" as const : "test" as const, number: Number(round), limit: 4 }], state: "needs_you" }];
   stop.phaseId = auditTarget.activityKey;
   stop.phaseRecovery = { target: { executionId: "execution", phaseKey: auditTarget.activityKey, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: auditTarget }, completion: "incomplete" };
   snapshot.liveControl = { target: auditTarget, label, observedAt: stop.stoppedAt, available: false, reason: "Paused.",
@@ -87,7 +87,7 @@ it.each([{ label: "Delivery audit · Round 3", width: 1200 }, { label: "Delivery
       `When you’re done, exit Claude and press Resume. If you finished ${name} there, Kiln sees that and offers to move on instead.`,
       "No special handoff phrase is needed.", "record those decisions in the requirements before you exit",
     ]) expect(text).toContain(expected);
-    expect(await page.evaluate("document.querySelector('.paused-card .eyebrow').textContent")).toBe(`Paused partway · ${name} · round ${round}`);
+    expect(await page.evaluate("document.querySelector('.paused-card .eyebrow').textContent")).toBe(`Paused partway · ${name} loop ${round}`);
     expect(await page.evaluate(copy)).toBe(true);
     // No checks on the paused page (PAUSE-004).
     expect(await page.evaluate(`document.querySelector('ul.checks')`)).toBeNull();
@@ -150,7 +150,7 @@ it("explains Claude-only live controls for running Codex while preserving deferr
   } finally { await page.close(); await server.close(); }
 });
 
-it.each(["Phase 2b", "Delivery audit · Round 3", "Test audit · Round 2"].flatMap(label => [1200, 390].map(width => ({ label, width }))))("explains the deferred pause under a released delivery-recovery hold for $label at $width and retains separate cancellation", async ({ label, width }) => {
+it.each(["Phase 2b", "Delivery audit loop 3", "Test audit loop 2"].flatMap(label => [1200, 390].map(width => ({ label, width }))))("explains the deferred pause under a released delivery-recovery hold for $label at $width and retains separate cancellation", async ({ label, width }) => {
   const snapshot = needsYouMessageSnapshot(); const stop = snapshot.needsYou!;
   const audit = label.includes("audit");
   const liveTarget = { ...target, activityKey: audit ? "audit-activity" : "2b", sessionId: stop.sessionId! };
@@ -180,15 +180,15 @@ it.each(["Phase 2b", "Delivery audit · Round 3", "Test audit · Round 2"].flatM
   } finally { await page.close(); await server.close(); }
 });
 
-it.each(["Phase 2b", "Delivery audit · Round 3", "Test audit · Round 2"].flatMap(label => [1200, 390].map(width => ({ label, width }))))("shows only a pending end-of-activity pause and its cancel once Pause now has paused $label at $width", async ({ label, width }) => {
+it.each(["Phase 2b", "Delivery audit loop 3", "Test audit loop 2"].flatMap(label => [1200, 390].map(width => ({ label, width }))))("shows only a pending end-of-activity pause and its cancel once Pause now has paused $label at $width", async ({ label, width }) => {
   const snapshot = needsYouMessageSnapshot(); const stop = snapshot.needsYou!;
   const audit = label.includes("audit");
-  const [title, round] = label.split(" · Round ") as [string, string | undefined];
+  const [title, round] = label.split(" loop ") as [string, string | undefined];
   const key = audit ? "audit-activity" : "2b";
-  // The pause panel names an audit with its round (AC-PAUSE-01).
+  // The pause panel names an audit with its loop (AC-PAUSE-01, Kiln After Delivery AC-AUDIT-01).
   const name = audit ? label.toLowerCase() : "phase 2b";
   const liveTarget = { ...target, activityKey: key, sessionId: stop.sessionId! };
-  if (audit) snapshot.activities = [...snapshot.phases, { ...snapshot.phases.find(p => p.id === "2b")!, id: key, kind: title.startsWith("Delivery") ? "delivery_audit" : "test_audit", title, round: Number(round), state: "needs_you" }];
+  if (audit) snapshot.activities = [...snapshot.phases, { ...snapshot.phases.find(p => p.id === "2b")!, id: key, kind: title.startsWith("Delivery") ? "delivery_audit" : "test_audit", title, round: Number(round), loops: [{ kind: title.startsWith("Delivery") ? "delivery" as const : "test" as const, number: Number(round), limit: 4 }], state: "needs_you" }];
   stop.phaseId = key;
   snapshot.pause.pending = false;
   stop.phaseRecovery = { target: { executionId: "execution", phaseKey: key, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt, live: liveTarget }, completion: "incomplete" };

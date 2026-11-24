@@ -346,6 +346,8 @@ Superseded in part by: `docs/changes/kiln-development-deployments/kiln-developme
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (waivable checks, `waivedHead`).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Prompts (where the pull requests must merge in an order, each description ends with the line `Merge order: N of M`).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §The pull-request check, §The prompts (pull-request session), §Where a Feature Stands (engine loop's check before the session)
 
 **Which repositories.** Every repository whose feature branch tip, read locally, differs from its `baseCommit`, or whose recorded phase receipts show a pushed commit different from that base. A later branch reset or deletion cannot remove an already changed repository from the completion check. The PRD's repository always qualifies once a phase has closed (PR-001).
@@ -504,6 +506,8 @@ Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audi
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (enabled permission, recovery and completion presentation). Restricted execution behavior remains in force.
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Display Contract (Documents found and the run's settings gain the **Audit loops** section, and a loop stop gets its own page; the rest of each layout remains).
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Display Contract (the pull request card carries the merge offer and note, the conflict mark, each pull request's state on GitHub, the merge session and the Merged card).
 
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot ("Needs you on screen", Disconnected rules, Settings and each phase's model)
 

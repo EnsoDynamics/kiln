@@ -24,7 +24,7 @@
   import RequestQuestions from "../components/RequestQuestions.svelte";
   import { carryOn, reopenCheckAgain, resumePhase } from "../lib/api.js";
   import type { PhaseRecoveryPage } from "../lib/phase-recovery-page.js";
-  import { capitalized, phaseName, shortQuote } from "../lib/progress.js";
+  import { capitalized, phaseName, rowAuditName, shortQuote } from "../lib/progress.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
 
@@ -48,7 +48,7 @@
   const shown = $derived(reviewing ? "review" : pauseNow.phase === "pausing" ? "pausing" : heldCarryOn ? "carry" : "card");
   const busy = $derived(!!page.pending || !!stop.checking || !connected || !!live.reviewRequired?.length);
   const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
-  const eyebrow = $derived(isAudit ? `Paused partway · ${name} · round ${row?.round ?? 1}` : `Paused partway · phase ${id} of ${snapshot.feature.phasesTotal}`);
+  const eyebrow = $derived(isAudit ? `Paused partway · ${row && (row.kind === "delivery_audit" || row.kind === "test_audit") ? rowAuditName(row).sentence : name}` : `Paused partway · phase ${id} of ${snapshot.feature.phasesTotal}`);
   const circle = $derived(row?.kind === "delivery_audit" ? "DA" : row?.kind === "test_audit" ? "TA" : id);
   const terminalInUse = $derived(pauseNow.obstacle?.code === "terminal_in_use");
   const outputLink = $derived(phasePath(config.base, id));
