@@ -70,15 +70,15 @@ function createFeature(lines: Record<string, string>, code: Record<string, strin
   return feature;
 }
 
-function startKiln(f: Feature) {
+function startKiln(f: Feature, options: { colors?: boolean } = {}) {
   let stdout = "";
   const signals = new EventEmitter();
   let resolveAddress!: (address: string) => void;
   const address = new Promise<string>((resolve) => (resolveAddress = resolve));
   const done = runKilnCommand(["run", `docs/prds/${FOLDER}/`], {
     cwd: f.product,
-    env: f.env,
-    stdout: { write: (text: string) => (stdout += text) },
+    env: options.colors ? { ...f.env, NO_COLOR: "" } : f.env,
+    stdout: { write: (text: string) => (stdout += text), ...(options.colors ? { isTTY: true } : {}) },
     stderr: { write: (text: string) => (stdout += text) },
     signals,
     openBrowser: async () => ({ kind: "opened" as const }),
@@ -127,6 +127,26 @@ const snapshotOf = async (address: string, token: string) => (await api(address,
 const recordOf = (f: Feature): PrdRecord => readPrdRecord(prdStateDirectory(stateRoot(f.env), f.product, "product", `docs/prds/${FOLDER}`))!;
 
 describe("kiln run on a plan that names repositories by their address path", () => {
+  it("prints the Located line in the drawing's colours: the address path plain, the rest grey (AC-SEE-04)", async () => {
+    const f = createFeature(
+      { "phase-1-return-intake.md": "**Repositories:** acme/returns-api", "phase-3-returns-dashboard.md": "**Repositories:** acme-labs/storefront, returns-api" },
+      { "acme/returns-api": "home/code/acme/returns-api", "acme-labs/storefront": "volumes/work/storefront" },
+    );
+    const storefront = join(f.sandbox.root, "volumes", "work", "storefront");
+    const kiln = startKiln(f, { colors: true });
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    await waitFor(() => kiln.lines().length >= 2);
+    expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/storefront", folder: storefront })).toMatchObject({ status: 200 });
+    const grey = (text: string) => `\x1b[38;2;140;133;119m${text}\x1b[39m`;
+    const located = kiln.lines().find((line) => line.includes("Located acme-labs/storefront"))!;
+    const time = /^\x1b\[38;2;140;133;119m( ?\d+:\d\d  )\x1b\[39m/.exec(located)?.[1];
+    expect(time).toBeDefined();
+    expect(located).toBe(`${grey(time!)}Located acme-labs/storefront${grey(` at ${storefront}. Kiln will remember that on this computer.`)}`);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  });
+
   it("finds one by its origin, asks where another is, remembers the answer, offers Change, and starts once nothing asks", async () => {
     const f = createFeature(
       { "phase-1-return-intake.md": "**Repositories:** acme/returns-api", "phase-3-returns-dashboard.md": "**Repositories:** acme-labs/storefront, returns-api" },

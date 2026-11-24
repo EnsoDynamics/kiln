@@ -174,6 +174,33 @@ describe("the settings while Kiln works follow Documents found's repository rows
       expect(await page.evaluate<number>(`${SETTINGS}.querySelectorAll("button, input, select").length`)).toBe(0);
     } finally { await page.close(); await server.close(); }
   });
+
+  it("a row the person told Kiln about, Documents found state 4, keeps its texts and still offers no Change", async () => {
+    const found = findRepositoriesSnapshot(4);
+    expect(found.repositories.find((row) => row.name === "storefront")).toMatchObject({ located: "answer", checkoutFolder: "/Volumes/work/storefront" });
+    const foundServer = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: found });
+    const foundPage = await chrome.open(foundServer.address, { width: 1400 });
+    let drawnRows: string[][][] | null;
+    try {
+      await foundPage.waitFor(FOUND);
+      await foundPage.evaluate(`Promise.all([...document.fonts].map((face) => face.load())).then(() => true)`);
+      drawnRows = await foundPage.evaluate<string[][][] | null>(ROW_TYPE(FOUND));
+      // Documents found offers Change on that row; the settings while Kiln works must not.
+      expect(await foundPage.evaluate<boolean>(`${FOUND}.textContent.includes("Change")`)).toBe(true);
+    } finally { await foundPage.close(); await foundServer.close(); }
+    const running = runningRepositoriesSnapshot();
+    running.repositories = found.repositories.map((row) => ({ ...row, fixed: true }));
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: running });
+    const page = await chrome.open(server.address, { width: 1400 });
+    try {
+      await page.waitFor(SETTINGS);
+      await page.evaluate(`Promise.all([...document.fonts].map((face) => face.load())).then(() => true)`);
+      expect(drawnRows!.map((row) => row.map(([text]) => text))[2]).toEqual(["storefront", "acme-labs/storefront", "·", "/Volumes/work/storefront"]);
+      expect(await page.evaluate<string[][][] | null>(ROW_TYPE(SETTINGS))).toEqual(drawnRows);
+      expect(await page.evaluate<number>(`${SETTINGS}.querySelectorAll("button, input, select").length`)).toBe(0);
+      expect(await page.evaluate<boolean>(`${SETTINGS}.textContent.includes("Change")`)).toBe(false);
+    } finally { await page.close(); await server.close(); }
+  });
 });
 
 describe("a field message and a checkout Kiln can't deliver to, as the mockup's notes give them (AC-SEE-04)", () => {
