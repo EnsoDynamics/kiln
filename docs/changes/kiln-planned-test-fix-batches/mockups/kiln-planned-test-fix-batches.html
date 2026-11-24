@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Planned Test Fix Batches mockup</title>
+<!-- Kiln design mockup. Fictional sample data. Shows what the criteria in kiln-planned-test-fix-batches-prd.md require, state by state. -->
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0d0c0a;color:#ede8dd;font-family:Inter,sans-serif}
+main.states{max-width:1320px;margin:0 auto;padding:32px 16px;display:flex;flex-direction:column;gap:40px}
+main.states>section>h2{margin:0 0 4px;font-size:18px;font-weight:600}
+.about{margin:0 0 12px;font-size:14px;color:#bdb6a8}
+.screen{overflow-x:auto;border:1px solid rgba(237,232,221,0.18);border-radius:12px}
+.screen .frame{width:1280px;background:#12110e;color:#ede8dd;font-family:Inter,sans-serif;font-size:15px;line-height:1.55;box-sizing:border-box;padding:40px 80px}
+.screen .mono{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace}
+.screen .status{display:flex;align-items:center;gap:20px;margin-bottom:28px}
+.screen .state{padding:9px 20px;border-radius:999px;background:#e2694f;color:#12110e;font-size:15px;font-weight:600}
+.screen .beside{font-size:15px;color:#bdb6a8}
+.screen .eyebrow{font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.screen .planhead{display:flex;justify-content:space-between;align-items:baseline}
+.screen .rows{border-top:1px solid rgba(237,232,221,.12);margin-top:6px}
+.screen .row{display:flex;align-items:center;gap:16px;padding:16px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.screen .num{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600;box-sizing:border-box;background:rgba(156,196,154,.09);border:1px solid rgba(156,196,154,.45);color:#9cc49a}
+.screen .num.now{background:rgba(226,105,79,.14);border-color:rgba(226,105,79,.5);color:#f0866e}
+.screen .num.later{background:transparent;border-color:rgba(237,232,221,.4);color:#ede8dd}
+.screen .name{flex:1 1 auto;display:flex;flex-direction:column;gap:2px}
+.screen .name b{font-size:16px;font-weight:500;color:#ede8dd}
+.screen .name span{font-size:13px;color:#8c8577}
+.screen .pill{padding:5px 13px;border-radius:999px;font-size:13px;font-weight:600;white-space:nowrap}
+.screen .done{background:rgba(156,196,154,.09);color:#9cc49a;border:1px solid rgba(156,196,154,.45)}
+.screen .run{background:rgba(226,105,79,.14);color:#f0866e;border:1px solid rgba(226,105,79,.5)}
+.screen .next{background:transparent;color:#ede8dd;border:1px solid rgba(237,232,221,.4)}
+.screen .time{font-size:13px;color:#8c8577}
+.screen .card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;display:flex;flex-direction:column;gap:14px;max-width:520px}
+.screen .hint{margin:0;font-size:13.5px;color:#bdb6a8}
+.screen .field{display:inline-flex;align-items:center;width:120px;height:48px;padding:0 18px;border:1px solid rgba(237,232,221,.24);border-radius:10px;font-size:16px;box-sizing:border-box}
+</style>
+</head>
+<body>
+<main class="states">
+<section>
+<h2>1. A test audit that planned one batch</h2>
+<p class="about">The phase plan just after a test audit ended, with its one batch of test fixes running. Covers AC-BATCH-01, AC-BATCH-02, AC-BATCH-03 and AC-MAX-01.</p>
+<div class="screen">
+<div class="frame">
+<div class="status"><span class="state">Fixing tests · batch 1 of 1 from test audit loop 1</span><span class="beside">7 of 7 phases done</span></div>
+<div class="planhead"><span class="eyebrow">Phase plan · closing audits</span></div>
+<div class="rows">
+<div class="row"><span class="num mono">DA</span><span class="name"><b>Delivery audit</b><span>Loop 2 · max 4</span></span><span class="time">18m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono">TA</span><span class="name"><b>Test audit</b><span>Loop 1 · max 4 · found 13 test gaps and planned them as 1 batch</span></span><span class="time">12m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono now">FT</span><span class="name"><b>Fixing tests</b><span>Batch 1 of 1 from test audit loop 1 · 13 gaps</span></span><span class="time">1h 20m so far</span><span class="pill run">Running</span></div>
+</div>
+</div>
+</div>
+</section>
+<section>
+<h2>2. A test audit that planned two batches</h2>
+<p class="about">Both batches are rows from the moment the audit ends. The first screen is the page once the first batch has started, with the second still to come; the second screen, with the first batch done. Covers AC-BATCH-01, AC-BATCH-03 and AC-MAX-01.</p>
+<div class="screen">
+<div class="frame">
+<div class="status"><span class="state">Fixing tests · batch 1 of 2 from test audit loop 1</span><span class="beside">9 of 9 phases done</span></div>
+<div class="planhead"><span class="eyebrow">Phase plan · closing audits</span></div>
+<div class="rows">
+<div class="row"><span class="num mono">TA</span><span class="name"><b>Test audit</b><span>Loop 1 · max 4 · found 31 test gaps and planned them as 2 batches</span></span><span class="time">26m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono now">FT</span><span class="name"><b>Fixing tests</b><span>Batch 1 of 2 from test audit loop 1 · 17 gaps</span></span><span class="time">4m so far</span><span class="pill run">Running</span></div>
+<div class="row"><span class="num mono later">FT</span><span class="name"><b>Fixing tests</b><span>Batch 2 of 2 from test audit loop 1 · 14 gaps</span></span><span class="pill next">Next</span></div>
+</div>
+</div>
+</div>
+<div class="screen" style="margin-top: 16px">
+<div class="frame">
+<div class="status"><span class="state">Fixing tests · batch 2 of 2 from test audit loop 1</span><span class="beside">9 of 9 phases done</span></div>
+<div class="planhead"><span class="eyebrow">Phase plan · closing audits</span></div>
+<div class="rows">
+<div class="row"><span class="num mono">TA</span><span class="name"><b>Test audit</b><span>Loop 1 · max 4 · found 31 test gaps and planned them as 2 batches</span></span><span class="time">26m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono">FT</span><span class="name"><b>Fixing tests</b><span>Batch 1 of 2 from test audit loop 1 · 17 gaps</span></span><span class="time">2h 5m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono now">FT</span><span class="name"><b>Fixing tests</b><span>Batch 2 of 2 from test audit loop 1 · 14 gaps</span></span><span class="time">38m so far</span><span class="pill run">Running</span></div>
+</div>
+</div>
+</div>
+</section>
+<section>
+<h2>3. A test audit with no batch plan</h2>
+<p class="about">An audit that saved test work without planning batches. Each fixing session appears when it starts, as today, with the new loop wording. Covers AC-BATCH-05 and AC-MAX-01.</p>
+<div class="screen">
+<div class="frame">
+<div class="status"><span class="state">Fixing tests from test audit loop 1</span><span class="beside">5 of 5 phases done</span></div>
+<div class="planhead"><span class="eyebrow">Phase plan · closing audits</span></div>
+<div class="rows">
+<div class="row"><span class="num mono">TA</span><span class="name"><b>Test audit</b><span>Loop 1 · max 4</span></span><span class="time">22m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono">FT</span><span class="name"><b>Fixing tests</b><span>From test audit loop 1 · session 1</span></span><span class="time">44m</span><span class="pill done">Done</span></div>
+<div class="row"><span class="num mono now">FT</span><span class="name"><b>Fixing tests</b><span>From test audit loop 1 · session 2</span></span><span class="time">12m so far</span><span class="pill run">Running</span></div>
+</div>
+</div>
+</div>
+</section>
+<section>
+<h2>4. The limits read as maximums</h2>
+<p class="about">The Audit loops settings, and the loops a delivered run used. Covers AC-MAX-01 and AC-MAX-02.</p>
+<div class="screen">
+<div class="frame" style="display: flex; gap: 48px; align-items: flex-start">
+<div class="card">
+<span class="eyebrow">Audit loops</span>
+<p class="hint">Each loop is one audit plus the work it finds. A run makes only the loops it needs; these are the most it will make.</p>
+<span style="font-weight: 500">Max delivery audit loops</span>
+<span class="field">4</span>
+<span style="font-weight: 500">Max test audit loops</span>
+<span class="field">4</span>
+</div>
+<div class="card">
+<span class="eyebrow">Closing audits</span>
+<p style="margin: 0; font-size: 15px">Delivery audit: 4 loops (max 4). Test audit: 1 loop (max 4).</p>
+<p class="hint">On the finished page and in each pull request’s description.</p>
+</div>
+</div>
+</div>
+</section>
+</main>
+</body>
+</html>
