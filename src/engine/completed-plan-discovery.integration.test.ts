@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, renameSync, rmSync, statSync, symlinkSync 
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
-import { git } from "../test-support/git-repositories.js";
+import { git, storeBlobs } from "../test-support/git-repositories.js";
 import { observePlan, readBaseline, readLinkedDocuments, retainBaseline, BASELINE_LIMIT, PLAN_LIMIT, PHASE_LIMIT, PlanCapacityError } from "./plan-reconciliation.js";
 import { readGitPlan } from "./completed-plan-sources.js";
 import * as gitReads from "./git-reads.js";
@@ -388,7 +388,9 @@ it.each(["git", "baseline", "baseline publication", "accounting", "proposal", "p
     // The plan fits; JSON escapes each control character to six bytes, so the retained baseline does not.
     writeFileSync(join(h.repository, directory, "comet-technical-design.md"), "<!--" + "\u0001".repeat(5 * 1024 * 1024) + "-->\n"); publish();
   } else if (boundary === "phases") {
-    for (let id = 10; id < PHASE_LIMIT + 10; id++) writeFileSync(join(h.repository, directory, `phase-${id}-extra.md`), `# Phase ${id}: Extra\n\n## Acceptance criteria covered\nAC-COMET-01\n`);
+    const extra = Array.from({ length: PHASE_LIMIT }, (_, i) => [`phase-${i + 10}-extra.md`, `# Phase ${i + 10}: Extra\n\n## Acceptance criteria covered\nAC-COMET-01\n`] as const);
+    for (const [name, text] of extra) writeFileSync(join(h.repository, directory, name), text);
+    storeBlobs(h.sandbox, h.repository, extra.map(([, text]) => text));
     publish();
   } else {
     // Narrow capacity fault: actual writer limits are exercised separately; this proves

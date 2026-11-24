@@ -85,6 +85,22 @@ export function git(sandbox: Sandbox, cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, env: sandbox.env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
+/**
+ * Stores file contents in the repository's objects, as one pack once there are 100 or more
+ * (git fast-import's unpack limit), so that a following `git add` of thousands of new files finds
+ * every blob already stored. Without it each file is written as its own loose object, about
+ * 1.7 ms apiece on macOS: 17 seconds for 10,000 files, against under half a second this way. The
+ * commit, index and working tree come out the same.
+ *
+ *   for (const [name, text] of files) writeFileSync(join(directory, name), text);
+ *   storeBlobs(sandbox, repository, files.map(([, text]) => text));
+ *   git(sandbox, repository, "add", "-A");
+ */
+export function storeBlobs(sandbox: Sandbox, repository: string, contents: string[]): void {
+  const stream = contents.map((text) => `blob\ndata ${Buffer.byteLength(text)}\n${text}\n`).join("");
+  execFileSync("git", ["fast-import", "--quiet"], { cwd: repository, env: sandbox.env, input: stream, stdio: ["pipe", "pipe", "pipe"] });
+}
+
 /** A repository on `develop` with one commit, its `origin` set to `originUrl` when given. */
 export function createRepository(sandbox: Sandbox, name: string, originUrl?: string): string {
   const path = join(sandbox.root, name);
