@@ -105,3 +105,38 @@ it("does not mistake an earlier unmerged completion receipt for integrated prere
   git(h.sandbox, h.repository, "commit", "-qm", "test: unchanged historical completion"); f.publish();
   expect((await h.engine.checkCompletedPlan()).status).toBe("unchanged");
 });
+
+// A continuation and a repository named by an address path that Kiln would ask about (find repositories anywhere AC-ASK-07).
+const naming = (phase: string, addressPath: string) => { const [title, ...rest] = phase.split("\n"); return [title, "", `**Repositories:** ${addressPath}`, ...rest].join("\n"); };
+const commitPlan = (f: Awaited<ReturnType<typeof createCometContinuation>>, message: string) => { git(f.h.sandbox, f.h.repository, "add", COMET_DIRECTORY); git(f.h.sandbox, f.h.repository, "commit", "-qm", message); f.publish(); };
+it("leaves out of a continuation a later phase's address path that Kiln would ask about, for the stop before that phase to ask (find repositories anywhere AC-ASK-07)", async () => {
+  const f = await createCometContinuation(); h = f.h; f.integrate();
+  // The sandbox is the home folder, and nothing in it is a checkout of acme-labs/ledger.
+  h.env.HOME = h.sandbox.root;
+  f.write("phase-10-catalog.md", naming(cometPhase(10), "acme-labs/ledger") + "\n## Phase dependencies\n9.\n");
+  commitPlan(f, "test: phase 10 names the ledger");
+  const check = await h.engine.checkCompletedPlan();
+  expect(check.result?.proposal?.problems).toEqual([]);
+  expect(check.status).toBe("available");
+  expect(check.result?.proposal?.repositories.map(repo => repo.name)).toEqual(["comet-library"]);
+});
+it("keeps a continuation blocked on an address path Kiln would ask about when the first phase's preparation reads it (find repositories anywhere AC-ASK-07)", async () => {
+  const f = await createCometContinuation(); h = f.h;
+  h.env.HOME = h.sandbox.root;
+  f.write("phase-9-catalog.md", naming(cometPhase(9), "acme-labs/ledger") + `\n## Phase dependencies\n8.\n\n## Phase-specific notes\nFirst step: merge Phase 8. In repository \`acme-labs/ledger\`, merge branch \`wt/catalog-accessibility\` at \`${f.externalRevision}\` into this phase's branch before building.\n`);
+  commitPlan(f, "test: phase 9's preparation reads the ledger");
+  const check = await h.engine.checkCompletedPlan();
+  expect(check.status).toBe("blocked");
+  expect(check.result?.proposal?.problems).toContain("Kiln couldn’t find a checkout of acme-labs/ledger. Check again once a checkout of it is where the search reaches.");
+  expect(h.claudeCalls()).toEqual([]);
+});
+it("keeps a continuation blocked on an address path Kiln would ask about that a phase completed outside Kiln names (find repositories anywhere AC-ASK-07)", async () => {
+  const f = await createCometContinuation(); h = f.h;
+  h.env.HOME = h.sandbox.root;
+  f.write("phase-8-catalog.md", naming(cometPhase(8, true), "acme-labs/ledger"));
+  commitPlan(f, "test: phase 8, completed outside Kiln, names the ledger");
+  const check = await h.engine.checkCompletedPlan();
+  expect(check.status).toBe("blocked");
+  expect(check.result?.proposal?.problems).toContain("Phase 8: Kiln couldn’t find a checkout of acme-labs/ledger. Check again once a checkout of it is where the search reaches.");
+  expect(h.claudeCalls()).toEqual([]);
+});

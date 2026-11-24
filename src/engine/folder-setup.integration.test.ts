@@ -293,6 +293,30 @@ describe("a repository the base plan names that Kiln would ask about (find repos
   });
 });
 
+describe("a repository the first phase's preparation reads that Kiln would ask about (find repositories anywhere AC-ASK-07)", () => {
+  it("stays a problem that keeps a base-branch start unavailable, in the question's words and what clears it on Check again", async () => {
+    const h = await twoRepositories();
+    Object.assign(h.env, { HOME: h.sandbox.root });
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const directory = join(h.repository, "docs/prds/customer-returns");
+    // Phase 1 is closed on the base branch, so phase 2b runs first, and its preparation reads a repository nothing on this computer has.
+    const intake = join(directory, "phase-1-return-intake.md");
+    const [intakeTitle, ...intakeRest] = readFileSync(intake, "utf8").split("\n");
+    writeFileSync(intake, [intakeTitle, "**Closed:** 2026-11-20", ...intakeRest].join("\n"));
+    const credit = join(directory, "phase-2b-store-credit.md");
+    const [title, ...rest] = readFileSync(credit, "utf8").split("\n");
+    writeFileSync(credit, [title, "", "**Repositories:** acme-labs/ledger", ...rest].join("\n") + "\n## Phase-specific notes\nFirst step: merge Phase 2a. In repository `acme-labs/ledger`, merge branch `wt/ledger` at `abcdef1` into this phase's branch before building.\n");
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 2b's preparation reads the ledger");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    // The base-branch start is unavailable on that problem, and the repository isn't left out silently.
+    expect(h.engine.folderPanel).toMatchObject({ choices: { base: { unavailable: expect.stringMatching(/^Unavailable: [Kk]iln couldn’t find a checkout of acme-labs\/ledger\. Check again once a checkout of it is where the search reaches\.$/) } } });
+    expect(await start(h, { start: "base" })).toMatchObject({ ok: false });
+  });
+});
+
 describe("a repository set up beside one left out with the same short name (find repositories anywhere AC-FOLDER-01)", () => {
   it("gives the one a base-branch start sets up its short name, since the one left out isn't set up with it", async () => {
     const h = await twoRepositories();

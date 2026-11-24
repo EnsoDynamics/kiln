@@ -226,6 +226,43 @@ describe("asking where a repository is after Start", () => {
     await run.done;
   }, 120_000);
 
+  it("lets a phase whose session asked for a repository it can't place land with no stop (AC-ASK-07, ASK-003)", async () => {
+    const f = createFeature([
+      { actions: [{ addRepository: "acme-labs/ledger" }, { write: { repository: "product", path: "src/intake.txt", content: "intake\n" } }, { close: true }, { commit: "feat: intake", repository: "product" }, { push: true, repository: "product" }, { result: "Phase 1 landed." }] },
+      { actions: [{ result: "Phase 2b partway." }] },
+    ]);
+    const { run } = await started(f);
+    await waitFor(() => recordOf(f).phases["1"]?.doneAt !== undefined || recordOf(f).phases["1"]?.stop !== undefined, 60_000);
+    expect(readJsonLines(`${f.scenarioPath}.add-repository.jsonl`)).toMatchObject([{ name: "acme-labs/ledger", status: 1 }]);
+    // Phase 1 never stopped: the refused request alone holds nothing.
+    expect(recordOf(f).phases["1"]!.stop).toBeUndefined();
+    expect(recordOf(f).phases["1"]!.doneAt).toEqual(expect.any(String));
+    // The next phase starts.
+    await waitFor(() => (recordOf(f).phases["2b"]?.sessionIds.length ?? 0) > 0, 60_000);
+    run.signals.emit("SIGINT");
+    await run.done;
+  }, 120_000);
+
+  it("adds the repository when the session asks again after the answer and Resume (AC-ASK-07, AC-ASK-04)", async () => {
+    const f = createFeature([
+      { actions: [{ addRepository: "acme-labs/ledger" }, { result: "Partway: I need the ledger repository." }] },
+      { actions: [{ addRepository: "acme-labs/ledger" }, { result: "Partway again." }] },
+    ]);
+    const { run, address, token } = await started(f);
+    await waitFor(() => recordOf(f).phases["1"]?.stop?.locate !== undefined);
+    const ledger = addCheckout(f, "acme-labs/ledger", "volumes/work/ledger");
+    expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/ledger", folder: ledger })).toMatchObject({ status: 200, body: { outcome: "located" } });
+    const target = (await snapshotOf(address, token)).needsYou!.phaseRecovery!.target;
+    expect(await api(address, token, "POST", "/api/resume", { target: target.live ?? target })).toMatchObject({ status: 200 });
+    await waitFor(() => readJsonLines(`${f.scenarioPath}.add-repository.jsonl`).length === 2, 60_000);
+    const [, again] = readJsonLines(`${f.scenarioPath}.add-repository.jsonl`) as { status: number; stdout: string }[];
+    expect(again!.status).toBe(0);
+    expect(again!.stdout).toMatch(/^Added ledger at .*ledger, on feature\/\S+ from develop\.\n/);
+    expect(recordOf(f).repositories.find((entry) => entry.name === "ledger")).toMatchObject({ github: "acme-labs/ledger", mainCheckoutPath: ledger, addedInPhase: "1" });
+    run.signals.emit("SIGINT");
+    await run.done;
+  }, 120_000);
+
   it("asks at once on a stop already open when its session asks, and answers with the stop's sentence (technical design, \"A session's request\")", async () => {
     // Phase 1 stops; the person reopens its conversation, which asks for a repository Kiln finds two checkouts of.
     const f = createFeature([{ actions: [{ result: "Partway." }] }], { "acme-labs/ledger": "home/code/acme-labs/ledger" });
