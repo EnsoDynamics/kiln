@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "ba412732-b111-4b0c-9173-bdbd5813c07e",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Third session of test fixes for the whole PRD. It raised AC-ASK-07 (15 of 15 stated parts) and AC-SESSION-01 (13 of 13) from Weak to Adequate, and a fresh reviewer confirmed both grades. New tests show that a refused request never stops a phase, and that a request made again after Resume uses the remembered folder. They cover the continuation leaving out a later phase's address path, and the two exceptions that keep it a problem: one the first phase's preparation reads (on a continuation and on Folder missing), and one a phase completed outside Kiln names. They also cover kiln add-repository's name refusals, the github.com: form, a single search hit and a remembered answer. Each new test was seen to fail with the behaviour broken. The unit suite (1233 tests) and the integration suite (2067 tests) are green. 8 Weak rows remain in test-audit.md, starting with AC-ASK-06.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false,
+  "raised": ["AC-ASK-07", "AC-SESSION-01"]
+}
