@@ -114,7 +114,7 @@ What a row shows follows from whether the activity has a start and whether it ha
 |---|---|
 | No start, not finished, no session launching or running | The resolver's choice: plain before Start is pressed, **Will run on** in a run underway |
 | Start unknown (a history exists but can't be read) | **Will run on** and the resolver's choice; Change and Use the default unavailable, with the reopen check's reason |
-| No start, and one of its sessions is launching (its launch decision is saved and the launch hasn't ended) or its process runs | **Will run on** and that session's recorded agent, model and effort, with the **Fallback** tag when its saved decision used the fallback; no Change |
+| No start, and one of its sessions is launching (its launch decision is saved and the launch hasn't ended) or its process runs | **Will run on** and that session's recorded agent, model and effort, with the **Fallback** tag when its saved decision used the fallback; Change unavailable, with the reason |
 | Has a start, not finished | **Running on** and what it started on |
 | Finished, and a session of it got a response | **Ran on** and the latest such session's recorded agent, model and effort |
 | Finished, and no session of it got a response | **No model recorded** |
@@ -252,7 +252,7 @@ Every write re-reads the file, applies one change and replaces it atomically. A 
 
 `POST /api/model` answers 422 when `phase` isn't a phase with no child phases in the current plan, a split parent included, with "<id> isn't a phase Kiln builds in this plan. Phases: <leaf ids in plan order>." In a run underway the route checks the phase, the model and the effort before journaling the instruction, as `POST /api/settings` checks the loop limits, so these come back as 422 rather than as the journal's 409.
 
-The Model defaults page is a client route of the PRD's view, `<base>/model-defaults`, so "Back" returns to the PRD it was opened from. On the page, each side has its own Change. Done saves every open editor in that row in one request, carrying only the sides opened, so moving a row to the other agent means opening both sides and pressing Done once. A refused save keeps the editors open with the reason beside them.
+The Model defaults page is a client route of the PRD's view, `<base>/model-defaults`, so "Back" returns to the PRD it was opened from. The model lines (Models with the Model defaults link, the Audits line, the fallback line) are one component in Documents found's delivery panel, the run's settings and the Folder missing setup panel; the setup panel shows them without Change, since nothing changes until the run is set up again. Needs you, the stopped-phase page and the waiting page show no phase plan, so each carries a Models card: every row that offers Change, the stopped or waiting activity's first (mockup 5, state E), then the model lines; it is left out once the run is complete. The Model defaults page reads the file again whenever `settings.models.revision`, the file's stat, changes. On the page, each side has its own Change. Done saves every open editor in that row in one request, carrying only the sides opened, so moving a row to the other agent means opening both sides and pressing Done once. A refused save keeps the editors open with the reason beside them.
 
 ### Snapshot
 
@@ -278,6 +278,7 @@ settings.models:  { tiers: { demanding, standard, mechanical, notRated },
 agents[]:  { agentId, agent, installed, pending, readinessErrors?, neededBy: { activities: string[], fallbackOnly: boolean },
              models?, modelListError?, account?: (today's account view, plus inUse and overThreshold per limit),
              billing? }
+           models: each { value, displayName, efforts (none for a model that takes no effort), defaultEffort?, needsAutoMode? }, for Change's editor
            one entry per installed agent, plus one per needed agent that isn't installed (installed: false, no models, account or billing,
            readinessErrors naming the install remedy: today's Codex message, and for Claude Code "Claude Code is not on PATH.
            Install Claude Code <min> or later and sign in."); models for every installed one, readinessErrors and account for a
@@ -312,7 +313,7 @@ kiln model <PRD-path> (--phase <id> | --audits)
                       (--agent <claude_code|codex> --model <value> [--effort <value>] | --use-default)
 ```
 
-`kiln status <PRD-path>` gives each activity its `tier` and `model` as the snapshot does, so a bot can read the values it may send.
+`kiln status <PRD-path>` gives each activity its `tier` and `model` as the snapshot does, so a bot can read the values it may send: each `progress` row, which lists the activities Kiln has allocated, and `plan_models`, every row of the plan the page shows, the phases Kiln hasn't allocated and the planned rows included, each with `id`, `title`, `kind`, `planned`, `tier` and `model` (its `change` and `useDefault` included).
 
 `kiln status` keeps its top-level `agent`, `model` and `requested_model`. They describe the activity status reports in `activity`, which is the current activity, or the next one when none is current. With a session, they are that session's recorded agent, model and effort, as today. Without one, they are that activity's `model.choice` from the snapshot. When no activity is current or next, they are `null`. A status read with the controller stopped takes these values, and each activity's `tier` and `model`, from the last snapshot the controller saved, under the reply's existing stale marking. It never reads a model list. With no saved snapshot, an activity's `model` and these fields are `null`. `effective_model` is unchanged.
 

@@ -45,6 +45,8 @@ Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-ad
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (`kiln model` is a new bot mutation that selects models for activities that haven't started).
+
 Only the post-start controls in SCOPE-001 are new bot mutations. No new-run setup, model selection, billing approval, delivery grant, merge or release command is added. Read-only billing facts use the billing feature's authoritative projection. Its implementation is owned by another chat; this design consumes that boundary and does not redesign it.
 
 Each controller admits at most one conflicting work transition, including completion evaluation, resumption and dispatch. Explicit pause requests/cancellations and setting values remain allowed where existing eligibility permits them; their writes serialize with other changes. Duplicate accepted instructions join their existing operation. A different competing instruction is refused as `busy`, never queued for a later stop. The existing port range 4700–4799 admits at most 100 simultaneous controllers (and fewer when other processes occupy it); this interface does not enlarge it. Inventory includes unprobed rows as unknown when its 15-second fan-out deadline expires, so its counts never imply complete discovery after that ceiling. Every state write that authorizes subsequent dispatch must succeed before dispatch can happen.
@@ -110,6 +112,8 @@ Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`kiln merge` and `kiln exit`).
 
 Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session (`reply` and `resume` settle `started` for an activity that hasn't started).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (`kiln model`, and `kiln model-defaults`, whose changing commands take a new side effect, `computer_setting`, with no PRD path, controller or safety flags).
 
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 

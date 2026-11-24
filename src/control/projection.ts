@@ -39,9 +39,9 @@ import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed
 import type { AuditLoopsView } from "../engine/loop-view.js";
 import { afterDeliveryFacts, continuationFacts, deliveredFacts } from "./delivered-facts.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff", "model"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
-const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
+const requiredInputs = (name: string) => name === "model" ? ["PRD-path", "--phase | --audits", "--agent --model [--effort] | --use-default", "--only-if-status-matches", "--command-id"] : name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -364,6 +364,8 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
     // Each activity's tier and model, as the snapshot gives them (Kiln Phase Model Tiers, "Command line").
     progress: progress.map(row => { const shown = view?.activities?.find(a => a.id === row.key || a.id === engine?.judgedId(row.key)); return { ...row, tier: shown?.tier ?? null, model: shown?.model ?? null }; }),
+    // Every row of the plan, those Kiln hasn't allocated yet and the planned ones included, with its tier and model, so a bot reads which it may change with kiln model (AC-PICK-05).
+    plan_models: view?.activities ? view.activities.map(a => ({ id: a.id, title: a.title, kind: a.kind ?? "phase", planned: a.plannedActivity === true, tier: a.tier ?? null, model: a.model ?? null })) : null,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
     ...(full ? { plan: record.plan ?? [], activity_history: ((view?.activities ?? record.activities ?? []) as unknown as Record<string, unknown>[]).map(activityFacts), settings: settingsFacts(record), account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),

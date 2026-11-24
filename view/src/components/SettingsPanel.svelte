@@ -1,8 +1,9 @@
 <script lang="ts">
   import { repositoriesStatement } from "../../../src/engine/authority-statement.js";
   // The PRD's settings while Kiln works, is paused or is disconnected (PRD AC-WATCH-07,
-  // AC-VIEW-08): one line saying models are chosen for each phase (Kiln Phase Model Tiers
-  // AC-KEEP-01; the plan's rows show each one); keep-awake, which
+  // AC-VIEW-08): the model lines, models chosen for each phase with the Model defaults link, the
+  // Audits choice and the fallback (Kiln Phase Model Tiers AC-KEEP-01, AC-DEFAULT-02, AC-OTHER-01,
+  // AC-FALLBACK-01; the plan's rows show each phase's); keep-awake, which
   // applies at once (AC-KEEP-07: closing the lid can still sleep); and the worktree, feature
   // branch and one pull request, fixed for the PRD. Without a live Kiln, Change and the checkbox
   // are disabled in place (technical design, "Connection"). A multi-repository PRD lists the
@@ -20,6 +21,7 @@
   import { viewContext } from "../lib/view-context.js";
   import { mergeAgent } from "../lib/agents.js";
   import AuditLoopSettings from "./AuditLoopSettings.svelte";
+  import ModelLines from "./ModelLines.svelte";
   import { shownLoopSettings } from "../lib/audit-loops.js";
 
   let { snapshot, connected }: { snapshot: Snapshot; connected: boolean } = $props();
@@ -41,9 +43,7 @@
 <section class="card" aria-labelledby="set-h">
   <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="note">{note}</span></div>
   <dl>
-    <div class="setting">
-      <div class="words"><dt>Models</dt><dd class="value">Chosen for each phase</dd><dd class="help">Each row of the phase plan shows the model it runs on.</dd></div>
-    </div>
+    <div class="setting"><ModelLines {snapshot} {connected} settings /></div>
     <div class="setting">
       <div class="words">
         <dt>Keep awake</dt><dd class="value">While a session works or Kiln waits</dd><dd class="help">Closing the lid can still put the computer to sleep.</dd>

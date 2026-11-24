@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModelChanges from "../components/ModelChanges.svelte";
   import BusyStatus from "../components/BusyStatus.svelte";
   import { tick } from "svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
@@ -316,6 +317,7 @@
     </ul>
   {/snippet}
   {#if page.feedback && !stop.carryOn && !stop.startAgain}<p class="warning" role="status">{page.feedback}</p>{/if}
+  <ModelChanges {snapshot} phaseId={snapshot.needsYou?.phaseId} {connected} />
   <BillingPanels {snapshot} {connected} />
   <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>

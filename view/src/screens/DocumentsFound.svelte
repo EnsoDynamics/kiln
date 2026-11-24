@@ -25,6 +25,7 @@
   import type { Settings } from "../../../src/state/records.js";
   import TierTag from "../components/TierTag.svelte";
   import RowModel from "../components/RowModel.svelte";
+  import ModelLines from "../components/ModelLines.svelte";
   import type { ModelView, TierView } from "../../../src/engine/activity-models.js";
   import { rowModelLine, tierCountsLine } from "../lib/models.js";
   import AccountPanel from "../components/AccountPanel.svelte";
@@ -342,9 +343,7 @@
       {/if}
 
       <div class="field models">
-        <span class="label">Models</span>
-        <span class="value">Chosen for each phase</span>
-        {#if tierLine}<span class="help">{tierLine}</span>{/if}
+        <ModelLines {snapshot} {connected} counts={tierLine} />
         {#each agents as agent (agent.agentId)}
           {@const account = accountLines(agent.account)}
           <span class="agent">{#if agents.length > 1}<span class="sub">{agent.agent}</span>{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
@@ -434,16 +433,16 @@
 
 {#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[]; attended?: string | undefined; tier?: TierView | undefined; model?: ModelView | undefined })}
   {@const here = startFrom?.startAt?.id === row.id}
-  <li class="phase"><span class="circle mono" class:here>{row.id}</span>{#if here}<strong class="title">{row.title}</strong>{@render tag(row.tier)}{@render attended(row.attended)}<span class="starts">Kiln starts here</span>{:else}<span class="title">{row.title}</span>{@render tag(row.tier)}{@render attended(row.attended)}{/if}{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}{@render model(row.model)}</li>
+  <li class="phase" data-phase={row.id}><span class="circle mono" class:here>{row.id}</span>{#if here}<strong class="title">{row.title}</strong>{@render tag(row.tier)}{@render attended(row.attended)}<span class="starts">Kiln starts here</span>{:else}<span class="title">{row.title}</span>{@render tag(row.tier)}{@render attended(row.attended)}{/if}{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}{@render model(row.model, { phase: row.id }, row.title)}</li>
 {/snippet}
 
 {#snippet tag(tier: TierView | undefined)}
   {#if tier}<TierTag {tier} />{/if}
 {/snippet}
 
-{#snippet model(shown: ModelView | undefined)}
-  <!-- Each phase shows the model it will run on (Kiln Phase Model Tiers AC-PICK-02). -->
-  {#if shown && (rowModelLine(shown, false) || shown.problem)}<span class="phase-model"><RowModel model={shown} underway={false} /></span>{/if}
+{#snippet model(shown: ModelView | undefined, target?: { phase: string }, title?: string)}
+  <!-- Each phase shows the model it will run on, with Change for one that hasn't started (Kiln Phase Model Tiers AC-PICK-02, AC-PICK-03). -->
+  {#if shown && (rowModelLine(shown, false) || shown.problem || shown.change)}<span class="phase-model"><RowModel model={shown} underway={false} {target} agents={snapshot.agents} {connected} label={`${title ?? "Preflight"} model`} /></span>{/if}
 {/snippet}
 
 {#snippet branchField()}

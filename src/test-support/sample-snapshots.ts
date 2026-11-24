@@ -38,7 +38,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       ...documents,
     },
     settings: {
-      models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, fallback: { enabled: false, threshold: 95 } },
+      models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, fallback: { enabled: false, threshold: 95 }, audits: { choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" }, changedByYou: false, change: { available: true } }, revision: "missing" },
       keepAwake: true,
       resumeAfterUsageLimit: true,
       workspaceFolder: "~/devel/.worktrees/customer-returns",
@@ -75,9 +75,9 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
 export type AccountView = NonNullable<AgentView["account"]>;
 
 export const CLAUDE_MODELS = [
-  { value: "opus", displayName: "Opus 5.5" },
-  { value: "fable", displayName: "Fable 5.1" },
-  { value: "sonnet", displayName: "Sonnet 5.5" },
+  { value: "opus", displayName: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { value: "fable", displayName: "Fable 5.1", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { value: "sonnet", displayName: "Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
 ];
 
 /** Claude Code as the one agent every activity needs, in use, with this account. */

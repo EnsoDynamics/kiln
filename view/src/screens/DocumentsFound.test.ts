@@ -49,7 +49,8 @@ describe("Documents found", () => {
     // One line says models are chosen for each phase; no Agent, Model or Effort for the PRD (Kiln Phase Model Tiers AC-KEEP-01).
     expect(page).not.toMatch(/id="agent"|id="model"|aria-pressed=/);
     const words = text(page);
-    expect(words).toContain("Models Chosen for each phase 4 not rated. alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
+    // The delivery panel's model lines: per phase with the Model defaults link, the Audits choice, and the fallback (AC-DEFAULT-02, AC-OTHER-01, AC-FALLBACK-01).
+    expect(words).toContain("Models Chosen for each phase 4 not rated. Change any phase in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults . alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
     expect(words).not.toContain("Effort");
     expect(words).toContain("Keep this computer awake while a session works or Kiln waits Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.");
     expect(words).toContain("Pushes After every phase Ends at One PR, ready for review. Kiln won’t merge.");
@@ -77,7 +78,7 @@ describe("Documents found", () => {
     const snapshot = documentsFoundSnapshot({
       settings: {
         fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one.", baseBranch: "develop isn’t on origin." },
-        models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode.", fallback: { enabled: false, threshold: 95 } },
+        models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode.", fallback: { enabled: false, threshold: 95 }, audits: documentsFoundSnapshot().settings.models.audits, revision: "missing" },
         keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available.",
       },
       documents: { startError: "Couldn’t set up the worktree: fatal: could not create directory" },
@@ -101,7 +102,7 @@ describe("Documents found", () => {
     snapshot.agents[0]!.account = { startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." };
     const page = html(snapshot);
     const words = text(page);
-    expect(words).toContain("Models Chosen for each phase 4 not rated. Not signed in to Claude Code. Run claude auth login . Listed models");
+    expect(words).toContain("Set one up in Model defaults . Not signed in to Claude Code. Run claude auth login . Listed models");
     // The command is drawn as code, not with its backticks (UI-010 item 7).
     expect(page).toMatch(/Run <span class="code-inline">claude auth login<\/span>\./);
   });

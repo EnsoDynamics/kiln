@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModelChanges from "../components/ModelChanges.svelte";
   import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanels from "../components/BillingPanels.svelte";
   // Waiting for usage (docs/changes/kiln-usage-limit-recovery/mockups/kiln-screen-waiting-for-usage.html):
@@ -140,6 +141,7 @@
       </aside>
     </div>
   </div>
+  <ModelChanges {snapshot} phaseId={snapshot.waiting?.phaseId} connected={connection?.connected ?? false} />
   <!-- A merge or push session waiting for usage on a finished run also offers Exit Kiln (Kiln After Delivery AC-EXIT-01). -->
   {#if snapshot.exit}<section class="exit-row" aria-label="Exit Kiln"><ExitKiln {snapshot} connected={connection?.connected ?? false} /></section>{/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />

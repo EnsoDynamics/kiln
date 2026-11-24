@@ -4,6 +4,7 @@
   // with recovery's extra help lines and fixed fields, and Before you start with the Starting lets
   // Kiln list and Start. Edits go to the engine's draft and nothing is saved before Start (AC-SAFE-01).
   import BusyStatus from "./BusyStatus.svelte";
+  import ModelLines from "./ModelLines.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Part, PanelFields, SetupPanel, StartKind } from "../../../src/engine/folder-setup.js";
   import AccountPanel from "./AccountPanel.svelte";
@@ -173,8 +174,7 @@
 
       <!-- Documents found's model line in place of Agent, Model and Effort (Kiln Phase Model Tiers AC-KEEP-01). -->
       <div class="field">
-        <span class="label">Models</span>
-        <span class="value">Chosen for each phase</span>
+        <ModelLines {snapshot} {connected} readOnly />
         {#each agents as agent (agent.agentId)}
           {@const account = accountLines(agent.account)}
           <span class="help">{#if agents.length > 1}{agent.agent}<br />{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
@@ -224,7 +224,6 @@
   .setup-lead { margin: -14px 0 0; color: var(--muted); }
   .setup { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
   .label, label { font-size: 13px; font-weight: 500; color: var(--muted); }
-  .value { font-size: 14.5px; color: var(--text); }
   .starts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px; }
   .start { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer; }
   .start.on { border-color: var(--text); }

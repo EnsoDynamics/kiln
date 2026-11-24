@@ -437,6 +437,8 @@ liveControl.takeover: adds history?: ReopenCheck
 
 ### Command line
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (a fifth help group, `models`, headed **Choose models** and printed after **Message, pause or take over**).
+
 All three are changing commands under bot control's contract: a PRD path, `--only-if-status-matches`, `--command-id`, text and JSON results, the same exit classes, no prompt. Each has a command contract with examples and joins `kiln status`'s controls and the controller's advertised features (`carry_on`, `start_again`, `reset`).
 
 | Command | Options | Outcomes |

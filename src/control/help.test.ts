@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { commandContracts, commandHelp, parseCommand, wrapNames } from "./help.js";
 
-const GROUPS = ["start", "answer", "live", "inspect", "reset", "kiln-sessions"];
+const GROUPS = ["start", "answer", "live", "models", "inspect", "reset", "kiln-sessions"];
 const text = commandHelp([], false);
 const lines = text.trimEnd().split("\n");
 
@@ -27,7 +27,9 @@ describe("top-level text help", () => {
   it("groups every people-facing command under its task heading, in a fixed order", () => {
     // A group's names wrap past 80 characters, breaking after the last comma that fits (run restart "Command line").
     const names = (group: string) => wrapNames(commandContracts.filter(c => c.group === group).map(c => c.path.join(" "))).join("\n");
-    expect(text).toContain(`Answer a stopped phase\n${names("answer")}\nMessage, pause or take over\n${names("live")}\nLook closer\n${names("inspect")}\nStart over\n${names("reset")}\n`);
+    expect(text).toContain(`Answer a stopped phase\n${names("answer")}\nMessage, pause or take over\n${names("live")}\nChoose models\n${names("models")}\nLook closer\n${names("inspect")}\nStart over\n${names("reset")}\n`);
+    // Choose models lists each command by its full name (Kiln Phase Model Tiers, "Command line").
+    expect(names("models")).toBe("  model, model-defaults, model-defaults set, model-defaults restore,\n  model-defaults fallback");
     // Reset is the only command of the last group (run restart "Command line").
     expect(names("reset")).toBe("  reset");
     for (const c of commandContracts.filter(c => c.group !== "kiln-sessions")) expect(text, c.path.join(" ")).toMatch(new RegExp(`(?<![\\w-])${c.path.join(" ")}(?![\\w-])`));
@@ -58,6 +60,7 @@ describe("the command contracts", () => {
       message: "live", "take-over": "live", "request-pause": "live", "cancel-pause": "live", continue: "live",
       logs: "inspect", handoff: "inspect", account: "inspect", settings: "inspect", "command-status": "inspect",
       reset: "reset",
+      model: "models", "model-defaults": "models", "model-defaults set": "models", "model-defaults restore": "models", "model-defaults fallback": "models",
     };
     for (const c of commandContracts) {
       const name = c.path.join(" ");

@@ -68,6 +68,8 @@ The command interface supports the common controls used after work starts. Each 
   - Superseded in part by: AC-STOP-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (two more commands join the controls for a run already started; the runtime-preferences control also sets the three loop settings).
   - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (two more commands join the controls: checking a finished run for new phases, and continuing it with the phases its page offers).
   - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (two more commands join the controls for a run already started: `kiln merge` and `kiln exit`; `kiln merge` merges work, which this PRD left out of the command line)
+  - Superseded in part by: AC-PICK-05 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (more commands join the controls for a run already started, and run detail lists them).
+  - Superseded in part by: AC-DEFAULT-05 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (commands that print and change Model defaults, which apply to every PRD and not to one run, join the supported commands; the rest remains).
 
 - [ ] **AC-ACT-02 — Reply, resume and verify preserve the person's intention.** The CLI exposes the distinct actions from the prerequisite handoff change, with the same eligibility, completion evidence and remaining-plan behavior. A manual phase reply or resume must never silently become an advance.
   - Superseded in part by: AC-BOT-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (explicit phase/audit takeover hand-back and per-message uncertain-delivery review)
@@ -93,6 +95,7 @@ The command interface supports the common controls used after work starts. Each 
   - Superseded in part by: AC-STOP-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (two more commands join the controls for a run already started; the runtime-preferences control also sets the three loop settings).
   - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (two more commands join the controls: checking a finished run for new phases, and continuing it with the phases its page offers).
   - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (two more commands join the controls for a run already started: `kiln merge` and `kiln exit`; `kiln merge` merges work, which this PRD left out of the command line)
+  - Superseded in part by: AC-PICK-05 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (more commands join the controls for a run already started, and run detail lists them).
 
   | Person's intention | Observable behavior |
   |---|---|

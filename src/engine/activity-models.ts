@@ -43,6 +43,10 @@ export interface ModelView {
   claudeCodeMissing?: true;
   /** A choice that can't be used, known before launch (AC-PICK-06). */
   problem?: string;
+  /** Where Change is offered (AC-PICK-03, AC-OTHER-01): whether it is available now, and why not. */
+  change?: { available: boolean; reason?: string };
+  /** Where Use the default is offered: the row's choice is Changed by you. */
+  useDefault?: true;
 }
 
 /** What the resolver reads for every activity: Model defaults now, whether Claude Code is installed, each agent's model list. */

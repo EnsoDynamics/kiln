@@ -78,6 +78,7 @@ import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
 import { AGENT_IDS, AGENT_NAMES, type AgentId, type CodexUsageRecovery, type RecordedPlanPhase } from "../state/records.js";
 import { modelDefaultsPath, readModelDefaults, type ModelChoice } from "../models/model-defaults.js";
+import { checkModelChoice } from "../models/model-defaults-edit.js";
 import { activityFallback, countedFor, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
 import { firstResponseInSavedEvents } from "../models/start-line.js";
 import type { ActivityChoice, ModelList } from "../models/resolver.js";
@@ -684,6 +685,8 @@ export class Engine {
       reset: this.resetControl().available,
       merge: this.mergeControl().available,
       exit: this.exitControl().available,
+      // `kiln model` (AC-PICK-05): in a run underway that isn't complete, whatever any activity's state, since --audits is never refused for one; withdrawn only as settings is.
+      model: this.isUnderway && !this.record.completedAt && !this.folderMissing && !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy,
     };
     // At a preflight stop only Check Preflight again and Mark complete are offered (The Preflight Stop).
     const preflightStop = this.preflightStopKey() !== undefined;
@@ -710,13 +713,14 @@ export class Engine {
       reset: this.resetControl().reason ?? "Reset isn't available.",
       merge: this.mergeControl().reason ?? "Merge with the agent isn't offered here.",
       exit: this.exitControl().reason ?? "Exit Kiln isn't offered here.",
+      model: !this.isUnderway ? "No run is underway. Change models on Documents found." : this.record.completedAt ? "The run is complete; no activity is left to change." : this.folderMissing ? FOLDER_MISSING_REASON : "Kiln is checking, dispatching or reconciling an instruction.",
       ...(afterDeliveryRunning ? { "take-over": liveReason, message: liveReason, "request-pause": liveReason } : {}),
       ...(preflightStop ? { reply: PREFLIGHT_STOP_REASON, resume: PREFLIGHT_STOP_REASON, "carry-on": PREFLIGHT_STOP_REASON, "start-again": PREFLIGHT_STOP_REASON, "verify-and-advance": PREFLIGHT_STOP_REASON } : {}),
       ...(preflightRunning ? { "request-pause": PREFLIGHT_PAUSE_REASON } : {}),
     };
     // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
     const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
-    const fixedReason = (name: Action) => name === "reset" || name === "merge" || name === "exit" || afterDeliveryRunning && (name === "take-over" || name === "message" || name === "request-pause") || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
+    const fixedReason = (name: Action) => name === "reset" || name === "merge" || name === "exit" || name === "model" || afterDeliveryRunning && (name === "take-over" || name === "message" || name === "request-pause") || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
     const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : fixedReason(name) ? unavailable[name]! : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
     // A Pause now's per-reading reasons (the hold's reason, its rows) stay out of the token, so a pause still pausing doesn't change it every second (Kiln Pause Now, "Interfaces").
@@ -880,6 +884,8 @@ export class Engine {
       case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
       case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
       case "take-over": return this.acceptTakeover(inputs.target, receipt);
+      case "model": answer = await this.changeModel(typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits", inputs.use_default === true ? "default" : { agentId: inputs.agent_id as AgentId, model: inputs.model as string, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) });
+        break;
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
       case "settings": {
@@ -1695,6 +1701,12 @@ export class Engine {
     }
     return needs;
   }
+  /** Each installed agent with its readiness, for the Model defaults page beside its model list ("Agents"). */
+  modelDefaultsAgents(): { agentId: AgentId; installed: boolean; readinessKnown: boolean; readinessErrors?: string[] }[] {
+    // Claude Code's readiness is read only while the run needs it; Codex's one metadata read always carries it.
+    return this.installedAgents().map(agentId => { const blockers = this.readers[agentId].state.blockers; return { agentId, installed: true, readinessKnown: agentId === "codex" || this.isNeeded(agentId), ...(blockers.length ? { readinessErrors: blockers } : {}) }; });
+  }
+
   /** Where Model defaults is kept, read on every resolution. */
   get modelDefaultsFile(): string { return this.defaultsPath; }
 
@@ -1852,6 +1864,71 @@ export class Engine {
     // Once the activity starts, on either agent, its one-attempt record goes; a later refusal uses the started session's own.
     delete facts.codexUsageRecovery;
     this.save();
+  }
+
+  /** Whether a launch of the activity is under way or a process of its session runs, one Kiln launched or adopted. */
+  sessionBusy(key: string): boolean {
+    return this.launching.has(key) || this.current?.phaseKey === key && this.current.processRunning;
+  }
+
+  /**
+   * Why an activity's own choice can't be changed now (AC-PICK-03, "Change while a launch of the
+   * activity is under way"): it is finished, has started, its start is unknown, or a launch of it
+   * is under way or its session's process runs. Undefined when Change is available.
+   */
+  modelChangeRefusal(key: string, label: string): string | undefined {
+    const plan = this.shownPlan.find(phase => phase.id === key);
+    if (this.record.phases[key]?.doneAt || plan && phaseFinished(this.record, plan, key)) return `${label} is finished; there is nothing to change.`;
+    if (this.startedSessionOf(key)) return `${label} has started, so it keeps the agent, model and effort it started on.`;
+    const unknown = this.unknownStarts.get(key);
+    if (unknown !== undefined) return `Kiln can't tell whether ${label.charAt(0).toLowerCase()}${label.slice(1)} has started, so its model can't be changed yet. ${unknown}`.trim();
+    if (this.sessionBusy(key)) return `${label} is launching or running on its saved choice. Change it once that session ends.`;
+    return undefined;
+  }
+
+  /** What a row offers (AC-PICK-03, AC-OTHER-01): Change, and Use the default while its choice is Changed by you. */
+  modelControls(key: string, label: string, view: ModelView): Pick<ModelView, "change" | "useDefault"> {
+    if (view.state !== "will_run_on") return {};
+    const reason = this.modelChangeRefusal(key, label);
+    return { change: reason === undefined ? { available: true } : { available: false, reason }, ...(reason === undefined && view.from === "changed" ? { useDefault: true as const } : {}) };
+  }
+
+  /**
+   * A change of model for one phase, or for this PRD's Audits activities (AC-PICK-03, AC-OTHER-01,
+   * `POST /api/model`): the choice checked against its agent's list with its effort filled in, then
+   * the phase's state, read after its sessions' histories. "default" returns the row to its tier's
+   * choice, or the Audits row's. The Audits entry is never refused for an activity's state: an
+   * activity launching or running keeps its saved decision and takes the new choice only if it
+   * ends with no response.
+   */
+  checkModelChange(target: { phase: string } | "audits", choice: ModelChoice | "default"): { ok: true; key: string; choice: ModelChoice | "default" } | Extract<CommandResult, { ok: false }> {
+    let key: string = PR_PHASE_KEY;
+    if (target !== "audits") {
+      const leaves = this.shownPlan.filter(phase => phase.splitInto === undefined);
+      if (!leaves.some(phase => phase.id === target.phase)) return { ok: false, status: 422, reason: `${target.phase} isn't a phase Kiln builds in this plan. Phases: ${leaves.map(phase => phase.id).join(", ")}.` };
+      key = target.phase;
+    }
+    if (choice === "default") return { ok: true, key, choice };
+    const checked = checkModelChoice(choice, this.modelContext.lists);
+    return checked.ok ? { ok: true, key, choice: checked.choice } : { ok: false, status: checked.status as 400 | 422, reason: checked.reason };
+  }
+
+  /** Applies a checked change (before Start directly, in a run through the instruction journal). */
+  async changeModel(target: { phase: string } | "audits", choice: ModelChoice | "default"): Promise<CommandResult> {
+    const checked = this.checkModelChange(target, choice);
+    if (!checked.ok) return checked;
+    const choices = this.record.settings.modelChoices;
+    if (target !== "audits") {
+      const label = `Phase ${target.phase}`;
+      // Change reads the phase's histories first: a terminal that already answered has started it.
+      if (!this.startedSessionOf(checked.key) && !this.sessionBusy(checked.key) && this.record.phases[checked.key]?.sessionIds.length) await this.readStart(checked.key);
+      const refused = this.modelChangeRefusal(checked.key, label);
+      if (refused) return { ok: false, status: 409, reason: refused };
+      choices.phases[target.phase] = checked.choice;
+    } else choices.audits = checked.choice;
+    this.save();
+    this.modelChoicesChanged();
+    return { ok: true };
   }
 
   /**
@@ -6415,6 +6492,16 @@ export class Engine {
    * recorded but never started (Kiln stopped in between) is launched as planned, same ID.
    */
   private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on"; deliveryBlock?: string; relaunchOf?: SessionRecord["relaunchOf"] } = {}): Promise<void> {
+    // Change is unavailable from the launch's decision until the launch ends (Kiln Phase Model Tiers, "Change while a launch of the activity is under way").
+    this.launching.add(phaseKey);
+    try { await this.launchSessionNow(phaseKey, kind, prompt, options); }
+    finally { this.launching.delete(phaseKey); this.changed(); }
+  }
+
+  /** The activities a launch is under way for, from its decision until it ends. */
+  private readonly launching = new Set<string>();
+
+  private async launchSessionNow(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on"; deliveryBlock?: string; relaunchOf?: SessionRecord["relaunchOf"] }): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
     const audit = this.auditActivity(phaseKey) ?? this.preflightActivity(phaseKey);
     const auditRecord = this.auditActivity(phaseKey);

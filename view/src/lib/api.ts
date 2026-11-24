@@ -71,6 +71,18 @@ export const changeFolderPanel = (config: PageConfig, change: { start: "base" | 
 /** Start on the Folder missing page, with the facts and preview it was pressed on (AC-SETUP-04, AC-SETUP-05, AC-SAFE-01). */
 export const startFolderSetup = (config: PageConfig, body: { commandId: string; factsId: string; previewId: string; start: "base" | "branch"; fields: Record<string, unknown> }) => folderSetup(config, "/api/folder-setup/start", body);
 export const refreshMetadata = (config: PageConfig) => send(config, "POST", "/api/metadata/refresh");
+/** One phase's model, or this PRD's Audits choice; "default" returns it to Model defaults (Kiln Phase Model Tiers AC-PICK-03, AC-OTHER-01). */
+export const changeModel = (config: PageConfig, target: { phase: string } | "audits", choice: { agentId: string; model: string; effort?: string } | "default") => send(config, "POST", "/api/model", { target, choice });
+/** Model defaults as the file says now, or why it can't be read (AC-DEFAULT-02). */
+export async function modelDefaults(config: PageConfig): Promise<{ ok: true; view: import("../../../src/models/model-defaults-edit.js").ModelDefaultsView } | { ok: false; reason: string; canRestore: boolean }> {
+  try {
+    const response = await fetch("/api/model-defaults", { headers: { "X-Kiln-Token": config.token } });
+    const body = await response.json() as Record<string, unknown>;
+    return response.ok ? { ok: true, view: body as never } : { ok: false, reason: String(body.reason ?? response.statusText), canRestore: body.canRestore === true };
+  } catch (error) { return { ok: false, reason: (error as Error).message, canRestore: false }; }
+}
+/** One change to Model defaults: a row's sides, Restore, or the fallback switch and threshold. */
+export const changeModelDefaults = (config: PageConfig, change: import("../../../src/models/model-defaults-edit.js").DefaultsChange) => send(config, "POST", "/api/model-defaults", change);
 /** Resume at Needs you, with the person's note when they wrote one (usage-limit recovery AC-RESUME-02, 03). */
 export const resume = (config: PageConfig, note: string, bringUpToDate = false) => send(config, "POST", "/api/resume", { ...(note.trim() === "" ? {} : { note }), bringUpToDate });
 /** Resume now, during a wait; it takes no note (usage-limit recovery AC-LIMIT-02). */

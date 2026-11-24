@@ -1,5 +1,7 @@
 # Phase 3: Change models
 
+**Closed:** 2026-11-24
+
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "Resolving a Choice" (entries, Use the default, the Audits entry); the "Change while a launch of the activity is under way", "Model defaults across running Kilns", "Model defaults holds only what the person set", "Restore Kiln's defaults" and "Commands for Model defaults" decisions; "Model defaults file" (writing it); "HTTP"; `settings.models` in "Snapshot"; "Command line"; "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-phase-model-tiers-phase-plan.md)

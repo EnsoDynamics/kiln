@@ -229,7 +229,8 @@ describe("kiln run on a feature not started", () => {
       plan: { phaseDocCount: 5, leafCount: 4, closedCount: 1 },
     });
     // Each phase with no child phases has its tag and the model it will run on (Kiln Phase Model Tiers AC-TIER-02, AC-PICK-02).
-    const opus = { state: "will_run_on", from: "model_defaults", choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "medium" } };
+    // Each phase that hasn't started offers Change (AC-PICK-03).
+    const opus = { state: "will_run_on", from: "model_defaults", choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "medium" }, change: { available: true } };
     const notRated = { value: "not_rated" };
     expect(snapshot.documents!.plan!.phases).toEqual([
       { id: "1", title: "Return intake", closed: false, repositories: [], tier: notRated, model: opus },

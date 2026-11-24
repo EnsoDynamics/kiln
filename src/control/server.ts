@@ -1,4 +1,4 @@
-import { AGENT_NAMES } from "../state/records.js";
+import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import { spoolResult, releaseResult } from "./spool.js";
 import { strictJson } from "../audit/storage.js";
 /** Versioned inspection and durable control API, behind the local server's unchanged authentication middleware. */
@@ -39,7 +39,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "after_delivery"] }));
+    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "after_delivery", "model"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -132,6 +132,20 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
           const inputs = command.inputs as Record<string, unknown>;
           const errors = current().loopLimitErrors({ ...(typeof inputs.delivery_audit_loops === "number" ? { deliveryLimit: inputs.delivery_audit_loops } : {}), ...(typeof inputs.test_audit_loops === "number" ? { testLimit: inputs.test_audit_loops } : {}) });
           if (Object.keys(errors).length) throw new ControlFailure("invalid_input", Object.values(errors).join(" "), 2);
+        }
+        // `kiln model` is checked at admission as `POST /api/model` checks it (Kiln Phase Model Tiers, "Command line"): an id that
+        // isn't a phase Kiln builds is target_not_found, a choice its agent doesn't offer invalid_input, a phase that can't change now control_unavailable.
+        if (command.action === "model" && command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
+          const inputs = command.inputs as Record<string, unknown>;
+          const target = typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits" as const;
+          const choice = inputs.use_default === true ? "default" as const : typeof inputs.agent_id === "string" && typeof inputs.model === "string" ? { agentId: inputs.agent_id as AgentId, model: inputs.model, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) } : undefined;
+          if (choice && (target === "audits" || typeof target.phase === "string")) {
+            const engine = current();
+            const checked = engine.checkModelChange(target, choice);
+            if (!checked.ok) throw new ControlFailure(target !== "audits" && !engine.shownPlan.some(phase => phase.id === target.phase && phase.splitInto === undefined) ? "target_not_found" : "invalid_input", checked.reason, 2);
+            const refused = target === "audits" ? undefined : engine.modelChangeRefusal(target.phase, `Phase ${target.phase}`);
+            if (refused) throw new ControlFailure("control_unavailable", refused, 3);
+          }
         }
         // `kiln continue-with-phases` is the finished page's Continue with N phases: the journal's continuation acceptance (AC-BOT-01).
         if (command.action === "continue-with-phases") {

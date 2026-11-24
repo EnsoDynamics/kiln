@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModelChanges from "../components/ModelChanges.svelte";
   import PersonItems from "../components/PersonItems.svelte";
   import BusyStatus from "../components/BusyStatus.svelte";
   import BillingPanels from "../components/BillingPanels.svelte";
@@ -400,6 +401,8 @@
     </div>
   </div>
   {/if}
+  <!-- Not at a preflight stop or a stop saved by Kiln 1.3.0, which offer only their own controls (The Preflight Stop; AC-STOP-04). -->
+  {#if !stop.preflight && stop.kind !== "loop_limit"}<ModelChanges {snapshot} phaseId={snapshot.needsYou?.phaseId} {connected} />{/if}
   <!-- A merge or push stop on a finished run also offers Exit Kiln (Kiln After Delivery AC-EXIT-01). -->
   {#if snapshot.exit}<section class="exit-row" aria-label="Exit Kiln"><ExitKiln {snapshot} {connected} /></section>{/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />

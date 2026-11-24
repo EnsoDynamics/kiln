@@ -31,7 +31,8 @@ describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-K
   it("shows the model list's error under the model line", () => {
     const snapshot = withPanel({});
     claude(snapshot).modelListError = "Claude Code couldn’t list its models.";
-    expect(text(html(snapshot))).toContain("Chosen for each phase alex@acme-shop.dev");
+    // The panel shows Documents found's model lines, without Change: nothing changes until the run is set up again.
+    expect(text(html(snapshot))).toContain("Models Chosen for each phase Model defaults Audits Claude Code · Opus 5.5 · high The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults . alex@acme-shop.dev");
     expect(text(html(snapshot))).toContain("Claude Code couldn’t list its models.");
   });
 

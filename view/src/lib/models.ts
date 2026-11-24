@@ -69,3 +69,48 @@ export function tierCountsLine(tiers: Snapshot["settings"]["models"]["tiers"]): 
   const shown = parts.filter(([count]) => count > 0).map(([count, word]) => `${count} ${word}`);
   return shown.length ? `${shown.join(", ")}.` : undefined;
 }
+
+/** One choice an editor offers: a model (a row's Change) or a family (Model defaults). */
+export interface EditorOption { value: string; name: string; efforts: string[]; defaultEffort?: string | undefined }
+/** An agent's choices in an editor; none while its list can't be read, with the reason. */
+export interface EditorAgent { agentId: AgentId; agent: string; options: EditorOption[]; problem?: string | undefined }
+type AgentId = "claude_code" | "codex";
+
+const EFFORT_WORDS: Record<string, string> = { low: "low", medium: "medium", high: "high", xhigh: "extra high", max: "max", ultra: "ultra" };
+
+/**
+ * An effort as a person reads it.
+ *
+ *   effortWord("xhigh")  // "extra high"
+ */
+export function effortWord(effort: string): string {
+  return EFFORT_WORDS[effort] ?? effort;
+}
+
+/** The agents a row's Change offers, from the snapshot: each installed agent's models, none for one whose list can't be read. */
+export function rowEditorAgents(agents: Snapshot["agents"]): EditorAgent[] {
+  return agents.filter(agent => agent.installed).map(agent => ({ agentId: agent.agentId, agent: agent.agent, options: (agent.models ?? []).map(model => ({ value: model.value, name: model.displayName, efforts: model.efforts, defaultEffort: model.defaultEffort })), ...(agent.models ? {} : { problem: agent.modelListError ?? `Reading ${agent.agent} models…` }) }));
+}
+
+/**
+ * The effort an editor starts on for a choice: the current one when the choice offers it, else
+ * the agent's default for it, else high, else the first it offers; none for a choice that takes none.
+ *
+ *   startingEffort({ efforts: ["low", "medium", "high"] }, "max")  // "high"
+ */
+export function startingEffort(option: Pick<EditorOption, "efforts" | "defaultEffort"> | undefined, current: string | undefined): string | undefined {
+  if (!option || option.efforts.length === 0) return undefined;
+  if (current && option.efforts.includes(current)) return current;
+  if (option.defaultEffort && option.efforts.includes(option.defaultEffort)) return option.defaultEffort;
+  return option.efforts.includes("high") ? "high" : option.efforts[0];
+}
+
+/**
+ * The delivery panel's and the run's settings' fallback line (AC-FALLBACK-01).
+ *
+ *   fallbackLine({ enabled: true, threshold: 95 })  // { value: "Use the fallback at 95%" }
+ *   fallbackLine({ enabled: false, threshold: 95 }) // { value: "Wait for the limit", help: "No fallback is switched on. Set one up in" }
+ */
+export function fallbackLine(fallback: { enabled: boolean; threshold: number }): { value: string; help?: string } {
+  return fallback.enabled ? { value: `Use the fallback at ${fallback.threshold}%` } : { value: "Wait for the limit", help: "No fallback is switched on. Set one up in" };
+}

@@ -81,6 +81,8 @@ it("keeps launched identity/credits separate from the next account and freezes t
   const snapshot = runningSnapshot(); useAgent(snapshot, "codex");
   for (const phase of snapshot.phases) if (phase.details) Object.assign(phase.details, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol" });
   Object.assign(snapshot.current!, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol", effort: "high" });
+  // The run's Audits choice is on Codex too, as its settings' Audits line shows (Kiln Phase Model Tiers AC-OTHER-01).
+  snapshot.settings.models.audits.choice = { agentId: "codex", agent: "Codex", model: "gpt-6.1-sol", modelName: "GPT-6.1-Sol", effort: "high" };
   const at = new Date().toISOString();
   inUse(snapshot).account = { agentId: "codex", startedAt: at, updatedAt: at, email: "next@example.test", accountId: "next-workspace", plan: "pro", limits: [
     { id: "codex:primary", kind: "codex:primary", label: "Daily inference · primary", shortLabel: "Daily inference · primary", durationMinutes: 1440, percent: 31, nearLimit: false },
