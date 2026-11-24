@@ -4,7 +4,7 @@
 // drawn state is "as today", dimmed or summarized, and is compared by view-in-browser's screens.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { findRepositoriesSnapshot } from "../test-support/sample-snapshots.js";
+import { findRepositoriesSnapshot, runningRepositoriesSnapshot } from "../test-support/sample-snapshots.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
 
@@ -137,6 +137,65 @@ describe("the note under Start while a row asks, as the mockup draws it (AC-SEE-
         await page.waitFor(`document.querySelector('ul[aria-labelledby="repos-h"]')`);
         expect(drawnStyle?.[0]).toBe("rgb(230, 180, 80)");
         expect(await page.evaluate<string[] | null>(style(check))).toEqual(drawnStyle);
+      } finally { await page.close(); await server.close(); }
+    });
+  }
+});
+
+describe("the settings while Kiln works follow Documents found's repository rows (AC-SEE-04)", () => {
+  /** Each row's label, address path, separator and checkout folder: text, colour and type. */
+  const ROW_TYPE = (list: string) => `(() => { const list = ${list}; if (!list) return null; return [...list.querySelectorAll(":scope > li")].map((li) => [...li.querySelectorAll(".repo-name, .where > *")].map((e) => { const s = getComputedStyle(e); return [e.textContent.trim(), s.color, s.fontFamily.split(",")[0].replace(/["']/g, "").trim(), s.fontSize, s.fontWeight, s.fontStyle]; })); })()`;
+  const FOUND = `document.querySelector('ul[aria-labelledby="repos-h"]')`;
+  const SETTINGS = `document.querySelector("ul.repos")`;
+
+  it("each row's texts in Documents found state 1's colour and type, every field fixed and no Change", async () => {
+    const found = findRepositoriesSnapshot(1);
+    const foundServer = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: found });
+    const foundPage = await chrome.open(foundServer.address, { width: 1400 });
+    let drawnRows: string[][][] | null;
+    try {
+      await foundPage.waitFor(FOUND);
+      await foundPage.evaluate(`Promise.all([...document.fonts].map((face) => face.load())).then(() => true)`);
+      drawnRows = await foundPage.evaluate<string[][][] | null>(ROW_TYPE(FOUND));
+    } finally { await foundPage.close(); await foundServer.close(); }
+    const running = runningRepositoriesSnapshot();
+    running.repositories = found.repositories.map((row) => ({ ...row, fixed: true }));
+    const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: running });
+    const page = await chrome.open(server.address, { width: 1400 });
+    try {
+      await page.waitFor(SETTINGS);
+      await page.evaluate(`Promise.all([...document.fonts].map((face) => face.load())).then(() => true)`);
+      expect(drawnRows!.map((row) => row.map(([text]) => text))).toEqual([
+        ["product", "acme/product", "·", "~/code/acme/product"],
+        ["returns-api", "acme/returns-api", "·", "~/code/acme/returns-api"],
+        ["storefront", "acme-labs/storefront", "·", "~/code/acme-labs/storefront"],
+      ]);
+      expect(await page.evaluate<string[][][] | null>(ROW_TYPE(SETTINGS))).toEqual(drawnRows);
+      expect(await page.evaluate<number>(`${SETTINGS}.querySelectorAll("button, input, select").length`)).toBe(0);
+    } finally { await page.close(); await server.close(); }
+  });
+});
+
+describe("a field message and a checkout Kiln can't deliver to, as the mockup's notes give them (AC-SEE-04)", () => {
+  const MIRROR = { folder: "~/code/mirrors/storefront", remote: "git@git.example.com:acme-labs/storefront.git", pickable: false };
+  /** The computed colour, size and weight of the leaf element whose text is given, and the opacity of its option. */
+  const LOOK = (text: string) => `(() => { const e = [...document.querySelectorAll(".question *")].find((one) => one.textContent.trim() === ${JSON.stringify(text)} && ![...one.children].length); if (!e) return null; const s = getComputedStyle(e); return [s.color, s.fontSize, s.fontWeight, getComputedStyle(e.closest(".option") ?? e).opacity]; })()`;
+  const UNPICKABLE = `(() => [...document.querySelectorAll(".question .option")].filter((one) => one.textContent.includes("mirrors")).map((one) => [getComputedStyle(one).opacity, one.querySelectorAll("input[type=radio]").length]))()`;
+
+  for (const state of [2, 3] as const) {
+    it(`state ${state}`, async () => {
+      const snapshot = findRepositoriesSnapshot(state);
+      const question = snapshot.repositories[2]!.question!;
+      snapshot.repositories[2] = { ...snapshot.repositories[2]!, question: { ...question, checkouts: [...question.checkouts, MIRROR], found: question.found + 1, ...(state === 2 ? { fieldError: "That folder isn’t a Git checkout." } : {}) } };
+      const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
+      const page = await chrome.open(server.address, { width: 1400 });
+      try {
+        await page.waitFor(`document.querySelector(".question")`);
+        // One amber line, 12.5px, under the field.
+        if (state === 2) expect(await page.evaluate<string[] | null>(LOOK("That folder isn’t a Git checkout."))).toEqual(["rgb(230, 180, 80)", "12.5px", "400", "1"]);
+        // At half opacity, with no radio, "Not on GitHub. …" in #8c8577.
+        expect(await page.evaluate<string[][]>(UNPICKABLE)).toEqual([["0.5", 0]]);
+        expect((await page.evaluate<string[] | null>(LOOK("Not on GitHub. Kiln delivers only to GitHub.")))?.slice(0, 1)).toEqual(["rgb(140, 133, 119)"]);
       } finally { await page.close(); await server.close(); }
     });
   }

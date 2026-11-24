@@ -224,6 +224,18 @@ describe("Documents found finding repositories anywhere (docs/changes/kiln-find-
     expect(page).toMatch(/<button type="button" class="use[^"]*" disabled[^>]*>Use this checkout<\/button>/);
   });
 
+  it("state 3 with a checkout Kiln can't deliver to: listed with its remote address, said why, and given no radio (AC-FIND-03)", () => {
+    const snapshot = findRepositoriesSnapshot(3);
+    const question = snapshot.repositories[2]!.question!;
+    snapshot.repositories[2] = { ...snapshot.repositories[2]!, question: { ...question, found: 3, checkouts: [...question.checkouts, { folder: "~/code/mirrors/storefront", remote: "git@git.example.com:acme-labs/storefront.git", pickable: false }] } };
+    const page = html(snapshot);
+    expect(text(page)).toContain("~/code/archive/storefront git@github.com:acme-labs/storefront.git ~/code/mirrors/storefront git@git.example.com:acme-labs/storefront.git Not on GitHub. Kiln delivers only to GitHub. Another folder");
+    // The two on GitHub and Another folder; none for the mirror.
+    expect(page.match(/type="radio" name="checkout-acme-labs\/storefront"/g)).toHaveLength(3);
+    expect(page).not.toMatch(/type="radio"[^>]*value="~\/code\/mirrors\/storefront"/);
+    expect(page.match(/<div class="option unpickable[^"]*">/g)).toHaveLength(1);
+  });
+
   it("state 4: the row shows the folder the person gave, says so, and offers Change (AC-ASK-05)", () => {
     const page = html(findRepositoriesSnapshot(4));
     const shown = text(page);

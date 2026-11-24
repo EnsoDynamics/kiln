@@ -199,6 +199,25 @@ describe("no permission prompt (AC-FIND-05)", () => {
     const result = await searchCheckouts({ git: h.git, prdMainCheckoutPath: h.product, home: h.home, platform: "darwin" });
     expect(found(result, "acme/returns-api")).toEqual([beside]);
   });
+
+  it("never reads inside a guarded folder, even one that is itself a checkout", async () => {
+    const h = homeWithProduct();
+    // Reading Documents/.git would raise the prompt as surely as listing Documents.
+    checkout("home/Documents", "git@github.com:acme/storefront.git");
+    const result = await searchCheckouts({ git: h.git, prdMainCheckoutPath: h.product, home: h.home, platform: "darwin" });
+    expect(found(result, "acme/storefront")).toEqual([]);
+    expect(result.listed.filter((folder) => folder.startsWith(join(h.home, "Documents")))).toEqual([]);
+  });
+
+  // Linux guards no folder, so there is nothing to ask about there.
+  it.runIf((GUARDED_FOLDERS[process.platform] ?? []).length > 0)("asks about a repository only a guarded folder holds, with nothing found", async () => {
+    const h = homeWithProduct();
+    checkout(`home/${process.platform === "win32" ? "AppData" : "Documents"}/storefront`, "git@github.com:acme/storefront.git");
+    const resolution = await resolveNames(input(h, [{ name: "acme/storefront", namedIn: "phase-1-x.md" }]));
+    expect(resolution.problems).toEqual([]);
+    expect(resolution.repositories[0]!.found).toBeUndefined();
+    expect(resolution.repositories[0]!.question).toMatchObject({ kind: "where", repository: "acme/storefront", checkouts: [], found: 0 });
+  });
 });
 
 type Home = ReturnType<typeof homeWithProduct>;
@@ -337,6 +356,17 @@ describe("which repository a name reaches (AC-NAME-02, AC-FIND-03, AC-FIND-04)",
     // Two checkouts of one path, one on another host: Kiln asks which, never picks (AC-ASK-02).
     expect(which.repositories[0]!.question).toMatchObject({ kind: "which", found: 3 });
     expect(which.repositories[0]!.question!.checkouts.map((one) => [one.folder, one.pickable]).sort()).toEqual([[mirror, false], [mirror2, false], [real, true]].sort());
+  });
+
+  it("uses a checkout the search finds even when it has uncommitted changes (AC-FIND-03)", async () => {
+    const h = homeWithProduct();
+    const storefront = checkout("home/code/acme-labs/storefront", "git@github.com:acme-labs/storefront.git");
+    writeFileSync(join(storefront, "README.md"), "# changed, not committed\n");
+    writeFileSync(join(storefront, "notes.txt"), "work in progress\n");
+    const resolution = await resolveNames(input(h, [{ name: "acme-labs/storefront", namedIn: "phase-1-x.md" }]));
+    expect(resolution.problems).toEqual([]);
+    expect(resolution.repositories[0]!.question).toBeUndefined();
+    expect(resolution.repositories[0]!.found).toMatchObject({ mainCheckoutPath: storefront, github: "acme-labs/storefront", located: "search" });
   });
 
   it("asks which when one checkout is beside the PRD's repository and another farther out (ASK-004)", async () => {

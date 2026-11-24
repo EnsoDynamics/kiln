@@ -13,7 +13,7 @@ import { displayPath } from "./engine/worktree-setup.js";
 import { runKilnCommand } from "./kiln-command.js";
 import { readPrdRecord, type PrdRecord } from "./state/records.js";
 import { forgetLocation, readRememberedLocation } from "./state/repository-locations.js";
-import { prdStateDirectory, stateRoot } from "./state/state-files.js";
+import { prdStateDirectory, readJsonLines, stateRoot } from "./state/state-files.js";
 import { waitFor } from "./test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
 import { commitFiles, createGithubOrigin, createRepository, createSandbox, git, installKiln, installStandIns, type Sandbox } from "./test-support/git-repositories.js";
@@ -244,6 +244,8 @@ describe("kiln run on a plan that names repositories by their address path", () 
       { "phase-1-return-intake.md": "**Repositories:** acme/admin", "phase-3-returns-dashboard.md": "**Repositories:** acme-labs/admin" },
       { "acme/admin": "home/code/acme/admin", "acme-labs/admin": "home/code/acme-labs/admin" },
     );
+    // A checkout the search finds doesn't have to be clean (AC-FIND-03).
+    writeFileSync(join(f.home, "code", "acme-labs", "admin", "notes.txt"), "work in progress\n");
     const kiln = startKiln(f);
     const address = await kiln.address;
     const token = await tokenOf(address);
@@ -302,6 +304,59 @@ describe("kiln run on a plan that names repositories by their address path", () 
     kiln.signals.emit("SIGINT");
     await kiln.done;
   }, 90_000);
+
+  it("shows a repository added after Start by its whole path in the line that adds it, once another has its short name (AC-FOLDER-02)", async () => {
+    const f = createFeature({ "phase-1-return-intake.md": "**Repositories:** acme/admin" }, { "acme/admin": "home/code/acme/admin", "acme-labs/admin": "home/code/acme-labs/admin" });
+    // Phase 1's session names acme-labs/admin for phase 2, so Kiln adds it before 2b's session.
+    const phase2 = `docs/prds/${FOLDER}/phase-2-refunds.md`;
+    const [title, ...rest] = prdDirectoryFiles()["phase-2-refunds.md"]!.split("\n");
+    writeFileSync(f.env.KILN_STANDIN_SCENARIO!, JSON.stringify({ sessions: [
+      { actions: [{ write: { repository: "product", path: phase2, content: [title, "", "**Repositories:** acme-labs/admin", ...rest].join("\n") } }, { close: true }, { commit: "docs: close the phase", repository: "product" }, { push: true, repository: "product" }, { result: "Phase 1 landed." }] },
+      { actions: [{ result: "Stopping here." }] },
+    ] }));
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    expect((await snapshotOf(address, token)).repositories.map((row) => row.label)).toEqual(["product", "admin"]);
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 200, body: { ok: true } });
+    await waitFor(() => existsSync(`${f.env.KILN_STANDIN_SCENARIO}.calls.jsonl`) && readJsonLines(`${f.env.KILN_STANDIN_SCENARIO}.calls.jsonl`).length === 2, 60_000);
+    expect(recordOf(f).repositories.find((entry) => entry.github === "acme-labs/admin")).toMatchObject({ kind: "added", addedInPhase: "2b" });
+    const lines = kiln.lines();
+    expect(lines).toContainEqual(expect.stringMatching(/ 2b +Store credit +added acme-labs\/admin$/));
+    expect(lines.some((line) => / added (admin|acme-labs\+admin)$/.test(line))).toBe(false);
+    // From then on the one set up as admin is shown as acme/admin too.
+    expect((await snapshotOf(address, token)).repositories.map((row) => row.label)).toEqual(["product", "acme/admin", "acme-labs/admin"]);
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  }, 90_000);
+
+  it("reports a folder-named repository gone from beside the PRD's repository on Documents found after a reset, with no search or question (AC-FIND-04)", async () => {
+    const f = createFeature({ "phase-3-returns-dashboard.md": "**Repositories:** billing" }, { "acme/billing": "home/code/acme/billing" });
+    writeFileSync(f.env.KILN_STANDIN_SCENARIO!, JSON.stringify({ sessions: [{ actions: [{ result: "Waiting for a decision." }] }] }));
+    const kiln = startKiln(f);
+    const address = await kiln.address;
+    const token = await tokenOf(address);
+    await waitFor(async () => { const now = await snapshotOf(address, token); return now.settings.baseCheck !== "checking" && now.repositories.every((row) => row.baseCheck !== "checking"); });
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 200, body: { ok: true } });
+    await waitFor(async () => (await snapshotOf(address, token)).reset?.available === true, 60_000);
+    const before = await snapshotOf(address, token);
+    const reset = await fetch(`${new URL(address).origin}/api/reset`, { method: "POST", headers: { "X-Kiln-Token": token, Origin: new URL(address).origin, "X-Kiln-Status": before.controlToken!, "X-Kiln-Command-Id": "reset-find-04" } });
+    expect(reset.status, await reset.clone().text()).toBe(200);
+
+    // The folder goes, and a checkout of the same repository the search would find is elsewhere.
+    rmSync(join(f.home, "code", "acme", "billing"), { recursive: true, force: true });
+    createRepository(f.sandbox, "home/code/archive/billing", "git@github.com:acme/billing.git");
+    await connectOnce(address, token);
+    await waitFor(async () => (await snapshotOf(address, token)).documents?.checksFailed === true, 30_000);
+    const snapshot = await snapshotOf(address, token);
+    expect(snapshot.feature.state).toBe("not_started");
+    expect(snapshot.documents!.checks.filter((check) => !check.passed).map((check) => check.name)).toEqual([`phase-3-returns-dashboard.md names billing, which isn’t in ${displayPath(join(f.home, "code", "acme"))}/.`]);
+    expect(snapshot.documents!.checks.some((check) => check.locate || / to locate$/.test(check.name))).toBe(false);
+    expect(snapshot.repositories.some((row) => row.question !== undefined || row.checkoutFolder === displayPath(join(f.home, "code", "archive", "billing")))).toBe(false);
+    expect(snapshot.settings.startBlockedBy).toBe("Fix what failed, then reload.");
+    kiln.signals.emit("SIGINT");
+    await kiln.done;
+  }, 120_000);
 
   it("reports another start check that fails as today, and asks only once it passes (AC-ASK-01)", async () => {
     const f = createFeature({ "phase-3-returns-dashboard.md": "**Repositories:** acme-labs/storefront" }, { "acme-labs/storefront": "volumes/work/storefront" });
