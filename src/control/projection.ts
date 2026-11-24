@@ -434,7 +434,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   if (folders) {
     // No resume command, continuation prompt or fresh-session instructions from a folder that is gone (AC-GONE-01).
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
-      session_id: null, provider_session_id: null, agent: view0AgentId(engine), phase_key: null, working_directory: null,
+      session_id: null, provider_session_id: null, agent: reportedAgentId(engine), phase_key: null, working_directory: null,
       resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical),
       provider_history: { state: "unavailable", observed_at: null, reason: "This run’s folder is missing." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null, fresh_session_instructions: null,
@@ -515,7 +515,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   } finally { history.dispose(); }
 }
 /** The agent of the activity status reports, from the controller. */
-function view0AgentId(engine: Engine | undefined): string | null { return engine ? engine.inUseAgent(undefined) ?? null : null; }
+function reportedAgentId(engine: Engine | undefined): string | null { return engine ? engine.inUseAgent(undefined) ?? null : null; }
 /** An epoch is response identity, never a mutation authorization in this read-only release. */
 export const instanceEpoch = () => randomUUID();
 export const recordRevision = (record: SavedWork["record"]) => createHash("sha256").update(JSON.stringify(record)).digest("hex");
