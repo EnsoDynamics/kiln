@@ -16,6 +16,7 @@
   import TerminalOutputRow from "./TerminalOutputRow.svelte";
   import PhaseCircle from "./PhaseCircle.svelte";
   import StepsRow from "./StepsRow.svelte";
+  import { TIER_LABELS } from "../lib/models.js";
 
   let { snapshot, connected, now }: { snapshot: Snapshot; connected: boolean; now: number } = $props();
   const { config, router } = viewContext();
@@ -50,7 +51,8 @@
       <PhaseCircle id={row?.kind === "delivery_audit" ? "DA" : row?.kind === "test_audit" ? "TA" : isPreflight ? "PF" : current.phaseId} tone={connected ? "implementing" : "amber"} />
       <div class="words"><span class="eyebrow">{connected ? isPreflight ? "Now checking" : row?.kind?.endsWith("audit") ? "Now auditing" : "Now implementing" : "Last seen"}{isPreflight ? "" : ` · ${phaseOfTotal(snapshot, current.phaseId)}`}</span><h2 id="now-h">{isPreflight ? PREFLIGHT_HEADING : row?.title ?? ""}</h2></div>
     </div>
-    <span class="meta">{current.agent ?? snapshot.settings.agent} · {modelAndEffort(current.model, current.effort)}{#if current.startedAt}<br />Started {clockTime(current.startedAt, nowDate, { afterWord: true })} · {row?.timing ? timingText(row.timing, now) : elapsed(now - Date.parse(current.startedAt))}{/if}</span>
+    <!-- The row's choice and, for a phase, its tier (Kiln Phase Model Tiers AC-PICK-02). -->
+    <span class="meta">{current.choice?.agent ?? current.agent ?? snapshot.settings.agent} · {modelAndEffort(current.choice?.modelName ?? current.model, current.choice ? current.choice.effort : current.effort)}{#if current.tier || current.startedAt}<br />{#if current.tier}{TIER_LABELS[current.tier.value]} phase{#if current.startedAt}{" · "}{/if}{/if}{#if current.startedAt}{current.tier ? "started" : "Started"} {clockTime(current.startedAt, nowDate, { afterWord: true })} · {row?.timing ? timingText(row.timing, now) : elapsed(now - Date.parse(current.startedAt))}{/if}{/if}</span>
   </div>
   {#if !isPr && !isPreflight}<StepsRow steps={current.steps} live={connected} followUp={current.followUp} />{/if}
   {#if current.seenInSession || connected}

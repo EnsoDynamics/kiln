@@ -42,7 +42,7 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'comet', folderNam
 const settings = defaultSettings(paths, { branches: new Map([['develop', baseCommit]]), defaultBranch: 'develop' });
 Object.assign(settings, { featureBranch: 'develop', worktreePath: repository, workspaceFolder: root, keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: 'fictional/comet', settings });
-record.settings.agentId = agentId; const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus'; record.settings.agentChoices[agentId] = { model, effort: 'high' };
+const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus'; record.settings.modelChoices.kept = { agentId, model, effort: 'high' };
 const at = new Date().toISOString(); record.startedAt = record.setupCompletedAt = record.completedAt = at;
 record.repositories = [{ name: 'comet', kind: 'prd', mainCheckoutPath: repository, github: 'fictional/comet', baseBranch: 'develop', worktreePath: repository, baseCommit, setupCompletedAt: at }];
 record.plan = recordedPlan(source.plan); record.planReconciliation = { baselineId: retainBaseline(stateDirectory, { formatVersion: 1, normalizerVersion: 1, prdDirectory: directory, active: source, sources: [], completions: { '1': { kind: 'external', revision: baseCommit, doneAt: at, repositories: { comet: { identity: 'fictional/comet', revision: baseCommit } } } } }).id };

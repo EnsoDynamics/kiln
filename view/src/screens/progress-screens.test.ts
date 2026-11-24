@@ -198,7 +198,7 @@ describe("Running during the pull-request session (AC-PR-05)", () => {
     const words = text(running(snapshot));
     expect(words).toContain("Implementing the pull request");
     expect(words).toContain("Now implementing · the pull request Final pull request");
-    expect(words).toContain("Model and effort changes apply from the next phase; the pull-request session keeps what it started with.");
+    expect(words).toContain("A phase that has started keeps the model it started with.");
     expect(words).toContain("Close to the limit. Weekly");
     expect(words).toContain("Ctrl+C there interrupts the pull-request session");
     // The final-delivery note names Pause now (Kiln Pause Now AC-PAUSE-02); no pause panel is offered.

@@ -204,14 +204,14 @@ describe("Claude billing browser controls", () => {
     await page.waitFor(`${panel}.textContent.includes('Billing for the next run') && ${panel}.textContent.includes('Paid usage is enabled')`);
     const historicalTitle = route === "subscription" ? "Claude subscription" : "Claude Code settings";
     expect(await page.evaluate(`${panel}.querySelector('.billing-title').textContent`)).toBe(historicalTitle);
-    expect(h.engine.record.billing!.lastLaunch!.overflow?.enabled).toBe(route === "subscription" ? false : undefined);
+    expect(h.engine.record.billing!.lastLaunch!.claude_code!.overflow?.enabled).toBe(route === "subscription" ? false : undefined);
     expect(await page.evaluate(`${panel}.querySelector('input')`)).toBeNull();
-    const launchBeforeChange = structuredClone(h.engine.record.billing!.lastLaunch);
+    const launchBeforeChange = structuredClone(h.engine.record.billing!.lastLaunch?.claude_code);
     h.env.ANTHROPIC_BASE_URL = "https://next-route.example.test"; await h.engine.refreshBilling();
     // AC-RUN-04: a new route applies to the next launch; it does not interrupt this process.
     expect(h.engine.current?.processRunning).toBe(true);
     expect(h.claudeCalls()).toHaveLength(1);
-    expect(h.engine.record.billing!.lastLaunch).toEqual(launchBeforeChange);
+    expect(h.engine.record.billing!.lastLaunch?.claude_code).toEqual(launchBeforeChange);
     await page.waitFor(`${panel}.textContent.includes('Configured provider')`);
     const text = await page.evaluate<string>(`${panel}.innerText`);
     expect(text).toContain(historicalTitle); expect(text).toContain("Configured provider");

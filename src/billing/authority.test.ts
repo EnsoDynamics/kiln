@@ -7,7 +7,7 @@ function harness() {
   const state = newBillingState("execution-one"); let next = inspection(); let generation = 0; let busy = false; let writes = 0; let fail = false; let cancelled = false;
   const authority = new BillingAuthority({ state: () => state, generation: () => generation, inspect: async () => structuredClone(next), save: () => { if (fail) throw new Error("secret-canary"); writes++; }, changed: () => {}, busy: () => busy, readiness: () => true, cancelled: () => cancelled, completed: () => false, now: () => at });
   const read = () => authority.refresh("/repo", {});
-  const body = () => ({ executionId: state.executionId, selectionGeneration: generation, readingId: authority.view.next!.readingId, approved: true });
+  const body = () => ({ executionId: state.executionId, readingId: authority.view.next!.readingId, approved: true });
   return { state, authority, read, body, next: (value: Inspection) => { next = value; }, generation: () => { generation++; }, busy: (value: boolean) => { busy = value; }, fail: () => { fail = true; }, cancel: () => { cancelled = true; }, writes: () => writes };
 }
 describe("execution-scoped billing approval", () => {
@@ -63,7 +63,7 @@ it("keeps approval across unrelated provider changes but revokes it for selected
   let helpers: InventoryRead["inventory"]["helpers"] = {}; let source = "user";
   const state = newBillingState("execution");
   const a = new BillingAuthority({ state: () => state, generation: () => 0, inspect: async () => classify({ cwd: "/repo", env, read: { version: "2.1.311", projected: env, inventory: { ...emptyInventory(""), complete: true, diagnostics: [], env, sources: { ANTHROPIC_API_KEY: `${source} settings · ANTHROPIC_API_KEY` }, helpers } }, auth: { authMethod: "api_key", apiProvider: selected }, at }), save: () => {}, changed: () => {}, busy: () => false, cancelled: () => false, readiness: () => true, completed: () => false, now: () => at });
-  const approve = async () => { await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", selectionGeneration: 0, readingId: a.view.next!.readingId, approved: true }, "/repo", {}); };
+  const approve = async () => { await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", readingId: a.view.next!.readingId, approved: true }, "/repo", {}); };
   await approve(); const digest = state.current!.fingerprint;
   env = { ...env, ANTHROPIC_FOUNDRY_RESOURCE: "unrelated-resource", GOOGLE_APPLICATION_CREDENTIALS: "/unrelated/google.json", AWS_PROFILE: "unrelated-aws" };
   helpers = { awsAuthRefresh: { value: "private-aws-helper", source: "project settings · awsAuthRefresh" }, gcpAuthRefresh: { value: "private-google-helper", source: "project settings · gcpAuthRefresh" } };
@@ -92,7 +92,7 @@ it.each(["source", "helper", "provider", "payer", "launchProfile"])("invalidates
   };
   const state = newBillingState("execution"); let next = make("A");
   const a = new BillingAuthority({ state: () => state, generation: () => 0, inspect: async () => structuredClone(next), save: () => {}, changed: () => {}, busy: () => false, cancelled: () => false, readiness: () => true, completed: () => false, now: () => at });
-  await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", selectionGeneration: 0, readingId: a.view.next!.readingId, approved: true }, "/repo", {});
+  await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", readingId: a.view.next!.readingId, approved: true }, "/repo", {});
   expect(a.view.next?.approved).toBe(true); const digest = state.current!.fingerprint;
   next = make("B"); await a.refresh("/repo", {}); expect(state.current!.fingerprint).not.toBe(digest); expect(state.approval).toBeUndefined();
   next = make("A"); await a.refresh("/repo", {}); expect(state.current!.fingerprint).toBe(digest); expect(a.view.next?.approved).toBe(false);
@@ -106,7 +106,7 @@ it("keeps a metered approval across a Claude Code update, and voids one granted 
   let version = "2.1.311";
   const state = newBillingState("execution");
   const a = new BillingAuthority({ state: () => state, generation: () => 0, inspect: async () => classify({ cwd: "/repo", env, read: { version, inventory, projected: env }, auth: { authMethod: "api_key", apiProvider: "firstParty" }, at }), save: () => {}, changed: () => {}, busy: () => false, cancelled: () => false, readiness: () => true, completed: () => false, now: () => at });
-  await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", selectionGeneration: 0, readingId: a.view.next!.readingId, approved: true }, "/repo", {});
+  await a.refresh("/repo", {}); await a.command("approval", { executionId: "execution", readingId: a.view.next!.readingId, approved: true }, "/repo", {});
   const digest = state.current!.fingerprint; expect(a.view.canLaunch).toBe(true);
   version = "2.1.318"; await a.refresh("/repo", {});
   expect(state.current!.fingerprint).toBe(digest); expect(a.view.next?.approved).toBe(true); expect(a.view.canLaunch).toBe(true);

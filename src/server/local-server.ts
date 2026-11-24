@@ -28,7 +28,7 @@ import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import type { CommandResult, Engine } from "../engine/engine.js";
 import { buildSnapshot, type DocumentsFound, type Snapshot } from "../engine/snapshot.js";
 import { readOutputLines } from "../session/claude-session.js";
-import { NewerSchemaError, type Effort, type Settings } from "../state/records.js";
+import { NewerSchemaError, type Settings } from "../state/records.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { RESULT_CHECK } from "../audit/admission.js";
 import { strictJson, REPORT_LIMIT } from "../audit/storage.js";
@@ -822,23 +822,11 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
       }) };
     } catch (error) { return (error as Error).message; }
   }
-  for (const field of ["model", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch"] as const) {
+  for (const field of ["workspaceFolder", "worktreePath", "featureBranch", "baseBranch"] as const) {
     const value = body[field];
     if (value === undefined) continue;
     if (typeof value !== "string") return `${field} must be text.`;
     change[field] = value;
-  }
-  if (body.agentId !== undefined) {
-    if (body.agentId !== "claude_code" && body.agentId !== "codex") return "Unknown agent.";
-    change.agentId = body.agentId;
-  }
-  if (body.selectionGeneration !== undefined) {
-    if (!Number.isSafeInteger(body.selectionGeneration) || (body.selectionGeneration as number) < 0) return "selectionGeneration must be a nonnegative integer.";
-    change.selectionGeneration = body.selectionGeneration as number;
-  }
-  if (body.effort !== undefined) {
-    if (typeof body.effort !== "string" || body.effort.trim() === "") return "effort must be nonempty text.";
-    change.effort = body.effort as Effort;
   }
   if (body.auditLoops !== undefined) {
     const loops = body.auditLoops as Record<string, unknown> | null;
@@ -860,7 +848,10 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     }
     change.bases = bases as Record<string, string>;
   }
-  const unknown = Object.keys(body).filter((key) => !["developmentDeployments", "agentId", "selectionGeneration", "model", "effort", "keepAwake", "resumeAfterUsageLimit", "auditLoops", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
+  // The agent, model and effort for the whole PRD are gone: each activity has its own choice (Kiln Phase Model Tiers AC-KEEP-01).
+  const retired = Object.keys(body).filter((key) => ["agentId", "selectionGeneration", "model", "effort"].includes(key));
+  if (retired.length > 0) return `${retired.join(", ")} ${retired.length === 1 ? "is" : "are"} no longer a setting: Kiln chooses each phase's model from its tier and Model defaults.`;
+  const unknown = Object.keys(body).filter((key) => !["developmentDeployments", "keepAwake", "resumeAfterUsageLimit", "auditLoops", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
   if (unknown.length > 0) return `Unknown setting: ${unknown.join(", ")}.`;
   return change;
 }

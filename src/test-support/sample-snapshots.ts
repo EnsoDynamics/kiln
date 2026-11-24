@@ -39,9 +39,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
     },
     settings: {
       agent: "Claude Code",
-      model: { value: "opus", displayName: "Opus 5.5" },
-      effort: "high",
-      effortLevels: ["low", "medium", "high", "xhigh", "max"],
+      models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 } },
       keepAwake: true,
       resumeAfterUsageLimit: true,
       workspaceFolder: "~/devel/.worktrees/customer-returns",
@@ -883,7 +881,7 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
   return {
     suggested: pick, selected: pick, multi,
     choices: { base: choice(baseLine), branch: branchChoice },
-    fields: { worktreePath: multi ? SAVED : folder, workspaceFolder: multi ? folder : fromBase ? WT2 : WT, featureBranch: branch, baseBranch: "develop", bases: multi ? { "harbor-portal": "develop" } : {}, model: "opus", effort: "high", keepAwake: true, resumeAfterUsageLimit: true },
+    fields: { worktreePath: multi ? SAVED : folder, workspaceFolder: multi ? folder : fromBase ? WT2 : WT, featureBranch: branch, baseBranch: "develop", bases: multi ? { "harbor-portal": "develop" } : {}, keepAwake: true, resumeAfterUsageLimit: true },
     fixed: fromBase ? ["agentId"] : ["agentId", "featureBranch", "baseBranch", "bases", ...(multi ? ["workspaceFolder"] : [])],
     fieldErrors: {},
     helpLines: {
@@ -892,7 +890,6 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
     },
     repositories: multi ? [{ name: "harbor-ledger", kind: "prd", baseBranch: "develop", baseChoices: ["develop", "main"] }, { name: "harbor-portal", kind: "named", baseBranch: "develop", baseChoices: ["develop", "main"] }] : [],
     baseChoices: ["develop", "main"],
-    effortLevels: ["low", "medium", "high", "xhigh", "max"],
     preview: { ...preview, lets },
     previewId: "e".repeat(64), draftRevision: 0,
   };

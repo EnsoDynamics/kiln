@@ -16,6 +16,7 @@ import { releaseResult } from "../control/spool.js";
 import { cacheSnapshot, handoffProjection, inspectionSnapshot, statusProjection } from "../control/projection.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot, writeJsonAtomically } from "../state/state-files.js";
+import { CODEX_CHOICE, runPrdOn } from "../test-support/model-choices.js";
 
 let h: Harness;
 let f: ReturnType<typeof codexWorkFixture>;
@@ -30,7 +31,7 @@ async function setup(value: Record<string, unknown> = {}) {
   set(value); h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-  await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   await h.engine.agents.refresh(); await h.engine.settled();
 }
@@ -46,7 +47,7 @@ it("waits on explicit blocked permission, resumes once with the original pair, p
   expect(buildSnapshot(h.engine).feature.state).toBe("waiting");
   expect(original.runs[0]).toMatchObject({ limitRefusal: { agentId: "codex", codex: { code: "usageLimitExceeded", accountId: "proof-account" } }, codex: { errors: [{ willRetry: false }], terminal: { status: "failed" } } });
   expect(original.runs[0]?.limitRefusal?.resetsAt).toBeUndefined();
-  await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
   await refresh({ ordinaryUsageAllowed: true });
   await waitFor(() => h.engine.latestSession("1")?.runs.length === 2 && h.engine.latestSession("1")?.runs[1]?.endedAt !== undefined);
   await h.engine.agents.refresh(); await h.engine.settled();

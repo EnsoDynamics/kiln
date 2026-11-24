@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSandbox, createRepository, commitFiles, git, type Sandbox } from "../test-support/git-repositories.js";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "../test-support/fixture-documents.js";
+import { CODEX_CHOICE } from "../test-support/model-choices.js";
 import { newPrdRecord } from "../state/new-record.js";
 import { prdStateDirectory, stateRoot, writeJsonAtomically } from "../state/state-files.js";
 import { SCHEMA_VERSION, writePrdRecord, writeSessionRecord, type SessionRecord } from "../state/records.js";
@@ -31,7 +32,7 @@ afterEach(async () => { await secondServer?.close(); secondServer=undefined; sec
 function fixture(name = 'shop with spaces') {
   sandbox ??= createSandbox();
   const repository = createRepository(sandbox, name); commitFiles(sandbox, repository, `docs/prds/${FOLDER}`, prdDirectoryFiles());
-  const record = newPrdRecord({ mainCheckoutPath: repository, repositoryName: name, github: `test/${name}`, prdDirectoryFromRoot: `docs/prds/${FOLDER}`, featureName: 'Customer returns', settings: { workspaceFolder: sandbox.root, worktreePath: repository, featureBranch: 'kiln/returns', baseBranch: 'develop', bases: {}, model: 'opus', effort: 'high', keepAwake: false, resumeAfterUsageLimit: true } });
+  const record = newPrdRecord({ mainCheckoutPath: repository, repositoryName: name, github: `test/${name}`, prdDirectoryFromRoot: `docs/prds/${FOLDER}`, featureName: 'Customer returns', settings: { workspaceFolder: sandbox.root, worktreePath: repository, featureBranch: 'kiln/returns', baseBranch: 'develop', bases: {}, modelChoices: { phases: {} }, keepAwake: false, resumeAfterUsageLimit: true } });
   record.startedAt = '2026-01-01T00:00:00.000Z'; record.plan = [{ id: '1a', title: 'Nested intake', file: 'phase-1a-intake.md', closed: false, repositories: [] }, { id: '2', title: 'Later phase', file: 'phase-2-later.md', closed: false, repositories: [] }];
   const directory = prdStateDirectory(stateRoot(sandbox.env), repository, name, record.prdDirectory);
   writePrdRecord(directory, record);
@@ -67,7 +68,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     rmSync(join(h.engine.worktreePath,`docs/prds/${FOLDER}/phase-2b-store-credit.md`));
     expect(await h.engine.decide()).toEqual({kind:'plan_stop',phaseKey:'1'});
     expect(h.engine.latestSession('1')).toBeUndefined();
-    h.engine.record.settings.agentId=agent;
+    if(agent==='codex'){h.engine.record.settings.modelChoices.kept={...CODEX_CHOICE};h.engine.modelChoicesChanged();}
     if(agent==='codex') {
       // A first readiness stop in a multi-repository execution starts a fresh
       // session at the workspace root, distinct from either repository.
@@ -349,11 +350,11 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     expect(offlineLatest.json().data).toMatchObject({session_id:current.sessionId,provider_session_id:current.sessionId,phase_key:'1',working_directory:current.workingDirectory,resumable:true,continuation_prompt:latest.continuation_prompt,fresh_session_instructions:latest.fresh_session_instructions});
   });
   it('preserves independently dated attempt/current accounts, usage windows, effective models and named nested/audit activity',async()=>{
-    sandbox=createSandbox();const f=fixture();const s=session(f);f.record.settings.agentId='codex';s.record.initModel='effective-provider-model';
+    sandbox=createSandbox();const f=fixture();const s=session(f);f.record.settings.modelChoices.kept={...CODEX_CHOICE};s.record.initModel='effective-provider-model';
     s.record.codex={launchIntent:{version:'0.162.1',cwd:f.repository,writableRoots:[f.repository],repositories:[],skills:[]},originalAccount:{at:'2026-01-01T00:00:00Z',email:'original@example.invalid'}};
     s.record.runs.at(-1)!.billing={agentId:'codex',route:'subscription',sources:[],email:'attempt@example.invalid',observedAt:'2026-01-02T02:00:00Z',diagnostics:[],approved:false};writeSessionRecord(f.directory,s.record);
     f.record.phases['1a']!.stop={kind:'done_check',at:'2026-01-03T00:00:00Z',checkedAt:'2026-01-03T00:00:00Z',checks:[]};
-    f.record.billing!.lastLaunch={agentId:'codex',route:'subscription',sources:[],email:'last@example.invalid',observedAt:'2026-01-02T00:00:00Z',diagnostics:[],approved:false};writePrdRecord(f.directory,f.record);
+    f.record.billing!.lastLaunch={codex:{agentId:'codex',route:'subscription',sources:[],email:'last@example.invalid',observedAt:'2026-01-02T00:00:00Z',diagnostics:[],approved:false}};writePrdRecord(f.directory,f.record);
     const next={agentId:'codex',email:'next@example.invalid',plan:'Next plan',startedAt:'2026-01-04T00:00:00Z',updatedAt:'2026-01-04T00:00:01Z',limitsObservedAt:'2026-01-04T00:00:00Z',limits:[{id:'five-hour',kind:'session',label:'5-hour',shortLabel:'5h',percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300,nearLimit:false}],stale:true};
     writeJsonAtomically(join(f.directory,'inspection-view.json'),{version:1,execution_id:f.record.executionId,observed_at:'2026-01-04T00:00:01Z',snapshot:{feature:{state:'needs_you',currentPhaseId:'1a',phasesDone:0,phasesTotal:2},account:next}});
     const answer=(await command(['status',f.path,'--detail','full','--json'])).json();

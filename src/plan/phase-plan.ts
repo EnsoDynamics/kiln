@@ -2,7 +2,7 @@
 // plan read and the start checks run on it (technical design, "The Plan Reader";
 // PRD AC-START-02). Wording of each problem: assumptions UI-010 item 10.
 
-import { readPhaseDocument, type PhaseDocument } from "./phase-document.js";
+import { readPhaseDocument, type ModelTier, type PhaseDocument } from "./phase-document.js";
 import { firstLink, linkedFileName } from "./markdown-sections.js";
 import { idTextFromFileName, isAncestorOf, isPhaseFileName, isPhaseId, parentId } from "./phase-ids.js";
 
@@ -17,6 +17,8 @@ export interface PlannedPhase {
   attended?: string;
   /** The `**Early merge:**` line's text, when the document has one (AC-ATTEND-05). Display only. */
   earlyMerge?: string;
+  /** The `**Model tier:**` line's tier and reason (Kiln Phase Model Tiers AC-TIER-01). Display and model choice only. */
+  modelTier?: ModelTier;
   /** Child ids in `## Split into` order, for a split record; undefined for a leaf. */
   splitInto: string[] | undefined;
   citedCriteria: string[];
@@ -106,6 +108,7 @@ function toPlannedPhase(document: PhaseDocument): PlannedPhase {
     repositories: document.repositories,
     ...(document.attended === undefined ? {} : { attended: document.attended }),
     ...(document.earlyMerge === undefined ? {} : { earlyMerge: document.earlyMerge }),
+    ...(document.modelTier === undefined ? {} : { modelTier: document.modelTier }),
     splitInto: document.splitInto?.map((row) => row.id),
     citedCriteria: document.citedCriteria,
     dependenciesText: document.dependenciesText,

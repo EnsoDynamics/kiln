@@ -9,6 +9,7 @@ import { launchChrome, type HeadlessChrome } from "../test-support/headless-chro
 import { documentsFoundSnapshot } from "../test-support/sample-snapshots.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { readPrdRecord } from "../state/records.js";
+import { CODEX_CHOICE, runPrdOn, writeModelDefaults } from "../test-support/model-choices.js";
 import { buildSnapshot } from "./snapshot.js";
 import { Engine } from "./engine.js";
 let h: Harness; let server: LocalServer | undefined; let chrome: HeadlessChrome | undefined;
@@ -20,7 +21,6 @@ async function setup() {
   await h.engine.agents.refresh();
   return fixture;
 }
-function pair() { return { agentId: h.engine.record.settings.agentId, selectionGeneration: h.engine.agents.state.generation }; }
 describe("agent selection before work", () => {
   it("reloads Claude models after an account change without replacing an invalid saved choice", async () => {
     h = await createHarness({ sessions: [] });
@@ -33,8 +33,8 @@ describe("agent selection before work", () => {
     await h.engine.claude!.refreshAccount();
     await waitFor(() => !h.engine.agents.state.pending && h.engine.agents.state.account?.email === "new-account@example.com");
     expect(h.engine.agents.state.models?.map(m => m.value)).toEqual(["sonnet"]);
-    expect(h.engine.record.settings.agentChoices.claude_code).toEqual({ model: "opus", effort: "medium" });
-    expect(h.engine.selectionError).toContain("opus");
+    expect(h.engine.record.settings.modelChoices).toEqual({ phases: {} });
+    expect(h.engine.selectionError).toMatch(/opus/i);
     expect(h.claudeCalls()).toEqual([]);
   });
   it("lets a person repair a retired model in the browser before the next conversation", async () => {
@@ -54,14 +54,17 @@ describe("agent selection before work", () => {
     expect(h.claudeCalls()).toHaveLength(1);
     server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
     chrome = await launchChrome(); const page = await chrome.open(server.address, { width: 360 });
-    await page.waitFor(`document.querySelector('#change-model')`);
+    await page.waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Refresh agent information')`);
     const text = await page.evaluate<string>(`document.body.textContent`);
     expect(text).toContain("No new session has started");
     expect(text).toContain("claude auth login");
     expect(text).not.toContain("Fix the phase plan");
     expect(text).not.toContain("Pick it up yourself");
-    await page.evaluate(`(() => { const e=document.querySelector('#change-model'); e.value='sonnet'; e.dispatchEvent(new Event('change',{bubbles:true})); })()`);
-    await waitFor(() => h.engine.record.settings.agentChoices.claude_code?.model === "sonnet");
+    // The stop names where to change the choice; the person changes the row's Model default
+    // (Kiln Phase Model Tiers AC-PICK-06), which replaced the stop's own model editor.
+    expect(text).toContain("Model defaults");
+    writeModelDefaults(h.env, { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "medium" } } });
+    await waitFor(() => h.engine.notStartedChoice("2b").model === "sonnet");
     await page.evaluate(`([...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Refresh agent information')).click()`);
     await waitFor(() => !h.engine.agents.state.pending);
     // Refresh now includes the independent billing reading; wait for the real control to unlock.
@@ -74,58 +77,38 @@ describe("agent selection before work", () => {
     expect(await page.evaluate<boolean>(`document.documentElement.scrollWidth <= window.innerWidth`)).toBe(true);
     expect(page.problems).toEqual([]); await page.close();
   });
-  it("saves per-agent choices, blocks stale editors and invalid work settings, and keeps a second PRD independent", async () => {
+  // The PRD-wide agent, model and effort choice, its stale-editor refusals and the effort
+  // notice are gone (Kiln Phase Model Tiers AC-KEEP-01, replacing Codex support AC-AGENT-01/02,
+  // AC-MODEL-02/03); what remains is an invalid choice refusing Start and PRDs staying apart.
+  it("refuses Start for a Codex choice the account doesn't offer, and keeps a second PRD independent", async () => {
     const fixture = await setup();
-    expect(await h.engine.changeSettings({ agentId: "codex" })).toEqual({ ok: true });
-    expect(buildSnapshot(h.engine).account).toBeUndefined();
-    await h.engine.agents.refresh();
+    await runPrdOn(h.engine);
+    expect(h.engine.agents.state.agentId).toBe("codex");
     expect(h.engine.selectionError).toBeUndefined();
-    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6.1-sol", effort: "high" });
-    const old = pair();
-    expect(await h.engine.changeSettings({ ...pair(), effort: "ultra" })).toEqual({ ok: true });
-    expect(await h.engine.changeSettings({ ...pair(), model: "gpt-6-luna" })).toEqual({ ok: true });
-    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6-luna", effort: "low" });
-    expect(buildSnapshot(h.engine).settings.choiceNotice).toContain("low");
     // AC-AGENT-03 now permits integrated Codex work. Invalid choices still allocate no session.
-    h.engine.record.settings.agentChoices.codex = { model: "retired-sol", effort: "low" };
+    await runPrdOn(h.engine, { agentId: "codex", model: "retired-sol", effort: "low" });
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409, reason: expect.stringContaining("retired-sol") });
-    h.engine.record.settings.agentChoices.codex = { model: "gpt-6-luna", effort: "low" };
     expect(h.engine.record.startedAt).toBeUndefined(); expect(h.claudeCalls()).toEqual([]);
-    expect(await h.engine.changeSettings({ agentId: "claude_code" })).toEqual({ ok: true }); await h.engine.agents.refresh();
-    expect(await h.engine.changeSettings({ ...old, model: "gpt-6-sol" })).toMatchObject({ ok: false, status: 409 });
-    expect(h.engine.record.settings.agentChoices.claude_code).toEqual({ model: "opus", effort: "medium" });
-    await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
-    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6-luna", effort: "low" });
     expect(readPrdRecord(h.stateDirectory)!.settings).not.toHaveProperty("model");
-    expect(await h.engine.changeSettings({ ...old, model: "gpt-6-sol" })).toMatchObject({ ok: false, status: 409 });
-    const generation = h.engine.agents.state.generation;
-    h.engine.close();
-    h.engine = new Engine({ paths: h.engine.paths, record: readPrdRecord(h.stateDirectory)!, tools: { ...h.tools, codex: fixture.executable }, env: fixture.env, stateDirectory: h.stateDirectory });
-    await h.engine.agents.refresh();
-    expect(h.engine.agents.state.generation).toBe(generation);
-    expect(await h.engine.changeSettings({ ...old, model: "gpt-6-sol" })).toMatchObject({ ok: false, status: 409 });
-    const other = await h.engineFor("another-prd"); expect(other.record.settings.agentId).toBe("claude_code"); other.close();
-    h.engine.record.startedAt = "2026-10-23T00:00:00Z";
-    expect(await h.engine.changeSettings({ agentId: "claude_code" })).toMatchObject({ ok: false, status: 409 });
+    const other = await h.engineFor("another-prd"); expect(other.agentOf("1")).toBe("claude_code"); expect(other.record.settings.modelChoices.kept).toBeUndefined(); other.close();
     expect(fixture.calls().every(c => !/^(thread|turn)\//.test(c.method))).toBe(true);
   });
   it("excludes late provider reads and preserves invalid saved settings through metadata failure", async () => {
     const fixture = await setup(); fixture.set({ delayMs: 150 });
-    await h.engine.changeSettings({ agentId: "codex" }); const oldRead = h.engine.agents.refresh();
-    await h.engine.changeSettings({ agentId: "claude_code" }); await h.engine.agents.refresh(); await oldRead;
+    await runPrdOn(h.engine, CODEX_CHOICE, false); const oldRead = h.engine.agents.refresh();
+    await runPrdOn(h.engine, { agentId: "claude_code", model: "opus", effort: "medium" }); await oldRead;
     expect(buildSnapshot(h.engine).account?.email).toBe("alex@acme-shop.dev");
     expect(buildSnapshot(h.engine).models?.some(m => m.value.startsWith("gpt"))).toBe(false);
-    fixture.set({}); await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
-    h.engine.record.settings.agentChoices.codex = { model: "retired-sol", effort: "ultra" };
-    await h.engine.agents.refresh(); expect(h.engine.selectionError).toContain("retired-sol");
+    fixture.set({}); await runPrdOn(h.engine);
+    await runPrdOn(h.engine, { agentId: "codex", model: "retired-sol", effort: "ultra" }); expect(h.engine.selectionError).toContain("retired-sol");
     fixture.set({ modelsError: true }); await h.engine.agents.refresh();
     expect(buildSnapshot(h.engine).models).toBeUndefined();
-    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "retired-sol", effort: "ultra" });
+    expect(h.engine.record.settings.modelChoices.kept).toEqual({ agentId: "codex", model: "retired-sol", effort: "ultra" });
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409 });
     expect(h.claudeCalls()).toEqual([]);
   });
   it("never carries former or contradictory account allowances into a new Codex reading", async () => {
-    const fixture = await setup(); await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
+    const fixture = await setup(); await runPrdOn(h.engine);
     expect(h.engine.agents.state.account?.limits[0]?.percent).toBe(82);
     fixture.set({ accountId: "new-account", email: "new-account@example.test", usageError: true }); await h.engine.agents.refresh();
     expect(h.engine.agents.state.account).toMatchObject({ email: "new-account@example.test", routingAccountId: "new-account", limits: [], limitsError: expect.stringContaining("unknown") });
@@ -139,13 +122,14 @@ describe("agent selection before work", () => {
     expect(h.engine.selectionError).toBeUndefined();
     expect(fixture.calls().every(c => !/^(thread|turn)\//.test(c.method))).toBe(true);
   });
-  it("renders and operates the chooser, dynamic efforts and account warnings in a real browser", async () => {
+  // The agent, model and effort chooser is gone (Kiln Phase Model Tiers AC-KEEP-01, replacing
+  // Codex support AC-VIEW-01/04); the Codex account warnings it sat beside remain.
+  it("renders Codex account warnings and a stale usage reading in a real browser", async () => {
     const fixture = await setup();
+    await runPrdOn(h.engine);
     server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
     chrome = await launchChrome(); const page = await chrome.open(server.address, { timeZone: "America/New_York" });
-    await page.waitFor(`document.querySelector('#agent')`);
-    await page.evaluate(`(() => { const e=document.querySelector('#agent'); e.value='codex'; e.dispatchEvent(new Event('change',{bubbles:true})); })()`);
-    await page.waitFor(`document.querySelector('#model').value === 'gpt-6.1-sol' && document.body.textContent.includes('Ultra')`);
+    await page.waitFor(`document.body.textContent.includes('fixture@example.test')`);
     const successfulAt = h.engine.agents.state.account!.limitsObservedAt!;
     const identityAt = h.engine.agents.state.account!.updatedAt;
     const successfulText = await page.evaluate<string>(`document.body.textContent`);
@@ -158,14 +142,6 @@ describe("agent selection before work", () => {
     expect(await page.evaluate<string>(`document.body.textContent`)).toContain("Unknown");
     expect(await page.evaluate<string>(`document.body.textContent`)).toContain("codex login");
     expect(await page.evaluate<boolean>(`[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Start' && b.disabled)`)).toBe(true);
-    await page.evaluate(`(() => { const b=[...document.querySelectorAll('button')].find(b=>b.textContent==='Ultra'); b.click(); })()`);
-    await waitFor(() => h.engine.record.settings.agentChoices.codex?.effort === "ultra");
-    expect(await page.evaluate(`document.body.textContent`)).toContain("Listed models do not guarantee account access.");
-    await page.evaluate(`(() => { const e=document.querySelector('#model'); e.value='gpt-6-luna'; e.dispatchEvent(new Event('change',{bubbles:true})); })()`);
-    await page.waitFor(`document.querySelector('#model').value === 'gpt-6-luna' && document.querySelector('fieldset.effort button[aria-pressed=true]')?.textContent === 'Low'`);
-    expect(await page.evaluate(`document.body.textContent`)).toContain("Effort changed to low for GPT-6-LUNA.");
-    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6-luna", effort: "low" });
-    expect(await page.evaluate(`[...document.querySelectorAll('fieldset.effort button')].map(b=>[b.textContent.trim(), b.getAttribute('aria-pressed')])`)).toEqual([["Low", "true"], ["High", "false"], ["Max", "false"]]);
     expect(h.engine.record.startedAt).toBeUndefined();
     expect(h.claudeCalls()).toEqual([]);
 

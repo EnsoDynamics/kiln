@@ -74,14 +74,13 @@ describe("migrating a schema 1 record", () => {
     expect(record).not.toHaveProperty("pullRequest");
   });
 
-  it("reads a schema 2 record as schema 17, retaining choices under Claude Code and usage recovery (usage-limit recovery AC-AUTO-04, Data Models)", () => {
+  it("reads a schema 2 record as the current schema, keeping its Claude Code choice that isn't Kiln's default, and usage recovery (usage-limit recovery AC-AUTO-04; Kiln Phase Model Tiers AC-KEEP-02)", () => {
     const record = { ...schemaOne({}), schemaVersion: 2, repositories: [] } as PrdRecord;
     const before = JSON.parse(JSON.stringify(record)) as PrdRecord;
     expect(migrateRecord(record)).toBe(record);
-    expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
-    expect(record.settings).not.toHaveProperty("model");
-    expect(record.settings).not.toHaveProperty("effort");
-    expect(SCHEMA_VERSION).toBe(25);
+    expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, modelChoices: { phases: {}, kept: { agentId: "claude_code", model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
+    for (const retired of ["model", "effort", "agentId", "agentChoices", "selectionGeneration"]) expect(record.settings).not.toHaveProperty(retired);
+    expect(SCHEMA_VERSION).toBe(26);
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {
@@ -202,7 +201,7 @@ describe("schema 24: a loop is one run of an audit (Kiln Deliver When Audit Loop
 
   it("keeps the limits as recorded, drops the third setting, and rebuilds the loops as audit runs with only start epochs", () => {
     const migrated = migrateRecord(released());
-    expect(migrated.schemaVersion).toBe(25);
+    expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
     expect(migrated.settings.auditLoops).toEqual({ deliveryLimit: 2, testLimit: 5 });
     expect(migrated.auditLoops).toEqual({
       epochs: [{ kind: "delivery", at, cause: "start", loopsBefore: 0 }, { kind: "test", at, cause: "start", loopsBefore: 0 }],
@@ -277,7 +276,7 @@ describe("schema 25: the delivery reading and the carried-finished set (Kiln Aft
       old.completedAt = "2026-10-01T12:00:00Z";
       old.completedPlanCheck = { status, attemptedAt: "2026-11-20T01:00:00Z", errors: [] };
       const migrated = migrateRecord(old);
-      expect(migrated.schemaVersion).toBe(25);
+      expect(migrated.schemaVersion).toBe(SCHEMA_VERSION);
       expect(migrated.completedPlanCheck).toBeUndefined();
       expect(migrated.afterDelivery).toBeUndefined();
       expect(migrated.continuationBaselineId).toBeUndefined();

@@ -18,7 +18,6 @@ import { buildSnapshot, codexResumeCommand, resumeCommand, codexCommand, claudeC
 import { freshSessionPrompt, resumePrompt, auditRecoveryPrompt, pullRequestSessionPrompt, codexSessionPrompt } from "../session/prompts.js";
 import { claudeHistoryAvailability } from "../session/transcripts.js";
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
-import { selectedChoice } from "../state/records.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import type { BillingView } from "../billing/authority.js";
 import { publicProvenance, publicUsage, publicBillingSummary, publicCredits, fieldAvailability } from "./public-facts.js";
@@ -172,7 +171,7 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
   const next = account && (account.agentId !== "codex" || account.email || account.accountId || account.routingAccountId) ? publicAccount(account, !reachable || !!account.stale) : null;
   const usageAt = account?.limitsObservedAt ?? null;
   return {
-    agent: work.record.settings.agentId,
+    agent: view?.settings?.agentId ?? account?.agentId ?? null,
     last_attempt: observed(attemptAccount, attemptAt, !history.complete ? "Saved attempt history is incomplete; last-attempt account provenance is unavailable." : attemptAccount ? null : "Dated account provenance was not recorded for the last attempt."),
     original_attempt: observed(lastSession?.codex?.originalAccount ? publicProvenance(lastSession.codex.originalAccount) : null, lastSession?.codex?.originalAccount?.at ?? null, lastSession?.codex?.originalAccount ? null : "Original account provenance unavailable."),
     next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? (!next ? "Current provider identity is unavailable." : null), account?.stale || !!account?.error),
@@ -182,7 +181,7 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
     resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit,
   };
 }
-function publicBilling(b: NonNullable<SavedWork["record"]["billing"]>["lastLaunch"], stale = false): unknown {
+function publicBilling(b: import("../billing/inspection.js").BillingSummary | undefined, stale = false): unknown {
   if (!b) return null;
   const summary = publicBillingSummary(b, stale);
   return { ...summary, agent: b.agentId, account_id: b.accountId ?? null };
@@ -195,7 +194,7 @@ function billingFacts(view: BillingView | undefined, account: AgentAccount | und
   const codex = next?.agentId === "codex";
   const unavailable = codex && (!account || !!account.error && !account.stale);
   const summaryFields = (summary: BillingView["lastLaunch"]) => summary ? { ...summary, ...publicBillingSummary(summary, !reachable) } : {};
-  return { ...(view ? { executionId: view.executionId, selectionGeneration: view.selectionGeneration, pending: view.pending } : {}), observed_at: next?.observedAt ?? null, state: !next || unavailable ? "unavailable" : !reachable || account?.stale || view?.pending ? "stale" : "current",
+  return { ...(view ? { executionId: view.executionId, pending: view.pending } : {}), observed_at: next?.observedAt ?? null, state: !next || unavailable ? "unavailable" : !reachable || account?.stale || view?.pending ? "stale" : "current",
     reason: !next || unavailable ? "Current billing observation is unavailable." : !reachable ? "Controller disconnected; last-known billing observation." : account?.error ?? (view?.pending ? "Billing refresh is pending; previous observation retained." : null),
     next: { ...summaryFields(next), ...observation(unavailable ? null : publicBilling(next, !reachable), next?.observedAt, codex ? account?.error : undefined, account?.stale || view?.pending), canApprove: reachable ? next?.canApprove ?? false : false, canClear: reachable ? next?.canClear ?? false : false },
     lastLaunch: { ...summaryFields(view?.lastLaunch), ...observation(publicBilling(view?.lastLaunch, !reachable), view?.lastLaunch?.observedAt) },
@@ -322,13 +321,17 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
       mark_complete: markComplete };
   };
   const activityFacts = (activity: Record<string, unknown> | null | undefined) => activity && { ...activity, ...waived(keyOf(activity)) };
+  // The activity status reports: the current one, else the next (Kiln Phase Model Tiers, "Command line").
+  const reportedRow = view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? view?.activities?.find(a => a.state === "next" || a.state === "planned");
+  const reportedChoice = reportedRow?.model?.choice;
   const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
     controller: reachable ? "reachable" : "stopped", working_sessions: active ? 1 : 0, facts: { state: reachable ? "current" : "stale", observed_at: reachable ? new Date().toISOString() : cache?.observed_at ?? work.observedAt, reason: reachable ? null : "Controller disconnected; only last-known facts are available." },
     state, phases: { completed: view?.feature.phasesDone ?? leaves.filter(p => effectiveRecordedClosed(record, p)).length, total: view?.feature.phasesTotal ?? leaves.length },
     activity: activityFacts((view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? savedActivity) as Record<string, unknown>),
-    agent: view?.current?.agentId ?? stop?.agentId ?? record.settings.agentId, model: view?.current?.requested ?? view?.current?.model ?? stop?.requested ?? selectedChoice(record.settings),
-    requested_model: modelSession ? { model: modelSession.model, effort: modelSession.effort ?? null } : selectedChoice(record.settings), effective_model: modelSession?.runs.at(-1)?.codex?.effective ?? (modelSession?.initModel ? { model: modelSession.initModel } : null),
+    // The reported activity's agent and model: its session's recorded choice, else its row's choice (Kiln Phase Model Tiers, "Command line").
+    agent: view?.current?.agentId ?? stop?.agentId ?? modelSession?.agentId ?? reportedChoice?.agentId ?? null, model: view?.current?.requested ?? view?.current?.model ?? stop?.requested ?? (reportedChoice ? { model: reportedChoice.model, ...(reportedChoice.effort ? { effort: reportedChoice.effort } : {}) } : null),
+    requested_model: modelSession ? { model: modelSession.model, effort: modelSession.effort ?? null } : reportedChoice ? { model: reportedChoice.model, effort: reportedChoice.effort ?? null } : null, effective_model: modelSession?.runs.at(-1)?.codex?.effective ?? (modelSession?.initModel ? { model: modelSession.initModel } : null),
     started_at: record.startedAt ?? null, last_activity: { ...last.activity, state: last.errors.length ? "unavailable" : reachable ? "current" : "stale", ...(last.errors.length ? { reason: "Latest activity could not be read completely; dated known facts are retained." } : {}) },
     live_control: view?.liveControl ? { ...view.liveControl, messages: view.liveControl.messages?.map(m => ({ ...m, receipt: messageReceiptLabel(m.delivery) })), state: reachable ? "current" : "stale", ...(reachable ? {} : { available: false, reason: "Controller disconnected; reconnect before acting.", input: { ...view.liveControl.input, available: false, reason: "Controller disconnected; reconnect before sending." } }) } : null,
     compatibility: statusCompatibility(record),
@@ -343,7 +346,8 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     // What GitHub last showed of the delivery's pull requests, and whether it waits to merge (Kiln After Delivery AC-BOT-02).
     after_delivery: afterDeliveryFacts(record, view?.afterDelivery),
     pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
-    progress,
+    // Each activity's tier and model, as the snapshot gives them (Kiln Phase Model Tiers, "Command line").
+    progress: progress.map(row => { const shown = view?.activities?.find(a => a.id === row.key || a.id === engine?.judgedId(row.key)); return { ...row, tier: shown?.tier ?? null, model: shown?.model ?? null }; }),
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
     ...(full ? { plan: record.plan ?? [], activity_history: ((view?.activities ?? record.activities ?? []) as unknown as Record<string, unknown>[]).map(activityFacts), settings: settingsFacts(record), account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
@@ -414,7 +418,7 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   if (folders) {
     // No resume command, continuation prompt or fresh-session instructions from a folder that is gone (AC-GONE-01).
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
-      session_id: null, provider_session_id: null, agent: engine?.record.settings.agentId ?? work.record.settings.agentId, phase_key: null, working_directory: null,
+      session_id: null, provider_session_id: null, agent: engine?.agents.state.agentId ?? null, phase_key: null, working_directory: null,
       resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical),
       provider_history: { state: "unavailable", observed_at: null, reason: "This run’s folder is missing." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null, fresh_session_instructions: null,
@@ -430,7 +434,8 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     const stop = view?.needsYou;
     const cwd = stop && view ? engine?.sessionFolder ?? expandHome(view.feature.multiRepository ? view.settings.workspaceFolder : view.settings.worktreePath) : null;
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
-      session_id: null, provider_session_id: null, agent: engine?.record.settings.agentId ?? work.record.settings.agentId,
+      // With no session, the facts follow the activity's current choice (Kiln Phase Model Tiers AC-AGENTS-04).
+      session_id: null, provider_session_id: null, agent: (stop && engine ? engine.agentOf(stop.phaseId) : undefined) ?? view?.settings?.agentId ?? null,
       phase_key: stop?.phaseId ?? null, working_directory: cwd, resumable: false, reason: "No saved session.", active_under_kiln: false,
       provider_history: { state: "unavailable", observed_at: null, reason: "No saved session." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null,

@@ -6,6 +6,8 @@
 
 ## Overview
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (the agent is per activity, not per PRD).
+
 Add Codex as a per-PRD agent through a narrow integration boundary within Kiln's existing local TypeScript application. Codex runs through its installed CLI's app-server over private stdio. The engine retains ownership of phase order, repository setup, checks, waits and recovery; each agent supplies its own readiness, metadata, conversation execution and audit evidence.
 
 One PRD has one agent after Start. Each logical Kiln session has its own immutable agent and settings, and a separately recorded provider conversation ID. No new service, repository, database, scheduled job or desktop dependency is introduced. The published Enso Method skills are unchanged.
@@ -32,6 +34,8 @@ This design chooses the bounded raw-wrapper decoder and recorded-frontier candid
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Architecture and Decisions (additive Codex billing metadata; authentication and dispatch authority are unchanged).
 
 Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-technical-design.md`, §Architecture and Decisions (Claude billing safeguards and additive private billing state only).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (the agent is per activity, not per PRD).
 
 The engine selects an installed agent adapter from the PRD/session record, never from a global default during recovery. The adapter contract has five responsibilities:
 
@@ -76,6 +80,8 @@ Do not relax an organization's restrictions. Codex readiness requires the config
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Command line (selected agent prerequisites), §Account and Usage (startup/readiness).
 
 ## Models and Settings
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Resolving a Choice (choices resolved per activity; no first-selection GPT Sol pick).
 
 A catalogue entry is `{ value, displayName, efforts: [{ value, label, description? }], defaultEffort?, selectable }`. Effort values are nonempty provider strings, not a shared five-value enum. Retain Codex's reported model names and effort descriptions. Follow every `model/list` cursor; exclude explicitly hidden/unselectable entries. A catalogue is discovery, not entitlement.
 
@@ -265,6 +271,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Display Contract (additive development target, checkpoint and result facts). Restricted execution behavior remains in force.
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Interfaces (PRD settings).
+
 All endpoints retain current loopback, Host, Origin and token checks. Existing controls keep their state locking and no-double-submit behavior.
 
 | Interface | Contract change |
@@ -288,6 +296,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Activity identity and order and §Recovery and Upgrade (additive audit session kinds, activity-specific storage and schema 6 evidence records, implemented in Phase 1; task-specific skill dispatch remains Phase 2).
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Authorization and Persistence (schema 5 execution authority and delivery ledger; existing provider data remains). Restricted execution behavior remains in force.
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Data Models (PRD settings).
 
 Continue atomic owner-only JSON records and append-only output outside repositories. UTC ISO timestamps, explicit unknowns and provider-discriminated details preserve provenance.
 

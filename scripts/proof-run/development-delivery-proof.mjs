@@ -62,11 +62,11 @@ if (mode === 'seed') {
   const stateDirectory = prdStateDirectory(stateRoot(env),manifest.main,'proof',manifest.prdDirectory);
   const target = {repository:`github.com/${repository}`.toLowerCase(),baseBranch:'main',environment:'kiln-disposable-development'};
   const record = newPrdRecord({mainCheckoutPath:manifest.main,repositoryName:'proof',github:repository,prdDirectoryFromRoot:manifest.prdDirectory,featureName:'Disposable development delivery proof',settings:{workspaceFolder:manifest.workspace,worktreePath:manifest.worktree,featureBranch:manifest.branch,baseBranch:'main',bases:{},model:'sonnet',effort:'low',keepAwake:false,resumeAfterUsageLimit:false}});
-  record.settings.agentId=agent; record.settings.agentChoices[agent]={model:agent==='codex'?'gpt-6.1-sol':'sonnet',effort:'low'};
+  record.settings.modelChoices.kept={agentId:agent,model:agent==='codex'?'gpt-6.1-sol':'sonnet',effort:'low'};
   record.executionId=randomUUID(); record.startedAt=at;record.setupCompletedAt=at;record.developmentAuthorization={revision:1,enabled:true,grants:[{target,confirmedAt:at,source:'start'}]};
   record.repositories=[{name:'proof',kind:'prd',mainCheckoutPath:manifest.main,github:repository,baseBranch:'main',worktreePath:manifest.worktree,baseCommit:manifest.base,setupCompletedAt:at}];
   const plan=readPlanAt(manifest.worktree,manifest.prdDirectory);if(!plan.ok)throw new Error(plan.problem);record.plan=recordedPlan(plan.plan);
-  const session={schemaVersion:SCHEMA_VERSION,agentId:agent,sessionId:randomUUID(),phaseId:'1',kind:'phase',createdAt:at,model:record.settings.agentChoices[agent].model,modelDisplayName:agent,effort:'low',workingDirectory:manifest.worktree,runs:[],sleeps:[],steps:[]};
+  const session={schemaVersion:SCHEMA_VERSION,agentId:agent,sessionId:randomUUID(),phaseId:'1',kind:'phase',createdAt:at,model:record.settings.modelChoices.kept.model,modelDisplayName:agent,effort:'low',workingDirectory:manifest.worktree,runs:[],sleeps:[],steps:[]};
   record.phases['1']={sessionIds:[session.sessionId],finishedByPerson:false,repositories:{proof:{startCommit:manifest.base}},outsideConfirmations:[],stop:{kind:'done_check',at,checkedAt:at,checks:[{name:'Required development delivery verified',passed:false,facts:['Live proof recovery session']} ]}};
   writePrdRecord(stateDirectory,record);writeSessionRecord(stateDirectory,session);
   const engine=new Engine({paths:{mainCheckoutPath:manifest.main,repositoryName:'proof',folderName:manifest.prdDirectory.split('/').at(-1),prdDirectoryFromRoot:manifest.prdDirectory,featureName:record.featureName},tools:{git:'git',gh:'gh',claude:'claude',codex:'codex'},env,stateDirectory,record,onTerminal:event=>console.log('DELIVERY',JSON.stringify(event))});

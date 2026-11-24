@@ -43,9 +43,12 @@ describe("the Folder missing page, against its mockup (AC-LOOK-01)", () => {
       }
       if (blocked) expect(flat(await page.evaluate<string>(read(".setup")))).toBe(flat(await drawn.evaluate<string>(read("#setup"))));
       else {
-        expect(await page.evaluate<string>(LABELS.view), `${which}: settings labels`).toBe(await drawn.evaluate<string>(LABELS.mockup));
+        // The mockup's Agent, Model and Effort give way to Documents found's model line (Kiln Phase Model Tiers AC-KEEP-01).
+        expect(await page.evaluate<string>(LABELS.view), `${which}: settings labels`).toBe((await drawn.evaluate<string>(LABELS.mockup)).replace("Agent|Model|Effort", "Models"));
         const help = (await page.evaluate<string>(HELP.view)).split("|");
-        for (const line of (await drawn.evaluate<string>(HELP.mockup)).split("|").filter(line => !line.includes("@"))) expect(help, `${which}: help line`).toContain(line);
+        // Model and effort are no longer set here, so the help lines name keep-awake alone and drop the fixed agent (AC-KEEP-01).
+        const kept = (await drawn.evaluate<string>(HELP.mockup)).split("|").filter(line => !line.includes("@") && !line.includes("Agent fixed for this PRD") && !line.includes("effort setting")).map(line => line.replace("model, effort and keep-awake can be changed later", "keep-awake can be changed later"));
+        for (const line of kept) expect(help, `${which}: help line`).toContain(line);
       }
       if (!blocked) {
         // The panel's title and its four parts in the mockup's order (AC-SETUP-01), the fixed rows and the switches.

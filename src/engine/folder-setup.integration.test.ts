@@ -18,8 +18,6 @@ import { BILLING_CONTRACT } from "../billing/contract.js";
 import { readExecution } from "./continuation-state.js";
 import { plannedSteps, readStartIntent, writeStartIntent } from "./folder-setup-start.js";
 import { buildSnapshot } from "./snapshot.js";
-import type { ClaudeInfoSource } from "../account/claude-info.js";
-import type { ModelEntry } from "../account/model-list.js";
 import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
 
 let harness: Harness | undefined;
@@ -722,54 +720,8 @@ describe("work a base-branch start would leave behind (AC-SAFE-02)", () => {
   });
 });
 
-describe("the panel's Agent, Model and Effort, as on Documents found (AC-SETUP-01)", () => {
-  const model = (overrides: Partial<ModelEntry>): ModelEntry => ({ value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsAutoMode: true, ...overrides });
-  /** The model list as the engine sees it, arriving when the test says. */
-  class ModelList implements ClaudeInfoSource {
-    account = { email: "fixture@example.test", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), limits: [] };
-    models: ModelEntry[] | undefined;
-    modelListError: string | undefined;
-    private readonly listeners = new Set<() => void>();
-    arrive(models: ModelEntry[] | undefined, error?: string) { this.models = models; this.modelListError = error; for (const listener of this.listeners) listener(); }
-    refreshAccount() { return Promise.resolve(); }
-    onChange(listener: () => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
-  }
-
-  it("lists the efforts of the model chosen in the panel, says when it takes none, refuses one it doesn't take, and shows Model's message", async () => {
-    const list = new ModelList();
-    harness = await createHarness({ sessions: [landingSession(), { actions: [{ result: "I need a decision." }] }], engineOptions: { claude: list } });
-    const h = harness;
-    list.arrive([model({}), model({ value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1", supportedEffortLevels: ["high", "max"], defaultEffort: "high" }), model({ value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku 5.5", supportsEffort: false, supportedEffortLevels: [] })]);
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "low" });
-    await h.engine.start({ refinementConfirmed: true });
-    await h.engine.settled();
-    rmSync(h.engine.worktreePath, { recursive: true, force: true });
-    await h.engine.folderGuard({ gather: true });
-    expect([panelOf(h).fields.effort, panelOf(h).effortLevels]).toEqual(["low", ["low", "medium", "high", "xhigh", "max"]]);
-
-    // Fable doesn't take Low: its levels are listed and its default replaces the saved effort, as on Documents found.
-    expect(await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "fable" } })).toMatchObject({ ok: true });
-    expect([panelOf(h).fields.effort, panelOf(h).effortLevels]).toEqual(["high", ["high", "max"]]);
-    expect(await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { effort: "low" } })).toMatchObject({ ok: false, status: 400, reason: "Fable 5.1 doesn’t take that effort. Choose a supported effort." });
-    // Haiku takes no effort setting.
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "haiku" } });
-    expect([panelOf(h).fields.effort, panelOf(h).effortLevels]).toEqual(["", []]);
-    expect(panelOf(h).fieldErrors.model).toBeUndefined();
-
-    // A model that can't run in auto mode gets Model's message, which holds Start.
-    // The page shows a catalogue change at once, without an edit or Check again.
-    list.arrive([model({}), model({ value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku 5.5", supportsEffort: false, supportedEffortLevels: [], supportsAutoMode: false })]);
-    expect((buildSnapshot(h.engine).folderMissing!.panel as SetupPanel).fieldErrors.model).toEqual(expect.stringContaining("Haiku 5.5"));
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: {} });
-    expect(panelOf(h).fieldErrors.model).toEqual(expect.stringContaining("Haiku 5.5"));
-    expect(await start(h)).toMatchObject({ ok: false, status: 409, code: "folder_setup_fields" });
-    // The model list itself failed: its message is Model's.
-    list.arrive(undefined, "Claude Code couldn’t list its models.");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: {} });
-    expect(panelOf(h).fieldErrors.model).toBe("Claude Code couldn’t list its models.");
-    expect(buildSnapshot(h.engine).settings.modelListError).toBe("Claude Code couldn’t list its models.");
-  });
-});
+// The panel's Model and Effort fields, their effort lists and Model's message are gone: models are chosen per
+// activity (Kiln Phase Model Tiers AC-KEEP-01, replacing AC-SETUP-01's model and effort part).
 
 /** develop's plan no longer has Phase 1; the phases that depended on it depend on nothing. */
 function dropPhaseOne(h: Harness): void {
@@ -1083,28 +1035,7 @@ describe("the page's facts and the panel's fields (Phase 5 of missing worktree r
     expect(panel.preview.caution).toBeUndefined();
   });
 
-  it("says when a model change in the panel resets the effort, in Documents found's words, until the next model or effort change", async () => {
-    const list = { account: { email: "fixture@example.test", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), limits: [] }, models: undefined as ModelEntry[] | undefined, modelListError: undefined, refreshAccount: () => Promise.resolve(), onChange: () => () => true } satisfies ClaudeInfoSource;
-    const entry = (overrides: Partial<ModelEntry>): ModelEntry => ({ value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsAutoMode: true, ...overrides });
-    list.models = [entry({}), entry({ value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1", supportedEffortLevels: ["high", "max"], defaultEffort: "high" }), entry({ value: "sol", resolvedModel: "claude-sol", displayName: "Sol", supportedEffortLevels: ["high", "max"] })];
-    harness = await createHarness({ sessions: [landingSession(), { actions: [{ result: "I need a decision." }] }], engineOptions: { claude: list } });
-    const h = harness;
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "low" });
-    await h.engine.start({ refinementConfirmed: true });
-    await h.engine.settled();
-    rmSync(h.engine.worktreePath, { recursive: true, force: true });
-    await h.engine.folderGuard({ gather: true });
-    expect(panelOf(h)).not.toHaveProperty("choiceNotice");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "fable" } });
-    expect((buildSnapshot(h.engine).folderMissing!.panel as SetupPanel).choiceNotice).toBe("Effort changed to high for Fable 5.1.");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { keepAwake: false } });
-    expect(panelOf(h).choiceNotice).toBe("Effort changed to high for Fable 5.1.");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { effort: "max" } });
-    expect(panelOf(h)).not.toHaveProperty("choiceNotice");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "opus", effort: "low" } });
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "sol" } });
-    expect(panelOf(h).choiceNotice).toBe("Choose an effort for Sol; no supported default was reported.");
-  });
+  // The panel's effort-reset notice went with its Model and Effort fields (Kiln Phase Model Tiers AC-KEEP-01).
 
   it("tags a repository a session added with the phase that added it, on either start's Repositories list", async () => {
     const h = await twoRepositories();
@@ -1798,17 +1729,17 @@ describe("the panel's fields start from the run's saved choices, and edits reach
   const non_default = async () => {
     const h = await landedThenStopped();
     Object.assign(h.engine.record.settings, { keepAwake: false, resumeAfterUsageLimit: false });
-    h.engine.record.settings.agentChoices[h.engine.record.settings.agentId] = { model: "sonnet", effort: "low" };
     return h;
   };
 
-  it("fills model, effort, keep-awake and resume from the saved settings on either start", async () => {
+  it("fills keep-awake and resume from the saved settings on either start", async () => {
     const h = await non_default();
     rmSync(h.engine.worktreePath, { recursive: true, force: true });
     await h.engine.folderGuard({ gather: true });
     for (const start of ["base", "branch"] as const) {
       await h.engine.changeFolderPanel({ start, fields: {} });
-      expect(panelOf(h).fields, start).toMatchObject({ model: "sonnet", effort: "low", keepAwake: false, resumeAfterUsageLimit: false });
+      expect(panelOf(h).fields, start).toMatchObject({ keepAwake: false, resumeAfterUsageLimit: false });
+      expect(panelOf(h).fields, start).not.toHaveProperty("model");
     }
   });
 

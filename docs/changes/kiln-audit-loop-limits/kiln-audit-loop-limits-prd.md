@@ -162,6 +162,7 @@ A change to the same settings panel, made with this PRD because it touches the s
 - [ ] **AC-EFFORT-01 — A new PRD on Claude Code starts at Medium effort.** On Documents found, a PRD whose settings have not been saved yet starts with Claude Code at **Medium** effort instead of High. A PRD on Codex still starts at High (AC-MODEL-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md`), and a PRD whose settings were already saved keeps the effort it has.
   - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the starting effort for Claude Code only)
   - Replaces in part: validated assumption UI-004 in `docs/prds/kiln-v1/assumptions.md` (Claude Code's starting effort is Medium)
+  - Superseded in part by: AC-KEEP-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (a new PRD no longer starts on one effort for every session; each activity's effort comes from its row; the rest remains).
 
 ## Out of Scope
 

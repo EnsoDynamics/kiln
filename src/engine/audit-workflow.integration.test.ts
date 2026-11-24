@@ -20,6 +20,7 @@ import { AuditRefusal, type AuditResult } from "../audit/contracts.js";
 import { auditKey } from "../audit/workflow.js";
 import { ScriptedClaude, signedIn, usageRow } from "../test-support/scripted-claude.js";
 import type { EngineOptions } from "./engine.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 
 let h: Harness | undefined; let server: LocalServer | undefined; let release: (() => void) | undefined;
 afterEach(async () => { await server?.close(); server = undefined; release?.(); release = undefined; await h?.cleanup(); h = undefined; });
@@ -65,7 +66,7 @@ describe("automatic completion activities", () => {
       await expect(current.engine.resume({})).rejects.toThrow("Broken Codex compaction window chain.");
       expect(current.claudeCalls()).toHaveLength(1);
       const billing = current.engine.record.billing!;
-      billing.hold = { phaseKey: key, action: "resume", sessionId: sessionIds[0]!, reason: "Fixture billing requires review.", observed: structuredClone(billing.lastLaunch!), at: new Date().toISOString() };
+      billing.hold = { phaseKey: key, action: "resume", sessionId: sessionIds[0]!, reason: "Fixture billing requires review.", observed: structuredClone(billing.lastLaunch!.claude_code!), at: new Date().toISOString() };
       await expect(current.engine.resume({})).rejects.toThrow("Broken Codex compaction window chain.");
       expect(current.claudeCalls()).toHaveLength(1);
       expect(current.engine.record.billing!.hold).toBeDefined();
@@ -313,7 +314,7 @@ describe("automatic completion activities", () => {
     await h.engine.refreshBilling(); await waitFor(() => !h.engine.agents.state.pending);
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false });
     expect(h.claudeCalls()).toHaveLength(0);
-    await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, selectionGeneration: h.engine.record.settings.selectionGeneration ?? 0, readingId: h.engine.billing.view.next!.readingId, approved: true });
+    await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, readingId: h.engine.billing.view.next!.readingId, approved: true });
     expect(h.claudeCalls()).toHaveLength(0);
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
@@ -341,7 +342,7 @@ describe("automatic completion activities", () => {
   it("reinspects changed billing between delivery audit, test audit and final delivery", async () => {
     const current = await fixture(); current.env.ANTHROPIC_API_KEY = "initial-audit-context";
     await current.engine.refreshBilling(); await waitFor(() => !current.engine.agents.state.pending);
-    const approve = () => current.engine.billingCommand("approval", { executionId: current.engine.record.executionId, selectionGeneration: current.engine.record.settings.selectionGeneration ?? 0, readingId: current.engine.billing.view.next!.readingId, approved: true });
+    const approve = () => current.engine.billingCommand("approval", { executionId: current.engine.record.executionId, readingId: current.engine.billing.view.next!.readingId, approved: true });
     await approve(); let accepted = 0;
     const off = current.engine.onChange(() => {
       const count = current.engine.record.completionAudits?.activities.filter(activity => activity.acceptedResult && current.engine.record.phases[auditKey(activity)]?.doneAt).length ?? 0;
@@ -810,12 +811,12 @@ describe("automatic completion activities", () => {
   });
 
   it("keeps an allocated audit with no session through readiness refusal and Check again", async () => {
-    const h=await fixture();const original={...h.engine.record.settings.agentChoices.claude_code!};let changed=false;
-    const off=h.engine.onChange(()=>{if(!changed&&h.engine.record.completionAudits!.activities.length){changed=true;h.engine.record.settings.agentChoices.claude_code={model:"unavailable-model",effort:"high"};}});
+    const h=await fixture();let changed=false;
+    const off=h.engine.onChange(()=>{if(!changed&&h.engine.record.completionAudits!.activities.length){changed=true;h.engine.record.settings.modelChoices.audits={agentId:"claude_code",model:"unavailable-model",effort:"high"};h.engine.modelChoicesChanged();}});
     await h.engine.start({refinementConfirmed:true});await h.engine.settled();off();
     const audit=h.engine.record.completionAudits!.activities[0]!;const key=auditKey(audit);
     expect(h.engine.record.phases[key]!.stop!.kind).toBe("selection");expect(audit.sessionIds).toEqual([]);expect(h.claudeCalls()).toEqual([]);
-    expect(await h.engine.changeSettings({agentId:h.engine.record.settings.agentId,selectionGeneration:h.engine.record.settings.selectionGeneration??0,model:original.model,effort:original.effort!})).toEqual({ok:true});
+    delete h.engine.record.settings.modelChoices.audits;h.engine.modelChoicesChanged();
     await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));await h.engine.settled();
     expect(h.engine.record.completedAt).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities[0]!.activityId).toBe(audit.activityId);
@@ -830,7 +831,7 @@ describe("automatic completion activities", () => {
     writeFileSync(h.scenarioPath,JSON.stringify({sessions:[first,landingSession(`${directory}/value.mjs`,files["value.mjs"]),pullRequestSession()]}));
     await h.engine.start({refinementConfirmed:true});await waitFor(()=>existsSync(marker));
     const original=h.engine.latestSession("1")!;
-    expect(await h.engine.changeSettings({agentId:"claude_code",selectionGeneration:h.engine.record.settings.selectionGeneration??0,model:"sonnet",effort:"high"})).toEqual({ok:true});
+    await runPrdOn(h.engine,{agentId:"claude_code",model:"sonnet",effort:"high"},false);writePrdRecord(h.stateDirectory,h.engine.record);
     const stopping=h.engine.stop("sigint");writeFileSync(finish,"continue");await stopping;
     const path=join(h.stateDirectory,"prd.json");const old=JSON.parse(readFileSync(path,"utf8"));old.schemaVersion=5;delete old.completionAudits;delete old.activities;delete old.nextActivityKey;writeFileSync(path,JSON.stringify(old));
     const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.agents.refresh();

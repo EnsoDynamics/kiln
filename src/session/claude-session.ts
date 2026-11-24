@@ -350,6 +350,8 @@ export async function runSessionProcess(options: SessionProcessOptions): Promise
     const skillBefore = reader.lastSkill;
     saveLines(reader.readEvent(event, at));
     let changed = reader.steps.length !== stepsBefore || reader.lastSkill !== skillBefore;
+    // The session's first response from the model starts its activity (Kiln Phase Model Tiers, "When an Activity Starts").
+    if (record.firstResponseAt === undefined && isModelResponse(event)) { record.firstResponseAt = at; changed = true; }
     if (changed) {
       record.steps = [...reader.steps];
       if (reader.lastSkill) record.lastSkill = reader.lastSkill;

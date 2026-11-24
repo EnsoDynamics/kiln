@@ -231,6 +231,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions (the workspace in place of the one worktree; no PowerShell tool)
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §The launch decision (each session's model and effort come from its activity's choice, not the settings).
+
 ```
 claude -p --input-format stream-json
   --session-id <UUID Kiln generates and records first>
@@ -591,6 +593,8 @@ Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audi
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`auditLoops` position and floor; `delivered` and `continuation` on a finished run).
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`afterDelivery` with the merge offer and the merge activity's state; audit rows carry the title and line of §Closing-Audit Names).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (settings and each phase's model).
 
 **Running and waiting time (AC-WATCH-01, 02, 06).** Derive timing from saved runs across all sessions belonging to a phase; no schema migration. Count the union of run intervals, capped at interruption or exit, as running. For an unended run not currently executing, use its last recorded output as the known boundary. Everything else from the original start through Done (or now while unfinished) is waiting, including Needs you and usage limits. Feature totals use all runs, from feature start to completion, including pauses between phases. Snapshots carry running/waiting milliseconds, the calculation time and which clock advances; the view ticks only that clock and freezes on disconnect. A running process includes tests and tool waits; this does not claim model compute time.
 

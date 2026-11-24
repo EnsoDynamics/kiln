@@ -9,6 +9,10 @@ import { readPrdRecord, writePrdRecord } from "../state/records.js";
 import { COMET_DIRECTORY, cometPhase, createCometContinuation } from "../test-support/comet-continuation-fixture.js";
 import { git } from "../test-support/git-repositories.js";
 import { landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
+import { CODEX_CHOICE, writeModelDefaults } from "../test-support/model-choices.js";
+
+/** Model defaults with every row on Codex · GPT Sol · high, for this test's computer. */
+const codexDefaults = (env: NodeJS.ProcessEnv) => { const row = { first: { agentId: "codex" as const, family: "sol", effort: "high" }, fallback: { agentId: "claude_code" as const, family: "opus", effort: "medium" } }; writeModelDefaults(env, { demanding: row, standard: row, mechanical: row, audits: row }); };
 const nativeIt = it.skipIf(process.platform !== "darwin");
 let h: Harness;
 afterEach(async () => { vi.restoreAllMocks(); if (h) writeFileSync(join(h.sandbox.root, "release-preparation"), "release for cleanup"); await h?.engine.stop("sigint"); await h?.cleanup(); });
@@ -314,7 +318,8 @@ nativeIt("holds Codex preparation before native checks while background inventor
   const configure = (extra: Record<string, unknown>) => codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...extra });
   try {
     h.engine.close(); Object.assign(h.tools, { codex: codex.options.executable }); codex.configureEnvironment(h.env); h.env.CODEX_HOME = codex.home;
-    h.engine.record.settings.agentId = "codex"; h.engine.record.settings.agentChoices.codex = { model: "gpt-6.1-sol", effort: "high" };
+    // The PRD ran on Codex; its accepted continuation drops a kept choice equal to a current default (Kiln Phase Model Tiers KEEP-003), so this computer's Model defaults put every row on Codex.
+    h.engine.record.settings.modelChoices.kept = { ...CODEX_CHOICE }; codexDefaults(h.env);
     writePrdRecord(h.stateDirectory, h.engine.record); h.engine = f.make();
     configure({ backgroundListError: true, command: `while ! test -f ${posixShellPath(f.release)}; do sleep 0.05; done` });
     await h.engine.agents.refresh(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
@@ -775,7 +780,7 @@ nativeIt.each(["inventory", "identity", "checkpoint_read", "checkpoint_changed"]
     expect(h.engine.record.preparation?.attempts).toHaveLength(1); expect(h.engine.record.preparation?.attempts[0]?.outcome).toBe(legacyFailed ? "failed" : "unresolved");
     expect(h.claudeCalls()).toHaveLength(1);
     const { verifyPreparation } = await import("./preparation-verifier.js");
-    await expect(verifyPreparation({ record: h.engine.record, stateDirectory: h.stateDirectory, git: { git: h.tools.git, env: h.env }, env: h.env, signal: new AbortController().signal, save: () => writePrdRecord(h.stateDirectory, h.engine.record), now: () => new Date().toISOString() })).rejects.toThrow(/owns|identity|inventory|unresolved/i);
+    await expect(verifyPreparation({ agentId: "claude_code", record: h.engine.record, stateDirectory: h.stateDirectory, git: { git: h.tools.git, env: h.env }, env: h.env, signal: new AbortController().signal, save: () => writePrdRecord(h.stateDirectory, h.engine.record), now: () => new Date().toISOString() })).rejects.toThrow(/owns|identity|inventory|unresolved/i);
     expect(h.engine.record.preparation?.attempts).toHaveLength(1);
     await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     await h.engine.resume({ target: h.engine.phaseRecoveryTarget() }); await h.engine.settled();
@@ -796,7 +801,8 @@ nativeIt.each([false, true])("evaluates external/carried two-repository split pr
   const { codexWorkFixture } = await import("../test-support/codex-work-fixture.js"); const codex = codexWorkFixture();
   try {
     h.engine.close(); Object.assign(h.tools, { codex: codex.options.executable }); codex.configureEnvironment(h.env); h.env.CODEX_HOME = codex.home;
-    h.engine.record.settings.agentId = "codex"; h.engine.record.settings.agentChoices.codex = { model: "gpt-6.1-sol", effort: "high" };
+    // The PRD ran on Codex; its accepted continuation drops a kept choice equal to a current default (Kiln Phase Model Tiers KEEP-003), so this computer's Model defaults put every row on Codex.
+    h.engine.record.settings.modelChoices.kept = { ...CODEX_CHOICE }; codexDefaults(h.env);
     writePrdRecord(h.stateDirectory, h.engine.record); h.engine = f.make();
     await h.engine.agents.refresh(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     const ready = await h.engine.checkCompletedPlan();

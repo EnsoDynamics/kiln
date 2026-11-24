@@ -1,7 +1,8 @@
 <script lang="ts">
   import { repositoriesStatement } from "../../../src/engine/authority-statement.js";
   // The PRD's settings while Kiln works, is paused or is disconnected (PRD AC-WATCH-07,
-  // AC-VIEW-08): the model and effort for the next session, with Change; keep-awake, which
+  // AC-VIEW-08): one line saying models are chosen for each phase (Kiln Phase Model Tiers
+  // AC-KEEP-01; the plan's rows show each one); keep-awake, which
   // applies at once (AC-KEEP-07: closing the lid can still sleep); and the worktree, feature
   // branch and one pull request, fixed for the PRD. Without a live Kiln, Change and the checkbox
   // are disabled in place (technical design, "Connection"). A multi-repository PRD lists the
@@ -15,9 +16,8 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import { changeSettings } from "../lib/api.js";
-  import { addedLabel, folderShown, phaseName, PR_ID, repositoriesLine, settingsModel } from "../lib/progress.js";
+  import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
   import { viewContext } from "../lib/view-context.js";
-  import ModelEffortEditor from "./ModelEffortEditor.svelte";
   import AuditLoopSettings from "./AuditLoopSettings.svelte";
   import { shownLoopSettings } from "../lib/audit-loops.js";
 
@@ -25,21 +25,12 @@
   const { config } = viewContext();
   const settings = $derived(snapshot.settings);
   const folder = $derived(folderShown(settings.workspaceFolder));
-  let editing = $state(false);
   let reason = $state<string | undefined>(undefined);
 
-  const note = $derived.by(() => {
-    if (!connected) return "Reconnect to Kiln before changing settings.";
-    if (snapshot.feature.state === "paused") return "Model and effort changes apply from the next phase you start.";
-    const current = snapshot.current?.phaseId;
-    if (current === PR_ID && snapshot.current?.sessionId !== undefined) return "Model and effort changes apply from the next phase; the pull-request session keeps what it started with.";
-    // Between phases the next session hasn't started, so a change still applies to it.
-    if (current !== undefined && snapshot.current?.sessionId !== undefined) return `Model and effort changes apply from the next phase; ${phaseName(current)} keeps what it started with.`;
-    return "Model and effort changes apply from the next phase you start.";
-  });
+  const note = $derived(connected ? "A phase that has started keeps the model it started with." : "Reconnect to Kiln before changing settings.");
 
   async function save(change: Partial<Settings>) {
-    const answer = await changeSettings(config, { ...change, ...((change.model !== undefined || change.effort !== undefined) ? { agentId: settings.agentId ?? "claude_code", selectionGeneration: settings.selectionGeneration ?? 0 } : {}) });
+    const answer = await changeSettings(config, change);
     reason = answer.ok ? undefined : answer.reason;
   }
 </script>
@@ -50,10 +41,8 @@
   <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="note">{note}</span></div>
   <dl>
     <div class="setting">
-      <div class="words"><dt>Model and effort</dt><dd class="value">{settingsModel(settings)}</dd><dd class="help">{settings.agent} · Agent fixed for this PRD.</dd></div>
-      <button type="button" class="button small" disabled={!connected} onclick={() => (editing = !editing)}>{editing && connected ? "Done" : "Change"}</button>
+      <div class="words"><dt>Models</dt><dd class="value">Chosen for each phase</dd><dd class="help">Each row of the phase plan shows the model it runs on.</dd></div>
     </div>
-    {#if editing && connected}<ModelEffortEditor {snapshot} {save} />{/if}
     <div class="setting">
       <div class="words">
         <dt>Keep awake</dt><dd class="value">While a session works or Kiln waits</dd><dd class="help">Closing the lid can still put the computer to sleep.</dd>

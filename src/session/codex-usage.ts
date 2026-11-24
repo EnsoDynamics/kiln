@@ -26,7 +26,8 @@ export class CodexLaunchCancelled extends Error {}
 /** Clear a consumed retry once, only from this attempt's actual model activity. */
 export function recordCodexUsageProgress(session: SessionRecord, run: SessionRun): void {
   const recovery = session.codex?.usageRecovery;
-  if (recovery?.consumed && run.codex?.modelActivityAt.length) {
+  // The one automatic attempt's record is cleared by the attempt's first response (Kiln Phase Model Tiers, "When an Activity Starts").
+  if (recovery?.consumed && run.codex?.firstResponseAt) {
     recovery.generation++;
     delete recovery.consumed;
   }

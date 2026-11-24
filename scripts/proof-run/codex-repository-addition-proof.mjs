@@ -36,7 +36,7 @@ const env = { ...process.env, XDG_STATE_HOME: join(root, 'addition-state') };
 const workspace = realpathSync(join(root, 'workspace')), main = realpathSync(join(root, 'kiln-proof-api'));
 const now = new Date().toISOString();
 const paths = { mainCheckoutPath: main, repositoryName: 'kiln-proof-api', folderName: 'slugify', prdDirectoryFromRoot: 'docs/prds/slugify', featureName: 'Disposable Codex addition proof' };
-const record = newPrdRecord({ ...paths, github: 'kiln-proof-fixture/kiln-proof-api', settings: { workspaceFolder: workspace, worktreePath: join(workspace, 'kiln-proof-api'), featureBranch: 'kiln-audit-proof', baseBranch: 'main', bases: {}, model: 'opus', effort: 'high', keepAwake: false, resumeAfterUsageLimit: false } });
+const record = newPrdRecord({ ...paths, github: 'kiln-proof-fixture/kiln-proof-api', settings: { workspaceFolder: workspace, worktreePath: join(workspace, 'kiln-proof-api'), featureBranch: 'kiln-audit-proof', baseBranch: 'main', bases: {}, keepAwake: false, resumeAfterUsageLimit: false } });
 record.startedAt = now; record.setupCompletedAt = now;
 record.repositories = ['kiln-proof-api', 'kiln-proof-shared'].map(name => ({ name, kind: name === 'kiln-proof-api' ? 'prd' : 'named', mainCheckoutPath: realpathSync(join(root, name)), github: `kiln-proof-fixture/${name}`, baseBranch: 'main', worktreePath: join(workspace, name), setupCompletedAt: now }));
 record.phases['1'] = { sessionIds: [], finishedByPerson: false, stop: { kind: 'done_check', at: now, checkedAt: now, checks: [] }, repositories: {}, outsideConfirmations: [] };

@@ -63,8 +63,8 @@ describe("Documents found, starting from a branch someone built phases on (AC-FR
     expect(words).toMatch(/PR into develop/);
     expect(words).not.toContain("Branch from, and PR into");
     expect(words).toContain("Kiln adds its commits to this branch and pushes them. It never rewrites, resets or force-pushes it.");
-    // In today's order: Start from, Worktree, Feature branch and PR into, the line, then Agent.
-    const order = ["Start from", "Worktree", "Feature branch", "PR into", "never rewrites", "Agent"].map(label => words.indexOf(label));
+    // In today's order: Start from, Worktree, Feature branch and PR into, the line, then Models.
+    const order = ["Start from", "Worktree", "Feature branch", "PR into", "never rewrites", "Models"].map(label => words.indexOf(label));
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
@@ -105,14 +105,14 @@ describe("Documents found on an untouched branch behind its base (AC-FROM-03 row
     const page = html(untouchedBehind());
     const words = text(page);
     expect(page).toMatch(/<input id="worktree"[^>]*value="~\/work\/\.worktrees\/customer-returns\/acme-shop"[^>]*readonly/);
-    expect(words).toContain("The branch is checked out in this folder, so Kiln works here. It has no uncommitted files. The branch and PR into are set once, before the first phase; model, effort and keep-awake can be changed later.");
+    expect(words).toContain("The branch is checked out in this folder, so Kiln works here. It has no uncommitted files. The branch and PR into are set once, before the first phase; keep-awake can be changed later.");
     expect(words).toContain("This branch is 4 commits behind develop . Bring the branch up to date with develop first Offered because the branch has no commits of its own and nothing uncommitted, so nothing can be lost or overwritten. Kiln does this when you press Start.");
     expect(page).toMatch(/<input type="checkbox" checked/);
     expect(words).toContain("Read from the latest commit on develop , because the branch is brought up to date first");
     expect(words).toContain("Starting lets Kiln Bring feature/customer-returns up to date with develop , as ticked above Commit and push to feature/customer-returns Open one pull request into develop once every phase closes");
-    // The offer follows the line and comes before Agent.
+    // The offer follows the line and comes before Models.
     expect(words.indexOf("never rewrites")).toBeLessThan(words.indexOf("Bring the branch up to date"));
-    expect(words.indexOf("Bring the branch up to date")).toBeLessThan(words.indexOf("Agent"));
+    expect(words.indexOf("Bring the branch up to date")).toBeLessThan(words.indexOf("Models"));
   });
 
   it("drops the Starting lets Kiln line when the box is unticked", () => {

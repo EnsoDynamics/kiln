@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
 import { Engine } from "../engine/engine.js";
 import { prdTreeAtHead } from "../engine/worktree-setup.js";
@@ -190,8 +191,8 @@ it("keeps Claude launch and resume account/plan/time after a later changed-accou
   await resume("predispatch-failure"); failure.mockRestore();
   expect(h.engine.commands.blocked).toBe(true);
   expect(h.engine.commands.lookup("predispatch-failure").operation).toMatchObject({ state: "failed", outcome: "dispatch_not_started" });
-  expect(h.engine.record.billing!.lastLaunch).toMatchObject({ email: "next@example.invalid", plan: "Team plan" });
-  expect(h.engine.record.billing!.lastLaunch!.observedAt).not.toBe(secondAt);
+  expect(h.engine.record.billing!.lastLaunch?.claude_code).toMatchObject({ email: "next@example.invalid", plan: "Team plan" });
+  expect(h.engine.record.billing!.lastLaunch!.claude_code!.observedAt).not.toBe(secondAt);
   const saved = readSessionRecord(h.stateDirectory, "1", resumed.sessionId)!;
   expect(saved.runs).toHaveLength(2); expect(saved.runs[1]).toEqual(resumed.runs[1]);
   expect(h.claudeCalls()).toHaveLength(2);
@@ -348,7 +349,7 @@ it("retains Codex original and resumed provenance separately from current accoun
   h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-  await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); await serve();
   const first = h.engine.latestSession("1")!;
   const original = structuredClone(first.codex!.originalAccount);
@@ -406,7 +407,7 @@ it("revalidates a Codex handoff after actual controller resumption while provide
   set({}); h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-  await h.engine.changeSettings({ agentId: 'codex' }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); await serve();
   const selected = h.engine.latestSession('1')!;
   const gate = join(h.sandbox.root, 'history-release');

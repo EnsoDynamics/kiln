@@ -27,8 +27,8 @@ export interface RepositoryPaths {
  * The settings a PRD starts with (AC-START-07, UI-004): branch `feature/<folder>`, worktree
  * `.worktrees/<folder>/<repository>` in the folder that holds the repository, as the Enso Method
  * places its worktrees, base `develop` when origin has it,
- * otherwise origin's default branch, the latest Opus at medium effort (Kiln Audit Loop Limits
- * AC-EFFORT-01) and the default audit loop settings (AC-LOOP-01).
+ * otherwise origin's default branch, no model choices of its own, so each phase takes its tier's
+ * from Model defaults (Kiln Phase Model Tiers AC-PICK-01), and the default audit loop settings (AC-LOOP-01).
  */
 export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches | undefined): Settings {
   const base = origin === undefined ? "" : defaultBaseBranch(origin);
@@ -38,8 +38,7 @@ export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches |
     featureBranch: `feature/${paths.folderName}`,
     baseBranch: base,
     bases: {},
-    model: "opus",
-    effort: "medium",
+    modelChoices: { phases: {} },
     keepAwake: true,
     resumeAfterUsageLimit: true,
     auditLoops: defaultLoopSettings(),

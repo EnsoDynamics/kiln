@@ -8,6 +8,7 @@ import { afterEach, expect, it } from "vitest";
 import { Engine } from "../engine/engine.js";
 import { createHarness, type Harness } from "../test-support/engine-harness.js";
 import { installCodexMetadataFixture } from "../test-support/codex-metadata-fixture.js";
+import { CODEX_CHOICE } from "../test-support/model-choices.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { writePrdRecord } from "../state/records.js";
@@ -25,7 +26,7 @@ async function setup(initial: Record<string, unknown>) {
   h = await createHarness({ sessions: [] });
   fixture = installCodexMetadataFixture(h.sandbox); fixture.set(initial);
   h.env.KILN_CODEX_METADATA = fixture.env.KILN_CODEX_METADATA;
-  h.engine.close(); h.engine.record.settings.agentId = "codex";
+  h.engine.close(); h.engine.record.settings.modelChoices.kept = { ...CODEX_CHOICE };
   writePrdRecord(h.stateDirectory, h.engine.record);
   h.engine = new Engine({ paths: h.engine.paths, record: h.engine.record, tools: { ...h.tools, ...(initial.missingExecutable ? {} : { codex: fixture.executable }) }, env: h.env, stateDirectory: h.stateDirectory });
   await h.engine.agents.refresh();

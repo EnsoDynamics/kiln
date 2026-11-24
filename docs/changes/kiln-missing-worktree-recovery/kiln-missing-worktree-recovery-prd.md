@@ -103,6 +103,7 @@ Recovering from a missing folder means setting the run up again in a new folder.
   The fields start with the run's saved choices, except where AC-SETUP-02 sets a default. Every field not fixed can be changed before Start, as on Documents found.
   - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the settings panel is also shown, pre-filled, when an unfinished run's folder is missing).
   - Replaces in part: AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the worktree, feature branch and base branch, fixed once the first phase starts, can be chosen again on the Folder missing setup panel).
+  - Superseded in part by: AC-KEEP-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (the Folder missing setup panel shows Documents found's model lines and links in place of Agent, Model and Effort and "Agent fixed for this PRD."; the rest remains).
 - [ ] **AC-SETUP-02 — The starting point and defaults follow the facts.** The panel offers two starting points, **the base branch** and **the run's existing feature branch**. It pre-selects the existing feature branch when that branch is available and has work not yet in the base branch, and the base branch otherwise. The existing feature branch is unavailable, with the reason, when:
   - it is gone;
   - it is checked out in another folder, which the panel names, as git allows a branch in one folder at a time;
@@ -155,6 +156,7 @@ Recovery changes nothing until the person presses Start, and Start does only wha
 
 - [ ] **AC-LOOK-01 — The screens match their drawings.** The Folder missing page and its terminal message match this change's mockup for layout, order and wording, in Kiln's existing visual style. Sample names, paths, commits and counts are illustrative; the real ones come from the run.
   - Superseded in part by: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the reset line on Folder missing; the rest of the layout remains).
+  - Superseded in part by: AC-KEEP-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (the Folder missing setup panel shows Documents found's model lines and links in place of Agent, Model and Effort and "Agent fixed for this PRD."; the rest remains).
 
 ## Mockup
 

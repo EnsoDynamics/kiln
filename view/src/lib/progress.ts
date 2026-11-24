@@ -39,7 +39,8 @@ export function phaseName(id: string, snapshot?: Snapshot): string {
 export function withPlannedPreflight(rows: PhaseView[], snapshot: Snapshot): PhaseView[] {
   const planned = snapshot.preflight?.planned;
   if (!planned) return rows;
-  const row: PhaseView = { id: "preflight-planned", kind: "preflight", title: "Preflight", file: "", state: "planned", finishedByPerson: false };
+  // It shows the Audits choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row").
+  const row: PhaseView = { id: "preflight-planned", kind: "preflight", title: "Preflight", file: "", state: "planned", finishedByPerson: false, ...(planned.model ? { model: planned.model } : {}) };
   const at = planned.before === "end" ? -1 : rows.findIndex(one => one.id === planned.before);
   return at === -1 ? [...rows, row] : [...rows.slice(0, at), row, ...rows.slice(at)];
 }
@@ -67,11 +68,6 @@ export function phaseOfTotal(snapshot: Snapshot, id: string): string {
 /** "Opus 5.5 · high effort", or the model alone when it takes no effort (UI-011 item 2). */
 export function modelAndEffort(model: string, effort: Effort | undefined): string {
   return effort === undefined ? model : `${model} · ${(EFFORT_LABELS[effort] ?? effort).toLowerCase()} effort`;
-}
-
-/** The settings' model and effort: no effort when the chosen model takes none. */
-export function settingsModel(settings: Snapshot["settings"]): string {
-  return modelAndEffort(settings.model.displayName, settings.effortLevels?.length === 0 ? undefined : settings.effort);
 }
 
 export type HeaderKind = "implementing" | "pausing" | "interrupted" | "paused" | "needs_you" | "waiting" | "complete";

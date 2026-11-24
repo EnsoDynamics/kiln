@@ -9,6 +9,7 @@ import type { Timing } from "../session/timing.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { createHarness, landingSession, pullRequestSession, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 import { prdRecordPath, readPrdRecord, SCHEMA_VERSION, type PrdRecord } from "./records.js";
 
 let harness: Harness | undefined;
@@ -21,8 +22,12 @@ function asSchemaOne(record: PrdRecord): Record<string, unknown> {
   const copy = JSON.parse(JSON.stringify(record)) as Record<string, any>;
   const entry = copy.repositories[0];
   copy.schemaVersion = 1;
-  Object.assign(copy.settings, copy.settings.agentChoices.claude_code);
-  delete copy.settings.agentChoices; delete copy.settings.agentId;
+  // v1 kept one model and effort for the whole PRD, at the top of its settings; under this Kiln
+  // that is the choice the migration keeps (Kiln Phase Model Tiers AC-KEEP-02).
+  const kept = record.settings.modelChoices.kept;
+  if (!kept) throw new Error("A v1 record needs the PRD's one choice: run the harness on V1_CHOICE first.");
+  Object.assign(copy.settings, { model: kept.model, effort: kept.effort });
+  delete copy.settings.modelChoices;
   if (entry?.baseCommit) copy.baseCommit = entry.baseCommit;
   if (entry?.createdBranch) copy.createdBranch = entry.createdBranch;
   delete copy.repositories;
@@ -47,6 +52,9 @@ function asSchemaOne(record: PrdRecord): Record<string, unknown> {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/** The one Claude Code choice a v1 PRD ran on, kept by the migration. */
+const V1_CHOICE = { agentId: "claude_code", model: "opus", effort: "medium" } as const;
+
 /** Writes the record back as schema 1 and opens it as the next `kiln run` would. */
 function reopenAsSchemaOne(h: Harness) {
   writeFileSync(prdRecordPath(h.stateDirectory), JSON.stringify(asSchemaOne(h.engine.record)));
@@ -56,6 +64,7 @@ function reopenAsSchemaOne(h: Harness) {
 describe("a schema 1 record read by this Kiln", () => {
   it("renders a PRD stopped at Needs you as it does under schema 2", async () => {
     harness = await createHarness({ sessions: [{ actions: [{ close: true }, { commit: "feat: intake" }, { result: "Partway." }, { exit: 0 }] }] });
+    await runPrdOn(harness.engine, V1_CHOICE);
     await harness.engine.start({ refinementConfirmed: true });
     await harness.engine.settled();
     // Launch readiness is auth-only, while the phase's independent usage read can
@@ -115,6 +124,7 @@ describe("a schema 1 record read by this Kiln", () => {
 
   it("renders a complete PRD as it does under schema 2, its pull request and each phase's pushed commit included", async () => {
     harness = await createHarness({ sessions: [landingSession("src/a.txt"), landingSession("src/b.txt"), landingSession("src/c.txt"), pullRequestSession(218)] });
+    await runPrdOn(harness.engine, V1_CHOICE);
     await harness.engine.start({ refinementConfirmed: true });
     await harness.engine.settled();
     const before = buildSnapshot(harness.engine);
@@ -124,12 +134,13 @@ describe("a schema 1 record read by this Kiln", () => {
     expect(buildSnapshot(engine)).toEqual({ ...before, billing: buildSnapshot(engine).billing, auditHistoryUnavailable: true, account: buildSnapshot(engine).account });
     expect(buildSnapshot(engine).pullRequests).toEqual([expect.objectContaining({ repository: "acme-shop", number: 218 })]);
     // Written as schema 3, through schema 2, at its next write (usage-limit recovery, Data Models).
-    await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" });
+    expect(await engine.changeSettings({ keepAwake: !engine.record.settings.keepAwake })).toMatchObject({ ok: true });
     expect(readPrdRecord(harness.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("finishes a v1 setup cut short from its recorded commit", async () => {
     harness = await createHarness({ sessions: [] });
+    await runPrdOn(harness.engine, V1_CHOICE);
     const h = harness;
     const base = git(h.sandbox, h.repository, "rev-parse", "develop").trim();
     const record = asSchemaOne(h.engine.record);

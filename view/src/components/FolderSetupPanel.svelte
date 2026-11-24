@@ -6,13 +6,12 @@
   import BusyStatus from "./BusyStatus.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Part, PanelFields, SetupPanel, StartKind } from "../../../src/engine/folder-setup.js";
-  import type { Effort } from "../../../src/state/records.js";
   import AccountPanel from "./AccountPanel.svelte";
   import BillingPanel from "./BillingPanel.svelte";
   import DevelopmentDelivery from "./DevelopmentDelivery.svelte";
   import { changeFolderPanel, checkFolders, startFolderSetup, type PageConfig } from "../lib/api.js";
   import CodeText from "./CodeText.svelte";
-  import { accountLines, EFFORT_LABELS, EFFORTS, effortDisabled, modelOptions } from "../lib/documents-found.js";
+  import { accountLines } from "../lib/documents-found.js";
   import { day } from "../lib/folder-missing.js";
   import { addedLabel } from "../lib/progress.js";
 
@@ -24,7 +23,6 @@
   const panel = $derived(view.panel && !("blocked" in view.panel) ? view.panel as SetupPanel : undefined);
   const blocked = $derived(view.panel && "blocked" in view.panel ? view.panel.blocked : undefined);
   const account = $derived(accountLines(snapshot.account));
-  const models = $derived(modelOptions(snapshot));
   const baseName = $derived(view.plans.base.branch);
   const fixed = (field: string) => panel?.fixed.includes(field) === true;
 
@@ -115,7 +113,7 @@
           <label for="fm-workspace">Workspace folder</label>
           <input id="fm-workspace" type="text" class="mono" value={drafts.workspaceFolder ?? `${panel.fields.workspaceFolder.replace(/\/$/, "")}/`} disabled={!connected || fixed("workspaceFolder")} oninput={(event) => typed("workspaceFolder", event.currentTarget.value)} onblur={() => committed("workspaceFolder")} />
           {#if panel.fieldErrors.workspaceFolder}<span class="message">{panel.fieldErrors.workspaceFolder}</span>{/if}
-          <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+          <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; keep-awake can be changed later.</span>
           {#if panel.helpLines.folder}<span class="help">{panel.helpLines.folder}</span>{/if}
         </div>
         <div class="field">
@@ -148,7 +146,7 @@
           <label for="fm-worktree">Worktree</label>
           <input id="fm-worktree" type="text" class="mono" value={drafts.worktreePath ?? panel.fields.worktreePath} disabled={!connected || fixed("worktreePath")} oninput={(event) => typed("worktreePath", event.currentTarget.value)} onblur={() => committed("worktreePath")} />
           {#if panel.fieldErrors.worktreePath}<span class="message">{panel.fieldErrors.worktreePath}</span>{/if}
-          <span class="help">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+          <span class="help">One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; keep-awake can be changed later.</span>
           {#if panel.helpLines.folder}<span class="help">{panel.helpLines.folder}</span>{/if}
         </div>
         <div class="pair">
@@ -168,37 +166,15 @@
         <span class="help">{SESSIONS_ADD}</span>
       {/if}
 
-      <div class="pair">
-        <div class="field">
-          <label for="fm-agent">Agent</label>
-          <select id="fm-agent" disabled><option>{snapshot.settings.agent}</option></select>
-          <span class="help">{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
-          <span class="help">Agent fixed for this PRD.</span>
-        </div>
-        <div class="field">
-          <label for="fm-model">Model</label>
-          <select id="fm-model" value={panel.fields.model} disabled={!connected} onchange={(event) => change(panel.selected, { model: event.currentTarget.value })}>
-            {#each models as model (model.value)}<option value={model.value}>{model.displayName}</option>{/each}
-          </select>
-          {#if panel.fieldErrors.model}<span class="message">{panel.fieldErrors.model}</span>{/if}
-          {#if snapshot.settings.modelListError}<span class="message">{snapshot.settings.modelListError}</span>{/if}
-        </div>
+      <!-- Documents found's model line in place of Agent, Model and Effort (Kiln Phase Model Tiers AC-KEEP-01). -->
+      <div class="field">
+        <span class="label">Models</span>
+        <span class="value">Chosen for each phase</span>
+        <span class="help">{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
+        {#if snapshot.settings.modelListError}<span class="message">{snapshot.settings.modelListError}</span>{/if}
       </div>
-      <span class="help">Listed models do not guarantee account access.</span>
-      {#if panel.choiceNotice}<p class="message">{panel.choiceNotice}</p>{/if}
       {#if snapshot.settings.readinessErrors?.length}<p class="message">{snapshot.settings.readinessErrors.join(" ")}</p>{/if}
       <button type="button" class="button" disabled={!connected || snapshot.settings.metadataPending || snapshot.billing?.pending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
-      <fieldset class="effort">
-        <legend>Effort</legend>
-        <div class="segments">
-          {#each panel.effortLevels ?? EFFORTS as effort (effort)}
-            {@const pressed = panel.effortLevels?.length !== 0 && panel.fields.effort === effort}
-            <button type="button" aria-pressed={pressed} class:pressed disabled={!connected || effortDisabled(panel, effort)} onclick={() => { if (!effortDisabled(panel, effort)) void change(panel.selected, { effort: effort as Effort }); }}>{panel.efforts?.find((e) => e.value === effort)?.label ?? EFFORT_LABELS[effort] ?? effort}</button>
-          {/each}
-        </div>
-        <span class="help">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</span>
-        {#if panel.effortLevels?.length === 0}<span class="help">This model takes no effort setting.</span>{/if}
-      </fieldset>
       {#if snapshot.account && snapshot.settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={snapshot.settings.agent} paused={false} notStarted={true} {now} />{/if}
       <label class="check"><input type="checkbox" checked={panel.fields.keepAwake} disabled={!connected} onchange={(event) => change(panel.selected, { keepAwake: event.currentTarget.checked })} /> <span>Keep this computer awake while a session works or Kiln waits<span class="help block">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span>{#if snapshot.settings.keepAwakeError}<span class="message block">{snapshot.settings.keepAwakeError}</span>{/if}</span></label>
       <label class="check"><input type="checkbox" checked={panel.fields.resumeAfterUsageLimit} disabled={!connected} onchange={(event) => change(panel.selected, { resumeAfterUsageLimit: event.currentTarget.checked })} /> <span>Resume after a usage limit<span class="help block">Switch off to finish the phase yourself; Needs you then shows how.</span></span></label>
@@ -237,7 +213,8 @@
   .section-title { margin: 0; font-size: 20px; font-weight: 600; color: var(--text); }
   .setup-lead { margin: -14px 0 0; color: var(--muted); }
   .setup { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; }
-  .label, label, legend { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .label, label { font-size: 13px; font-weight: 500; color: var(--muted); }
+  .value { font-size: 14.5px; color: var(--text); }
   .starts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 12px; }
   .start { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; cursor: pointer; }
   .start.on { border-color: var(--text); }
@@ -268,10 +245,6 @@
   .message { font-size: 12.5px; color: var(--amber); margin: 0; }
   .message.wide { flex-basis: 100%; }
   .message.block { display: block; }
-  .effort { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; }
-  .segments { display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
-  .segments button { min-height: 40px; border: 0; background: transparent; color: var(--muted); font-size: 13.5px; cursor: pointer; }
-  .segments button.pressed { background: var(--text); color: var(--bg); font-weight: 600; }
   .check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--text); font-weight: 400; }
   .fixed { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; font-size: 13.5px; }
   .fixed dt { color: var(--dim); }

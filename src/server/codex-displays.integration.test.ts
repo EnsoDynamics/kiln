@@ -51,7 +51,7 @@ it("Documents found and both recovery screens explicitly label each missing Code
     const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: codex(documentsFoundSnapshot()) });
     const page = await chrome.open(server.address, { width, clock: USAGE_LIMIT_NOW, timeZone: "America/New_York" });
     try {
-      await page.waitFor(`document.querySelector('#agent')`);
+      await page.waitFor(`document.querySelector('.field.models')`);
       for (const make of [documentsFoundSnapshot, waitingSnapshot, needsYouUsageLimitSnapshot]) {
         for (const { email, plan, expected } of identities) {
           const snapshot = codex(make());
@@ -79,7 +79,7 @@ it("Documents found and both recovery screens explicitly label each missing Code
 // AC-AGENT-02, AC-VIEW-01/02/04: actual built screens, including live/saved source labels.
 it("keeps Codex session facts, next choices and account guidance distinct across running, paused and disconnected screens", async () => {
   const running = codex(runningSnapshot());
-  running.settings.model = { value: "gpt-6-luna", displayName: "GPT-6-Luna" }; running.settings.effort = "low";
+  // The PRD-wide next Model and effort row and "Agent fixed for this PRD" are gone: each row shows its own model (Kiln Phase Model Tiers AC-KEEP-01).
   running.account = { agentId: "codex", startedAt: "2026-10-17T15:40:00Z", updatedAt: "2026-10-17T15:40:00Z", email: "codex-screen@example.test", plan: "pro", limits: [] };
   Object.assign(running.current!, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol", effort: "high", sessionId: "codex-local-screen", providerSessionId: "codex-native-screen", requested: { model: "gpt-6.1-sol", effort: "high" }, effective: { model: "gpt-6.1-sol", effort: "high" }, observed: [{ turnId: "screen-turn", model: "gpt-6.1-sol", effort: "high", cwd: "/assigned" }], latestLine: { line: 4, at: "2026-10-17T15:46:00Z", source: "codex", text: "Codex screen final" } });
   const output = [
@@ -94,8 +94,6 @@ it("keeps Codex session facts, next choices and account guidance distinct across
     try {
       await page.waitFor(`document.querySelector('.now .meta')?.textContent.includes('Codex')`);
       expect(await page.evaluate(`document.querySelector('.now .meta').textContent`)).toContain("GPT-6.1-Sol · high effort");
-      const settings = await page.evaluate<string>(`[...document.querySelectorAll('dl > div')].find(r=>r.querySelector('dt')?.textContent === 'Model and effort').textContent`);
-      expect(settings).toContain("GPT-6-Luna · low effort"); expect(settings).toContain("Codex · Agent fixed for this PRD.");
       expect(await page.evaluate(`document.querySelector('#acct-h').textContent`)).toBe("Codex account");
       const detail = await chrome.open(server.address + "/phase/2b", { width, clock: USAGE_LIMIT_NOW, timeZone: "America/New_York" });
       try {
@@ -104,13 +102,12 @@ it("keeps Codex session facts, next choices and account guidance distinct across
         expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output [data-source]'),e=>e.getAttribute('aria-label'))`)).toEqual(["Claude entry", "stderr entry", "out entry", "Codex entry"]);
         const text = await detail.evaluate<string>(`document.body.textContent`);
         for (const expected of ["codex-local-screen", "codex-native-screen", "GPT-6.1-Sol · high effort", "Requested: gpt-6.1-sol · high effort", "Effective configuration: gpt-6.1-sol · high effort", "Observed turn screen-turn: gpt-6.1-sol · high effort", "10:58 AM", "Provider error detail", "Expected command output; exit 0"]) expect(text).toContain(expected);
-        expect(text).not.toContain("GPT-6-Luna");
         server.send("output", { sessionId: "codex-local-screen", lines: [{ line: 5, at: "2026-10-17T15:47:00Z", source: "codex", text: "Live Codex result" }] });
         await detail.waitFor(`document.body.textContent.includes('Live Codex result')`);
         expect(await detail.evaluate(`Array.from(document.querySelectorAll('.output [data-source]'),e=>e.getAttribute('aria-label')).at(-1)`)).toBe("Codex entry");
         expect(detail.problems).toEqual([]);
       } finally { await detail.close(); }
-      const paused = codex(pausedSnapshot()); paused.account = running.account; paused.settings.model = running.settings.model; paused.settings.effort = "low";
+      const paused = codex(pausedSnapshot()); paused.account = running.account;
       server.send("snapshot", paused);
       const held = await chrome.open(server.address, { width, clock: USAGE_LIMIT_NOW });
       try {
@@ -124,7 +121,6 @@ it("keeps Codex session facts, next choices and account guidance distinct across
         expect(held.problems).toEqual([]);
         // Ending this fixture's SSE stream deliberately produces a browser network error.
         await server.close(); await held.waitFor(`document.body.textContent.includes('Disconnected from Kiln')`);
-        expect(await held.evaluate(`document.body.textContent`)).toContain("Codex · Agent fixed for this PRD.");
         expect(await held.evaluate(`document.querySelector('button.start').disabled`)).toBe(true);
         expect(held.problems.filter(problem => !problem.includes("ERR_INCOMPLETE_CHUNKED_ENCODING") || !problem.includes("/api/events"))).toEqual([]);
       } finally { await held.close(); }

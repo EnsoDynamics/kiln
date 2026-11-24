@@ -21,14 +21,17 @@ import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 import { assertPreflightState } from "../engine/preflight.js";
 import { MERGE_KEY, preflightKey } from "./activity-keys.js";
+import type { ModelChoice } from "../models/model-defaults.js";
+import { migrateModelChoices, assertModelChoices } from "../models/keep.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
 export const AGENT_NAMES: Record<AgentId, string> = { claude_code: "Claude Code", codex: "Codex" };
 export interface AgentChoice { model: string; effort?: string }
+export type { ModelChoice } from "../models/model-defaults.js";
 export const EFFORT_LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export interface Settings {
@@ -42,10 +45,8 @@ export interface Settings {
   baseBranch: string;
   /** The other repositories' bases, by name; never keyed by the PRD's repository's name. */
   bases: Record<string, string>;
-  model: string;
-  effort: Effort;
-  agentId?: AgentId;
-  selectionGeneration?: number;
+  /** Each activity's model choice where the person set one, and a choice kept from before schema 26 (Kiln Phase Model Tiers, "Data Models"). */
+  modelChoices: ModelChoices;
   keepAwake: boolean;
   /** Wait out a usage limit and resume by itself (usage-limit recovery AC-AUTO-04). */
   resumeAfterUsageLimit: boolean;
@@ -53,21 +54,26 @@ export interface Settings {
   auditLoops?: AuditLoopSettings;
 }
 
-/** Only the per-agent map owns next-session settings on disk. */
-export interface AgentSettings extends Omit<Settings, "model" | "effort" | "agentId" | "selectionGeneration"> {
-  agentId: AgentId;
-  selectionGeneration?: number;
-  agentChoices: Partial<Record<AgentId, AgentChoice>>;
+/**
+ * A PRD's model choices (Kiln Phase Model Tiers, "Resolving a Choice"): a phase's own entry, by
+ * phase id; the PRD's one Audits entry, for the preflight, every audit and the pull request
+ * session; and `kept`, the one choice a PRD saved before schema 26 keeps (AC-KEEP-02), written
+ * only by the migration. `"default"` is Use the default over a kept choice.
+ */
+export interface ModelChoices {
+  phases: Record<string, ModelChoice | "default">;
+  audits?: ModelChoice | "default";
+  kept?: ModelChoice;
 }
-export function selectedChoice(settings: AgentSettings): AgentChoice {
-  return settings.agentChoices[settings.agentId] ?? { model: "" };
+
+/** @deprecated The name settings had while they held one agent's choices; they hold model choices now. */
+export type AgentSettings = Settings;
+
+/** A record's settings, with model choices in place, as the new-record path and the migration leave them. */
+export function agentSettings(settings: Omit<Settings, "modelChoices"> & { modelChoices?: ModelChoices }): Settings {
+  return { ...settings, modelChoices: settings.modelChoices ?? { phases: {} } };
 }
-export function agentSettings(settings: Settings | AgentSettings): AgentSettings {
-  if ("agentChoices" in settings) return settings;
-  const { model, effort, ...rest } = settings;
-  delete rest.agentId; delete rest.selectionGeneration;
-  return { ...rest, agentId: "claude_code", selectionGeneration: 0, agentChoices: { claude_code: { model, effort } } };
-}
+
 export function assertAgent(agent: unknown): asserts agent is AgentId {
   if (agent !== "claude_code" && agent !== "codex") throw new NewerSchemaError(`Unknown Kiln agent: ${String(agent)}. Update Kiln.`);
 }
@@ -190,6 +196,8 @@ export interface RepositoryPhaseFacts {
 export interface PhaseFacts {
   completedByOperation?: string;
   sessionIds: string[];
+  /** The session whose first model response started this activity (Kiln Phase Model Tiers, "When an Activity Starts"); only ever added. */
+  startedSessionId?: string;
   doneAt?: string;
   finishedByPerson: boolean;
   stop?: PhaseStop;
@@ -267,6 +275,8 @@ export interface RecordedPlanPhase {
   attended?: string;
   /** The `**Early merge:**` line's text (build preflight, schema 23). Display only. */
   earlyMerge?: string;
+  /** The `**Model tier:**` line's tier and reason (Kiln Phase Model Tiers AC-TIER-01). Display and model choice only; left out of plan comparisons. */
+  modelTier?: import("../plan/phase-document.js").ModelTier;
 }
 
 export type RepositoryKind = "prd" | "named" | "added";
@@ -482,6 +492,8 @@ export interface CodexTurnExecution extends AgentChoice {
 
 export interface CodexRunFacts {
   intentAt: string;
+  /** The first item the model issued in this run, on the parent or a child thread (Kiln Phase Model Tiers, "When an Activity Starts"). */
+  firstResponseAt?: string;
   requested: AgentChoice;
   account: CodexAccountProvenance;
   profile: CodexExecutionProfile;
@@ -542,6 +554,8 @@ export interface SessionRecord {
   model: string;
   /** The concrete model ID the session's init event reported. */
   initModel?: string;
+  /** When the session got its first response from the model (Kiln Phase Model Tiers, "When an Activity Starts"). */
+  firstResponseAt?: string;
   modelDisplayName: string;
   /** The --effort Kiln passed; absent when it passed none. */
   effort?: Effort;
@@ -596,7 +610,7 @@ export function readPrdRecord(stateDirectory: string): PrdRecord | undefined {
       record.executionId ??= saved?.executionId ?? randomUUID();
       if (!saved) writeJsonAtomically(migrationPath, { executionId: record.executionId, original });
     }
-    return record === undefined ? undefined : migrateRecord(record);
+    return record === undefined ? undefined : migrateRecord(record, stateDirectory);
   } catch (error) { throw new Error(`Invalid record ${path}: ${(error as Error).message}`, { cause: error }); }
 }
 
@@ -620,7 +634,7 @@ interface SchemaOnePhase {
  * limit" on, as a new one does (UI-003). Schema 4 adds the Claude agent and moves saved choices
  * into its map without changing conversation keys. Written as schema 4 at its next write.
  */
-export function migrateRecord(record: PrdRecord): PrdRecord {
+export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRecord {
   assertContinuationState(record.continuation);
   assertPreparationState(record.preparation);
   if (record.liveControl && (record.liveControl.version !== 1 || !Number.isSafeInteger(record.liveControl.revision) || !validLiveTarget(record.liveControl.takeover?.target) || record.liveControl.takeover.target.executionId !== record.executionId || !record.liveControl.takeover.operationId || !record.liveControl.takeover.instructionId || !Number.isFinite(Date.parse(record.liveControl.takeover.requestedAt)) || !["pending", "released"].includes(record.liveControl.takeover.state))) throw new Error("Malformed takeover authority; no effects authorized.");
@@ -635,7 +649,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -661,12 +675,11 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   }
   if (record.completionAudits && (!record.executionId || !Number.isSafeInteger(record.completionAudits.revision) || !["required", "legacy_complete"].includes(record.completionAudits.policy) || !Array.isArray(record.completionAudits.activities) || !Array.isArray(record.completionAudits.evidence))) throw new Error("Invalid completion audit state.");
   if (record.schemaVersion < 5) { if (record.startedAt) record.executionId ??= randomUUID(); record.developmentAuthorization = restrictedAuthorization(); record.developmentDelivery = emptyDevelopmentLedger(); record.settings.developmentDeployments = { enabled: false, targets: [] }; }
-  if (record.schemaVersion < 4) record.settings = agentSettings(record.settings);
   if (record.schemaVersion < 8) record.billing = newBillingState(record.executionId ??= randomUUID());
+  // Schema 26: one choice for the PRD becomes each activity's (Kiln Phase Model Tiers, "Migration to schema 26").
+  if (record.schemaVersion < 26) migrateModelChoices(record, stateDirectory);
   assertBillingState(record.billing, record.executionId);
-  assertAgent(record.settings.agentId);
-  record.settings.selectionGeneration ??= 0;
-  for (const id of Object.keys(record.settings.agentChoices)) assertAgent(id);
+  assertModelChoices(record.settings.modelChoices);
   // Retire only the old confinement predicate; keep every independent recovery obligation.
   for (const facts of Object.values(record.phases)) {
     delete facts.outsideConfirmations;
@@ -790,7 +803,7 @@ export function writePrdRecord(stateDirectory: string, record: PrdRecord): void 
   assertPreparationState(record.preparation);
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this record.");
   assertBillingState(record.billing, record.executionId);
-  assertAgent(record.settings.agentId);
+  assertModelChoices(record.settings.modelChoices);
   writeDurableMetadata(prdRecordPath(stateDirectory), record);
 }
 

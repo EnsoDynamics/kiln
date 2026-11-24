@@ -18,6 +18,7 @@ import type { EngineOptions } from "./engine.js";
 import { sessionFiles } from "../session/claude-session.js";
 import { appendJsonLine } from "../state/state-files.js";
 import { CodexOutputReader } from "../session/codex-output.js";
+import { CODEX_CHOICE, runPrdOn } from "../test-support/model-choices.js";
 
 let h: Harness;
 let f: ReturnType<typeof codexWorkFixture>;
@@ -34,8 +35,7 @@ async function setup(value: Record<string, unknown> = {}, engineOptions: Partial
   h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] }, ...engineOptions });
-  await h.engine.changeSettings({ agentId: "codex" });
-  await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   expect(h.engine.selectionError).toBeUndefined();
 }
 const set = (value: Record<string, unknown>) => f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...value });
@@ -45,6 +45,9 @@ it("shows a refused first launch at Needs you without scanning nonexistent histo
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const session = h.engine.latestSession("1")!;
   expect(session.runs[0]?.codex?.dispatch).toBeUndefined();
+  // Refused before any item the model issued: the activity hasn't started (Kiln Phase Model Tiers AC-PICK-04, AC-PICK-06).
+  expect(session.firstResponseAt).toBeUndefined();
+  expect(h.engine.record.phases["1"]!.startedSessionId).toBeUndefined();
   expect(buildSnapshot(h.engine)).toMatchObject({ feature: { state: "needs_you" }, needsYou: { kind: "selection", resumeOffered: false, checks: [{ facts: [expect.stringContaining("protected launch profile")] }] } });
   expect(f.calls().some(call => ["turn/start", "thread/read", "thread/turns/list"].includes(call.method ?? ""))).toBe(false);
   server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
@@ -106,15 +109,19 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   const session = h.engine.latestSession("1")!;
   expect(session).toMatchObject({ agentId: "codex", model: "gpt-6.1-sol", effort: "high", conversation: { threadId: expect.any(String) } });
   expect(session.initModel).toBeUndefined();
+  // The first item the model issued starts the activity on its Codex choice (Kiln Phase Model Tiers AC-PICK-04).
+  expect(session.firstResponseAt).toBeDefined();
+  expect(session.runs[0]?.codex?.firstResponseAt).toBe(session.firstResponseAt);
+  expect(h.engine.record.phases["1"]!.startedSessionId).toBe(session.sessionId);
   expect(session.codex?.launchIntent.writableRoots).toEqual([h.engine.workspaceFolder]);
   expect(buildSnapshot(h.engine).needsYou).toMatchObject({ agent: "Codex", resumeOffered: true, requested: { effort: "high" }, observed: [expect.objectContaining({ effort: "high" })], cleanupWarning: expect.stringContaining("Independently detached") });
   expect(h.engine.outputLines(session).some(line => line.source === "codex" && line.text.includes("Fixture final"))).toBe(true);
   expect(partials).toContain("Fixture streaming");
   expect(h.claudeCalls()).toEqual([]);
-  expect(await h.engine.changeSettings({ agentId: "claude_code" })).toMatchObject({ ok: false });
-  await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+  // Refusing a switch of the PRD's agent after Start (Codex support AC-AGENT-02) was replaced by per-activity choices (Kiln Phase Model Tiers AC-KEEP-01).
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
   expect(session.runs[0]?.billing).toMatchObject({ agentId: "codex", email: "proof@example.invalid", accountId: "proof-account", credits: [{ balance: "50", scope: "workspace" }] });
-  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch).toEqual(session.runs[0]?.billing);
+  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch?.codex).toEqual(session.runs[0]?.billing);
   set({ email: "next@example.test", accountId: "next-workspace" });
   h.reopenFromDisk(); await h.engine.agents.refresh();
   expect(buildSnapshot(h.engine).billing?.lastLaunch?.email).toBe("proof@example.invalid");
@@ -128,7 +135,7 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   expect(resumed.runs[0]?.billing?.email).toBe("proof@example.invalid");
   expect(resumed.runs[1]?.billing).toMatchObject({ email: "next@example.test", accountId: "next-workspace" });
   expect(resumed.runs[1]?.billing?.credits).toBeUndefined();
-  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch).toEqual(resumed.runs[1]?.billing);
+  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch?.codex).toEqual(resumed.runs[1]?.billing);
   expect(resumed.runs[1]?.codex?.requested).toEqual({ model: session.model, effort: "high" });
   const dispatches = f.calls().filter(call => call.method === "turn/start");
   expect(JSON.stringify(dispatches[1]?.params?.input)).toMatch(/Keep the saved context.*carry on/is);
@@ -279,7 +286,7 @@ it("follows a phase's own split through fresh Codex conversations and the final 
   set({ command, delayMs: 250 });
   expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
   await waitFor(() => f.calls().some(call => call.method === "turn/start"));
-  expect(await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" })).toEqual({ ok: true });
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
   await h.engine.settled();
   expect(buildSnapshot(h.engine).feature.state).toBe("complete");
   expect(h.engine.record.pullRequests?.[0]?.number).toBe(219);
@@ -301,7 +308,7 @@ it("shows model access refusal without substituting a model or conversation on l
   expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
   expect(original.runs[0]?.codex?.terminal).toEqual(expect.objectContaining({ status: "failed", error }));
   expect(h.engine.outputLines(original).some(line => line.source === "exit" && line.text.includes(error.message))).toBe(true);
-  await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
   h.reopenFromDisk(); await h.engine.agents.refresh();
   expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the original requested model." })).toMatchObject({ ok: true }); await h.engine.settled();
   const resumed = h.engine.latestSession("1")!;
@@ -363,13 +370,13 @@ it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved o
     h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
     const program = "const fs=require('node:fs');fs.writeFileSync('codex-only.txt','Codex work\\n');setInterval(()=>{if(fs.existsSync('release-mixed-test'))process.exit(0)},20);setTimeout(()=>process.exit(2),20000)";
     set({ command: `${JSON.stringify(process.execPath)} -e '${program.replaceAll("'", "'\\''")}'` });
-    await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
-    const claudeChoices = structuredClone(other.record.settings.agentChoices);
+    await runPrdOn(h.engine);
+    const claudeChoices = structuredClone(other.record.settings.modelChoices);
     expect(await other.start({ refinementConfirmed: true })).toEqual({ ok: true });
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await waitFor(() => existsSync(join(other.worktreePath, "claude-only.txt")) && existsSync(join(h.engine.worktreePath, "codex-only.txt")));
     expect(h.engine.current).toBeDefined(); expect(other.current).toBeDefined();
-    await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+    await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
     writeFileSync(join(other.worktreePath, "release-mixed-test"), "release");
     writeFileSync(join(h.engine.worktreePath, "release-mixed-test"), "release");
     await Promise.all([h.engine.settled(), other.settled()]);
@@ -381,8 +388,8 @@ it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved o
     expect(readFileSync(join(other.worktreePath, "claude-only.txt"), "utf8")).toBe("Claude work\n");
     expect(existsSync(join(other.worktreePath, "codex-only.txt"))).toBe(false);
     expect(existsSync(join(h.engine.worktreePath, "claude-only.txt"))).toBe(false);
-    expect(other.record.settings.agentChoices).toEqual(claudeChoices);
-    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6.1-sol", effort: "low" });
+    expect(other.record.settings.modelChoices).toEqual(claudeChoices);
+    expect(h.engine.record.settings.modelChoices.kept).toEqual({ ...CODEX_CHOICE, effort: "low" });
     expect(codexSession.effort).toBe("high"); expect(claudeSession.model).toBe("opus");
     expect(h.engine.outputLines(codexSession).some(line => line.source === "codex" && line.text === "Fixture final turn-1")).toBe(true);
     expect(other.outputLines(claudeSession).some(line => line.source === "claude" && line.text === "Claude-only result")).toBe(true);
@@ -391,7 +398,7 @@ it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved o
     expect(buildSnapshot(h.engine).needsYou?.agent).toBe("Codex");
     expect(buildSnapshot(other).needsYou?.agent).toBe("Claude Code");
     expect(h.claudeCalls()[0]?.cwd).toBe(other.worktreePath);
-    expect(readPrdRecord(h.stateDirectory)?.settings.agentId).toBe("codex");
+    expect(readPrdRecord(h.stateDirectory)?.settings.modelChoices.kept?.agentId).toBe("codex");
   } finally {
     if (existsSync(other.worktreePath)) writeFileSync(join(other.worktreePath, "release-mixed-test"), "release");
     if (existsSync(h.engine.worktreePath)) writeFileSync(join(h.engine.worktreePath, "release-mixed-test"), "release");

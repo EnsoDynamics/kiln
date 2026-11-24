@@ -340,7 +340,7 @@ describe("plan order after Start", () => {
 
 describe("the default settings", () => {
   const paths = { mainCheckoutPath: join("/work", "acme-shop"), repositoryName: "acme-shop", folderName: "customer-returns", prdDirectoryFromRoot: "docs/prds/customer-returns" };
-  it("branch feature/<folder>, workspace .worktrees/<folder> beside it with the worktree in it, base develop or else origin's default, latest Opus at medium (AC-EFFORT-01), the default audit loops (AC-LOOP-01)", () => {
+  it("branch feature/<folder>, workspace .worktrees/<folder> beside it with the worktree in it, base develop or else origin's default, no model choices of its own (Kiln Phase Model Tiers AC-PICK-01), the default audit loops (AC-LOOP-01)", () => {
     const withDevelop = defaultSettings(paths, { branches: new Map([["main", "a"], ["develop", "b"]]), defaultBranch: "main" });
     expect(withDevelop).toEqual({
       workspaceFolder: join("/work", ".worktrees", "customer-returns"),
@@ -348,8 +348,7 @@ describe("the default settings", () => {
       featureBranch: "feature/customer-returns",
       baseBranch: "develop",
       bases: {},
-      model: "opus",
-      effort: "medium",
+      modelChoices: { phases: {} },
       keepAwake: true,
       resumeAfterUsageLimit: true,
       auditLoops: { deliveryLimit: 4, testLimit: 4 },

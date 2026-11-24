@@ -1,0 +1,71 @@
+// What the plan rows and the card say about each activity's tier and model (Kiln Phase Model
+// Tiers AC-TIER-02, AC-PICK-02, AC-KEEP-01; mockups 1, 2 and 5).
+
+import type { ChoiceView, ModelView, TierView } from "../../../src/engine/activity-models.js";
+import type { Snapshot } from "../../../src/engine/snapshot.js";
+
+/** A tag's words. */
+export const TIER_LABELS: Record<TierView["value"], string> = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", not_rated: "Not rated" };
+
+/**
+ * A model choice as a row names it: agent, the model as its agent reports it, and effort.
+ *
+ *   choiceLine({ agent: "Claude Code", modelName: "Opus 5.5", effort: "medium", … })  // "Claude Code · Opus 5.5 · medium"
+ */
+export function choiceLine(choice: Pick<ChoiceView, "agent" | "modelName" | "effort">): string {
+  return [choice.agent, choice.modelName, choice.effort].filter(Boolean).join(" · ");
+}
+
+/**
+ * A row's model line (AC-PICK-02's table): the choice alone before Start, Will run on in a run
+ * underway, Running on once the activity started, Ran on once it finished, or No model recorded.
+ *
+ *   rowModelLine({ state: "will_run_on", choice }, true)   // "Will run on Claude Code · Sonnet 5.5 · high"
+ *   rowModelLine({ state: "none_recorded" }, true)         // "No model recorded"
+ */
+export function rowModelLine(model: ModelView, underway: boolean): string | undefined {
+  if (model.state === "none_recorded") return "No model recorded";
+  if (!model.choice) return undefined;
+  const line = choiceLine(model.choice);
+  if (model.state === "ran_on") return `Ran on ${line}`;
+  if (model.state === "running_on") return `Running on ${line}`;
+  return underway ? `Will run on ${line}` : line;
+}
+
+/** The note beside a choice Kiln filled in from the Fallback column because Claude Code isn't installed (AC-DEFAULT-04). */
+export const CLAUDE_CODE_MISSING_NOTE = "Claude Code isn't installed, so this runs on its Codex choice.";
+
+/** What an information control shows (AC-TIER-02's table). */
+export interface TierExplanation { heading: string; body: string; source?: string }
+
+const FROM_LINE = "From the phase document's Model tier line.";
+
+/**
+ * A tag's explanation: why a demanding or mechanical phase got its tier, in the line's own words;
+ * what standard means; or that the document has no Model tier line.
+ *
+ *   tierExplanation({ value: "mechanical", reason: "Repeats phase 1's label builder." })
+ *   // { heading: "Why this phase is mechanical", body: "Repeats phase 1's label builder.", source: "From the phase document's Model tier line." }
+ */
+export function tierExplanation(tier: TierView): TierExplanation {
+  switch (tier.value) {
+    case "demanding":
+    case "mechanical":
+      return { heading: `Why this phase is ${tier.value}`, body: tier.reason ?? "The phase document's Model tier line gives no reason.", source: FROM_LINE };
+    case "standard":
+      return { heading: "What standard means", body: "Each phase document rates how capable a model its build needs. Standard is the usual rating, and the model for it is set in Model defaults." };
+    case "not_rated":
+      return { heading: "What not rated means", body: "This phase document has no Model tier line, so Kiln treats the phase as standard." };
+  }
+}
+
+/**
+ * Documents found's "Chosen for each phase" counts, in tier order, leaving out a tier with none.
+ *
+ *   tierCountsLine({ demanding: 1, standard: 2, mechanical: 1, notRated: 1 })  // "1 demanding, 2 standard, 1 mechanical, 1 not rated."
+ */
+export function tierCountsLine(tiers: Snapshot["settings"]["models"]["tiers"]): string | undefined {
+  const parts = [[tiers.demanding, "demanding"], [tiers.standard, "standard"], [tiers.mechanical, "mechanical"], [tiers.notRated, "not rated"]] as const;
+  const shown = parts.filter(([count]) => count > 0).map(([count, word]) => `${count} ${word}`);
+  return shown.length ? `${shown.join(", ")}.` : undefined;
+}

@@ -1,3 +1,4 @@
+import { convertAcceptanceSettings } from "../models/keep.js";
 /** Durable continuation payloads; the engine and its existing command journal own mutations. */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -71,6 +72,8 @@ export function writeAcceptance(directory: string, value: ContinuationAcceptance
 export function readAcceptance(directory: string, id: string): ContinuationAcceptance {
   if (!safeIdentity(id)) throw new Error("Invalid continuation acceptance identity.");
   const value = read<ContinuationAcceptance>(directory, join(directory, "continuation-acceptances", `${id}.json`));
+  // An acceptance saved before schema 26 holds the PRD-wide choice; it is converted as read (Kiln Phase Model Tiers, "Settings saved outside the PRD record").
+  if (value?.settings) convertAcceptanceSettings(value.settings as unknown as Record<string, unknown>);
   if (value.formatVersion !== 1 || value.id !== id || !safeIdentity(value.operationId) || !safeIdentity(value.completedExecutionId) || !safeIdentity(value.newExecutionId) || !/^[a-f0-9]{64}$/.test(value.proposalId) || value.proposal.id !== value.proposalId || !["preparing", "blocked", "active", "superseded"].includes(value.state) || !Array.isArray(value.repositories)) throw new Error("Invalid retained continuation acceptance; restore its durable record before retrying.");
   if (!/^[a-f0-9]{64}$/.test(value.candidateId) || !/^[a-f0-9]{64}$/.test(value.archiveId) || !Number.isFinite(Date.parse(value.acceptedAt)) || typeof value.canonicalWorkspace !== "string" || value.settings.workspaceFolder !== value.canonicalWorkspace || !value.settings.featureBranch.endsWith(`-continue-${value.newExecutionId}`) || value.repositories.length !== value.proposal.repositories.length || new Set(value.repositories.map(repo => repo.name)).size !== value.repositories.length) throw new Error("Damaged continuation setup identity.");
   if (JSON.stringify(readContinuationProposal(directory, value.proposalId)) !== JSON.stringify(value.proposal) || value.proposal.completedExecutionId !== value.completedExecutionId) throw new Error("The retained acceptance does not match its immutable proposal.");

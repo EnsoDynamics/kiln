@@ -8,6 +8,7 @@ import { createHarness, type Harness } from "../test-support/engine-harness.js";
 import { historyFixture } from "../test-support/codex-history-fixture.js";
 import { writeSessionRecord } from "../state/records.js";
 import { buildSnapshot } from "./snapshot.js";
+import { CODEX_CHOICE, runPrdOn } from "../test-support/model-choices.js";
 let h: Harness;
 let f: ReturnType<typeof historyFixture>;
 afterEach(async () => { await h?.cleanup(); await f?.sandbox.cleanup(); });
@@ -18,7 +19,7 @@ it.each(["unknown", "outside"])("does not request workspace acceptance for %s re
   f.addThread("parent", { target: join(mode === "outside" ? f.outside : h.engine.worktreePath, "note.txt") });
   if (mode === "unknown") f.append("parent", f.record("response_item", { type: "custom_tool_call", name: "exec", call_id: "ordinary-wrapper", input: 'text("read" + 1);', internal_chat_message_metadata_passthrough: { turn_id: "parent-turn-0" } }));
   Object.assign(h.tools, { codex: f.options.executable }); h.env.KILN_CODEX_HISTORY_FIXTURE = f.options.env.KILN_CODEX_HISTORY_FIXTURE;
-  h.engine.record.settings.agentId = "codex";
+  await runPrdOn(h.engine, CODEX_CHOICE, false);
   const session = h.engine.latestSession("1")!; session.agentId = "codex"; session.conversation = { threadId: "parent", codexHome: f.codexHome }; writeSessionRecord(h.stateDirectory, session);
   const phaseFile = "docs/prds/customer-returns/phase-1-return-intake.md";
   const path = join(h.engine.worktreePath, phaseFile);

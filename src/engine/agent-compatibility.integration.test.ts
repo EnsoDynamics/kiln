@@ -14,6 +14,7 @@ import { historyFixture } from "../test-support/codex-history-fixture.js";
 import { installCodexMetadataFixture } from "../test-support/codex-metadata-fixture.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import { readPrdRecord, writeSessionRecord } from "../state/records.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 
 let h: Harness | undefined;
 let work: ReturnType<typeof codexWorkFixture> | undefined;
@@ -47,7 +48,7 @@ describe("Codex command evidence compatibility notice (AC-AGENT-04)", () => {
     work.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, version: "0.167.0" }); h.engine.close();
     const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
     h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-    expect(await h.engine.changeSettings({ agentId: "codex" })).toMatchObject({ ok: true }); await h.engine.agents.refresh();
+    await runPrdOn(h.engine);
     expect(await h.engine.changeSettings({ developmentDeployments: { enabled: true, targets: [{ target, confirmedTarget: target, confirmedNonProduction: true }] } })).toMatchObject({ ok: true });
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     expect(h.engine.record.developmentAuthorization?.enabled).toBe(true);
@@ -187,8 +188,7 @@ describe("an unselected agent's version blocks nothing (AC-AGENT-05)", () => {
     // Claude selected, the same stand-in blocks: the version reading is live, not ignored.
     await h.engine.agents.refresh();
     expect(h.engine.agents.state.blockers).toContain(CLAUDE_TOO_OLD);
-    expect(await h.engine.changeSettings({ agentId: "codex" })).toMatchObject({ ok: true });
-    await h.engine.agents.refresh(); await waitFor(() => !h!.engine.agents.state.pending);
+    await runPrdOn(h.engine); await waitFor(() => !h!.engine.agents.state.pending);
     expect(h.engine.agents.state.agentId).toBe("codex");
     expect(h.engine.agents.state.blockers.join(" ")).not.toContain("Claude Code");
     expect(h.engine.agents.state.blockers).toEqual([]);
@@ -200,10 +200,9 @@ describe("an unselected agent's version blocks nothing (AC-AGENT-05)", () => {
     Object.assign(h.tools, { codex: codex.executable }); h.env.KILN_CODEX_METADATA = codex.env.KILN_CODEX_METADATA;
     codex.set({ version: "0.162.0" });
     // Codex selected, the same fixture blocks: the version reading is live, not ignored.
-    expect(await h.engine.changeSettings({ agentId: "codex" })).toMatchObject({ ok: true });
-    await h.engine.agents.refresh(); await waitFor(() => !h!.engine.agents.state.pending);
+    await runPrdOn(h.engine); await waitFor(() => !h!.engine.agents.state.pending);
     expect(h.engine.agents.state.blockers).toContain(CODEX_TOO_OLD);
-    expect(await h.engine.changeSettings({ agentId: "claude_code" })).toMatchObject({ ok: true });
+    delete h.engine.record.settings.modelChoices.kept; h.engine.modelChoicesChanged();
     await claudeReady(h, "2.1.312 (Claude Code)");
     expect(h.engine.agents.state.agentId).toBe("claude_code");
     expect(h.engine.agents.state.blockers.join(" ")).not.toContain("Codex");

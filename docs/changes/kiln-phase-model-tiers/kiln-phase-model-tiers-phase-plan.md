@@ -12,7 +12,7 @@ Four phases, executed in order. The PRD holds four capabilities, each with its o
 | Phase | What it does | Depends on |
 |---|---|---|
 | [1 tier models for each activity](phase-1-tier-models-for-each-activity.md) | Kiln reads each phase's tier, gives every activity its model from Model defaults, shows that on every row, binds it when the activity starts, and drops the one choice for the whole PRD. | None |
-| [2 both agents in one run](phase-2-both-agents-in-one-run.md) | One run can use Claude Code and Codex, each checked, billed and shown on its own, and an activity that hasn't started goes on in a new session on its current choice. | 1 (the resolver, the start line and the schema 25 record) |
+| [2 both agents in one run](phase-2-both-agents-in-one-run.md) | One run can use Claude Code and Codex, each checked, billed and shown on its own, and an activity that hasn't started goes on in a new session on its current choice. | 1 (the resolver, the start line and the schema 26 record) |
 | [3 change models](phase-3-change-models.md) | The person changes a phase's model, the Audits choice and Model defaults, including the fallback switch, in the browser and from a terminal. | 1 (the resolver's entries and the kept choice); 2 (choices on either agent, and fresh launches on a changed choice) |
 | [4 usage fallback](phase-4-usage-fallback.md) | With the switch on, an activity about to launch starts on the other agent when its first choice's account is nearly out, says so, and is warned about beforehand; the public guide covers the whole change. | 1 (each activity's fallback from the resolver); 2 (both agents' usage readings and fresh launches); 3 (the switch and threshold) |
 

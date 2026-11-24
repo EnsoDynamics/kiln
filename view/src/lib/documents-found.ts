@@ -7,7 +7,6 @@ import type { Snapshot } from "../../../src/engine/snapshot.js";
 import type { Effort } from "../../../src/state/records.js";
 
 type Documents = NonNullable<Snapshot["documents"]>;
-type Settings = Snapshot["settings"];
 
 export const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
@@ -84,7 +83,7 @@ export function closedPhasesLine(phases: NonNullable<Documents["plan"]>["phases"
 /** The help under an adopted worktree (AC-FROM-03 row 6): Kiln works there, with its count of uncommitted files. */
 export function adoptedWorktreeHelp(uncommittedFiles: number | undefined): string {
   const files = uncommittedFiles === undefined ? "" : uncommittedFiles === 0 ? " It has no uncommitted files." : ` It has ${uncommittedFiles} uncommitted ${uncommittedFiles === 1 ? "file" : "files"}; the first session is told about them.`;
-  return `The branch is checked out in this folder, so Kiln works here.${files} The branch and PR into are set once, before the first phase; model, effort and keep-awake can be changed later.`;
+  return `The branch is checked out in this folder, so Kiln works here.${files} The branch and PR into are set once, before the first phase; keep-awake can be changed later.`;
 }
 
 export interface PlanRow {
@@ -95,6 +94,9 @@ export interface PlanRow {
   repositories: string[];
   /** Its `**Attended:**` line's text, when it has one: the Needs you there marker (build preflight AC-ATTEND-01). */
   attended?: string;
+  /** A phase with no child phases: its tag and the model it will run on (Kiln Phase Model Tiers AC-TIER-02, AC-PICK-02). */
+  tier?: import("../../../src/engine/activity-models.js").TierView;
+  model?: import("../../../src/engine/activity-models.js").ModelView;
   /** "split into 2a and 2b" for a split phase; its children follow nested under it. */
   splitNote?: string;
   children: PlanRow[];
@@ -113,6 +115,8 @@ export function planRows(phases: NonNullable<Documents["plan"]>["phases"]): Plan
       closed: phase.closed,
       repositories: phase.repositories,
       ...(phase.attended === undefined ? {} : { attended: phase.attended }),
+      ...(phase.tier ? { tier: phase.tier } : {}),
+      ...(phase.model ? { model: phase.model } : {}),
       ...(phase.splitInto ? { splitNote: `split into ${joinAnd(phase.splitInto)}` } : {}),
       children,
     };
@@ -128,18 +132,6 @@ export function joinAnd(items: string[]): string {
 
 export const EFFORT_LABELS: Record<Effort, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
 export const EFFORTS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
-
-/** An effort button is disabled when the chosen model doesn't take that level (UI-011). */
-export function effortDisabled(settings: Pick<Settings, "effortLevels">, effort: Effort): boolean {
-  return settings.effortLevels !== null && !settings.effortLevels.includes(effort);
-}
-
-/** The Model list: the account's models, plus the saved model when the list doesn't offer it, named as saved. */
-export function modelOptions(snapshot: Snapshot): { value: string; displayName: string }[] {
-  const models = snapshot.models ?? [];
-  const saved = snapshot.settings.model;
-  return models.some((model) => model.value === saved.value) ? models : [...models, saved];
-}
 
 export interface StartState {
   enabled: boolean;
@@ -163,6 +155,8 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (snapshot.billing?.pending) return { enabled: false, note: snapshot.settings.agentId === "codex" ? "Checking Codex information…" : "Checking Claude settings…" };
   if (snapshot.billing && !snapshot.billing.canLaunch) return { enabled: false, note: snapshot.billing.next?.readinessError ?? "Review billing before starting." };
   if (settings.metadataPending) return { enabled: false, note: "Reading agent information…" };
+  // Every activity's choice must be one its agent offers (Kiln Phase Model Tiers AC-PICK-06).
+  if (settings.models.problem) return { enabled: false, note: settings.models.problem };
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };
   if (!connected) return { enabled: false, note: "Not connected to Kiln." };
   const held = heldBy(snapshot);

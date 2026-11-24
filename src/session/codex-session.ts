@@ -3,6 +3,7 @@ import { codexBillingSummary } from "../billing/codex.js";
 import type { BillingSummary } from "../billing/inspection.js";
 import { appendFileSync } from "node:fs";
 import { realpathSync } from "node:fs";
+import { isCodexModelItem, type CodexNotification } from "../models/start-line.js";
 import { createHash, randomUUID } from "node:crypto";
 import { processStartTime } from "../platform/process-start-time.js";
 import { readSessionRecord, writeSessionRecord, sessionStorageKey, type SessionRecord, type SessionRun, type CodexRunFacts } from "../state/records.js";
@@ -154,6 +155,10 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     if (message.method === "thread/started" && record.conversation) {
       const thread = params.thread as { id?: string; parentThreadId?: string };
       if (thread?.parentThreadId === parentId || record.conversation.knownThreadIds?.includes(thread?.parentThreadId ?? "")) rememberChild(thread.id);
+    }
+    // The first item the model issued starts the activity (Kiln Phase Model Tiers, "When an Activity Starts").
+    if (facts.firstResponseAt === undefined && isCodexModelItem(message as CodexNotification)) {
+      facts.firstResponseAt = at; record.firstResponseAt ??= at; save();
     }
     if (["item/started", "item/completed"].includes(message.method ?? "")) {
       const item = params.item as { type?: string; phase?: string; text?: string; questions?: unknown[]; receiverThreadIds?: string[]; agentThreadId?: string };

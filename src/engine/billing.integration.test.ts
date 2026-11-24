@@ -11,9 +11,10 @@ import { buildSnapshot } from "./snapshot.js";
 import { statusProjection } from "../control/projection.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot } from "../state/state-files.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 let h: Harness | undefined;
 afterEach(async () => { await h?.cleanup(); h = undefined; });
-const approval = (h: Harness) => ({ executionId: h.engine.record.executionId, selectionGeneration: h.engine.record.settings.selectionGeneration ?? 0, readingId: h.engine.billing.view.next!.readingId, approved: true });
+const approval = (h: Harness) => ({ executionId: h.engine.record.executionId, readingId: h.engine.billing.view.next!.readingId, approved: true });
 async function ready() { await h!.engine.refreshBilling(); await waitFor(() => !h!.engine.agents.state.pending); }
 describe("Claude billing at the common dispatch boundary", () => {
   it("dispatches nothing before API approval, retains the grant after restart, then gates every phase and finalization", async () => {
@@ -231,7 +232,7 @@ describe("Claude billing at the common dispatch boundary", () => {
   it("resumes the saved model when a different next-session choice was retired, while still checking billing", async () => {
     h = await createHarness({ sessions: [{ actions: [{ result: "Need a mapping answer." }] }, landingSession()] }); await ready();
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); const original = h.engine.latestSession("1")!;
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet" })).toEqual({ ok: true });
+    await runPrdOn(h.engine, { agentId: "claude_code", model: "sonnet", effort: "medium" }, false);
     const file = join(h.sandbox.root, "retired-next-model.json");
     const catalogue = JSON.parse(readFileSync(new URL("../../test/fixtures/proof-gate-1/supported-models.json", import.meta.url), "utf8"));
     writeFileSync(file, JSON.stringify({ models: catalogue.models.filter((m: { value: string }) => m.value !== "sonnet") })); h.env.KILN_STANDIN_MODELS = file;

@@ -48,7 +48,7 @@ import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt, planPushPrompt, preflightSessionPrompt } from "../session/prompts.js";
-import { isPreflightKey, activityKeyKind, isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
+import { isPhaseKey, isPreflightKey, activityKeyKind, isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
 import { keyOf as preflightKeyOf, latestPreflight, preflightActivity, preflightSettled, readPreflightReport, setPreflightDue, unfinishedPreflight, PREFLIGHT_CHECK, PREFLIGHT_LIVE_REASON, PREFLIGHT_PAUSE_REASON, PREFLIGHT_SKILL, PREFLIGHT_STOP_REASON, PREFLIGHT_TITLE, type PreflightActivity, type PreflightReport, type PreflightTrigger } from "./preflight.js";
 import { appendLoop, closedKinds, closingAudits, limitFloor, LOOP_STOP_LINE, loopSettings, REMOVED_LOOP_COMMAND, startedLedger, validLimit, type AuditLoopSettings } from "../state/audit-loops.js";
 import { nextStepsForecast } from "./next-steps.js";
@@ -76,9 +76,12 @@ import { CODEX_NATIVE_CLEANUP_WARNING } from "../session/codex-background-termin
 import { sleepInterruption } from "../session/run-verdict.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
-import { latestSol } from "../agents/codex-metadata.js";
-import { AGENT_NAMES, assertAgent, type AgentSettings, type Effort } from "../state/records.js";
-import { selectedChoice } from "../state/records.js";
+import { AGENT_NAMES, type AgentId, type AgentSettings, type RecordedPlanPhase } from "../state/records.js";
+import { modelDefaultsPath, type ModelChoice } from "../models/model-defaults.js";
+import { activityFallback, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
+import { firstResponseInSavedEvents } from "../models/start-line.js";
+import type { ActivityChoice } from "../models/resolver.js";
+import { executableAvailable } from "../platform/helper-process.js";
 // The engine: works out where a feature stands, picks the next phase, runs its session, runs
 // the done check, and owns Kiln's record (technical design, "Workload Type and Starting Point",
 // "Where a Feature Stands", engine loop). The server and view reach it only through its
@@ -86,11 +89,11 @@ import { selectedChoice } from "../state/records.js";
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { delimiter, isAbsolute, join, relative, sep } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
+import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
-import { autoModeError, effortLevelsFor, type ModelEntry } from "../account/model-list.js";
+import type { ModelEntry } from "../account/model-list.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import { leavesOf, namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
@@ -100,7 +103,6 @@ import { platformSleepReader, type SleepReader } from "../platform/sleep-reading
 import {
   sessionFiles,
   launchArguments,
-  modelNameFromId,
   eventsOfRun,
   readOutputLines,
   resumeArguments,
@@ -282,6 +284,8 @@ export interface EngineOptions {
   exitGraceMs?: number;
   /** The account and the model list, which arrive after startup (technical design, "Startup order"). */
   claude?: ClaudeInfoSource;
+  /** Model defaults' file (Kiln Phase Model Tiers, "Storage"): `<state root>/model-defaults.json` unless a test gives one. */
+  modelDefaultsPath?: string;
   /** The plan the start checks read in the checkout, recorded when Start is pressed (not started only). */
   startPlan?: PhasePlan;
   /** The named repositories the start checks found beside the PRD's repository (not started only). */
@@ -562,12 +566,14 @@ export class Engine {
     const migratingActivities = !this.record.activities;
     activityHistory(this.record, options.stateDirectory);
     if (migratingActivities && this.record.startedAt) writePrdRecord(options.stateDirectory, this.record);
-    this.agents = new AgentInfo({ agentId: this.record.settings.agentId, generation: this.record.settings.selectionGeneration ?? 0, ...(options.claude ? { claude: options.claude } : {}), executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env });
+    this.defaultsPath = options.modelDefaultsPath ?? modelDefaultsPath(options.env);
+    this.claudeCodeInstalled = executableAvailable(options.tools.claude, options.env);
+    this.agents = new AgentInfo({ agentId: this.runAgentFor(undefined), ...(options.claude ? { claude: options.claude } : {}), executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env });
     this.offClaude = this.agents.onChange(() => this.modelsChanged());
     this.record.executionId ??= randomUUID();
     this.record.billing ??= newBillingState(this.record.executionId);
     this.billing = new BillingAuthority({
-      state: () => this.record.billing!, generation: () => this.record.settings.selectionGeneration ?? 0,
+      state: () => this.record.billing!, generation: () => this.agents.state.generation,
       save: () => this.save(), changed: () => this.changed(), busy: () => this.billingBusy(),
       cancelled: () => this.abort.signal.aborted || this.closed, readiness: () => this.billingResumesConversation ? this.agents.state.blockers.length === 0 : !this.selectionError,
       completed: () => this.currentlyComplete, now: () => this.now().toISOString(),
@@ -602,6 +608,7 @@ export class Engine {
     this.save();
     if (this.record.liveControl) this.watchTakeover();
     this.agents.start();
+    this.watchModelDefaults();
     void this.refreshBilling().catch(() => this.changed());
   }
 
@@ -1533,16 +1540,203 @@ export class Engine {
   }
   private billingBusy(): boolean { return !!(this.settingUp || this.checking || this.driving || this.current?.processRunning || this.deliveryBusy || this.stopping); }
   refreshBilling(): Promise<unknown> {
-    if (this.record.settings.agentId !== "claude_code" || this.currentlyComplete) return Promise.resolve();
+    if (this.agents.state.agentId !== "claude_code" || this.currentlyComplete) return Promise.resolve();
     return this.billing.refresh(this.billingCwd, this.sessionEnv());
   }
   async billingCommand(action: "approval" | "clear", body: Record<string, unknown>) {
-    if (this.record.settings.agentId !== "claude_code") throw new BillingError("invalid_request", "Codex has no API billing approval.", 400);
+    if (this.agents.state.agentId !== "claude_code") throw new BillingError("invalid_request", "Codex has no API billing approval.", 400);
     try { return await this.billing.command(action, body, this.billingCwd, this.sessionEnv()); }
     finally { this.changed(); }
   }
 
-  choiceNotice: string | undefined;
+  private readonly defaultsPath: string;
+  /** Whether Claude Code is installed, read when Kiln starts and at each refresh (Kiln Phase Model Tiers, "Agents"). */
+  claudeCodeInstalled: boolean;
+
+  /** What every activity's choice is resolved against now (Kiln Phase Model Tiers, "Resolving a Choice"). */
+  get modelContext(): ModelContext {
+    const metadata = this.agents?.state;
+    return {
+      record: this.record, plan: this.shownPlan, defaultsPath: this.defaultsPath, claudeCodeInstalled: this.claudeCodeInstalled,
+      lists: metadata ? { [metadata.agentId]: { models: metadata.models, error: metadata.modelListError, pending: metadata.pending && !metadata.models } } : {},
+      session: (key, id) => this.sessionRecord(key, id),
+      firstResponse: (key, id) => this.sessionFirstResponse(key, id),
+    };
+  }
+
+  /** The plan the rows show: the recorded plan once Start saved it, before that the one Documents found shows. */
+  get shownPlan(): RecordedPlanPhase[] {
+    if (this.record.plan) return this.record.plan;
+    const plan = this.startPreview?.from === "existing" ? this.startPreview.plan : this.options?.startPlan;
+    return plan ? recordedPlan(plan) : [];
+  }
+
+  /** A phase's tag (AC-TIER-02). */
+  tierOf(phaseId: string): TierView { return tierView(this.shownPlan.find(phase => phase.id === phaseId)); }
+
+  /** The choice an activity with no start runs on now (AC-PICK-01, AC-OTHER-01, AC-DEFAULT-04). */
+  notStartedChoice(key: string): ActivityChoice { return notStartedChoice(this.modelContext, key); }
+
+  /** The activity's fallback, when its row has one on the other agent (AC-FALLBACK-02). */
+  fallbackOf(key: string): ReturnType<typeof activityFallback> { return activityFallback(this.modelContext, key, this.notStartedChoice(key)); }
+
+  /** A row's model (AC-PICK-02): what it will run on, runs on or ran on. */
+  activityModel(key: string, state: { finished: boolean; liveSession?: SessionRecord | undefined }): ModelView { return modelView(this.modelContext, key, state); }
+
+  /**
+   * A phase finished in an earlier execution (Kiln Phase Model Tiers, "A phase finished in an
+   * earlier execution"): Ran on with the latest of its sessions in the retained executions that got
+   * a response, else No model recorded, with the read's reason when an archive can't be read.
+   * Each retained execution is read once per process and kept in memory; archives never change.
+   */
+  earlierExecutionModel(phaseId: string): ModelView {
+    const executions = this.record.continuation?.executions ?? [];
+    const key = executions.map(row => row.executionId).join(",");
+    if (this.earlierModels?.key !== key) {
+      const models = new Map<string, ModelView>();
+      let unreadable = false;
+      for (const summary of executions) {
+        let archived: PrdRecord;
+        try { archived = readExecution(this.stateDirectory, summary).record; } catch { unreadable = true; continue; }
+        const plan = archived.plan ?? [];
+        for (const phase of plan) {
+          if (phase.splitInto !== undefined) continue;
+          const entries = Object.entries(archived.phases).filter(([launched]) => judgedPhase(plan, launched)?.id === phase.id);
+          // An earlier execution's sessions are read from its state directly: inspection's reader admits only this execution's.
+          const sessions = entries.flatMap(([launched, facts]) => facts.sessionIds.map(id => { try { return readSessionRecord(this.stateDirectory, launched, id); } catch { return undefined; } })).filter((one): one is SessionRecord => !!one);
+          for (const one of sessions) { const at = one.firstResponseAt ?? firstResponseInSavedEvents(this.stateDirectory, one); if (at) one.firstResponseAt = at; }
+          const ran = sessions.filter(one => one.firstResponseAt).sort((a, b) => (a.runs.at(-1)?.startedAt ?? a.createdAt).localeCompare(b.runs.at(-1)?.startedAt ?? b.createdAt)).at(-1);
+          // A later execution's sessions decide over an earlier one's.
+          if (ran) models.set(phase.id, { state: "ran_on", choice: sessionChoice(ran) });
+          else if (!models.has(phase.id)) models.set(phase.id, { state: "none_recorded" });
+        }
+      }
+      this.earlierModels = { key, models, unreadable };
+    }
+    return this.earlierModels.models.get(phaseId) ?? { state: "none_recorded", ...(this.earlierModels.unreadable ? { problem: "Historical execution is unavailable or damaged." } : {}) };
+  }
+  private earlierModels: { key: string; models: Map<string, ModelView>; unreadable: boolean } | undefined;
+
+  /** The session that started the activity, once one got a response (AC-PICK-04). */
+  startedSessionOf(key: string): SessionRecord | undefined { return startedSession(this.modelContext, key); }
+
+  /**
+   * The keys of every activity not yet finished that Kiln will run: each leaf phase not closed,
+   * then the audits' choice, standing for the preflight, the audits and the pull request session
+   * until the run completes.
+   */
+  private unfinishedChoiceKeys(): string[] {
+    const plan = this.shownPlan;
+    const keys = plan.filter(phase => phase.splitInto === undefined && !phaseFinished(this.record, phase, phase.id)).map(phase => phase.id);
+    if (!this.record.completedAt) keys.push(PR_PHASE_KEY);
+    return keys;
+  }
+
+  /** The agent an activity runs on: what it started on, else its current choice's. */
+  agentOf(key: string): AgentId {
+    return this.startedSessionOf(key)?.agentId ?? this.notStartedChoice(key).agentId;
+  }
+
+  /** The agent of the Audits choice, which the preflight, the audits and the pull request session run on (AC-OTHER-01); their skills are looked up for it. */
+  get auditsAgent(): AgentId { return this.notStartedChoice(PR_PHASE_KEY).agentId; }
+
+  /**
+   * What an activity's next session launches on (AC-PICK-01, AC-PICK-04): a started activity's
+   * every later session runs on what it started on, Claude Code's concrete model ID from that
+   * session's init included, so no newer version runs in its place; otherwise its current choice.
+   */
+  launchChoice(key: string): ModelChoice & { modelName: string } {
+    const started = this.startedSessionOf(key);
+    if (started) {
+      const agentId = started.agentId ?? "claude_code";
+      return { agentId, model: agentId === "claude_code" ? started.initModel ?? started.model : started.model, modelName: started.modelDisplayName, ...(started.effort ? { effort: started.effort } : {}) };
+    }
+    const choice = this.notStartedChoice(key);
+    if (!choice.model || choice.problem) throw new Error(choiceStopFact(choice, key));
+    return { agentId: choice.agentId, model: choice.model, modelName: choice.modelName, ...(choice.effort ? { effort: choice.effort } : {}) };
+  }
+
+  /** Every agent an activity not yet finished will run on (Kiln Phase Model Tiers AC-AGENTS-01, before Phase 2's readers). */
+  neededAgents(): AgentId[] {
+    return [...new Set(this.unfinishedChoiceKeys().map(key => this.agentOf(key)))];
+  }
+
+  /**
+   * The one agent this run reads (until each agent has its own reader): the agent its activities
+   * resolve to, or, while they resolve to two, the agent of the activity Kiln launches next.
+   */
+  private runAgentFor(next: string | undefined): AgentId {
+    const needed = this.neededAgents();
+    if (needed.length === 1) return needed[0]!;
+    const key = next ?? this.current?.phaseKey ?? this.unfinishedChoiceKeys()[0];
+    return key === undefined ? (this.claudeCodeInstalled ? "claude_code" : "codex") : this.agentOf(key);
+  }
+
+  /** Points the reader at the agent the run's next activity needs, reading it afresh when that changed. */
+  private syncRunAgent(next?: string): boolean {
+    if (!this.agents || this.syncingAgent) return false;
+    this.syncingAgent = true;
+    try {
+      const agent = this.runAgentFor(next);
+      if (agent === this.agents.state.agentId) return false;
+      this.agents.select(agent);
+      this.billing?.invalidate();
+      void this.refreshBilling().catch(() => this.changed());
+      return true;
+    } finally { this.syncingAgent = false; }
+  }
+  private syncingAgent = false;
+  private defaultsWatch: FSWatcher | undefined;
+
+  /**
+   * Model defaults reach every activity that hasn't started, in runs underway too: each Kiln
+   * watches the state root for the file's name, since an atomic write replaces the file, and
+   * republishes its page (Kiln Phase Model Tiers, "Model defaults across running Kilns").
+   */
+  private watchModelDefaults(): void {
+    try {
+      mkdirSync(dirname(this.defaultsPath), { recursive: true });
+      this.defaultsWatch = watch(dirname(this.defaultsPath), (_event, name) => {
+        if (this.closed || name !== basename(this.defaultsPath)) return;
+        this.modelChoicesChanged();
+      });
+      this.defaultsWatch.on("error", () => { this.defaultsWatch?.close(); this.defaultsWatch = undefined; });
+      this.defaultsWatch.unref();
+    } catch { this.defaultsWatch = undefined; }
+  }
+
+  /**
+   * Saves the activity's start once one of its sessions got its first response (Kiln Phase Model
+   * Tiers, "When an Activity Starts"): the first of its sessions, in the order they were created,
+   * that has one. A saved start is only ever added.
+   */
+  private noteStart(key: string, session: SessionRecord): void {
+    const facts = this.record.phases[key];
+    if (!facts || facts.startedSessionId || !session.firstResponseAt) return;
+    facts.startedSessionId = facts.sessionIds.find(id => id === session.sessionId || this.sessionFirstResponse(key, id)) ?? session.sessionId;
+    this.save();
+  }
+
+  /**
+   * Model defaults or this PRD's model choices changed: the run reads the agent its activities
+   * now resolve to, and the page is republished (Kiln Phase Model Tiers AC-PICK-01).
+   */
+  modelChoicesChanged(): void {
+    this.syncRunAgent();
+    this.changed();
+  }
+
+  /** Why Start is unavailable for the models (AC-PICK-06, and two agents before Phase 2's readiness). */
+  get modelsProblem(): string | undefined {
+    const needed = this.neededAgents();
+    if (needed.length > 1) return `This plan's activities run on both Claude Code and Codex. Until Kiln checks both agents, choose models on one agent in Model defaults.`;
+    for (const key of this.unfinishedChoiceKeys()) {
+      if (this.startedSessionOf(key)) continue;
+      const choice = this.notStartedChoice(key);
+      if (choice.problem) return choiceStopFact(choice, key);
+    }
+    return undefined;
+  }
 
   get claude(): ClaudeInfoSource | undefined {
     return this.agents.claude;
@@ -1561,21 +1755,23 @@ export class Engine {
     return errors;
   }
 
-  get agentFixed(): boolean { return this.record.startedAt !== undefined || this.settingUp || this.record.repositories.some((entry) => entry.setupCompletedAt !== undefined || entry.createdBranch !== undefined); }
-  get selectionError(): string | undefined { return this.selectionIssue(); }
-  private selectionIssue(ignorePending = false): string | undefined {
-    return this.selectionIssueFor(selectedChoice(this.record.settings), ignorePending);
-  }
-  /** Model's field message for a model and effort: Documents found's for the saved choice, the setup panel's for its own (AC-SETUP-01). */
-  selectionIssueFor(choice: { model: string; effort?: string }, ignorePending = false): string | undefined {
+  /** Why nothing can launch now: the run's agent isn't ready, or the next activity's choice can't be used. */
+  get selectionError(): string | undefined { return this.selectionIssue(undefined); }
+  /**
+   * Why an activity can't launch on its choice (AC-PICK-06, "A choice that can't be used, known
+   * before launch"): the agent isn't ready, or, for an activity with no start, its choice names a
+   * model or effort its agent doesn't offer. A started activity skips the model-list and effort
+   * checks, like a resume (AC-PICK-04). With no key, the activity Kiln launches next.
+   */
+  private selectionIssue(key: string | undefined, ignorePending = false): string | undefined {
     const metadata = this.agents.state;
     if (metadata.pending && !ignorePending) return `Reading ${AGENT_NAMES[metadata.agentId]} models and readiness…`;
     if (metadata.blockers.length) return metadata.blockers.join(" ");
-    if (!metadata.models) return metadata.modelListError ?? "Model catalogue unavailable. Refresh before starting a new session.";
-    const entry = this.modelEntry(choice.model);
-    if (!entry) return `Choose an available ${AGENT_NAMES[metadata.agentId]} model. Saved choice: ${choice.model || "none"}.`;
-    if (entry.supportsEffort && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) return `Choose a supported effort for ${entry.displayName}. Saved effort: ${choice.effort || "none"}.`;
-    return metadata.agentId === "claude_code" ? autoModeError(entry) : undefined;
+    const target = key ?? this.current?.phaseKey ?? this.unfinishedChoiceKeys()[0];
+    if (target === undefined || this.startedSessionOf(target)) return undefined;
+    const choice = this.notStartedChoice(target);
+    if (choice.agentId !== metadata.agentId) return `${AGENT_NAMES[choice.agentId]} isn't checked for this run yet. Refresh agent information.`;
+    return choice.problem === undefined ? undefined : choiceStopFact(choice, target);
   }
   private modelsChanged(): void {
     if (this.observedClaude !== this.claude) {
@@ -1586,18 +1782,12 @@ export class Engine {
       });
     }
     const metadata = this.agents.state;
-    if (metadata.agentId === "codex" && !metadata.pending && metadata.models && !this.record.settings.agentChoices.codex) {
-      const model = latestSol(metadata.models);
-      this.record.settings.agentChoices.codex = model ? { model, effort: "high" } : { model: "" };
-      this.choiceNotice = model ? undefined : "Could not establish a unique latest GPT Sol with High effort. Choose model and effort explicitly.";
-      this.save();
-    }
     const reading = this.claude?.account;
     if (metadata.agentId === "codex" && !metadata.pending && metadata.account && metadata.account !== this.lastCodexReading) {
       this.lastCodexReading = metadata.account;
       this.codexReadingArrived(metadata.account);
     }
-    if (this.record.settings.agentId === "claude_code" && reading !== undefined && reading !== this.lastReading) {
+    if (metadata.agentId === "claude_code" && reading !== undefined && reading !== this.lastReading) {
       this.lastReading = reading;
       this.readingArrived(reading);
     }
@@ -1789,19 +1979,20 @@ export class Engine {
     // A page a reset built keeps Start unavailable while a start check fails (run restart AC-RESET-04).
     if (this.resetDocuments()?.checksFailed) return refuse("Fix what failed, then reload.");
     if (this.baseCheck === "checking") return refuse(`Kiln is checking ${record.settings.baseBranch || "the base branch"} on origin.`);
-    const modelError = this.currentFieldErrors.model;
-    if (modelError !== undefined) return { ok: false, status: 409, reason: modelError, fieldErrors: { model: modelError } };
+    // Every activity's choice must be usable, on one agent until Kiln checks both (AC-PICK-06; Phase 2 of Kiln Phase Model Tiers).
+    const modelsProblem = this.modelsProblem;
+    if (modelsProblem !== undefined) return refuse(modelsProblem);
 
     this.settingUp = true;
     this.startError = undefined;
     this.changed();
     let repositoryCount: number;
     try {
-      if (record.settings.agentId === "claude_code") {
+      if (this.agents.state.agentId === "claude_code") {
         try { await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true); }
         catch { return refuse("Start could not be saved: billing state could not be saved. No AI work was authorized."); }
         // A readiness blocker read at launch (an outdated Claude Code, AC-AGENT-05) is the reason, not billing.
-        if (!this.billing.view.canLaunch) return refuse(this.billing.view.next?.readinessError ?? this.selectionIssue(true) ?? "Review and approve the detected billing setup, or change its source and recheck.");
+        if (!this.billing.view.canLaunch) return refuse(this.billing.view.next?.readinessError ?? this.selectionIssue(undefined, true) ?? "Review and approve the detected billing setup, or change its source and recheck.");
       }
       const fields = await this.runFieldChecks();
       const preview = this.startPreview;
@@ -2563,7 +2754,7 @@ export class Engine {
 
   /** A billing restriction that would stop a launch, as the launch path's own check reads it (run restart AC-CARRY-03). */
   private launchRestriction(): string | undefined {
-    if (this.record.settings.agentId === "codex") return undefined;
+    if (this.agents.state.agentId === "codex") return undefined;
     const view = this.billing.view;
     if (!view.next || view.canLaunch) return undefined;
     return view.next.readinessError ?? "Billing restrictions would stop a launch. Review and approve this billing setup, or change its source and recheck.";
@@ -2771,6 +2962,8 @@ export class Engine {
     this.resetStart = checks;
     if (checks.prdTree === undefined) delete this.options.prdTree; else this.options.prdTree = checks.prdTree;
     if (checks.report.plan === undefined) delete this.options.startPlan; else this.options.startPlan = checks.report.plan;
+    // A tier line read again can move the plan to the other agent (Kiln Phase Model Tiers AC-TIER-01, AC-PICK-01).
+    this.syncRunAgent();
     this.options.namedRepositories = checks.report.repositories;
     if (checks.report.plan) this.plan = checks.report.plan;
     this.changed();
@@ -2800,10 +2993,6 @@ export class Engine {
   }
 
   /**
-   * Changes settings: model, effort and keep-awake at any time, applying to sessions started
-   * after it (AC-VIEW-08); the worktree and branches only before Start (AC-START-06).
-   */
-  /**
    * The field errors for the two limits (AC-CHOICE-02): a whole number of 1 or more, never below the
    * runs of that audit already made in this execution, the one under way included (the floor).
    */
@@ -2819,6 +3008,11 @@ export class Engine {
     return fieldErrors;
   }
 
+  /**
+   * Changes settings: keep-awake and the loop limits at any time (AC-VIEW-08); the worktree and
+   * branches only before Start (AC-START-06). Models are chosen for each activity, not here
+   * (Kiln Phase Model Tiers AC-KEEP-01).
+   */
   async changeSettings(change: Partial<Settings>, loops?: Partial<AuditLoopSettings>): Promise<CommandResult> {
     let pendingLoops: AuditLoopSettings | undefined;
     if (this.settingUp) return refuse("Kiln is preparing the accepted workspace. Wait before changing settings.");
@@ -2860,51 +3054,12 @@ export class Engine {
     };
     const fixedBases = [...(change.baseBranch !== undefined ? [this.paths.repositoryName] : []), ...Object.keys(change.bases ?? {})].filter(fixedBase);
     if (fixedBases.length > 0) return refuse(`The base of ${fixedBases.join(" and ")} is fixed: Kiln already made its branch.`);
-    if (change.agentId !== undefined) {
-      try { assertAgent(change.agentId); } catch { return { ok: false, status: 400, reason: "Unknown agent." }; }
-    }
-    const hasPair = change.model !== undefined || change.effort !== undefined;
-    if (hasPair && (change.agentId !== this.record.settings.agentId || change.selectionGeneration !== this.agents.state.generation)) return refuse("The selected agent changed. Use the current model editor.");
-    if (change.agentId !== undefined && change.agentId !== this.record.settings.agentId) {
-      if (this.agentFixed) return refuse("The agent is fixed after Start or repository setup.");
-      this.record.settings.agentId = change.agentId;
-      this.record.settings.selectionGeneration = this.agents.state.generation + 1;
-      this.choiceNotice = undefined;
-      this.save();
-      this.agents.select(change.agentId);
-      this.billing.invalidate();
-      void this.refreshBilling().catch(() => this.changed());
-    }
-    if (hasPair) {
-      if (this.agents.state.pending || !this.agents.state.models) return refuse("Wait for a current model catalogue before changing choices.");
-      const saved = selectedChoice(this.record.settings);
-      const choice = { ...saved };
-      if (change.model !== undefined) {
-        if (!change.model.trim()) return { ok: false, status: 400, reason: "Choose a model." };
-        choice.model = change.model;
-      }
-      const entry = this.modelEntry(choice.model);
-      if (!entry) return { ok: false, status: 422, reason: "This model is not selectable.", fieldErrors: { model: "Choose a model from the current catalogue." } };
-      if (change.effort !== undefined) {
-        if (!change.effort.trim()) return { ok: false, status: 400, reason: "Effort must be nonempty." };
-        if (!entry.supportedEffortLevels.includes(change.effort)) return { ok: false, status: 422, reason: "Unsupported effort.", fieldErrors: { model: "Choose a supported effort." } };
-        choice.effort = change.effort;
-      } else if (!entry.supportsEffort) {
-        delete choice.effort;
-      } else if (change.model !== undefined && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) {
-        if (entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort)) {
-          choice.effort = entry.defaultEffort;
-          this.choiceNotice = `Effort changed to ${choice.effort} for ${entry.displayName}.`;
-        } else { delete choice.effort; this.choiceNotice = `Choose an effort for ${entry.displayName}; no supported default was reported.`; }
-      }
-      this.record.settings.agentChoices[this.record.settings.agentId] = choice;
-    }
     // Paths are stored absolute (technical design, "Paths shown"); a leading ~ is expanded.
     if (change.worktreePath !== undefined) change = { ...change, worktreePath: expandHome(change.worktreePath) };
     if (change.workspaceFolder !== undefined) change = { ...change, workspaceFolder: expandHome(change.workspaceFolder) };
     if (change.bases !== undefined) change = { ...change, bases: { ...this.record.settings.bases, ...change.bases } };
     for (const [field, value] of Object.entries(change)) {
-      if (value !== undefined && !["model", "effort", "agentId", "selectionGeneration"].includes(field)) (this.record.settings as unknown as Record<string, unknown>)[field] = value;
+      if (value !== undefined && field !== "modelChoices") (this.record.settings as unknown as Record<string, unknown>)[field] = value;
     }
 
     // A feature branch chosen or typed keeps the starting point it was chosen under (run restart "The starting point").
@@ -3346,6 +3501,7 @@ export class Engine {
   close(): void {
     this.closed = true;
     this.abort.abort();
+    this.defaultsWatch?.close();
     if (this.takeoverTimer) clearInterval(this.takeoverTimer);
     if (this.recoveredTimer) clearInterval(this.recoveredTimer);
     this.offClaude?.();
@@ -4054,7 +4210,7 @@ export class Engine {
   /** The merge session's first message, for the pull requests the press opened it for (AC-MERGE-03). */
   mergePrompt(folder: string): string {
     const pulls = this.mergePullRequests(this.record.afterDelivery?.merge?.pullRequests);
-    return mergeSessionPrompt({ featureName: this.paths.featureName, prdFile: this.pathFrom(folder, this.prdFile()), agent: AGENT_NAMES[this.record.settings.agentId], pullRequests: pulls });
+    return mergeSessionPrompt({ featureName: this.paths.featureName, prdFile: this.pathFrom(folder, this.prdFile()), agent: AGENT_NAMES[this.agentOf(MERGE_KEY)], pullRequests: pulls });
   }
 
   /** The merge or push session ended (technical design, "Ending"): its reading decides, never its word. */
@@ -4262,7 +4418,7 @@ export class Engine {
         catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
       };
       const delivery = await this.deliveryDecision(options.press === true, signal);
-      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, delivery, observeInput });
+      return discoverCompletedPlan({ agentId: this.agents.state.agentId, codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, delivery, observeInput });
     }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
@@ -4427,13 +4583,6 @@ export class Engine {
     return await isProcessLive(run.pid, run.processStartTime) ? latest.session : undefined;
   }
 
-  /** The setup panel's model and effort, checked as Documents found checks the saved ones; read at each snapshot too, so a catalogue change shows at once (AC-SETUP-01). */
-  folderModelCheck(choice: { model: string; effort?: string }): { error?: string; effortLevels: Effort[] | null; efforts?: { value: string; label: string; description?: string }[] } {
-    const entry = this.modelEntry(choice.model);
-    const error = this.selectionIssueFor(choice);
-    return { ...(error ? { error } : {}), effortLevels: effortLevelsFor(entry), ...(entry?.efforts ? { efforts: entry.efforts } : {}) };
-  }
-
   /** Why Start is refused as busy right now, for the line under the button; read at each snapshot, so it clears when the session ends (AC-SAFE-01). */
   folderBusy(): string | undefined {
     if (!(this.current?.processRunning || this.driving)) return undefined;
@@ -4473,7 +4622,7 @@ export class Engine {
     return {
       git: this.git, record: this.record, view, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, prdFolder: this.paths.folderName,
       completedByRun, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
-      model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id),
+      mergeAgent: AGENT_NAMES[this.agentOf(MERGE_KEY)], judgedId: id => this.judgedId(id),
       ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
       ...(leftOver?.runs.at(-1)?.pid !== undefined ? { stopsLeftOver: leftOver.runs.at(-1)!.pid! } : {}), ...(busy ? { busy } : {}),
       originIdentity: async path => { const origin = parseGithubOrigin((await runGit(this.git, path, ["config", "--get", "remote.origin.url"])).stdout); return origin ? `${origin.owner}/${origin.name}` : undefined; },
@@ -4487,10 +4636,10 @@ export class Engine {
     const context = await this.folderPanelContext(view);
     if (!this.folderDraftSeeded && context.intent) {
       // The draft starts from a failed start's kind, names and settings, including after a restart.
-      const intent = context.intent; const choice = intent.settings.agentChoices[intent.settings.agentId];
+      const intent = context.intent;
       const prd = intent.repositories.find(row => row.kind === "prd") ?? intent.repositories[0];
       this.folderDraft.selected = intent.kind;
-      this.folderDraft.edits[intent.kind] = { ...(intent.kind === "base" ? { featureBranch: intent.settings.featureBranch, workspaceFolder: intent.settings.workspaceFolder, baseBranch: intent.settings.baseBranch, bases: intent.settings.bases } : {}), ...(prd && intent.repositories.length === 1 ? { worktreePath: prd.worktreePath } : {}), ...(choice ? { model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) } : {}), keepAwake: intent.settings.keepAwake, resumeAfterUsageLimit: intent.settings.resumeAfterUsageLimit };
+      this.folderDraft.edits[intent.kind] = { ...(intent.kind === "base" ? { featureBranch: intent.settings.featureBranch, workspaceFolder: intent.settings.workspaceFolder, baseBranch: intent.settings.baseBranch, bases: intent.settings.bases } : {}), ...(prd && intent.repositories.length === 1 ? { worktreePath: prd.worktreePath } : {}), keepAwake: intent.settings.keepAwake, resumeAfterUsageLimit: intent.settings.resumeAfterUsageLimit };
     }
     this.folderDraftSeeded = true;
     // A Start that failed, or stopped with Kiln, says what it did and what remains, from its durable intent, including after a restart (AC-SAFE-01).
@@ -4508,48 +4657,29 @@ export class Engine {
     this.changed();
   }
 
-  private applyFolderDraft(start: StartKind, fields: Partial<PanelFields>, notice?: string): void {
+  private applyFolderDraft(start: StartKind, fields: Partial<PanelFields>): void {
     this.folderDraft.selected = start;
     // Rising across restarts too, so the page can tell a panel built from its latest edit (AC-SETUP-01, AC-SETUP-03).
     this.folderDraft.revision = Math.max((this.folderDraft.revision ?? 0) + 1, this.now().getTime());
-    // The notice stays until the next model or effort change in the panel.
-    if (notice) this.folderDraft.choiceNotice = notice;
-    else if (fields.model !== undefined || fields.effort !== undefined) delete this.folderDraft.choiceNotice;
     for (const [key, value] of Object.entries(fields) as [keyof PanelFields, PanelFields[keyof PanelFields]][]) {
-      if (["model", "effort", "keepAwake", "resumeAfterUsageLimit"].includes(key)) { (this.folderDraft.edits.base as Record<string, unknown>)[key] = value; (this.folderDraft.edits.branch as Record<string, unknown>)[key] = value; }
+      if (["keepAwake", "resumeAfterUsageLimit"].includes(key)) { (this.folderDraft.edits.base as Record<string, unknown>)[key] = value; (this.folderDraft.edits.branch as Record<string, unknown>)[key] = value; }
       else if (key === "bases") this.folderDraft.edits[start].bases = { ...this.folderDraft.edits[start].bases, ...(value as Record<string, string>) };
       else (this.folderDraft.edits[start] as Record<string, unknown>)[key] = value;
     }
   }
 
   /** Reads a posted draft change; undefined with the reason when it is malformed or changes a fixed field. */
-  private folderChange(body: Record<string, unknown>): { start: StartKind; fields: Partial<PanelFields>; notice?: string } | { reason: string } {
+  private folderChange(body: Record<string, unknown>): { start: StartKind; fields: Partial<PanelFields> } | { reason: string } {
     const start = body.start;
     if (start !== "base" && start !== "branch") return { reason: "Choose a starting point." };
     const raw = body.fields;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { reason: "Send the panel's fields." };
     const fields: Partial<PanelFields> = {};
     for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (["worktreePath", "workspaceFolder", "featureBranch", "baseBranch", "model", "effort"].includes(key) && typeof value === "string") (fields as Record<string, unknown>)[key] = value;
+      if (["worktreePath", "workspaceFolder", "featureBranch", "baseBranch"].includes(key) && typeof value === "string") (fields as Record<string, unknown>)[key] = value;
       else if (["keepAwake", "resumeAfterUsageLimit"].includes(key) && typeof value === "boolean") (fields as Record<string, unknown>)[key] = value;
       else if (key === "bases" && value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(base => typeof base === "string")) fields.bases = value as Record<string, string>;
       else return { reason: `Unknown or malformed field ${key}.` };
-    }
-    if (fields.model !== undefined && !this.modelEntry(fields.model)) return { reason: "Choose a listed model." };
-    // Effort follows the model chosen in the panel, as on Documents found (AC-SETUP-01).
-    const saved = selectedChoice(this.record.settings);
-    const model = fields.model ?? this.folderDraft.edits[start].model ?? saved.model;
-    const entry = this.modelEntry(model);
-    if (fields.effort !== undefined && fields.effort !== "" && entry && !entry.supportedEffortLevels.includes(fields.effort)) return { reason: `${entry.displayName} doesn’t take that effort. Choose a supported effort.` };
-    // A reset effort is said in Documents found's words (AC-SETUP-01).
-    let notice: string | undefined;
-    if (fields.model !== undefined && fields.effort === undefined && entry) {
-      const effort = this.folderDraft.edits[start].effort ?? saved.effort ?? "";
-      if (!entry.supportsEffort) fields.effort = "";
-      else if (!entry.supportedEffortLevels.includes(effort)) {
-        if (entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort)) { fields.effort = entry.defaultEffort; notice = `Effort changed to ${entry.defaultEffort} for ${entry.displayName}.`; }
-        else { fields.effort = ""; notice = `Choose an effort for ${entry.displayName}; no supported default was reported.`; }
-      }
     }
     // Starting from the existing branch fixes the branch, each repository's base and, for several repositories, the workspace folder.
     if (start === "branch") {
@@ -4557,7 +4687,7 @@ export class Engine {
       const changed = (fields.featureBranch !== undefined && fields.featureBranch !== saved.featureBranch) || (fields.baseBranch !== undefined && fields.baseBranch !== this.setUpRepositories[0]?.baseBranch) || (fields.bases !== undefined && Object.entries(fields.bases).some(([name, base]) => this.setUpRepositories.find(entry => entry.name === name)?.baseBranch !== base)) || (this.multiRepository && fields.workspaceFolder !== undefined && expandHome(fields.workspaceFolder) !== expandHome(saved.workspaceFolder));
       if (changed) return { reason: "That field is fixed when starting from the run’s existing branch." };
     }
-    return { start, fields, ...(notice ? { notice } : {}) };
+    return { start, fields };
   }
 
   /** `POST /api/folder-setup/panel`: one draft change, checked and previewed, published by SSE. */
@@ -4565,7 +4695,7 @@ export class Engine {
     if (!this.folderMissing) return { ok: false, status: 409, code: "wrong_activity", reason: "The run’s folders are in place; there is nothing to set up again." };
     const change = this.folderChange(body);
     if ("reason" in change) return { ok: false, status: 400, code: "invalid_input", reason: change.reason };
-    this.applyFolderDraft(change.start, change.fields, change.notice);
+    this.applyFolderDraft(change.start, change.fields);
     await this.refreshFolderPanel();
     return { ok: true, panel: this.folderPanel };
   }
@@ -4595,7 +4725,7 @@ export class Engine {
     const change = this.folderChange({ start: inputs.start, fields: inputs.fields });
     if ("reason" in change) return { ok: false, code: "invalid_input", reason: change.reason, status: 400 };
     // Start acts on the panel the engine last showed: a starting point it names that differs from the draft's is a changed page, not an edit (AC-SETUP-03).
-    if (Object.keys(change.fields).length) this.applyFolderDraft(change.start, change.fields, change.notice);
+    if (Object.keys(change.fields).length) this.applyFolderDraft(change.start, change.fields);
     const kind = change.start;
 
     // Start rechecks the facts and the plan it showed before acting (AC-SAFE-01).
@@ -4677,7 +4807,6 @@ export class Engine {
   private folderSettings(fields: PanelFields): AgentSettings {
     const settings = structuredClone(this.record.settings);
     Object.assign(settings, { workspaceFolder: fields.workspaceFolder, worktreePath: expandHome(fields.worktreePath), featureBranch: fields.featureBranch, baseBranch: fields.baseBranch, bases: fields.bases, keepAwake: fields.keepAwake, resumeAfterUsageLimit: fields.resumeAfterUsageLimit });
-    settings.agentChoices = { ...settings.agentChoices, [settings.agentId]: { model: fields.model, ...(fields.effort ? { effort: fields.effort } : {}) } };
     return settings;
   }
 
@@ -4767,8 +4896,8 @@ export class Engine {
         entry.worktreePath = after; entry.setupCompletedAt = at;
       }
       const settings = intent.settings;
-      Object.assign(this.record.settings, { model: undefined }, { worktreePath: settings.worktreePath, workspaceFolder: settings.workspaceFolder, keepAwake: settings.keepAwake, resumeAfterUsageLimit: settings.resumeAfterUsageLimit, agentChoices: settings.agentChoices });
-      delete (this.record.settings as unknown as Record<string, unknown>).model;
+      // A start from the panel keeps the PRD's model choices (Kiln Phase Model Tiers, "Changes to Earlier Designs").
+      Object.assign(this.record.settings, { worktreePath: settings.worktreePath, workspaceFolder: settings.workspaceFolder, keepAwake: settings.keepAwake, resumeAfterUsageLimit: settings.resumeAfterUsageLimit });
       // Start is the person's explicit go: it ends an active pause and a released takeover hold (AC-SAFE-03).
       // A Start that ends a pause runs a preflight first, in the same write (RUN-003).
       // The pause's request was consumed when it became active, so it goes with it, as Start's own clear does.
@@ -5228,19 +5357,22 @@ export class Engine {
    * activity on its key, or Kiln is stopping.
    */
   private async launchReadiness(nextKey: string): Promise<boolean> {
+    // The run reads the agent this activity runs on (Kiln Phase Model Tiers AC-AGENTS-04, before each agent has its own reader).
+    if (this.syncRunAgent(nextKey)) await this.agents.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
+    const agentId = this.agents.state.agentId;
     // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
-    if (this.record.settings.agentId === "codex") await this.agents.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
+    if (agentId === "codex") await this.agents.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
     else { void this.claude?.refreshAccount(); await this.agents.refreshClaudeModels(); }
     if (this.stopping) return false;
-    const selectionError = this.record.settings.agentId === "claude_code" ? this.selectionIssue(true) : this.selectionError;
+    const selectionError = this.selectionIssue(nextKey, agentId === "claude_code");
     if (selectionError) {
       this.current = undefined;
       this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [selectionError] }]);
       return false;
     }
-    if (this.record.settings.agentId === "codex") {
+    if (agentId === "codex") {
       if (!openPlanPush(this.record)) mkdirSync(this.workspaceFolder, { recursive: true });
-      try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: selectedChoice(this.record.settings) }); }
+      try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: this.launchChoice(nextKey) }); }
       catch (error) {
         if (this.stopping) return false;
         this.current = undefined;
@@ -5298,7 +5430,7 @@ export class Engine {
   preflightActivity(key: string): PreflightActivity | undefined { return preflightActivity(this.record, key); }
 
   private resolvePreflightSkill(): Promise<SkillResolution> {
-    return resolveSkill({ name: PREFLIGHT_SKILL, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+    return resolveSkill({ name: PREFLIGHT_SKILL, agent: this.auditsAgent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
   }
 
   /**
@@ -5660,6 +5792,17 @@ export class Engine {
    * Where the record cannot tell: the next of delivery audit, test audit, final delivery after the
    * last settled audit, with a closed kind's audit skipped as `auditNext` skips it (AC-LAST-03).
    */
+  /**
+   * The audit kinds the routing still expects after the last settled audit, in the order Kiln
+   * allocates them, for the planned rows (Kiln Phase Model Tiers, "Planned rows").
+   */
+  expectedAuditKinds(): ("delivery_audit" | "test_audit")[] {
+    const step = this.auditStepAfterSettled();
+    if (step === "final_delivery") return [];
+    if (step === "delivery_audit") return closedKinds(this.record).test ? ["delivery_audit"] : ["delivery_audit", "test_audit"];
+    return ["test_audit"];
+  }
+
   private auditStepAfterSettled(): "delivery_audit" | "test_audit" | "continue_test" | "final_delivery" {
     const closed = closedKinds(this.record);
     const activities = this.record.completionAudits?.activities ?? [];
@@ -5674,7 +5817,7 @@ export class Engine {
   }
 
   private async allocateAudit(kind: AuditKind, continuation = false, withoutSkill = false): Promise<AuditActivity> {
-    const skill = withoutSkill ? undefined : await resolveAuditSkill({ kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+    const skill = withoutSkill ? undefined : await resolveAuditSkill({ kind, agent: this.auditsAgent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
     this.activeCheck = "audit-allocation";
     const before = structuredClone(this.record);
     try {
@@ -5981,7 +6124,7 @@ export class Engine {
   }
 
   private preparationContext() {
-    return { record: this.record, stateDirectory: this.stateDirectory, git: this.git, env: this.options.env, signal: this.abort.signal, codex: this.options.tools.codex, sessionId: this.record.preparation && this.latestSession(this.record.preparation.phaseId)?.sessionId, transcriptPath: this.record.preparation ? findTranscripts(claudeConfigFolder(this.options.env), this.latestSession(this.record.preparation.phaseId)?.sessionId ?? "").main : undefined, authorizeCommands: () => this.authorizePreparationCommands(), save: () => { this.writeContinuationMetadata(() => this.save()); this.changed(); }, now: () => this.now().toISOString() };
+    return { agentId: this.record.preparation ? this.agentOf(this.record.preparation.phaseId) : this.agents.state.agentId, record: this.record, stateDirectory: this.stateDirectory, git: this.git, env: this.options.env, signal: this.abort.signal, codex: this.options.tools.codex, sessionId: this.record.preparation && this.latestSession(this.record.preparation.phaseId)?.sessionId, transcriptPath: this.record.preparation ? findTranscripts(claudeConfigFolder(this.options.env), this.latestSession(this.record.preparation.phaseId)?.sessionId ?? "").main : undefined, authorizeCommands: () => this.authorizePreparationCommands(), save: () => { this.writeContinuationMetadata(() => this.save()); this.changed(); }, now: () => this.now().toISOString() };
   }
 
   /** Adapter shutdown has drained the scanner; every retained owner must also exit. */
@@ -6121,23 +6264,28 @@ export class Engine {
     await this.additionChain;
     // Only the next launch reads the phase's last record, reusing it when it has no run (run restart "A session record with no run").
     let session = this.lastRecord(phaseKey);
+    // Each launch runs on its activity's own choice: what it started on, else its current one (Kiln Phase Model Tiers AC-PICK-01, AC-PICK-04).
+    const choice = this.launchChoice(phaseKey);
+    const { model, effort } = choice;
+    if (session && session.runs.length === 0 && (session.agentId !== choice.agentId || session.model !== model || session.effort !== effort)) {
+      // A record with no run takes the choice of the launch that reuses it.
+      session.agentId = choice.agentId; session.model = model; session.modelDisplayName = choice.modelName;
+      if (effort === undefined) delete session.effort; else session.effort = effort;
+      writeSessionRecord(this.options.stateDirectory, session);
+    }
     if (!session || session.runs.length > 0) {
-      const { model } = selectedChoice(this.record.settings);
-      const entry = this.modelEntry(model);
-      // A model that takes no effort gets no --effort, and its record says so (UI-011).
-      const effort = entry !== undefined && !entry.supportsEffort ? undefined : selectedChoice(this.record.settings).effort;
       session = {
         schemaVersion: SCHEMA_VERSION,
         executionId: this.record.executionId!,
         outputGeneration: randomUUID(),
-        agentId: this.record.settings.agentId,
+        agentId: choice.agentId,
         sessionId: randomUUID(),
         phaseId: audit ? "" : phaseKey,
         ...(audit ? { activityId: audit.activityId } : {}),
         kind,
         createdAt: this.now().toISOString(),
         model,
-        modelDisplayName: entry?.displayName ?? modelNameFromId(model),
+        modelDisplayName: choice.modelName,
         ...(effort === undefined ? {} : { effort }),
         workingDirectory: this.sessionFolder,
         runs: [],
@@ -6324,10 +6472,11 @@ export class Engine {
         const inspection = await this.billing.refresh(cwd, launchEnv, args, true);
         launchEnv = inspection.launchEnv;
         if (this.stopping) return;
-        const reason = inspection.readinessError ?? (cause === "launch" ? this.selectionIssue(true) : this.agents.state.blockers.length ? this.agents.state.blockers.join(" ") : undefined) ?? (inspection.summary.route === "metered" && !inspection.summary.approved ? "Review and approve this billing setup, or change its source and recheck." : undefined);
+        const reason = inspection.readinessError ?? (cause === "launch" ? this.selectionIssue(phaseKey, true) : this.agents.state.blockers.length ? this.agents.state.blockers.join(" ") : undefined) ?? (inspection.summary.route === "metered" && !inspection.summary.approved ? "Review and approve this billing setup, or change its source and recheck." : undefined);
         if (reason) { this.holdBilling(phaseKey, session, cause, inspection.summary, reason); return; }
         this.billingLaunch = structuredClone(inspection.summary);
-        this.record.billing!.lastLaunch = this.billingLaunch;
+        // Each agent's billing shows its own latest launch (Kiln Phase Model Tiers, "Billing state").
+        this.record.billing!.lastLaunch = { ...this.record.billing!.lastLaunch, [this.billingLaunch.agentId]: this.billingLaunch };
         delete this.record.billing!.hold;
         this.save();
       } catch (error) {
@@ -6487,7 +6636,7 @@ export class Engine {
       onPartial: (partial) => {
         for (const listener of this.partialListeners) listener(session.sessionId, partial);
       },
-      onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.changed(); },
+      onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.noteStart(phaseKey, session); this.changed(); },
     });
     } catch (error) {
       if (error instanceof TakeoverAlreadyComplete) { this.controlDispatch = undefined; }
@@ -6586,7 +6735,7 @@ export class Engine {
           if (started) this.save();
         },
         onBilling: summary => {
-          this.record.billing!.lastLaunch = structuredClone(summary);
+          this.record.billing!.lastLaunch = { ...this.record.billing!.lastLaunch, [summary.agentId]: structuredClone(summary) };
           this.save();
         },
         onSpawned: control => { this.control = control; },
@@ -6603,7 +6752,7 @@ export class Engine {
             save(reader.read({ method: "item/completed", params: { threadId, turnId: turn.id, item } }, at, typeof turn.startedAt === "number" ? "turn" : "recovery").lines);
           }
         },
-        onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.changed(); },
+        onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.noteStart(current.phaseKey, session); this.changed(); },
         beforeEnd: () => this.readSleep(false),
       });
     } catch (error) {
@@ -6891,7 +7040,7 @@ export class Engine {
       try {
         const kind = await auditNext(this.admissionContext());
         if (kind !== "final_delivery") {
-          await resolveAuditSkill({ kind: kind === "continue_test" ? "test_audit" : kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+          await resolveAuditSkill({ kind: kind === "continue_test" ? "test_audit" : kind, agent: this.auditsAgent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
           // What allocation needs beyond the skill: a continuation's predecessor and a work snapshot, read but never saved.
           if (kind === "continue_test" && !continuablePredecessor({ record: this.record, stateDirectory: this.stateDirectory })) throw new Error("A test continuation requires its settled accepted predecessor.");
           await captureSnapshot({ ...this.admissionContext(), activity: { activityId: "readiness-check", sequence: 0, kind: kind === "continue_test" ? "test_audit" : kind, round: 0, continuationIndex: 0, createdAt: this.now().toISOString(), sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-readiness-check.json`, snapshots: [], attempts: [] }, now: this.now().toISOString() });
@@ -6916,10 +7065,12 @@ export class Engine {
       return this.clearStop(phaseKey);
     }
     if (stop.kind === "selection") {
+      // Check again resolves the stopped activity's choice again (AC-PICK-06), on the agent it now names.
+      this.syncRunAgent(phaseKey);
       await this.agents.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
       if (this.stopping) return "still_stopped";
-      const issue = this.selectionError;
-      const probe = !issue && stop.checks.some(check => check.name === "Codex launch settings") ? await this.probeCodexLaunch() : undefined;
+      const issue = this.selectionIssue(phaseKey);
+      const probe = !issue && stop.checks.some(check => check.name === "Codex launch settings") ? await this.probeCodexLaunch(phaseKey) : undefined;
       if (issue || probe) {
         const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [issue] } : probe!;
         // An activity that has not run: its own completion rows beside the launch check (waivers "Check Runs").
@@ -7045,10 +7196,10 @@ export class Engine {
   }
 
   /** The Codex launch-settings probe a Codex launch settings stop reruns: its failing row, or undefined when it passes. */
-  private async probeCodexLaunch(): Promise<CheckResult | undefined> {
+  private async probeCodexLaunch(key: string): Promise<CheckResult | undefined> {
     if (!openPlanPush(this.record)) mkdirSync(this.workspaceFolder, { recursive: true });
     let prepared: Awaited<ReturnType<typeof prepareCodexLaunch>>;
-    try { prepared = await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: selectedChoice(this.record.settings) }); }
+    try { prepared = await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: this.launchChoice(key) }); }
     catch (error) { return { name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }; }
     // A probe that could not finish (Codex did not start, a deadline, an abort) is a check that could not finish.
     try {
@@ -7255,7 +7406,7 @@ export class Engine {
       const before = structuredClone(this.record);
       try {
         const accepted = effectiveAudit(this.stateDirectory, audit)!;
-        if (outcome.plan.ok) { this.record.plan = recordedPlan(outcome.plan.plan); this.record.planReadAt = this.now().toISOString(); }
+        if (outcome.plan.ok) { this.record.plan = recordedPlan(outcome.plan.plan); this.record.planReadAt = this.now().toISOString(); this.syncRunAgent(); }
         for (const phaseId of accepted.completionPhases()) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId });
         for (const entry of this.setUpRepositories) {
           const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
@@ -7502,7 +7653,7 @@ export class Engine {
       if (readable.length) return readable;
     } catch { /* Unreadable: the recorded plan is the order source. */ }
     const directory = join(this.worktreePath, ...this.paths.prdDirectoryFromRoot.split("/"));
-    return (this.record.plan ?? []).filter(phase => existsSync(join(directory, phase.file))).map(phase => ({ id: phase.id, fileName: phase.file, title: phase.title, closed: phase.closed, repositories: phase.repositories, ...(phase.attended === undefined ? {} : { attended: phase.attended }), ...(phase.earlyMerge === undefined ? {} : { earlyMerge: phase.earlyMerge }), splitInto: phase.splitInto, citedCriteria: [], dependenciesText: undefined }));
+    return (this.record.plan ?? []).filter(phase => existsSync(join(directory, phase.file))).map(phase => ({ id: phase.id, fileName: phase.file, title: phase.title, closed: phase.closed, repositories: phase.repositories, ...(phase.attended === undefined ? {} : { attended: phase.attended }), ...(phase.earlyMerge === undefined ? {} : { earlyMerge: phase.earlyMerge }), ...(phase.modelTier === undefined ? {} : { modelTier: phase.modelTier }), splitInto: phase.splitInto, citedCriteria: [], dependenciesText: undefined }));
   }
 
   /** The leaves a Closed-line item is judged against: the plan as read, else the order source. */
@@ -7868,7 +8019,7 @@ export class Engine {
 
   /** Asks for a reading; one already under way is joined. */
   private askReading(): void {
-    if (this.record.settings.agentId === "codex") void this.agents.refresh();
+    if (this.agents.state.agentId === "codex") void this.agents.refresh();
     else void this.claude?.refreshAccount();
   }
 
@@ -8736,7 +8887,7 @@ export class Engine {
    * What session selection needs of one session record, read one record at a time and kept until
    * the record's file changes, so selection never holds every record of a long phase at once.
    */
-  private sessionSummary(phaseKey: string, sessionId: string): { stamp: string; lastStartedAt?: string; runs: number; began: boolean } | undefined {
+  private sessionSummary(phaseKey: string, sessionId: string): { stamp: string; lastStartedAt?: string; runs: number; began: boolean; firstResponseAt?: string } | undefined {
     let stamp: string;
     try { const stat = statSync(join(this.stateDirectory, phaseKey, sessionId, "session.json")); stamp = `${stat.mtimeMs}:${stat.size}`; }
     catch { return undefined; }
@@ -8745,11 +8896,14 @@ export class Engine {
     if (cached?.stamp === stamp) return cached;
     const session = this.sessionRecord(phaseKey, sessionId);
     if (!session) return undefined;
-    const summary = { stamp, ...(session.runs.length ? { lastStartedAt: session.runs.at(-1)!.startedAt } : {}), runs: session.runs.length, began: sessionBegan(this.stateDirectory, session) };
+    const summary = { stamp, ...(session.runs.length ? { lastStartedAt: session.runs.at(-1)!.startedAt } : {}), runs: session.runs.length, began: sessionBegan(this.stateDirectory, session), ...(session.firstResponseAt ? { firstResponseAt: session.firstResponseAt } : {}) };
     this.sessionSummaries.set(key, summary);
     return summary;
   }
-  private readonly sessionSummaries = new Map<string, { stamp: string; lastStartedAt?: string; runs: number; began: boolean }>();
+  private readonly sessionSummaries = new Map<string, { stamp: string; lastStartedAt?: string; runs: number; began: boolean; firstResponseAt?: string }>();
+
+  /** A session's first model response, read once per change to its record (Kiln Phase Model Tiers, "When an Activity Starts"). */
+  sessionFirstResponse(phaseKey: string, sessionId: string): string | undefined { return this.sessionSummary(phaseKey, sessionId)?.firstResponseAt; }
 
   /**
    * The phase's latest launch: the session whose latest run started last. Everything about an
@@ -9007,6 +9161,7 @@ export class Engine {
       ...(added.length ? { handback: { source: baseline.active.path, addedPhaseIds: added, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length, acceptedAt: attemptedAt } } : earlier?.handback ? { handback: { ...earlier.handback, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length } } : {}) };
     this.plan = this.withCarriedFinished(baseline.active.plan);
     this.record.plan = recordedPlan(this.plan);
+    this.syncRunAgent();
     this.record.planReadAt = attemptedAt;
     try { this.save(); }
     catch (error) { this.commands.fault = "Accepted plan could not be durably saved. Restart Kiln to reconcile before advancing."; throw error; }
@@ -9057,6 +9212,25 @@ export class Engine {
     // The ● line doesn't mention an addition, so its line is printed while deciding too (AC-ADD-03).
     if (!this.quiet || event.kind === "repository_added" || event.kind === "plan_updated" || event.kind === "folder_missing") this.options.onTerminal?.(event);
   }
+}
+
+/** Model defaults' row names, as a stop names where a choice came from. */
+const ROW_NAMES = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits" } as const;
+
+/**
+ * A choice that can't be used, as its stop names it (AC-PICK-06): the choice, where it came from
+ * and where to change it, then why.
+ *
+ *   choiceStopFact(choice, "2")  // "Phase 2 runs on Claude Code · Fable · high from Model defaults (Demanding row): Claude Code doesn't offer Fable on this account. Change the Demanding row in Model defaults."
+ *   choiceStopFact(choice, "pr") // "The audits, preflight and pull request session run on Claude Code · Opus · high from Model defaults (Audits row): …"
+ */
+export function choiceStopFact(choice: ActivityChoice, key: string): string {
+  const who = key === PR_PHASE_KEY || !isPhaseKey(key) ? "The audits, preflight and pull request session" : `Phase ${key}`;
+  const named = [AGENT_NAMES[choice.agentId], choice.modelName, choice.effort].filter(Boolean).join(" · ");
+  const row = choice.row ? ROW_NAMES[choice.row] : undefined;
+  const from = choice.from === "changed" ? "a change for this PRD" : `Model defaults${row ? ` (${row} row)` : ""}`;
+  const where = choice.from === "changed" ? "Change it on its row in the phase plan." : `Change ${row ? `the ${row} row` : "it"} in Model defaults.`;
+  return `${who} ${who.startsWith("Phase") ? "runs" : "run"} on ${named || "a choice"} from ${from}: ${choice.problem} ${where}`;
 }
 
 function codexNotDispatched(run: SessionRun): boolean {

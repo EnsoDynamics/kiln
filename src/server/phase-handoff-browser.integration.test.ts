@@ -20,7 +20,7 @@ function fixture(agent: "Claude Code" | "Codex") {
   stop.resumePrompt = "Retired saved-conversation recovery instructions.";
   stop.resumeCommand = agent === "Codex" ? "cd '/saved worktree' && codex resume 'saved-thread'" : "cd '/saved worktree' && claude --resume 'saved-session'";
   snapshot.settings.agentId = stop.agentId;
-  snapshot.billing = { executionId: "fixture", selectionGeneration: 0, pending: false, canLaunch: true, lastLaunch: { agentId: stop.agentId, route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
+  snapshot.billing = { executionId: "fixture", pending: false, canLaunch: true, lastLaunch: { agentId: stop.agentId, route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
   return snapshot;
 }
 

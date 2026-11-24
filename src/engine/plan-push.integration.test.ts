@@ -10,7 +10,7 @@ import { createHarness, waitFor, type Harness, type ScenarioSession } from "../t
 import { git } from "../test-support/git-repositories.js";
 import { observePlan, retainBaseline } from "./plan-reconciliation.js";
 import { recordedPlan } from "./plan-reading.js";
-import { selectedChoice, writePrdRecord, type PrdRecord } from "../state/records.js";
+import { writePrdRecord, type PrdRecord } from "../state/records.js";
 import { recordedPullRequest } from "../test-support/recorded-pull-requests.js";
 import { buildSnapshot } from "./snapshot.js";
 import { statusProjection } from "../control/projection.js";
@@ -123,9 +123,10 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     await finished([pushing([{ sleepFor: 1_500 }]), building]);
     writeFileSync(join(h!.repository, "scratch.txt"), "uncommitted, not Kiln's\n");
     // The run's effort changed after the build: the push session takes the run's agent, model and effort as they are now (AC-MERGE-05).
-    const choice = selectedChoice(h!.engine.record.settings);
+    // It runs on the Audits choice (Kiln Phase Model Tiers AC-OTHER-01), changed here the way the page changes it.
+    const choice = h!.engine.launchChoice(planPushKey("not-yet-started"));
     const effort = h!.engine.modelEntry(choice.model)!.supportedEffortLevels.find(level => level !== choice.effort)!;
-    const changed = await h!.engine.changeSettings({ effort, agentId: h!.engine.record.settings.agentId, selectionGeneration: h!.engine.agents.state.generation } as Parameters<Engine["changeSettings"]>[0]); expect(changed, JSON.stringify(changed)).toMatchObject({ ok: true });
+    h!.engine.record.settings.modelChoices.audits = { agentId: choice.agentId, model: choice.model, effort }; h!.engine.modelChoicesChanged();
     const proposal = await offer();
     expect(proposal.commits).toEqual([{ sha: localHead(), subject: "docs(comet): add lending", onlyDocuments: true }]);
     const finishedExecution = h!.engine.record.executionId!;
@@ -483,7 +484,7 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     expect(page.afterDelivery!.planPush!.state).toBe("stopped");
     expect(afterDeliveryText(status().after_delivery, false)).toBe("Pushing the plan: the push session stopped before pushing the plan; it needs you.");
 
-    await h!.engine.billingCommand("approval", { executionId: h!.engine.record.executionId, selectionGeneration: h!.engine.record.settings.selectionGeneration ?? 0, readingId: h!.engine.billing.view.next!.readingId, approved: true });
+    await h!.engine.billingCommand("approval", { executionId: h!.engine.record.executionId, readingId: h!.engine.billing.view.next!.readingId, approved: true });
     await control("check-again");
     await waitFor(() => pushCalls().length === 1 && remoteHead() !== before, 30_000);
     expect(h!.engine.sessionRecord(key, h!.engine.historicalExecution(finishedExecution)!.record.phases[key]!.sessionIds[0]!)!.runs[0]!.billing).toMatchObject({ route: "metered", approved: true });

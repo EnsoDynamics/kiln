@@ -504,6 +504,8 @@ Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limi
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Display Contract (the pull request card carries the merge offer and note, the conflict mark, each pull request's state on GitHub, the merge session and the Merged card).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (Documents found's Agent, Model and Effort give way to the model lines and links, and phase rows gain the tier tag and model choice).
+
 Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Snapshot ("Needs you on screen", Disconnected rules, Settings and each phase's model)
 
 The four drawn screens are built from their mockups' HTML, which is their specification, field messages included. The rest follow AC-SHOW-01's table:

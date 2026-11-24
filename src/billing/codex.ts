@@ -14,8 +14,8 @@ export function codexBillingSummary(account: AgentAccount | undefined, now = Dat
 }
 export function codexBillingView(metadata: MetadataState, executionId: string, lastLaunch?: BillingSummary): BillingView {
   const summary = codexBillingSummary(metadata.account);
-  return { executionId, selectionGeneration: metadata.generation, pending: metadata.pending,
+  return { executionId, pending: metadata.pending,
     next: { ...summary, readingId: "", canApprove: false, canClear: false, ...(metadata.blockers.length ? { readinessError: metadata.blockers.join(" ") } : {}) },
-    ...(lastLaunch?.agentId === "codex" ? { lastLaunch } : {}), canLaunch: !metadata.pending && metadata.blockers.length === 0,
+    ...(lastLaunch ? { lastLaunch } : {}), canLaunch: !metadata.pending && metadata.blockers.length === 0,
   };
 }

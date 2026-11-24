@@ -10,6 +10,7 @@ import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine } from "./engine.js";
 import { buildSnapshot } from "./snapshot.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 
 let h: Harness | undefined;
 let f: ReturnType<typeof codexWorkFixture> | undefined;
@@ -26,8 +27,7 @@ async function codexRun(additionalSkills: string[]) {
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
   const read = readPlanAt(h.repository, "docs/prds/customer-returns");
   if (read.ok) h.engine.record.plan = recordedPlan(read.plan);
-  await h.engine.changeSettings({ agentId: "codex" });
-  await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   expect(h.engine.selectionError).toBeUndefined();
   return { h, f };
 }
@@ -51,7 +51,8 @@ describe("an older method under Codex is not an error (AC-PREFLIGHT-05)", () => 
     const { h, f } = await codexRun(["build-preflight"]);
     expect(h.engine.agents.state.optionalSkills).toEqual({ buildPreflight: true });
     // With no Documents found passed, the planned row has no activity to sit above.
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end" } });
+    // It reads Will run on with the PRD's Codex choice (Kiln Phase Model Tiers AC-PICK-02).
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: { state: "will_run_on", from: "changed", choice: { agentId: "codex", agent: "Codex", model: "gpt-6.1-sol", modelName: "GPT-6.1-Sol", effort: "high" } } } });
     h.engine.start({ refinementConfirmed: true }).catch(() => {});
     await waitFor(() => turns(f).length >= 1);
     expect(turns(f)[0]).toContain("Run the Enso Method's build preflight");

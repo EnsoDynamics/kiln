@@ -283,7 +283,7 @@ describe("waits and holds (AC-MERGE-05)", () => {
     await control("merge");
     expect(h!.engine.record.billing?.hold).toMatchObject({ phaseKey: MERGE_KEY });
     // An approval can be given again while the merge activity is open (technical design, "Gates").
-    await h!.engine.billingCommand("approval", { executionId: h!.engine.record.executionId, selectionGeneration: h!.engine.record.settings.selectionGeneration ?? 0, readingId: h!.engine.billing.view.next!.readingId, approved: true });
+    await h!.engine.billingCommand("approval", { executionId: h!.engine.record.executionId, readingId: h!.engine.billing.view.next!.readingId, approved: true });
     await control("check-again");
     await waitFor(() => !!h!.engine.record.afterDelivery!.merge!.closedAt);
     expect(h!.engine.record.billing?.hold).toBeUndefined();

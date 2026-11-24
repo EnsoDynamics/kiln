@@ -1,6 +1,6 @@
-// The Folder missing setup panel rendered to HTML: its Agent, Model and Effort fields carry
-// Documents found's messages and effort behavior for the model chosen in the panel (missing
-// worktree recovery AC-SETUP-01).
+// The Folder missing setup panel rendered to HTML: Documents found's fields, with its model line
+// in place of Agent, Model and Effort (missing worktree recovery AC-SETUP-01; Kiln Phase Model
+// Tiers AC-KEEP-01).
 
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
@@ -17,35 +17,22 @@ const withPanel = (change: Partial<SetupPanel>, snapshot = folderMissingSnapshot
   return snapshot;
 };
 
-describe("the setup panel's Agent, Model and Effort (AC-SETUP-01)", () => {
-  it("lists the panel model's efforts, disabling none it takes, with the chosen one pressed", () => {
-    const page = html(withPanel({ effortLevels: ["high", "max"], fields: { ...(folderMissingSnapshot("merged").folderMissing!.panel as SetupPanel).fields, effort: "max" } }));
-    const buttons = [...page.matchAll(/<button type="button" aria-pressed="(true|false)"[^>]*>([^<]+)<\/button>/g)].map((match) => [match[2], match[1]]);
-    expect(buttons).toEqual([["High", "false"], ["Max", "true"]]);
-    expect(page).not.toMatch(/<button type="button" aria-pressed="(true|false)"[^>]*disabled/);
-    expect(text(page)).not.toContain("This model takes no effort setting.");
+describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-KEEP-01)", () => {
+  it("says models are chosen for each phase, with no Agent, Model or Effort to set", () => {
+    const page = html(withPanel({}));
+    expect(text(page)).toContain("Models Chosen for each phase");
+    expect(page).not.toMatch(/id="fm-agent"|id="fm-model"|aria-pressed=/);
+    expect(text(page)).not.toMatch(/Agent fixed for this PRD|Effort/);
   });
 
-  it("says when the panel's model takes no effort setting, with no level pressed", () => {
-    const page = html(withPanel({ effortLevels: [], fields: { ...(folderMissingSnapshot("merged").folderMissing!.panel as SetupPanel).fields, effort: "" } }));
-    expect(text(page)).toContain("This model takes no effort setting.");
-    expect(page).not.toMatch(/aria-pressed="true"/);
-  });
-
-  it("offers only the levels the panel’s model takes", () => {
-    const page = html(withPanel({ effortLevels: ["low", "medium", "high"] }));
-    expect(page).not.toContain(">Max</button>");
-  });
-
-  it("shows Model's field message and the model list's error under Model", () => {
-    const snapshot = withPanel({ fieldErrors: { model: "Choose a supported effort for Fable 5.1. Saved effort: low." } });
+  it("shows the model list's error under the model line", () => {
+    const snapshot = withPanel({});
     snapshot.settings.modelListError = "Claude Code couldn’t list its models.";
-    const words = text(html(snapshot));
-    expect(words).toContain("Choose a supported effort for Fable 5.1. Saved effort: low.");
-    expect(words).toContain("Claude Code couldn’t list its models.");
+    expect(text(html(snapshot))).toContain("Chosen for each phase alex@acme-shop.dev");
+    expect(text(html(snapshot))).toContain("Claude Code couldn’t list its models.");
   });
 
-  it("shows the account's error, or its usage error, under Agent", () => {
+  it("shows the account's error, or its usage error, under the model line", () => {
     const failed = withPanel({});
     failed.account = { ...failed.account!, error: "Claude Code isn’t signed in." } as Snapshot["account"];
     const failedWords = text(html(failed));
@@ -59,14 +46,14 @@ describe("the setup panel's Agent, Model and Effort (AC-SETUP-01)", () => {
 });
 
 describe("the rest of Documents found's fields (Phase 5 of missing worktree recovery: AC-SETUP-01)", () => {
-  it("shows keep-awake's error under its switch, and the readiness errors and a reset effort's notice after the account-access line", () => {
-    const snapshot = withPanel({ choiceNotice: "Effort changed to high for Fable 5.1." });
+  it("shows keep-awake's error under its switch, and the readiness errors after the model line", () => {
+    const snapshot = withPanel({});
     snapshot.settings.keepAwakeError = "Kiln couldn’t keep this computer awake.";
     snapshot.settings.readinessErrors = ["Codex needs a newer CLI."];
     const words = text(html(snapshot));
     expect(words).toMatch(/Kiln picks up where it left off afterwards\. Kiln couldn’t keep this computer awake\. Resume after a usage limit/);
-    expect(words).toMatch(/Listed models do not guarantee account access\. Effort changed to high for Fable 5\.1\. Codex needs a newer CLI\. Refresh agent information/);
-    expect(text(html(withPanel({})))).not.toMatch(/Effort changed|Kiln couldn’t keep/);
+    expect(words).toMatch(/Chosen for each phase[^]*Codex needs a newer CLI\. Refresh agent information/);
+    expect(text(html(withPanel({})))).not.toMatch(/Kiln couldn’t keep/);
   });
 
   it("holds Refresh agent information while agent information or billing is still loading", () => {
@@ -80,13 +67,13 @@ describe("the rest of Documents found's fields (Phase 5 of missing worktree reco
     expect(refresh(billing)).toBe(true);
   });
 
-  it("shows the Codex account panel under Effort for a Codex run, and none for Claude Code", () => {
+  it("shows the Codex account panel after Refresh agent information for a Codex run, and none for Claude Code", () => {
     const codex = withPanel({});
     codex.settings.agentId = "codex";
     codex.settings.agent = "Codex";
     codex.account = { ...codex.account!, agentId: "codex" } as Snapshot["account"];
     const words = text(html(codex));
-    expect(words).toMatch(/uses more of your plan\. (This model takes no effort setting\. )?Codex account[\s\S]*Keep this computer awake/);
+    expect(words).toMatch(/Refresh agent information Codex account[\s\S]*Keep this computer awake/);
     expect(text(html(withPanel({})))).not.toContain("Claude account");
   });
 
@@ -109,7 +96,7 @@ describe("a Start that stopped partway (Phase 9 of missing worktree recovery: AC
 const panelOf = (snapshot: Snapshot) => snapshot.folderMissing!.panel as SetupPanel;
 /** Whether the control whose opening tag `pattern` matches is disabled. */
 const disabledTag = (page: string, pattern: RegExp) => { const tag = pattern.exec(page)?.[0]; if (!tag) throw new Error(`No control matches ${pattern}`); return /\sdisabled(=""|\s|>)/.test(tag); };
-const WORKTREE = /<input[^>]*id="fm-worktree"[^>]*>/, BRANCH = /<input[^>]*id="fm-branch"[^>]*>/, BASE = /<select[^>]*id="fm-base"[^>]*>/, WORKSPACE = /<input[^>]*id="fm-workspace"[^>]*>/, AGENT = /<select[^>]*id="fm-agent"[^>]*>/;
+const WORKTREE = /<input[^>]*id="fm-worktree"[^>]*>/, BRANCH = /<input[^>]*id="fm-branch"[^>]*>/, BASE = /<select[^>]*id="fm-base"[^>]*>/, WORKSPACE = /<input[^>]*id="fm-workspace"[^>]*>/;
 
 describe("the panel's sections and first-Start words (AC-SETUP-01)", () => {
   it("is titled Set the run up again, with its four parts in order", () => {
@@ -122,7 +109,7 @@ describe("the panel's sections and first-Start words (AC-SETUP-01)", () => {
 
   it("lays out How Kiln will deliver it in Documents found's order, for one repository", () => {
     const words = text(html(withPanel({})));
-    const order = ["Worktree", "Feature branch", "Branch from, and PR into", "Sessions can add a repository they find they need.", "Agent", "Model", "Listed models do not guarantee account access.", "Effort", "Keep this computer awake while a session works or Kiln waits", "Resume after a usage limit", "Pushes", "Ends at"];
+    const order = ["Worktree", "Feature branch", "Branch from, and PR into", "Sessions can add a repository they find they need.", "Models", "Chosen for each phase", "Refresh agent information", "Keep this computer awake while a session works or Kiln waits", "Resume after a usage limit", "Pushes", "Ends at"];
     const deliver = words.slice(words.indexOf("How Kiln will deliver it"), words.indexOf("Before you start"));
     const at = order.map((label) => deliver.indexOf(label));
     expect(at.every((position) => position >= 0), JSON.stringify(at)).toBe(true);
@@ -135,11 +122,11 @@ describe("the panel's sections and first-Start words (AC-SETUP-01)", () => {
     expect(text(html(folderMissingSnapshot("multi")))).toContain(line);
   });
 
-  it("shows the agent's account and usage lines and that the agent is fixed", () => {
+  it("shows the agent's account and usage lines, and no agent fixed for the PRD", () => {
     const words = text(html(withPanel({})));
     expect(words).toContain("alex@acme-shop.dev · Max plan");
     expect(words).toContain("Used: 5-hour 82% · weekly 41% · Fable 6%");
-    expect(words).toContain("Agent fixed for this PRD.");
+    expect(words).not.toContain("Agent fixed for this PRD.");
   });
 
   it("shows each repository's base in the Repositories list, and lets a base start change it", () => {
@@ -162,9 +149,8 @@ describe("the panel's sections and first-Start words (AC-SETUP-01)", () => {
     expect(disabledTag(page, WORKSPACE)).toBe(true);
   });
 
-  it("disables only the agent on a base start, and calls the base Branch from, and PR into", () => {
+  it("disables nothing on a base start, and calls the base Branch from, and PR into", () => {
     const page = html(withPanel({}));
-    expect(disabledTag(page, AGENT)).toBe(true);
     expect(disabledTag(page, WORKTREE)).toBe(false);
     expect(disabledTag(page, BRANCH)).toBe(false);
     expect(disabledTag(page, BASE)).toBe(false);
@@ -210,13 +196,6 @@ describe("the panel's sections and first-Start words (AC-SETUP-01)", () => {
     expect(words(early)).toBe("Confirmed development deliveries and any remaining review PRs");
   });
 
-  it("starts Model and Effort from the choices the panel carries", () => {
-    const snapshot = withPanel({ fields: { ...(folderMissingSnapshot("merged").folderMissing!.panel as SetupPanel).fields, model: "sonnet", effort: "medium" }, effortLevels: ["low", "medium", "high"] });
-    const page = html(snapshot);
-    const model = /<select id="fm-model"[^>]*>([\s\S]*?)<\/select>/.exec(page)![1]!;
-    expect(/<option[^>]*value="sonnet"[^>]*selected/.test(model) || /<option[^>]*selected[^>]*value="sonnet"/.test(model)).toBe(true);
-    expect(page).toMatch(/aria-pressed="true"[^>]*>Medium</);
-  });
 });
 
 describe("the panel's early-merges and billing panels (AC-SETUP-01)", () => {

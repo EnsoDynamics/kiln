@@ -51,6 +51,8 @@ export interface ReadinessInput {
    * and `executionFinished` the phases the finished execution itself completed.
    */
   delivery?: { merged: Record<string, string>; closed: { repository: string; number: number }[]; executionFinished: ReadonlySet<string> };
+  /** The agent a preparation turn runs on (Kiln Phase Model Tiers AC-AGENTS-04). */
+  agentId: import("../state/records.js").AgentId;
   codex?: string | undefined;
   record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; accounting: Omit<CompletionAccounting, "id">;
   git: GitContext; shared: string; directory: string; problems: string[];
@@ -154,7 +156,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     const proposed = { ...body, id: authorityDigest(body) };
     const permissionRecord: PrdRecord = { ...record, preparation: newPreparationState(proposed), repositories: repositories.map(repo => ({ name: repo.name, kind: repo.name === record.repository.name ? "prd" : "named", github: repo.identity, mainCheckoutPath: repo.path, worktreePath: repo.path, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision })) };
     let observedPermissionDigest: string | undefined;
-    try { body.permissionDigest = await preparationPermissions({ record: permissionRecord, stateDirectory: input.directory, git, env: git.env ?? process.env, signal: git.signal ?? AbortSignal.timeout(30_000), codex: input.codex, save: () => {}, now: () => new Date().toISOString() }, true, (repository, digest) => { permissionInputs.push({ repository, digest }); }, digest => { observedPermissionDigest = digest; }); }
+    try { body.permissionDigest = await preparationPermissions({ agentId: input.agentId, record: permissionRecord, stateDirectory: input.directory, git, env: git.env ?? process.env, signal: git.signal ?? AbortSignal.timeout(30_000), codex: input.codex, save: () => {}, now: () => new Date().toISOString() }, true, (repository, digest) => { permissionInputs.push({ repository, digest }); }, digest => { observedPermissionDigest = digest; }); }
     catch (error) { body.permissionDigest = authorityDigest((error as Error).message); problems.push((error as Error).message); body.problems.push((error as Error).message); }
     for (const observation of permissionInputs) input.observeInput?.({ kind: "provider_settings", ...observation });
     if (observedPermissionDigest) input.observeInput?.({ kind: "permissions", digest: observedPermissionDigest });

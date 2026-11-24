@@ -10,6 +10,7 @@ import { startLocalServer, type LocalServer } from "./local-server.js";
 import { prdTreeAtHead } from "../engine/worktree-setup.js";
 import { Engine } from "../engine/engine.js";
 import { codexBillingSummary } from "../billing/codex.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 let h: Harness; let chrome: HeadlessChrome | undefined; let server: LocalServer | undefined;
 afterEach(async () => { await chrome?.close(); chrome = undefined; await server?.close(); server = undefined; await h?.cleanup(); });
 const panel = `document.querySelector('[aria-label="Codex billing"]')`;
@@ -18,7 +19,7 @@ it("shows neutral optional credits, preserves all usage rows, rejects API/provid
   const record = h.engine.record; const paths = h.engine.paths; h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths, record, tools: { ...h.tools, codex: f.executable }, env: f.env, stateDirectory: h.stateDirectory });
-  await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: record.token });
   chrome = await launchChrome();
   for (const width of [360, 1280]) {
@@ -64,10 +65,10 @@ it("shows neutral optional credits, preserves all usage rows, rejects API/provid
       const origin = new URL(server.address).origin;
       const denied = await fetch(`${origin}/api/billing/approval`, { method: "POST", headers: { "X-Kiln-Token": record.token, origin, "Content-Type": "application/json" }, body: JSON.stringify({ approved: true }) });
       expect(denied.status).toBe(400); expect(await denied.text()).toContain("Codex has no API billing approval");
-      await h.engine.changeSettings({ agentId: "claude_code" }); await h.engine.agents.refresh(); await h.engine.refreshBilling();
+      await runPrdOn(h.engine, { agentId: "claude_code", model: "opus", effort: "medium" }); await h.engine.refreshBilling();
       await page.waitFor(`document.querySelector('[aria-label="Claude billing"]')`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("fixture@example.test");
-      f.set({}); await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
+      f.set({}); await runPrdOn(h.engine);
       await page.waitFor(`${panel}?.innerText.includes('fixture@example.test')`);
       expect(page.problems).toEqual([]);
     } finally { await page.close(); }
@@ -77,7 +78,6 @@ it("shows neutral optional credits, preserves all usage rows, rejects API/provid
 
 it("keeps launched identity/credits separate from the next account and freezes them on disconnect", async () => {
   const snapshot = runningSnapshot(); snapshot.settings.agentId = "codex"; snapshot.settings.agent = "Codex";
-  snapshot.settings.model = { value: "gpt-6.1-sol", displayName: "GPT-6.1-Sol" };
   for (const phase of snapshot.phases) if (phase.details) Object.assign(phase.details, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol" });
   Object.assign(snapshot.current!, { agentId: "codex", agent: "Codex", model: "GPT-6.1-Sol", effort: "high" });
   const at = new Date().toISOString();
@@ -87,7 +87,7 @@ it("keeps launched identity/credits separate from the next account and freezes t
   ] };
   const lastLaunch = codexBillingSummary({ startedAt: at, updatedAt: at, limits: [], email: "launch@example.test", plan: "business", accountId: "launch-workspace", credits: [{ scope: "workspace", bucketId: "codex", accountId: "launch-workspace", observedAt: at, balance: "50" }] });
   const next = { ...lastLaunch }; delete next.credits;
-  snapshot.billing = { executionId: "fixture", selectionGeneration: 1, pending: false, canLaunch: true, lastLaunch, next: { ...next, email: "next@example.test", accountId: "next-workspace", readingId: "", canApprove: false, canClear: false } };
+  snapshot.billing = { executionId: "fixture", pending: false, canLaunch: true, lastLaunch, next: { ...next, email: "next@example.test", accountId: "next-workspace", readingId: "", canApprove: false, canClear: false } };
   chrome = await launchChrome();
   for (const width of [360, 1280]) {
     const fixture = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });

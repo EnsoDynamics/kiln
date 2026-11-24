@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
+import { CODEX_CHOICE } from "../test-support/model-choices.js";
 import { delimiter, dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -18,8 +19,6 @@ import { afterDeliveryText } from "../control/delivered-facts.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot } from "../state/state-files.js";
 import { MERGE_KEY } from "../state/activity-keys.js";
-import { selectedChoice } from "../state/records.js";
-import type { Engine } from "./engine.js";
 import type { Receipt } from "../control/commands.js";
 import { startLocalServer } from "../server/local-server.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
@@ -80,9 +79,10 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     expect(afterDeliveryText(status().after_delivery, false)).toMatch(/^Merge with the agent: Merge with Claude Code starts one more session/);
     const phasesDone = page.feature.phasesDone;
     // The run's effort changed after the build: the merge session takes the run's model and effort as they are now (AC-MERGE-05).
-    const choice = selectedChoice(h!.engine.record.settings);
+    // It runs on the Audits choice (Kiln Phase Model Tiers AC-OTHER-01), changed here the way the page changes it.
+    const choice = h!.engine.launchChoice(MERGE_KEY);
     const effort = h!.engine.modelEntry(choice.model)!.supportedEffortLevels.find(level => level !== choice.effort)!;
-    const changed = await h!.engine.changeSettings({ effort, agentId: h!.engine.record.settings.agentId, selectionGeneration: h!.engine.agents.state.generation } as Parameters<Engine["changeSettings"]>[0]); expect(changed, JSON.stringify(changed)).toMatchObject({ ok: true });
+    h!.engine.record.settings.modelChoices.audits = { agentId: choice.agentId, model: choice.model, effort }; h!.engine.modelChoicesChanged();
 
     const receipt = await control("merge", { via: "command_line" });
     expect(receipt).toMatchObject({ state: "completed", outcome: "merge_started" });
@@ -309,7 +309,7 @@ describe("the press from the page (AC-MERGE-02)", () => {
       Object.assign(h!.tools, { codex: f.options.executable });
       f.configureEnvironment(h!.env);
       f.set({ dynamicRecord: true, stateDirectory: h!.stateDirectory });
-      h!.engine.record.settings.agentId = "codex";
+      h!.engine.record.settings.modelChoices.kept = { ...CODEX_CHOICE };
       h!.reopen(); await h!.engine.agents.refresh();
       expect(h!.engine.selectionError).toBeUndefined();
       await h!.engine.checkCompletedPlan();

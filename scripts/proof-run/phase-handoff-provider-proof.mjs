@@ -38,9 +38,8 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'proof', folderNam
 const settings = defaultSettings(paths, { branches: new Map([['develop', baseCommit]]), defaultBranch: 'develop' });
 Object.assign(settings, { featureBranch: 'develop', worktreePath: repository, workspaceFolder: root, keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: 'proof/disposable', featureName: 'Disposable handoff proof', settings });
-record.settings.agentId = agentId;
 const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus';
-record.settings.agentChoices[agentId] = { model, effort: 'high' };
+record.settings.modelChoices.kept = { agentId, model, effort: 'high' };
 const session = { schemaVersion: 4, agentId, sessionId: randomUUID(), phaseId: '1', kind: 'phase', createdAt: new Date().toISOString(), model, modelDisplayName: model, effort: 'high', workingDirectory: repository, runs: [], sleeps: [], steps: [] };
 console.log(JSON.stringify({ root, agentId, sessionId: session.sessionId }));
 writeSessionRecord(stateDirectory, session);

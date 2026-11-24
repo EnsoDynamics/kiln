@@ -30,12 +30,39 @@ export interface PhaseDocument {
   attended: string | undefined;
   /** The text after an `**Early merge:**` line before the first `##` heading, trimmed, as `attended` (AC-ATTEND-05). */
   earlyMerge: string | undefined;
+  /**
+   * The first `**Model tier:**` line before the first `##` heading (Kiln Phase Model Tiers
+   * AC-TIER-01): its tier and the reason after it. Undefined when there is no such line or its
+   * first word names none of the three tiers; display and model choice only, never a plan problem.
+   */
+  modelTier: ModelTier | undefined;
   /** The `## Split into` rows, or undefined for a leaf. */
   splitInto: SplitRow[] | undefined;
   /** `AC-<AREA>-<NN>` labels under `## Acceptance criteria covered`, in order, without repeats. */
   citedCriteria: string[];
   /** The text of `## Phase dependencies`, or undefined when the section is absent. */
   dependenciesText: string | undefined;
+}
+
+export type Tier = "demanding" | "standard" | "mechanical";
+export interface ModelTier { tier: Tier; reason: string }
+
+/**
+ * A `**Model tier:**` line's tier and reason: the first word after the label, any case, and the
+ * rest after a hyphen, em dash or colon, or after the tier word when there is no separator.
+ *
+ *   readModelTierLine("**Model tier:** demanding — AC-REF-04 requires one refund")  // { tier: "demanding", reason: "AC-REF-04 requires one refund" }
+ *   readModelTierLine("**Model tier:** premium")                                     // undefined
+ */
+export function readModelTierLine(line: string | undefined): ModelTier | undefined {
+  if (line === undefined) return undefined;
+  const rest = line.slice("**Model tier:**".length).trim();
+  const match = /^([A-Za-z]+)\b\s*(.*)$/s.exec(rest);
+  const tier = match?.[1]?.toLowerCase();
+  if (tier !== "demanding" && tier !== "standard" && tier !== "mechanical") return undefined;
+  const after = match![2]!.trim();
+  const separated = /^(?:-|—|:)\s*(.*)$/s.exec(after);
+  return { tier, reason: (separated ? separated[1]! : after).trim() };
 }
 
 export const CRITERION_LABEL = /\bAC-[A-Z]+-\d+\b/g;
@@ -52,6 +79,7 @@ export function readPhaseDocument(fileName: string, markdown: string): PhaseDocu
   // Display facts only: neither line can make a plan fail to read (build preflight "Phase Document Lines").
   const attended = preambleLineText(preamble, "**Attended:**");
   const earlyMerge = preambleLineText(preamble, "**Early merge:**");
+  const modelTier = readModelTierLine(preamble.find((line) => !line.inCodeFence && line.text.startsWith("**Model tier:**"))?.text);
 
   const h1 = lines.map((line) => headingText(line, 1)).find((text) => text !== undefined);
   const title = readTitle(h1, idText, fileName);
@@ -65,7 +93,7 @@ export function readPhaseDocument(fileName: string, markdown: string): PhaseDocu
   const dependencyLines = sectionLines(markdown, "Phase dependencies");
   const dependenciesText = dependencyLines?.map((line) => line.text).join("\n");
 
-  return { fileName, idText, title, closed, repositories, repositoriesProblem, attended, earlyMerge, splitInto, citedCriteria, dependenciesText };
+  return { fileName, idText, title, closed, repositories, repositoriesProblem, attended, earlyMerge, modelTier, splitInto, citedCriteria, dependenciesText };
 }
 
 /**

@@ -88,7 +88,7 @@ export async function outputPage(config: PageConfig, sessionId: string, before?:
 /** Human confirmation is separate from Resume and applies only to this execution. */
 export const authorizeDevelopmentTarget = (config: PageConfig, body: { executionId: string; authorizationRevision: number; target: import("../../../src/state/development-delivery.js").MergeTarget }) => send(config, "POST", "/api/development-authorization", body);
 
-export const billingApproval = (config: PageConfig, action: "approval" | "clear", body: { executionId: string; selectionGeneration: number; readingId: string; approved?: true }) => send(config, "POST", `/api/billing/${action}`, body);
+export const billingApproval = (config: PageConfig, action: "approval" | "clear", body: { executionId: string; readingId: string; approved?: true }) => send(config, "POST", `/api/billing/${action}`, body);
 
 /** Target-bound manual implementation recovery. Only reply supplies note. */
 export const resumePhase = (config: PageConfig, target: PhaseRecoveryTarget, note?: string, bringUpToDate = false) => sendHandBack(config, target, "resume", note, bringUpToDate);

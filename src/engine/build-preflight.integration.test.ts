@@ -19,6 +19,8 @@ import { Engine } from "./engine.js";
 import { createCometContinuation } from "../test-support/comet-continuation-fixture.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
 
+/** The planned Preflight row shows the Audits choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row"). */
+const AUDITS_PLANNED = { state: "will_run_on", from: "model_defaults", choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" } };
 const plain = { green: (s: string) => s, amber: (s: string) => s, red: (s: string) => s, grey: (s: string) => s, bold: (s: string) => s } as unknown as Parameters<typeof formatTerminalEvent>[2];
 let harness: Harness | undefined;
 afterEach(async () => { await harness?.cleanup(); harness = undefined; });
@@ -55,7 +57,7 @@ const terminal = (h: Harness) => h.events.map(event => formatTerminalEvent(event
 describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01, AC-PREFLIGHT-02, AC-PREFLIGHT-08)", () => {
   it("runs first after Start, goes straight on when ready, and its row says what it found", async () => {
     const h = await fixture([ready]);
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end" } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: AUDITS_PLANNED } });
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
     await h.engine.settled();
     const all = prompts(h);
@@ -124,7 +126,7 @@ describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01
     writeFileSync(release, "");
     await waitFor(() => h.engine.record.pause.activeSince !== undefined);
     await h.engine.settled();
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "2b" } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "2b", model: AUDITS_PLANNED } });
     expect(await h.engine.start()).toMatchObject({ ok: true });
     await h.engine.settled();
     const all = prompts(h);
@@ -301,7 +303,7 @@ describe("Resume runs a preflight only while none has settled (AC-PREFLIGHT-01, 
 
   it("one after Resume following no report, run ahead of the interrupted phase and drawn directly above its row", async () => {
     const h = await interruptedRun([noReport, ready]);
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "1" } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "1", model: AUDITS_PLANNED } });
     await h.engine.start();
     await waitFor(() => (h.engine.record.preflight?.activities.length ?? 0) === 2);
     await h.engine.settled();
@@ -512,7 +514,7 @@ describe("hardening: Continue runs a preflight before the first added phase (AC-
     await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     const before = h.claudeCalls().length;
     const check = await h.engine.checkCompletedPlan();
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end" } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: AUDITS_PLANNED } });
     expect((await h.engine.continuationCommand("accept", { proposalId: check.result!.proposal!.id, commandId: "continue-with-preflight", executionId: h.engine.record.executionId!, statusToken: h.engine.controlView().token })).ok).toBe(true);
     await waitFor(() => h.claudeCalls().length >= before + 2);
     const after = prompts(h).slice(before);
@@ -569,7 +571,7 @@ describe("test audit: where the row sits and what opening it shows (AC-PREFLIGHT
     harness = await createHarness({ sessions: [], preflight: true, files: closing(...closed) });
     const h = await fixture([]);
     await h.engine.agents.refresh();
-    expect(buildSnapshot(h.engine, found(h)).preflight).toEqual({ planned: { before } });
+    expect(buildSnapshot(h.engine, found(h)).preflight).toEqual({ planned: { before, model: AUDITS_PLANNED } });
   });
 
   it("the run's plan draws the row directly above the first open phase, below the closed one, on a branch with closed phases", async () => {

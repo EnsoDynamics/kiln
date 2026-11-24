@@ -9,7 +9,7 @@ import { serveViewFixture } from "../test-support/view-fixture-server.js";
 describe("automatic usage resume in the browser", () => {
   it("counts down live, explains checks after the deadline, and places billing last at desktop and phone widths", async () => {
     const snapshot = waitingSnapshot();
-    snapshot.billing = { executionId: "fixture", selectionGeneration: 0, pending: false, canLaunch: true, lastLaunch: { agentId: "claude_code", route: "subscription", email: "fixture@example.test", observedAt: snapshot.waiting!.since, approved: true, sources: [], diagnostics: [] } };
+    snapshot.billing = { executionId: "fixture", pending: false, canLaunch: true, lastLaunch: { agentId: "claude_code", route: "subscription", email: "fixture@example.test", observedAt: snapshot.waiting!.since, approved: true, sources: [], diagnostics: [] } };
     const server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot });
     const chrome = await launchChrome();
     try {

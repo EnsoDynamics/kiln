@@ -18,7 +18,7 @@
     const next = billing?.next;
     if (!billing || !next || !connected) return;
     pressing = true;
-    const answer = await billingApproval(config, checked ? "approval" : "clear", { executionId: billing.executionId, selectionGeneration: billing.selectionGeneration, readingId: next.readingId, ...(checked ? { approved: true as const } : {}) });
+    const answer = await billingApproval(config, checked ? "approval" : "clear", { executionId: billing.executionId, readingId: next.readingId, ...(checked ? { approved: true as const } : {}) });
     reason = answer.ok ? undefined : answer.reason; pressing = false;
   }
   async function recheck() {

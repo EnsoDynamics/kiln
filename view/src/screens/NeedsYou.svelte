@@ -28,7 +28,6 @@
   import type { Settings } from "../../../src/state/records.js";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
   import AccountPanel from "../components/AccountPanel.svelte";
-  import ModelEffortEditor from "../components/ModelEffortEditor.svelte";
   import CodeText from "../components/CodeText.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import Icon from "../components/Icon.svelte";
@@ -157,10 +156,6 @@
     if (answer.outcome === "check_results_changed") markChanges = (answer.changes as ItemChange[] | undefined) ?? [];
     else if (answer.outcome === "check_unavailable") markError = String(answer.reason ?? "The checks could not finish. Nothing was marked complete.");
   }
-  async function saveSelection(change: Partial<Settings>) {
-    const answer = await changeSettings(config, { ...change, agentId: snapshot.settings.agentId ?? "claude_code", selectionGeneration: snapshot.settings.selectionGeneration ?? 0 });
-    reason = answer.ok ? undefined : answer.reason;
-  }
   async function refreshSelection() {
     pressing = true;
     const answer = await refreshMetadata(config);
@@ -256,8 +251,8 @@
       <CodexSessionFacts facts={stop} />
       {#if stop.kind === "selection" && !itemCount}
         <section class="card">
-          <h2 class="eyebrow">{snapshot.settings.agent} · Model and effort</h2>
-          <ModelEffortEditor {snapshot} save={saveSelection} />
+          <!-- The stop's facts name the choice, where it came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
+          <h2 class="eyebrow">{snapshot.settings.agent} · Model and readiness</h2>
           <SwitchAccountCommand agentId={snapshot.settings.agentId} />
           <button type="button" class="button small" disabled={busy || snapshot.settings.metadataPending} onclick={refreshSelection}>Refresh agent information</button>
         </section>
