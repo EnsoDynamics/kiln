@@ -577,6 +577,8 @@ it("says once, in the pull request card, that the delivery waits to merge, with 
         await page.waitFor(`${card}.includes('${waitingLine} Merged it yourself? Check now')`);
         await waitFor(() => !h.engine.checking && h.engine.record.completedPlanCheck?.status === "awaiting_merge");
         expect(await page.evaluate("!!document.querySelector('[aria-label=\"Current plan check\"]')")).toBe(false);
+        // The header follows the event stream, which reaches the page after the check's own answer has updated the card.
+        await page.waitFor("!document.body.innerText.includes('Checking for new phases')");
         const text = await page.evaluate<string>("document.body.innerText");
         expect(text.split(waitingLine)).toHaveLength(2);
         expect(text).toContain("PR ready for review");
