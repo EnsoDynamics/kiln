@@ -12,7 +12,7 @@ When a test audit finds gaps in the tests, show the whole plan for fixing them a
 
 Until now each session of test fixes decided, when it started, how much of the audit's list it would take. Kiln learned of the next session only when the last one ended, so the page showed session 3, then 4, then 5, and nobody could tell whether the work would end at 6 or at 16. On one run a test audit found 13 gaps and five sessions followed, each a couple of hours long, most of it spent on the project's full test suite, which every session runs once.
 
-The Enso Method's test audit is being changed to plan that work itself. When it finds more than it fixes in its own session, it cuts its fix list into batches, one for each fixing session, sized the way a phase is sized, and records them in its `test-audit.md`. That change stands on its own in the method: a person running the method by hand also wants to know how many fixing chats are coming. This PRD is Kiln showing that plan, and Kiln keeps working with an audit that has none (AC-BATCH-05).
+The Enso Method's test audit is being changed to plan that work itself. The audit session fixes nothing, as a delivery audit builds nothing: it cuts its fix list into batches, one for each fixing session, sized the way a phase is sized, and records them in its `test-audit.md`. That change stands on its own in the method: a person running the method by hand also wants to know how many fixing chats are coming. This PRD is Kiln showing that plan, and Kiln keeps working with an audit that has none (AC-BATCH-05).
 
 The loop wording is a smaller fault on the same rows. A limit of 4 is the most audits of a kind Kiln will run, and most runs use fewer. "Loop 1 of 4" reads as a promise of four.
 
