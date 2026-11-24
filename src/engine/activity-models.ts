@@ -61,13 +61,18 @@ export interface FallbackView { used: boolean; limit: LimitView; threshold: numb
 
 type SavedFallback = NonNullable<NonNullable<SessionRecord["launch"]>["fallback"]>;
 
+/** A recorded agent, model and effort as a row names it. */
+export function choiceView(choice: { agentId: AgentId; model: string; modelName: string; effort?: string | undefined }): ChoiceView {
+  return { agentId: choice.agentId, agent: AGENT_NAMES[choice.agentId], model: choice.model, modelName: choice.modelName, ...(choice.effort ? { effort: choice.effort } : {}) };
+}
+
 /** A saved decision as the row, card and phase detail show it. */
 export function fallbackView(saved: SavedFallback, from?: ChoiceSource): FallbackView {
   const { agentId, ...limit } = saved.limit;
   return {
     ...(from ? { from } : {}),
     used: saved.used, limit: { agent: AGENT_NAMES[agentId], ...limit }, threshold: saved.threshold,
-    ...(saved.first ? { first: { agentId: saved.first.agentId, agent: AGENT_NAMES[saved.first.agentId], model: saved.first.model, modelName: saved.first.modelName, ...(saved.first.effort ? { effort: saved.first.effort } : {}) } } : {}),
+    ...(saved.first ? { first: choiceView(saved.first) } : {}),
     ...(saved.reason ? { reason: saved.reason } : {}),
   };
 }

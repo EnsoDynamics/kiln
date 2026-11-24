@@ -79,7 +79,7 @@ import { AgentInfo } from "../agents/metadata.js";
 import { AGENT_IDS, AGENT_NAMES, type AgentId, type CodexUsageRecovery, type RecordedPlanPhase } from "../state/records.js";
 import { modelDefaultsPath, readModelDefaults, type ModelChoice } from "../models/model-defaults.js";
 import { checkModelChoice } from "../models/model-defaults-edit.js";
-import { activityFallback, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
+import { activityFallback, choiceView, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
 import { firstResponseInSavedEvents } from "../models/start-line.js";
 import type { ActivityChoice, ModelList, ResolvedChoice } from "../models/resolver.js";
 import { choiceWords, decideLaunch, firstOverThreshold, limitWords, type DecisionChoice, type LaunchFallback, type UsageSide } from "../models/launch-decision.js";
@@ -1617,7 +1617,7 @@ export class Engine {
     const decided = this.decisions.get(key);
     if (decided && !state.finished && !state.liveSession && !this.startedSessionOf(key)) {
       const saved = decided.launch.fallback;
-      return { state: "will_run_on", choice: { agentId: decided.choice.agentId, agent: AGENT_NAMES[decided.choice.agentId], model: decided.choice.model, modelName: decided.choice.modelName, ...(decided.choice.effort ? { effort: decided.choice.effort } : {}) }, ...(saved && (saved.used || state.current) ? { fallback: fallbackView(saved, decided.launch.from) } : {}) };
+      return { state: "will_run_on", choice: choiceView(decided.choice), ...(saved && (saved.used || state.current) ? { fallback: fallbackView(saved, decided.launch.from) } : {}) };
     }
     return modelView(this.modelContext, key, state);
   }
@@ -1883,7 +1883,7 @@ export class Engine {
       const forecast = this.forecastDecision(key, this.record.phases[key]?.wait !== undefined);
       if (!forecast) return undefined;
       const { agentId, ...limit } = forecast.fallback.limit;
-      return { key, forecast: { choice: { agentId: forecast.choice.agentId, agent: AGENT_NAMES[forecast.choice.agentId], model: forecast.choice.model, modelName: forecast.choice.modelName, ...(forecast.choice.effort ? { effort: forecast.choice.effort } : {}) }, limit: { agent: AGENT_NAMES[agentId], ...limit }, threshold: forecast.fallback.threshold } };
+      return { key, forecast: { choice: choiceView(forecast.choice), limit: { agent: AGENT_NAMES[agentId], ...limit }, threshold: forecast.fallback.threshold } };
     }
     return undefined;
   }
