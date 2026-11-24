@@ -23,6 +23,7 @@ The loop wording is a smaller fault on the same rows. A limit of 4 is the most a
 After a test audit, a person looking at the page should see how much fixing is planned before any of it starts, as they see the phases a delivery audit added.
 
 - [ ] **AC-BATCH-01 — Every planned batch is a row as soon as the audit ends.** When a test audit ends having planned batches of test fixes, the phase plan shows one row for each batch, in the audit's order, before any of them starts. A batch that has not started shows the way a phase that has not started does.
+  - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (each batch of test fixes a test audit planned appears as a row before it starts and is removed if it never starts; other audit and test-fix rows still appear in execution order as they start)
 - [ ] **AC-BATCH-02 — The audit's row says what it found and planned.** The row of a test audit that planned batches says how many test gaps it found and how many batches it planned, such as "found 13 test gaps and planned them as 1 batch". A test gap is one acceptance criterion the audit put in a batch, so the audit's number is the sum of its batches' numbers.
 - [ ] **AC-BATCH-03 — A batch's row names the batch and its size.** Closing-audit rows read as the table says. An audit Kiln did not count as a loop names no loop, in its own row and in the rows of its test fixes, as today.
 
@@ -51,7 +52,7 @@ A run uses only the loops it needs. Nothing a person reads should suggest that t
   | The status line at a Needs you stop | **Test audit loop 4 · max 4** |
   | The loops a delivered run used | Delivery audit: 4 loops (max 4). Test audit: 1 loop (max 4). |
 
-  - Replaces in part: AC-STOP-05 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the wording of each status line; what the status line names, and when, remains)
+  - Replaces in part: AC-STOP-05 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the wording of each status line, and a session of test fixes named by its batch; what the status line names, and when, remains)
   - Replaces in part: AC-LEFT-01 and AC-LEFT-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the wording of the loops used; where they are shown remains)
 - [ ] **AC-MAX-02 — The settings say a run makes only the loops it needs.** The explanation beside the **Audit loops** settings, wherever they appear, says that a loop is one audit plus the work it finds, and that each limit is the most loops of that audit a run makes, not a number it always makes.
   - Replaces in part: AC-LOOP-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (what the settings' help text says a loop and a limit are)
