@@ -5721,7 +5721,16 @@ export class Engine {
         this.requestedLaunch = undefined;
         if (!await this.folderGuard({ mayLeave: false })) { this.checking = false; this.changed(); return; }
         const runCount = this.phaseRunCount(request.phaseKey);
+        // Start again, a carry-on and Check Preflight again on an activity that hasn't started run the
+        // launch checks a new session's launch runs, so a choice that can't be used stops it on the
+        // `selection` stop, naming the choice (Kiln Phase Model Tiers AC-PICK-06).
+        if (this.choiceActivity(request.phaseKey) && !this.startedSessionOf(request.phaseKey)) {
+          this.current = { phaseKey: request.phaseKey, commits: [], processRunning: false };
+          if (!await this.launchReadiness(request.phaseKey)) { this.current = undefined; this.checking = false; this.returningTakeover = false; this.changed(); return; }
+        }
         await this.launchAtStop(request);
+        // A launch that ended before its session was launched leaves no decision behind for the next one.
+        this.decisions.delete(request.phaseKey);
         if (this.phaseRunCount(request.phaseKey) === runCount) {
           this.current = undefined; this.checking = false; this.changed();
           // A fresh preflight whose skill no longer resolves finished as no report, and the run goes on.
@@ -6267,9 +6276,10 @@ export class Engine {
       return { kind: "audit", key: auditKey(activity), activity };
     } catch (error) {
       const key = this.record.completionAudits?.activities.at(-1) ? auditKey(this.record.completionAudits.activities.at(-1)!) : PR_PHASE_KEY;
-      const waiver = !this.stopping && knownProblemWaiver(this.record.waivers, (error as Error).message);
+      const fact = this.readinessFact(error);
+      const waiver = !this.stopping && knownProblemWaiver(this.record.waivers, fact);
       if (!waiver) {
-        this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }]);
+        this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [fact] }]);
         return { kind: "stopped", key };
       }
       // A waived readiness problem: the step the saved audit record gives, judged without the step that failed (AC-WAIVE-04).
@@ -6366,8 +6376,27 @@ export class Engine {
     return afterDelivery();
   }
 
+  /** The audit skill on the Audits choice's agent; one that doesn't resolve throws an `AuditSkillUnresolved`. */
+  private async auditsSkill(kind: AuditKind): Promise<NonNullable<AuditActivity["skill"]>> {
+    try { return await resolveAuditSkill({ kind, agent: this.auditsAgent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal }); }
+    catch (error) { throw new AuditSkillUnresolved((error as Error).message); }
+  }
+
+  /**
+   * A readiness-check failure as its stop names it. An audit skill that doesn't resolve names the
+   * Audits choice as it is now, where it came from and where to change it (AC-PICK-06), since the
+   * stop's key can be an earlier, finished audit; any other failure keeps its own message.
+   *
+   *   this.readinessFact(new AuditSkillUnresolved("Enable exactly one delivery-audit skill in …"))
+   *   // "The audits, preflight and pull request session run on Codex · GPT Sol · high from Model defaults (Audits row): Enable exactly one delivery-audit skill in … Change the Audits row in Model defaults, or …"
+   */
+  private readinessFact(error: unknown): string {
+    const message = (error as Error).message;
+    return error instanceof AuditSkillUnresolved ? choiceStopFact({ ...this.notStartedChoice(PR_PHASE_KEY), problem: message }, PR_PHASE_KEY) : message;
+  }
+
   private async allocateAudit(kind: AuditKind, continuation = false, withoutSkill = false): Promise<AuditActivity> {
-    const skill = withoutSkill ? undefined : await resolveAuditSkill({ kind, agent: this.auditsAgent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+    const skill = withoutSkill ? undefined : await this.auditsSkill(kind);
     this.activeCheck = "audit-allocation";
     const before = structuredClone(this.record);
     try {
@@ -7789,14 +7818,14 @@ export class Engine {
       try {
         const kind = await auditNext(this.admissionContext());
         if (kind !== "final_delivery") {
-          await resolveAuditSkill({ kind: kind === "continue_test" ? "test_audit" : kind, agent: this.auditsAgent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+          await this.auditsSkill(kind === "continue_test" ? "test_audit" : kind);
           // What allocation needs beyond the skill: a continuation's predecessor and a work snapshot, read but never saved.
           if (kind === "continue_test" && !continuablePredecessor({ record: this.record, stateDirectory: this.stateDirectory })) throw new Error("A test continuation requires its settled accepted predecessor.");
           await captureSnapshot({ ...this.admissionContext(), activity: { activityId: "readiness-check", sequence: 0, kind: kind === "continue_test" ? "test_audit" : kind, round: 0, continuationIndex: 0, createdAt: this.now().toISOString(), sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-readiness-check.json`, snapshots: [], attempts: [] }, now: this.now().toISOString() });
         }
       } catch (error) {
         if (this.stopping) return "still_stopped";
-        const checks: CheckResult[] = [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }];
+        const checks: CheckResult[] = [{ name: READINESS_CHECK, passed: false, facts: [this.readinessFact(error)] }];
         if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks, false); return "still_stopped"; }
       }
       return this.clearStop(phaseKey);
@@ -10099,6 +10128,9 @@ export class Engine {
 
 /** Model defaults' row names, as a stop names where a choice came from. */
 const ROW_NAMES = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits" } as const;
+
+/** An audit skill that doesn't resolve on the Audits choice's agent, carrying the resolver's message. */
+class AuditSkillUnresolved extends Error {}
 
 /**
  * A choice that can't be used, as its stop names it (AC-PICK-06): the choice, where it came from

@@ -456,13 +456,16 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     const view = engine ? inspectionSnapshot(engine) : cached(work)?.snapshot;
     const stop = view?.needsYou;
     const cwd = stop && view ? engine?.sessionFolder ?? expandHome(view.feature.multiRepository ? view.settings.workspaceFolder : view.settings.worktreePath) : null;
+    // With Kiln not running, a stop on an activity that hasn't started takes its current choice resolved now,
+    // so a Model defaults, tier or change made after Kiln stopped names the agent its fresh session runs on (AC-PICK-07).
+    const offline = !engine && stop && view && notStartedRow(work, view, stop.phaseId) ? offlineChoice(work, view, stop.phaseId, env).agentId : undefined;
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
       // With no session, the facts follow the activity's current choice (Kiln Phase Model Tiers AC-AGENTS-04).
-      session_id: null, provider_session_id: null, agent: (stop && engine ? engine.agentOf(stop.phaseId) : undefined) ?? view?.agents?.find(entry => entry.inUse)?.agentId ?? null,
+      session_id: null, provider_session_id: null, agent: (stop && engine ? engine.agentOf(stop.phaseId) : offline) ?? view?.agents?.find(entry => entry.inUse)?.agentId ?? null,
       phase_key: stop?.phaseId ?? null, working_directory: cwd, resumable: false, reason: "No saved session.", active_under_kiln: false,
       provider_history: { state: "unavailable", observed_at: null, reason: "No saved session." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null,
-      fresh_session_instructions: stop ? { command: stop.freshSessionCommand, prompt: stop.freshSessionPrompt } : null,
+      fresh_session_instructions: stop ? { command: offline && cwd ? (offline === "codex" ? codexCommand(cwd) : claudeCommand(cwd)) : stop.freshSessionCommand, prompt: stop.freshSessionPrompt } : null,
     } }, history.errors);
   }
   const session = selected.record; const cwd = session.workingDirectory ?? work.record.settings.worktreePath;
@@ -533,11 +536,8 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
  */
 function cachedChoiceMove(work: SavedWork, view: Snapshot | undefined, key: string, session: SessionRecord, env: NodeJS.ProcessEnv): AgentId | undefined {
   if (!view) return undefined;
-  // A saved snapshot that carries no rows says nothing about whether the activity has started, so it moves nothing.
-  const rows = [...(view.activities ?? []), ...(view.phases ?? [])];
-  const rowId = judgedPhase(work.record.plan ?? [], key)?.id ?? key;
-  const model = (rows.find(row => row.id === key) ?? rows.find(row => row.id === rowId))?.model;
-  if (model?.state !== "will_run_on") return undefined;
+  const model = notStartedRow(work, view, key);
+  if (!model) return undefined;
   const sessionAgent = session.agentId ?? "claude_code";
   const now = offlineChoice(work, view, key, env);
   // Another agent is a move even when the saved snapshot holds no model list to resolve its model against;
@@ -547,6 +547,17 @@ function cachedChoiceMove(work: SavedWork, view: Snapshot | undefined, key: stri
   if (!choice) return sessionAgent;
   const same = choice.agentId === sessionAgent && choice.model === session.model && (choice.effort ?? undefined) === (session.effort ?? undefined);
   return same ? undefined : choice.agentId;
+}
+
+/**
+ * The saved snapshot row's model for an activity that hasn't started, undefined otherwise. A
+ * saved snapshot that carries no rows says nothing about whether the activity has started.
+ */
+function notStartedRow(work: SavedWork, view: Snapshot, key: string) {
+  const rows = [...(view.activities ?? []), ...(view.phases ?? [])];
+  const rowId = judgedPhase(work.record.plan ?? [], key)?.id ?? key;
+  const model = (rows.find(row => row.id === key) ?? rows.find(row => row.id === rowId))?.model;
+  return model?.state === "will_run_on" ? model : undefined;
 }
 
 /**
@@ -562,7 +573,8 @@ function offlineChoice(work: SavedWork, view: Snapshot, key: string, env: NodeJS
   const prd = work.record.repositories.find(entry => entry.kind === "prd");
   const read = readPlanAt(expandHome(prd?.worktreePath ?? work.record.settings.worktreePath), work.record.prdDirectory);
   const plan = read.ok ? recordedPlan(read.plan) : work.record.plan ?? [];
-  const claudeCodeInstalled = view.agents?.find(entry => entry.agentId === "claude_code")?.installed ?? true;
+  // The snapshot lists every installed agent, so an absent Claude Code entry means it isn't installed; one saved before agents were listed ran Claude Code.
+  const claudeCodeInstalled = view.agents ? view.agents.some(entry => entry.agentId === "claude_code" && entry.installed) : true;
   const choice = notStartedChoice({ record: work.record, plan, defaultsPath: modelDefaultsPath(env), claudeCodeInstalled, lists, session: () => undefined }, key);
   return { ...choice, listed: !!lists[choice.agentId] };
 }

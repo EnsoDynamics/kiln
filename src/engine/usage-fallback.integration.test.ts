@@ -16,7 +16,10 @@ import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine, type EngineOptions } from "./engine.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
-import { buildSnapshot, type PhaseView } from "./snapshot.js";
+import { buildSnapshot, claudeCommand, codexCommand, type PhaseView } from "./snapshot.js";
+import { cacheSnapshot, handoffProjection, inspectionSnapshot } from "../control/projection.js";
+import { readWork } from "../control/private-state.js";
+import { stateRoot } from "../state/state-files.js";
 
 let harness: Harness | undefined;
 let codex: ReturnType<typeof codexWorkFixture> | undefined;
@@ -323,6 +326,66 @@ describe("a fallback whose launch check fails after the decision (AC-PICK-06, \"
   });
 });
 
+describe("a launch again on an activity that hasn't started, whose choice can't be used (AC-PICK-06, \"known before launch\")", () => {
+  /** Phase 1's first session ended before any conversation began, then Model defaults moved to a model Claude Code doesn't offer. */
+  async function stoppedThenUnusable() {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([{ noInit: true, actions: [] }, landingSession("src/one.txt")], claude);
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(h.engine.startedSessionOf("1")).toBeUndefined();
+    expect(h.engine.startAgainControl()).toMatchObject({ offered: true, available: true });
+    writeModelDefaults(h.env, { standard: { first: { agentId: "claude_code", family: "mythos", effort: "high" } } });
+    h.engine.modelChoicesChanged();
+    return h;
+  }
+  const MYTHOS_STOP = /^Phase 1 runs on Claude Code · Mythos · high from Model defaults \(Standard row\): .* Change the Standard row in Model defaults\.$/;
+
+  it("Start again stops on the selection stop naming the choice, and nothing launches until the choice is one the agent offers", async () => {
+    const h = await stoppedThenUnusable();
+    expect(await h.engine.startAgain()).toMatchObject({ ok: true }); await h.engine.settled();
+    expect(h.engine.record.phases["1"]!.stop).toMatchObject({ kind: "selection", checks: [{ name: "Agent selection and readiness", passed: false }] });
+    expect(stopFacts(h.engine)).toEqual([expect.stringMatching(MYTHOS_STOP)]);
+    expect(buildSnapshot(h.engine).needsYou).toMatchObject({ phaseId: "1" });
+    expect(h.engine.current).toBeUndefined();
+    expect(h.claudeCalls()).toHaveLength(1);
+    // Back on a model the agent offers, Check again resolves again and the run launches it.
+    writeModelDefaults(h.env, {});
+    h.engine.modelChoicesChanged();
+    expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true });
+    await waitFor(() => h.engine.isPhaseDone("1")); await h.engine.settled();
+    expect(h.engine.record.phases["1"]!.sessionIds).toHaveLength(2);
+  });
+
+  it("Send reply & continue stops on the selection stop naming the choice, and the reply launches nothing", async () => {
+    const claude = new SetClaude(weekly(20));
+    // Phase 1's session reported init, then exited before any response, and kept no transcript to reopen.
+    const h = await fixture([{ noTranscript: true, actions: [{ exit: 1 }] }, landingSession("src/one.txt")], claude);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(h.engine.startedSessionOf("1")).toBeUndefined();
+    expect(h.engine.carryOnControl()).toMatchObject({ offered: true });
+    writeModelDefaults(h.env, { standard: { first: { agentId: "claude_code", family: "mythos", effort: "high" } } });
+    h.engine.modelChoicesChanged();
+    expect(await h.engine.carryOn({ ...recoveryRequest(h.engine), note: "The import is merged now." })).toMatchObject({ ok: true });
+    await h.engine.settled();
+    expect(h.engine.record.phases["1"]!.stop).toMatchObject({ kind: "selection" });
+    expect(stopFacts(h.engine)).toEqual([expect.stringMatching(MYTHOS_STOP)]);
+    expect(h.engine.current).toBeUndefined();
+    expect(h.claudeCalls()).toHaveLength(1);
+  });
+
+  it("Start again through the controller settles its receipt as not started, with the stop naming the choice", async () => {
+    const h = await stoppedThenUnusable();
+    const id = "start-again-unusable";
+    h.engine.commands.submit({ command_id: id, execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: "start-again", inputs: {} }, "caller", true);
+    await h.engine.commands.settled(); await h.engine.settled();
+    expect(h.engine.commands.all().find(receipt => receipt.command_id === id)).toMatchObject({ state: "failed", outcome: "dispatch_not_started" });
+    expect(stopFacts(h.engine)).toEqual([expect.stringMatching(MYTHOS_STOP)]);
+    expect(h.claudeCalls()).toHaveLength(1);
+  });
+});
+
 /** Every fact of the stop's checks, as text. */
 function stopFacts(engine: Engine): string[] {
   return buildSnapshot(engine).needsYou!.checks.flatMap(check => check.facts.map(fact => typeof fact === "string" ? fact : (fact as { text: string }).text));
@@ -420,5 +483,57 @@ describe("an audit whose skill doesn't resolve on the agent the decision named (
     expect(await engine.skillForDecision(key, decided)).toBe(false);
     const facts = h.engine.record.phases[key]!.stop!.checks.flatMap(check => check.facts.map(fact => typeof fact === "string" ? fact : (fact as { text: string }).text));
     expect(facts).toEqual([expect.stringMatching(/^Codex metadata failed\..* This launch was on Codex · GPT-6\.1-Sol · high\. Chosen from: Model defaults\. Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings\.$/)]);
+  });
+});
+
+describe("`kiln handoff` with Kiln not running (AC-PICK-07)", () => {
+  const CODEX_FIRST = { standard: { first: { agentId: "codex" as const, family: "sol", effort: "high" }, fallback: { agentId: "claude_code" as const, family: "sonnet", effort: "high" } } };
+  const offline = async (h: Harness, selector?: string) => (await handoffProjection(readWork(stateRoot(h.env), h.stateDirectory), selector, h.env)).data as Record<string, unknown>;
+
+  it("gives a stop with no saved session the agent and fresh-session command of its current choice, resolved now", async () => {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([landingSession("src/one.txt")], claude, { withCodex: true });
+    // Phase 1 stops at a launch check before any session exists.
+    const engine = h.engine as unknown as { selectionIssue(key: string | undefined, ignorePending?: boolean): string | undefined };
+    const original = engine.selectionIssue.bind(h.engine);
+    let signedOut = false;
+    engine.selectionIssue = (key, ignorePending) => signedOut && key === "1" ? "Claude Code isn't signed in. Run claude auth login." : original(key, ignorePending);
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
+    signedOut = true;
+    await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(h.engine.latestSession("1")).toBeUndefined();
+    // Kiln saves its last snapshot and stops.
+    cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
+    const folder = h.engine.sessionFolder;
+    h.engine.close();
+    expect(await offline(h)).toMatchObject({ session_id: null, phase_key: "1", agent: "claude_code", fresh_session_instructions: { command: claudeCommand(folder) } });
+    // `kiln model-defaults` moves Phase 1 to Codex with no controller: the handoff names Codex and its command.
+    writeModelDefaults(h.env, CODEX_FIRST);
+    expect(await offline(h)).toMatchObject({ session_id: null, phase_key: "1", agent: "codex", fresh_session_instructions: { command: codexCommand(folder), prompt: expect.any(String) } });
+  });
+
+  it("on a computer without Claude Code, resolves a Claude Code first choice to its fallback, so an unchanged Codex choice isn't treated as moved", async () => {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([landingSession("src/one.txt")], claude, { withCodex: true });
+    // Codex refuses the first launch's settings, leaving a Codex session on Phase 1, which hasn't started.
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: codexUsage(10), mismatch: true });
+    writeModelDefaults(h.env, CODEX_FIRST);
+    h.engine.modelChoicesChanged();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    const session = h.engine.latestSession("1")!;
+    expect(session).toMatchObject({ agentId: "codex", effort: "high" });
+    expect(h.engine.startedSessionOf("1")).toBeUndefined();
+    // The snapshot Kiln saved last, on a computer where Claude Code isn't installed and nothing needs it: no Claude Code entry.
+    const snapshot = inspectionSnapshot(h.engine);
+    cacheSnapshot(h.engine, { ...snapshot, agents: snapshot.agents.filter(entry => entry.agentId !== "claude_code") });
+    const folder = h.engine.sessionFolder;
+    h.engine.close();
+    // Model defaults now puts the Standard row first on Claude Code, falling back to the same Codex choice the session ran on.
+    writeModelDefaults(h.env, { standard: { first: { agentId: "claude_code", family: "opus", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "high" } } });
+    const handoff = await offline(h, session.sessionId);
+    expect(handoff.reason).not.toEqual(expect.stringContaining("isn't reopened"));
+    expect(handoff).toMatchObject({ agent: "codex", fresh_session_instructions: { command: codexCommand(folder) } });
   });
 });

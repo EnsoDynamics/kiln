@@ -1,5 +1,7 @@
 # Phase 7: Complete the stops on a launch again and the offline handoff
 
+**Closed:** 2026-11-25
+
 **Added by delivery audit:** 2026-11-25, after every planned phase and Phases 5 and 6 closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "Launching" and "A choice that can't be used", "Snapshot" (what a stop on a not-started activity names), the `kiln handoff` part of the command-line section
