@@ -215,6 +215,23 @@ describe("a phase finished in an earlier execution (AC-PICK-02)", () => {
   });
 });
 
+describe("a phase that started on the fallback in an earlier execution (AC-FALLBACK-03)", () => {
+  it.each([["names it", true], ["is found by its first response, when the record names none", false]])("keeps its Fallback tag on the Ran on row, from the session that started it: the record %s", async (_, named) => {
+    const h = await fixture(allPhases());
+    const earlier = structuredClone(h.engine.record);
+    earlier.executionId = randomUUID(); earlier.startedAt = "2026-10-01T10:00:00.000Z"; earlier.completedAt = "2026-10-01T12:00:00.000Z";
+    const old = (id: string, at: string, launch?: SessionRecord["launch"]): SessionRecord => ({ schemaVersion: SCHEMA_VERSION, executionId: earlier.executionId!, agentId: "codex", sessionId: id, phaseId: "1", kind: "phase", createdAt: at, model: "gpt-6.1-sol", modelDisplayName: "GPT-6.1-Sol", effort: "high", firstResponseAt: at, ...(launch ? { launch } : {}), runs: [{ startedAt: at, endedAt: "2026-10-01T11:00:00.000Z", cause: "launch" }], sleeps: [], steps: [] });
+    // It started on its Codex fallback; a carry-on session, with no decision of its own, finished it.
+    writeSessionRecord(h.stateDirectory, old("old-start", "2026-10-01T10:01:00.000Z", { from: "changed", fallback: { used: true, limit: { agentId: "claude_code", label: "Weekly", percent: 97 }, threshold: 95, first: { agentId: "claude_code", model: "opus", modelName: "Opus 5.5", effort: "medium" } } }));
+    writeSessionRecord(h.stateDirectory, old("old-carry-on", "2026-10-01T10:40:00.000Z"));
+    earlier.phases = { "1": { sessionIds: ["old-start", "old-carry-on"], ...(named ? { startedSessionId: "old-start" } : {}), doneAt: "2026-10-01T11:00:00.000Z", finishedByPerson: false, repositories: {} } };
+    const archiveId = retainExecution(h.stateDirectory, earlier);
+    h.engine.record.continuation = { formatVersion: 1, journalIndexed: true, acceptances: [], executions: [{ executionId: earlier.executionId!, archiveId, startedAt: earlier.startedAt, completedAt: earlier.completedAt, branch: "feature/customer-returns", deliveries: [] }] };
+    h.engine.record.plan = h.engine.record.plan!.map(phase => phase.id === "1" ? { ...phase, closed: true } : phase);
+    expect(row(h.engine, "1").model).toMatchObject({ state: "ran_on", choice: { agent: "Codex", modelName: "GPT-6.1-Sol" }, from: "changed", fallback: { used: true, limit: { agent: "Claude Code", label: "Weekly", percent: 97 }, threshold: 95, first: { agent: "Claude Code" } } });
+  });
+});
+
 describe("planned rows and a choice found unusable during the run (AC-PICK-02, AC-PICK-06)", () => {
   it("shows planned Delivery audit, Test audit and pull request rows on the Audits choice while a phase runs", async () => {
     const h = await fixture([{ actions: [{ text: "Working." }, { waitForFile: "release-planned" }, { result: "Stopped." }] }]);

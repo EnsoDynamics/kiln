@@ -215,6 +215,7 @@ When every leaf is closed, Kiln finishes with a single pull request for the whol
   - Superseded in part by: AC-PRS-05 and AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (one pull request per repository that changed; every pull request, and commits by repository)
   - Superseded in part by: AC-LEFT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (a pull request found already open no longer completes without a session, so its row and terminal lines show the session that wrote its description)
   - Superseded in part by: AC-MERGE-05 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the pull-request session's row is no longer the last: the Merge row follows it)
+  - Superseded in part by: AC-FALLBACK-03 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (a pull-request session whose launch decision recorded the fallback's facts shows Details on its row, and its phase detail keeps those facts)
 
   | | The pull-request session |
   |---|---|

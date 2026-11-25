@@ -505,6 +505,24 @@ describe("hardening: a preflight's session across interruptions, limits and Cont
 });
 
 describe("hardening: Continue runs a preflight before the first added phase (AC-PREFLIGHT-01, AC-PREFLIGHT-08)", () => {
+  it("the Continue offer's planned Preflight row shows the choice the continuation will resolve (Kiln Phase Model Tiers AC-KEEP-02, KEEP-003)", async () => {
+    const f = await createCometContinuation(); harness = f.h; f.integrate();
+    const h = harness;
+    installPreflightSkill(h.sandbox.root);
+    h.engine.close();
+    h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await h.engine.checkCompletedPlan();
+    // A kept choice equal to Kiln's current default is dropped by the continuation, so the row shows the Audits row's choice.
+    h.engine.record.settings.modelChoices.kept = { agentId: "claude_code", model: "opus", effort: "medium" };
+    h.engine.modelChoicesChanged();
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: AUDITS_PLANNED } });
+    // Any other kept choice is carried on, Changed by you.
+    h.engine.record.settings.modelChoices.kept = { agentId: "claude_code", model: "sonnet", effort: "low" };
+    h.engine.modelChoicesChanged();
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ state: "will_run_on", from: "changed", choice: { model: "sonnet", modelName: "Sonnet 5.5", effort: "low" } });
+  });
+
   it("the fresh execution's first session is the preflight, triggered by Continue", async () => {
     const f = await createCometContinuation(); harness = f.h; f.integrate();
     const h = harness;

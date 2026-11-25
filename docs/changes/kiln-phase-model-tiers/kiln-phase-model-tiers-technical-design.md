@@ -114,9 +114,9 @@ What a row shows follows from whether the activity has a start and whether it ha
 |---|---|
 | No start, not finished, no session launching or running | The resolver's choice: plain before Start is pressed, **Will run on** in a run underway |
 | Start unknown (a history exists but can't be read) | **Will run on** and the resolver's choice; Change and Use the default unavailable, with the reopen check's reason |
-| No start, and one of its sessions is launching (its launch decision is saved and the launch hasn't ended) or its process runs | **Will run on** and that session's recorded agent, model and effort, with the **Fallback** tag when its saved decision used the fallback; Change unavailable, with the reason |
-| Has a start, not finished | **Running on** and what it started on |
-| Finished, and a session of it got a response | **Ran on** and the latest such session's recorded agent, model and effort |
+| No start, and one of its sessions is launching (its launch decision is saved and the launch hasn't ended) or its process runs | **Will run on** and that session's recorded agent, model and effort, with the **Fallback** tag when its saved decision used the fallback, and **Changed by you** and the note that Claude Code isn't installed when the decision says so; Change unavailable, with the reason |
+| Has a start, not finished | **Running on** and what it started on, with **Changed by you** when the decision of the session that started it says so |
+| Finished, and a session of it got a response | **Ran on** and the latest such session's recorded agent, model and effort, with the **Fallback** tag and **Changed by you** from the decision of the session that started it |
 | Finished, and no session of it got a response | **No model recorded** |
 
 When that launch ends with no response, the row returns to the resolver's choice: the next launch decides again (AC-FALLBACK-02).

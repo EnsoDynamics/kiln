@@ -1,5 +1,6 @@
 # Phase 8: Complete the row marks and the fallback facts
 
+**Closed:** 2026-11-25
 **Added by delivery audit:** 2026-11-25, after every planned phase and Phases 5 and 6 closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "When an Activity Starts" (the row table, "A phase finished in an earlier execution", "The planned Preflight row"), "Snapshot", "Data Models and Migration" (the `kept` test)

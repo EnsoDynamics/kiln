@@ -1346,9 +1346,13 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     else if (facts?.wait) row.state = "waiting";
     else if (state === "implementing" && engine.current?.phaseKey === PR_PHASE_KEY) row.state = "implementing";
     else if (state === "paused") row.state = "next";
+    const session = engine.latestSession(PR_PHASE_KEY);
+    if (session) row.outputLineCount = engine.outputLines(session).length;
     if (startedAt) {
       row.sessionStartedAt = startedAt;
       if (includeTiming) row.timing = timingFor(engine, [PR_PHASE_KEY], startedAt, facts?.doneAt)!;
+      // Its row has no Details (Kiln v1 AC-PR-05) unless its launch decision recorded the fallback's facts, which its phase detail keeps once it stops, waits or finishes (AC-FALLBACK-03).
+      if (session && engine.detailsFallback(PR_PHASE_KEY)) row.details = { ...sessionIdentity(session), from: startedAt, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.workingDirectoryOf(session)), branch: record.settings.featureBranch, sessionId: session.sessionId };
     }
     Object.assign(row, waivedFacts(engine, PR_PHASE_KEY, row.state === "done"));
     row.model = rowModel(engine, PR_PHASE_KEY, row.state === "done");
@@ -1861,7 +1865,7 @@ function preflightPlanned(engine: Engine, state: FeatureState, documents?: Docum
     const leaf = documents?.start?.startAt?.id ?? documents?.plan?.phases.find(phase => !phase.splitInto && !phase.closed)?.id;
     return { preflight: { planned: { before: leaf ?? "end", model } } };
   }
-  if (state === "complete") return { preflight: { planned: { before: "end", model } } };
+  if (state === "complete") return { preflight: { planned: { before: "end", model: engine.continuationPreflightModel() } } };
   const next = engine.preflightNextActivity(undefined);
   return { preflight: { planned: { before: next.key ?? "end", model } } };
 }

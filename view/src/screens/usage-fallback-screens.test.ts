@@ -96,6 +96,14 @@ describe("the phase detail keeps the fallback facts (AC-FALLBACK-03) and the sto
     expect(kept).not.toContain("started on the fallback");
   });
 
+  it("tells how a finished pull request session started on the fallback", () => {
+    const snapshot = runningSnapshot();
+    const phase = snapshot.phases.find(row => row.id === "1")!;
+    snapshot.phases.push({ id: "pr", kind: "final_delivery", title: "Pull request", file: "pull request session", state: "done", finishedByPerson: false, model: { state: "ran_on", choice: SOL, fallback: USED }, details: { ...phase.details!, fallback: USED } });
+    expect(text(detail(snapshot, "pr"))).toContain("This session started on the fallback");
+    expect(text(detail(snapshot, "pr"))).toContain("Claude Code's weekly limit was at 97%");
+  });
+
   it("shows the stopped session's Chosen from line", () => {
     const snapshot = needsYouCrashedSnapshot();
     const stopped = { ...snapshot, needsYou: { ...snapshot.needsYou!, choiceSource: "The fallback, from Model defaults' Fallback column. Change it in Model defaults." } } as Snapshot;

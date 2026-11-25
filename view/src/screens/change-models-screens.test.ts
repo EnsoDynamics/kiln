@@ -30,6 +30,19 @@ function withModels(rows: Record<string, ModelView>, settings: Partial<Snapshot[
 const rowText = (page: string, id: string) => text(/<li data-phase="([^"]+)"[\s\S]*?<\/li>/g.exec(page.slice(page.indexOf(`data-phase="${id}"`) - 10))?.[0] ?? "");
 
 describe("a row's Change (AC-PICK-03)", () => {
+  it("marks Changed by you on a row with no Change: a changed phase that started, and the pull request row on a kept choice (AC-PICK-03, AC-KEEP-02; mockup 3)", () => {
+    const snapshot = withModels({
+      "2b": { state: "running_on", choice: { agentId: "codex", agent: "Codex", model: "gpt-6.2-sol", modelName: "GPT-6.2-Sol", effort: "high" }, from: "changed", fallback: { used: true, limit: { agent: "Claude Code", label: "Weekly", percent: 97 }, threshold: 95 } },
+    });
+    snapshot.phases.push({ id: "pr", kind: "final_delivery", title: "Pull request", file: "pull request session", state: "planned", finishedByPerson: false, model: { state: "will_run_on", choice: choice("Sonnet 5.5", "max"), from: "changed" } });
+    const page = running(snapshot);
+    expect(rowText(page, "2b")).toContain("Running on Codex · GPT-6.2-Sol · high Fallback Changed by you");
+    expect(rowText(page, "2b")).not.toContain("Use the default");
+    expect(rowText(page, "2b")).not.toContain("Change ");
+    expect(rowText(page, "pr")).toContain("Will run on Claude Code · Sonnet 5.5 · max Changed by you");
+    expect(rowText(page, "pr")).not.toContain("Use the default");
+  });
+
   it("offers Change on a row that hasn't started, Changed by you with Use the default once changed, and neither once started", () => {
     const page = running(withModels({
       "2b": { state: "running_on", choice: choice("Opus 5.5", "medium") },

@@ -79,7 +79,8 @@ import { AgentInfo } from "../agents/metadata.js";
 import { AGENT_IDS, AGENT_NAMES, type AgentId, type CodexUsageRecovery, type RecordedPlanPhase } from "../state/records.js";
 import { modelDefaultsPath, readModelDefaults, type ModelChoice } from "../models/model-defaults.js";
 import { checkModelChoice } from "../models/model-defaults-edit.js";
-import { activityFallback, auditsChangePlace, choiceView, launchSource, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
+import { continuedModelChoices } from "../models/keep.js";
+import { activityFallback, auditsChangePlace, choiceView, launchMarks, launchSource, ranOnView, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
 import { firstResponseInSavedEvents } from "../models/start-line.js";
 import type { ActivityChoice, ModelList, ResolvedChoice } from "../models/resolver.js";
 import { choiceWords, decideLaunch, firstOverThreshold, limitWords, type DecisionChoice, type LaunchFallback, type UsageSide } from "../models/launch-decision.js";
@@ -1617,9 +1618,20 @@ export class Engine {
     const decided = this.decisions.get(key);
     if (decided && !state.finished && !state.liveSession && !this.startedSessionOf(key)) {
       const saved = decided.launch.fallback;
-      return { state: "will_run_on", choice: choiceView(decided.choice), ...(saved && (saved.used || state.current) ? { fallback: fallbackView(saved, decided.launch.from) } : {}) };
+      return { state: "will_run_on", choice: choiceView(decided.choice), ...launchMarks(decided.launch, true), ...(saved && (saved.used || state.current) ? { fallback: fallbackView(saved, decided.launch.from) } : {}) };
     }
     return modelView(this.modelContext, key, state);
+  }
+
+  /**
+   * The planned Preflight row on a finished run's Continue offer (Kiln Phase Model Tiers, "The
+   * planned Preflight row"): the choice the continuation will resolve, so a kept choice equal to
+   * Kiln's current default is dropped as the continuation drops it (AC-KEEP-02, KEEP-003).
+   */
+  continuationPreflightModel(): ModelView {
+    const context = this.modelContext;
+    const settings = { ...context.record.settings, modelChoices: continuedModelChoices(context.record.settings.modelChoices) };
+    return modelView({ ...context, record: { ...context.record, settings } }, PLANNED_PREFLIGHT_KEY, { finished: false });
   }
 
   /**
@@ -1645,8 +1657,12 @@ export class Engine {
           const sessions = entries.flatMap(([launched, facts]) => facts.sessionIds.map(id => { try { return readSessionRecord(this.stateDirectory, launched, id); } catch { return undefined; } })).filter((one): one is SessionRecord => !!one);
           for (const one of sessions) { const at = one.firstResponseAt ?? firstResponseInSavedEvents(this.stateDirectory, one); if (at) one.firstResponseAt = at; }
           const ran = sessions.filter(one => one.firstResponseAt).sort((a, b) => (a.runs.at(-1)?.startedAt ?? a.createdAt).localeCompare(b.runs.at(-1)?.startedAt ?? b.createdAt)).at(-1);
+          // The session that started the activity the latest one belongs to gives its Fallback tag (AC-FALLBACK-03).
+          const ranFacts = ran ? entries.find(([, facts]) => facts.sessionIds.includes(ran.sessionId))?.[1] : undefined;
+          const own = sessions.filter(one => ranFacts?.sessionIds.includes(one.sessionId));
+          const started = own.find(one => one.sessionId === ranFacts?.startedSessionId) ?? own.find(one => one.firstResponseAt);
           // A later execution's sessions decide over an earlier one's.
-          if (ran) models.set(phase.id, { state: "ran_on", choice: sessionChoice(ran) });
+          if (ran) models.set(phase.id, ranOnView(ran, started));
           else if (!models.has(phase.id)) models.set(phase.id, { state: "none_recorded" });
         }
       }

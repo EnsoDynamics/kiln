@@ -225,16 +225,34 @@ export function modelView(context: ModelContext, key: string, state: RowState): 
     const responded = (id: string) => context.firstResponse ? context.firstResponse(key, id) !== undefined : context.session(key, id)?.firstResponseAt !== undefined;
     const id = [...ids].reverse().find(responded);
     const ran = id === undefined ? undefined : context.session(key, id);
-    // The Fallback tag comes from the session that started it, which a later session may follow (AC-FALLBACK-03).
-    const started = ran ? startedSession(context, key) : undefined;
-    return ran ? { state: "ran_on", choice: sessionChoice(ran), ...rowFallback(started?.launch?.fallback?.used ? started : ran, false, true) } : { state: "none_recorded" };
+    return ran ? ranOnView(ran, startedSession(context, key)) : { state: "none_recorded" };
   }
   const started = startedSession(context, key);
-  if (started) return { state: "running_on", choice: sessionChoice(started), ...rowFallback(started, state.current, false) };
-  if (state.liveSession) return { state: "will_run_on", choice: sessionChoice(state.liveSession), ...rowFallback(state.liveSession, state.current, false) };
+  if (started) return { state: "running_on", choice: sessionChoice(started), ...launchMarks(started.launch, false), ...rowFallback(started, state.current, false) };
+  if (state.liveSession) return { state: "will_run_on", choice: sessionChoice(state.liveSession), ...launchMarks(state.liveSession.launch, true), ...rowFallback(state.liveSession, state.current, false) };
   const choice = notStartedChoice(context, key);
   const view = resolvedView(choice);
   return { state: "will_run_on", ...(view ? { choice: view } : {}), from: choice.from, ...(choice.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}), ...(choice.problem ? { problem: choice.problem } : {}) };
+}
+
+/**
+ * The marks a launched session's saved decision gives its row: Changed by you for a choice of the
+ * PRD's own (AC-PICK-03, AC-KEEP-02), from the launch until the row reads Ran on; and, while the
+ * launch is under way, the note that Claude Code isn't installed (AC-DEFAULT-04).
+ */
+export function launchMarks(launch: SessionRecord["launch"], launching: boolean): Pick<ModelView, "from" | "claudeCodeMissing"> {
+  if (!launch) return {};
+  return { from: launch.from, ...(launching && launch.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}) };
+}
+
+/**
+ * A finished activity's Ran on row: the latest session that got a response, with the Fallback tag
+ * and Changed by you from the session that started it, which a later session may follow
+ * (AC-FALLBACK-03, AC-PICK-03).
+ */
+export function ranOnView(ran: SessionRecord, started: SessionRecord | undefined): ModelView {
+  const starting = started ?? ran;
+  return { state: "ran_on", choice: sessionChoice(ran), ...launchMarks(starting.launch, false), ...rowFallback(starting.launch?.fallback?.used ? starting : ran, false, true) };
 }
 
 /** Whether a phase row has finished, as its row shows it. */

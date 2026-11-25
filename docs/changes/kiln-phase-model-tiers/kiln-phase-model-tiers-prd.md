@@ -151,6 +151,7 @@ A person with both agents can keep a run moving when one account is nearly used 
   A **counted limit** is any usage window the account reports, whenever it resets, except a window the agent reports as belonging to a model other than the one about to run.
 
 - [ ] **AC-FALLBACK-03 — An activity that started on the fallback says so.** Its row shows **Running on** and then **Ran on** with the fallback's agent, model and effort and a **Fallback** tag. While it is the current activity, its card says that it started on the fallback, which limit read what against which threshold when it began, what the first choice was, and that it finishes on the agent it started on. Its phase detail keeps those facts afterwards, and the terminal prints one line when an activity starts on the fallback.
+  - Replaces in part: AC-PR-05 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a pull request session whose launch decision recorded the fallback's facts shows Details on its row and its phase detail keeps those facts, where AC-PR-05's table gave its row no Details; the rest remains).
 
 - [ ] **AC-FALLBACK-04 — The next activity warns when it would launch on the fallback.** While AC-FALLBACK-02, applied to the latest readings, would launch the next activity on the fallback, that activity's row adds one line naming that fallback and saying it launches there only if that is still so when Kiln launches it (FALL-002).
 

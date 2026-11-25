@@ -225,6 +225,27 @@ it("removes resume actions for unavailable conversations while retaining the fre
   expect(readPrdRecord(h.stateDirectory)!.completedAt).toBeUndefined();
 });
 
+it("keeps the note that Claude Code isn't installed on a row while its launch is under way (Kiln Phase Model Tiers AC-DEFAULT-04)", async () => {
+  // Codex runs the turn and the model issues nothing, so Phase 1's session runs with no response yet.
+  await setup({ hang: true });
+  // Phase 1 is not changed for this PRD, so the Standard row's Claude Code first choice gives way to its Codex Fallback column choice.
+  // The Audits line names a choice the stand-in's Codex offers, as Start checks it too.
+  delete h.engine.record.settings.modelChoices.kept; h.engine.record.settings.modelChoices.audits = { agentId: "codex", model: "gpt-6.1-sol", effort: "high" }; h.engine.modelChoicesChanged();
+  // The row as it reads the moment the launch decision is saved, before its session exists.
+  const decisions = (h.engine as unknown as { decisions: Map<string, unknown> }).decisions;
+  let decided: unknown;
+  const unsubscribe = h.engine.onChange(() => { if (decided === undefined && decisions.has("1") && !h.engine.record.phases["1"]?.sessionIds.length) decided = buildSnapshot(h.engine).phases.find(row => row.id === "1")!.model; });
+  const starting = h.engine.start({ refinementConfirmed: true });
+  await waitFor(() => f.calls().some(call => call.method === "turn/start"));
+  unsubscribe();
+  expect(decided).toMatchObject({ state: "will_run_on", claudeCodeMissing: true, from: "model_defaults", choice: { agentId: "codex" } });
+  // Then while its session runs with no response yet.
+  expect(h.engine.startedSessionOf("1")).toBeUndefined();
+  const phase = buildSnapshot(h.engine).phases.find(row => row.id === "1")!;
+  expect(phase.model).toMatchObject({ state: "will_run_on", claudeCodeMissing: true, from: "model_defaults", choice: { agentId: "codex" } });
+  await h.engine.stop("sigint"); await starting.catch(() => undefined); await h.engine.settled();
+});
+
 it("interrupts a live Codex turn and checks before automatically resuming the same conversation", async () => {
   // The model issued an item, so the phase has started and keeps its conversation (Kiln Phase Model Tiers AC-PICK-04).
   await setup({ hang: true, itemFirst: true }); await h.engine.start({ refinementConfirmed: true });

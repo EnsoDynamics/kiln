@@ -6,7 +6,9 @@
 // reaches the audits and the pull request session; Model defaults are changed for every PRD, with
 // the same refusals the commands give; and a started or finished phase can't be changed.
 
-import { writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
@@ -302,5 +304,60 @@ describe("Model defaults for every PRD (AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBAC
     expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 200, body: { notice: "Kiln's defaults are restored, and the fallback is now off.", fallback: { enabled: false, threshold: 95 } } });
     writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 2 }));
     expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 409, body: { reason: expect.stringContaining("written by a newer Kiln; update Kiln"), canRestore: false } });
+  });
+});
+
+describe("Changed by you stays on a choice of the PRD's own wherever it runs (AC-PICK-03, AC-KEEP-02)", () => {
+  it("marks a changed phase from its saved launch decision, while its launch is under way, once it has started and after it ran", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "kiln-changed-marks-"));
+    try {
+      const launched = join(dir, "launched"); const release = join(dir, "release");
+      const h = await fixture([{ beforeInit: { touch: launched, waitForFile: release }, actions: [{ result: "I think this is done." }] } as ScenarioSession, landingSession("src/one.txt")]);
+      expect(await post("/api/model", { target: { phase: "1" }, choice: { agentId: "claude_code", model: "haiku", effort: "low" } })).toMatchObject({ status: 200 });
+      // The row as it reads the moment the launch decision is saved, before its session exists.
+      const decisions = (h.engine as unknown as { decisions: Map<string, unknown> }).decisions;
+      let decided: PhaseView["model"];
+      const unsubscribe = h.engine.onChange(() => { if (decided === undefined && decisions.has("1") && !h.engine.record.phases["1"]?.sessionIds.length) decided = row(h.engine, "1").model; });
+      const starting = h.engine.start({ refinementConfirmed: true });
+      await waitFor(() => existsSync(launched));
+      unsubscribe();
+      expect(decided).toMatchObject({ state: "will_run_on", choice: { modelName: "Haiku 5.5", effort: "low" }, from: "changed" });
+      // Its launch is under way, on its saved choice, with no response yet.
+      expect(row(h.engine, "1").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Haiku 5.5", effort: "low" }, from: "changed", change: { available: false } });
+      writeFileSync(release, "");
+      await starting; await h.engine.settled();
+      expect(h.engine.stoppedPhaseKey()).toBe("1");
+      expect(row(h.engine, "1").model).toMatchObject({ state: "running_on", choice: { modelName: "Haiku 5.5" }, from: "changed" });
+      expect(row(h.engine, "1").model?.change).toBeUndefined();
+      // Phase 1 resumes and lands: its Ran on row keeps the mark.
+      expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
+      await waitFor(() => h.engine.isPhaseDone("1"), 20000); await h.engine.settled();
+      expect(row(h.engine, "1").model).toMatchObject({ state: "ran_on", choice: { modelName: "Haiku 5.5" }, from: "changed" });
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("marks the Preflight row, before Start and once it ran, and the planned pull request row, that run on a kept choice", async () => {
+    const ready: ScenarioSession = { actions: [{ skill: "enso-method:build-preflight" }, { result: "Preflight: ready\n\n3 phases. The build runs to the end without stopping." }, { exit: 0 }] };
+    const h = await fixture([ready, { actions: [{ result: "I think this is done." }] }], true);
+    h.engine.record.settings.modelChoices.kept = { agentId: "claude_code", model: "sonnet", effort: "max" };
+    h.engine.modelChoicesChanged();
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { modelName: "Sonnet 5.5", effort: "max" }, from: "changed" });
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(launches(h)[0]).toEqual(["sonnet", "max"]);
+    expect(rows(h.engine).find(one => one.kind === "preflight")!.model).toMatchObject({ state: "ran_on", choice: { modelName: "Sonnet 5.5" }, from: "changed" });
+    expect(row(h.engine, "planned-pull-request").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Sonnet 5.5", effort: "max" }, from: "changed" });
+    expect(row(h.engine, "planned-pull-request").model?.change).toBeUndefined();
+  });
+
+  it("marks the allocated pull request row that ran on a kept choice", async () => {
+    const h = await fixture([landingSession("src/one.txt"), landingSession("src/two-b.txt"), landingSession("src/three.txt"), pullRequestSession()]);
+    h.engine.record.settings.modelChoices.kept = { agentId: "claude_code", model: "sonnet", effort: "max" };
+    h.engine.modelChoicesChanged();
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    await h.engine.settled();
+    expect(h.engine.record.completedAt).toBeDefined();
+    expect(launches(h).at(-1)).toEqual(["sonnet", "max"]);
+    expect(row(h.engine, "pr").model).toMatchObject({ state: "ran_on", choice: { modelName: "Sonnet 5.5" }, from: "changed" });
   });
 });

@@ -5,7 +5,7 @@
 // to the threshold on demand, and the session the decision names runs for real on the stand-ins.
 
 import { afterEach, describe, expect, it } from "vitest";
-import { createHarness, landingSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
+import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import { writeModelDefaults } from "../test-support/model-choices.js";
@@ -461,6 +461,38 @@ describe("a phase that started on the fallback and whose session split it (AC-FA
     expect(h.engine.startedSessionOf("1")).toMatchObject({ agentId: "claude_code", launch: { fallback: { used: true } } });
     // 1a is shown with Phase 1's facts, so its detail keeps what the session that started it decided.
     expect(row(h.engine, "1a").details?.fallback).toMatchObject({ used: true, threshold: 95, limit: { agent: "Codex", label: "ordinary usage blocked" }, first: { agent: "Codex" } });
+  });
+});
+
+describe("a pull request session that started on the fallback (AC-FALLBACK-03)", () => {
+  /** A run whose pull request session, first on Codex by the Audits row, starts on its Claude Code fallback because Codex's ordinary usage is blocked. */
+  async function fallbackPullRequest(pullRequest: ScenarioSession): Promise<Harness> {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([landingSession("src/one.txt"), landingSession("src/two-b.txt"), landingSession("src/three.txt"), pullRequest], claude, { withCodex: true });
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10, windowDurationMins: 300 } } } } });
+    writeModelDefaults(h.env, { audits: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "sonnet", effort: "high" } } }, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.startedSessionOf("pr")).toMatchObject({ agentId: "claude_code", launch: { fallback: { used: true } } });
+    return h;
+  }
+  const FACTS = { used: true, threshold: 95, limit: { agent: "Codex", label: "ordinary usage blocked" }, first: { agent: "Codex" } };
+
+  it("keeps the fallback facts in its phase detail once it stopped", async () => {
+    const h = await fallbackPullRequest({ actions: [{ result: "I couldn't open the pull request." }] });
+    expect(h.engine.stoppedPhaseKey()).toBe("pr");
+    const pr = row(h.engine, "pr");
+    expect(pr.model).toMatchObject({ state: "running_on", choice: { agent: "Claude Code" }, fallback: { used: true } });
+    expect(pr.details?.fallback).toMatchObject(FACTS);
+  });
+
+  it("keeps the fallback facts in its phase detail once it finished", async () => {
+    const h = await fallbackPullRequest(pullRequestSession());
+    expect(h.engine.record.completedAt).toBeDefined();
+    const pr = row(h.engine, "pr");
+    expect(pr.model).toMatchObject({ state: "ran_on", choice: { agent: "Claude Code" }, fallback: { used: true } });
+    expect(pr.details?.fallback).toMatchObject(FACTS);
   });
 });
 

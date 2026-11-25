@@ -3,7 +3,8 @@
   // on or ran on, with the note that Claude Code isn't installed (AC-DEFAULT-04) and a choice
   // that can't be used (AC-PICK-06). Where the row offers it, Change opens the agent, model and
   // effort choices, and a choice Changed by you offers Use the default (AC-PICK-03); a Delivery
-  // audit or Test audit row's change is this PRD's Audits choice (AC-OTHER-01).
+  // audit or Test audit row's change is this PRD's Audits choice (AC-OTHER-01). Every row whose
+  // choice is the PRD's own is marked Changed by you, Change or not (AC-PICK-03, AC-KEEP-02).
   import type { ModelView } from "../../../src/engine/activity-models.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { changeModel } from "../lib/api.js";
@@ -48,7 +49,7 @@
     {#if line}<span class="model" data-model-state={model.state}>{line}</span>{/if}
     {#if model.fallback?.used}<span class="tag" data-fallback>Fallback</span>{/if}
     {#if model.claudeCodeMissing}<span class="note">{CLAUDE_CODE_MISSING_NOTE}</span>{/if}
-    {#if offered && model.from === "changed"}<span class="changed">Changed by you{#if model.useDefault}{" · "}<button type="button" class="link" disabled={!connected || busy} onclick={() => save("default")}>Use the default</button>{/if}</span>{/if}
+    {#if model.from === "changed"}<span class="changed">Changed by you{#if offered && model.useDefault}{" · "}<button type="button" class="link" disabled={!connected || busy} onclick={() => save("default")}>Use the default</button>{/if}</span>{/if}
     {#if offered && !open}<button type="button" class="link" disabled={!connected || busy || !model.change!.available} onclick={start}>Change</button>{/if}
     {#if offered && open}<button type="button" class="link" disabled={!connected || busy} onclick={() => save({ agentId: draft.agentId, model: draft.value, ...(draft.effort ? { effort: draft.effort } : {}) })}>Done</button><button type="button" class="link quiet" disabled={busy} onclick={() => { open = false; reason = undefined; }}>Cancel</button>{/if}
     {#if offered && model.change && !model.change.available && model.change.reason}<span class="note">{model.change.reason}</span>{/if}
