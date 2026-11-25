@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 2,
+  "executionId": "95065ee9-8f1d-47ab-8a48-dce65dc38742",
+  "activityId": "33d0a7aa-4fa7-499f-b5e5-32d8b6f899d7",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Test-fix session for batch 2 of 3 of the Kiln Phase Model Tiers test audit. All four rows in the batch are now Adequate, confirmed by fresh reviewers, and every new test was seen to fail with its part broken: AC-PICK-02, AC-PICK-03, AC-PICK-04 and AC-PICK-07. One new AC-PICK-07 test found a real bug: Resume from a Pause now hold on a phase that never got a model response was refused as 'conversation missing'. It is fixed in engine.ts and reviewed, so implementation changed. Tests and fix are in d612e1e. Seven Weak rows remain, none high risk, all in batch 3 of test-audit.md. Unit, lint, typecheck, release and Codex proof checks pass. The integration run passed 2154 tests and failed 8, all outside this PRD's criteria: six also fail on the base commit, and two fail only under full-suite load.",
+  "completionPhases": [],
+  "needsYou": [
+    { "id": "item-5", "problem": "Eight integration tests outside this PRD's criteria fail on the feature branch at d612e1e. Six fail on the base commit 27030fa without this audit's changes: five in src/engine/preparation-execution.integration.test.ts and 'offers seven phases…' in src/engine/continuation-readiness.integration.test.ts. Two fail under the full run and pass alone: 'Exit Kiln on the finished page…' in src/kiln-run-exit.integration.test.ts and 'keeps launch authentication dated before independently delayed models and skills finish' in src/agents/metadata.integration.test.ts. The full integration run also now takes 1h41m, 25 minutes of it in preparation-execution.", "action": "Look into these failures in the continuation, preparation and agent-metadata code, which this PRD doesn't own, before the branch merges." }
+  ],
+  "settled": [],
+  "changedImplementation": true,
+  "raised": ["AC-PICK-04", "AC-PICK-02", "AC-PICK-03", "AC-PICK-07"]
+}
