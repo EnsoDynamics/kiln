@@ -32,6 +32,8 @@ function pathWithRealGitFirst(): string | undefined {
 
 const realGitPath = pathWithRealGitFirst();
 
+const runAlone = ['src/control/history-memory.integration.test.ts', 'src/billing/passive-boundary.integration.test.ts'];
+
 /**
  * The suite that runs real `git` against temporary repositories (a local bare repository
  * stands in for `origin`), and the built `kiln` command as a child process. It is separate
@@ -42,19 +44,24 @@ export default defineConfig({
   test: {
     environment: 'node',
     ...(realGitPath ? { env: { PATH: realGitPath } } : {}),
-    // Each file spawns Git, SDK readers, CLI peers and sometimes Chrome. Four
-    // simultaneous files pushed multi-round audit workflows past 60 seconds.
-    // Keep the same two-file budget on shared workstations and CI runners.
-    // Use --maxWorkers=1 for serial diagnosis.
-    maxWorkers: Math.min(2, availableParallelism()),
-    testTimeout: 60_000,
-    hookTimeout: 60_000,
-    // The 48 MiB child-heap proof must finish complete histories within the real
-    // five-second read deadline. Run it without competing integration processes;
-    // ordinary files still use the bounded parallel pool above.
+    // Each file spawns Git, SDK readers, CLI peers and sometimes Chrome, so budget about
+    // three cores for a file: two files at once on a four-core CI runner, six on an
+    // 18-core workstation. Use --maxWorkers=1 for serial diagnosis.
+    maxWorkers: Math.min(availableParallelism(), Math.max(2, Math.floor(availableParallelism() / 3))),
+    // With a 60-second limit, four files at once pushed multi-round audit workflows past
+    // it. The workstations this suite runs on are usually busy with other sessions' builds
+    // and suites too, and a test that only ran slowly costs a whole rerun when it is
+    // reported as a failure, so the limit is twice what the slowest tests need alone.
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
+    // Two files read real deadlines in the product, so they run one at a time, after the
+    // parallel pool has finished (Vitest runs a project with file parallelism off last):
+    // the 48 MiB child-heap proof must finish complete histories within the five-second
+    // read deadline, and the passive boundary's `claude --version` read has five seconds
+    // too, which the installed CLI misses while other files are spawning processes.
     projects: [
-      { extends: true, test: { name: 'history-memory', include: ['src/control/history-memory.integration.test.ts'], sequence: { groupOrder: 0 } } },
-      { extends: true, test: { name: 'integration', include: ['src/**/*.integration.test.ts'], exclude: ['src/control/history-memory.integration.test.ts'], sequence: { groupOrder: 1 } } },
+      { extends: true, test: { name: 'integration', include: ['src/**/*.integration.test.ts'], exclude: runAlone } },
+      { extends: true, test: { name: 'alone', include: runAlone, fileParallelism: false } },
     ],
   },
 });
