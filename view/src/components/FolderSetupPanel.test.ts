@@ -36,6 +36,16 @@ describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-K
     expect(text(html(snapshot))).toContain("Claude Code couldn’t list its models.");
   });
 
+  it("marks a limit at or above the fallback's threshold on the usage line, only with the fallback on (Kiln Phase Model Tiers AC-AGENTS-03)", () => {
+    const snapshot = withPanel({});
+    const account = claude(snapshot).account!;
+    claude(snapshot).account = { ...account, limits: account.limits.map((limit, index) => index === 0 ? { ...limit, overThreshold: true as const } : limit) };
+    snapshot.settings.models.fallback = { enabled: true, threshold: 10 };
+    expect(text(html(snapshot))).toMatch(/Used: 5-hour \d+% \(above your 10% threshold\)/);
+    snapshot.settings.models.fallback = { enabled: false, threshold: 10 };
+    expect(text(html(snapshot))).not.toContain("above your");
+  });
+
   it("shows the account's error, or its usage error, under the model line", () => {
     const failed = withPanel({});
     claude(failed).account = { ...claude(failed).account!, error: "Claude Code isn’t signed in." };

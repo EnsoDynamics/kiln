@@ -65,3 +65,16 @@ export function mergeAgent(snapshot: Snapshot): string {
   const row = (snapshot.activities ?? snapshot.phases).find((one) => one.kind === "merge");
   return row?.details?.agent ?? row?.model?.choice?.agent ?? inUseAgent(snapshot)?.agent ?? "Claude Code";
 }
+
+/**
+ * A stop's line naming where its choice came from and where to change it (Kiln Phase Model Tiers
+ * AC-PICK-06), from the snapshot's `choiceSource`; a started activity's says what it started on.
+ *
+ *   choiceSourceLine("Model defaults. Change it in Model defaults.")  // "Chosen from Model defaults. Change it in Model defaults."
+ *   choiceSourceLine("Started on Codex · GPT Sol, which it finishes on.")  // unchanged
+ */
+export function choiceSourceLine(source: string): string {
+  if (source.startsWith("Started on ")) return source;
+  // "The fallback, …" and "A change for this PRD." read on in lower case; "Model defaults" is a name.
+  return `Chosen from ${/^(The|A) /.test(source) ? source.charAt(0).toLowerCase() + source.slice(1) : source}`;
+}

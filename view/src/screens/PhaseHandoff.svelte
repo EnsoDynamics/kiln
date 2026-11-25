@@ -34,7 +34,7 @@
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import SwitchAccountCommand from "../components/SwitchAccountCommand.svelte";
-  import { activityAgent, billingHolds } from "../lib/agents.js";
+  import { activityAgent, billingHolds, choiceSourceLine } from "../lib/agents.js";
 
   let { snapshot, now, page }: { snapshot: Snapshot; now: number; page: PhaseRecoveryPage } = $props();
   const { config, router, connection } = viewContext();
@@ -157,6 +157,8 @@
   {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
   <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? `Pausing ${inSentence}.` : `Paused in ${inSentence}.` : restart?.headline ?? `${activity} needs your input.`}</h1>
   <p>{restart?.line ?? "Answer here, or talk it through in your terminal."}</p>
+  <!-- Where the stopped session's choice came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
+  {#if stop.choiceSource}<p data-choice-source>{choiceSourceLine(stop.choiceSource)}</p>{/if}
   {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
   {#if stop.launchFailure && stop.conversationMessage}
     <section class="card message" aria-label="Earlier conversation">

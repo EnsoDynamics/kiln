@@ -56,6 +56,7 @@ The preflight runs once, at the start, while the person is still there. A clean 
   - Replaces in part: AC-STOP-02, AC-STOP-03, AC-STOP-06 and AC-STOP-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a preflight stop shows the headline and items instead of how the session ended and the check rows; at a preflight stop, Check again runs a fresh preflight session in place of the done check, and the page offers no prompt for a fresh session, since a preflight run outside Kiln leaves its report unread)
   - Replaces in part: AC-STOPCHECK-01 in `docs/changes/kiln-checks-at-a-stop/kiln-checks-at-a-stop-prd.md` (a preflight stop shows no saved check rows)
   - Replaces in part: AC-ACT-02 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (at a preflight stop `kiln reply` and `kiln resume` are refused; the session is reopened in a terminal instead)
+  - Superseded in part by: AC-PICK-03 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (the page also offers the Models card's Change for phases that haven't started and for the Audits choice; "no other control" covers the stop's own session controls)
 
 - AC-PREFLIGHT-04 — retired before the build. It was a setting to turn the preflight off; there is none (AC-PREFLIGHT-01).
 - [ ] **AC-PREFLIGHT-05 — An older method is not an error.** When the run's agent finds no `build-preflight` skill in the installed method, the plan shows no Preflight row and the run starts as it does today.

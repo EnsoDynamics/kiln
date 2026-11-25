@@ -29,7 +29,7 @@
   import type { Settings } from "../../../src/state/records.js";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
   import AccountPanels from "../components/AccountPanels.svelte";
-  import { activityAgent, billingHolds, shortAgentName } from "../lib/agents.js";
+  import { activityAgent, billingHolds, choiceSourceLine, shortAgentName } from "../lib/agents.js";
   import CodeText from "../components/CodeText.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import Icon from "../components/Icon.svelte";
@@ -189,6 +189,7 @@
     <div class="headline">
       <h2>{restart?.headline ?? copy.headline}</h2>
       <p class="line">{restart?.line ?? copy.line}</p>
+      {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource)}</p>{/if}
     </div>
     {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
     {#if stop.catchUp && !snapshot.liveControl && (stop.startAgain || stop.carryOn)}<CatchUpOffer offer={stop.catchUp} where="stop" {activity} bind:ticked={catchUpTicked} disabled={busy || !!restartPending} />{/if}
@@ -233,6 +234,8 @@
             <h2>{copy.headline}</h2>
             <p class="line">{copy.line}</p>
           {/if}
+          <!-- Where the stopped session's choice came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
+          {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource)}</p>{/if}
         </div>
         <PersonItems {snapshot} />
         {#if failure}<p class="failure">{failure}</p>{/if}
@@ -401,8 +404,8 @@
     </div>
   </div>
   {/if}
-  <!-- Not at a preflight stop or a stop saved by Kiln 1.3.0, which offer only their own controls (The Preflight Stop; AC-STOP-04). -->
-  {#if !stop.preflight && stop.kind !== "loop_limit"}<ModelChanges {snapshot} phaseId={snapshot.needsYou?.phaseId} {connected} />{/if}
+  <!-- Every stop, a preflight stop and one saved by Kiln 1.3.0 included: their own-controls rules cover session controls, and kiln model works there (Kiln Phase Model Tiers AC-PICK-03). -->
+  <ModelChanges {snapshot} phaseId={snapshot.needsYou?.phaseId} {connected} />
   <!-- A merge or push stop on a finished run also offers Exit Kiln (Kiln After Delivery AC-EXIT-01). -->
   {#if snapshot.exit}<section class="exit-row" aria-label="Exit Kiln"><ExitKiln {snapshot} {connected} /></section>{/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />

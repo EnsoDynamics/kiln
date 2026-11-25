@@ -1,5 +1,7 @@
 # Phase 5: Complete the stop pages, offline handoff, fallback card and account marks
 
+**Closed:** 2026-11-24
+
 **Added by delivery audit:** 2026-11-24, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "Agents" (readiness, billing and the account panel), "The launch decision", "Snapshot", the `kiln handoff` part of the command-line section

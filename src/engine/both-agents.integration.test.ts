@@ -15,8 +15,9 @@ import { ScriptedClaude, signedIn, usageRow } from "../test-support/scripted-cla
 import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine, type EngineOptions } from "./engine.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
-import { buildSnapshot, codexCommand, type PhaseView } from "./snapshot.js";
-import { handoffProjection, statusProjection } from "../control/projection.js";
+import { buildSnapshot, claudeCommand, codexCommand, type PhaseView } from "./snapshot.js";
+import { writeFileSync } from "node:fs";
+import { cacheSnapshot, handoffProjection, inspectionSnapshot, statusProjection } from "../control/projection.js";
 import { releaseResult } from "../control/spool.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot } from "../state/state-files.js";
@@ -202,6 +203,9 @@ describe("an activity that hasn't started goes on in a new session (AC-PICK-07, 
     const refused = h.engine.latestSession("1")!;
     // Unchanged choice: the saved conversation may be reopened in a terminal, as today.
     expect(h.engine.reopenMatchesChoice("1", refused)).toBe(true);
+    // With Kiln not running, `kiln handoff` reads the snapshot Kiln saved last: the choice is unchanged, so it reopens.
+    const offline = async () => { cacheSnapshot(h.engine, inspectionSnapshot(h.engine)); return (await handoffProjection(readWork(stateRoot(h.env), h.stateDirectory), refused.sessionId, h.env)).data as Record<string, unknown>; };
+    expect((await offline()).resume_command).toEqual(expect.stringContaining(refused.sessionId));
     // Moved to Codex: the reopen command is withdrawn and the terminal gets Codex's fresh-session command (AC-PICK-07).
     writeModelDefaults(h.env, { standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "sonnet", effort: "high" } } });
     h.engine.modelChoicesChanged();
@@ -212,6 +216,12 @@ describe("an activity that hasn't started goes on in a new session (AC-PICK-07, 
     // `kiln handoff` says why it returns no reopen command, and gives the fresh-session instructions.
     const handoff = await handoffProjection(readWork(stateRoot(h.env), h.stateDirectory), refused.sessionId, h.env, h.engine);
     expect(handoff.data).toMatchObject({ resume_command: null, resume_argv: null, reason: expect.stringContaining("isn't reopened"), fresh_session_instructions: { command: expect.stringContaining("codex") } });
+    // And with Kiln not running, from the saved snapshot's row: no reopen command, the reason, and Codex's fresh-session command.
+    expect(await offline()).toMatchObject({ resume_command: null, resume_argv: null, resumable: false, reason: expect.stringContaining("isn't reopened. Start a fresh Codex session"), fresh_session_instructions: { command: codexCommand(h.engine.sessionFolder) } });
+    // A choice that can't be used (Model defaults that don't parse) isn't the one the session ran on either: offline, nothing is reopened.
+    writeFileSync(h.engine.modelDefaultsFile, "{ broken");
+    h.engine.modelChoicesChanged();
+    expect(await offline()).toMatchObject({ resume_command: null, resumable: false, fresh_session_instructions: { command: claudeCommand(h.engine.sessionFolder) } });
     // Back on its own choice, the person's reply goes to a new session, with the reply in its first message.
     writeModelDefaults(h.env, {});
     h.engine.modelChoicesChanged();
@@ -340,7 +350,9 @@ describe("Claude Code's billing approval follows why it is needed (AC-AGENTS-02)
     await h.engine.refreshAgents(); await h.engine.refreshBilling();
     await waitFor(() => !h.engine.billing.pending && !h.engine.readers.claude_code.state.pending);
     expect(h.engine.billing.view).toMatchObject({ canLaunch: false, next: { route: "metered" } });
-    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false });
+    // The reason names the agent, what to do and the activities that need it (AC-AGENTS-01's table).
+    const refused = await h.engine.start({ refinementConfirmed: true });
+    expect(refused).toMatchObject({ ok: false, reason: "Claude Code isn't ready: its billing setup isn't approved. Review and approve it, or change its source and recheck. Needed by Phase 1, Phase 2b, Phase 3, the delivery audit, the test audit and the pull request session." });
     expect(h.engine.record.startedAt).toBeUndefined();
     // Every activity on Codex, Claude Code only a fallback: the unapproved metered route leaves Start available, with the warning.
     writeModelDefaults(h.env, Object.fromEntries((["demanding", "standard", "mechanical", "audits"] as const).map(row => [row, { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "sonnet", effort: "high" } }])), { enabled: true, threshold: 95 });
@@ -373,5 +385,29 @@ describe("Claude Code's billing approval follows why it is needed (AC-AGENTS-02)
     expect(lastLaunch.codex).toMatchObject({ agentId: "codex" });
     expect(agentEntry(h.engine, "claude_code")!.billing?.lastLaunch).toMatchObject({ agentId: "claude_code" });
     expect(agentEntry(h.engine, "codex")!.billing?.lastLaunch).toMatchObject({ agentId: "codex" });
+  });
+});
+
+describe("a phase its session split (AC-AGENTS-03)", () => {
+  it("keeps the launched phase's agent for its first child in the needed agents and the in-use mark", async () => {
+    // Phase 1's session, on Claude Code, splits it and rates 1a mechanical, which Model defaults puts on Codex.
+    const child = "# Phase 1a: Intake form\n\n**Model tier:** mechanical - one form.\n\n## Acceptance criteria covered\nAC-RET-01\n\n## Phase dependencies\nNone.\n";
+    const split: ScenarioSession = { actions: [{ text: "Splitting Phase 1." }, { split: [{ id: "1a", slug: "intake-form", title: "Intake form" }, { id: "1b", slug: "intake-email", title: "Intake email" }] }, { write: { path: `${DIRECTORY}/phase-1a-intake-form.md`, content: child } }, { commit: "docs: split phase 1" }, { push: true }, { result: "Split Phase 1; 1a is next." }] };
+    const h = await fixture([split], { withCodex: true });
+    writeModelDefaults(h.env, CODEX_MECHANICAL);
+    h.engine.modelChoicesChanged();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.record.plan?.find(phase => phase.id === "1")?.splitInto).toEqual(["1a", "1b"]);
+    expect(h.engine.startedSessionOf("1")?.agentId ?? "claude_code").toBe("claude_code");
+    const snapshot = buildSnapshot(h.engine);
+    expect(snapshot.needsYou?.phaseId).toBe("1a");
+    // 1a's facts are Phase 1's: it needs Claude Code, which its session runs on, not its own tier's Codex.
+    const needs = h.engine.neededBy();
+    expect(needs.claude_code?.activities).toContain("Phase 1a");
+    expect(needs.codex?.activities ?? []).not.toContain("Phase 1a");
+    expect(needs.codex?.activities).toContain("Phase 2b");
+    expect(snapshot.agents.filter(entry => entry.inUse).map(entry => entry.agentId)).toEqual(["claude_code"]);
+    // Its session has started it, so its model can't be changed (AC-PICK-05).
+    expect(h.engine.modelChangeRefusal("1a", "Phase 1a")).toBe("Phase 1a has started, so it keeps the agent, model and effort it started on.");
   });
 });

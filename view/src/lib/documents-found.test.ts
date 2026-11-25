@@ -36,6 +36,11 @@ describe("the settings fields", () => {
   it("shows the account and its usage as one line each, or the not-signed-in line alone", () => {
     expect(accountLines(documentsFoundSnapshot().agents[0]!.account)).toEqual({ line: "alex@acme-shop.dev · Max plan", usage: "Used: 5-hour 13% · weekly 22% · Fable 0%" });
     expect(accountLines({ startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." })).toEqual({ error: "Not signed in to Claude Code. Run `claude auth login`." });
+    // With the fallback on, a limit at or above the threshold is marked as above it (Kiln Phase Model Tiers AC-AGENTS-03).
+    const account = documentsFoundSnapshot().agents[0]!.account!;
+    const marked = { ...account, limits: account.limits.map((limit, index) => index === 1 ? { ...limit, overThreshold: true as const } : limit) };
+    expect(accountLines(marked, 20).usage).toBe("Used: 5-hour 13% · weekly 22% (above your 20% threshold) · Fable 0%");
+    expect(accountLines(marked, undefined).usage).toBe("Used: 5-hour 13% · weekly 22% · Fable 0%");
     expect(accountLines({ email: "a@b.dev", startedAt: "", updatedAt: "", limits: [], limitsError: "Claude Code didn't report this plan's usage limits." })).toEqual({ line: "a@b.dev", usageError: "Claude Code didn't report this plan's usage limits." });
     expect(accountLines(undefined)).toEqual({});
   });

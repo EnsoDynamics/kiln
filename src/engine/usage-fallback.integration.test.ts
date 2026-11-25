@@ -108,6 +108,9 @@ describe("Kiln decides only as it launches an activity that hasn't started (AC-F
     expect(h.engine.stoppedPhaseKey()).toBe("1");
     // The stopped session's facts name what it started on, with no place to change it (AC-PICK-06).
     expect(buildSnapshot(h.engine).needsYou?.choiceSource).toBe("Started on Codex · GPT-6.1-Sol · high, which it finishes on.");
+    // A launch check failing for a later session of it (a carry-on or Start again) names what it started on, and no place to change it.
+    const launchStopFact = (h.engine as unknown as { launchStopFact(key: string, message: string): string }).launchStopFact.bind(h.engine);
+    expect(launchStopFact("1", "Codex isn't signed in. Run codex login.")).toBe("Codex isn't signed in. Run codex login. It started on Codex · GPT-6.1-Sol · high, which it finishes on.");
     claude.reading = weekly(40);
     await claude.refreshAccount();
     expect(h.engine.launchChoice("1")).toMatchObject({ agentId: "codex", model: "gpt-6.1-sol" });
@@ -274,3 +277,83 @@ describe("a Codex first choice falls back to Claude Code (AC-FALLBACK-02, AC-FAL
   });
 });
 
+describe("a fallback whose launch check fails after the decision (AC-PICK-06, \"found at launch\")", () => {
+  it("stops naming the check, that the choice was the fallback, where it came from and where to change it", async () => {
+    const claude = new SetClaude(weekly(97));
+    const h = await fixture([landingSession("src/one.txt")], claude, { withCodex: true });
+    writeModelDefaults(h.env, {}, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    // The decision's own checks pass; the check just before the launch then fails on the fallback's agent,
+    // as when Codex signs out between the two. Only that later check is replaced, and only for the decided fallback.
+    const engine = h.engine as unknown as { selectionIssue(key: string | undefined, ignorePending?: boolean): string | undefined; decisions: Map<string, { choice: { agentId: string } }> };
+    const original = engine.selectionIssue.bind(h.engine);
+    engine.selectionIssue = (key, ignorePending) => key !== undefined && engine.decisions.get(key)?.choice.agentId === "codex" ? "Codex isn't signed in. Run codex login." : original(key, ignorePending);
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(h.engine.latestSession("1")).toBeUndefined();
+    const facts = buildSnapshot(h.engine).needsYou!.checks.flatMap(check => check.facts.map(fact => typeof fact === "string" ? fact : (fact as { text: string }).text));
+    expect(facts).toContain("Codex isn't signed in. Run codex login. This launch was on Codex · GPT-6.1-Sol · high. Chosen from: The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    expect(codex!.calls().some(call => call.method === "thread/start")).toBe(false);
+    expect(h.claudeCalls()).toEqual([]);
+    // Check again launches again: the decision names the fallback once more and the same check fails, so the stop names it again.
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")).catch(() => undefined); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(stopFacts(h.engine)).toContain("Codex isn't signed in. Run codex login. This launch was on Codex · GPT-6.1-Sol · high. Chosen from: The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+  });
+
+  it("names the first choice at a launch on it, and at a Check again that still fails, its next launch's choice", async () => {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([landingSession("src/one.txt")], claude);
+    const engine = h.engine as unknown as { selectionIssue(key: string | undefined, ignorePending?: boolean): string | undefined };
+    const original = engine.selectionIssue.bind(h.engine);
+    // Claude Code signs out after the readiness checks Start ran; only the check at launch, and at Check again, sees it.
+    let signedOut = false;
+    engine.selectionIssue = (key, ignorePending) => signedOut && key === "1" ? "Claude Code isn't signed in. Run claude auth login." : original(key, ignorePending);
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
+    signedOut = true;
+    await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(stopFacts(h.engine)).toContain("Claude Code isn't signed in. Run claude auth login. This launch was on Claude Code · Opus 5.5 · medium. Chosen from: Model defaults. Change it in Model defaults, or on its row in the phase plan.");
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")).catch(() => undefined); await h.engine.settled();
+    expect(stopFacts(h.engine)).toContain("Claude Code isn't signed in. Run claude auth login. Its next launch runs on Claude Code · Opus 5.5 · medium. Chosen from: Model defaults. Change it in Model defaults, or on its row in the phase plan.");
+    expect(h.claudeCalls()).toEqual([]);
+  });
+});
+
+/** Every fact of the stop's checks, as text. */
+function stopFacts(engine: Engine): string[] {
+  return buildSnapshot(engine).needsYou!.checks.flatMap(check => check.facts.map(fact => typeof fact === "string" ? fact : (fact as { text: string }).text));
+}
+
+describe("an activity that started on the fallback and goes on in a new session (AC-FALLBACK-03)", () => {
+  const CODEX_FIRST = { standard: { first: { agentId: "codex" as const, family: "sol", effort: "high" }, fallback: { agentId: "claude_code" as const, family: "sonnet", effort: "high" } } };
+  const blocked = { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10, windowDurationMins: 300 } } } };
+
+  it("keeps the card's started-on-the-fallback facts while the carry-on runs, and the Fallback tag once it Ran on", async () => {
+    const claude = new SetClaude(weekly(20));
+    const stuck: ScenarioSession = { noTranscript: true, actions: [{ text: "Building." }, { write: { path: "src/partial.txt", content: "half\n" } }, { commit: "wip: intake" }, { result: "Blocked: waiting on the import." }] };
+    const landing = landingSession("src/one.txt");
+    const carryOn: ScenarioSession = { actions: [{ text: "Carrying on." }, { touch: "carry-on-running" }, { sleepFor: 1500 }, ...landing.actions] };
+    const h = await fixture([stuck, carryOn], claude, { withCodex: true });
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: blocked });
+    writeModelDefaults(h.env, CODEX_FIRST, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    const first = h.engine.startedSessionOf("1")!;
+    expect(first).toMatchObject({ agentId: "claude_code", launch: { fallback: { used: true } } });
+    expect(buildSnapshot(h.engine).needsYou?.carryOn).toMatchObject({ available: true });
+    const view = h.engine.controlView();
+    const answer = h.engine.commands.submit({ command_id: "carry-fallback", execution_id: h.engine.record.executionId!, status_token: view.token, action: "carry-on", inputs: { message: "The import is merged." } }, "caller", true);
+    expect(answer.ok, JSON.stringify(answer.errors)).toBe(true);
+    // While the carry-on session is current, its card still says the activity started on the fallback.
+    await waitFor(() => h.engine.current?.session !== undefined && h.engine.current.session.sessionId !== first.sessionId && h.engine.current.processRunning === true);
+    const second = h.engine.current!.session!;
+    expect(second.launch).toBeUndefined();
+    expect(buildSnapshot(h.engine).current?.fallback).toMatchObject({ used: true, threshold: 95, limit: { agent: "Codex", label: "ordinary usage blocked" }, first: { agent: "Codex" } });
+    await h.engine.commands.settled(); await h.engine.settled();
+    expect(h.engine.isPhaseDone("1")).toBe(true);
+    // Its Ran on row, read from the carry-on session, keeps the Fallback tag of the session that started it.
+    expect(row(h.engine, "1").model).toMatchObject({ state: "ran_on", choice: { agent: "Claude Code" }, fallback: { used: true, limit: { agent: "Codex", label: "ordinary usage blocked" } } });
+  });
+});

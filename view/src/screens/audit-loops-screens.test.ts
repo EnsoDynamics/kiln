@@ -75,9 +75,10 @@ describe("there is no loop stop (AC-STOP-04)", () => {
   const page = needsYou(storedLoopStopSnapshot());
   const words = text(page);
 
-  it("shows a loop_limit stop saved by Kiln 1.3.0 with its one line and Check again only", () => {
+  it("shows a loop_limit stop saved by Kiln 1.3.0 with its one line, Check again and only the Models card besides", () => {
     expect(words).toContain("Kiln no longer stops at a loop limit. Check again to go on.");
-    expect(buttons(page)).toEqual(["Check again"]);
+    // Beside the stop's own Check again, only the Models card's Change, which every stop offers (Kiln Phase Model Tiers AC-PICK-03).
+    expect(buttons(page)).toEqual(["Check again", "Change"]);
   });
 
   it("offers no Allow, Accept, Reply, Mark complete or loop settings", () => {

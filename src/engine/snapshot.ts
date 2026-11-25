@@ -48,7 +48,7 @@ import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
-import { fallbackView, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
+import { fallbackView, launchSource, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
 import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
 export const PR_TITLE = "Final pull request";
@@ -824,7 +824,7 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
     phaseId: judgedKeyFor(plan, current.phaseKey),
     ...tier,
     choice: sessionChoice(session),
-    ...optional("fallback", session.launch?.fallback ? fallbackView(session.launch.fallback, session.launch.from) : undefined),
+    ...optional("fallback", cardFallback(engine, current.phaseKey, session)),
     ...sessionIdentity(session),
     sessionId: session.sessionId,
     model: session.modelDisplayName,
@@ -837,6 +837,17 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
     repositories: current.commits,
     ...(current.processRunning && current.reader?.reviewerWorking ? { reviewerWorking: true } : {}),
   };
+}
+
+/**
+ * The card's fallback facts (AC-FALLBACK-03): an activity that started on the fallback says so in
+ * every later session too, from the session that started it; otherwise the current session's own
+ * decision, its "fallback wasn't used" note included.
+ */
+function cardFallback(engine: Engine, key: string, session: SessionRecord): FallbackView | undefined {
+  const started = engine.startedSessionOf(key);
+  const from = started?.launch?.fallback?.used ? started : session;
+  return from.launch?.fallback ? fallbackView(from.launch.fallback, from.launch.from) : undefined;
 }
 
 /** A started step's line on Phase detail (UI-010 item 11). */
@@ -1797,10 +1808,7 @@ function choiceSource(engine: Engine, key: string, session: SessionRecord): stri
   if (!engine.choiceActivity(key)) return undefined;
   const started = engine.startedSessionOf(key);
   if (started) return `Started on ${[AGENT_NAMES[started.agentId ?? "claude_code"], started.modelDisplayName, started.effort].filter(Boolean).join(" · ")}, which it finishes on.`;
-  const launch = session.launch;
-  if (!launch) return undefined;
-  if (launch.fallback?.used) return "The fallback, from Model defaults' Fallback column. Change it in Model defaults.";
-  return launch.from === "changed" ? "A change for this PRD. Change it on its row in the phase plan." : "Model defaults. Change it in Model defaults, or on its row in the phase plan.";
+  return session.launch ? launchSource(key, session.launch) : undefined;
 }
 
 /** A row's model (AC-PICK-02): a launching or running session's recorded choice shows until the activity starts. */

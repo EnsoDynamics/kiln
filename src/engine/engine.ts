@@ -79,7 +79,7 @@ import { AgentInfo } from "../agents/metadata.js";
 import { AGENT_IDS, AGENT_NAMES, type AgentId, type CodexUsageRecovery, type RecordedPlanPhase } from "../state/records.js";
 import { modelDefaultsPath, readModelDefaults, type ModelChoice } from "../models/model-defaults.js";
 import { checkModelChoice } from "../models/model-defaults-edit.js";
-import { activityFallback, choiceView, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
+import { activityFallback, auditsChangePlace, choiceView, launchSource, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, sessionChoice, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
 import { firstResponseInSavedEvents } from "../models/start-line.js";
 import type { ActivityChoice, ModelList, ResolvedChoice } from "../models/resolver.js";
 import { choiceWords, decideLaunch, firstOverThreshold, limitWords, type DecisionChoice, type LaunchFallback, type UsageSide } from "../models/launch-decision.js";
@@ -1931,7 +1931,7 @@ export class Engine {
 
   /** The agent the current activity runs on, else the next activity's, which the account panel marks in use (AC-AGENTS-03). */
   inUseAgent(currentKey: string | undefined): AgentId | undefined {
-    const key = currentKey ?? this.current?.phaseKey ?? this.unfinishedActivityKeys()[0]?.key;
+    const key = (currentKey === undefined ? undefined : this.factsKeyOf(currentKey)) ?? this.current?.phaseKey ?? this.unfinishedActivityKeys()[0]?.key;
     return key === undefined ? undefined : this.agentOf(key);
   }
 
@@ -1979,7 +1979,11 @@ export class Engine {
     const preflight = latestPreflight(this.record);
     if (preflight && !finished(preflightKeyOf(preflight))) rows.push({ key: preflightKeyOf(preflight), row: "the preflight" });
     else if (!this.record.completedAt && this.readers[this.auditsAgent].state.optionalSkills?.buildPreflight && (!this.isUnderway || this.record.preflight?.due)) rows.push({ key: PLANNED_PREFLIGHT_KEY, row: "the preflight" });
-    for (const phase of this.shownPlan) if (phase.splitInto === undefined && !phaseFinished(this.record, phase, phase.id)) rows.push({ key: phase.id, row: `Phase ${phase.id}` });
+    for (const phase of this.shownPlan) {
+      if (phase.splitInto !== undefined) continue;
+      const key = this.factsKeyOf(phase.id);
+      if (!phaseFinished(this.record, phase, key)) rows.push({ key, row: `Phase ${phase.id}` });
+    }
     for (const activity of this.record.completionAudits?.activities ?? []) {
       const key = auditKey(activity);
       if (!finished(key)) rows.push({ key, row: `the ${auditLabel(activity.kind).toLowerCase()}` });
@@ -1994,6 +1998,22 @@ export class Engine {
     const afterDelivery = openAfterDeliveryKey(this.record);
     if (afterDelivery !== undefined) rows.push({ key: afterDelivery, row: afterDelivery === MERGE_KEY ? "the merge session" : "the push session" });
     return rows;
+  }
+
+  /**
+   * The key that holds a plan row's facts. Kiln keys facts by the leaf it launched, so after a
+   * session splits its phase the launched phase holds the facts its first child is shown with,
+   * as the snapshot's rows read them ("Agents", AC-AGENTS-03).
+   *
+   *   engine.factsKeyOf("2a")  // "2", while Phase 2's session split it into 2a and 2b
+   *   engine.factsKeyOf("3")   // "3"
+   */
+  factsKeyOf(rowId: string): string {
+    if (this.record.phases[rowId]) return rowId;
+    for (const key of Object.keys(this.record.phases)) {
+      if (key !== PR_PHASE_KEY && !isPreflightKey(key) && this.judgedId(key) === rowId) return key;
+    }
+    return rowId;
   }
 
   /**
@@ -2101,11 +2121,13 @@ export class Engine {
    */
   modelChangeRefusal(key: string, label: string): string | undefined {
     const plan = this.shownPlan.find(phase => phase.id === key);
-    if (this.record.phases[key]?.doneAt || plan && phaseFinished(this.record, plan, key)) return `${label} is finished; there is nothing to change.`;
-    if (this.startedSessionOf(key)) return `${label} has started, so it keeps the agent, model and effort it started on.`;
-    const unknown = this.unknownStarts.get(key);
+    // A phase its session split is judged by the launched phase that holds its facts (AC-PICK-05).
+    const facts = this.factsKeyOf(key);
+    if (this.record.phases[facts]?.doneAt || plan && phaseFinished(this.record, plan, facts)) return `${label} is finished; there is nothing to change.`;
+    if (this.startedSessionOf(facts)) return `${label} has started, so it keeps the agent, model and effort it started on.`;
+    const unknown = this.unknownStarts.get(facts);
     if (unknown !== undefined) return `Kiln can't tell whether ${label.charAt(0).toLowerCase()}${label.slice(1)} has started, so its model can't be changed yet. ${unknown}`.trim();
-    if (this.sessionBusy(key)) return `${label} is launching or running on its saved choice. Change it once that session ends.`;
+    if (this.sessionBusy(facts)) return `${label} is launching or running on its saved choice. Change it once that session ends.`;
     return undefined;
   }
 
@@ -2440,7 +2462,8 @@ export class Engine {
         try { await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true); }
         catch { if (!claudeNeed.fallbackOnly) return refuse("Start could not be saved: billing state could not be saved. No AI work was authorized."); }
         // A readiness blocker read at launch (an outdated Claude Code, AC-AGENT-05) is the reason, not billing.
-        if (!claudeNeed.fallbackOnly && !this.billing.view.canLaunch) return refuse(this.billing.view.next?.readinessError ?? this.agentProblem("claude_code", true) ?? "Review and approve the detected billing setup, or change its source and recheck.");
+        // The reason names the agent, what to do and the activities that need it (AC-AGENTS-02 with AC-AGENTS-01's table).
+        if (!claudeNeed.fallbackOnly && !this.billing.view.canLaunch) return refuse(this.neededAgentReason("claude_code", this.billing.view.next?.readinessError ?? this.agentProblem("claude_code", true) ?? "its billing setup isn't approved. Review and approve it, or change its source and recheck.", claudeNeed));
       }
       const fields = await this.runFieldChecks();
       const preview = this.startPreview;
@@ -5837,7 +5860,7 @@ export class Engine {
     const selectionError = this.selectionIssue(nextKey, agentId === "claude_code");
     if (selectionError) {
       this.current = undefined;
-      this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [selectionError] }]);
+      this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.launchStopFact(nextKey, selectionError)] }]);
       return false;
     }
     if (agentId === "codex") {
@@ -5846,11 +5869,33 @@ export class Engine {
       catch (error) {
         if (this.stopping) return false;
         this.current = undefined;
-        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }]);
+        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.launchStopFact(nextKey, (error as Error).message)] }]);
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * A launch check that failed after the decision, as its stop names it (AC-PICK-06, "found at
+   * launch"): the check's message, then the choice the decision named, where it came from (the
+   * fallback included) and where to change it. Read before the stop drops the decision.
+   *
+   *   this.launchStopFact("2", "Codex is not signed in.")
+   *   // "Codex is not signed in. This launch was on Codex · GPT Sol · xhigh. Chosen from: The fallback, from Model defaults' Fallback column. Change it in Model defaults."
+   */
+  private launchStopFact(key: string, message: string): string {
+    if (!this.choiceActivity(key)) return message;
+    const named = (choice: { agentId?: AgentId | undefined; modelName?: string | undefined; modelDisplayName?: string | undefined; effort?: string | undefined }) => [AGENT_NAMES[choice.agentId ?? "claude_code"], choice.modelName ?? choice.modelDisplayName, choice.effort].filter(Boolean).join(" · ");
+    // A started activity names what it started on, and no place to change it ("A choice that can't be used").
+    const started = this.startedSessionOf(key);
+    if (started) return `${message} It started on ${named(started)}, which it finishes on.`;
+    const decided = this.decisions.get(key);
+    if (decided) return `${message} This launch was on ${named(decided.choice)}. Chosen from: ${launchSource(key, decided.launch)}`;
+    // At Check again no launch has decided yet: its next launch starts from its current choice.
+    const choice = this.notStartedChoice(key);
+    if (!choice.modelName || choice.problem) return message;
+    return `${message} Its next launch runs on ${named(choice)}. Chosen from: ${launchSource(key, { from: choice.from })}`;
   }
 
 
@@ -7783,7 +7828,7 @@ export class Engine {
       const issue = this.selectionIssue(phaseKey);
       const probe = !issue && stop.checks.some(check => check.name === "Codex launch settings") ? await this.probeCodexLaunch(phaseKey) : undefined;
       if (issue || probe) {
-        const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [issue] } : probe!;
+        const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [this.launchStopFact(phaseKey, issue)] } : probe!;
         // An activity that has not run: its own completion rows beside the launch check (waivers "Check Runs").
         // An activity that has not run: its own completion rows beside the launch check, still labelled Why Kiln stopped (AC-STOPCHECK-02, 03).
         const checks = [launch, ...(this.activityRan(phaseKey) ? [] : await this.completionRows(phaseKey))];
@@ -10063,7 +10108,7 @@ export function choiceStopFact(choice: ActivityChoice, key: string): string {
   const named = [AGENT_NAMES[choice.agentId], choice.modelName, choice.effort].filter(Boolean).join(" · ");
   const row = choice.row ? ROW_NAMES[choice.row] : undefined;
   const from = choice.from === "changed" ? "a change for this PRD" : `Model defaults${row ? ` (${row} row)` : ""}`;
-  const where = choice.from === "changed" ? "Change it on its row in the phase plan." : `Change ${row ? `the ${row} row` : "it"} in Model defaults.`;
+  const where = !who.startsWith("Phase") ? auditsChangePlace(choice.from) : choice.from === "changed" ? "Change it on its row in the phase plan." : `Change ${row ? `the ${row} row` : "it"} in Model defaults.`;
   return `${who} ${who.startsWith("Phase") ? "runs" : "run"} on ${named || "a choice"} from ${from}: ${choice.problem} ${where}`;
 }
 

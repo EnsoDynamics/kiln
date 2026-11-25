@@ -101,6 +101,35 @@ export interface ModelContext {
   firstResponse?(key: string, id: string): string | undefined;
 }
 
+/** Whether the activity is a phase, whose own row offers Change; every other activity runs on the Audits choice (AC-OTHER-01). */
+export function isPhaseActivity(key: string): boolean { return isPhaseKey(key) && key !== PR_PHASE_KEY; }
+
+/**
+ * Where a person changes the Audits choice that the preflight, the audits and the pull request
+ * session run on (AC-PICK-06 with AC-OTHER-01): neither the Preflight row nor the pull request row
+ * offers Change, so the Audits line, or Model defaults' Audits row for a Model defaults choice.
+ *
+ *   auditsChangePlace("changed")         // "Change it on the Audits line, in Documents found's delivery panel or the run's settings."
+ *   auditsChangePlace("model_defaults")  // "Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings."
+ */
+export function auditsChangePlace(from: ChoiceSource): string {
+  return from === "changed"
+    ? "Change it on the Audits line, in Documents found's delivery panel or the run's settings."
+    : "Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.";
+}
+
+/**
+ * Where a launch's choice came from and where to change it (AC-PICK-06): the fallback, a change
+ * for this PRD, or Model defaults, from the decision saved for the launch.
+ *
+ *   launchSource("2", { from: "changed" })  // "A change for this PRD. Change it on its row in the phase plan."
+ */
+export function launchSource(key: string, launch: Pick<NonNullable<SessionRecord["launch"]>, "from" | "fallback">): string {
+  if (launch.fallback?.used) return "The fallback, from Model defaults' Fallback column. Change it in Model defaults.";
+  if (!isPhaseActivity(key)) return launch.from === "changed" ? `A change for this PRD. ${auditsChangePlace("changed")}` : `Model defaults. ${auditsChangePlace("model_defaults")}`;
+  return launch.from === "changed" ? "A change for this PRD. Change it on its row in the phase plan." : "Model defaults. Change it in Model defaults, or on its row in the phase plan.";
+}
+
 /** A phase's tag: its tier line's tier and reason, or Not rated (AC-TIER-01). */
 export function tierView(phase: Pick<RecordedPlanPhase, "modelTier"> | undefined): TierView {
   const tier = phase?.modelTier;
@@ -196,7 +225,9 @@ export function modelView(context: ModelContext, key: string, state: RowState): 
     const responded = (id: string) => context.firstResponse ? context.firstResponse(key, id) !== undefined : context.session(key, id)?.firstResponseAt !== undefined;
     const id = [...ids].reverse().find(responded);
     const ran = id === undefined ? undefined : context.session(key, id);
-    return ran ? { state: "ran_on", choice: sessionChoice(ran), ...rowFallback(ran, false, true) } : { state: "none_recorded" };
+    // The Fallback tag comes from the session that started it, which a later session may follow (AC-FALLBACK-03).
+    const started = ran ? startedSession(context, key) : undefined;
+    return ran ? { state: "ran_on", choice: sessionChoice(ran), ...rowFallback(started?.launch?.fallback?.used ? started : ran, false, true) } : { state: "none_recorded" };
   }
   const started = startedSession(context, key);
   if (started) return { state: "running_on", choice: sessionChoice(started), ...rowFallback(started, state.current, false) };

@@ -173,10 +173,23 @@ export function agentsHoldStart(snapshot: Snapshot): string | undefined {
   const pending = agents.find((agent) => agent.pending || agent.billing?.pending);
   if (pending) return pending.agentId === "codex" ? "Checking Codex information…" : pending.billing?.pending ? "Checking Claude settings…" : `Reading ${pending.agent} information…`;
   const claude = agents.find((agent) => agent.agentId === "claude_code" && !agent.neededBy.fallbackOnly);
-  if (claude?.billing && !claude.billing.canLaunch) return claude.billing.next?.readinessError ?? "Review billing before starting.";
+  if (claude?.billing && !claude.billing.canLaunch) return billingHoldReason(claude.billing.next?.readinessError ?? (claude.readinessErrors?.length ? claude.readinessErrors.join(" ") : undefined), claude.neededBy.activities);
   // Names the agent, what to do and the activities that need it, or a choice its agent doesn't offer (AC-PICK-06).
   return snapshot.settings.models.problem;
 }
+
+/**
+ * Start's reason for a missing Claude Code billing approval (AC-AGENTS-02 with AC-AGENTS-01's
+ * table): the agent, what to do, and the activities that need it. Kept word for word with the
+ * engine's refusal.
+ *
+ *   billingHoldReason(undefined, ["Phase 1", "the pull request session"])
+ *   // "Claude Code isn't ready: its billing setup isn't approved. Review and approve it, or change its source and recheck. Needed by Phase 1 and the pull request session."
+ */
+export function billingHoldReason(readinessError: string | undefined, activities: string[]): string {
+  return `Claude Code isn't ready: ${readinessError ?? BILLING_NOT_APPROVED} Needed by ${joinAnd(activities)}.`;
+}
+export const BILLING_NOT_APPROVED = "its billing setup isn't approved. Review and approve it, or change its source and recheck.";
 
 const FIELD_LABELS: Record<string, string> = { workspaceFolder: "Workspace folder", worktreePath: "Worktree", featureBranch: "Feature branch", baseBranch: "Base branch", model: "Model" };
 
@@ -193,14 +206,20 @@ function heldBy(snapshot: Snapshot): { field: string; message: string }[] {
   return [...fields, ...rows];
 }
 
-/** Documents found's account lines under Agent: the email and plan, then the usage line. */
-export function accountLines(account: AgentView["account"]): { line?: string; usage?: string; error?: string; usageError?: string } {
+/**
+ * Documents found's account lines under Agent: the email and plan, then the usage line. With the
+ * fallback on, `threshold` is its threshold, and a limit at or above it is marked (AC-AGENTS-03).
+ *
+ *   accountLines(account, 90)  // { usage: "Used: 5-hour 92% (above your 90% threshold) · Weekly 40%", ... }
+ */
+export function accountLines(account: AgentView["account"], threshold?: number): { line?: string; usage?: string; error?: string; usageError?: string } {
   if (account === undefined) return {};
   if (account.error !== undefined) return { error: account.error };
   const line = account.agentId === "codex"
     ? `${account.email ?? "Account identity unavailable"} · ${account.plan ?? "Plan unavailable"}`
     : [account.email, account.plan].filter((part) => part !== undefined).join(" · ") || undefined;
-  const parts = account.limits.map((limit) => `${limit.shortLabel} ${limit.percent === undefined ? "unknown" : `${limit.percent}%`}`);
+  const above = (limit: NonNullable<AgentView["account"]>["limits"][number]) => (threshold !== undefined && limit.overThreshold ? ` (above your ${threshold}% threshold)` : "");
+  const parts = account.limits.map((limit) => `${limit.shortLabel} ${limit.percent === undefined ? "unknown" : `${limit.percent}%`}${above(limit)}`);
   if (fiveHourNotReported(account)) parts.push(FIVE_HOUR_NOT_REPORTED);
   const usage = parts.length === 0 ? undefined : `Used: ${parts.join(" · ")}`;
   return { ...(line ? { line } : {}), ...(usage ? { usage } : {}), ...(account.limitsError ? { usageError: account.limitsError } : {}) };

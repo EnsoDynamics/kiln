@@ -6,14 +6,18 @@ import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { FallbackView, ModelView } from "../../../src/engine/activity-models.js";
 import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
-import { needsYouCrashedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
+import { handBackSnapshot, needsYouCrashedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import { fallbackNotUsedNote, fallbackStory, forecastLine, limitPhrase } from "../lib/models.js";
+import NeedsYou from "./NeedsYou.svelte";
 import PhaseDetail from "./PhaseDetail.svelte";
+import PhaseHandoff from "./PhaseHandoff.svelte";
 import Running from "./Running.svelte";
 
 const strip = (markup: string) => markup.replace(/<!--[\s\S]*?-->/g, "");
 const text = (markup: string) => markup.replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&#39;/g, "'").replace(/\s+/g, " ").trim();
 const detail = (snapshot: Snapshot, phaseId: string) => strip(render(PhaseDetail, { props: { snapshot, phaseId, connected: true, now: RUNNING_NOW, lastSeenAt: undefined } }).body);
+const needsYou = (snapshot: Snapshot) => strip(render(NeedsYou, { props: { snapshot, now: RUNNING_NOW } }).body);
+const handoff = (snapshot: Snapshot) => strip(render(PhaseHandoff, { props: { snapshot, now: RUNNING_NOW, page: { key: snapshot.needsYou!.phaseId, draft: "", choice: false, unsent: false } } }).body);
 const running = (snapshot: Snapshot) => strip(render(Running, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: RUNNING_NOW } }).body);
 
 const choice = (agent: "Claude Code" | "Codex", modelName: string, effort?: string) => ({ agentId: agent === "Codex" ? "codex" as const : "claude_code" as const, agent, model: modelName.toLowerCase(), modelName, ...(effort ? { effort } : {}) });
@@ -96,6 +100,21 @@ describe("the phase detail keeps the fallback facts (AC-FALLBACK-03) and the sto
     const snapshot = needsYouCrashedSnapshot();
     const stopped = { ...snapshot, needsYou: { ...snapshot.needsYou!, choiceSource: "The fallback, from Model defaults' Fallback column. Change it in Model defaults." } } as Snapshot;
     expect(text(detail(stopped, stopped.needsYou!.phaseId))).toContain("Chosen from The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+  });
+
+  it("names on Needs you and the stopped-phase page where the stopped session's choice came from and where to change it", () => {
+    const snapshot = needsYouCrashedSnapshot();
+    const stoppedOn = (choiceSource: string) => ({ ...snapshot, needsYou: { ...snapshot.needsYou!, choiceSource } } as Snapshot);
+    const fallback = stoppedOn("The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    expect(text(needsYou(fallback))).toContain("Chosen from the fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    const handBack = handBackSnapshot();
+    expect(text(handoff({ ...handBack, needsYou: { ...handBack.needsYou!, choiceSource: "The fallback, from Model defaults' Fallback column. Change it in Model defaults." } } as Snapshot))).toContain("Chosen from the fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    const defaults = stoppedOn("Model defaults. Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.");
+    expect(text(needsYou(defaults))).toContain("Chosen from Model defaults. Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.");
+    expect(text(needsYou(stoppedOn("A change for this PRD. Change it on its row in the phase plan.")))).toContain("Chosen from a change for this PRD. Change it on its row in the phase plan.");
+    // A started activity's stop names what it started on, with no place to change it.
+    expect(text(needsYou(stoppedOn("Started on Codex · GPT-6.2-Sol · high, which it finishes on.")))).toContain("Started on Codex · GPT-6.2-Sol · high, which it finishes on.");
+    expect(text(needsYou(snapshot))).not.toContain("Chosen from");
   });
 });
 

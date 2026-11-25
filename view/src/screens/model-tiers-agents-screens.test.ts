@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { BillingView } from "../../../src/billing/authority.js";
 import type { AgentView, Snapshot } from "../../../src/engine/snapshot.js";
 import { claudeAgent, documentsFoundSnapshot, needsYouMessageSnapshot, RUNNING_NOW, runningSnapshot, waitingSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { startState } from "../lib/documents-found.js";
+import { joinAnd, startState } from "../lib/documents-found.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 import NeedsYou from "./NeedsYou.svelte";
 import Running from "./Running.svelte";
@@ -76,7 +76,24 @@ describe("Documents found with two agents (AC-AGENTS-01, AC-AGENTS-02)", () => {
   it("holds Start while any needed agent is still being read, and while Claude's billing can't launch for an activity", () => {
     expect(startState(twoAgents({}, { pending: true }), true, true)).toEqual({ enabled: false, note: "Checking Codex information…" });
     const held = twoAgents({ billing: { ...CLAUDE_BILLING, canLaunch: false, next: { ...CLAUDE_BILLING.next!, readinessError: "Approve API billing first." } } });
-    expect(startState(held, true, true)).toEqual({ enabled: false, note: "Approve API billing first." });
+    // The reason names the agent, what to do and the activities that need it (AC-AGENTS-02 with AC-AGENTS-01's table).
+    expect(startState(held, true, true)).toEqual({ enabled: false, note: `Claude Code isn't ready: Approve API billing first. Needed by ${joinAnd(held.agents[0]!.neededBy.activities)}.` });
+    expect(held.agents[0]!.neededBy.activities.length).toBeGreaterThan(0);
+    const unapproved = twoAgents({ billing: { ...CLAUDE_BILLING, canLaunch: false } });
+    // With no billing message, an agent readiness problem is the reason, as Start's refusal gives it.
+    const outdated = twoAgents({ billing: { ...CLAUDE_BILLING, canLaunch: false, next: { ...CLAUDE_BILLING.next!, readinessError: undefined } }, readinessErrors: ["Claude Code 2.0 is older than the 2.1 Kiln needs."] });
+    expect(startState(outdated, true, true).note).toBe(`Claude Code isn't ready: Claude Code 2.0 is older than the 2.1 Kiln needs. Needed by ${joinAnd(outdated.agents[0]!.neededBy.activities)}.`);
+    expect(startState(unapproved, true, true).note).toBe(`Claude Code isn't ready: its billing setup isn't approved. Review and approve it, or change its source and recheck. Needed by ${joinAnd(unapproved.agents[0]!.neededBy.activities)}.`);
+  });
+
+  it("marks a Claude Code limit at or above the fallback's threshold before Start (AC-AGENTS-03)", () => {
+    const snapshot = twoAgents();
+    const account = snapshot.agents[0]!.account!;
+    snapshot.agents[0]!.account = { ...account, limits: account.limits.map((limit, index) => index === 0 ? { ...limit, overThreshold: true as const } : limit) };
+    snapshot.settings.models.fallback = { enabled: true, threshold: 10 };
+    expect(text(documentsFound(snapshot))).toMatch(/Used: 5-hour \d+% \(above your 10% threshold\)/);
+    snapshot.settings.models.fallback = { enabled: false, threshold: 10 };
+    expect(text(documentsFound(snapshot))).not.toContain("above your");
   });
 
   it("keeps Start available with the fallback's warning when only a fallback's agent isn't ready", () => {

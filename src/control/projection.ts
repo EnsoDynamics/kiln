@@ -1,4 +1,5 @@
-import { AGENT_NAMES } from "../state/records.js";
+import { AGENT_NAMES, type AgentId } from "../state/records.js";
+import { judgedPhase } from "../engine/plan-reading.js";
 import { activityKeyKind } from "../state/activity-keys.js";
 import { auditSentenceStart, recordedAuditName } from "../audit/audit-names.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
@@ -497,15 +498,16 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     reason = !engine ? "Controller disconnected; reconnect to establish safe terminal release." : hold?.reason ?? reason;
   }
   // An activity that hasn't started reopens a saved conversation only while its current choice is the one that session ran on (Kiln Phase Model Tiers AC-PICK-07).
-  const choiceMoved = !!engine && !engine.reopenMatchesChoice(selected.phase, session);
-  if (choiceMoved && instructions.fresh_session_instructions) {
+  // With Kiln not running, the snapshot Kiln saved last says what the current choice is.
+  const movedTo = engine ? (engine.reopenMatchesChoice(selected.phase, session) ? undefined : engine.agentOf(selected.phase)) : cachedChoiceMove(work, view, selected.phase, session);
+  const choiceMoved = movedTo !== undefined;
+  if (movedTo && instructions.fresh_session_instructions) {
     // The fresh session runs on the activity's current choice, so its command names that agent.
-    const nextAgent = engine!.agentOf(selected.phase);
-    instructions.fresh_session_instructions = { ...instructions.fresh_session_instructions, command: nextAgent === "codex" ? codexCommand(cwd) : claudeCommand(cwd) };
+    instructions.fresh_session_instructions = { ...instructions.fresh_session_instructions, command: movedTo === "codex" ? codexCommand(cwd) : claudeCommand(cwd) };
   }
-  if (available && choiceMoved) {
+  if (available && movedTo) {
     available = false;
-    reason = `This activity hasn't started, and its model choice is no longer the one this conversation ran on, so it isn't reopened. Start a fresh ${AGENT_NAMES[engine.agentOf(selected.phase)]} session with the instructions below.`;
+    reason = `This activity hasn't started, and its model choice is no longer the one this conversation ran on, so it isn't reopened. Start a fresh ${AGENT_NAMES[movedTo]} session with the instructions below.`;
   }
   const argv = session.agentId === "codex" ? ["codex", "resume", provider!, "--model", session.model, ...(session.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(session.effort)}`] : [])] : ["claude", "--resume", provider!];
   return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { session_id: session.sessionId, provider_session_id: provider ?? null, agent: session.agentId ?? "claude_code", phase_key: selected.phase,
@@ -516,6 +518,27 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, instructions_availability: { state: instructionReason ? "unavailable" : "available", reason: instructionReason, continuation: instructions.continuation_prompt ? "available" : instructionsRecorded ? "not_required" : "unavailable" }, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: requiresRelease && !available && !heldFresh && !choiceMoved ? null : instructions.fresh_session_instructions } }, [...history.errors, ...(instructionReason ? [errorFact("state_unavailable", instructionReason)] : []), ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
   } finally { history.dispose(); }
 }
+/**
+ * With Kiln not running (AC-PICK-07): the agent of the activity's current choice when the snapshot
+ * Kiln saved last shows that choice moved off the one this session ran on, read from the
+ * activity's row while it hasn't started. Undefined while they match, or once it has started.
+ *
+ *   cachedChoiceMove(work, view, "2", codexSession)  // "claude_code", after Phase 2 was changed to Claude Code
+ */
+function cachedChoiceMove(work: SavedWork, view: Snapshot | undefined, key: string, session: SessionRecord): AgentId | undefined {
+  if (!view) return undefined;
+  // A saved snapshot that carries no rows says nothing about the current choice, so it moves nothing.
+  const rows = [...(view.activities ?? []), ...(view.phases ?? [])];
+  const rowId = judgedPhase(work.record.plan ?? [], key)?.id ?? key;
+  const model = (rows.find(row => row.id === key) ?? rows.find(row => row.id === rowId))?.model;
+  if (model?.state !== "will_run_on") return undefined;
+  // A choice that can't be used isn't the one the session ran on either; its fresh session keeps the session's agent.
+  if (!model.choice) return session.agentId ?? "claude_code";
+  const { choice } = model;
+  const same = choice.agentId === (session.agentId ?? "claude_code") && choice.model === session.model && (choice.effort ?? undefined) === (session.effort ?? undefined);
+  return same ? undefined : choice.agentId;
+}
+
 /** The agent of the activity status reports, from the controller. */
 function reportedAgentId(engine: Engine | undefined): string | null { return engine ? engine.inUseAgent(undefined) ?? null : null; }
 /** An epoch is response identity, never a mutation authorization in this read-only release. */
