@@ -5,7 +5,7 @@
 // goes on in a new session on its current choice, never reopening a conversation that ran on
 // another choice.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHarness, landingSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
@@ -117,6 +117,31 @@ describe("billing and the account panel for each agent (AC-AGENTS-02, AC-AGENTS-
     expect(limits.find(limit => limit.percent === 4)?.overThreshold).toBeUndefined();
   });
 
+  it("marks Codex in use, account and all, while the current activity runs on it in a run that also uses Claude Code", async () => {
+    const h = await fixture([landingSession("src/one.txt")], { withCodex: true });
+    writeModelDefaults(h.env, CODEX_MECHANICAL);
+    // Phase 2b's Codex session issues its first response (a reasoning item), so it has started, then holds its turn open.
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, itemFirst: true, hang: true, usage: { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimits: { primary: { usedPercent: 0 } }, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10 } } } } });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents();
+    await waitFor(() => !h.engine.readers.codex.state.pending && !h.engine.readers.claude_code.state.pending);
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
+    await waitFor(() => h.engine.startedSessionOf("2b")?.agentId === "codex", 20_000);
+    expect(h.engine.latestSession("1")!.agentId).toBe("claude_code");
+    expect(h.engine.latestSession("2b")!.runs[0]?.endedAt).toBeUndefined();
+    const snapshot = buildSnapshot(h.engine);
+    // Claude Code is still needed by later activities, so it is listed, but only the current activity's agent is in use.
+    expect(snapshot.agents.map(entry => entry.agentId)).toEqual(["claude_code", "codex"]);
+    expect(snapshot.agents.filter(entry => entry.inUse).map(entry => entry.agentId)).toEqual(["codex"]);
+    const codexEntry = snapshot.agents.find(entry => entry.agentId === "codex")!;
+    expect(codexEntry.account).toMatchObject({ agentId: "codex", inUse: true });
+    const claude = snapshot.agents.find(entry => entry.agentId === "claude_code")!;
+    expect(claude.neededBy.activities).toContain("Phase 3");
+    expect(claude.inUse).toBeUndefined();
+    expect(claude.account).toMatchObject({ agentId: "claude_code" });
+    expect(claude.account!.inUse).toBeUndefined();
+  });
+
   it("reports the in-use agent's account in today's fields and every other needed agent in other_agents (kiln account)", async () => {
     const h = await fixture([landingSession("src/one.txt")], { withCodex: true });
     writeModelDefaults(h.env, CODEX_MECHANICAL, { enabled: true, threshold: 80 });
@@ -148,6 +173,52 @@ describe("billing and the account panel for each agent (AC-AGENTS-02, AC-AGENTS-
     expect(claude.models?.length).toBeGreaterThan(0);
     expect(claude.billing).toBeUndefined(); expect(claude.account).toBeUndefined(); expect(claude.readinessErrors).toBeUndefined();
     await expect(h.engine.billingCommand("approval", {})).rejects.toThrow("No activity of this run uses Claude Code");
+  });
+});
+
+describe("the account panel for an agent only a fallback names, its threshold and its schedule (AC-AGENTS-03)", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it("shows an installed fallback-only Codex's account, marking a limit exactly at the threshold and not one just below", async () => {
+    const h = await fixture([landingSession("src/one.txt")], { withCodex: true });
+    // Every activity on Claude Code; only the fallback, switched on at 90%, names Codex.
+    writeModelDefaults(h.env, {}, { enabled: true, threshold: 90 });
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimits: { primary: { usedPercent: 0 } }, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 90, windowDurationMins: 10080, resetsAt: 1793000000 } }, other: { limitName: "Another allowance", primary: { usedPercent: 89 } } } } });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents();
+    await waitFor(() => !h.engine.readers.codex.state.pending && !h.engine.readers.claude_code.state.pending);
+    expect(h.engine.neededBy().codex).toEqual({ activities: [], fallbackOnly: true });
+    const claude = agentEntry(h.engine, "claude_code")!;
+    const codexEntry = agentEntry(h.engine, "codex")!;
+    expect(claude.inUse).toBe(true);
+    expect(codexEntry).toMatchObject({ installed: true, neededBy: { activities: [], fallbackOnly: true }, account: { agentId: "codex", email: "proof@example.invalid", routingAccountId: "proof-account" } });
+    expect(codexEntry.inUse).toBeUndefined();
+    expect(codexEntry.account!.inUse).toBeUndefined();
+    const limits = codexEntry.account!.limits as { percent?: number; overThreshold?: true }[];
+    expect(limits.map(limit => limit.percent)).toEqual(expect.arrayContaining([90, 89]));
+    // "A limit at or above the threshold is marked as above it": 90 at a 90% threshold is; 89 isn't.
+    expect(limits.find(limit => limit.percent === 90)).toMatchObject({ overThreshold: true });
+    expect(limits.find(limit => limit.percent === 89)?.overThreshold).toBeUndefined();
+  });
+
+  it("reads both agents' accounts again on the existing five-minute schedule, not before", async () => {
+    // Only the readers' schedule is on the test's clock; every other timer runs for real.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const h = await fixture([landingSession("src/one.txt")], { withCodex: true });
+    writeModelDefaults(h.env, {}, { enabled: true, threshold: 90 });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents();
+    await waitFor(() => !h.engine.readers.codex.state.pending && !h.engine.readers.claude_code.state.pending);
+    expect(Object.keys(h.engine.neededBy()).sort()).toEqual(["claude_code", "codex"]);
+    const reads = { claude_code: vi.spyOn(h.engine.readers.claude_code, "refresh"), codex: vi.spyOn(h.engine.readers.codex, "refresh") };
+    // At least every five minutes while running (AC-USAGE-02 in Codex support for Kiln).
+    vi.advanceTimersByTime(5 * 60_000 - 1);
+    expect([reads.claude_code.mock.calls.length, reads.codex.mock.calls.length]).toEqual([0, 0]);
+    vi.advanceTimersByTime(1);
+    expect([reads.claude_code.mock.calls.length, reads.codex.mock.calls.length]).toEqual([1, 1]);
+    vi.advanceTimersByTime(5 * 60_000);
+    expect([reads.claude_code.mock.calls.length, reads.codex.mock.calls.length]).toEqual([2, 2]);
+    await waitFor(() => !h.engine.readers.codex.state.pending && !h.engine.readers.claude_code.state.pending);
   });
 });
 

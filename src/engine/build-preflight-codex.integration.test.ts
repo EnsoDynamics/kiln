@@ -10,7 +10,7 @@ import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine } from "./engine.js";
 import { buildSnapshot } from "./snapshot.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
-import { runPrdOn } from "../test-support/model-choices.js";
+import { runPrdOn, writeModelDefaults } from "../test-support/model-choices.js";
 
 let h: Harness | undefined;
 let f: ReturnType<typeof codexWorkFixture> | undefined;
@@ -57,6 +57,63 @@ describe("an older method under Codex is not an error (AC-PREFLIGHT-05)", () => 
     await waitFor(() => turns(f).length >= 1);
     expect(turns(f)[0]).toContain("Run the Enso Method's build preflight");
     expect(h.engine.record.preflight!.activities).toHaveLength(1);
+    await h.engine.settled();
+  });
+});
+
+/**
+ * A run on both agents: Claude Code and Codex installed, the phase rows on `phases`' agent and
+ * Audits on the other, with `build-preflight` installed only in `skillIn`'s method.
+ */
+async function mixedRun(phases: "claude_code" | "codex", skillIn: "claude_code" | "codex") {
+  h = await createHarness({ sessions: [], preflight: skillIn === "claude_code" });
+  f = codexWorkFixture();
+  Object.assign(h.tools, { codex: f.options.executable });
+  f.configureEnvironment(h.env);
+  f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, additionalSkills: skillIn === "codex" ? ["build-preflight"] : [] });
+  // Each row's fallback sits on the other agent, as Model defaults requires; the fallback switch stays off.
+  const codex = { agentId: "codex" as const, family: "sol", effort: "high" };
+  const claude = { agentId: "claude_code" as const, family: "sonnet", effort: "high" };
+  const codexRow = { first: codex, fallback: claude };
+  const claudeRow = { first: claude, fallback: codex };
+  const phaseRow = phases === "codex" ? codexRow : claudeRow;
+  writeModelDefaults(h.env, { demanding: phaseRow, standard: phaseRow, mechanical: phaseRow, audits: phases === "codex" ? claudeRow : codexRow });
+  h.engine.close();
+  const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
+  h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
+  const read = readPlanAt(h.repository, "docs/prds/customer-returns");
+  if (read.ok) h.engine.record.plan = recordedPlan(read.plan);
+  h.engine.modelChoicesChanged();
+  await h.engine.refreshAgents();
+  expect(h.engine.selectionError).toBeUndefined();
+  return { h, f };
+}
+const claudePrompts = (harness: Harness) => harness.claudeCalls().map(call => String((call as { prompt: string }).prompt));
+
+describe("the installed method checked is the preflight's own agent, from its Audits choice (Kiln Phase Model Tiers AC-AGENTS-04)", () => {
+  it("phases on Claude Code, Audits on Codex, the skill only in Codex's method: the Preflight row shows and the preflight launches on Codex", async () => {
+    const { h, f } = await mixedRun("claude_code", "codex");
+    expect(h.engine.readers.claude_code.state.optionalSkills).toEqual({ buildPreflight: false });
+    expect(h.engine.readers.codex.state.optionalSkills).toEqual({ buildPreflight: true });
+    expect(buildSnapshot(h.engine).preflight).toMatchObject({ planned: { model: { state: "will_run_on", choice: { agentId: "codex" } } } });
+    h.engine.start({ refinementConfirmed: true }).catch(() => {});
+    await waitFor(() => turns(f).length >= 1);
+    expect(turns(f)[0]).toContain("Run the Enso Method's build preflight");
+    expect(h.engine.record.preflight!.activities).toHaveLength(1);
+    expect(claudePrompts(h).some(prompt => prompt.startsWith("Run the Enso Method's build preflight"))).toBe(false);
+    await h.engine.settled();
+  });
+
+  it("phases on Codex, Audits on Claude Code, the skill only in Claude Code's method: the Preflight row shows and the preflight launches on Claude Code", async () => {
+    const { h, f } = await mixedRun("codex", "claude_code");
+    expect(h.engine.readers.claude_code.state.optionalSkills).toEqual({ buildPreflight: true });
+    expect(h.engine.readers.codex.state.optionalSkills).toEqual({ buildPreflight: false });
+    expect(buildSnapshot(h.engine).preflight).toMatchObject({ planned: { model: { state: "will_run_on", choice: { agentId: "claude_code" } } } });
+    h.engine.start({ refinementConfirmed: true }).catch(() => {});
+    await waitFor(() => h.claudeCalls().length >= 1);
+    expect(claudePrompts(h)[0]).toMatch(/^Run the Enso Method's build preflight/);
+    expect(h.engine.record.preflight!.activities).toHaveLength(1);
+    expect(turns(f).some(turn => turn.includes("Run the Enso Method's build preflight"))).toBe(false);
     await h.engine.settled();
   });
 });

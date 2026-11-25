@@ -151,6 +151,39 @@ describe("the Audits choice for one PRD (AC-OTHER-01)", () => {
   });
 });
 
+describe("an Audits change before Start reaches the preflight, and Use the default undoes it (AC-OTHER-01, AC-PICK-03)", () => {
+  const ready: ScenarioSession = { actions: [{ skill: "enso-method:build-preflight" }, { result: "Preflight: ready\n\n3 phases. The build runs to the end without stopping." }, { exit: 0 }] };
+
+  it("shows the planned preflight on the changed Audits choice and launches it on that choice", async () => {
+    const h = await fixture([ready, { actions: [{ result: "I think this is done." }] }], true);
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" });
+    expect(await post("/api/model", { target: "audits", choice: { agentId: "claude_code", model: "sonnet", effort: "low" } })).toMatchObject({ status: 200, body: { ok: true } });
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", modelName: "Sonnet 5.5", effort: "low" }, from: "changed" });
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    // The preflight session launched on the changed Audits choice; phase 1 on demanding's default.
+    expect(launches(h)).toEqual([["sonnet", "low"], ["fable", "high"]]);
+    expect(rows(h.engine).find(one => one.kind === "preflight")!.model).toMatchObject({ state: "ran_on", choice: { modelName: "Sonnet 5.5", effort: "low" }, from: "changed" });
+  });
+
+  it("returns the Audits choice to Model defaults' Audits row with Use the default, and the preflight launches on it", async () => {
+    const h = await fixture([ready, { actions: [{ result: "I think this is done." }] }], true);
+    expect(await post("/api/model", { target: "audits", choice: { agentId: "claude_code", model: "sonnet", effort: "low" } })).toMatchObject({ status: 200 });
+    expect(buildSnapshot(h.engine).settings.models.audits).toMatchObject({ changedByYou: true, useDefault: true });
+    expect(await post("/api/model", { target: "audits", choice: "default" })).toMatchObject({ status: 200, body: { ok: true } });
+    // Back to the PRD table's Audits first choice: Claude Code · Opus · high, no longer marked.
+    const audits = buildSnapshot(h.engine).settings.models.audits;
+    expect(audits).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "high" }, changedByYou: false });
+    expect(audits.useDefault).toBeFalsy();
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" });
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(launches(h)[0]).toEqual(["opus", "high"]);
+    // A planned row that isn't a phase reads the default too.
+    expect(row(h.engine, "planned-pull-request").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" });
+  });
+});
+
 describe("an Audits change reaches only Audits activities that haven't started (AC-OTHER-01, AC-PICK-05)", () => {
   it("keeps the preflight on what it ran on while the not-started Audits activities take the change", async () => {
     const { mkdtempSync, writeFileSync: touch, rmSync } = await import("node:fs");
@@ -210,6 +243,7 @@ describe("changing models in a run underway (AC-PICK-03, AC-PICK-05)", () => {
     expect(row(h.engine, "2b").model).toMatchObject({ state: "will_run_on", change: { available: true } });
     // The planned Delivery audit and Test audit rows offer Change; the pull request row doesn't.
     expect(row(h.engine, "planned-delivery-audit").model?.change).toEqual({ available: true });
+    expect(row(h.engine, "planned-test-audit").model?.change).toEqual({ available: true });
     expect(row(h.engine, "planned-pull-request").model?.change).toBeUndefined();
     expect(h.engine.controlView().controls.find(control => control.name === "model")).toEqual({ name: "model", available: true, reason: null });
 
@@ -346,6 +380,8 @@ describe("Changed by you stays on a choice of the PRD's own wherever it runs (AC
     expect(h.engine.stoppedPhaseKey()).toBe("1");
     expect(launches(h)[0]).toEqual(["sonnet", "max"]);
     expect(rows(h.engine).find(one => one.kind === "preflight")!.model).toMatchObject({ state: "ran_on", choice: { modelName: "Sonnet 5.5" }, from: "changed" });
+    // The Preflight row isn't a phase, so it carries no tier tag (AC-TIER-02).
+    expect(rows(h.engine).find(one => one.kind === "preflight")!.tier).toBeUndefined();
     expect(row(h.engine, "planned-pull-request").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Sonnet 5.5", effort: "max" }, from: "changed" });
     expect(row(h.engine, "planned-pull-request").model?.change).toBeUndefined();
   });

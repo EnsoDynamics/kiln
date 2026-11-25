@@ -12,6 +12,7 @@ import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-sup
 import { startLocalServer, type LocalServer } from "./local-server.js";
 import { modelDefaultsPath } from "../models/model-defaults.js";
 import { readPlanAt, recordedPlan } from "../engine/plan-reading.js";
+import type { TierView } from "../engine/activity-models.js";
 
 let h: Harness | undefined;
 let server: LocalServer | undefined;
@@ -66,7 +67,13 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.textContent.trim() === "Model defaults")).click()`);
   await page.waitFor(`document.querySelector("h1")?.textContent === "Model defaults" && document.querySelector('[data-row="standard"]')`);
   expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/model-defaults");
-  expect(await page.evaluate<string>(`document.querySelector('[data-row="standard"]').innerText`)).toContain("Claude Code · Opus · medium");
+  // The four rows, each with its first choice and fallback as AC-DEFAULT-01's table gives them (AC-DEFAULT-02).
+  const sides = (row: string) => page.evaluate<string[]>(`[...document.querySelectorAll('[data-row="${row}"] .side .choice')].map(choice => choice.textContent.trim())`);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll("[data-row]")].map(row => row.dataset.row)`)).toEqual(["demanding", "standard", "mechanical", "audits"]);
+  expect(await sides("demanding")).toEqual(["Claude Code · Fable · high", "Codex · GPT Astra · high"]);
+  expect(await sides("standard")).toEqual(["Claude Code · Opus · medium", "Codex · GPT Sol · high"]);
+  expect(await sides("mechanical")).toEqual(["Claude Code · Sonnet · high", "Codex · GPT Sol · high"]);
+  expect(await sides("audits")).toEqual(["Claude Code · Opus · high", "Codex · GPT Sol · extra high"]);
   await press(page, '[data-row="standard"]', "Change");
   await page.waitFor(`document.querySelectorAll('[data-row="standard"] select').length === 2`);
   await pick(page, '[data-row="standard"]', 0, "sonnet");
@@ -90,5 +97,55 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   // Back returns to the PRD, which shows the fallback switched on.
   await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.textContent.startsWith("Back to"))).click()`);
   await page.waitFor(`location.pathname === "/customer-returns" && document.body.innerText.includes("Use the fallback at 95%")`);
+  expect(page.problems).toEqual([]);
+});
+
+it("shows a phase's tier explanation only while the tag is pointed at, focused or pressed open (AC-TIER-02)", async () => {
+  h = await createHarness({ sessions: [] });
+  const read = readPlanAt(h.repository, "docs/prds/customer-returns");
+  if (!read.ok) throw new Error(read.problem);
+  h.engine.record.plan = recordedPlan(read.plan);
+  await h.engine.refreshAgents();
+  // Documents found's phase rows with a tier each, as the engine reads them from the phase documents.
+  const documents = documentsFoundSnapshot().documents!;
+  const tiers: Record<string, TierView> = { "1": { value: "standard" }, "2a": { value: "demanding", reason: "Money moves on retries." }, "2b": { value: "standard" }, "3": { value: "mechanical", reason: "Repeats phase 1's builder." }, "4": { value: "not_rated" } };
+  documents.plan = { ...documents.plan!, phases: documents.plan!.phases.map(phase => { const tier = tiers[phase.id]; return tier ? { ...phase, tier } : phase; }) };
+  server = await startLocalServer({ engine: h.engine, documents, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
+  chrome = await launchChrome();
+  const page = await chrome.open(server.address, { width: 1200 });
+
+  const tag = `li.phase[data-phase="3"] [data-tier]`;
+  await page.waitFor(`document.querySelector(${JSON.stringify(tag)})`);
+  const shown = () => page.evaluate<string>(`getComputedStyle(document.querySelector(${JSON.stringify(`${tag} [role="tooltip"]`)})).display`);
+  const button = `document.querySelector(${JSON.stringify(`${tag} button.info`)})`;
+
+  // Nothing of any explanation shows on load.
+  await page.pointAt(undefined);
+  expect(await page.evaluate<number>(`document.querySelectorAll("[data-tier]").length`)).toBeGreaterThan(1);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[data-tier] [role="tooltip"]')].map(tip => getComputedStyle(tip).display)`)).not.toContain("flex");
+  expect(await shown()).toBe("none");
+
+  // Pointing at the tag shows it; moving away hides it.
+  await page.pointAt(tag);
+  expect(await shown()).toBe("flex");
+  await page.pointAt(undefined);
+  expect(await shown()).toBe("none");
+
+  // Reaching the information control by keyboard shows it; leaving hides it.
+  expect(await page.evaluate<number>(`${button}.tabIndex`)).toBeGreaterThanOrEqual(0);
+  await page.evaluate(`${button}.focus()`);
+  expect(await page.evaluate<boolean>(`document.activeElement === ${button}`)).toBe(true);
+  expect(await shown()).toBe("flex");
+  await page.evaluate(`${button}.blur()`);
+  expect(await shown()).toBe("none");
+
+  // Pressing it shows it, with the pointer elsewhere and no focus; pressing again closes it.
+  await page.evaluate(`${button}.click()`);
+  expect(await page.evaluate<boolean>(`document.activeElement === ${button}`)).toBe(false);
+  await page.waitFor(`${button}.getAttribute("aria-expanded") === "true"`);
+  expect(await shown()).toBe("flex");
+  await page.evaluate(`${button}.click()`);
+  await page.waitFor(`${button}.getAttribute("aria-expanded") === "false"`);
+  expect(await shown()).toBe("none");
   expect(page.problems).toEqual([]);
 });

@@ -2,9 +2,11 @@
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readModelDefaults, shippedDefaults, SHIPPED_DEFAULTS } from "./model-defaults.js";
+import { stateRoot } from "../state/state-files.js";
+import { modelDefaultsPath, readModelDefaults, shippedDefaults, SHIPPED_DEFAULTS } from "./model-defaults.js";
 
 let dir: string; let path: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "kiln-defaults-")); path = join(dir, "model-defaults.json"); });
@@ -64,5 +66,16 @@ describe("Model defaults", () => {
   it("says a file a newer Kiln wrote needs a newer Kiln, and can't be restored over", () => {
     write({ schemaVersion: 2, rows: {} });
     expect(readModelDefaults(path)).toEqual({ ok: false, reason: `Model defaults at ${path} was written by a newer Kiln; update Kiln.`, path, canRestore: false });
+  });
+
+  // AC-DEFAULT-02: "kept for every PRD in every repository on the computer, across restarts and upgrades".
+  it("lives in Kiln's state directory, one file for the computer, outside the installed package", () => {
+    const env = { ...process.env, XDG_STATE_HOME: join(dir, "state") };
+    expect(modelDefaultsPath(env)).toBe(join(stateRoot(env), "model-defaults.json"));
+    if (process.platform !== "win32") expect(modelDefaultsPath(env)).toBe(join(dir, "state", "kiln", "model-defaults.json"));
+    // Not inside the package an upgrade replaces, nor tied to a repository or the working directory.
+    const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    expect(relative(packageRoot, modelDefaultsPath(env)).startsWith("..")).toBe(true);
+    expect(modelDefaultsPath(env)).not.toContain(process.cwd());
   });
 });

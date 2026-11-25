@@ -178,6 +178,8 @@ describe("a planned row gives way to the allocated activity's (AC-PICK-02)", () 
     // It has had a response, so it has started: Running on and the Audits choice it started on.
     await waitFor(() => h.engine.record.phases[delivery]?.startedSessionId !== undefined);
     expect(choiceOf(row(h.engine, delivery))).toEqual(["running_on", "Claude Code", "Opus 5.5", "high"]);
+    // Rows that aren't phases carry no tier tag (AC-TIER-02): the allocated delivery audit and the planned test audit and pull request.
+    for (const id of [delivery, "planned-test-audit", "planned-pull-request"]) expect(row(h.engine, id).tier).toBeUndefined();
     writeFileSync(join(root, "delivery-go"), "");
 
     // The test audit is allocated: no planned test audit row beside it; only the pull request is planned.
@@ -188,6 +190,7 @@ describe("a planned row gives way to the allocated activity's (AC-PICK-02)", () 
     expect(shown().filter(([, , planned]) => planned)).toEqual([["planned-pull-request", "final_delivery", true]]);
     await waitFor(() => h.engine.record.phases[test]?.startedSessionId !== undefined);
     expect(choiceOf(row(h.engine, test))).toEqual(["running_on", "Claude Code", "Opus 5.5", "high"]);
+    expect(row(h.engine, test).tier).toBeUndefined();
     // The finished delivery audit reads Ran on and its session's recorded agent, model and effort.
     expect(h.engine.record.phases[delivery]!.doneAt).toBeDefined();
     expect(choiceOf(row(h.engine, delivery))).toEqual(["ran_on", "Claude Code", "Opus 5.5", "high"]);
@@ -199,6 +202,7 @@ describe("a planned row gives way to the allocated activity's (AC-PICK-02)", () 
     expect(ids.filter(id => id === "pr")).toEqual(["pr"]);
     expect(ids).not.toContain("planned-pull-request");
     expect(rows(h.engine).filter(one => one.plannedActivity)).toEqual([]);
+    expect(row(h.engine, "pr").tier).toBeUndefined();
     expect(choiceOf(row(h.engine, test))).toEqual(["ran_on", "Claude Code", "Opus 5.5", "high"]);
     writeFileSync(join(root, "pr-go"), "");
     await h.engine.settled();

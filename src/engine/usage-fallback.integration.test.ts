@@ -8,7 +8,7 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
+import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type HarnessOptions, type ScenarioSession } from "../test-support/engine-harness.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import { writeModelDefaults } from "../test-support/model-choices.js";
@@ -54,14 +54,14 @@ class SetClaude implements ClaudeInfoSource {
 /** Codex's usage reading with one counted window at this percent. */
 const codexUsage = (percent: number) => ({ accountId: "proof-account", ordinaryUsageAllowed: true, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: percent, windowDurationMins: 300 } } } });
 
-async function fixture(sessions: ScenarioSession[], claude: ClaudeInfoSource, options: { withCodex?: boolean; codexPercent?: number; engineOptions?: Partial<EngineOptions> } = {}): Promise<Harness> {
-  harness = await createHarness({ sessions, files: prdDirectoryFiles(), engineOptions: { claude, ...options.engineOptions } });
+async function fixture(sessions: ScenarioSession[], claude: ClaudeInfoSource, options: { withCodex?: boolean; codexPercent?: number; codexSkills?: string[]; engineOptions?: Partial<EngineOptions>; harness?: Pick<HarnessOptions, "extraFolders" | "preflight"> } = {}): Promise<Harness> {
+  harness = await createHarness({ sessions, files: prdDirectoryFiles(), ...options.harness, engineOptions: { claude, ...options.engineOptions } });
   const h = harness;
   if (options.withCodex) {
     codex = codexWorkFixture();
     Object.assign(h.tools, { codex: codex.options.executable });
     codex.configureEnvironment(h.env);
-    codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: codexUsage(options.codexPercent ?? 10) });
+    codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: codexUsage(options.codexPercent ?? 10), ...(options.codexSkills ? { additionalSkills: options.codexSkills } : {}) });
     h.engine.close();
     const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
     h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] }, onTerminal: (event) => h.events.push(event), claude, ...options.engineOptions });
@@ -684,5 +684,100 @@ describe("each launch is decided on its own, for every phase, and only a usable 
     expect(h.engine.billing.view).toMatchObject({ canLaunch: true });
     expect(await decide("2b")).toMatchObject({ choice: { agentId: "claude_code", model: "sonnet" }, launch: { fallback: { used: true, limit: { agentId: "codex", label: "ordinary usage blocked" } } } });
     expect(h.claudeCalls()).toEqual([]);
+  });
+});
+
+describe("the switch is one for the whole computer, read at each launch (AC-FALLBACK-01)", () => {
+  /** Phase 1's landing session, held after its first response until the test creates the gate file. */
+  const gatedLanding = (gate: string): ScenarioSession => ({ actions: [{ text: "Building phase 1." }, { waitForFile: gate }, ...landingSession("src/one.txt").actions] });
+
+  it("turned on during a run, takes the run's next launch to the fallback", async () => {
+    const claude = new SetClaude(weekly(97));
+    const gate = join(tmpdir(), `kiln-fallback-gate-${process.pid}-${Date.now()}`);
+    const h = await fixture([gatedLanding(gate)], claude, { withCodex: true });
+    // The switch is off as the run starts: Phase 1 launches on its first choice, whatever the usage.
+    writeModelDefaults(h.env, {}, { enabled: false, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.engine.startedSessionOf("1") !== undefined);
+    expect(h.engine.latestSession("1")).toMatchObject({ agentId: "claude_code", model: "opus" });
+    expect(h.engine.latestSession("1")!.launch?.fallback).toBeUndefined();
+    expect(h.engine.headsUp()).toBeUndefined();
+    // Turned on in Model defaults while Phase 1 runs, as the page or another Kiln writes it: nothing tells this run but the file.
+    writeModelDefaults(h.env, {}, { enabled: true, threshold: 95 });
+    await waitFor(() => h.engine.headsUp()?.key === "2b");
+    writeFileSync(gate, "");
+    await waitFor(() => h.engine.latestSession("2b") !== undefined);
+    expect(h.engine.latestSession("2b")).toMatchObject({ agentId: "codex", model: "gpt-6.1-sol", effort: "high", launch: { fallback: { used: true, limit: { agentId: "claude_code", label: "Weekly", percent: 97 }, threshold: 95 } } });
+    // Phase 1, already started, stayed on Claude Code.
+    expect(h.engine.sessionRecord("1", h.engine.record.phases["1"]!.sessionIds[0]!)).toMatchObject({ agentId: "claude_code" });
+    await h.engine.settled();
+  });
+
+  it("applies to every PRD on the computer: another PRD's engine sees it on, and off once it's turned off", async () => {
+    const claude = new SetClaude(weekly(97));
+    const h = await fixture([], claude, { withCodex: true, harness: { extraFolders: ["store-pickup"] } });
+    // Switched on once, for the computer, with nothing set on either PRD.
+    writeModelDefaults(h.env, {}, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    expect(h.engine.headsUp()).toMatchObject({ key: "1", forecast: { choice: { agentId: "codex" } } });
+    const other = await h.engineFor("store-pickup");
+    const read = readPlanAt(h.repository, "docs/prds/store-pickup");
+    if (!read.ok) throw new Error(read.problem);
+    other.record.plan = recordedPlan(read.plan);
+    other.modelChoicesChanged();
+    await other.refreshAgents();
+    await waitFor(() => !other.readers.claude_code.state.pending && !other.readers.codex.state.pending);
+    expect(other.record.settings.modelChoices.phases).toEqual({});
+    expect(other.headsUp()).toMatchObject({ key: "1", forecast: { choice: { agentId: "codex", model: "gpt-6.1-sol", effort: "high" }, limit: { agent: "Claude Code", percent: 97 }, threshold: 95 } });
+    // Until the person turns it off: then neither PRD falls back.
+    writeModelDefaults(h.env, {}, { enabled: false, threshold: 95 });
+    expect(other.headsUp()).toBeUndefined();
+    expect(h.engine.headsUp()).toBeUndefined();
+  });
+});
+
+describe("the heads-up on a planned audit or Preflight row (AC-FALLBACK-04)", () => {
+  /** Phase 3's landing session, held after its first response until the test creates the gate file. */
+  const gatedLast = (gate: string): ScenarioSession => ({ actions: [{ text: "Building phase 3." }, { waitForFile: gate }, ...landingSession("src/three.txt").actions] });
+  // The Codex stand-in offers GPT Sol at high and low only, so the Audits fallback is set to GPT Sol · low:
+  // apart from every tier's fallback (GPT Sol or Astra · high), so only the Audits row can give it.
+  const AUDITS = { audits: { fallback: { agentId: "codex" as const, family: "sol", effort: "low" } } };
+  const AUDITS_FALLBACK = { agentId: "codex", model: "gpt-6.1-sol", effort: "low" };
+
+  it("names the planned Delivery audit row, on the Audits fallback, while the last phase runs", async () => {
+    const claude = new SetClaude(weekly(20));
+    const gate = join(tmpdir(), `kiln-fallback-gate-${process.pid}-${Date.now()}`);
+    const h = await fixture([landingSession("src/one.txt"), landingSession("src/two.txt"), gatedLast(gate)], claude, { withCodex: true });
+    writeModelDefaults(h.env, AUDITS, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.start({ refinementConfirmed: true });
+    // Phases 1 and 2b land on Claude Code under the threshold; Phase 3, the last, is running.
+    await waitFor(() => h.engine.startedSessionOf("3") !== undefined && h.engine.isPhaseDone("2b"));
+    expect(h.engine.latestSession("3")).toMatchObject({ agentId: "claude_code" });
+    expect(h.engine.headsUp()).toBeUndefined();
+    // Claude Code reads 97% and Codex is ready: the next activity is the delivery audit, which would launch on the Audits fallback.
+    claude.reading = weekly(97);
+    await claude.refreshAccount();
+    expect(h.engine.headsUp()).toEqual({ key: "audit-planned", forecast: { choice: expect.objectContaining({ ...AUDITS_FALLBACK, agent: "Codex" }), limit: expect.objectContaining({ agent: "Claude Code", label: "Weekly", percent: 97 }), threshold: 95 } });
+    const snapshot = buildSnapshot(h.engine);
+    const rows = [...(snapshot.activities ?? []), ...snapshot.phases];
+    expect(rows.filter(one => one.model?.forecast).map(one => one.id)).toEqual(["planned-delivery-audit"]);
+    expect(rows.find(one => one.id === "planned-delivery-audit")!.model).toMatchObject({ choice: { agent: "Claude Code", model: "opus", effort: "high" }, forecast: { choice: { agent: "Codex", model: "gpt-6.1-sol", effort: "low" }, threshold: 95 } });
+    writeFileSync(gate, "");
+    await waitFor(() => h.engine.isPhaseDone("3") || h.engine.stoppedPhaseKey() !== undefined);
+  });
+
+  it("names the planned Preflight row before Start, on the Audits fallback", async () => {
+    const claude = new SetClaude(weekly(97));
+    const h = await fixture([], claude, { withCodex: true, codexSkills: ["build-preflight"], harness: { preflight: true } });
+    writeModelDefaults(h.env, AUDITS, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents();
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.readers.codex.state.pending);
+    expect(h.engine.headsUp()).toEqual({ key: "preflight-planned", forecast: { choice: expect.objectContaining({ ...AUDITS_FALLBACK, agent: "Codex" }), limit: expect.objectContaining({ agent: "Claude Code", label: "Weekly", percent: 97 }), threshold: 95 } });
+    const snapshot = buildSnapshot(h.engine);
+    expect(snapshot.preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", model: "opus", effort: "high" }, forecast: { choice: { agent: "Codex", model: "gpt-6.1-sol", effort: "low" }, threshold: 95 } });
+    expect([...(snapshot.activities ?? []), ...snapshot.phases].filter(one => one.model?.forecast)).toEqual([]);
   });
 });

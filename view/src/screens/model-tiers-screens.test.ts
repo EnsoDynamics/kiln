@@ -80,6 +80,18 @@ describe("the running plan (AC-TIER-02, AC-PICK-02)", () => {
     expect(running(tiered())).toMatch(/>PR<\/span>/);
   });
 
+  it("offers Change on a Delivery audit and a Test audit row that hasn't started, and not on the pull request row (AC-OTHER-01)", () => {
+    const snapshot = tiered();
+    const audits: ModelView = { state: "will_run_on", choice: choice("Claude Code", "Opus 5.5", "high"), from: "model_defaults", change: { available: true } };
+    const planned = (id: string, kind: PhaseView["kind"], title: string): PhaseView => ({ id, kind, title, file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: audits });
+    snapshot.activities = [...snapshot.phases, planned("planned-delivery-audit", "delivery_audit", "Delivery audit"), planned("planned-test-audit", "test_audit", "Test audit"), planned("planned-pull-request", "final_delivery", "Pull request")];
+    const page = running(snapshot);
+    const rowOf = (id: string) => text(page.split(`data-phase="${id}"`)[1]!.split("</li>")[0]!);
+    expect(rowOf("planned-delivery-audit")).toMatch(/Delivery audit Will run on Claude Code · Opus 5\.5 · high Change/);
+    expect(rowOf("planned-test-audit")).toMatch(/Test audit Will run on Claude Code · Opus 5\.5 · high Change/);
+    expect(rowOf("planned-pull-request")).not.toContain("Change");
+  });
+
   it("keeps the explanation out of sight until the information control is pointed at, focused or pressed", () => {
     const page = running(tiered());
     // The explanation is in the page for the control to show, styled hidden until hover, focus or press.

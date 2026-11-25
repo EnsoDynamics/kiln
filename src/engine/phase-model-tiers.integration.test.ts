@@ -276,6 +276,9 @@ describe("planned rows and a choice found unusable during the run (AC-PICK-02, A
     expect(planned.map(one => [one.id, one.kind, one.title])).toEqual([["planned-delivery-audit", "delivery_audit", "Delivery audit"], ["planned-test-audit", "test_audit", "Test audit"], ["planned-pull-request", "final_delivery", "Pull request"]]);
     expect(rows.slice(-3)).toEqual(planned);
     for (const one of planned) expect(choiceOf(one)).toEqual(["will_run_on", "Claude Code", "Opus 5.5", "high"]);
+    // Rows that aren't phases carry no tier tag (AC-TIER-02), while the running phase does.
+    for (const one of planned) expect(one.tier).toBeUndefined();
+    expect(rows.find(one => one.id === "1")!.tier).toEqual({ value: "demanding", reason: "AC-RET-02 moves money on retries." });
     // Planned rows don't count as phases.
     expect(buildSnapshot(h.engine).feature.phasesTotal).toBe(4);
     writeFileSync(`${h.engine.worktreePath}/release-planned`, "go");

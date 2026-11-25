@@ -385,6 +385,26 @@ describe("automatic completion activities", () => {
     expect(rows[1]!.state).toBe("needs_you");
     expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (other; listed by Delivery audit loop 1): ${decision} Decide it before the next audit.`);
   });
+  it("launches each delivery audit round, the test audit and the pull request on this PRD's changed Audits choice, and the repair phase on its tier's (Kiln Phase Model Tiers AC-OTHER-01)", { timeout: 120_000 }, async () => {
+    const h = await fixture([auditSession({ gap: true }), auditSession(), auditSession()], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
+    // Audits' Model defaults first choice is Claude Code · Opus · high; this PRD changes it before Start.
+    expect(await h.engine.changeModel("audits", { agentId: "claude_code", model: "sonnet", effort: "low" })).toEqual({ ok: true });
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
+    expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["delivery_audit", 2], ["test_audit", 1]]);
+    const flag = (args: string[], name: string) => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
+    // The final pull request session's prompt is the one that opens each pull request's description with Kiln's block.
+    const label = (prompt: string) => /^Run (Delivery audit|Test audit)/.exec(prompt)?.[1] ?? (prompt.includes("Open each pull request's description with the block below") ? "Final pull request" : "Phase");
+    // Every session launched new on the stand-in claude (Claude Code), with its own model and effort.
+    expect(h.claudeCalls().map(c => [label(c.prompt), c.args.includes("--resume"), flag(c.args, "--model"), flag(c.args, "--effort")])).toEqual([
+      ["Delivery audit", false, "sonnet", "low"],
+      // The repair phase the first round added is Not rated: Standard's Claude Code · Opus · medium, not the Audits choice.
+      ["Phase", false, "opus", "medium"],
+      ["Delivery audit", false, "sonnet", "low"],
+      ["Test audit", false, "sonnet", "low"],
+      ["Final pull request", false, "sonnet", "low"],
+    ]);
+  });
   it("carries a test audit's item through its repair to the next delivery audit, which must settle it, and names it in the final pull request (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
     const decision = "AC-PROOF-01's export name differs from the design.";
     const h = await fixture([auditSession(), auditSession({ gap: true, decision, directFix: true }), auditSession({ settle: "A person kept the design's name." }), auditSession()], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
