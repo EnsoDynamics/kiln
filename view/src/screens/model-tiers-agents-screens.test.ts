@@ -54,8 +54,11 @@ describe("Documents found with two agents (AC-AGENTS-01, AC-AGENTS-02)", () => {
   it("shows each needed agent's account and billing summary, Claude's with its recheck and Codex's as a summary", () => {
     const page = documentsFound(twoAgents());
     const words = text(page);
-    expect(words).toContain("Claude Code alex@acme-shop.dev · Max plan");
+    // Claude Code is in use, so its account is marked; Codex's account panel carries its own mark (AC-AGENTS-03).
+    expect(words).toContain("Claude Code · in use now alex@acme-shop.dev · Max plan");
     expect(words).toContain("Codex sam@acme-shop.dev · Pro");
+    expect(words).not.toContain("Codex · in use now");
+    expect(words).toContain("Codex account sam@acme-shop.dev");
     expect(page).toContain('aria-label="Claude billing"');
     expect(page).toContain('aria-label="Codex billing"');
     expect(words).toContain("Billing follows your Claude account settings.");

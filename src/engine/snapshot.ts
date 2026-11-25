@@ -729,7 +729,8 @@ function placeHeadsUp(engine: Engine, snapshot: Snapshot): void {
 function addFallbackDetails(engine: Engine, snapshot: Snapshot): void {
   for (const row of [...snapshot.phases, ...(snapshot.activities ?? [])]) {
     if (!row.details) continue;
-    const fallback = engine.detailsFallback(row.id);
+    // A phase its session split shows its first child with the launched phase's facts.
+    const fallback = engine.detailsFallback(engine.factsKeyOf(row.id));
     if (fallback) row.details.fallback = fallback;
   }
 }

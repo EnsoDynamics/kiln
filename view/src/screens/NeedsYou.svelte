@@ -189,7 +189,7 @@
     <div class="headline">
       <h2>{restart?.headline ?? copy.headline}</h2>
       <p class="line">{restart?.line ?? copy.line}</p>
-      {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource)}</p>{/if}
+      {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource, stop)}</p>{/if}
     </div>
     {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
     {#if stop.catchUp && !snapshot.liveControl && (stop.startAgain || stop.carryOn)}<CatchUpOffer offer={stop.catchUp} where="stop" {activity} bind:ticked={catchUpTicked} disabled={busy || !!restartPending} />{/if}
@@ -235,7 +235,7 @@
             <p class="line">{copy.line}</p>
           {/if}
           <!-- Where the stopped session's choice came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
-          {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource)}</p>{/if}
+          {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource, stop)}</p>{/if}
         </div>
         <PersonItems {snapshot} />
         {#if failure}<p class="failure">{failure}</p>{/if}

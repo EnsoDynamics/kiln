@@ -271,6 +271,9 @@ describe("a Codex first choice falls back to Claude Code (AC-FALLBACK-02, AC-FAL
     expect(h.engine.startedSessionOf("1")).toBeUndefined();
     expect(h.engine.latestSession("1")).toMatchObject({ agentId: "claude_code", launch: { fallback: { used: true } } });
     expect(buildSnapshot(h.engine).needsYou?.choiceSource).toBe("The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    // The stop also carries the fallback's agent, model and effort, which its Needs you line names.
+    expect(buildSnapshot(h.engine).needsYou).toMatchObject({ agent: "Claude Code", model: h.engine.latestSession("1")!.modelDisplayName, effort: "high" });
+    expect(h.engine.latestSession("1")).toMatchObject({ model: "sonnet" });
     expect(h.events.some(event => event.kind === "message" && event.text.includes("started on the fallback"))).toBe(false);
     // With no response, the row returns to the resolver's choice: the next launch decides again.
     expect(row(h.engine, "1").model).toMatchObject({ state: "will_run_on", choice: { agentId: "codex" } });
@@ -355,5 +358,67 @@ describe("an activity that started on the fallback and goes on in a new session 
     expect(h.engine.isPhaseDone("1")).toBe(true);
     // Its Ran on row, read from the carry-on session, keeps the Fallback tag of the session that started it.
     expect(row(h.engine, "1").model).toMatchObject({ state: "ran_on", choice: { agent: "Claude Code" }, fallback: { used: true, limit: { agent: "Codex", label: "ordinary usage blocked" } } });
+  });
+});
+
+describe("a first launch Codex refuses (AC-PICK-06, \"found at launch\")", () => {
+  it("names the choice, where it came from and where to change it, at the stop and at Check again", async () => {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([landingSession("src/one.txt")], claude, { withCodex: true });
+    // Codex answers the launch with another model than the one Kiln asked for: the launch settings check refuses it.
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: codexUsage(10), mismatch: true });
+    writeModelDefaults(h.env, { standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "sonnet", effort: "high" } } });
+    h.engine.modelChoicesChanged();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    const stop = buildSnapshot(h.engine).needsYou!;
+    expect(stop.checks.map(check => check.name)).toContain("Codex launch settings");
+    expect(stopFacts(h.engine)).toEqual(expect.arrayContaining([expect.stringMatching(/ This launch was on Codex · GPT-6\.1-Sol · high\. Chosen from: Model defaults\. Change it in Model defaults, or on its row in the phase plan\.$/)]));
+    expect(h.claudeCalls()).toEqual([]);
+    // Check again probes Codex again; still refused, the probe's row names the choice its next launch runs on.
+    await h.engine.checkAgain(recoveryRequest(h.engine, "verify")).catch(() => undefined); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(stopFacts(h.engine)).toEqual(expect.arrayContaining([expect.stringMatching(/ Its next launch runs on Codex · GPT-6\.1-Sol · high\. Chosen from: Model defaults\. Change it in Model defaults, or on its row in the phase plan\.$/)]));
+  });
+});
+
+describe("a phase that started on the fallback and whose session split it (AC-FALLBACK-03)", () => {
+  it("keeps the fallback facts in its first child's phase detail", async () => {
+    const claude = new SetClaude(weekly(20));
+    const child = "# Phase 1a: Intake form\n\n## Acceptance criteria covered\nAC-RET-01\n\n## Phase dependencies\nNone.\n";
+    const split: ScenarioSession = { actions: [{ text: "Splitting Phase 1." }, { split: [{ id: "1a", slug: "intake-form", title: "Intake form" }, { id: "1b", slug: "intake-email", title: "Intake email" }] }, { write: { path: `${DIRECTORY}/phase-1a-intake-form.md`, content: child } }, { commit: "docs: split phase 1" }, { push: true }, { result: "Split Phase 1; 1a is next." }] };
+    const h = await fixture([split], claude, { withCodex: true });
+    // Codex's ordinary usage is blocked, so Phase 1, first on Codex, starts on its Claude Code fallback.
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10, windowDurationMins: 300 } } } } });
+    writeModelDefaults(h.env, { standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "sonnet", effort: "high" } } }, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.record.plan?.find(phase => phase.id === "1")?.splitInto).toEqual(["1a", "1b"]);
+    expect(h.engine.startedSessionOf("1")).toMatchObject({ agentId: "claude_code", launch: { fallback: { used: true } } });
+    // 1a is shown with Phase 1's facts, so its detail keeps what the session that started it decided.
+    expect(row(h.engine, "1a").details?.fallback).toMatchObject({ used: true, threshold: 95, limit: { agent: "Codex", label: "ordinary usage blocked" }, first: { agent: "Codex" } });
+  });
+});
+
+describe("an audit whose skill doesn't resolve on the agent the decision named (AC-PICK-06, \"found at launch\")", () => {
+  it("stops naming the decided choice, where it came from and where to change it", async () => {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([], claude, { withCodex: true });
+    // An audit that last ran on Claude Code, now decided onto Codex, where its skill can't be resolved.
+    const key = "audit-a1";
+    const audit = { activityId: "a1", kind: "delivery_audit", skill: { name: "delivery-audit", path: "/skills/delivery-audit/SKILL.md" } };
+    h.engine.record.phases[key] = { sessionIds: ["s1"] } as unknown as (typeof h.engine.record.phases)[string];
+    const engine = h.engine as unknown as {
+      auditActivity(key: string): unknown; sessionRecord(key: string, id: string): unknown;
+      decisions: Map<string, unknown>; skillForDecision(key: string, decided: unknown): Promise<boolean>;
+    };
+    engine.auditActivity = (one) => one === key ? audit : undefined;
+    engine.sessionRecord = (one, id) => one === key && id === "s1" ? { sessionId: "s1", agentId: "claude_code", model: "opus", modelDisplayName: "Opus 5.5", runs: [] } : undefined;
+    const decided = { choice: { agentId: "codex", model: "gpt-6.1-sol", modelName: "GPT-6.1-Sol", effort: "high" }, launch: { from: "model_defaults" } };
+    engine.decisions.set(key, decided);
+    expect(await engine.skillForDecision(key, decided)).toBe(false);
+    const facts = h.engine.record.phases[key]!.stop!.checks.flatMap(check => check.facts.map(fact => typeof fact === "string" ? fact : (fact as { text: string }).text));
+    expect(facts).toEqual([expect.stringMatching(/^Codex metadata failed\..* This launch was on Codex · GPT-6\.1-Sol · high\. Chosen from: Model defaults\. Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings\.$/)]);
   });
 });

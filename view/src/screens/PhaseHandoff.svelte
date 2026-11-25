@@ -158,7 +158,7 @@
   <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? `Pausing ${inSentence}.` : `Paused in ${inSentence}.` : restart?.headline ?? `${activity} needs your input.`}</h1>
   <p>{restart?.line ?? "Answer here, or talk it through in your terminal."}</p>
   <!-- Where the stopped session's choice came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
-  {#if stop.choiceSource}<p data-choice-source>{choiceSourceLine(stop.choiceSource)}</p>{/if}
+  {#if stop.choiceSource}<p data-choice-source>{choiceSourceLine(stop.choiceSource, stop)}</p>{/if}
   {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
   {#if stop.launchFailure && stop.conversationMessage}
     <section class="card message" aria-label="Earlier conversation">

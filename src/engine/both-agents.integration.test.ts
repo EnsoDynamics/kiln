@@ -16,7 +16,8 @@ import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine, type EngineOptions } from "./engine.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
 import { buildSnapshot, claudeCommand, codexCommand, type PhaseView } from "./snapshot.js";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { cacheSnapshot, handoffProjection, inspectionSnapshot, statusProjection } from "../control/projection.js";
 import { releaseResult } from "../control/spool.js";
 import { readWork } from "../control/private-state.js";
@@ -195,6 +196,21 @@ describe("an activity that hasn't started goes on in a new session (AC-PICK-07, 
     expect(calls[1]!.args).toEqual(expect.arrayContaining(["--model", "sonnet", "--effort", "low"]));
   });
 
+  it("ends the wait with a stop naming the choice, where it came from and where to change it, when its agent isn't installed (AC-PICK-06)", async () => {
+    const s = await waitingBeforeStart([]);
+    // While Phase 1 waits, Model defaults moves it to Codex, which isn't installed here.
+    writeModelDefaults(s.h.env, { standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "sonnet", effort: "high" } } });
+    s.h.engine.modelChoicesChanged();
+    // The wait's next reading, as its timer asks for one.
+    (s.h.engine as unknown as { askReading(): void }).askReading();
+    await waitFor(() => s.h.engine.stoppedPhaseKey() === "1"); await s.h.engine.settled();
+    expect(s.h.engine.waitingPhaseKey()).toBeUndefined();
+    const facts = buildSnapshot(s.h.engine).needsYou!.checks.flatMap(check => check.facts.map(fact => typeof fact === "string" ? fact : (fact as { text: string }).text));
+    expect(facts).toEqual([expect.stringMatching(/^Phase 1 runs on Codex · GPT Sol · high from Model defaults \(Standard row\): Codex is not on PATH\. Install Codex .* and sign in with codex login\. Change the Standard row in Model defaults\.$/)]);
+    // Nothing ran in its place.
+    expect(s.h.claudeCalls()).toHaveLength(1);
+  });
+
   it("gives the person's reply to a new session on the current choice, and withdraws the reopen command once the choice changes", async () => {
     const h = await fixture([{ actions: [{ refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3_600 } }, { exit: 1 }] }, landingSession("src/one.txt")]);
     h.engine.record.settings.resumeAfterUsageLimit = false;
@@ -235,6 +251,34 @@ describe("an activity that hasn't started goes on in a new session (AC-PICK-07, 
     expect(call.prompt).toContain("The import is merged now.");
   });
 
+  it("withdraws `kiln handoff`'s reopen command with Kiln not running after a Model defaults or tier change made once Kiln stopped", async () => {
+    const h = await fixture([{ actions: [{ refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3_600 } }, { exit: 1 }] }], { withCodex: true });
+    await waitFor(() => !h.engine.readers.codex.state.pending);
+    h.engine.record.settings.resumeAfterUsageLimit = false;
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    const refused = h.engine.latestSession("1")!;
+    // Kiln saves its last snapshot and stops; nothing changes the saved snapshot afterwards.
+    cacheSnapshot(h.engine, inspectionSnapshot(h.engine));
+    h.engine.close();
+    const offline = async () => (await handoffProjection(readWork(stateRoot(h.env), h.stateDirectory), refused.sessionId, h.env)).data as Record<string, unknown>;
+    expect((await offline()).resume_command).toEqual(expect.stringContaining(refused.sessionId));
+    // `kiln model-defaults` moves the Standard row to Codex with no controller: the reopen command is withdrawn.
+    writeModelDefaults(h.env, { standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "sonnet", effort: "high" } } });
+    expect(await offline()).toMatchObject({ resume_command: null, resume_argv: null, resumable: false, reason: expect.stringContaining("isn't reopened. Start a fresh Codex session"), fresh_session_instructions: { command: codexCommand(h.engine.sessionFolder) } });
+    // The same row's effort only: the agent stays, but the model choice no longer matches.
+    writeModelDefaults(h.env, { standard: { first: { agentId: "claude_code", family: refused.model, effort: "low" } } });
+    expect(await offline()).toMatchObject({ resume_command: null, resume_argv: null, fresh_session_instructions: { command: claudeCommand(h.engine.sessionFolder) } });
+    writeModelDefaults(h.env, {});
+    expect((await offline()).resume_command).toEqual(expect.stringContaining(refused.sessionId));
+    // A tier change in the phase document: Phase 1 is now mechanical, whose row runs on Codex.
+    writeModelDefaults(h.env, CODEX_MECHANICAL);
+    expect((await offline()).resume_command).toEqual(expect.stringContaining(refused.sessionId));
+    const file = join(h.engine.worktreePath, DIRECTORY, "phase-1-return-intake.md");
+    writeFileSync(file, readFileSync(file, "utf8").replace(/\n\n/, "\n\n**Model tier:** mechanical - one form.\n\n"));
+    expect(await offline()).toMatchObject({ resume_command: null, resume_argv: null, fresh_session_instructions: { command: codexCommand(h.engine.sessionFolder) } });
+  });
+
   it("launches nothing while a session's history exists but can't be read, and stops with the reason", async () => {
     const h = await fixture([{ actions: [{ refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3_600 } }, { exit: 1 }] }]);
     h.engine.record.settings.resumeAfterUsageLimit = false;
@@ -272,7 +316,8 @@ describe("an activity that hasn't started goes on in a new session (AC-PICK-07, 
     const s = await waitingBeforeStart([]);
     writeModelDefaults(s.h.env, { standard: { first: { agentId: "claude_code", family: "mythos", effort: "high" } } });
     s.h.engine.modelChoicesChanged();
-    s.claude.deliver(signedIn([usageRow("session", 10)]));
+    // The wait's next reading, as its timer asks for one.
+    (s.h.engine as unknown as { askReading(): void }).askReading();
     await waitFor(() => s.h.engine.stoppedPhaseKey() === "1");
     expect(s.h.engine.waitingPhaseKey()).toBeUndefined();
     expect(s.h.engine.record.phases["1"]!.stop).toMatchObject({ kind: "selection", checks: [{ facts: [expect.stringContaining("Mythos")] }] });

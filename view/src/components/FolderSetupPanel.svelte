@@ -12,7 +12,7 @@
   import DevelopmentDelivery from "./DevelopmentDelivery.svelte";
   import { changeFolderPanel, checkFolders, startFolderSetup, type PageConfig } from "../lib/api.js";
   import CodeText from "./CodeText.svelte";
-  import { accountLines, agentsHoldStart } from "../lib/documents-found.js";
+  import { accountHeading, accountLines, agentsHoldStart } from "../lib/documents-found.js";
   import { neededAgents } from "../lib/agents.js";
   import { day } from "../lib/folder-missing.js";
   import { addedLabel } from "../lib/progress.js";
@@ -177,7 +177,7 @@
         <ModelLines {snapshot} {connected} readOnly />
         {#each agents as agent (agent.agentId)}
           {@const account = accountLines(agent.account, snapshot.settings.models.fallback.enabled ? snapshot.settings.models.fallback.threshold : undefined)}
-          <span class="help">{#if agents.length > 1}{agent.agent}<br />{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
+          <span class="help">{#if agents.length > 1}{accountHeading(agent)}<br />{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
           {#if agent.modelListError}<span class="message">{agent.modelListError}</span>{/if}
         {/each}
         {#if snapshot.settings.models.problem}<span class="message">{snapshot.settings.models.problem}</span>{/if}

@@ -226,6 +226,17 @@ export function accountLines(account: AgentView["account"], threshold?: number):
 }
 
 /**
+ * The name over an agent's account lines on Documents found and the Folder missing setup panel,
+ * shown while two agents are: Claude Code's is marked when it is in use (AC-AGENTS-03). Codex's
+ * account panel carries its own mark, so its name stays plain.
+ *
+ *   accountHeading({ agentId: "claude_code", agent: "Claude Code", inUse: true })  // "Claude Code · in use now"
+ */
+export function accountHeading(agent: Pick<AgentView, "agentId" | "agent" | "inUse">): string {
+  return agent.inUse && agent.agentId !== "codex" ? `${agent.agent} · in use now` : agent.agent;
+}
+
+/**
  * The leaves this run will build that carry an `**Early merge:**` line (build preflight
  * AC-ATTEND-05): not closed, and at or after the start point. Each names the branch the line
  * gives, its text up to the first comma, as written.

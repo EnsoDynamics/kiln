@@ -5883,13 +5883,16 @@ export class Engine {
    *
    *   this.launchStopFact("2", "Codex is not signed in.")
    *   // "Codex is not signed in. This launch was on Codex · GPT Sol · xhigh. Chosen from: The fallback, from Model defaults' Fallback column. Change it in Model defaults."
+   *
+   * A launch the agent refused once its process ran passes that session, whose saved decision names the choice.
    */
-  private launchStopFact(key: string, message: string): string {
+  private launchStopFact(key: string, message: string, launched?: SessionRecord): string {
     if (!this.choiceActivity(key)) return message;
     const named = (choice: { agentId?: AgentId | undefined; modelName?: string | undefined; modelDisplayName?: string | undefined; effort?: string | undefined }) => [AGENT_NAMES[choice.agentId ?? "claude_code"], choice.modelName ?? choice.modelDisplayName, choice.effort].filter(Boolean).join(" · ");
     // A started activity names what it started on, and no place to change it ("A choice that can't be used").
     const started = this.startedSessionOf(key);
     if (started) return `${message} It started on ${named(started)}, which it finishes on.`;
+    if (launched?.launch) return `${message} This launch was on ${named({ agentId: launched.agentId, modelDisplayName: launched.modelDisplayName, effort: launched.effort })}. Chosen from: ${launchSource(key, launched.launch)}`;
     const decided = this.decisions.get(key);
     if (decided) return `${message} This launch was on ${named(decided.choice)}. Chosen from: ${launchSource(key, decided.launch)}`;
     // At Check again no launch has decided yet: its next launch starts from its current choice.
@@ -5919,7 +5922,8 @@ export class Engine {
     catch (error) {
       if (this.stopping) return false;
       this.current = undefined;
-      this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }]);
+      // The decision names the choice the skill didn't resolve on (AC-PICK-06); read before the stop drops it.
+      this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [this.launchStopFact(key, (error as Error).message)] }]);
       return false;
     }
   }
@@ -7612,7 +7616,7 @@ export class Engine {
       if (run?.cause === "launch" && session?.runs.length === 1 && run.codex?.verificationFailure && codexNotDispatched(run)) {
         // A rejected first launch has no materialized provider history to audit.
         // This also handles a restart after an older Kiln left it implementing.
-        this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [run.codex.verificationFailure] }]);
+        this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [this.launchStopFact(phaseKey, run.codex.verificationFailure, session)] }]);
         return { kind: "stopped" };
       }
       if (isPreflightKey(phaseKey)) return await this.judgePreflight(phaseKey);
@@ -7828,7 +7832,7 @@ export class Engine {
       const issue = this.selectionIssue(phaseKey);
       const probe = !issue && stop.checks.some(check => check.name === "Codex launch settings") ? await this.probeCodexLaunch(phaseKey) : undefined;
       if (issue || probe) {
-        const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [this.launchStopFact(phaseKey, issue)] } : probe!;
+        const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [this.launchStopFact(phaseKey, issue)] } : { ...probe!, facts: probe!.facts.map(fact => typeof fact === "string" ? this.launchStopFact(phaseKey, fact) : fact) };
         // An activity that has not run: its own completion rows beside the launch check (waivers "Check Runs").
         // An activity that has not run: its own completion rows beside the launch check, still labelled Why Kiln stopped (AC-STOPCHECK-02, 03).
         const checks = [launch, ...(this.activityRan(phaseKey) ? [] : await this.completionRows(phaseKey))];
@@ -8886,7 +8890,7 @@ export class Engine {
     const facts = this.record.phases[key];
     if (!facts?.wait || !this.waitsBeforeStart(key)) return false;
     const choice = this.notStartedChoice(key);
-    const problem = !this.installed(choice.agentId) ? installRemedy(choice.agentId) : choice.problem && !choice.problem.startsWith("Reading ") ? choiceStopFact(choice, key) : undefined;
+    const problem = !this.installed(choice.agentId) ? choiceStopFact({ ...choice, problem: installRemedy(choice.agentId) }, key) : choice.problem && !choice.problem.startsWith("Reading ") ? choiceStopFact(choice, key) : undefined;
     if (problem === undefined) return false;
     delete facts.wait;
     this.unwatchWait();

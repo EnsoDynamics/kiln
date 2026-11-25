@@ -1,5 +1,7 @@
 # Phase 6: Complete the launch stops, offline handoff, split-phase fallback detail and in-use mark
 
+**Closed:** 2026-11-24
+
 **Added by delivery audit:** 2026-11-24, after every planned phase and Phase 5 closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "The launch decision", "Snapshot" (what a stop on a not-started activity names), "Agents" (the account panel), the `kiln handoff` part of the command-line section

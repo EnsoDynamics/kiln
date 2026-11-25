@@ -46,6 +46,16 @@ describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-K
     expect(text(html(snapshot))).not.toContain("above your");
   });
 
+  it("marks Claude Code's account in use when two agents are shown (Kiln Phase Model Tiers AC-AGENTS-03)", () => {
+    const snapshot = withPanel({});
+    const own = claude(snapshot);
+    snapshot.agents = [{ ...own, inUse: true }, { ...own, agentId: "codex", agent: "Codex", inUse: undefined, account: undefined }] as AgentView[];
+    expect(text(html(snapshot))).toContain("Claude Code · in use now");
+    // With Codex in use, Claude Code's name is plain.
+    snapshot.agents = [{ ...own, inUse: undefined }, { ...own, agentId: "codex", agent: "Codex", inUse: true, account: undefined }] as AgentView[];
+    expect(text(html(snapshot))).not.toContain("in use now");
+  });
+
   it("shows the account's error, or its usage error, under the model line", () => {
     const failed = withPanel({});
     claude(failed).account = { ...claude(failed).account!, error: "Claude Code isn’t signed in." };

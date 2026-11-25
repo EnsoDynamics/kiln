@@ -35,6 +35,7 @@
   import FeatureHeader from "../components/FeatureHeader.svelte";
   import { changeSettings, start, type PageConfig } from "../lib/api.js";
   import {
+    accountHeading,
     accountLines,
     adoptedWorktreeHelp,
     assumptionsLine,
@@ -346,7 +347,7 @@
         <ModelLines {snapshot} {connected} counts={tierLine} />
         {#each agents as agent (agent.agentId)}
           {@const account = accountLines(agent.account, settings.models.fallback.enabled ? settings.models.fallback.threshold : undefined)}
-          <span class="agent">{#if agents.length > 1}<span class="sub">{agent.agent}</span>{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
+          <span class="agent">{#if agents.length > 1}<span class="sub">{accountHeading(agent)}</span>{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
           {#if agent.modelListError}<span class="message">{agent.modelListError}</span>{/if}
         {/each}
         {#if settings.models.problem}<span class="message">{settings.models.problem}</span>{/if}

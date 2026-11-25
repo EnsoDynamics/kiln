@@ -1,5 +1,9 @@
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
-import { judgedPhase } from "../engine/plan-reading.js";
+import { judgedPhase, readPlanAt, recordedPlan } from "../engine/plan-reading.js";
+import { notStartedChoice } from "../engine/activity-models.js";
+import { modelDefaultsPath } from "../models/model-defaults.js";
+import type { ActivityChoice, ModelList } from "../models/resolver.js";
+import type { Effort } from "../state/records.js";
 import { activityKeyKind } from "../state/activity-keys.js";
 import { auditSentenceStart, recordedAuditName } from "../audit/audit-names.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
@@ -498,8 +502,8 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     reason = !engine ? "Controller disconnected; reconnect to establish safe terminal release." : hold?.reason ?? reason;
   }
   // An activity that hasn't started reopens a saved conversation only while its current choice is the one that session ran on (Kiln Phase Model Tiers AC-PICK-07).
-  // With Kiln not running, the snapshot Kiln saved last says what the current choice is.
-  const movedTo = engine ? (engine.reopenMatchesChoice(selected.phase, session) ? undefined : engine.agentOf(selected.phase)) : cachedChoiceMove(work, view, selected.phase, session);
+  // With Kiln not running, the choice is resolved now from the saved record, Model defaults and the plan on disk.
+  const movedTo = engine ? (engine.reopenMatchesChoice(selected.phase, session) ? undefined : engine.agentOf(selected.phase)) : cachedChoiceMove(work, view, selected.phase, session, env);
   const choiceMoved = movedTo !== undefined;
   if (movedTo && instructions.fresh_session_instructions) {
     // The fresh session runs on the activity's current choice, so its command names that agent.
@@ -519,24 +523,48 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   } finally { history.dispose(); }
 }
 /**
- * With Kiln not running (AC-PICK-07): the agent of the activity's current choice when the snapshot
- * Kiln saved last shows that choice moved off the one this session ran on, read from the
- * activity's row while it hasn't started. Undefined while they match, or once it has started.
+ * With Kiln not running (AC-PICK-07): the agent of the activity's current choice when that choice
+ * has moved off the one this session ran on. While the activity hasn't started, the choice is
+ * resolved now, from the record's own changes, the Model defaults file and the plan's tier on
+ * disk, so a Model defaults or tier change made after Kiln stopped counts too. Undefined while
+ * they match, or once it has started.
  *
- *   cachedChoiceMove(work, view, "2", codexSession)  // "claude_code", after Phase 2 was changed to Claude Code
+ *   cachedChoiceMove(work, view, "2", codexSession, env)  // "claude_code", after Phase 2 was changed to Claude Code
  */
-function cachedChoiceMove(work: SavedWork, view: Snapshot | undefined, key: string, session: SessionRecord): AgentId | undefined {
+function cachedChoiceMove(work: SavedWork, view: Snapshot | undefined, key: string, session: SessionRecord, env: NodeJS.ProcessEnv): AgentId | undefined {
   if (!view) return undefined;
-  // A saved snapshot that carries no rows says nothing about the current choice, so it moves nothing.
+  // A saved snapshot that carries no rows says nothing about whether the activity has started, so it moves nothing.
   const rows = [...(view.activities ?? []), ...(view.phases ?? [])];
   const rowId = judgedPhase(work.record.plan ?? [], key)?.id ?? key;
   const model = (rows.find(row => row.id === key) ?? rows.find(row => row.id === rowId))?.model;
   if (model?.state !== "will_run_on") return undefined;
-  // A choice that can't be used isn't the one the session ran on either; its fresh session keeps the session's agent.
-  if (!model.choice) return session.agentId ?? "claude_code";
-  const { choice } = model;
-  const same = choice.agentId === (session.agentId ?? "claude_code") && choice.model === session.model && (choice.effort ?? undefined) === (session.effort ?? undefined);
+  const sessionAgent = session.agentId ?? "claude_code";
+  const now = offlineChoice(work, view, key, env);
+  // Another agent is a move even when the saved snapshot holds no model list to resolve its model against;
+  // so is Model defaults that can't be read, which leaves no model to match, as `reopenMatchesChoice` finds.
+  if (!now.modelName || now.agentId !== sessionAgent) return now.agentId;
+  const choice = now.listed ? now : model.choice;
+  if (!choice) return sessionAgent;
+  const same = choice.agentId === sessionAgent && choice.model === session.model && (choice.effort ?? undefined) === (session.effort ?? undefined);
   return same ? undefined : choice.agentId;
+}
+
+/**
+ * An activity's choice resolved now with Kiln not running (AC-PICK-07), against the model lists the
+ * saved snapshot carries. `listed` is false when it holds no list for the agent the choice names,
+ * so only the agent is known and the saved row decides the model.
+ */
+function offlineChoice(work: SavedWork, view: Snapshot, key: string, env: NodeJS.ProcessEnv): ActivityChoice & { listed: boolean } {
+  const lists: Partial<Record<AgentId, ModelList>> = {};
+  for (const agent of view.agents ?? []) {
+    if (agent.models) lists[agent.agentId] = { models: agent.models.map(entry => ({ value: entry.value, resolvedModel: entry.value, displayName: entry.displayName, description: "", supportsEffort: entry.efforts.length > 0, supportedEffortLevels: entry.efforts as Effort[], supportsAutoMode: !entry.needsAutoMode, ...(entry.defaultEffort ? { defaultEffort: entry.defaultEffort } : {}) })) };
+  }
+  const prd = work.record.repositories.find(entry => entry.kind === "prd");
+  const read = readPlanAt(expandHome(prd?.worktreePath ?? work.record.settings.worktreePath), work.record.prdDirectory);
+  const plan = read.ok ? recordedPlan(read.plan) : work.record.plan ?? [];
+  const claudeCodeInstalled = view.agents?.find(entry => entry.agentId === "claude_code")?.installed ?? true;
+  const choice = notStartedChoice({ record: work.record, plan, defaultsPath: modelDefaultsPath(env), claudeCodeInstalled, lists, session: () => undefined }, key);
+  return { ...choice, listed: !!lists[choice.agentId] };
 }
 
 /** The agent of the activity status reports, from the controller. */

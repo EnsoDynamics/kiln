@@ -105,16 +105,21 @@ describe("the phase detail keeps the fallback facts (AC-FALLBACK-03) and the sto
   it("names on Needs you and the stopped-phase page where the stopped session's choice came from and where to change it", () => {
     const snapshot = needsYouCrashedSnapshot();
     const stoppedOn = (choiceSource: string) => ({ ...snapshot, needsYou: { ...snapshot.needsYou!, choiceSource } } as Snapshot);
-    const fallback = stoppedOn("The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
-    expect(text(needsYou(fallback))).toContain("Chosen from the fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    // The line names the choice that could not run: the stopped session's agent, model and effort.
+    const fallback = { ...stoppedOn("The fallback, from Model defaults' Fallback column. Change it in Model defaults."), needsYou: { ...stoppedOn("").needsYou!, choiceSource: "The fallback, from Model defaults' Fallback column. Change it in Model defaults.", agent: "Codex", model: "GPT-6.2-Sol", effort: "xhigh" } } as Snapshot;
+    expect(text(needsYou(fallback))).toContain("This launch was on Codex · GPT-6.2-Sol · xhigh, chosen from the fallback, from Model defaults' Fallback column. Change it in Model defaults.");
     const handBack = handBackSnapshot();
-    expect(text(handoff({ ...handBack, needsYou: { ...handBack.needsYou!, choiceSource: "The fallback, from Model defaults' Fallback column. Change it in Model defaults." } } as Snapshot))).toContain("Chosen from the fallback, from Model defaults' Fallback column. Change it in Model defaults.");
-    const defaults = stoppedOn("Model defaults. Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.");
-    expect(text(needsYou(defaults))).toContain("Chosen from Model defaults. Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.");
-    expect(text(needsYou(stoppedOn("A change for this PRD. Change it on its row in the phase plan.")))).toContain("Chosen from a change for this PRD. Change it on its row in the phase plan.");
+    expect(text(handoff({ ...handBack, needsYou: { ...handBack.needsYou!, choiceSource: "The fallback, from Model defaults' Fallback column. Change it in Model defaults.", agent: "Claude Code", model: "Sonnet 5.5", effort: "high" } } as Snapshot))).toContain("This launch was on Claude Code · Sonnet 5.5 · high, chosen from the fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    const defaults = { ...snapshot, needsYou: { ...snapshot.needsYou!, choiceSource: "Model defaults. Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.", agent: "Claude Code", model: "Opus 5.5", effort: "high" } } as Snapshot;
+    expect(text(needsYou(defaults))).toContain("This launch was on Claude Code · Opus 5.5 · high, chosen from Model defaults. Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.");
+    const changed = { ...snapshot, needsYou: { ...snapshot.needsYou!, choiceSource: "A change for this PRD. Change it on its row in the phase plan.", agent: "Codex", model: "GPT-6.2-Sol", effort: undefined } } as Snapshot;
+    expect(text(needsYou(changed))).toContain("This launch was on Codex · GPT-6.2-Sol, chosen from a change for this PRD. Change it on its row in the phase plan.");
+    // The restart layout, for a stop found at launch, names the same choice.
+    const restart = { ...snapshot, needsYou: { ...snapshot.needsYou!, case: "could_not_start", launchFailure: { ran: "claude", folder: "~/devel/acme-shop-kiln/customer-returns", sentence: "Claude Code exited before it responded.", error: "exit 1", at: snapshot.needsYou!.stoppedAt }, choiceSource: "The fallback, from Model defaults' Fallback column. Change it in Model defaults.", agent: "Claude Code", model: "Sonnet 5.5", effort: "high" } } as unknown as Snapshot;
+    expect(text(needsYou(restart))).toContain("This launch was on Claude Code · Sonnet 5.5 · high, chosen from the fallback, from Model defaults' Fallback column. Change it in Model defaults.");
     // A started activity's stop names what it started on, with no place to change it.
     expect(text(needsYou(stoppedOn("Started on Codex · GPT-6.2-Sol · high, which it finishes on.")))).toContain("Started on Codex · GPT-6.2-Sol · high, which it finishes on.");
-    expect(text(needsYou(snapshot))).not.toContain("Chosen from");
+    expect(text(needsYou(snapshot))).not.toMatch(/Chosen from|This launch was on/);
   });
 });
 
