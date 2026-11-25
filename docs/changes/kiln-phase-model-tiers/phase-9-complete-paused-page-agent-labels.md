@@ -1,5 +1,6 @@
 # Phase 9: Complete the paused page's labels for a new session on another agent
 
+**Closed:** 2026-11-25
 **Added by delivery audit:** 2026-11-25, after every planned phase and Phases 5 to 8 closed. It builds what earlier phases left out of the criterion below.
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "When an Activity Starts" (Pause now's hold), the "Replaces in part" entry for the Pause Now technical design's §The Paused Page

@@ -350,6 +350,24 @@ describe("the paused page (AC-PAUSE-05, AC-PAUSE-06)", () => {
     order(text(held(snapshot)), "Session won’t open?", "Will pause after Phase 2b finishes. Cancel end-of-phase pause", "Full session output");
   });
 
+  it("names the agent Resume launches on in the note and status when the session never got a response (Kiln Phase Model Tiers AC-AGENTS-04)", () => {
+    const snapshot = pausedHoldSnapshot();
+    snapshot.needsYou!.agent = "Claude Code";
+    snapshot.needsYou!.newSession = true;
+    snapshot.phases = snapshot.phases.map(row => row.id === "2b" ? { ...row, model: { state: "will_run_on", choice: { agentId: "codex", agent: "Codex", model: "gpt-6-astra", modelName: "GPT-6-Astra", effort: "high" } } } : row);
+    const html = held(snapshot, page({ pending: "resume" }));
+    const words = text(html);
+    order(words, "Starts a new Codex session on this activity’s model", "Note for Codex (optional)", "Resume phase 2b", "Checking the work, then starting a new Codex session.");
+    expect(html).toContain('placeholder="Anything to tell Codex before it carries on"');
+    for (const gone of ["Note for Claude", "reopening the"]) expect(words).not.toContain(gone);
+    expect(html).not.toContain("Anything to tell Claude");
+    // A session that did get a response reopens the same Claude conversation, so its labels stay Claude's.
+    delete snapshot.needsYou!.newSession;
+    const reopened = held(snapshot, page({ pending: "resume" }));
+    order(text(reopened), "Note for Claude (optional)", "Checking the work, then reopening the Claude Code conversation.");
+    expect(reopened).toContain('placeholder="Anything to tell Claude before it carries on"');
+  });
+
   it("names Pause now on the recovery page Resume's already-complete answer leads to", () => {
     const words = text(strip(render(PhaseHandoff, { props: { snapshot: pausedHoldSnapshot(), now: RUNNING_NOW, page: page({ choice: true }) } }).body));
     expect(words).toContain("Paused in Phase 2b.");

@@ -11,7 +11,7 @@
   import { activityKeyKind } from "../../../src/state/activity-keys.js";
   import AttendedCard from "../components/AttendedCard.svelte";
   import BillingPanels from "../components/BillingPanels.svelte";
-  import { activityAgent, billingHolds } from "../lib/agents.js";
+  import { activityAgent, billingHolds, shortAgentName } from "../lib/agents.js";
   import BusyStatus from "../components/BusyStatus.svelte";
   import CarryOnCard from "../components/CarryOnCard.svelte";
   import CopyButton from "../components/CopyButton.svelte";
@@ -43,6 +43,9 @@
   // The session that ran, else the activity's own agent; Resume launches on the activity's (Kiln Phase Model Tiers AC-AGENTS-04).
   const nextAgent = $derived(activityAgent(snapshot, stop.phaseId));
   const agent = $derived(stop.agent ?? nextAgent.agent);
+  // A session that never got a response is replaced by a new one on the activity's agent, so the note and status name that agent.
+  const noteAgent = $derived(shortAgentName(stop.newSession ? nextAgent.agent : agent));
+  const resumeStatus = $derived(stop.newSession ? `Checking the work, then starting a new ${nextAgent.agent} session.` : `Checking the work, then reopening the ${agent} conversation.`);
   const connected = $derived(connection?.connected ?? false);
   const reviewing = $derived(!!stop.sessionId && !!live.reviewRequired?.length);
   const heldCarryOn = $derived(!!live.takeover?.history && !!stop.carryOn && !!stop.reopen);
@@ -112,14 +115,14 @@
         <section aria-label="Let Kiln carry on">
           <h3>Let Kiln carry on</h3>
           <p>{#if stop.newSession}Starts a new {nextAgent.agent} session on this activity’s model, since it never got a response.{:else}Picks up in the same conversation, where it stopped.{/if} Whenever you’re ready; nothing is waiting on you.</p>
-          <label for="paused-note">Note for Claude <span class="optional">(optional)</span></label>
-          <textarea id="paused-note" rows="3" maxlength="4000" placeholder="Anything to tell Claude before it carries on" bind:value={page.draft}></textarea>
+          <label for="paused-note">Note for {noteAgent} <span class="optional">(optional)</span></label>
+          <textarea id="paused-note" rows="3" maxlength="4000" placeholder={`Anything to tell ${noteAgent} before it carries on`} bind:value={page.draft}></textarea>
           {#if page.unsent && page.draft}<p class="warning">Your note has not been sent.</p>{/if}
           <div class="actions">
             <button type="button" class="button solid" class:busy={page.pending === "resume" || page.pending === "reply"} aria-busy={page.pending === "resume" || page.pending === "reply"} disabled={resumeBlocked} onclick={resume}>Resume {name}</button>
             {#if page.feedback}<p class="warning" role="status">{page.feedback}</p>{/if}
           </div>
-          {#if page.pending === "resume" || page.pending === "reply"}<BusyStatus text={`Checking the work, then reopening the ${agent} conversation.`} />{/if}
+          {#if page.pending === "resume" || page.pending === "reply"}<BusyStatus text={resumeStatus} />{/if}
         </section>
         <section aria-label="Or take it over yourself">
           <h3>Or take it over yourself</h3>
