@@ -146,6 +146,11 @@ function recordOf(f: Feature): PrdRecord {
 }
 
 const snapshotOf = async (address: string, token: string) => (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
+/** The snapshot once Kiln has read the agent's models: until then the model field holds its "Reading … models and readiness…" message. */
+const snapshotWithModelsRead = async (address: string, token: string) => {
+  await waitFor(async () => !(await snapshotOf(address, token)).settings.fieldErrors.model?.startsWith("Reading "), 30_000);
+  return snapshotOf(address, token);
+};
 
 /** A phase's work in one repository: a file, committed and pushed on the feature branch. */
 const work = (repository: string, file: string) => [
@@ -832,7 +837,7 @@ describe("starting several repositories on a branch that already exists (run res
     const address = await kiln.address;
     const token = await tokenOf(address);
     expect((await api(address, token, "POST", "/api/settings", { start: { from: "existing", bringUpToDate: true } })).status).toBe(200);
-    const snapshot = await snapshotOf(address, token);
+    const snapshot = await snapshotWithModelsRead(address, token);
     const start = snapshot.documents!.start!;
     expect(start).toMatchObject({ from: "existing", workspaceFolder: displayPath(workspace), planSource: { kind: "branch", branch: BRANCH, sha: productTip }, startAt: { id: "2b" } });
     expect(start.repositories.map(repository => [repository.name, repository.hasBranch])).toEqual([["product", true], ["returns-api", true], ["storefront", false]]);
@@ -959,7 +964,7 @@ describe("a repository only the chosen branch's plan names (run restart AC-FROM-
     const address = await kiln.address;
     const token = await tokenOf(address);
     expect((await api(address, token, "POST", "/api/settings", { start: { from: "existing", bringUpToDate: true } })).status).toBe(200);
-    const snapshot = await snapshotOf(address, token);
+    const snapshot = await snapshotWithModelsRead(address, token);
     expect(snapshot.feature.multiRepository).toBe(true);
     expect(snapshot.repositories.map(row => [row.name, row.baseBranch])).toEqual([["product", "develop"], ["notifications", "main"]]);
     expect(snapshot.settings.fieldErrors).toEqual({});
