@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "95065ee9-8f1d-47ab-8a48-dce65dc38742",
+  "activityId": "59c36c87-a108-4116-bfba-48bbe9439305",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Repair delivery audit of the whole Kiln Phase Model Tiers PRD at 1770639, after Phase 5. It re-read the 13 criteria whose code Phase 5 changed; the other 13 keep their earlier Implemented status. Three rounds ran. Phase 5's fixes are in, but four criteria are still built only in part: AC-PICK-06, AC-PICK-07, AC-AGENTS-03 and AC-FALLBACK-03. Some launch stops still don't name the choice's model, effort, source or where to change it, including Codex refusing the model. With Kiln not running, kiln handoff misses a Model defaults or tier change made after Kiln stopped. A split phase's detail loses its fallback facts. Claude Code's account isn't marked in use before Start. Phase 6 was added to build them. No criterion was amended and nothing was changed outside the requirements.",
+  "completionPhases": ["6"],
+  "needsYou": [],
+  "settled": []
+}
