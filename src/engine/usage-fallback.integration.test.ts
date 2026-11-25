@@ -4,6 +4,9 @@
 // sets: the usage reading is supplied at the reader's boundary, since an account can't be brought
 // to the threshold on demand, and the session the decision names runs for real on the stand-ins.
 
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness, type ScenarioSession } from "../test-support/engine-harness.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
@@ -567,5 +570,119 @@ describe("`kiln handoff` with Kiln not running (AC-PICK-07)", () => {
     const handoff = await offline(h, session.sessionId);
     expect(handoff.reason).not.toEqual(expect.stringContaining("isn't reopened"));
     expect(handoff).toMatchObject({ agent: "codex", fresh_session_instructions: { command: codexCommand(folder) } });
+  });
+});
+
+describe("each launch is decided on its own, for every phase, and only a usable fallback takes it (AC-FALLBACK-02, AC-AGENTS-02)", () => {
+  /** Phase 1's landing session, held after its first response until the test creates the gate file. */
+  const gatedLanding = (gate: string): ScenarioSession => ({ actions: [{ text: "Building phase 1." }, { waitForFile: gate }, ...landingSession("src/one.txt").actions] });
+  const CODEX_FIRST = { standard: { first: { agentId: "codex" as const, family: "sol", effort: "high" }, fallback: { agentId: "claude_code" as const, family: "sonnet", effort: "high" } } };
+  const blocked = { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10, windowDurationMins: 300 } } } };
+
+  it("falls back for a phase the person changed by hand, naming the changed choice as the first", async () => {
+    const claude = new SetClaude(weekly(97));
+    const h = await fixture([landingSession("src/one.txt")], claude, { withCodex: true });
+    writeModelDefaults(h.env, {}, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    expect(await h.engine.changeModel({ phase: "1" }, { agentId: "claude_code", model: "sonnet", effort: "high" })).toEqual({ ok: true });
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.engine.startedSessionOf("1") !== undefined || h.engine.stoppedPhaseKey() !== undefined);
+    const first = h.engine.sessionRecord("1", h.engine.record.phases["1"]!.sessionIds[0]!)!;
+    expect(first).toMatchObject({ agentId: "codex", model: "gpt-6.1-sol", effort: "high", launch: { from: "changed", fallback: { used: true, limit: { agentId: "claude_code", label: "Weekly", percent: 97 }, threshold: 95, first: { agentId: "claude_code", model: "sonnet", effort: "high" } } } });
+    expect(h.claudeCalls().filter(call => call.args.includes("--model"))).toEqual([]);
+    await h.engine.settled();
+  });
+
+  it("returns the next activity to its first choice once that account is back under the threshold", async () => {
+    const claude = new SetClaude(weekly(20));
+    const gate = join(tmpdir(), `kiln-fallback-gate-${process.pid}-${Date.now()}`);
+    const h = await fixture([gatedLanding(gate)], claude, { withCodex: true });
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: blocked });
+    writeModelDefaults(h.env, CODEX_FIRST, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents();
+    await h.engine.start({ refinementConfirmed: true });
+    // Codex's ordinary usage is blocked: Phase 1 starts on Claude Code, its fallback.
+    await waitFor(() => h.engine.startedSessionOf("1") !== undefined);
+    expect(h.engine.latestSession("1")).toMatchObject({ agentId: "claude_code", model: "sonnet", launch: { fallback: { used: true, limit: { agentId: "codex", label: "ordinary usage blocked" } } } });
+    // Codex's account frees up while Phase 1 runs; Phase 2b's launch reads it fresh and starts on its first choice.
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: codexUsage(10) });
+    writeFileSync(gate, "");
+    await waitFor(() => h.engine.latestSession("2b") !== undefined);
+    await h.engine.settled();
+    expect(h.engine.isPhaseDone("1")).toBe(true);
+    const next = h.engine.latestSession("2b")!;
+    expect(next).toMatchObject({ agentId: "codex", model: "gpt-6.1-sol", effort: "high", launch: { from: "model_defaults" } });
+    expect(next.launch?.fallback?.used).not.toBe(true);
+    expect(h.claudeCalls().filter(call => call.args.includes("--model"))).toHaveLength(1);
+  });
+
+  it("leaves the fallback unused while its agent doesn't offer the fallback's model, saying why", async () => {
+    const claude = new SetClaude(weekly(97));
+    const h = await fixture([landingSession("src/one.txt")], claude, { withCodex: true });
+    writeModelDefaults(h.env, { standard: { fallback: { agentId: "codex", family: "astra", effort: "high" } } }, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.engine.isPhaseDone("1") || h.engine.stoppedPhaseKey() !== undefined);
+    const session = h.engine.sessionRecord("1", h.engine.record.phases["1"]!.sessionIds[0]!)!;
+    expect(session).toMatchObject({ agentId: "claude_code", model: "opus", launch: { fallback: { used: false, limit: { agentId: "claude_code", label: "Weekly", percent: 97 }, threshold: 95, reason: "Codex doesn't offer a GPT Astra model on this account." } } });
+    expect(codex!.calls().some(call => call.method === "thread/start")).toBe(false);
+    await h.engine.settled();
+  });
+
+  it("says on the current row why the fallback wasn't used, while its session runs", async () => {
+    const claude = new SetClaude(weekly(97));
+    const gate = join(tmpdir(), `kiln-fallback-gate-${process.pid}-${Date.now()}`);
+    // Codex isn't installed: the fallback's launch checks fail.
+    const h = await fixture([gatedLanding(gate)], claude);
+    writeModelDefaults(h.env, {}, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.start({ refinementConfirmed: true });
+    await waitFor(() => h.engine.startedSessionOf("1") !== undefined);
+    expect(row(h.engine, "1").model).toMatchObject({ state: "running_on", choice: { agent: "Claude Code" }, fallback: { used: false, limit: { agent: "Claude Code", label: "Weekly", percent: 97 }, threshold: 95, reason: expect.stringContaining("Codex is not on PATH") } });
+    writeFileSync(gate, "");
+    await waitFor(() => h.engine.isPhaseDone("1") || h.engine.stoppedPhaseKey() !== undefined);
+    await h.engine.settled();
+  });
+
+  it("never sends a launch the account refuses to the fallback: with the switch on and usage under the threshold, the run stops", async () => {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([landingSession("src/one.txt")], claude, { withCodex: true });
+    // Codex answers the launch with another model than the one Kiln asked for.
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: codexUsage(10), mismatch: true });
+    writeModelDefaults(h.env, CODEX_FIRST, { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.stoppedPhaseKey()).toBe("1");
+    expect(buildSnapshot(h.engine).needsYou!.checks.map(check => check.name)).toContain("Codex launch settings");
+    expect(h.engine.record.phases["1"]!.sessionIds.map(id => h.engine.sessionRecord("1", id)!.agentId)).toEqual(["codex"]);
+    expect(h.engine.latestSession("1")!.launch?.fallback?.used).not.toBe(true);
+    expect(h.claudeCalls()).toEqual([]);
+  });
+
+  it("leaves a Claude Code fallback on an unapproved metered route unused until approved, then the next launch takes it", async () => {
+    const claude = new SetClaude(weekly(20));
+    const h = await fixture([landingSession("src/one.txt")], claude, { withCodex: true });
+    h.env.ANTHROPIC_API_KEY = "fallback-billing-canary";
+    codex!.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: blocked });
+    writeModelDefaults(h.env, Object.fromEntries((["demanding", "standard", "mechanical", "audits"] as const).map(row => [row, CODEX_FIRST.standard])), { enabled: true, threshold: 95 });
+    h.engine.modelChoicesChanged();
+    await h.engine.refreshAgents(); await h.engine.refreshBilling();
+    await waitFor(() => !h.engine.billing.pending && !h.engine.readers.codex.state.pending && !h.engine.readers.claude_code.state.pending);
+    expect(h.engine.billing.view).toMatchObject({ canLaunch: false, next: { route: "metered" } });
+    expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
+    await waitFor(() => h.engine.latestSession("1") !== undefined); await h.engine.settled();
+    // The fallback's billing isn't approved: the launch stays on Codex, saying why, and no Claude Code session runs.
+    const stayed = h.engine.sessionRecord("1", h.engine.record.phases["1"]!.sessionIds[0]!)!;
+    expect(stayed).toMatchObject({ agentId: "codex", launch: { fallback: { used: false, limit: { agentId: "codex", label: "ordinary usage blocked" }, reason: expect.stringMatching(/billing/i) } } });
+    expect(h.claudeCalls()).toEqual([]);
+    // Approved, the next launch of an activity that hasn't started (Phase 2b) takes the fallback.
+    const decide = (key: string) => (h.engine as unknown as { decideLaunch(key: string, endsWait: boolean): Promise<{ choice: { agentId: string; model: string }; launch: { fallback?: { used: boolean; reason?: string } } } | undefined> }).decideLaunch(key, false);
+    expect(await decide("2b")).toMatchObject({ choice: { agentId: "codex" }, launch: { fallback: { used: false, reason: stayed.launch!.fallback!.reason } } });
+    await h.engine.refreshBilling(); await waitFor(() => !h.engine.billing.pending);
+    await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, readingId: h.engine.billing.view.next!.readingId, approved: true });
+    expect(h.engine.billing.view).toMatchObject({ canLaunch: true });
+    expect(await decide("2b")).toMatchObject({ choice: { agentId: "claude_code", model: "sonnet" }, launch: { fallback: { used: true, limit: { agentId: "codex", label: "ordinary usage blocked" } } } });
+    expect(h.claudeCalls()).toEqual([]);
   });
 });

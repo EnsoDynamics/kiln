@@ -66,6 +66,17 @@ describe("Documents found with two agents (AC-AGENTS-01, AC-AGENTS-02)", () => {
     expect(words).toContain("Codex account");
   });
 
+  it("shows the billing summary of an agent only a fallback names, without holding Start", () => {
+    const metered: BillingView = { ...CLAUDE_BILLING, canLaunch: false, next: { ...CLAUDE_BILLING.next!, route: "metered", email: undefined, canApprove: true } };
+    const snapshot = twoAgents({ neededBy: { activities: [], fallbackOnly: true }, billing: metered }, { neededBy: { activities: ["1", "2b", "3"], fallbackOnly: false } });
+    const page = documentsFound(snapshot);
+    expect(page).toContain('aria-label="Claude billing"');
+    expect(page).toContain('aria-label="Codex billing"');
+    expect(text(page)).toContain("API payer identity unavailable");
+    expect(text(page)).toContain("Approval needed before AI work can start.");
+    expect(startState(snapshot, true, true).enabled).toBe(true);
+  });
+
   it("holds Start with the reason when an agent an activity needs isn't ready", () => {
     const reason = "Codex isn't ready: Run codex login in a terminal. Needed by phase 3.";
     const snapshot = twoAgents({}, { readinessErrors: ["Run codex login in a terminal."] });

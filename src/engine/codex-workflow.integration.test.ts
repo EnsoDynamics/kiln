@@ -239,6 +239,8 @@ it("keeps the note that Claude Code isn't installed on a row while its launch is
   await waitFor(() => f.calls().some(call => call.method === "turn/start"));
   unsubscribe();
   expect(decided).toMatchObject({ state: "will_run_on", claudeCodeMissing: true, from: "model_defaults", choice: { agentId: "codex" } });
+  // The launch itself runs on the Standard row's Fallback column choice, Codex · GPT Sol · high, not the model's default effort (AC-PICK-01).
+  expect(f.calls().filter(call => call.method === "turn/start").map(call => [call.params?.model, call.params?.effort])).toEqual([["gpt-6.1-sol", "high"]]);
   // Then while its session runs with no response yet.
   expect(h.engine.startedSessionOf("1")).toBeUndefined();
   const phase = buildSnapshot(h.engine).phases.find(row => row.id === "1")!;

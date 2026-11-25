@@ -404,6 +404,8 @@ describe("Claude Code's billing approval follows why it is needed (AC-AGENTS-02)
     h.engine.modelChoicesChanged();
     await waitFor(() => !h.engine.billing.pending && !h.engine.readers.codex.state.pending);
     expect(h.engine.neededBy().claude_code).toEqual({ activities: [], fallbackOnly: true });
+    // Documents found shows Claude Code's billing summary, metered and not approved, though only a fallback names it.
+    expect(agentEntry(h.engine, "claude_code")!.billing).toMatchObject({ canLaunch: false, next: { agentId: "claude_code", route: "metered", approved: false } });
     expect(h.engine.modelsProblem).toBeUndefined();
     expect(buildSnapshot(h.engine).settings.models.fallback.warning).toMatchObject({ agentId: "claude_code", remedy: expect.stringContaining("approve") });
     expect(h.claudeCalls()).toEqual([]);
@@ -437,7 +439,9 @@ describe("a phase its session split (AC-AGENTS-03)", () => {
   it("keeps the launched phase's agent for its first child in the needed agents and the in-use mark", async () => {
     // Phase 1's session, on Claude Code, splits it and rates 1a mechanical, which Model defaults puts on Codex.
     const child = "# Phase 1a: Intake form\n\n**Model tier:** mechanical - one form.\n\n## Acceptance criteria covered\nAC-RET-01\n\n## Phase dependencies\nNone.\n";
-    const split: ScenarioSession = { actions: [{ text: "Splitting Phase 1." }, { split: [{ id: "1a", slug: "intake-form", title: "Intake form" }, { id: "1b", slug: "intake-email", title: "Intake email" }] }, { write: { path: `${DIRECTORY}/phase-1a-intake-form.md`, content: child } }, { commit: "docs: split phase 1" }, { push: true }, { result: "Split Phase 1; 1a is next." }] };
+    // 1b, which no session has launched, has its own tier line, read from the split's documents (AC-TIER-01).
+    const sibling = "# Phase 1b: Intake email\n\n**Model tier:** mechanical - one email template.\n\n## Acceptance criteria covered\nAC-RET-01\n\n## Phase dependencies\nPhase 1a.\n";
+    const split: ScenarioSession = { actions: [{ text: "Splitting Phase 1." }, { split: [{ id: "1a", slug: "intake-form", title: "Intake form" }, { id: "1b", slug: "intake-email", title: "Intake email" }] }, { write: { path: `${DIRECTORY}/phase-1a-intake-form.md`, content: child } }, { write: { path: `${DIRECTORY}/phase-1b-intake-email.md`, content: sibling } }, { commit: "docs: split phase 1" }, { push: true }, { result: "Split Phase 1; 1a is next." }] };
     const h = await fixture([split], { withCodex: true });
     writeModelDefaults(h.env, CODEX_MECHANICAL);
     h.engine.modelChoicesChanged();
@@ -451,6 +455,10 @@ describe("a phase its session split (AC-AGENTS-03)", () => {
     expect(needs.claude_code?.activities).toContain("Phase 1a");
     expect(needs.codex?.activities ?? []).not.toContain("Phase 1a");
     expect(needs.codex?.activities).toContain("Phase 2b");
+    expect(needs.codex?.activities).toContain("Phase 1b");
+    const oneB = [...(snapshot.activities ?? []), ...snapshot.phases].find(one => one.id === "1b")!;
+    expect(oneB.tier).toEqual({ value: "mechanical", reason: "one email template." });
+    expect(oneB.model).toMatchObject({ state: "will_run_on", choice: { agent: "Codex" }, from: "model_defaults" });
     expect(snapshot.agents.filter(entry => entry.inUse).map(entry => entry.agentId)).toEqual(["claude_code"]);
     // Its session has started it, so its model can't be changed (AC-PICK-05).
     expect(h.engine.modelChangeRefusal("1a", "Phase 1a")).toBe("Phase 1a has started, so it keeps the agent, model and effort it started on.");

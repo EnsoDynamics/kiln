@@ -5,6 +5,7 @@
 // response starts the activity and a refusal before one doesn't, a started activity's later
 // session runs on the concrete model it started on, and a choice that can't be used holds Start.
 
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { SCHEMA_VERSION, writeSessionRecord, type SessionRecord } from "../state/records.js";
@@ -85,6 +86,39 @@ describe("the tier picks each phase's model (AC-TIER-01, AC-PICK-01, AC-DEFAULT-
     h.engine.record.plan = h.engine.record.plan!.map(phase => phase.id === "3" ? { ...phase, modelTier: { tier: "mechanical", reason: "" } } : phase);
     expect(choiceOf(row(h.engine, "3"))).toEqual(["will_run_on", "Claude Code", "Sonnet 5.5", "high"]);
     expect(row(h.engine, "3").tier).toEqual({ value: "mechanical" });
+  });
+});
+
+describe("Kiln reads each tier line each time it reads the plan, and never writes one (AC-TIER-01, AC-PICK-01)", () => {
+  it("launches an open standard phase on Opus · medium, and a phase whose line changed or that was added during the run on its line as read then", async () => {
+    const files = tieredFiles();
+    files["phase-3-returns-dashboard.md"] = files["phase-3-returns-dashboard.md"]!.replace(/\n\n/, "\n\n**Model tier:** standard — dashboard reads only.\n\n");
+    // Phase 1's session rates 2b standard instead of mechanical, and adds Phase 4, rated mechanical, after Phase 3.
+    const twoB = files["phase-2b-store-credit.md"]!.replace("**Model tier:** mechanical - repeats the card refund flow.", "**Model tier:** standard — store credit has its own rules.");
+    const four = "# Phase 4: Returns export\n\n**Model tier:** mechanical - one CSV export.\n\n## Acceptance criteria covered\nAC-DASH-01\n\n## Phase dependencies\nPhase 3.\n";
+    const first = landingSession("src/one.txt");
+    first.actions.splice(first.actions.findIndex(action => "commit" in action), 0, { write: { path: `${DIRECTORY}/phase-2b-store-credit.md`, content: twoB } }, { write: { path: `${DIRECTORY}/phase-4-returns-export.md`, content: four } });
+    const h = await fixture([first, landingSession("src/two-b.txt"), landingSession("src/three.txt"), landingSession("src/four.txt"), pullRequestSession()], files);
+    expect(row(h.engine, "3").tier).toEqual({ value: "standard", reason: "dashboard reads only." });
+    expect(choiceOf(row(h.engine, "3"))).toEqual(["will_run_on", "Claude Code", "Opus 5.5", "medium"]);
+    expect(choiceOf(row(h.engine, "2b"))).toEqual(["will_run_on", "Claude Code", "Sonnet 5.5", "high"]);
+
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    await h.engine.settled();
+    expect(h.engine.record.completedAt).toBeDefined();
+    const launches = h.claudeCalls().filter(call => !call.args.includes("--resume")).map(call => [flag(call.args, "--model"), flag(call.args, "--effort")]);
+    // 1 demanding; 2b on standard's choice as Kiln re-read it; 3 standard; the added 4 mechanical; the pull request on Audits'.
+    expect(launches).toEqual([["fable", "high"], ["opus", "medium"], ["opus", "medium"], ["sonnet", "high"], ["opus", "high"]]);
+    expect(row(h.engine, "2b").tier).toEqual({ value: "standard", reason: "store credit has its own rules." });
+    expect(row(h.engine, "4").tier).toEqual({ value: "mechanical", reason: "one CSV export." });
+    expect(choiceOf(row(h.engine, "4"))).toEqual(["ran_on", "Claude Code", "Sonnet 5.5", "high"]);
+    // Every tier line on the feature branch is the one a document's author wrote: Kiln wrote or changed none.
+    const tierLines = (name: string) => execFileSync(h.tools.git, ["show", `origin/${h.engine.record.settings.featureBranch}:${DIRECTORY}/${name}`], { cwd: h.repository, env: h.env, encoding: "utf8" }).split("\n").filter(line => line.includes("Model tier"));
+    expect(tierLines("phase-1-return-intake.md")).toEqual(["**Model tier:** demanding — AC-RET-02 moves money on retries."]);
+    expect(tierLines("phase-2a-card-refunds.md")).toEqual(["**Model tier:** standard"]);
+    expect(tierLines("phase-2b-store-credit.md")).toEqual(["**Model tier:** standard — store credit has its own rules."]);
+    expect(tierLines("phase-3-returns-dashboard.md")).toEqual(["**Model tier:** standard — dashboard reads only."]);
+    expect(tierLines("phase-4-returns-export.md")).toEqual(["**Model tier:** mechanical - one CSV export."]);
   });
 });
 
