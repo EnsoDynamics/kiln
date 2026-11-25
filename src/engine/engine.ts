@@ -7386,7 +7386,11 @@ export class Engine {
         if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();
         // A carry-on from a hold checks the hold's conversation, and reads no history of either conversation (AC-CARRY-06).
         const carryOn = !!this.record.liveControl?.takeover.history;
-        const conversation = carryOn ? this.record.liveControl!.takeover.target.providerSessionId : session.sessionId;
+        // Only a launch that reopens the conversation reads its history; a fresh session for an
+        // activity that hasn't started has none before its first prompt, so it checks the held
+        // conversation for a terminal instead, as a carry-on does (AC-PICK-07).
+        const reopens = args.includes("--resume");
+        const conversation = carryOn || !reopens ? this.record.liveControl!.takeover.target.providerSessionId : session.sessionId;
         try { await requireNoTerminal(launchEnv, conversation, identity); }
         catch (error) { if (carryOn && error instanceof OwnershipError && error.code !== "terminal_in_use") throw new OwnershipError("ownership_unknown", error.message); throw error; }
         if (local !== this.takeoverLocalMaterial(phaseKey)) {
@@ -7394,7 +7398,7 @@ export class Engine {
           throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back.");
         }
         // Final synchronous admission after the async checks, using this dispatch's profile.
-        if (!carryOn) requireHistory(launchEnv, session.sessionId);
+        if (!carryOn && reopens) requireHistory(launchEnv, session.sessionId);
       } } : {}),
       ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,
