@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "executionId": "95065ee9-8f1d-47ab-8a48-dce65dc38742",
+  "activityId": "c22a2d99-aa5d-4c94-810d-960440fd6f0c",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Test audit of the whole Kiln Phase Model Tiers PRD at cf2ffc2, all nine phases closed. Of 26 criteria, 8 are Adequate (AC-PICK-06, AC-DEFAULT-01, AC-DEFAULT-03, AC-DEFAULT-04, AC-FALLBACK-03, AC-AGENTS-01, AC-KEEP-01, AC-KEEP-02), each seen to fail under a red check; 2 more read Adequate but still need their red check (AC-PICK-05, AC-DEFAULT-05); 15 are Weak; and AC-GUIDE-01 is Missing, because the guide text exists but no test reads it. Every red check that reached its code was caught by a test. No criterion is unbuilt, no mapped test fails, and nothing was changed outside the requirements. The 18 rows left to fix are planned in three batches in test-audit.md. Phase 9 closed after the last whole-PRD delivery audit, so no clean delivery audit yet covers it.",
+  "completionPhases": [],
+  "needsYou": [
+    { "kind": "test", "problem": "AC-GUIDE-01 has no test: nothing checks that the README and the command-line guide cover tiers, Model defaults and the fallback.", "action": "None yet; the next test-fix session adds a content test. Review only if it is still open at delivery.", "criterion": "AC-GUIDE-01" },
+    { "kind": "test", "problem": "AC-FALLBACK-02 (high risk) is Weak: a hand-changed phase falling back, a return to the first choice once back under the threshold, and a fallback held back by billing approval or an unoffered model are untested.", "action": "None yet; the next test-fix session adds these tests. Review only if it is still open at delivery.", "criterion": "AC-FALLBACK-02" },
+    { "kind": "test", "problem": "AC-AGENTS-02 (high risk) is Weak: nothing tests that a fallback on an agent with an unapproved metered route stays unused until approved.", "action": "None yet; the next test-fix session adds this test. Review only if it is still open at delivery.", "criterion": "AC-AGENTS-02" },
+    { "kind": "test", "problem": "AC-PICK-01 (high risk) is Weak: no open standard-rated phase is launched, the Codex launch's model and effort with Claude Code missing are not pinned, and a changed tier line is injected rather than re-read.", "action": "None yet; the next test-fix session adds these tests. Review only if it is still open at delivery.", "criterion": "AC-PICK-01" }
+  ],
+  "settled": [],
+  "changedImplementation": false,
+  "raised": []
+}
