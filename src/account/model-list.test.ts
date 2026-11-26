@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { autoModeError, effortFor, effortLevelsFor, modelEntries, modelListErrorMessage, type ModelEntry } from "./model-list.js";
+import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 
 const recorded = JSON.parse(readFileSync(new URL("../../test/fixtures/proof-gate-1/supported-models.json", import.meta.url), "utf8")).models;
 const entry = (overrides: Partial<ModelEntry>): ModelEntry => ({
@@ -34,6 +35,38 @@ describe("the Model list", () => {
     expect(entries.map((model) => model.value)).toEqual(["opus"]);
     // The SDK's own display name isn't used; the model ID names what runs.
     expect(entries[0]!.displayName).toBe("Opus 5.5");
+  });
+
+  it("keeps a family Claude Code lists only by full ID before its model catalog loads, under its alias", () => {
+    // The rows Claude Code 2.1.332 returned with no model catalog cached and none reachable.
+    const efforts: Pick<ModelInfo, "supportsEffort" | "supportedEffortLevels" | "supportsAutoMode"> = { supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsAutoMode: true };
+    const entries = modelEntries([
+      { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", description: "", ...efforts },
+      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "", ...efforts },
+      { value: "claude-fable-5-2[1m]", resolvedModel: "claude-fable-5-2", displayName: "Fable", description: "Fable 5.2 · Most capable for your hardest and longest-running tasks", ...efforts },
+      { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet", description: "", ...efforts },
+      { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku", description: "", ...efforts },
+    ]);
+    expect(entries.map((model) => [model.value, model.resolvedModel, model.displayName])).toEqual([
+      ["opus", "claude-opus-5-5", "Opus 5.5"],
+      ["fable", "claude-fable-5-2", "Fable 5.2"],
+      ["sonnet", "claude-sonnet-5-5", "Sonnet 5.5"],
+      ["haiku", "claude-haiku-5-5", "Haiku 5.5"],
+    ]);
+    expect(entries[1]!.supportsAutoMode).toBe(true);
+  });
+
+  it("names an alias-less family from its newest variant row, and never from an older ID alone", () => {
+    const entries = modelEntries([
+      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus", description: "" },
+      { value: "claude-opus-4-8[1m]", resolvedModel: "claude-opus-4-8", displayName: "Opus 4.8", description: "" },
+      { value: "claude-fable-5-1[1m]", resolvedModel: "claude-fable-5-1", displayName: "Fable", description: "" },
+      { value: "claude-fable-5-2[1m]", resolvedModel: "claude-fable-5-2", displayName: "Fable", description: "" },
+      { value: "claude-fable-5", resolvedModel: "claude-fable-5", displayName: "Fable 5", description: "" },
+      // Sonnet's alias is gone and only an older ID remains: Sonnet is not offered.
+      { value: "claude-sonnet-5", resolvedModel: "claude-sonnet-5", displayName: "Sonnet 5", description: "" },
+    ]);
+    expect(entries.map((model) => [model.value, model.displayName])).toEqual([["opus", "Opus 5.5"], ["fable", "Fable 5.2"]]);
   });
 });
 

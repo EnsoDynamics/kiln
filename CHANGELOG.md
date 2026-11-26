@@ -64,6 +64,10 @@ section to the new version.
   such a PRD failed with "doesn't have this PRD's documents", and its audits could not start.
   When Kiln can't read a PRD's acceptance criteria, Documents found now says that and why,
   instead of saying the documents are missing.
+- Fable no longer goes missing from Claude Code's models when Kiln reads them before Claude
+  Code has loaded its model catalog. Kiln left Fable out of the Model list, and phases set to
+  Fable said "Claude Code doesn't offer Fable on this account" until the next read, five
+  minutes later.
 
 ## [1.4.0] - 2026-11-21
 
