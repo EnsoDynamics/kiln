@@ -19,6 +19,8 @@ createInterface({ input: process.stdin }).on('line', async line => {
     case 'initialize': if (fixture.initializeError) break; result = { userAgent: 'codex-cli/0.162.1', codexHome: '/fixture' }; break;
     case 'model/list':
       if (fixture.modelsError) break;
+      // A fixture's own `models`, as [name, efforts] pairs, replaces the recorded list.
+      if (fixture.models) { result = { data: fixture.models.map(([name, efforts]) => model(name, efforts)), nextCursor: null }; break; }
       result = message.params.cursor ? { data: [model('gpt-6-luna', ['low', 'high', 'max'])], nextCursor: null } : { data: [model('gpt-6-sol', ['low', 'high']), model('gpt-6.1-sol', ['low', 'high', 'ultra']), { ...model('hidden-sol', ['high']), hidden: true }], nextCursor: 'second' }; break;
     case 'account/read':
       if (fixture.accountError || fixture.afterAccountError && accountReads > 0) break;

@@ -6,7 +6,7 @@
 // `dist/` (npm run build).
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
@@ -16,6 +16,7 @@ import { boundPort } from "../test-support/os-ports.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import { modelDefaultsPath } from "../models/model-defaults.js";
+import { installCodexMetadataFixture } from "../test-support/codex-metadata-fixture.js";
 
 let h: Harness;
 let server: LocalServer | undefined;
@@ -99,10 +100,14 @@ it("changes a phase that hasn't started and the Audits choice from a terminal, r
 
 it("prints and changes Model defaults with no PRD path and no running Kiln, refusing what the page refuses", async () => {
   h = await createHarness({ sessions: [] });
+  // The stand-in Codex comes first on PATH, so the fallback's model is named the same on every computer.
+  const codex = installCodexMetadataFixture(h.sandbox);
+  codex.set({ models: [["gpt-6.2-astra", ["low", "high", "xhigh"]], ["gpt-6.2-sol", ["low", "high", "xhigh"]]] });
+  Object.assign(h.env, { KILN_CODEX_METADATA: codex.env.KILN_CODEX_METADATA, PATH: `${join(h.sandbox.root, "codex-bin")}${delimiter}${h.env.PATH ?? ""}` });
   const path = modelDefaultsPath(h.env);
   const read = await cli(["model-defaults"]);
   expect(read.code, read.stdout).toBe(0);
-  expect(read.stdout).toMatch(/^Model defaults, for every PRD on this computer\nDemanding: Claude Code · Fable · high \(Fable 5\.1\), Kiln's default; fallback Codex · GPT Astra · high \(GPT-6\.2-Astra\), Kiln's default\n/);
+  expect(read.stdout).toMatch(/^Model defaults, for every PRD on this computer\nDemanding: Claude Code · Fable · high \(Fable 5\.1\), Kiln's default; fallback Codex · GPT Astra · high \(GPT-6\.2-ASTRA\), Kiln's default\n/);
   expect(read.stdout).toContain("Fallback when usage is nearly out: off (threshold 95%)");
 
   const set = await cli(["model-defaults", "set", "--row", "mechanical", "--first-agent", "claude_code", "--first-model", "haiku", "--first-effort", "medium", "--json"]);
