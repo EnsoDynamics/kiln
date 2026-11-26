@@ -22,6 +22,7 @@ No new service, repository, database or dependency.
   - An activity that has started is bound by resolver step 1, before any step this design adds. Nothing here reaches it.
   - A launch keeps the decision it saved. A change of mode, of the fallback setting or of a PRD's own settings made after that reaches the activity only if the launch ends with no response, as a Model defaults change does today.
   - The merge and the push of a plan after delivery are not activities in the PRD's sense. They take the Audits row's choice through the resolver today and keep doing so, steps 4 and 5 below included.
+  - An audit's skill, the preflight's skill and whether a preflight is planned are found on the agent of that activity's own choice (Kiln Phase Model Tiers, §Launching, "Skills"). Today one agent, the pull request session's choice, stands in for all three, because they share the Audits row. Once the preflight and the pull request session have a row of their own, the audits' skill is found on the Audits choice's agent and the preflight's on the Preflight and pull request choice's agent.
   - A Kiln that can't read a settings file never falls back to Kiln's shipped choices, or to Model defaults over a PRD's own settings.
 
 ## Architecture
@@ -48,12 +49,12 @@ Claude Code and Codex, through their existing adapters. No new call is made to e
 | Where For everything is applied | In the resolver, as its last step, not in the launch decision | AC-WHEN-02 treats the fallback as the choice in every respect: its agent is checked and billed, a wait watches its account, and a fallback that can't be used stops the run instead of yielding to the first choice. Every one of those already follows the resolver's choice |
 | What One model for everything does to the fallback | The activity has no fallback while that mode is in force, so the launch decision takes its existing no-fallback path | AC-MODE-03: no launch on a fallback, no agent needed because a fallback names it, a wait at a limit as with Never |
 | The shape of a save | The changes the person made, never the whole page | AC-SAVE-03 puts only what changed into the defaults and into the PRD's own settings. It also means a setting changed elsewhere while the page was open isn't written back over |
-| A save for every PRD from a PRD with its own settings (SAVE-004) | One request, checked against both files before either is written, then applied to Model defaults and to the PRD's own settings | A row's first choice and fallback can't share an agent, and the same change can pass in one file and fail in the other; checking both first means neither is half-saved. Applying the same changes twice is harmless, so a retry after a failed second write is safe |
+| A save for every PRD from a PRD with its own settings (SAVE-004) | One request, checked against both files before either is written, then applied to Model defaults and to the PRD's own settings. A write that fails after the first file was written is a failed save naming the file not written, and the page keeps its draft | A row's first choice and fallback can't share an agent, and the same change can pass in one file and fail in the other; checking both first means neither is half-saved. Applying the same changes twice is harmless, so pressing Save again after a failed second write is safe |
 | Model defaults' schema | Raised to 2 on the first write by this version; schema 1 is read without being rewritten | A Kiln from before this change would read a file with a mode or For everything as if neither were set, and launch on the account the person meant to spare. Its existing rule for a newer schema makes it refuse the file instead |
 | The fifth row for someone who changed Audits (CARRY-001) | Decided when a schema 1 file is read: if either side of the Audits row was set, the new row takes both of the Audits row's sides. The first write keeps that | The carry-over is one step of reading the old file, so it runs once per file and never touches a file this version wrote |
 | The per-PRD entry for the fifth row | Its own entry beside the Audits entry, filled from the Audits entry by the record migration | AC-ROW-01 makes a Change on the Preflight or pull request row reach those two only, and AC-CARRY-01 keeps an Audits change made before the upgrade for them |
 | Restore Kiln's defaults | Returns the five rows and the one model to Kiln's choices. The mode, the fallback setting and the threshold stay. It is one of the changes a save carries | The decision it extends kept the switch and threshold, and AC-WHEN-01 leaves that part of AC-FALLBACK-01 standing. The mode is the person's way of picking, not one of the choices Kiln ships |
-| Reset | Keeps a PRD's own settings | AC-SAVE-04 ends them only through Use my defaults here or AC-PRD-02. SAVE-003 names the costly mistake: settings forgotten without notice send the next phases to the account being spared, while settings kept show on Documents found with a one-press way out |
+| Reset | Keeps a PRD's own settings: `model-settings.json` joins the instance lock and the record as what a reset's discard of the PRD's state directory leaves in place | AC-SAVE-04 ends them only through Use my defaults here or AC-PRD-02. SAVE-003 names the costly mistake: settings forgotten without notice send the next phases to the account being spared, while settings kept show on Documents found with a one-press way out |
 | The one model until the person picks | Decided when read: Claude Code · Opus · high, or Codex · GPT Sol · high when Claude Code isn't installed. Never saved by itself | AC-MODE-02. Nothing is saved, so installing Claude Code later changes it with no step by the person, as DEF-003 does for the rows |
 | `kiln model-defaults` for one PRD | The same commands with `--prd <PRD-path>`, with no controller and no safety flags | AC-CLI-01 asks for an option, not a second set. They change a settings file, not a run, as the commands for the defaults do |
 | The fallback in command and status output | `use` is added, and `enabled` stays, true unless the setting is Never | A bot written against `enabled` keeps reading whether a fallback can be used at all |
@@ -68,7 +69,7 @@ ModelSettings:
   fallback:  { use: "never" | "threshold" | "everything", threshold: 1..100 }
 ```
 
-A PRD **has its own settings** when `model-settings.json` exists in its state directory. Its settings in force are that file's; otherwise they are Model defaults'. One function returns them with their source, `"prd"` or `"defaults"`, and everything below reads through it: the resolver, the launch decision, needed agents, the heads-up, the snapshot and the commands. The fallback setting **is in force** only while the mode is `recommended`.
+A PRD **has its own settings** when `model-settings.json` exists in its state directory. Its settings in force are that file's; otherwise they are Model defaults'. One function returns them with their source, `"prd"` or `"defaults"`, and everything below reads through it: the resolver, the launch decision, needed agents, the heads-up, the snapshot, `kiln status` resolving a choice with Kiln not running (AC-PICK-07), and the commands. The fallback setting **is in force** only while the mode is `recommended`.
 
 Both modes' settings stay in the file whichever is selected, which is how each returns when it is selected again (AC-MODE-01).
 
@@ -244,6 +245,8 @@ The line is added to each earlier section, as `Superseded in part by:`, in the c
   - §Agents (an agent is needed for a fallback only while the threshold setting is in force).
   - §HTTP, §Snapshot and §Command line (the routes, fields and commands in §Interfaces; the page saves on Save, not on Done).
   - §Data Models (the Preflight and pull request entry; `launch`; a continuation acceptance's format version).
+- Replaces in part: `docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md`
+  - §Design Decisions, "How reset discards" (a PRD's own settings file is kept with the instance lock and the reset receipts).
 
 ## Delivery
 
