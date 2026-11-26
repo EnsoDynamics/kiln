@@ -42,14 +42,14 @@ Most people keep the recommended model for each phase. A person who wants one mo
 - [ ] **AC-MODE-02 — One model runs everything that hasn't started.** While One model for everything is in force, every activity that hasn't started and that the person hasn't changed runs on that one agent, model and effort: every phase whatever its tier, both audits, the preflight and the pull request session. The model is a family, resolved to its newest version as AC-DEFAULT-01 says. Until the person picks, the choice is Claude Code · Opus · high. Each phase still shows its tier, and Change and Use the default work as AC-PICK-03 says, the default being the one model.
   - Replaces in part: AC-PICK-01 and AC-OTHER-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (while one model is in force, an activity the person hasn't changed runs on that model, not on its tier's or its row's first choice; the rest remains).
 
-- [ ] **AC-MODE-03 — One model has no fallback.** While One model for everything is in force, Kiln launches no activity on a fallback, whatever the fallback setting says. At a usage limit the run waits and picks up again, as it does with the fallback set to Never (MODE-001).
+- [ ] **AC-MODE-03 — One model has no fallback.** While One model for everything is in force, Kiln launches no activity on a fallback, whatever the fallback setting says. At a usage limit the run waits and picks up again, as it does with the fallback set to Never.
   - Replaces in part: AC-FALLBACK-02 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (while one model is in force, no launch goes to a fallback; the rest remains).
 
 ### Use the fallback never, when usage is nearly out, or for everything
 
 The fallback was a switch with a threshold. It becomes three settings in one place. The third is how a person keeps a run off an account they want to spare, without giving up the model that fits each phase.
 
-- [ ] **AC-WHEN-01 — The fallback has three settings.** Under the tier table, **Use the fallback** offers **Never**, **When the first choice's usage reaches** a threshold, and **For everything, until you change this** (WHEN-001). Never is selected until the person saves another. Never and the threshold setting behave as the switch's off and on do today, and the threshold keeps the limits AC-FALLBACK-01 gives it.
+- [ ] **AC-WHEN-01 — The fallback has three settings.** Under the tier table, **Use the fallback** offers **Never**, **When the first choice's usage reaches** a threshold, and **For everything, until you change this**. Never is selected until the person saves another. Never and the threshold setting behave as the switch's off and on do today, and the threshold keeps the limits AC-FALLBACK-01 gives it.
   - Replaces in part: AC-FALLBACK-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (three settings in place of a switch, shown inside the recommended choice; the rest remains).
 
 - [ ] **AC-WHEN-02 — For everything launches each activity on its fallback.** While that setting is in force, Kiln launches each activity that hasn't started as the table says, without reading usage first. An activity's fallback is the one AC-FALLBACK-02 gives it.
@@ -59,7 +59,7 @@ The fallback was a switch with a threshold. It becomes three settings in one pla
   | Has a fallback | The fallback |
   | Has none, because its fallback is on the same agent as its own choice | Its own choice, and its row says it has no fallback |
 
-  Kiln never sends such a launch to the first choice because the fallback can't be used (WHEN-002). The fallback's agent is the one the activity will run on, so before Start it is checked and billed as AC-AGENTS-01 and AC-AGENTS-02 say for such an agent, and at a usage limit on its account the run waits for that account.
+  Kiln never sends such a launch to the first choice because the fallback can't be used. The fallback's agent is the one the activity will run on, so before Start it is checked and billed as AC-AGENTS-01 and AC-AGENTS-02 say for such an agent, and at a usage limit on its account the run waits for that account.
   - Replaces in part: AC-FALLBACK-02 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (with For everything in force, a launch goes to the fallback whatever usage reads, and a fallback that can't be used makes the run wait or keeps Start unavailable, where the threshold setting launches on the first choice; the rest remains).
   - Replaces in part: AC-AGENTS-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (with For everything in force, the agent an activity will run on is its fallback's, and its first choice's agent isn't needed for it; the rest remains).
 
@@ -70,7 +70,7 @@ The fallback was a switch with a threshold. It becomes three settings in one pla
 
 The preflight checks access before the run, and the pull request session closes it. Neither checks the whole PRD the way an audit does, so they no longer share the audits' setting.
 
-- [ ] **AC-ROW-01 — The preflight and the pull request session share a row of their own.** Model defaults has a fifth row, **Preflight and pull request**, changed like the others, and both activities run on it. Until the person changes it, it holds the choices in the table (ROW-001). The Audits row now covers the delivery audit and the test audit only. A person changes the row's choice for one PRD with **Change** on the Preflight row or the pull request row while that activity hasn't started. The change reaches both, and is marked and undone as AC-PICK-03 says.
+- [ ] **AC-ROW-01 — The preflight and the pull request session share a row of their own.** Model defaults has a fifth row, **Preflight and pull request**, changed like the others, and both activities run on it. Until the person changes it, it holds the choices in the table. The Audits row now covers the delivery audit and the test audit only. A person changes the row's choice for one PRD with **Change** on the Preflight row or the pull request row while that activity hasn't started. The change reaches both, and is marked and undone as AC-PICK-03 says.
 
   | Row | First choice | Fallback |
   |---|---|---|
@@ -89,7 +89,7 @@ A person changing a setting should know that it was saved, where it applies, and
 
 - [ ] **AC-SAVE-03 — A change saved for every PRD is a default.** It is kept as AC-DEFAULT-02 says and reaches what AC-DEFAULT-03 says, except a PRD that has its own settings.
 
-- [ ] **AC-SAVE-04 — A change saved for this PRD only gives the PRD its own settings.** The PRD keeps its own copy of everything on the page: the mode, the one model, the rows and the fallback setting. Its activities that haven't started follow that copy, and nothing saved later for every PRD reaches them (SAVE-001, SAVE-002). Other PRDs and the defaults are unchanged, and the copy is kept across restarts and upgrades. Opened from that PRD, the page is titled for the PRD, says the PRD has its own settings and that every other PRD keeps the defaults, has This PRD only selected, and offers **Use my defaults here**, which removes the copy at once.
+- [ ] **AC-SAVE-04 — A change saved for this PRD only gives the PRD its own settings.** The PRD keeps its own copy of everything on the page: the mode, the one model, the rows and the fallback setting. Its activities that haven't started follow that copy, and nothing saved later for every PRD reaches them. Other PRDs and the defaults are unchanged. The copy is kept across restarts and upgrades, with Kiln's own record of the PRD and outside the repository, so it adds no file to commit or ignore (SAVE-001). Opened from that PRD, the page is titled for the PRD, says the PRD has its own settings and that every other PRD keeps the defaults, has This PRD only selected, and offers **Use my defaults here**, which removes the copy at once.
   - Replaces in part: AC-DEFAULT-03 and AC-FALLBACK-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (a PRD can hold its own settings, the fallback setting among them, and a change to the defaults doesn't reach such a PRD; the rest remains).
 
 ### Pick the way models are chosen where the PRD starts
@@ -128,8 +128,8 @@ Nobody's saved settings change meaning when they upgrade.
 
 ## Out of Scope
 
-- Switching an agent off by name. For everything covers sparing an account while every first choice is on it (WHEN-001).
+- Switching an agent off by name. For everything covers sparing an account while every first choice is on it.
 - A setting that lapses on its own, such as one that lasts until a usage limit resets.
-- A fallback for the one model (MODE-001).
+- A fallback for the one model.
 - A third agent, or more than one fallback for a row.
 - Changing the models Kiln ships for the three tiers and the audits.
