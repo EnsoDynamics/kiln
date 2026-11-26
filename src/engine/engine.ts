@@ -3494,7 +3494,7 @@ export class Engine {
         const files = await uncommittedFiles(this.git, worktree);
         if (files) out.uncommittedFiles = files.length; else unknown.push("uncommittedFiles");
       }
-      const pull = await openPullRequest(this.options.tools.gh, this.options.env, main, entry.github, branch, entry.baseBranch);
+      const pull = await openPullRequest(this.options.tools.gh, this.options.env, main, entry.github, branch, entry.baseBranch, this.abort.signal);
       if (pull && "unknown" in pull) unknown.push("pullRequests"); else if (pull) out.pullRequests.push(pull);
       if (entry.kind === "prd") {
         try { closedOnBranch = tip ? leavesOf((await observeGitPlan(this.git, main, this.record.prdDirectory, tip)).plan).filter(leaf => leaf.closed).length : undefined; }
