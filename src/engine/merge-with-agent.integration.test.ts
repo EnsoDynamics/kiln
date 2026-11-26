@@ -119,9 +119,10 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     expect(h!.events.some(event => event.kind === "merge" && event.event === "merged")).toBe(true);
     // Once per delivery: the press is never offered again, and a second command starts nothing (AC-MERGE-02).
     expect(controlOf("merge")).toMatchObject({ available: false, reason: "A merge session was already started for this delivery." });
-    // kiln status says Merged in text and JSON, with the merge time and commit GitHub shows, and the summary (AC-BOT-02).
+    // kiln status says Merged in text and JSON, with the merge time and commit GitHub shows, the summary (AC-BOT-02)
+    // and what Kiln did with the main checkout's develop (AC-MERGE-09).
     const mergedAt = h!.engine.record.afterDelivery!.pullRequests[0]!.mergedAt!;
-    expect(afterDeliveryText(status().after_delivery, false)).toBe(`Merged: #218 at ${mergedAt} (merge ${featureHead().slice(0, 7)})\nThe merge session's summary: ${SUMMARY}`);
+    expect(afterDeliveryText(status().after_delivery, false)).toMatch(new RegExp(`^Merged: #218 at ${mergedAt.replace(/\./g, "\\.")} \\(merge ${featureHead().slice(0, 7)}\\)\nThe merge session's summary: ${SUMMARY.replace(/\./g, "\\.")}\nKiln brought develop in .+ up to date with origin: \\d+ commits, to ${featureHead().slice(0, 7)}\\.$`));
     expect(status().after_delivery).toMatchObject({ waiting: false, pullRequests: [{ repository: "acme-shop", number: 218, state: "merged", mergedAt, mergeCommit: featureHead() }], merge: { state: "done", summary: SUMMARY } });
     // Nothing is remembered as a setting or a grant.
     expect(JSON.stringify(h!.engine.record.settings)).not.toContain("merge");

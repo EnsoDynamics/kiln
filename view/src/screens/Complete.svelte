@@ -133,6 +133,9 @@
       <p class="note">{MERGE_LIVE_REASON} It waits for the required checks before each merge. If it stops before merging, Kiln shows Needs you with its last message. Kiln shows Merged once GitHub shows {pullRequests.length > 1 ? "every pull request" : `#${pullRequests[0]?.number}`} merged.</p>
     </div>
   {:else if allMerged}
+    {#each after?.baseBranches ?? [] as said (said.repository)}
+      <p class="note base-branch">{said.line}{#if said.command}{" "}To bring it up to date: <code class="mono">{said.command}</code>{/if}</p>
+    {/each}
     {#if mergeActivity?.summary}
       <div class="merge-summary"><h3 class="eyebrow">The merge session’s summary</h3><p class="summary-text">{mergeActivity.summary}</p></div>
     {/if}
@@ -340,6 +343,7 @@
   .open { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
   .note { font-size: 13.5px; color: var(--dim); }
   p.note { margin: 0; }
+  .base-branch code { overflow-wrap: anywhere; color: var(--text); }
   .prs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
   .prs li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 14px 0; border-bottom: 1px solid var(--line); }
   .prs li:last-child { border-bottom: 0; }

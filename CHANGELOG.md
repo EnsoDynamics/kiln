@@ -40,6 +40,10 @@ section to the new version.
   **Merged it yourself? Check now**. Once Kiln sees the merge it checks for new phases
   itself, and the header reads **Merged** or **New phases found**. `kiln status` shows these
   states and controls.
+- Once the delivery has merged, Kiln brings your checkout's base branch up to date with
+  GitHub, fast-forward only. If the checkout has uncommitted changes or commits of its own,
+  Kiln leaves it as it is, and the Merged card says how many commits it is behind and the
+  command to run.
 
 ### Changed
 

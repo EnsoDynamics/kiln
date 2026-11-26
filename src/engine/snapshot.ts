@@ -34,6 +34,7 @@ import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage
 import type { StartCheckReport } from "../start-checks.js";
 import { deliveryWaiting, latestPlanPush, mergeOffer, openAfterDeliveryKey, type MergeOffer, type PlanPushActivity } from "./delivery-reading.js";
 import { closedOfferLine, mergeNote, unreadableLine } from "./merge-wording.js";
+import { baseBranchLines } from "./base-branch-sync.js";
 import { isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
 import { readAcceptance } from "./continuation-state.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
@@ -338,6 +339,8 @@ export interface AfterDeliveryView {
   merge?: MergeView;
   /** The latest push of the plan (Kiln After Delivery "Interfaces"). */
   planPush?: PlanPushView;
+  /** What Kiln did with each repository's local base branch after the merge (AC-MERGE-09); only repositories with something to say. */
+  baseBranches?: { repository: string; line: string; command?: string }[];
 }
 export interface PlanPushView {
   key: string;
@@ -1567,6 +1570,7 @@ export function afterDeliveryView(engine: Engine): AfterDeliveryView {
     offer: offerView,
     ...(merge ? { merge } : {}),
     ...(latestPlanPush(record) ? { planPush: planPushState(engine, latestPlanPush(record)!) } : {}),
+    ...(baseBranchLines(state.baseBranches, multi).length ? { baseBranches: baseBranchLines(state.baseBranches, multi) } : {}),
   };
 }
 

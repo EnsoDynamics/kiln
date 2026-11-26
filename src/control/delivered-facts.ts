@@ -17,6 +17,7 @@ import { isPreflightKey, planPushKey } from "../state/activity-keys.js";
 import { PREFLIGHT_TITLE } from "../engine/preflight.js";
 import type { CompletedPlanCheck } from "../engine/completed-plan-discovery.js";
 import { deliveryWaiting, latestPlanPush } from "../engine/delivery-reading.js";
+import { baseBranchLines, baseBranchText } from "../engine/base-branch-sync.js";
 import { formatCompletedPlanCheck } from "../underway-output.js";
 import type { Snapshot } from "../engine/snapshot.js";
 import { projectRef } from "./waiver-facts.js";
@@ -66,17 +67,17 @@ export function continuationFacts(check: CompletedPlanCheck, prdDirectory = ""):
 export function afterDeliveryFacts(record: PrdRecord, view?: import("../engine/snapshot.js").AfterDeliveryView): Record<string, unknown> | null {
   if (!record.completedAt || !record.afterDelivery) return null;
   // A live controller's view adds the merge offer and the merge activity's state (Kiln After Delivery AC-BOT-02).
-  if (view) return { ...view, readError: view.readError ?? null, merge: view.merge ?? null, planPush: view.planPush ?? null };
+  if (view) return { ...view, readError: view.readError ?? null, merge: view.merge ?? null, planPush: view.planPush ?? null, baseBranches: view.baseBranches ?? [] };
   const { pullRequests, readError, merge } = record.afterDelivery;
   const push = latestPlanPush(record);
   const pushKey = push ? planPushKey(push.operationId) : "";
   // The same for the latest push of the plan: past Done it is accepting until its check decides.
   const planPush = push ? { key: pushKey, state: push.closedAt ? "done" : push.doneAt ? "accepting" : record.phases[pushKey]?.stop || record.billing?.hold?.phaseKey === pushKey ? "stopped" : record.phases[pushKey]?.wait ? "waiting" : "interrupted", proposalId: push.proposalId } : null;
   // With no Kiln running nothing runs: an open merge with no stop or wait was interrupted, and the next `kiln run` holds it (Kiln After Delivery, "Ctrl+C and restart").
-  return { pullRequests: pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }), readError: readError ? { at: readError.at, problem: readError.problem } : null, waiting: deliveryWaiting(record) ?? null, merge: merge ? { state: merge.closedAt ? "done" : record.phases.merge?.stop || record.billing?.hold?.phaseKey === "merge" ? "stopped" : record.phases.merge?.wait ? "waiting" : "interrupted", ...(merge.doneAt ? { doneAt: merge.doneAt } : {}), ...(merge.summary !== undefined ? { summary: merge.summary } : {}), pullRequests: merge.pullRequests } : null, planPush };
+  return { pullRequests: pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }), readError: readError ? { at: readError.at, problem: readError.problem } : null, waiting: deliveryWaiting(record) ?? null, merge: merge ? { state: merge.closedAt ? "done" : record.phases.merge?.stop || record.billing?.hold?.phaseKey === "merge" ? "stopped" : record.phases.merge?.wait ? "waiting" : "interrupted", ...(merge.doneAt ? { doneAt: merge.doneAt } : {}), ...(merge.summary !== undefined ? { summary: merge.summary } : {}), pullRequests: merge.pullRequests } : null, planPush, baseBranches: baseBranchLines(record.afterDelivery.baseBranches, (record.pullRequests ?? []).length > 1) };
 }
 
-interface AfterDeliveryJson { pullRequests: { repository: string; number: number; state: string; mergedAt?: string; mergeCommit?: string; conflicts?: true }[]; offer?: { kind: string; available: boolean; note?: string; line?: string; reason?: string }; merge: { state: string; summary?: string } | null; planPush?: { state: string } | null }
+interface AfterDeliveryJson { pullRequests: { repository: string; number: number; state: string; mergedAt?: string; mergeCommit?: string; conflicts?: true }[]; offer?: { kind: string; available: boolean; note?: string; line?: string; reason?: string }; merge: { state: string; summary?: string } | null; planPush?: { state: string } | null; baseBranches?: { line: string; command?: string }[] }
 
 /** `kiln status` text for Continue's push of the plan while it is open (Kiln After Delivery AC-BOT-02). */
 const PUSH_TEXT: Record<string, string> = {
@@ -97,7 +98,7 @@ export function afterDeliveryText(after: AfterDeliveryJson | null | undefined, m
   const name = (pull: { repository: string; number: number }) => `${multiRepository ? `${pull.repository} ` : ""}#${pull.number}`;
   const merged = after.pullRequests.filter(pull => pull.state === "merged");
   if (after.merge?.state === "done" || after.pullRequests.length > 0 && merged.length === after.pullRequests.length) {
-    return [`Merged: ${merged.map(pull => `${name(pull)} at ${pull.mergedAt} (merge ${pull.mergeCommit?.slice(0, 7)})`).join(" · ")}`, ...(after.merge?.summary ? [`The merge session's summary: ${after.merge.summary}`] : [])].join("\n");
+    return [`Merged: ${merged.map(pull => `${name(pull)} at ${pull.mergedAt} (merge ${pull.mergeCommit?.slice(0, 7)})`).join(" · ")}`, ...(after.merge?.summary ? [`The merge session's summary: ${after.merge.summary}`] : []), ...(after.baseBranches ?? []).map(baseBranchText)].join("\n");
   }
   if (after.merge) return after.merge.state === "stopped" ? "Merging: the merge session stopped before merging; it needs you." : after.merge.state === "interrupted" ? "Merging, interrupted: resume with kiln continue." : after.merge.state === "waiting" ? "Merging: the merge session is waiting for usage." : "Merging: the merge session is running.";
   if (after.offer?.note) return `Merge with the agent${after.offer.available ? "" : ` (unavailable: ${after.offer.reason})`}: ${after.offer.note} Run kiln merge to start it.`;

@@ -15,6 +15,7 @@ import { authorityForApproval, changesContinuationScope, readPendingAuthority, w
 import { acceptanceSummary, executionDeliveries, readAcceptance, writeAcceptance, readExecution, retainExecution, type ContinuationAcceptance, type ContinuationState, type ExecutionSummary } from "./continuation-state.js";
 import { DiscoveryWriteFailure, discoverCompletedPlan, type CompletedPlanCheck, type DeliveryDecision } from "./completed-plan-discovery.js";
 import { deliveryWaiting, findMainCheckout, latestPlanPush, mergeOffer, openAfterDeliveryKey, openMerge, openPlanPush, orderedForMerge, prdPullRequest, readDelivery, type PlanPushActivity } from "./delivery-reading.js";
+import { syncBaseBranch, type BaseBranchEntry } from "./base-branch-sync.js";
 import { closedAtStopLine, closedOfferLine, MERGE_LIVE_REASON, PLAN_PUSH_LIVE_REASON, unreadableLine } from "./merge-wording.js";
 import { captureOwnedProcesses } from "../live/owned-processes.js";
 import { execFileSync } from "node:child_process";
@@ -4469,6 +4470,33 @@ export class Engine {
     };
   }
 
+  /**
+   * The local base branch after the merge (Kiln After Delivery AC-MERGE-09, "The Local Base
+   * Branch"): once every pull request reads merged, each repository's main checkout gets the full
+   * step once, and a repository left as it was is retried against the commit fetched then.
+   */
+  private async bringBaseBranchesUpToDate(signal: AbortSignal): Promise<void> {
+    const record = this.record;
+    if (!record.afterDelivery || openMerge(record) || mergeOffer(record).kind !== "all_merged") return;
+    const previous = record.afterDelivery.baseBranches ?? [];
+    const next: BaseBranchEntry[] = [];
+    for (const pull of record.pullRequests ?? []) {
+      if (next.some(row => row.repository === pull.repository)) continue;
+      const before = previous.find(row => row.repository === pull.repository);
+      if (before && before.outcome !== "left") { next.push(before); continue; }
+      const entry = record.repositories.find(one => one.name === pull.repository);
+      const github = entry?.github ?? record.repository.github;
+      const after = await syncBaseBranch({ git: { ...this.git, signal }, repository: pull.repository, checkout: entry?.mainCheckoutPath ?? record.repository.mainCheckoutPath, github, base: pull.base, now: () => this.now().toISOString(), ...(before?.fetched ? { fetched: before.fetched } : {}) });
+      // An unchanged retry keeps its first time, so the record moves only when something did.
+      next.push(before && JSON.stringify({ ...before, at: "" }) === JSON.stringify({ ...after, at: "" }) ? before : after);
+    }
+    // Saved while stopping too: a fast-forward that happened is recorded, so its line is not lost.
+    if (this.closed || JSON.stringify(next) === JSON.stringify(previous)) return;
+    record.afterDelivery.baseBranches = next;
+    this.save();
+    this.changed();
+  }
+
   // ---- Merge with the agent (Kiln After Delivery, "The Merge Session") --------------------
 
   /**
@@ -5005,6 +5033,7 @@ export class Engine {
         catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
       };
       const delivery = await this.deliveryDecision(options.press === true, signal);
+      await this.bringBaseBranchesUpToDate(signal);
       return discoverCompletedPlan({ agentId: this.auditsAgent, codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, delivery, observeInput, label: (name) => this.labelOf(name) });
     }).then(check => {
       if (this.stopping || this.closed) return check;
