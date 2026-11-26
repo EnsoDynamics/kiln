@@ -1,6 +1,6 @@
 # PRD: Kiln Model Modes
 
-**Source:** Doug's requests and decisions, 2026-11-26, after using Kiln Phase Model Tiers: a way to run everything on one model, a way to keep a run off an account he wants to spare, a choice of where a change is saved, a clear way back from Model defaults, and a lighter model for the preflight.
+**Source:** Doug's requests and decisions, 2026-11-26, after using Kiln Phase Model Tiers: a way to run everything on one model, a way to keep a run off an account that needs sparing, a choice of where a change is saved, a clear way back from Model defaults, and a lighter model for the preflight.
 
 **Changes:** [Kiln Phase Model Tiers](../kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md), which owns Model defaults, the fallback and each activity's model choice today.
 
@@ -89,7 +89,7 @@ A person changing a setting should know that it was saved, where it applies, and
 
 - [ ] **AC-SAVE-03 — A change saved for every PRD is a default.** It is kept as AC-DEFAULT-02 says and reaches what AC-DEFAULT-03 says, except a PRD that has its own settings.
 
-- [ ] **AC-SAVE-04 — A change saved for this PRD only gives the PRD its own settings.** The PRD keeps its own copy of everything on the page: the mode, the one model, the rows and the fallback setting. Its activities that haven't started follow that copy, and nothing saved later for every PRD reaches them. Other PRDs and the defaults are unchanged. The copy is kept across restarts and upgrades, with Kiln's own record of the PRD and outside the repository, so it adds no file to commit or ignore (SAVE-001). Opened from that PRD, the page is titled for the PRD, says the PRD has its own settings and that every other PRD keeps the defaults, has This PRD only selected, and offers **Use my defaults here**, which removes the copy at once.
+- [ ] **AC-SAVE-04 — A change saved for this PRD only gives the PRD its own settings.** The PRD keeps its own copy of everything on the page: the mode, the one model, the rows and the fallback setting. Its activities that haven't started follow that copy, and nothing saved later for every PRD reaches them. Other PRDs and the defaults are unchanged. The copy is kept across restarts and upgrades, with Kiln's own record of the PRD and outside the repository, so it adds no file to commit or ignore. Opened from that PRD, the page is titled for the PRD, says the PRD has its own settings and that every other PRD keeps the defaults, has This PRD only selected, and offers **Use my defaults here**, which removes the copy at once.
   - Replaces in part: AC-DEFAULT-03 and AC-FALLBACK-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (a PRD can hold its own settings, the fallback setting among them, and a change to the defaults doesn't reach such a PRD; the rest remains).
 
 ### Pick the way models are chosen where the PRD starts
