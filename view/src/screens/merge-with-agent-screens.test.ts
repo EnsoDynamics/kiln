@@ -59,6 +59,22 @@ describe("the pull request card after delivery", () => {
     expect(words).toContain("The merge session’s summary Brought develop into the branch and resolved conflicts in 6 files. Pushed and merged #218.");
     expect(header(snapshot)).toContain("Merged");
   });
+
+  it("says under the merge facts what Kiln did with the local base branch, with the command when it left it (AC-MERGE-09, state 3)", () => {
+    const merged = [{ repository: "acme-shop", number: 218, state: "merged" as const, mergedAt: "2026-10-17T19:19:00Z", mergeCommit: "8e41c0d9aa", readAt: "2026-10-17T19:20:00Z" }];
+    const updated = finished({ waiting: false, offer: { kind: "all_merged", available: false }, baseBranches: [{ repository: "acme-shop", line: "Kiln brought develop in ~/code/acme-shop up to date with origin: 4 commits, to 8e41c0d." }] }, merged);
+    updated.continuation = undefined;
+    expect(page(updated)).toContain("merge 8e41c0d Kiln brought develop in ~/code/acme-shop up to date with origin: 4 commits, to 8e41c0d.");
+    const left = finished({ waiting: false, offer: { kind: "all_merged", available: false }, baseBranches: [{ repository: "acme-shop", line: "develop in ~/code/acme-shop is 4 commits behind origin/develop. Kiln left it as it is because it has uncommitted changes.", command: "git -C ~/code/acme-shop pull --ff-only origin develop" }] }, merged);
+    left.continuation = undefined;
+    const markup = render(Complete, { props: { snapshot: left, connected: true, now: RUNNING_NOW, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body;
+    expect(text(markup)).toContain("Kiln left it as it is because it has uncommitted changes. To bring it up to date: git -C ~/code/acme-shop pull --ff-only origin develop");
+    expect(markup).toMatch(/<code[^>]*>git -C ~\/code\/acme-shop pull --ff-only origin develop<\/code>/);
+    // Nothing to say, nothing shown.
+    const current = finished({ waiting: false, offer: { kind: "all_merged", available: false } }, merged);
+    current.continuation = undefined;
+    expect(page(current)).not.toMatch(/up to date|behind origin/);
+  });
 });
 
 describe("a stopped merge session (AC-MERGE-06, state 4)", () => {

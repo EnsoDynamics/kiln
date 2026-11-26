@@ -4,7 +4,7 @@
 
 ## Overview
 
-A finished run gains two activities that run after delivery, and a way out. **Merge** is one more agent session that brings each base branch into its feature branch, runs the project's checks, waits for GitHub's required checks and merges the delivery's pull requests. **Push the plan** is one more session that pushes newly planned phase documents from the person's main checkout before Continue builds them. While either is open the finished run is reopened, so the engine's existing loop gives it billing, usage-limit recovery, Needs you, Ctrl+C and restart recovery. Kiln itself never merges or pushes. It decides that either is done only by reading GitHub or the remote base branch.
+A finished run gains two activities that run after delivery, and a way out. **Merge** is one more agent session that brings each base branch into its feature branch, runs the project's checks, waits for GitHub's required checks and merges the delivery's pull requests. **Push the plan** is one more session that pushes newly planned phase documents from the person's main checkout before Continue builds them. While either is open the finished run is reopened, so the engine's existing loop gives it billing, usage-limit recovery, Needs you, Ctrl+C and restart recovery. Kiln itself never merges a pull request or pushes. It decides that either is done only by reading GitHub or the remote base branch.
 
 The check for new phases on a finished run is rebuilt around three questions, asked in order: is the delivery still waiting to merge (answered from GitHub, never from commit ancestry), which one copy of the plan to read, and which phases in that copy are unfinished. Comparing finished phases with what they finished as, and comparing the two copies of the plan with each other, are removed, and with them every "Plan needs reconciliation" result for a finished run.
 
@@ -40,6 +40,7 @@ No new service, store, timer or background watcher. The foreground engine and it
 | Where the push sits | A step of accepting Continue, owned by the same acceptance | AC-BACK-05: one press pushes, checks again and starts the build |
 | How Kiln knows the stated merge order | One fixed line in each description, written by the pull request session and parsed by Kiln | AC-MERGE-01's note must name the order, and prose cannot be read reliably. Kiln still does not check the order |
 | When GitHub is read | Only on the occasions in §The Delivery Reading | Watching GitHub in the background is out of scope |
+| Who brings the local base branch up to date after the merge | The engine, with plain `git`, inside the plan check that follows the confirmed merge (§The Local Base Branch) | AC-MERGE-09: the merge session may push only feature branches, and a fast-forward needs no judgement. The engine's other fetches into the main checkout write no ref (`--refmap=`), so without this step even `origin/<base>` stays behind |
 
 ## After-Delivery Activities (AC-MERGE-05, AC-MERGE-06)
 
@@ -108,6 +109,38 @@ The reading is `gh pr view <number> --repo github.com/<owner>/<name> --json numb
 - **Merged**: when every pull request reads `merged`, the run is shown as Merged with each merge time and merge commit. While a merge activity is open, only one of its own occasions closes it (§After-Delivery Activities, "While open"); a reading on any other occasion shows each pull request merged on the card and the header stays Merging. The closing summary is saved only when a merge session's own end closes the activity: the reading taken at that end shows every pull request `merged`, and the run that just ended has a final message (`result.text`, non-empty once trimmed), with no usage-limit refusal, interruption or error result. That message is saved word for word in `merge.summary`, whatever it says, since the reading, not the message, decides Merged. The summary is taken from the run that just ended, never from an earlier run, so a resumed session's summary is the final message of its last run and an earlier stop's message is never shown. An activity closed by Check again, by Resume's first reading, or by `kiln run` saves no summary, and neither does a delivery the person merged before any session ran. Without a summary, the Merged card leaves the summary block out and shows each merge time and merge commit only.
 - **Waiting** (AC-WAIT-01): the delivery waits while the pull request in the PRD's repository is not `merged`, unless it reads `closed` and the person has pressed Check now since. That press is recorded only for a reading a person asked for by the button or the command, never for a page load or `kiln run`, and it stops counting if the pull request is later read as open. A delivery with no pull request in the PRD's repository never waits.
 - **The check follows the reading.** On the page, button and `kiln run` occasions the plan check runs straight after the reading when the delivery is not waiting and no activity is open. When a merge activity closes with every pull request merged, the check runs unasked (AC-WAIT-03). On the page occasion this is today's check on page load (AC-FIND-01 in Kiln Continue Added Phases, which AC-WAIT-03 leaves in force), so a phase added after the merge appears on reload with no press. Once every pull request reads `merged` the occasion reads nothing from GitHub and only the check runs. Concurrent occasions from several tabs join the reading and the check already in flight.
+
+## The Local Base Branch (AC-MERGE-09)
+
+**When.** Inside the plan check, after the delivery decision and before the plan is read, whenever every pull request reads `merged` (`mergeOffer` is `all_merged`). The check never runs while a merge activity is open, so this happens once the run shows Merged, whoever merged: at the merge session's end, at the press that finds everything already merged, and at the first page load, Check now or `kiln run` after a merge on GitHub. Running before the plan read means the check reads the main checkout as the card describes it. A repository with no entry in `afterDelivery.baseBranches` gets the full step below; one recorded `left` gets the retry. Repositories are those of the delivery's pull requests, each with its recorded base and its main checkout (found as §The Plan Check, step 2 finds it). A repository whose work merged early with no pull request in the final delivery is not among them (the PRD's Out of Scope).
+
+**The full step**, per repository, in its main checkout:
+
+1. Fetch: `git fetch --no-tags --no-write-fetch-head origin +refs/heads/<base>:refs/remotes/origin/<base>`. The fetched commit is `origin/<base>` after it, saved as `fetched`. This is the only ref Kiln's other fetches never write.
+2. Read the local base (`refs/heads/<base>`), the branch the checkout is on (`symbolic-ref`, none when detached), and the other worktrees' branches (`git worktree list --porcelain`). No local base, or one that already contains `fetched`, is `current`. Otherwise `behind` and `ahead` are `rev-list --count` each way.
+3. Act by AC-MERGE-09's table:
+
+| The checkout | Kiln runs | Outcome |
+|---|---|---|
+| On the base branch, `ahead` 0, no change to a tracked file (`git status --porcelain --untracked-files=no` empty), and still on it after the fetch | `git merge --ff-only --no-autostash --no-overwrite-ignore <fetched>` | `fast_forwarded` |
+| On another branch or detached, `ahead` 0, the base branch checked out in no other worktree | `git fetch --no-tags --no-write-fetch-head . refs/remotes/origin/<base>:refs/heads/<base>` | `branch_moved` |
+| Any other case | Nothing | `left`, with the reason `uncommitted`, `diverged` or `checked_out_elsewhere` |
+
+Untracked and ignored files do not count as uncommitted changes: a fast-forward never deletes one, and with `--no-overwrite-ignore` Git refuses, changing nothing, a fast-forward that would overwrite one, an ignored local `.env` included (without the flag Git replaces ignored files silently). The branch is read again just before the merge, since the person may switch away from the base while the fetch runs. The local `fetch .` is a fast-forward-only ref update that Git itself refuses for a branch checked out in any worktree, so it can never leave another worktree's files behind its branch. A Git command that fails or is refused is `left` with the reason `refused` and Git's message. A main checkout that is not found, or a fetch that fails, is `left` with the reason `not_read` and the problem, and that repository gets the full step again at the next check. Kiln never merges a diverged branch, rebases, resets, stashes or pushes.
+
+**The retry** at every later check runs steps 2 and 3 again for a `left` repository against the `fetched` it saved, without fetching, so a person who cleans the checkout and reloads the page gets the fast-forward, and one who brought the branch up to date themselves sees the line go (`current`). Kiln never fetches again, so it never moves the branch past the commit it fetched after the merge. A `not_read` entry gets the full step when it has no `fetched` (the checkout was not found or the fetch failed), and the retry otherwise. `fast_forwarded`, `branch_moved` and `current` entries are final.
+
+**What it says.** One line per repository with an outcome other than `current`, built by one function the page and `kiln status` share, naming the repository only when the delivery has several:
+
+| Outcome | The line |
+|---|---|
+| `fast_forwarded` | Kiln brought {base} in {checkout} up to date with origin: {n} commits, to {sha7}. |
+| `branch_moved` | Kiln moved {base} in {checkout} up to origin/{base} ({n} commits, to {sha7}). The checkout stays on {branch}. (Detached: The checkout stays where it is.) |
+| `left` | {base} in {checkout} is {n} commits behind origin/{base}{ and has {m} commits origin lacks}. Kiln left it as it is because {reason}. To bring it up to date: `{command}` |
+
+The command is run where the base branch is checked out: `git -C <checkout> pull --ff-only origin <base>` on the base branch, or `git -C <other worktree> pull --ff-only origin <base>` when another worktree has it, with `pull origin <base>` in place of `pull --ff-only origin <base>` when the branch has diverged, so the person chooses how to combine. With the base checked out nowhere it is `git -C <checkout> fetch origin <base>:<base>`, or `git -C <checkout> switch <base> && git -C <checkout> pull origin <base>` when it has diverged. A `not_read` line gives the problem and says Kiln tries again at the next check; it has a command only when the checkout was found. The checkout's branch and the worktree list are read before the fetch, so a failed fetch still gets the right command. On the card the lines sit under the merge facts of the Merged state (mockup state 3); `kiln status` gives them in text, after the Merged line, and in JSON as `after_delivery.baseBranches` with each line and command.
+
+**Principles 1 and 2.** No skill changes, and nothing is written into the repository but refs to commits origin already holds: the same `git pull --ff-only` a person runs by hand after merging. AC-MERGE-08's statement is unchanged, since nothing here reaches GitHub.
 
 ## The Merge Session (AC-MERGE-01, AC-MERGE-02, AC-MERGE-03, AC-MERGE-08)
 
@@ -320,6 +353,9 @@ afterDelivery?:
               pressHeads: { repository, sha }[], doneAt?, closedAt?, summary? }
   planPushes?: { operationId, requestedAt, via, proposalId, offered: { id, phaseScopeDigest }[], doneAt?, closedAt?,
                  refreshedScope? }[]
+  baseBranches?: { repository, checkout, base, at, outcome: "fast_forwarded" | "branch_moved" | "current" | "left",
+                   fetched?, from?, behind?, ahead?, reason?: "uncommitted" | "diverged" | "checked_out_elsewhere" | "refused" | "not_read",
+                   problem?, checkoutBranch?, detached?, elsewhere? }[]   — §The Local Base Branch; optional, so older records need nothing
 ```
 
 `planPushes` gains one entry per Continue press that opens a push, and entries are never removed; an entry only gains `doneAt`, `closedAt` and `refreshedScope`. Its activity key is derived from `operationId` (§After-Delivery Activities, "Keys"). The open push is the entry without `closedAt`, and there is at most one. An entry with `doneAt` and no `closedAt` is `accepting` (§After-Delivery Activities, "Ending"); `closedAt` is written in the same save as the acceptance row on a match, or with the result shown otherwise. The snapshot's `planPush` describes the latest entry. The merge's `closedAt` is written in the same save as its `doneAt`, so both kinds give the latest after-delivery activity's `closedAt` that ends Complete's timing (§After-Delivery Activities, "While open").

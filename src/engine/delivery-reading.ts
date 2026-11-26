@@ -50,6 +50,8 @@ export interface AfterDeliveryState {
   merge?: MergeActivity;
   /** Continue's pushes of the plan, one per press that opened one, never removed (Kiln After Delivery, "Data Models"). */
   planPushes?: PlanPushActivity[];
+  /** Each repository's local base branch after the merge (Kiln After Delivery AC-MERGE-09). */
+  baseBranches?: import("./base-branch-sync.js").BaseBranchEntry[];
 }
 
 /**
@@ -174,7 +176,7 @@ const ORDER = /^\s*Merge order:\s*(\d+)\s+of\s+(\d+)\s*$/im;
 export async function readDelivery(input: ReadingInput): Promise<{ state: AfterDeliveryState; failed: { repository: string; number: number }[] }> {
   const { record } = input;
   const previous = record.afterDelivery;
-  const next: AfterDeliveryState = { pullRequests: [...(previous?.pullRequests ?? [])], ...(previous?.checkedWhileClosedAt ? { checkedWhileClosedAt: previous.checkedWhileClosedAt } : {}), ...(previous?.merge ? { merge: previous.merge } : {}), ...(previous?.planPushes ? { planPushes: previous.planPushes } : {}) };
+  const next: AfterDeliveryState = { pullRequests: [...(previous?.pullRequests ?? [])], ...(previous?.checkedWhileClosedAt ? { checkedWhileClosedAt: previous.checkedWhileClosedAt } : {}), ...(previous?.merge ? { merge: previous.merge } : {}), ...(previous?.planPushes ? { planPushes: previous.planPushes } : {}), ...(previous?.baseBranches ? { baseBranches: previous.baseBranches } : {}) };
   const problems: string[] = [];
   const fresh = new Set<PullRequestReading>();
   const failed: { repository: string; number: number }[] = [];
