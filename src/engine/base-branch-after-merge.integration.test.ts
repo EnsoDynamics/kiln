@@ -39,9 +39,15 @@ const main = () => h!.repository;
 const run = (...args: string[]) => git(h!.sandbox, main(), ...args).trim();
 const featureHead = () => git(h!.sandbox, h!.engine.worktreePath, "rev-parse", "HEAD").trim();
 const show = (state: "open" | "merged", mergeCommit?: string) => h!.setPullRequestViews({ [KEY]: recordedPullRequest(state, { number: 218, base: "develop", url: "https://github.com/acme/acme-shop/pull/218", head: featureHead(), ...(mergeCommit ? { mergeCommit } : {}) }) });
-/** #218 merged on GitHub by the person: the feature head pushed to develop on the origin by its address, so no remote-tracking ref here moves. */
+/**
+ * #218 merged on GitHub by the person: the origin's develop moves to the feature head and no ref here does.
+ * The head goes to a ref no refspec maps, then develop moves inside the origin, since some Git versions
+ * update origin/develop on a push to develop by the origin's address.
+ */
 function mergeByHand(): string {
-  git(h!.sandbox, h!.engine.worktreePath, "push", "-q", h!.origin, "HEAD:develop");
+  git(h!.sandbox, h!.engine.worktreePath, "push", "-q", h!.origin, "HEAD:refs/merged/218");
+  git(h!.sandbox, h!.origin, "update-ref", "refs/heads/develop", "refs/merged/218");
+  git(h!.sandbox, h!.origin, "update-ref", "-d", "refs/merged/218");
   expect(run("rev-parse", "origin/develop")).not.toBe(featureHead());
   show("merged", featureHead());
   return featureHead();
