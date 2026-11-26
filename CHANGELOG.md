@@ -10,8 +10,23 @@ section to the new version.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-26
+
 ### Added
 
+- Model tiers. Kiln picks the agent, model and effort for each phase from its phase document's
+  `**Model tier:**` line, **demanding**, **standard** or **mechanical**, instead of one choice
+  for the whole PRD. A phase without the line is **Not rated** and runs as standard. Each phase
+  row shows its tier and the model it will run on, runs on or ran on, and **Change** sets a
+  phase that hasn't started; `kiln model` does the same from the command line. The preflight,
+  audits and pull request session share one **Audits** choice.
+- **Model defaults**, a page holding the first choice and fallback behind each tier and Audits
+  for every PRD on this computer, also set with `kiln model-defaults`. A computer with only
+  Codex installed needs no setup.
+- **Use the fallback when usage is nearly out**, off by default. With it on, an activity about
+  to start launches on the other agent when the first choice's account reads at or above a
+  threshold, 95% unless changed. The row shows a **Fallback** tag and says which limit read
+  what. The fallback spends the other agent's account.
 - A phase document's `**Repositories:**` line can name a repository by the path in its remote
   address, such as `acme-labs/admin`, which is the same on every computer. Kiln finds that
   repository's checkout by its `origin`, beside the PRD's repository or in the folders above it
@@ -47,6 +62,8 @@ section to the new version.
 
 ### Changed
 
+- The PRD-wide agent and model choice is replaced by per-phase choices. A PRD's saved choice is
+  kept on its phases as **Changed by you**, except Kiln's old default on a PRD not yet started.
 - Documents found shows each repository's address path and the folder its checkout is in, and
   its passed check reads "Repositories found on this computer". A full remote address or a
   path on one computer on a `**Repositories:**` line is now refused with the name to use.
