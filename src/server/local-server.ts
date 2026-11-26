@@ -540,7 +540,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   app.post("/api/start", async (c) => {
     const body = (await jsonBody(c)) ?? {};
     if (engine.record.pause.activeSince || engine.restartReview) return legacyControl(c, "continue");
-    if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+    // A press waits for a command that is already being applied (run restart AC-FROM-06).
+    if (!await engine.idleWithin(() => engine.commands.busy)) return c.json({ ok: false, code: "busy", reason: "Another command to Kiln hasn’t finished, from the terminal or another tab. Try Start again in a moment." }, 409);
+    if (engine.record.pause.activeSince || engine.restartReview) return legacyControl(c, "continue");
     if (body.previewId !== undefined && typeof body.previewId !== "string") return refuse(c, 400, "previewId must be text.");
     const result = await engine.start({ ...(body.refinementConfirmed === true ? { refinementConfirmed: true } : {}), ...(typeof body.previewId === "string" ? { previewId: body.previewId } : {}) });
     return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
@@ -855,7 +857,7 @@ function refuse(c: Context, status: 400 | 403 | 404 | 409, reason: string) {
 
 function commandRefused(c: Context, result: Extract<CommandResult, { ok: false }>) {
   return c.json(
-    { ok: false, reason: result.reason, ...(result.code ? { code: result.code } : {}), ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}), ...(result.baseErrors ? { baseErrors: result.baseErrors } : {}) },
+    { ok: false, reason: result.reason, ...(result.code ? { code: result.code } : {}), ...(result.fieldErrors ? { fieldErrors: result.fieldErrors } : {}), ...(result.baseErrors ? { baseErrors: result.baseErrors } : {}), ...(result.paused ? { paused: result.paused } : {}) },
     result.status,
   );
 }

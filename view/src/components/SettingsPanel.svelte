@@ -97,6 +97,8 @@
         <dd>{#if snapshot.developmentDelivery?.authorization.enabled}Worktree and feature branch are fixed; approved early merges and any remaining review PRs target <span class="code-inline">{settings.baseBranch}</span>.{:else}Worktree, feature branch, and one PR into <span class="code-inline">{settings.baseBranch}</span>, set before the first phase.{/if} Each phase builds on the one before, so they can’t change.</dd>
       </div>
     {/if}
+    <!-- The commit Kiln started from, and what changed since Documents found was drawn (run restart AC-FROM-06). -->
+    {#if settings.startedFrom}<div class="more"><dt>Starting point</dt><dd class="started-from">{settings.startedFrom}</dd></div>{/if}
   </dl>
   <AuditLoopSettings settings={shownLoopSettings(snapshot)} {config} view={snapshot.auditLoops} disabled={!connected} short />
 </section>
@@ -118,6 +120,7 @@
   .fixed { display: flex; flex-direction: column; gap: 3px; padding-top: 14px; border-top: 1px solid var(--line); }
   .fixed dd, .more dd { font-size: 13.5px; color: var(--muted); line-height: 1.55; }
   .more { display: flex; flex-direction: column; gap: 3px; }
+  .started-from { overflow-wrap: anywhere; }
   .fixed dd.value, .more dd.value { color: var(--text); }
   .path { font-size: 13px; overflow-wrap: anywhere; }
   .fixed dd.count { font-size: 13px; }

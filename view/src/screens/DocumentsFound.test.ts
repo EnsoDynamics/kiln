@@ -94,10 +94,29 @@ describe("Documents found", () => {
       "Opus 5.5 can’t run unattended on this account; it needs auto mode.",
       "Couldn’t load Claude Code’s models: timed out",
       "Can’t keep this computer awake: systemd-inhibit isn’t available.",
-      "Couldn’t set up the worktree: fatal: could not create directory",
     ]) {
       expect(page).toMatch(new RegExp(`<span class="message[^"]*">${message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}</span>`));
     }
+  });
+
+  it("draws a failed setup as Can't start beside the button (run restart AC-FROM-06)", () => {
+    const page = html(documentsFoundSnapshot({ documents: { startError: "Couldn’t set up the worktree: fatal: could not create directory" } }));
+    expect(page).toMatch(/<div class="cant-start[^"]*" role="alert"><strong[^>]*>Can’t start<\/strong><span[^>]*>Couldn’t set up the worktree: fatal: could not create directory<\/span><\/div>/);
+    expect(page).not.toContain('class="paused');
+  });
+
+  it("names a failed start check in Can't start beside the unavailable button, not as a grey note (run restart AC-FROM-06)", () => {
+    const failed = "The checkout ~/acme-shop has uncommitted changes in 1 file: notes.txt";
+    const page = html(documentsFoundSnapshot({ documents: { checksFailed: true, checks: [{ name: "Every phase cites its criteria", passed: true }, { name: failed, passed: false, text: failed }] } }));
+    expect(text(page)).toContain(`Can’t start ${failed}. Fix that, then reload this page.`);
+    expect(page).toMatch(/<div class="cant-start[^"]*" role="alert"><strong[^>]*>Can’t start<\/strong>/);
+    expect(page).toMatch(/<button type="button" class="start[^"]*"[^>]* disabled[^>]*>Start<\/button>/);
+    expect(text(page)).not.toContain("Fix what failed, then reload.");
+  });
+
+  it("draws no Can't start box while nothing needs fixing", () => {
+    expect(html()).not.toContain('class="cant-start');
+    expect(text(html())).toContain("Confirm refinement to start.");
   });
 
   it("shows the not-signed-in line in place of the account and usage", () => {

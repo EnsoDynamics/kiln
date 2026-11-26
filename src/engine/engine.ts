@@ -204,7 +204,7 @@ import {
   type PlannedRepository,
   type RepositoryPaths,
 } from "./worktree-setup.js";
-import { branchList, catchUpRepository, catchUpSentence, existingBranchPreview, newBranchPreview, otherStartedBranches, readCatchUp, readRepositoryRefs, stoppedCatchUpOffer, uncommittedFiles, type BranchChoice, type CatchUpOffer, type StartPreview, type StartRepository } from "./start-from.js";
+import { branchList, catchUpRepository, catchUpSentence, existingBranchPreview, newBranchPreview, otherStartedBranches, readCatchUp, readRepositoryRefs, startedFromNote, startPause, stoppedCatchUpOffer, uncommittedFiles, type BranchChoice, type CatchUpOffer, type StartPause, type StartPreview, type StartRepository } from "./start-from.js";
 import { ensureObjects, gitError, isAncestor, shortSha } from "./git-reads.js";
 
 export interface EngineTools {
@@ -261,7 +261,7 @@ const GATELESS_PAUSE_REASON = "Input connection lost. Pause now waits for this s
 
 export type CommandResult =
   | { ok: true; noteSkipped?: true; outcome?: PhaseRecoveryOutcome; target?: PhaseRecoveryTarget }
-  | { ok: false; status: 400 | 409 | 422 | 500 | 503; reason: string; code?: PhaseRecoveryCode; fieldErrors?: FieldErrors; baseErrors?: Record<string, string> };
+  | { ok: false; status: 400 | 409 | 422 | 500 | 503; reason: string; code?: PhaseRecoveryCode; fieldErrors?: FieldErrors; baseErrors?: Record<string, string>; /** A paused Start, with `start_changed` (run restart AC-FROM-06). */ paused?: StartPause };
 
 /** What `kiln add-repository` gets back (multi-repo AC-ADD-01). */
 /** What Mark complete's rerun and act answer (waivers "Interfaces"). */
@@ -480,6 +480,8 @@ export class Engine {
   stoppedWork: { phaseKey: string; read: WorkRead } | undefined;
   /** The start preview for the chosen starting point, recomputed at each of its moments (run restart "The preview"). */
   startPreview: StartPreview | undefined;
+  /** The last few previews by id, so a pressed Start finds the one its page showed (run restart "Start", AC-FROM-06). */
+  private shownPreviews = new Map<string, StartPreview>();
   /**
    * The new-branch preview whose base the checkout's PRD documents were last found to match, so
    * Documents found's documents are the base's and the page may say the plan was read there (AC-FROM-02).
@@ -2489,7 +2491,10 @@ export class Engine {
     const { record } = this;
     if (this.isUnderway) { const refused = await this.folderRefusal(); if (refused) return refused; }
     if (this.currentlyComplete) return refuse("The feature is complete.");
-    if (this.billing.busy) return refuse("Billing approval is being saved.");
+    // A press never rides on a billing approval saved after it (Kiln Billing Safeguards, Concurrency), so this one doesn't wait.
+    if (this.billing.busy) return refuse("Kiln is saving a billing approval. Press Start again once it’s saved.");
+    // A press waits for a field check that is already running (run restart AC-FROM-06).
+    if (record.startedAt === undefined && !this.settingUp) await this.idleWithin(() => this.fieldChecksRunning > 0, 15_000);
     if (!this.restartReview || this.restartReview.action === "start") {
       // Before Start every needed agent is checked (AC-AGENTS-01); a resume checks the agent its next activity launches on.
       const problem = this.record.startedAt === undefined ? this.modelsProblem : this.selectionError;
@@ -2515,11 +2520,12 @@ export class Engine {
       this.kick();
       return { ok: true };
     }
-    if (record.startedAt !== undefined || this.settingUp) return refuse("Kiln isn't waiting for Start.");
+    if (this.settingUp) return refuse("Kiln is already setting up this run. This page shows it when it’s ready.");
+    if (record.startedAt !== undefined) return refuse("This PRD has already started, from another tab or the terminal. Reload this page to see the run.");
     if (body.refinementConfirmed !== true) return { ok: false, status: 400, reason: "Confirm the documents have been through requirements refinement first." };
     // A page a reset built keeps Start unavailable while a start check fails (run restart AC-RESET-04), as does a row that asks.
     if (this.startBlockedBy) return refuse(this.startBlockedBy);
-    if (this.baseCheck === "checking") return refuse(`Kiln is checking ${record.settings.baseBranch || "the base branch"} on origin.`);
+    if (this.baseCheck === "checking") return refuse(`Kiln is still checking ${record.settings.baseBranch || "the base branch"} on origin. Try Start again in a moment.`);
     // Every activity's choice must be usable, on one agent until Kiln checks both (AC-PICK-06; Phase 2 of Kiln Phase Model Tiers).
     const modelsProblem = this.modelsProblem;
     if (modelsProblem !== undefined) return refuse(modelsProblem);
@@ -2540,23 +2546,34 @@ export class Engine {
       const claudeNeed = this.neededBy().claude_code;
       if (claudeNeed) {
         try { await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true); }
-        catch { if (!claudeNeed.fallbackOnly) return refuse("Start could not be saved: billing state could not be saved. No AI work was authorized."); }
+        catch { if (!claudeNeed.fallbackOnly) return refuse(`Kiln couldn’t save Claude Code’s billing state to ${displayPath(this.stateDirectory)}, so nothing was started and no AI work was authorized. Check that the folder can be written and the disk isn’t full, then press Start.`); }
         // A readiness blocker read at launch (an outdated Claude Code, AC-AGENT-05) is the reason, not billing.
         // The reason names the agent, what to do and the activities that need it (AC-AGENTS-02 with AC-AGENTS-01's table).
         if (!claudeNeed.fallbackOnly && !this.billing.view.canLaunch) return refuse(this.neededAgentReason("claude_code", this.billing.view.next?.readinessError ?? this.agentProblem("claude_code", true) ?? "its billing setup isn't approved. Review and approve it, or change its source and recheck.", claudeNeed));
       }
       const fields = await this.runFieldChecks();
       const preview = this.startPreview;
-      // Start acts on what the page showed (run restart "Start"): a preview that changed is refused with the refreshed page.
-      if (body.previewId !== undefined && preview && body.previewId !== preview.previewId) return { ok: false, status: 409, code: "start_changed", reason: "What Start would do has changed. Review the refreshed page, then press Start again." };
       const existing = preview?.from === "existing";
       const repositories: PlannedRepository[] = existing
         ? preview!.repositories.map(repository => { const entry = record.repositories.find(one => one.name === repository.name); return { name: repository.name, ...(repository.shortName === undefined ? {} : { shortName: repository.shortName }), kind: repository.kind, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github, ...(entry ? { entry } : {}) }; })
         : this.plannedRepositories;
       const pending = repositories.filter((repository) => repository.entry?.setupCompletedAt === undefined);
       if (Object.keys(fields.errors).length > 0 || Object.keys(fields.baseErrors).length > 0 || pending.some((repository) => fields.startCommits[repository.name] === undefined)) {
-        return { ok: false, status: 409, reason: "The settings don't pass their checks.", fieldErrors: fields.errors, baseErrors: fields.baseErrors };
+        const unread = pending.find((repository) => fields.startCommits[repository.name] === undefined);
+        const failed = Object.keys(fields.errors).length + Object.keys(fields.baseErrors).length;
+        // A start commit Kiln couldn't read with no field message of its own still says why (AC-FROM-06).
+        const reason = failed > 0 ? "The settings don’t pass their checks. Each one that needs fixing is marked on the page."
+          : `Kiln couldn’t read the commit ${repositories.length > 1 ? `${this.labelOf(unread!.name)}’s branch` : "the branch"} would start from. Check the base branch above and that origin can be reached, then reload this page.`;
+        return { ok: false, status: 409, reason, fieldErrors: fields.errors, baseErrors: fields.baseErrors };
       }
+      // Start goes ahead on what it just read, unless the chosen branch may be in use or the page showed other settings (AC-FROM-06).
+      // The preview the page showed is the one Kiln holds under the submitted id; none means the page was out of date.
+      const shown = body.previewId === undefined ? preview : this.shownPreviews.get(body.previewId);
+      if (preview && shown !== preview) {
+        const paused = startPause(shown, preview, name => this.labelOf(name));
+        if (paused) return { ok: false, status: 409, code: "start_changed", reason: `${paused.headline}. ${paused.detail} Nothing has started.`, paused };
+      }
+      const startedFrom = preview ? await startedFromNote(this.git, shown, preview, fields.startCommits[repositories[0]!.name]) : undefined;
       // One save records Start and the whole list, each entry with the commit its branch starts from.
       const beforeStart = structuredClone(record);
       const multi = repositories.length > 1;
@@ -2593,6 +2610,7 @@ export class Engine {
         list.push(entry);
       }
       record.start = { from: choice.from, bringUpToDate: choice.bringUpToDate };
+      if (startedFrom === undefined) delete record.startedFrom; else record.startedFrom = startedFrom;
       // Entries the plan no longer names are kept only while they hold Kiln's branch.
       const leftOut = record.repositories.filter((entry) => !list.includes(entry) && entry.createdBranch !== undefined);
       record.repositories = [...list, ...leftOut];
@@ -2625,7 +2643,7 @@ export class Engine {
       try { this.save(); } catch (error) {
         for (const key of Object.keys(record)) Reflect.deleteProperty(record, key);
         Object.assign(record, beforeStart);
-        return refuse(`Start could not be saved: ${(error as Error).message}`);
+        return refuse(`Kiln couldn’t save the run to ${displayPath(this.stateDirectory)} (${(error as Error).message}), so nothing was started. Check that the folder can be written and the disk isn’t full, then press Start.`);
       }
       const setup = await this.finishSetup();
       if (this.stopping) return refuse("Kiln is stopping.");
@@ -9345,6 +9363,19 @@ export class Engine {
     return unnamed.length === 1 ? unnamed[0] : undefined;
   }
 
+  /** How long a pressed Start waits for another command being applied (run restart AC-FROM-06). */
+  pressWaitMs = 5_000;
+
+  /** Waits, a few seconds at most, for something brief that is already finishing; false when it is still busy. */
+  async idleWithin(busy: () => boolean, withinMs = this.pressWaitMs): Promise<boolean> {
+    const until = Date.now() + withinMs;
+    while (busy()) {
+      if (Date.now() >= until) return false;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return true;
+  }
+
   checkBase(): void {
     if (this.record.startedAt !== undefined || this.settingUp || this.fieldChecksRunning > 0 || this.stopping) return;
     void this.runFieldChecks(true);
@@ -9449,6 +9480,7 @@ export class Engine {
       if (record.branchCatchUps) { record.branchCatchUps = record.branchCatchUps.filter(row => row.at < startedAt); if (!record.branchCatchUps.length) delete record.branchCatchUps; }
       record.repositories = record.repositories.filter((candidate) => !entryHoldsNothing(candidate));
       delete record.startedAt;
+      delete record.startedFrom;
       delete record.refinementConfirmedAt;
       this.save();
       this.startError = "catchUp" in outcome ? (list.length > 1 ? `Couldn’t bring ${this.labelOf(entry.name)}’s branch up to date: ${outcome.error}` : `Couldn’t bring the branch up to date: ${outcome.error}`)
@@ -9516,6 +9548,9 @@ export class Engine {
     } else preview = newBranchPreview(branch, repositories, refs.get(prd.name)!.origin?.branches.get(prd.baseBranch), this.options.startPlan);
     if (run !== this.previewRun) return this.startPreview;
     this.startPreview = preview;
+    this.shownPreviews.delete(preview.previewId);
+    this.shownPreviews.set(preview.previewId, preview);
+    for (const id of [...this.shownPreviews.keys()].slice(0, -8)) this.shownPreviews.delete(id);
     // A repository only the start commit's plan names keeps the base the preview gave it, shown in its row.
     let based = false;
     for (const repository of preview.repositories) {

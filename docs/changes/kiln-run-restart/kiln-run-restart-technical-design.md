@@ -122,7 +122,19 @@ A new-branch start keeps today's reads and checks, including the checkout-equals
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (a preflight precedes the first activity, a start with every phase closed included).
 
-Start submits `previewId`. Kiln recomputes the preview and refuses `start_changed` (409) with the refreshed page when it differs. Then one save records `startedAt` and every repository's entry, before any git write. An existing-branch entry, for a repository that has the chosen branch, holds `baseCommit` (the merge base) and `runStartCommit` (the branch's tip). It also holds `adoptedWorktree` when adopted. When the offer is ticked and the repository qualifies, it holds `catchUp` from that tip to the base tip the preview read. A new-branch entry holds `baseCommit` as today.
+Start submits `previewId`. A press first waits for a field check already running, and for up to five seconds for another command being applied, then recomputes the preview and runs the field checks. A press while a billing approval is being saved is refused at once, as before, so that a press never rides on an approval saved after it (Kiln Billing Safeguards technical design, Concurrency). A failed field check refuses first, with a reason naming the field (AC-FROM-06).
+
+When the recomputed preview's id differs from the submitted one, Kiln compares the preview the page showed with the new one (`startPause`). The preview the page showed is the one Kiln holds under the submitted id: it keeps its last eight previews, so a preview refreshed by another tab, the terminal or the wait before the press is still found. With none under that id, the page was out of date. Kiln refuses `start_changed` (409), with `paused: { headline, detail, caution, changed }` and the refreshed page, only when:
+
+- the page was out of date, or its start, feature branch, catch-up tick or set of repositories differ from the new preview's (`changed: ["settings"]`);
+- with an existing branch, a repository's copy of the branch appeared, went or is at another tip (`"branch"`);
+- with an existing branch, the worktree a repository would use, or the fixed workspace folder, differs (`"worktree"`).
+
+The page draws the pause in place of the Start button and keeps it until **Start anyway** or a settings change. Start anyway submits the refreshed `previewId`, so it starts unless the preview changed again. Every other difference (a base tip, the plan source's commit, a merge base, the closed count, a pull request, a count of uncommitted files, whether the branch qualifies for the catch-up) starts without a pause.
+
+Then one save records `startedAt` and every repository's entry, before any git write. An existing-branch entry, for a repository that has the chosen branch, holds `baseCommit` (the merge base) and `runStartCommit` (the branch's tip). It also holds `adoptedWorktree` when adopted. When the offer is ticked and the repository qualifies, it holds `catchUp` from that tip to the base tip the preview read. A new-branch entry holds `baseCommit` as today.
+
+The same save records `startedFrom`, which the snapshot carries as `settings.startedFrom` and **Settings for this PRD** draws under **Starting point**: the plan source's branch and commit, then one sentence for each of these that happened between the preview the page showed and the one Start used: the PRD repository's base tip moved (the count of commits and, for one commit, its subject, when both commits are in the checkout; for a new-branch start, that they don't touch the PRD's documents, which the document check has just confirmed), the closed count or the first open phase changed, and a pull request for the branch appeared. A new-branch start that reuses the branch an earlier Start made and left says only that, with the branch's own commit, since it doesn't start from the base's tip. A setup that fails removes `startedFrom` with `startedAt`.
 
 Then, per repository in list order, an existing-branch entry is set up in three steps. Each step is skipped when its effect is already there.
 
@@ -394,7 +406,7 @@ A reset refused at admission (stale token, busy, unavailable) is an ordinary jou
 | Route | Body | Result |
 |---|---|---|
 | `POST /api/settings` | adds `start: { from, bringUpToDate }` before Start, saved as §The starting point says | as today; the preview is republished |
-| `POST /api/start` | adds `previewId` | adds `start_changed` (409) |
+| `POST /api/start` | adds `previewId` | adds `start_changed` (409) with `paused: { headline, detail, caution, changed: ("branch" \| "worktree" \| "settings")[] }` (§Start) |
 | `POST /api/resume` | adds `bringUpToDate?` | adds `branch_changed` (409), `branch_catch_up_failed` (409, with the reason) |
 | `POST /api/carry-on` | `{ note?, bringUpToDate?, reviewedReceiptIds?, target }` with the `X-Kiln-Status` and `X-Kiln-Command-Id` headers Mark complete uses | `{ ok, outcome: "session_started" \| "already_complete" }`, the errors of `/api/resume`, and on a held page the ownership check's `terminal_in_use` and `ownership_unknown` |
 | `POST /api/start-again` | `{ bringUpToDate? }`, same headers | `{ ok, outcome: "session_started" }` and the errors of `/api/resume` |
@@ -418,6 +430,9 @@ documents: adds
            catchUp?: CatchUpOffer }
   checks: each row may be { name, passed: false, text }      // after a reset
   plan?: absent when the plan could not be read
+
+settings: adds
+  startedFrom?: string                                        // after Start: the commit Kiln started from and what changed since the page was drawn (§Start)
 
 needsYou: adds
   case?: "could_not_start" | "built_nothing" | "needs_input"

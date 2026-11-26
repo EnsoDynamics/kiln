@@ -37,7 +37,8 @@ describe("live instruction identity", () => {
   it("forgets a refused instruction, and sends Cancel to its own route with the hold's instruction ID", async () => {
     const sent = answering(409, 503, 202);
     const refused = await cancelTakeOver(config, target, "pause-now-2b");
-    expect(refused).toEqual({ ok: false, reason: "Refused." });
+    // The refusal's code reaches the page, as a paused Start's does (run restart AC-FROM-06).
+    expect(refused).toEqual({ ok: false, reason: "Refused.", code: "x" });
     await cancelTakeOver(config, target, "pause-now-2b");
     await cancelTakeOver(config, target, "pause-now-2b");
     expect(sent.map(one => one.path)).toEqual(["/api/live/cancel-take-over", "/api/live/cancel-take-over", "/api/live/cancel-take-over"]);

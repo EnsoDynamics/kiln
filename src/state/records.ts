@@ -438,6 +438,8 @@ export interface PrdRecord {
    * absent means computed at each preview; on a started record, absent reads as `new`.
    */
   start?: { from: "new" | "existing"; bringUpToDate: boolean };
+  /** The commit Kiln started from, and what changed since Documents found was drawn (run restart AC-FROM-06). */
+  startedFrom?: string;
   /** Each catch-up Kiln made (run restart AC-CURRENT-01). */
   branchCatchUps?: BranchCatchUp[];
   /** The build preflight's mark and activities (schema 23; build preflight "Data Models"). */

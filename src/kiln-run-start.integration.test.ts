@@ -435,7 +435,7 @@ describe("kiln run on a feature not started", () => {
     await waitFor(() => existsSync(reached));
     const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
     expect(snapshot.documents!.starting).toBe(true);
-    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 409, body: { ok: false, reason: "Kiln isn't waiting for Start." } });
+    expect(await api(address, token, "POST", "/api/start", { refinementConfirmed: true })).toEqual({ status: 409, body: { ok: false, reason: "Kiln is already setting up this run. This page shows it when it’s ready." } });
     expect(await api(address, token, "POST", "/api/settings", { featureBranch: "feature/other" })).toMatchObject({ status: 409 });
 
     kiln.signals.emit("SIGINT");
