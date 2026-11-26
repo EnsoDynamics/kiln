@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 2,
+  "executionId": "84835f84-7458-4341-984e-53d4f1362e96",
+  "activityId": "6302ac7a-c20d-4e17-93f9-0ab41eda80cc",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Five of the PRD's 8 criteria are Adequate, each seen to fail under a red check: AC-BATCH-02, AC-BATCH-03, AC-BATCH-05, AC-MAX-01 and AC-BOT-01. Three are Weak: AC-MAX-02 (the Audit loops help is never checked on either rendered page), AC-BATCH-01 (nothing pins that a batch row shows the Audits choice) and AC-BATCH-04 (no test has a session re-cut its work into fewer batches). None is high risk; the three are planned as one batch of test fixes in test-audit.md.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false
+}
