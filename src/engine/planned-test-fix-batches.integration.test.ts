@@ -78,6 +78,8 @@ describe("a test audit's planned batches (AC-BATCH-01 to AC-BATCH-04, AC-MAX-01,
     const testAudit = auditKey(testAudits()[0]!);
     expect(rows().find(row => row.id === testAudit)).toMatchObject({ title: "Test audit", file: "Loop 1 · max 4" });
     expect(positionText(buildSnapshot(h!.engine).auditLoops!.position!)).toBe("Test audit loop 1 · max 4");
+    // The PRD's Audits choice changes before the audit ends; the batch rows will read it.
+    expect(await h!.engine.changeModel("audits", { agentId: "claude_code", model: "sonnet", effort: "low" })).toEqual({ ok: true });
     go("audit");
 
     // The audit has ended: both batches are rows at once, in order, the first running and the second Planned.
@@ -94,6 +96,7 @@ describe("a test audit's planned batches (AC-BATCH-01 to AC-BATCH-04, AC-MAX-01,
     expect(waiting).toMatchObject({ kind: "test_audit", plannedActivity: true, fixing: { loop: 1, session: 2, batch: { number: 2, of: 2, gaps: 1 } } });
     // It reads Will run on with the Audits choice and offers Change, as the planned Test audit row did, with no details or timing.
     expect(waiting.model).toMatchObject({ state: "will_run_on", change: { available: true } });
+    expect([waiting.model?.choice?.modelName, waiting.model?.choice?.effort, waiting.model?.from]).toEqual(["Sonnet 5.5", "low", "changed"]);
     expect(waiting.details).toBeUndefined(); expect(waiting.timing).toBeUndefined();
     expect(rows().map(row => row.id)).not.toContain("planned-test-audit");
     expect(rows().find(row => row.id === first)!.fixing).toEqual({ loop: 1, session: 1, batch: { number: 1, of: 2, gaps: 2 } });

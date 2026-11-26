@@ -49,6 +49,20 @@ describe("the Audit loops settings are two limits (AC-CHOICE-01)", () => {
   });
 });
 
+describe("the Audit loops help says a run makes only the loops it needs, wherever the settings appear (Kiln Planned Test Fix Batches AC-MAX-02)", () => {
+  const loopWords = "Each loop is one audit plus the work it finds. A run makes only the loops it needs; these are the most it will make.";
+
+  it("says it on Documents found, before the two limits", () => {
+    const words = text(fieldset(documentsFound(documentsFoundSnapshot())));
+    expect(words).toMatch(new RegExp(`^Audit loops After the planned phases close, two audits check the work\\. ${loopWords.replace(/[.;]/g, "\\$&")} Max delivery audit loops`));
+  });
+
+  it("says it in the run's settings panel, before the two limits", () => {
+    const words = text(fieldset(running(runningSnapshot())));
+    expect(words).toMatch(new RegExp(`^Audit loops ${loopWords.replace(/[.;]/g, "\\$&")} Max delivery audit loops`));
+  });
+});
+
 describe("a limit changed during a run (AC-CHOICE-02)", () => {
   it("is in the run's settings, changeable, with each field's minimum at the snapshot's floor", () => {
     const snapshot = runningSnapshot();

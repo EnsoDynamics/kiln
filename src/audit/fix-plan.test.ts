@@ -62,6 +62,14 @@ describe("the rows that have not started are the work still planned (AC-BATCH-04
     expect(sessionBatch(r, r.completionAudits.activities[1]!)).toEqual({ number: 1, of: 4, gaps: 10 });
   });
 
+  it("lowers N on every row, the finished one included, when a session re-cuts what it left into fewer batches", () => {
+    // The audit planned 3; the first session left its two into one, so the plan is now 2.
+    const r = record([{ batches: [3, 3, 3] }, { batches: [2] }]);
+    expect(row(r, 1)).toBe("Fixing tests · Batch 1 of 2 from test audit loop 1 · 3 gaps");
+    expect(waitingBatches(r)?.batches).toEqual([{ number: 2, of: 2, gaps: 2 }]);
+    expect(sessionBatch(r, r.completionAudits.activities[1]!)).toEqual({ number: 1, of: 2, gaps: 3 });
+  });
+
   it("removes them when a session's result counts anything but continue_test, and the finished batch keeps its N", () => {
     // A session that passed, added phases, or was marked complete with no report has no testWork.
     const r = record([{ batches: [10, 4] }, {}]);
