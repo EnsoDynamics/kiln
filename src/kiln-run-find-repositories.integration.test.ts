@@ -448,6 +448,11 @@ describe("kiln run on a plan that names repositories by their address path", () 
     expect(await api(address, token, "POST", "/api/repository-location", { repository: "acme-labs/storefront", folder: storefront })).toMatchObject({ status: 200 });
     kiln.signals.emit("SIGINT");
     await kiln.done;
+    // The answer's checks were still reading the branch's pull request when Kiln stopped: no gh starts once Kiln has exited.
+    const ghCalls = () => readJsonLines(join(f.sandbox.root, "gh-state.json.calls.jsonl")).length;
+    const atExit = ghCalls();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    expect(ghCalls()).toBe(atExit);
   }, 120_000);
 
   it("asks about two repositories at once and keeps Start unavailable until both are answered (AC-ASK-01)", async () => {

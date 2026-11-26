@@ -250,9 +250,12 @@ export async function uncommittedFiles(git: GitContext, worktree: string): Promi
   return status.stdout.split(/\r?\n/).filter(line => line.trim() !== "").map(line => line.slice(3).replace(/^.* -> /, ""));
 }
 
-/** The open pull request from the branch into the base, the query final delivery makes; a failed read is named. */
-export async function openPullRequest(gh: string, env: NodeJS.ProcessEnv, cwd: string, github: string, branch: string, base: string): Promise<{ number: number; url: string } | { unknown: string } | undefined> {
-  const result = await runHelper(gh, ["pr", "list", "--repo", `github.com/${github}`, "--head", branch, "--base", base, "--state", "open", "--json", "number,url"], { cwd, env, timeoutMs: 60_000 });
+/**
+ * The open pull request from the branch into the base, the query final delivery makes; a failed read is named.
+ * `signal` is the engine's: once it closes, no `gh` starts and one running ends, so none outlives Kiln.
+ */
+export async function openPullRequest(gh: string, env: NodeJS.ProcessEnv, cwd: string, github: string, branch: string, base: string, signal?: AbortSignal): Promise<{ number: number; url: string } | { unknown: string } | undefined> {
+  const result = await runHelper(gh, ["pr", "list", "--repo", `github.com/${github}`, "--head", branch, "--base", base, "--state", "open", "--json", "number,url"], { cwd, env, timeoutMs: 60_000, ...(signal ? { signal } : {}) });
   if (result.exitCode !== 0) return { unknown: `Kiln couldn't read ${github}'s pull requests: ${(result.stderr || result.failure || "").trim().split(/\r?\n/)[0]}` };
   try {
     const pulls = JSON.parse(result.stdout) as { number: number; url: string }[];
@@ -297,7 +300,7 @@ async function readRepository(input: PreviewInput, repository: StartRepository, 
     clean = files.length === 0;
   }
   out.qualifies = own === 0 && clean && out.behind > 0;
-  const pull = await openPullRequest(input.gh, input.env, main, repository.github, branch, repository.baseBranch);
+  const pull = await openPullRequest(input.gh, input.env, main, repository.github, branch, repository.baseBranch, git.signal);
   if (pull) out.pullRequest = pull;
   return { repository: out };
 }
