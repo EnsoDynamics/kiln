@@ -12,6 +12,24 @@ section to the new version.
 
 ### Added
 
+- A phase document's `**Repositories:**` line can name a repository by the path in its remote
+  address, such as `acme-labs/admin`, which is the same on every computer. Kiln finds that
+  repository's checkout by its `origin`, beside the PRD's repository or in the folders above it
+  up to your home folder, without asking the system for access to Desktop, Documents, Downloads
+  or other guarded folders. Lines that use folder names keep working as before.
+- When Kiln can't find a checkout, or finds more than one, Documents found asks where it is or
+  which to use, and Kiln remembers the answer on this computer for every PRD that names that
+  repository. **Change** on the row asks again. The terminal says how many repositories need
+  locating, and Start waits until each is answered.
+- Two repositories with the same name under different organizations get separate worktree
+  folders and are shown by their whole path, such as `acme/admin` and `acme-labs/admin`.
+- After Start, `kiln add-repository acme-labs/admin` asks for a repository by the path in its
+  remote address. When Kiln can't tell where it is, it tells the session where it searched and
+  adds nothing, and the phase's next Needs you stop asks you where it is. A phase that comes to
+  name such a repository stops before it starts and asks the same way; once answered, Kiln adds
+  the repository and starts the phase.
+- `kiln locate-repository` answers that question from the command line, and `kiln status`
+  lists it with the command to run.
 - **Merge with {agent}**: when every phase is done and the pull requests are open, one press
   starts a session that brings the base branch in, resolves conflicts, runs the project's
   checks, waits for GitHub's required checks and merges each pull request in order. The press
@@ -25,6 +43,9 @@ section to the new version.
 
 ### Changed
 
+- Documents found shows each repository's address path and the folder its checkout is in, and
+  its passed check reads "Repositories found on this computer". A full remote address or a
+  path on one computer on a `**Repositories:**` line is now refused with the name to use.
 - A finished PRD whose documents gained phases afterwards offers one **Continue**, which
   pushes the plan before building them, in place of reconciling the documents.
   `kiln continue-with-phases` pushes too.

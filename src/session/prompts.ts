@@ -35,6 +35,10 @@ function fill(text: string, values: Record<string, string>): string {
 /** One of the PRD's repositories, as a prompt lists it. */
 export interface PromptRepository {
   name: string;
+  /** What it is shown by (find repositories anywhere AC-FOLDER-02); its name when absent. */
+  label?: string;
+  /** Its own checkout, as shown: `~/code/acme-labs/storefront`. */
+  checkout?: string;
   /** `<owner>/<name>`. */
   github: string;
   /** Absolute. */
@@ -81,11 +85,12 @@ export function phaseSessionPrompt(values: PhasePromptValues): string {
   const { workspace } = values;
   const common = { phaseDoc: values.phaseDoc, featureName: values.featureName, prdFile: values.prdFile, branch: values.branch, parentFolder: values.parentFolder };
   if (!workspace) return authorizedPhase(withUnfollowedLinks(fill(template("phase-session.txt"), { ...common, worktreePath: values.worktreePath }), values.unfollowedLinks), values.deliveryAuthority);
+  // Each repository by label and address path, with its worktree; the example of an own checkout is a listed repository's real one (find repositories anywhere, "A session's request").
   const list = workspace.repositories
-    .map((repository) => `- \`${repository.name}\`: \`${repository.worktreePath}\`, base \`${repository.baseBranch}\`${repository.isPrd ? " (the PRD's repository)" : ""}`)
+    .map((repository) => `- \`${repository.label ?? repository.name}\` (\`${repository.github}\`): \`${repository.worktreePath}\`, base \`${repository.baseBranch}\`${repository.isPrd ? " (the PRD's repository)" : ""}`)
     .join("\n");
-  const example = workspace.repositories.find((repository) => !repository.isPrd)?.name ?? workspace.repositories[0]!.name;
-  return authorizedPhase(withUnfollowedLinks(fill(template("phase-session-workspace.txt"), { ...common, workspaceFolder: workspace.folder, exampleRepository: example, repositoryList: list }), values.unfollowedLinks), values.deliveryAuthority);
+  const example = workspace.repositories.find((repository) => !repository.isPrd) ?? workspace.repositories[0]!;
+  return authorizedPhase(withUnfollowedLinks(fill(template("phase-session-workspace.txt"), { ...common, workspaceFolder: workspace.folder, exampleCheckout: example.checkout ?? `${values.parentFolder}/${example.name}`, repositoryList: list }), values.unfollowedLinks), values.deliveryAuthority);
 }
 
 /** The pull-request session's prompt (AC-PR-01; multi-repo AC-PRS-02, AC-PRS-05): one pull request per repository listed. */

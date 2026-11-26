@@ -32,6 +32,15 @@ const noReport: ScenarioSession = { actions: [{ result: "I ran out of time befor
 // The fixture plan's open leaves are 1, 2b and 3 (2a is closed), then final delivery.
 const allPhases = [landingSession("src/one.txt"), landingSession("src/two-b.txt"), landingSession("src/three.txt"), pullRequestSession()];
 
+/**
+ * For a run Kiln stops while its stand-in session waits on a release file. The stand-in can't
+ * answer the interrupt from inside that wait, so the stop always ends the session's process tree
+ * with SIGTERM once its wait for an exit runs out, 30 seconds by Kiln's default. Half a second
+ * sends that same SIGTERM sooner. It shortens every stop's wait in the test, so give it only to a
+ * test whose stops all find either no session running or one inside such a wait.
+ */
+const STOPPED_IN_A_FILE_WAIT = { stopWaitMs: 500 };
+
 let commandCount = 0;
 /** Submits one journal instruction as a caller does, against the current status token, and waits for it to settle. */
 async function submit(engine: Engine, action: string, inputs: Record<string, unknown> = {}) {
@@ -257,7 +266,7 @@ describe("a preflight with no report does not hold up the run (AC-PREFLIGHT-06)"
 
 describe("Resume runs a preflight only while none has settled (AC-PREFLIGHT-01, resume)", () => {
   async function interruptedRun(preflightSessions: ScenarioSession[]) {
-    harness = await createHarness({ sessions: [], preflight: true });
+    harness = await createHarness({ sessions: [], preflight: true, engineOptions: STOPPED_IN_A_FILE_WAIT });
     const release = join(harness.sandbox.root, "phase-one-release");
     const sessions = [{ actions: [{ text: "Starting Phase 1." }, { waitForFile: release }, ...landingSession("src/one.txt").actions] }, { actions: landingSession("src/one.txt").actions }, ...allPhases.slice(1)];
     const h = await fixture(preflightSessions, sessions);
@@ -336,7 +345,7 @@ describe("more entry points and the preflight stop across a restart (AC-PREFLIGH
   });
 
   it("`kiln run <path> --resume` runs a preflight first while none has settled", async () => {
-    harness = await createHarness({ sessions: [], preflight: true });
+    harness = await createHarness({ sessions: [], preflight: true, engineOptions: STOPPED_IN_A_FILE_WAIT });
     const release = join(harness.sandbox.root, "phase-one-release");
     const h = await fixture([noReport, ready], [{ actions: [{ waitForFile: release }, ...landingSession("src/one.txt").actions] }, { actions: landingSession("src/one.txt").actions }, ...allPhases.slice(1)]);
     await h.engine.start({ refinementConfirmed: true });
@@ -411,7 +420,7 @@ describe("resolving the installed skill (When the Preflight Is Due, step 1)", ()
 
 describe("hardening: a preflight's session across interruptions, limits and Continue (AC-PREFLIGHT-01, AC-PREFLIGHT-06)", () => {
   async function interruptedPreflight(first: ScenarioSession, second: ScenarioSession) {
-    harness = await createHarness({ sessions: [], preflight: true });
+    harness = await createHarness({ sessions: [], preflight: true, engineOptions: STOPPED_IN_A_FILE_WAIT });
     const release = join(harness.sandbox.root, "preflight-release");
     const h = await fixture([{ ...first, actions: [{ text: "Reading the plan." }, { waitForFile: release }, ...first.actions] }, second]);
     await h.engine.start({ refinementConfirmed: true });
@@ -697,7 +706,7 @@ describe("test audit, second fixing chat: Folder missing Starts, Resume after Ma
   });
 
   it("a Start on the Folder missing page from the existing feature branch runs a preflight first while none has settled, ahead of the interrupted phase", async () => {
-    harness = await createHarness({ sessions: [], preflight: true });
+    harness = await createHarness({ sessions: [], preflight: true, engineOptions: STOPPED_IN_A_FILE_WAIT });
     const release = join(harness.sandbox.root, "phase-one-release");
     const h = await fixture([noReport, ready], [{ actions: [{ waitForFile: release }, ...landingSession("src/one.txt").actions] }, { actions: landingSession("src/one.txt").actions }, ...allPhases.slice(1)]);
     await h.engine.start({ refinementConfirmed: true });
@@ -757,7 +766,7 @@ describe("test audit, second fixing chat: Folder missing Starts, Resume after Ma
   });
 
   it("Resume after Mark complete at an items stop runs no second preflight", async () => {
-    harness = await createHarness({ sessions: [], preflight: true });
+    harness = await createHarness({ sessions: [], preflight: true, engineOptions: STOPPED_IN_A_FILE_WAIT });
     const release = join(harness.sandbox.root, "phase-one-release");
     const h = await fixture([items, ready], [{ actions: [{ waitForFile: release }, ...landingSession("src/one.txt").actions] }, { actions: landingSession("src/one.txt").actions }, ...allPhases.slice(1)]);
     await h.engine.start({ refinementConfirmed: true });

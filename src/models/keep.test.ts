@@ -1,5 +1,5 @@
 // A choice saved before per-activity choices (Kiln Phase Model Tiers AC-KEEP-02, KEEP-001,
-// KEEP-003; technical design "Migration to schema 26" and "Settings saved outside the PRD record").
+// KEEP-003; technical design "Migration to schema 27" and "Settings saved outside the PRD record").
 
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -45,7 +45,7 @@ describe("Kiln's current default (KEEP-001)", () => {
   });
 });
 
-describe("migrating to schema 26 (AC-KEEP-02's table)", () => {
+describe("migrating to schema 27 (AC-KEEP-02's table)", () => {
   it("keeps the saved choice when an activity had started, whatever the choice", () => {
     session("s1", "1", [INIT, RESPONSE]);
     const record = migrateRecord(schema25("claude_code", { model: "opus", effort: "medium" }, { "1": facts(["s1"]) }), dir);
@@ -72,7 +72,7 @@ describe("migrating to schema 26 (AC-KEEP-02's table)", () => {
     const record = migrateRecord(schema25("codex", { model: "" }), dir);
     expect(record.settings.modelChoices).toEqual({ phases: {} });
     for (const retired of ["agentId", "selectionGeneration", "agentChoices", "model", "effort"]) expect(record.settings).not.toHaveProperty(retired);
-    expect(record.schemaVersion).toBe(26);
+    expect(record.schemaVersion).toBe(27);
   });
 
   it("starts the activity on the first of its sessions, in creation order, that got a response", () => {
@@ -109,7 +109,7 @@ describe("a continuation (KEEP-003)", () => {
     expect(continuedModelChoices({ phases: {}, kept: { agentId: "claude_code", model: "sonnet", effort: "low" } }).kept).toEqual({ agentId: "claude_code", model: "sonnet", effort: "low" });
   });
 
-  it("converts an acceptance saved before schema 26 with no activity taken as started", () => {
+  it("converts an acceptance saved before schema 27 with no activity taken as started", () => {
     const filled = { agentId: "claude_code", selectionGeneration: 1, agentChoices: { claude_code: { model: "opus", effort: "medium" } }, keepAwake: true };
     convertAcceptanceSettings(filled);
     expect(filled).toEqual({ keepAwake: true, modelChoices: { phases: {} } });

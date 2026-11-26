@@ -2837,6 +2837,138 @@
     },
     {
       "path": [
+        "locate-repository"
+      ],
+      "group": "answer",
+      "purpose": "Tell Kiln where a repository is on this computer, answering a question an open Needs you stop asks.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
+      "usage": "kiln locate-repository <PRD-path> <address-path> <folder> --only-if-status-matches <status_token> --command-id <id> [options]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        },
+        {
+          "name": "address-path",
+          "required": true,
+          "source": "The repository the stop asks about, as status.stop.locate[].address_path gives it; compared without case. Never a name or a label."
+        },
+        {
+          "name": "folder",
+          "required": true,
+          "source": "The repository's own checkout on this computer: a full path starting with / or ~. To pick a checkout the stop lists, give its folder."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Accepted only while a stop open on a running Kiln asks about that repository (status.stop.locate). Before Start the question is answered only on Documents found, in the browser.",
+        "Kiln checks the folder as Documents found checks an answer: it exists, is not a link, is a repository's own checkout (not a worktree, submodule or folder inside a checkout), and its origin has the named path on GitHub. An accepted folder is remembered on this computer only and used by every PRD that names the repository; nothing is written to any repository.",
+        "At the stop before a phase, an accepted answer is checked as Check again checks the stop: the repository is added and the phase starts once nothing else holds the stop. At any other stop it answers a session's request, and the session's next request for the repository succeeds once the phase resumes."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "Always not_started.",
+        "operation.effects.plan": "advanced only for located_phase_starting.",
+        "operation.outcome": "located (remembered; the stop stays) | located_phase_starting (remembered, the stop before the phase passed its check and the phase is starting) | located_still_stopped (remembered, and the stop's check still fails) | folder_not_accepted (nothing remembered; operation.reason is the failed check) | check_unavailable (failed: the folder, or at the stop before a phase the stop's check, couldn't be checked).",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.reply_text": "Always null.",
+        "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID.",
+        "operation.located": "On an accepted answer: { repository, folder }, with label and phase for located_phase_starting, and phase and facts (what still holds the stop) for located_still_stopped."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate",
+        "check_unavailable"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. folder_not_accepted and located_still_stopped are completed outcomes and do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy or control_unavailable; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable, check_unavailable, or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "The stop before phase 4 asks where acme-labs/inventory is; it is at /Volumes/work/inventory.",
+          "argv": [
+            "kiln",
+            "locate-repository",
+            "/work/shop/docs/prds/orders",
+            "acme-labs/inventory",
+            "/Volumes/work/inventory",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing or empty address path or folder, unknown arguments or an invalid command ID. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: no stop on a running Kiln is asking where this repository is, or the PRD hasn't started. Read status.stop.locate.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations.",
+        "check_unavailable": "Exit 4: Kiln couldn't check the folder (Git failed or timed out), and nothing was remembered; or, at the stop before a phase, the answer was remembered but the stop's check couldn't finish. Read status and check again."
+      }
+    },
+    {
+      "path": [
         "check-for-new-phases"
       ],
       "group": "answer",
@@ -3473,12 +3605,12 @@
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
-      "usage": "kiln add-repository <folder-name>",
+      "usage": "kiln add-repository <repository>",
       "arguments": [
         {
-          "name": "folder-name",
+          "name": "repository",
           "required": true,
-          "source": "Exact, case-sensitive sibling checkout folder name beside the PRD repository's main checkout, not a URL or PRD path. Run from the assigned Kiln workspace or one of its repository worktrees; cwd selects the PRD. Prefer a worktree when workspace roots overlap."
+          "source": "The path in the repository's remote address, such as acme-labs/storefront, compared without case; github.com:acme-labs/storefront and a folder name beside the PRD repository's main checkout are accepted too, as a phase's Repositories line takes them. Not a full remote address or a path on this computer. Run from the assigned Kiln workspace or one of its repository worktrees; cwd selects the PRD. Prefer a worktree when workspace roots overlap."
         }
       ],
       "flags": {
@@ -3496,7 +3628,8 @@
         "Existing text execution output and legacy exits; --json is help-only.",
         "Error names below describe legacy conditions in help; execution prints readable diagnostics, not bot-control error codes or receipts.",
         "Requires the matching kiln run controller to be running and a phase running or stopped at Needs you. Adds a worktree using the run's existing branch/base rules; an already-added repository returns success with its path. No new spending or delivery permission is granted.",
-        "A candidate must be an actual sibling checkout, not a symlink, with a GitHub origin. Existing branch/worktree, origin/base and setup checks remain authoritative. Setup may take time; this helper waits for the controller's existing setup result."
+        "Kiln finds the checkout by its origin, beside the PRD's repository and outward within its search, or uses the folder Kiln remembers on this computer. A candidate must be a repository's own checkout, not a link, with a GitHub origin. Existing branch/worktree, origin/base and setup checks remain authoritative. Setup may take time; this helper waits for the controller's existing setup result.",
+        "When Kiln can't tell where the repository is (no checkout found it can deliver to, or more than one), nothing is added: the answer says where Kiln searched or the checkouts it found, Kiln keeps the request with the phase, and the phase's next Needs you stop asks a person where it is. When the phase is already stopped, that stop asks at once."
       ],
       "result_fields": {
         "execution_output": "run retains terminal progress; add-repository retains readable text; audit/delivery retain their existing JSON result objects. Inspection schema_version/observed_at/exit meanings do not apply to these executions.",
@@ -3513,7 +3646,7 @@
       "exits": {
         "0": "Repository added, or already present; stdout gives the worktree path (and branch/base when added).",
         "1": "Wrong/ambiguous workspace, stopped/unreachable controller or refused/failed addition; stderr explains the condition.",
-        "2": "Invalid syntax; supply exactly one folder name with no execution flags."
+        "2": "Invalid syntax; supply exactly one repository with no execution flags."
       },
       "examples": [
         {
@@ -3521,18 +3654,18 @@
           "argv": [
             "kiln",
             "add-repository",
-            "shipping"
+            "acme/shipping"
           ],
-          "preparation": "Make /work/shop/shipping a real GitHub-backed checkout beside /work/shop/orders, the PRD repository. Change cwd to the assigned running PRD worktree, for example /work/shop/.worktrees/orders/orders. Run while its phase is running or stopped at Needs you; shipping is the exact sibling folder name."
+          "preparation": "Change cwd to the assigned running PRD worktree, for example /work/shop/.worktrees/orders/orders. Run while its phase is running or stopped at Needs you; acme/shipping is the path in the shipping repository's remote address."
         }
       ],
       "error_meanings": {
-        "invalid_syntax": "Exit 2: supply exactly one folder name, with no execution flags. --help --json is reference metadata only.",
+        "invalid_syntax": "Exit 2: supply exactly one repository, with no execution flags. --help --json is reference metadata only.",
         "outside_workspace": "Exit 1: caller cwd is not in a saved Kiln workspace. Run from the assigned repository worktree, not merely its main checkout or an unrelated directory.",
         "ambiguous_workspace": "Exit 1: cwd belongs to more than one PRD workspace. Run from inside the intended repository's worktree; the helper has no PRD-path selector.",
         "controller_stopped": "Exit 1: kiln run is not running for the selected PRD, so nothing was added. Reopen that PRD with kiln run first.",
         "controller_unreachable": "Exit 1: the selected local controller could not be reached. Inspect kiln status for the PRD and the controller terminal before retrying.",
-        "addition_refused": "Exit 1: controller prints its refusal reason. It may be checking/resuming, outside an eligible phase, complete/stopping, or unable to find/validate the sibling checkout, GitHub origin, origin base, branch/worktree or setup. Correct the specific reason; the helper does not bypass checks or remove conflicting work."
+        "addition_refused": "Exit 1: controller prints its refusal reason. It may be checking/resuming, outside an eligible phase, complete/stopping, unable to tell where the repository is on this computer (nothing added; a person is asked at the phase's next Needs you stop), or unable to validate the checkout, GitHub origin, origin base, branch/worktree or setup. Correct the specific reason; the helper does not bypass checks or remove conflicting work."
       }
     },
     {

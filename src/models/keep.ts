@@ -1,5 +1,5 @@
 // A choice saved before this change (Kiln Phase Model Tiers AC-KEEP-02, KEEP-001, KEEP-003;
-// technical design "Data Models"): the migration to schema 26 and the continuation's conversion.
+// technical design "Data Models"): the migration to schema 27 and the continuation's conversion.
 
 import type { ModelChoice } from "./model-defaults.js";
 import { codexFamilyOf } from "./resolver.js";
@@ -15,7 +15,7 @@ export function isCurrentDefault(choice: ModelChoice): boolean {
   return codexFamilyOf(choice.model)?.family === "sol" && choice.effort === "high";
 }
 
-/** The PRD-wide choice a record saved before schema 26 held; undefined when it held none with a model. */
+/** The PRD-wide choice a record saved before schema 27 held; undefined when it held none with a model. */
 export function legacyChoice(settings: Record<string, unknown>): ModelChoice | undefined {
   const agentId = settings.agentId === "codex" ? "codex" : "claude_code";
   const choices = settings.agentChoices as Record<string, { model?: unknown; effort?: unknown } | undefined> | undefined;
@@ -30,7 +30,7 @@ function retire(settings: Record<string, unknown>): void {
 }
 
 /**
- * Migration to schema 26, steps 1 to 4: each saved session's first response from what is already
+ * Migration to schema 27, steps 1 to 4: each saved session's first response from what is already
  * saved, each activity's starting session, the KEEP table applied to the saved choice, billing's
  * last launch keyed by agent, and the retired fields removed. Without a state directory (a saved
  * record read for status), no session can be read, so no activity counts as started.
@@ -72,7 +72,7 @@ export function migrateModelChoices(record: PrdRecord, stateDirectory: string | 
 }
 
 /**
- * A continuation acceptance saved before schema 26 (technical design, "Settings saved outside the
+ * A continuation acceptance saved before schema 27 (technical design, "Settings saved outside the
  * PRD record"): migration step 2 with no activity taken as started, then step 4.
  */
 export function convertAcceptanceSettings(settings: Record<string, unknown>): void {

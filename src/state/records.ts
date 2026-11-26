@@ -25,7 +25,7 @@ import type { ModelChoice } from "../models/model-defaults.js";
 import { migrateModelChoices, assertModelChoices } from "../models/keep.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 26;
+export const SCHEMA_VERSION = 27;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -46,7 +46,7 @@ export interface Settings {
   baseBranch: string;
   /** The other repositories' bases, by name; never keyed by the PRD's repository's name. */
   bases: Record<string, string>;
-  /** Each activity's model choice where the person set one, and a choice kept from before schema 26 (Kiln Phase Model Tiers, "Data Models"). */
+  /** Each activity's model choice where the person set one, and a choice kept from before schema 27 (Kiln Phase Model Tiers, "Data Models"). */
   modelChoices: ModelChoices;
   keepAwake: boolean;
   /** Wait out a usage limit and resume by itself (usage-limit recovery AC-AUTO-04). */
@@ -58,7 +58,7 @@ export interface Settings {
 /**
  * A PRD's model choices (Kiln Phase Model Tiers, "Resolving a Choice"): a phase's own entry, by
  * phase id; the PRD's one Audits entry, for the preflight, every audit and the pull request
- * session; and `kept`, the one choice a PRD saved before schema 26 keeps (AC-KEEP-02), written
+ * session; and `kept`, the one choice a PRD saved before schema 27 keeps (AC-KEEP-02), written
  * only by the migration. `"default"` is Use the default over a kept choice.
  */
 export interface ModelChoices {
@@ -139,6 +139,24 @@ export interface PhaseStop {
    * complete the run with no pull request session.
    */
   holdLeadsTo?: "pull_request_session" | "complete";
+  /** Each question the stop asks about a repository Kiln couldn't place (find repositories anywhere AC-ASK-07; schema 26). */
+  locate?: SavedQuestion[];
+}
+
+/**
+ * A question a stop saves whole (find repositories anywhere, "Data Models"): `phaseFile` on the
+ * plan stop's question, absent on one from a session's request. The label is worked out each time
+ * it is shown and a field message belongs to one answer, so neither is saved.
+ */
+export interface SavedQuestion {
+  kind: "where" | "which";
+  /** The address path, as the plan or the session's request writes it. */
+  repository: string;
+  searchedFrom: string;
+  searchedTo?: string;
+  checkouts: { folder: string; remote: string; pickable: boolean; remembered?: true }[];
+  found: number;
+  phaseFile?: string;
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
@@ -205,6 +223,8 @@ export interface PhaseFacts {
   doneAt?: string;
   finishedByPerson: boolean;
   stop?: PhaseStop;
+  /** A session's requests for a repository Kiln would ask about, once per address path (find repositories anywhere AC-SESSION-01). */
+  repositoryRequests?: { addressPath: string; at: string }[];
   /** Waiting for usage (usage-limit recovery AC-AUTO-01); never beside `stop`. */
   wait?: PhaseWait;
   /** By repository name. */
@@ -296,7 +316,13 @@ export interface CreatedBranch {
  * `setupCompletedAt`; before that it holds what a setup under way, or a failed one, left.
  */
 export interface RepositoryEntry {
+  /** Kiln's name for it: the record key and its worktree folder's name, fixed once written. */
   name: string;
+  /**
+   * Its short name, kept only when it differs from `name`, which is then the whole-path form
+   * (find repositories anywhere AC-FOLDER-01, schema 26).
+   */
+  shortName?: string;
   kind: RepositoryKind;
   mainCheckoutPath: string;
   /** `<owner>/<name>`. */
@@ -665,7 +691,7 @@ export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRe
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -692,8 +718,8 @@ export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRe
   if (record.completionAudits && (!record.executionId || !Number.isSafeInteger(record.completionAudits.revision) || !["required", "legacy_complete"].includes(record.completionAudits.policy) || !Array.isArray(record.completionAudits.activities) || !Array.isArray(record.completionAudits.evidence))) throw new Error("Invalid completion audit state.");
   if (record.schemaVersion < 5) { if (record.startedAt) record.executionId ??= randomUUID(); record.developmentAuthorization = restrictedAuthorization(); record.developmentDelivery = emptyDevelopmentLedger(); record.settings.developmentDeployments = { enabled: false, targets: [] }; }
   if (record.schemaVersion < 8) record.billing = newBillingState(record.executionId ??= randomUUID());
-  // Schema 26: one choice for the PRD becomes each activity's (Kiln Phase Model Tiers, "Migration to schema 26").
-  if (record.schemaVersion < 26) migrateModelChoices(record, stateDirectory);
+  // Schema 27: one choice for the PRD becomes each activity's (Kiln Phase Model Tiers, "Migration to schema 27").
+  if (record.schemaVersion < 27) migrateModelChoices(record, stateDirectory);
   assertBillingState(record.billing, record.executionId);
   assertModelChoices(record.settings.modelChoices);
   // Retire only the old confinement predicate; keep every independent recovery obligation.
@@ -731,6 +757,7 @@ export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRe
   // Schema 25: a check result saved under the old rules is dropped, so no stale "Plan needs reconciliation"
   // or waiting panel renders before the first new check (Kiln After Delivery "Data Models and Upgrade").
   if (record.schemaVersion < 25) delete record.completedPlanCheck;
+  // Schema 26 adds a repository's optional `shortName` (find repositories anywhere "Data Models"); every earlier entry was named by folder, so it is read as it was.
   if (record.continuationBaselineId !== undefined && !/^[a-f0-9]{64}$/.test(record.continuationBaselineId)) throw new Error("Malformed continuation baseline reference.");
   // Schema 23 adds `preflight`; a record from earlier has none, so its preflight is not settled (build preflight "Upgrade").
   assertPreflightState(record.preflight);

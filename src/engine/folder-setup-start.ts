@@ -17,6 +17,8 @@ import { safeIdentity } from "./continuation-state.js";
 
 export interface FolderSetupRepository {
   name: string;
+  /** Its short name, kept when it differs from name, so the entries Start rebuilds keep it (find repositories anywhere AC-FOLDER-01). */
+  shortName?: string;
   kind: RepositoryEntry["kind"];
   github: string;
   mainCheckoutPath: string;
@@ -99,8 +101,9 @@ export async function step(intent: FolderSetupStart, name: string, save: () => v
 }
 
 /** The steps a start runs, in order, with what each says on the page (done[] and remaining[]). */
-export function plannedSteps(kind: "base" | "branch", repositories: FolderSetupRepository[], multi: boolean): FolderSetupStart["steps"] {
-  const where = (repository: FolderSetupRepository) => multi ? ` in ${repository.name}` : "";
+export function plannedSteps(kind: "base" | "branch", repositories: FolderSetupRepository[], multi: boolean, label: (repository: FolderSetupRepository) => string = (repository) => repository.name): FolderSetupStart["steps"] {
+  // Each repository by its label (find repositories anywhere AC-FOLDER-02).
+  const where = (repository: FolderSetupRepository) => multi ? ` in ${label(repository)}` : "";
   if (kind === "base") return [
     ...repositories.filter(repository => repository.clearStaleRecord).map(repository => ({ name: `clear:${repository.name}`, label: `Clear git’s record of the missing folder${where(repository)}`, state: "pending" as const })),
     ...repositories.map(repository => ({ name: `worktree:${repository.name}`, label: `Create ${repository.branch} and its folder${where(repository)}`, state: "pending" as const })),
@@ -128,7 +131,7 @@ export async function worktreeReady(git: GitContext, repository: FolderSetupRepo
 }
 
 /** Base start, step 1 for one repository: the new branch at the page's base commit and the folder as its worktree. */
-export async function createBranchAndFolder(git: GitContext, repository: FolderSetupRepository): Promise<void> {
+export async function createBranchAndFolder(git: GitContext, repository: FolderSetupRepository, label = repository.name): Promise<void> {
   if (await worktreeReady(git, repository)) {
     if (await artifactTouched(git, repository)) throw new Error(`${repository.worktreePath} holds work Start did not make. Nothing was removed; move or commit it, then press Start again.`);
     return;
@@ -141,7 +144,7 @@ export async function createBranchAndFolder(git: GitContext, repository: FolderS
   if (remote.stdout.trim()) throw new Error(`${repository.branch} already exists on origin. Nothing was changed; press Check again.`);
   if (local !== undefined && local !== repository.baseCommit) throw new Error(`${repository.branch} already exists and isn’t the branch Kiln made. Nothing was changed; press Check again.`);
   const entry: RepositoryEntry = { name: repository.name, kind: repository.kind, github: repository.github, mainCheckoutPath: main, baseBranch: repository.baseBranch, worktreePath: repository.worktreePath, baseCommit: repository.baseCommit! };
-  const outcome = await addEntryWorktree(git, entry, repository.branch, "then press Start again.", false);
+  const outcome = await addEntryWorktree(git, entry, repository.branch, "then press Start again.", false, label);
   if (!outcome.ok) throw new Error(outcome.error);
   if (!await worktreeReady(git, repository)) throw new Error(`The folder at ${repository.worktreePath} isn’t a worktree on ${repository.branch}.`);
 }

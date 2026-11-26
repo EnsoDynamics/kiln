@@ -27,7 +27,7 @@
   import PhasePlan from "../components/PhasePlan.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import { deliveryGroups, deliveryTime } from "../lib/delivery-history.js";
-  import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
+  import { addedLabel, folderShown, repositoriesLine, repositoryLabel } from "../lib/progress.js";
   import { agentsThatRan, mergeAgent as mergeAgentOf } from "../lib/agents.js";
 
   let { snapshot, connected, now, lastSeenAt, config }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined; config?: import("../lib/api.js").PageConfig } = $props();
@@ -42,6 +42,7 @@
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
   const number = (value: number) => value.toLocaleString("en-US");
   const commitCount = (pullRequest: PullRequestFacts) => `${pullRequest.commits >= 100 ? "100+" : number(pullRequest.commits)} ${pullRequest.commits === 1 ? "commit" : "commits"}`;
+  const labelOf = (repository: string) => repositoryLabel(snapshot, repository);
   // While the delivery waits to merge (Kiln After Delivery AC-WAIT-02): no check panel, one line in the pull request card.
   // The HTTP answer is applied at once; the event stream may bring the same check later (the newer one wins).
   let answered = $state<import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck>();
@@ -137,7 +138,7 @@
     {/if}
     <div class="open"><ExitKiln {snapshot} {connected} main line={`Nothing is left for Kiln to do on this PRD. Exiting stops Kiln in its terminal; the ${pullRequests.length > 1 ? "worktrees stay" : "worktree stays"} until you remove ${pullRequests.length > 1 ? "them" : "it"}.`} />{#if url}<a class="button" href={url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>{/if}</div>
     {#if panelShown && !planPush && phasesFound}<p class="note">{addedHeading(phasesFound)}. Continue is at the top of this page.</p>{/if}
-    {#if panelShown && !planPush && checkInCard}<CompletedPlanCheck inCard {now} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
+    {#if panelShown && !planPush && checkInCard}<CompletedPlanCheck inCard {now} loading={checking} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   {:else if after?.offer.note}
     <div class="open">
       <button class="button solid" type="button" disabled={!connected || !config || merging || !after.offer.available} title={after.offer.available ? undefined : after.offer.reason} onclick={pressMergeButton}>{merging ? "Starting…" : `Merge with ${mergeAgent}`}</button>
@@ -188,7 +189,7 @@
       {/if}
     </section>
   {/if}
-  {#if panelShown && !planPush && !checkInCard}<CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
+  {#if panelShown && !planPush && !checkInCard}<CompletedPlanCheck loading={checking} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}
@@ -199,7 +200,7 @@
         {#each pullRequests as pullRequest (pullRequest.repository)}
           {@const tag = tagFor(pullRequest.repository)}
           <li>
-            <div class="repo"><span class="mono repo-name">{pullRequest.repository}</span><span class="repo-sub"><span class="mono repo-number">#{pullRequest.number}</span>{#if readingOf(pullRequest)?.order}<span class="tag">merges {ordinal(readingOf(pullRequest)!.order!.position)}</span>{/if}{#if tag}<span class="tag">{tag}</span>{/if}</span></div>
+            <div class="repo"><span class="mono repo-name">{pullRequest.label ?? labelOf(pullRequest.repository)}</span><span class="repo-sub"><span class="mono repo-number">#{pullRequest.number}</span>{#if readingOf(pullRequest)?.order}<span class="tag">merges {ordinal(readingOf(pullRequest)!.order!.position)}</span>{/if}{#if tag}<span class="tag">{tag}</span>{/if}</span></div>
             <div class="what">
               <span class="pr-title">{pullRequest.title}</span>
               <span class="pr-line"><span class="mono pr-branches">{pullRequest.head} → {pullRequest.base}</span><span class="sep" aria-hidden="true">·</span><span>{commitCount(pullRequest)}</span><span class="sep" aria-hidden="true">·</span><span>+{number(pullRequest.additions)} −{number(pullRequest.deletions)}</span>{#if readingOf(pullRequest)?.state === "merged" || readingOf(pullRequest)?.state === "closed" || readingOf(pullRequest)?.conflicts}<span class="sep" aria-hidden="true">·</span>{@render pullFacts(pullRequest)}{/if}</span>
@@ -234,7 +235,7 @@
       <ul class="prs">
         {#each mergedBranches as branch (branch.repository)}
           <li>
-            <div class="repo"><span class="mono repo-name">{branch.repository}</span></div>
+            <div class="repo"><span class="mono repo-name">{labelOf(branch.repository)}</span></div>
             <div class="what"><span class="pr-title">Already merged into {branch.base}</span><span class="mono pr-branches">{branch.head}</span></div>
           </li>
         {/each}
@@ -253,7 +254,7 @@
     {#if snapshot.deliveryHistory}
       {#each histories as history (history.repository)}
         <div class="history-repo">
-          <div class="history-heading"><h3 class="mono repo-name">{history.repository}</h3><span class="sub">{history.primary.length} {history.primary.length === 1 ? "delivery" : "deliveries"} · Newest first</span></div>
+          <div class="history-heading"><h3 class="mono repo-name">{labelOf(history.repository)}</h3><span class="sub">{history.primary.length} {history.primary.length === 1 ? "delivery" : "deliveries"} · Newest first</span></div>
           <ul class="prs primary-deliveries" id={`deliveries-${history.repository}`}>
             {#each history.primary.slice(0, expanded[history.repository] ? undefined : 3) as event (`${event.kind}:${event.number ?? event.commit}`)}
               {@render historyRow(event)}

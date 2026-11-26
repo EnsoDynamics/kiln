@@ -8,7 +8,7 @@ import { git } from "../test-support/git-repositories.js";
 import { deliveryFixture } from "../test-support/development-delivery-fixture.js";
 import { DELIVERY_CHECK, checkpointResolved, checkpointSatisfied, evaluateRepositories, phaseDeliveryCheck, prepareOperation, reconcileDelivery } from "./development-delivery.js";
 import { applyWaivers, unmetItems, type Waiver } from "./waivers.js";
-import type { DeliveryCheckpoint } from "../state/development-delivery.js";
+import { developmentDeliverySummary, type DeliveryCheckpoint } from "../state/development-delivery.js";
 
 type Fixture = Awaited<ReturnType<typeof deliveryFixture>>;
 let fixtures: Fixture[] = [];
@@ -80,6 +80,19 @@ describe("every failing development item is listed (AC-WAIVE-11)", () => {
     expect(f.h.engine.record.developmentDelivery!.repositoryResults[0]).toMatchObject({ state: "unresolved", reasons: ["acme-shop: uncommitted work remains.", "acme-shop: current feature head is not pushed to its assigned origin branch."] });
     // Listing more never makes the evaluation unfinished: no provider read was needed to fail it.
     expect(f.h.engine.record.developmentDelivery!.sourceUnavailable).toBe(false);
+  });
+});
+
+describe("each repository by its label (find repositories anywhere AC-FOLDER-02)", () => {
+  it("writes each reason, fact and the summary with the repository's label, keeping Kiln's name as the item's subject", async () => {
+    const f = await deliveryFixture(); fixtures.push(f); f.synchronize();
+    writeFileSync(join(f.context.prdWorktree, "draft.txt"), "Never committed\n");
+    const label = (name: string) => (name === "acme-shop" ? "acme/acme-shop" : name);
+    const final = await evaluateRepositories({ ...f.context, label });
+    expect(final.checks[0]!.items).toEqual([{ kind: "repository_work", subject: "acme-shop", text: "acme/acme-shop: uncommitted work remains.", against: "" }]);
+    expect(final.checks[0]!.facts).toEqual(["acme/acme-shop: uncommitted work remains."]);
+    expect(f.h.engine.record.developmentDelivery!.repositoryResults[0]).toMatchObject({ repository: "acme-shop", reasons: ["acme/acme-shop: uncommitted work remains."] });
+    expect(developmentDeliverySummary(f.h.engine.record, label)).toMatch(/^acme\/acme-shop: unresolved · delivered /);
   });
 });
 

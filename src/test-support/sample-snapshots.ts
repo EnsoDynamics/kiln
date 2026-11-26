@@ -12,7 +12,7 @@ import type { PauseNowView } from "../live/pause-now.js";
 export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot["settings"]>; documents?: Partial<NonNullable<Snapshot["documents"]>> } & Partial<Omit<Snapshot, "settings" | "documents">> = {}): Snapshot {
   const { settings, documents, ...rest } = overrides;
   return {
-    feature: { name: "Customer returns", repositoryName: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
+    feature: { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
     documents: {
       prd: { file: "customer-returns-prd.md", criteriaCount: 14, firstLabel: "AC-RET-01", lastLabel: "AC-RET-14" },
       design: { file: "technical-design.md", criteriaCited: 14 },
@@ -52,7 +52,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       ...settings,
     },
     repositories: [
-      { name: "acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop", "main"], baseCheck: "ok", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: false, fieldErrors: {} },
+      { name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: "~/devel/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop", "main"], baseCheck: "ok", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: false, fieldErrors: {} },
     ],
     phases: [],
     pause: { pending: false, active: false },
@@ -167,7 +167,7 @@ function underwaySettings(): Snapshot["settings"] {
 }
 
 /** The PRD's one repository once Kiln has set it up. */
-const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", kind: "prd", baseBranch: "develop", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: true, fieldErrors: {} }];
+const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: "~/devel/acme-shop", kind: "prd", baseBranch: "develop", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: true, fieldErrors: {} }];
 
 const ACCOUNT: AccountView = {
   email: "alex@acme-shop.dev",
@@ -186,7 +186,7 @@ function underway(rest: Partial<Snapshot> & Pick<Snapshot, "feature" | "phases">
   return { settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, pause: { pending: false, active: false }, agents: [claudeAgent(ACCOUNT)], ...rest };
 }
 
-const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
+const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
 
 /** Running and Phase detail: phase 2b, Store credit, at Deliverable review, its reviewer working. */
 export function runningSnapshot(): Snapshot {
@@ -362,10 +362,10 @@ export function completeSnapshot(): Snapshot {
 // (docs/changes/kiln-multi-repo-delivery/mockups/).
 
 const WORKSPACE = "~/devel/acme/.worktrees/customer-returns";
-const MULTI_FEATURE = { ...FEATURE, repositoryName: "product", multiRepository: true };
+const MULTI_FEATURE = { ...FEATURE, repositoryName: "product", repositoryLabel: "product", multiRepository: true };
 
 function multiRow(name: string, kind: RepositoryRow["kind"], baseBranch: string, extra: Partial<RepositoryRow> = {}): RepositoryRow {
-  return { name, kind, baseBranch, worktreePath: `${WORKSPACE}/${name}`, fixed: true, fieldErrors: {}, ...extra };
+  return { name, label: name, addressPath: `acme/${name}`, checkoutFolder: `~/devel/acme/${name}`, kind, baseBranch, worktreePath: `${WORKSPACE}/${name}`, fixed: true, fieldErrors: {}, ...extra };
 }
 
 /** Documents found for the PRD across three repositories (kiln-screen-documents-found-repositories.html). */
@@ -375,14 +375,14 @@ export function documentsFoundRepositoriesSnapshot(): Snapshot {
   const documents = snapshot.documents!;
   return {
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     documents: {
       ...documents,
       plan: { ...documents.plan!, phases: documents.plan!.phases.map((phase) => ({ ...phase, repositories: repositories[phase.id]! })) },
       checks: [
         { name: "Every phase cites its criteria", passed: true },
         { name: "Dependencies point backward", passed: true },
-        { name: "Named repositories found beside product", passed: true },
+        { name: "Repositories found on this computer", passed: true },
         { name: "Working tree of product is clean", passed: true },
       ],
     },
@@ -390,6 +390,40 @@ export function documentsFoundRepositoriesSnapshot(): Snapshot {
       multiRow("product", "prd", "main", { baseBranches: ["main"], baseCheck: "ok", fixed: false }),
       multiRow("returns-api", "named", "develop", { baseBranches: ["develop", "main"], baseCheck: "ok", fixed: false }),
       multiRow("storefront", "named", "develop", { baseBranches: ["develop", "main"], baseCheck: "ok", fixed: false }),
+    ],
+  };
+}
+
+// ---- The find repositories anywhere mockup's sample data (fictional): product at ~/code/acme/product,
+// returns-api beside it, storefront under acme-labs (docs/changes/kiln-find-repositories-anywhere/mockups/).
+
+/**
+ * Documents found in the mockup's states: 1 every repository found, 2 asks where storefront is,
+ * 3 asks which of two checkouts, 4 after the answer, with Change.
+ */
+export function findRepositoriesSnapshot(state: 1 | 2 | 3 | 4): Snapshot {
+  const base = documentsFoundRepositoriesSnapshot();
+  const row = (name: string, addressPath: string, folder: string | undefined, kind: RepositoryRow["kind"], baseBranch: string, extra: Partial<RepositoryRow> = {}): RepositoryRow =>
+    ({ name, label: name, addressPath, ...(folder ? { checkoutFolder: folder } : {}), kind, baseBranch, baseBranches: baseBranch ? [baseBranch, "main"].filter((one, index, all) => all.indexOf(one) === index) : [], baseCheck: "ok", worktreePath: `~/code/acme/.worktrees/customer-returns/${name}`, fixed: false, fieldErrors: {}, ...extra });
+  const question = state === 2
+    ? { kind: "where" as const, repository: "acme-labs/storefront", label: "storefront", searchedFrom: "~/code/acme", checkouts: [], found: 0 }
+    : { kind: "which" as const, repository: "acme-labs/storefront", label: "storefront", searchedFrom: "~/code/acme", found: 2, checkouts: [
+      { folder: "~/code/acme-labs/storefront", remote: "git@github.com:acme-labs/storefront.git", pickable: true },
+      { folder: "~/code/archive/storefront", remote: "git@github.com:acme-labs/storefront.git", pickable: true },
+    ] };
+  const asking = state === 2 || state === 3;
+  const storefront = asking
+    ? row("storefront", "acme-labs/storefront", undefined, "named", "", { baseBranches: [], fixed: true, question })
+    : row("storefront", "acme-labs/storefront", state === 4 ? "/Volumes/work/storefront" : "~/code/acme-labs/storefront", "named", "develop", { located: state === 4 ? "answer" : "search" });
+  const documents = base.documents!;
+  return {
+    ...base,
+    settings: { ...base.settings, workspaceFolder: "~/code/acme/.worktrees/customer-returns", ...(asking ? { startBlockedBy: state === 2 ? "Tell Kiln where acme-labs/storefront is to start." : "Tell Kiln which checkout of acme-labs/storefront to use to start." } : {}) },
+    documents: { ...documents, checks: documents.checks.map((check) => (check.name === "Repositories found on this computer" && asking ? { name: "1 repository to locate", passed: true, locate: true as const } : check)) },
+    repositories: [
+      row("product", "acme/product", "~/code/acme/product", "prd", "main", { baseBranches: ["main"] }),
+      row("returns-api", "acme/returns-api", "~/code/acme/returns-api", "named", "develop", { located: "beside" }),
+      storefront,
     ],
   };
 }
@@ -466,7 +500,7 @@ export function runningRepositoriesSnapshot(): Snapshot {
   const snapshot = runningSnapshot();
   return multiUnderway({
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     phases: [MULTI_PHASE_1, PHASE_2, MULTI_PHASE_2A, ...snapshot.phases.slice(3)],
     current: {
       ...snapshot.current!,
@@ -484,7 +518,7 @@ export function needsYouRepositoriesSnapshot(): Snapshot {
   const complete = completeRepositoriesSnapshot();
   return multiUnderway({
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     phases: [...complete.phases.slice(0, 4), { ...PHASE_3, state: "needs_you", sessionStartedAt: "2026-10-17T16:17:00Z" }, PHASE_4],
     needsYou: {
       ...snapshot.needsYou!,
@@ -871,7 +905,7 @@ export function folderMissingSnapshot(which: FolderMissingCase): Snapshot {
   const multi = which === "multi";
   cases[which].panel = folderMissingPanel(which);
   return underway({
-    feature: { name: "Invoice evidence collection", repositoryName: "harbor-ledger", multiRepository: multi, prdFolder: "docs/prds/invoice-evidence-collection/", state: "folder_missing", phasesDone: 4, phasesTotal: 5, startedAt: OCT23 },
+    feature: { name: "Invoice evidence collection", repositoryName: "harbor-ledger", repositoryLabel: "harbor-ledger", multiRepository: multi, prdFolder: "docs/prds/invoice-evidence-collection/", state: "folder_missing", phasesDone: 4, phasesTotal: 5, startedAt: OCT23 },
     phases: ["1", "2", "3", "4"].map(id => ({ id, title: `Phase ${id} work`, file: `phase-${id}.md`, state: "done" as const, doneAt: OCT24, finishedByPerson: false })),
     folderMissing: { checkedAt: new Date(FOLDER_MISSING_NOW).toISOString(), factsId: "f".repeat(64), ...cases[which] },
   });

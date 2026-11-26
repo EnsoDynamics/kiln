@@ -10,6 +10,7 @@ import { COMET_DIRECTORY, cometPhase, createCometContinuation } from "../test-su
 import { git } from "../test-support/git-repositories.js";
 import { landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { CODEX_CHOICE, writeModelDefaults } from "../test-support/model-choices.js";
+import { recordedPullRequest } from "../test-support/recorded-pull-requests.js";
 
 /** Model defaults with every row on Codex · GPT Sol · high, for this test's computer. */
 const codexDefaults = (env: NodeJS.ProcessEnv) => { const row = { first: { agentId: "codex" as const, family: "sol", effort: "high" }, fallback: { agentId: "claude_code" as const, family: "opus", effort: "medium" } }; writeModelDefaults(env, { demanding: row, standard: row, mechanical: row, audits: row }); };
@@ -166,7 +167,7 @@ nativeIt.each(["candidate", "base", "fetch", "repository", "settings", "source",
   const settings = structuredClone(h.engine.record.settings);
   const base = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
   const permissionFile = join(h.env.CLAUDE_CONFIG_DIR!, "settings.json"); const oldPermissions = existsSync(permissionFile) ? readFileSync(permissionFile, "utf8") : undefined;
-  if (change === "candidate") writeFileSync(file, text.replace("capability 10", "capability ten"));
+  if (change === "candidate") { writeFileSync(file, text.replace("capability 10", "capability ten")); git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: change candidate scope"); f.publish(); }
   if (change === "settings") h.engine.record.settings.resumeAfterUsageLimit = !settings.resumeAfterUsageLimit;
   if (change === "base" || change === "fetch") { git(h.sandbox, h.repository, "commit", "--allow-empty", "-qm", "test: move disposable base"); f.publish(); }
   if (change === "source") git(h.sandbox, h.repository, "update-ref", "refs/heads/wt/catalog-accessibility", base, f.sha);
@@ -189,7 +190,8 @@ nativeIt.each(["candidate", "base", "fetch", "repository", "settings", "source",
   expect(readPendingAuthority(h.stateDirectory, h.engine.record)?.state).toBe(unchanged ? "pending" : "superseded");
   writeFileSync(file, text); h.engine.record.settings = settings;
   if (change === "repository") git(h.sandbox, h.repository, "config", "remote.origin.url", originalOrigin);
-  if (change === "base" || change === "fetch") git(h.sandbox, h.origin, "update-ref", "refs/heads/develop", base, git(h.sandbox, h.repository, "rev-parse", "HEAD").trim());
+  if (change === "base" || change === "fetch" || change === "candidate") git(h.sandbox, h.origin, "update-ref", "refs/heads/develop", base, git(h.sandbox, h.repository, "rev-parse", "HEAD").trim());
+  if (change === "candidate") git(h.sandbox, h.repository, "reset", "-q", "--hard", base);
   if (change === "source") git(h.sandbox, h.repository, "update-ref", "refs/heads/wt/catalog-accessibility", f.sha, base);
   if (change === "provider_settings") { if (oldPermissions === undefined) unlinkSync(permissionFile); else writeFileSync(permissionFile, oldPermissions); }
   // Persist restored settings through the normal check, then read only disk on restart.
@@ -291,7 +293,9 @@ nativeIt.each([false, true])("faults supersession publication and reconciles dur
   const body = { executionId: h.engine.record.executionId!, proposalId: check.result!.proposal!.id, authorizationRevision: 0, target: { repository: "github.com/fictional/comet-library", baseBranch: "develop" }, commandId: "supersession-write-grant", statusToken: h.engine.controlView().token };
   expect(await h.engine.authorizeContinuationTarget(body)).toMatchObject({ ok: true });
   const { readPendingAuthority } = await import("./continuation-authority.js"); const pending = readPendingAuthority(h.stateDirectory, h.engine.record)!;
-  const path = join(h.repository, COMET_DIRECTORY, "phase-10-catalog.md"); const text = readFileSync(path, "utf8"); writeFileSync(path, text.replace("capability 10", "capability ten"));
+  const path = join(h.repository, COMET_DIRECTORY, "phase-10-catalog.md"); const text = readFileSync(path, "utf8");
+  const publishText = (next: string) => { writeFileSync(path, next); git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: change phase 10 scope"); f.publish(); };
+  publishText(text.replace("capability 10", "capability ten"));
   const durable = await import("../control/durable-file.js"); const write = durable.writeDurableMetadata; let injected = false;
   const fault = vi.spyOn(durable, "writeDurableMetadata").mockImplementation((path, value) => {
     if (!injected && path.endsWith(`/continuation-authority/${pending.id}.json`) && (value as { state?: string }).state === "superseded") { injected = true; if (afterWrite) write(path, value); throw new Error("Lost supersession projection acknowledgement"); }
@@ -303,10 +307,10 @@ nativeIt.each([false, true])("faults supersession publication and reconciles dur
   // After publication, even restoring old inputs before restart cannot revive
   // authority. Before publication there is no durable acknowledgement; restart
   // reconciles the actual changed source before any further effect.
-  if (afterWrite) writeFileSync(path, text);
+  if (afterWrite) publishText(text);
   expect(readPendingAuthority(h.stateDirectory, h.engine.record)?.state).toBe(afterWrite ? "superseded" : "pending");
   h.engine.close(); h.engine = f.make(); await h.engine.prepare();
-  writeFileSync(path, text); await h.engine.checkCompletedPlan();
+  if (!afterWrite) publishText(text); await h.engine.checkCompletedPlan();
   expect(h.engine.record.completedPlanCheck!.result!.proposal!.readiness).toBe("blocked");
   expect(await h.engine.authorizeContinuationTarget(body)).toMatchObject({ ok: true, grant: { valid: false, executionId: pending.executionId } });
   expect(h.claudeCalls()).toHaveLength(0);
@@ -373,6 +377,8 @@ nativeIt("runs preparation through revised-scope audits, audit-added implementat
     expect(h.engine.historicalExecution(old)?.record.pullRequests?.map(row => row.number)).toEqual([12]);
     expect(h.engine.record.preparation!.attempts).toHaveLength(1); expect(h.engine.latestSession("9")!.runs).toHaveLength(2);
     git(h.sandbox, h.repository, "merge", "--no-edit", h.engine.record.settings.featureBranch); f.publish();
+    // GitHub shows the new delivery's pull request merged into develop (Kiln After Delivery AC-WAIT-01).
+    h.setPullRequestViews({ "fictional/comet-library#43": recordedPullRequest("merged", { number: 43, base: "develop", mergeCommit: git(h.sandbox, h.repository, "rev-parse", "HEAD").trim() }) });
     expect((await h.engine.checkCompletedPlan()).status).toBe("unchanged");
     const { launchChrome } = await import("../test-support/headless-chrome.js"); const chrome = await launchChrome(); const calls = h.claudeCalls().length;
     try { for (const width of [1200, 390]) { const page = await chrome.open(hosted.server.address, { width, height: 1100 }); try { await page.waitFor("document.body.innerText.includes('No new phases found') && !document.body.innerText.includes('Checking for new phases')"); expect(await page.evaluate("document.documentElement.scrollWidth <= innerWidth")).toBe(true); writeFileSync(`/tmp/kiln-preparation-no-new-${width}.png`, await page.screenshot()); } finally { await page.close(); } } } finally { await chrome.close(); }
@@ -444,6 +450,16 @@ nativeIt("holds a changed pinned source after successful verification and pause"
   expect(await h.engine.start()).toMatchObject({ ok: true }); await h.engine.settled();
   expect(h.engine.latestSession("9")!.runs).toHaveLength(1); expect(h.engine.record.preparation!.reason).toContain("moved");
   expect(h.engine.record.preparation!.attempts.map(row => row.id)).toEqual([attempt]); expect(h.engine.record.phases["9"]?.doneAt).toBeUndefined();
+});
+nativeIt("names the repository by its label when a preparation source must be restored (find repositories anywhere AC-FOLDER-02)", async () => {
+  await fixture();
+  const file = join(h.repository, COMET_DIRECTORY, "phase-9-catalog.md");
+  writeFileSync(file, readFileSync(file, "utf8").replace("`wt/catalog-accessibility`", "`unavailable-source`"));
+  git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: unavailable preparation source"); git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  // A recorded repository sharing the PRD's short name, so the PRD's repository is labelled by its address path.
+  h.engine.record.repositories.push({ name: "other+comet-library", shortName: "comet-library", kind: "added", mainCheckoutPath: join(h.sandbox.root, "other", "comet-library"), github: "other/comet-library", baseBranch: "develop", worktreePath: join(h.sandbox.root, "other-worktree") });
+  const check = await h.engine.checkCompletedPlan();
+  expect(check.result?.proposal?.problems.join(" ")).toMatch(/restore source unavailable-source at [0-9a-f]{40} in fictional\/comet-library; the branch/);
 });
 nativeIt("honors existing Claude tool restrictions before any native project check", async () => {
   const f = await fixture("printf 'should not run\\n' > check-ran.txt");

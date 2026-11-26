@@ -2,6 +2,7 @@
 
 import { firstLink, headingText, linkedFileName, markdownLines, sectionLines, tableRows } from "./markdown-sections.js";
 import { idTextFromFileName, isPhaseFileName } from "./phase-ids.js";
+import { readRepositoryName } from "./repository-names.js";
 
 export interface SplitRow {
   /** The row's phase id: from the file its first cell links to, else the cell's first word. */
@@ -21,7 +22,7 @@ export interface PhaseDocument {
    * trimmed (multi-repo AC-REPO-01); empty when there is no such line.
    */
   repositories: string[];
-  /** What is wrong with the `**Repositories:**` line: no names, or a name that isn't a folder name. */
+  /** What is wrong with the `**Repositories:**` line: no names, or a name that is neither a folder name nor an address path. */
   repositoriesProblem: string | undefined;
   /**
    * The text after an `**Attended:**` line before the first `##` heading, trimmed; empty when the
@@ -97,20 +98,21 @@ export function readPhaseDocument(fileName: string, markdown: string): PhaseDocu
 }
 
 /**
- * The `**Repositories:**` line's names. Each must be a plain folder name: no `/` or `\`, not
- * `.` or `..`, not empty.
+ * The `**Repositories:**` line's names, as written. Each is a folder name or an address path
+ * (find repositories anywhere AC-NAME-01); anything else is the line's problem.
  *
- *   readRepositoriesLine("phase-2b-store-credit.md", "**Repositories:** returns-api, storefront")
- *   // { repositories: ["returns-api", "storefront"], problem: undefined }
+ *   readRepositoriesLine("phase-2b-store-credit.md", "**Repositories:** returns-api, acme-labs/storefront")
+ *   // { repositories: ["returns-api", "acme-labs/storefront"], problem: undefined }
  */
 export function readRepositoriesLine(fileName: string, line: string | undefined): { repositories: string[]; problem: string | undefined } {
   if (line === undefined) return { repositories: [], problem: undefined };
   const rest = line.slice("**Repositories:**".length).trim();
   if (rest === "") return { repositories: [], problem: `${fileName} has a Repositories line that names no repository.` };
   const names = rest.split(",").map((name) => name.trim());
-  const bad = names.find((name) => name === "" || name === "." || name === ".." || /[/\\]/.test(name));
-  if (bad !== undefined) {
-    return { repositories: [], problem: bad === "" ? `${fileName} has an empty name on its Repositories line.` : `${fileName} names ${bad} on its Repositories line, which isn't a folder name.` };
+  if (names.includes("")) return { repositories: [], problem: `${fileName} has an empty name on its Repositories line.` };
+  for (const name of names) {
+    const read = readRepositoryName(name);
+    if (read.kind === "problem") return { repositories: [], problem: read.problem(fileName) };
   }
   return { repositories: [...new Set(names)], problem: undefined };
 }

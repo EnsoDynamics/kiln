@@ -18,10 +18,14 @@ const authorityDigest = (value: unknown) => createHash("sha256").update(JSON.str
 import { readPendingAuthority, pendingForProposal, type ContinuationInputObservation } from "./continuation-authority.js";
 import { mergeTargetKey, type MergeTarget } from "../state/development-delivery.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
+import { preparationReads, reachedName, reachRecordNames, recordedName, recordLabelSet, type PlanReach } from "./plan-repositories.js";
+import { labelAmong, shortNameOf } from "./repository-labels.js";
 import { defaultBaseBranch, expandHome } from "./worktree-setup.js";
 
 export interface ReadinessPrerequisite { phaseId: string; status: "integrated_verified" | "preparation_available" | "blocked" | "unknown"; evidence: string[]; recovery?: string }
-export interface PreparationBinding extends PreparationInstruction { sourceRevision: string; repositoryIdentity: string; baseBranch: string; baseRevision: string; authorization: "phase_preparation" | "delivery_target"; valid: boolean }
+export interface PreparationBinding extends PreparationInstruction { sourceRevision: string; repositoryIdentity: string; baseBranch: string; baseRevision: string; authorization: "phase_preparation" | "delivery_target"; valid: boolean;
+  /** Shown to the page only, never saved: the repository's label (find repositories anywhere AC-FOLDER-02). */
+  label?: string }
 /** The one copy of the plan an offer was read from (Kiln After Delivery AC-BACK-03). */
 export interface ProposalSource { kind: "remote_base" | "main_checkout"; branch: string; revision: string }
 /** A commit the main checkout's base branch holds beyond the remote base, oldest first, and whether it touches only this PRD's documents (AC-BACK-05). */
@@ -33,7 +37,8 @@ export interface ContinuationProposal {
   commits?: UnpushedCommit[];
   added: { id: string; title: string; file: string }[]; firstEligiblePhase?: string;
   readiness: "ready" | "blocked"; problems: string[]; prerequisites: ReadinessPrerequisite[];
-  repositories: { name: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
+  /** shortName: kept when it differs from name, so the accepted workspace's entries keep it (find repositories anywhere AC-FOLDER-01). */
+  repositories: { name: string; shortName?: string; identity: string; path: string; baseBranch: string; baseRevision: string }[];
   preparation: PreparationBinding[]; settingsDigest: string;
   /** Proposals saved before Kiln After Delivery: a digest of the main checkout's files, no longer read or written. */
   sharedDigest?: string;
@@ -66,32 +71,50 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
   const first = leavesOf(candidate.plan).find(phase => added.some(row => row.id === phase.id));
   const prerequisites: ReadinessPrerequisite[] = [];
   const names = added.length ? [...new Set([record.repository.name, ...candidate.plan.phases.flatMap(phase => phase.repositories)])] : [];
-  for (const name of names) {
-    let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(one => one.name === name);
+  // Each name reaches its repository first, and the reader works with Kiln's name for it (find repositories anywhere "Names").
+  const reach = names.length ? await reachRecordNames(git, record, shared, candidate.plan.phases) : new Map<string, PlanReach>();
+  const seen = new Set<string>();
+  // Each repository in a problem by its label (find repositories anywhere AC-FOLDER-02).
+  const labels = recordLabelSet(record, candidate.plan.phases);
+  const shown = (name: string): string => {
+    const entry = record.repositories.find(one => one.name === name);
+    const one = entry ? { shortName: shortNameOf(entry), addressPath: entry.github } : labels.find(member => member.name === name || member.shortName === name);
+    return one ? labelAmong(one, labels) : name;
+  };
+  // A repository Kiln would ask about is left out: the stop before the phase that names it asks (find repositories anywhere AC-ASK-07), unless the first phase's preparation reads it.
+  const prepared = names.length ? preparationReads(candidate, record.prdDirectory, first, record.repository.name) : new Set<string>();
+  for (const written of names) {
+    const reached = reachedName(written, record.repository.name, reach.get(written));
+    if ("question" in reached && !prepared.has(written.toLowerCase())) continue;
+    if ("problem" in reached) { if (reached.unavailable) throw new Error(`source_unavailable: ${reached.problem} Restore repository access, then check again.`); problems.push(reached.problem); continue; }
+    const name = reached.name;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    let repo: { mainCheckoutPath: string; github: string; baseBranch: string; shortName?: string } | undefined = record.repositories.find(one => one.name === name);
     if (!repo) {
-      const found = await findRepository(git, repositoriesParent(shared), name, first?.fileName ?? "current plan");
+      const found = reached.row?.found ? { ok: true as const, repository: reached.row.found } : await findRepository(git, repositoriesParent(shared), name, first?.fileName ?? "current plan");
       if (!found.ok) { if (found.unavailable) throw new Error(`source_unavailable: ${found.problem} Restore repository access, then check again.`); problems.push(found.problem); continue; }
       const origin = await originBranches(git, found.repository.mainCheckoutPath);
-      if (!origin.ok) throw new Error(`source_unavailable: Could not read ${name}'s delivery bases: ${origin.error}. Restore repository access, then check for new phases again.`);
+      if (!origin.ok) throw new Error(`source_unavailable: Could not read ${shown(name)}'s delivery bases: ${origin.error}. Restore repository access, then check for new phases again.`);
       const baseBranch = record.settings.bases[name] ?? defaultBaseBranch(origin.value);
-      if (!baseBranch) { problems.push(`Establish a configured delivery base for ${name}, then check again.`); continue; }
+      if (!baseBranch) { problems.push(`Establish a configured delivery base for ${shown(name)}, then check again.`); continue; }
       repo = { ...found.repository, baseBranch };
     }
     const path = name === record.repository.name ? shared : expandHome(repo.mainCheckoutPath);
     const origin = parseGithubOrigin(await gitRead(git, path, ["config", "--get", "remote.origin.url"]));
     input.observeInput?.({ kind: "repository", repository: name, identity: origin ? `${origin.owner}/${origin.name}` : null });
-    if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { problems.push(`Restore the recorded ${repo.github} origin for ${name}, then check again.`); continue; }
+    if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { problems.push(`Restore the recorded ${repo.github} origin for ${shown(name)}, then check again.`); continue; }
     const baseRevision = await remoteBase(git, path, repo.baseBranch, true, revision => input.observeInput?.({ kind: "base", repository: name, branch: repo.baseBranch, revision }));
-    repositories.push({ name, identity: repo.github, path, baseBranch: repo.baseBranch, baseRevision });
+    repositories.push({ name, ...(repo.shortName === undefined ? {} : { shortName: repo.shortName }), identity: repo.github, path, baseBranch: repo.baseBranch, baseRevision });
   }
-  const extracted = await bindPreparation({ git, record, candidate, first, repositories, problems, ...(input.observeInput ? { observeInput: input.observeInput } : {}) });
+  const extracted = await bindPreparation({ git, record, candidate, first, repositories, problems, label: shown, ...(input.observeInput ? { observeInput: input.observeInput } : {}) });
   const preparation = extracted.preparation;
   for (const row of accounting.leaves) {
     if (row.classification === "new_unfinished") continue;
     const integrationProblems: string[] = [];
     if (row.classification === "carried_completed" && added.length) {
       const receipt = baseline.completions[row.id];
-      const affected = [...new Set([record.repository.name, ...(receipt?.scopeRepositories ?? phaseRepositories(baseline.active, row.id))])];
+      const affected = [...new Set([record.repository.name, ...(receipt?.scopeRepositories ?? phaseRepositories(baseline.active, row.id)).map(name => recordedName(record, name))])];
       for (const name of affected) {
         const repo = repositories.find(repo => repo.name === name);
         const revision = receipt?.repositories?.[name]?.revision ?? (name === record.repository.name ? receipt?.revision : undefined);
@@ -99,18 +122,18 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
         const mergeCommit = input.delivery?.executionFinished.has(row.id) ? input.delivery.merged[name] : undefined;
         if (repo && mergeCommit) {
           if (await baseContains(git, repo.path, mergeCommit, repo.baseRevision)) continue;
-          integrationProblems.push(`Phase ${row.id}: the merge commit ${mergeCommit.slice(0, 7)} of ${name}'s pull request is not in origin/${repo.baseBranch}.`); continue;
+          integrationProblems.push(`Phase ${row.id}: the merge commit ${mergeCommit.slice(0, 7)} of ${shown(name)}'s pull request is not in origin/${repo.baseBranch}.`); continue;
         }
         const closed = input.delivery?.executionFinished.has(row.id) ? input.delivery.closed.find(pull => pull.repository === name) : undefined;
-        if (!repo || !revision) { integrationProblems.push(`Phase ${row.id}: restore the retained ${name} completion revision before checking integration.`); continue; }
+        if (!repo || !revision) { integrationProblems.push(`Phase ${row.id}: restore the retained ${shown(name)} completion revision before checking integration.`); continue; }
         const result = await runGit(git, repo.path, ["merge-base", "--is-ancestor", revision, repo.baseRevision]);
-        if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not check retained Phase ${row.id} integration in ${name}. Restore revision ${revision}.`);
+        if (result.exitCode !== 0 && result.exitCode !== 1) throw new Error(`Could not check retained Phase ${row.id} integration in ${shown(name)}. Restore revision ${revision}.`);
         if (result.exitCode === 1) {
           let covered = false;
           const retained = receipt?.repositories?.[name];
           if (retained?.identity.toLowerCase() === repo.identity.toLowerCase() && retained.integration?.sourceRevision === revision && /^[a-f0-9]{40,64}$/.test(retained.integration.baseRevision)) {
             const priorBase = await runGit(git, repo.path, ["merge-base", "--is-ancestor", retained.integration.baseRevision, repo.baseRevision]);
-            if (priorBase.exitCode !== 0 && priorBase.exitCode !== 1) throw new Error(`Could not verify retained integration of Phase ${row.id} in ${name}.`);
+            if (priorBase.exitCode !== 0 && priorBase.exitCode !== 1) throw new Error(`Could not verify retained integration of Phase ${row.id} in ${shown(name)}.`);
             covered = priorBase.exitCode === 0;
           }
           for (const checkpoint of record.developmentDelivery?.checkpoints ?? []) {
@@ -120,8 +143,8 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
             const target = await runGit(git, repo.path, ["merge-base", "--is-ancestor", merge.resultSha, repo.baseRevision]);
             if (source.exitCode === 0 && target.exitCode === 0) covered = true;
           }
-          if (!covered && closed) integrationProblems.push(`Pull request #${closed.number} in ${name} was closed without merging, so its work is not in ${repo.baseBranch}. Reopen it on GitHub and merge it, and Continue comes back.`);
-          else if (!covered) integrationProblems.push(`Phase ${row.id}: ${name} completion ${revision} is not integrated in origin/${repo.baseBranch}; reconcile explicit preparation before continuing.`);
+          if (!covered && closed) integrationProblems.push(`Pull request #${closed.number} in ${shown(name)} was closed without merging, so its work is not in ${repo.baseBranch}. Reopen it on GitHub and merge it, and Continue comes back.`);
+          else if (!covered) integrationProblems.push(`Phase ${row.id}: ${shown(name)} completion ${revision} is not integrated in origin/${repo.baseBranch}; reconcile explicit preparation before continuing.`);
         }
       }
     }
@@ -129,7 +152,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
       prerequisites.push({ phaseId: row.id, status: "integrated_verified", evidence: row.repositories.map(repo => `${repo.identity}@${repo.revision} in ${repo.baseRevision}`) }); continue;
     }
     const bindings = preparation.filter(binding => preparesPhase(binding, row.id));
-    const requiredNames = [...new Set([record.repository.name, ...(row.classification === "carried_completed" ? baseline.completions[row.id]?.scopeRepositories ?? phaseRepositories(baseline.active, row.id) : phaseRepositories(candidate, row.id))])];
+    const requiredNames = [...new Set([record.repository.name, ...(row.classification === "carried_completed" ? baseline.completions[row.id]?.scopeRepositories ?? phaseRepositories(baseline.active, row.id) : phaseRepositories(candidate, row.id)).map(name => recordedName(record, name))])];
     // Preparation cannot substitute for a missing retained provider receipt or changed old scope.
     const eligible = (row.classification === "externally_unverified" && row.provenance === "not_applicable" || row.classification === "carried_completed") && first && preparesPhase({ prerequisites: dependencyIds(first.dependenciesText) }, row.id) && requiredNames.every(name => bindings.some(binding => binding.repository === name && binding.valid));
     if (eligible && !extracted.extractedProblems.length) prerequisites.push({ phaseId: row.id, status: "preparation_available", evidence: bindings.map(binding => `${binding.repositoryIdentity}@${binding.sourceRevision}; authorization ${binding.authorization}`) });
@@ -142,7 +165,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
   for (const repo of repositories) {
     const revision = await remoteBase(git, repo.path, repo.baseBranch, false);
     input.observeInput?.({ kind: "base", repository: repo.name, branch: repo.baseBranch, revision });
-    if (revision !== repo.baseRevision) throw new Error(`source_changed: ${repo.name}/${repo.baseBranch} moved during readiness evaluation. Check again.`);
+    if (revision !== repo.baseRevision) throw new Error(`source_changed: ${shown(repo.name)}/${repo.baseBranch} moved during readiness evaluation. Check again.`);
   }
   for (const binding of preparation) {
     const repo = repositories.find(one => one.name === binding.repository)!;
@@ -188,19 +211,21 @@ async function baseContains(git: GitContext, path: string, commit: string, base:
   return result.exitCode === 0;
 }
 
-export async function bindPreparation(input: { git: GitContext; record: PrdRecord; candidate: PlanSource; first: import("../plan/phase-plan.js").PlannedPhase | undefined; repositories: ContinuationProposal["repositories"]; problems: string[]; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<{ preparation: PreparationBinding[]; extractedProblems: string[] }> {
+export async function bindPreparation(input: { git: GitContext; record: PrdRecord; candidate: PlanSource; first: import("../plan/phase-plan.js").PlannedPhase | undefined; repositories: ContinuationProposal["repositories"]; problems: string[]; observeInput?: (observation: ContinuationInputObservation) => void; /** What a repository is shown by (find repositories anywhere AC-FOLDER-02). */ label?: (name: string) => string; /** What a name as a phase document writes it is shown by; `label` when absent. */ labelWritten?: (name: string) => string }): Promise<{ preparation: PreparationBinding[]; extractedProblems: string[] }> {
   const { git, record, candidate, first, repositories, problems } = input;
+  const label = input.label ?? ((name: string) => name);
+  const labelWritten = input.labelWritten ?? label;
   const preparation: PreparationBinding[] = [];
   const extracted = first ? extractPreparation(candidate, record.prdDirectory, first, [...new Set([record.repository.name, ...candidate.plan.phases.filter(phase => phase.id === first.id || isAncestorOf(phase.id, first.id)).flatMap(phase => phase.repositories)])]) : { instructions: [], problems: [] };
   problems.push(...extracted.problems);
   for (const instruction of extracted.instructions) {
     const problemCount = problems.length;
     const repository = repositories.find(one => one.name === instruction.repository);
-    if (!repository) { problems.push(`Preparation repository ${instruction.repository} is unavailable.`); continue; }
+    if (!repository) { problems.push(`Preparation repository ${labelWritten(instruction.repository)} is unavailable.`); continue; }
     const resolved = await runGit(git, repository.path, ["rev-parse", "--verify", "--end-of-options", `${instruction.sourceRef}^{commit}`]);
     if (resolved.exitCode === 0) input.observeInput?.({ kind: "source", repository: repository.name, sourceRef: instruction.sourceRef, revision: resolved.stdout.trim() });
     const pinned = await runGit(git, repository.path, ["rev-parse", "--verify", "--end-of-options", `${instruction.revision}^{commit}`]);
-    if (resolved.exitCode !== 0 || pinned.exitCode !== 0 || resolved.stdout.trim() !== pinned.stdout.trim()) { problems.push(`Phase ${instruction.phaseId}: restore source ${instruction.sourceRef} at ${instruction.revision} in ${repository.name}; the branch and immutable revision must agree.`); continue; }
+    if (resolved.exitCode !== 0 || pinned.exitCode !== 0 || resolved.stdout.trim() !== pinned.stdout.trim()) { problems.push(`Phase ${instruction.phaseId}: restore source ${instruction.sourceRef} at ${instruction.revision} in ${label(repository.name)}; the branch and immutable revision must agree.`); continue; }
     const binding: PreparationBinding = { ...instruction, sourceRevision: pinned.stdout.trim(), repositoryIdentity: repository.identity, baseBranch: repository.baseBranch, baseRevision: repository.baseRevision, authorization: instruction.destination === "assigned_feature" ? "phase_preparation" : "delivery_target", valid: false };
     preparation.push(binding);
     if (repository.name === record.repository.name) {

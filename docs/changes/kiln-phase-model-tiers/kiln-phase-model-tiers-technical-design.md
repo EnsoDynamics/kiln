@@ -33,7 +33,7 @@ The existing local TypeScript application: the engine, its loopback server, the 
 
 ### Storage
 
-Model defaults lives in one owner-only JSON file at the state root, beside the per-PRD state directories, written atomically like every other Kiln record. It is outside every repository, which is what makes it apply to every PRD in every repository on the computer and survive upgrades (AC-DEFAULT-02). Per-PRD changes and each activity's start live in the PRD record and session records, schema 26.
+Model defaults lives in one owner-only JSON file at the state root, beside the per-PRD state directories, written atomically like every other Kiln record. It is outside every repository, which is what makes it apply to every PRD in every repository on the computer and survive upgrades (AC-DEFAULT-02). Per-PRD changes and each activity's start live in the PRD record and session records, schema 27.
 
 ### Dependencies
 
@@ -338,13 +338,13 @@ All accept `--json` and `--help` under the existing result, exit and help contra
 
 ## Data Models
 
-**PRD record, schema 26.** (Schema 25 is Kiln After Delivery's change, which development builds already write, so this change takes 26.) `settings` loses `agentId`, `selectionGeneration` and `agentChoices`, and gains:
+**PRD record, schema 27.** (Schema 25 is Kiln After Delivery's change and schema 26 is find repositories anywhere's, which reached `develop` first, so this change takes 27.) `settings` loses `agentId`, `selectionGeneration` and `agentChoices`, and gains:
 
 ```
 settings.modelChoices:
   phases: { [phaseId]: ModelChoice | "default" }
   audits?: ModelChoice | "default"
-  kept?:  ModelChoice                    written only by the schema 26 migration
+  kept?:  ModelChoice                    written only by the schema 27 migration
 ```
 
 Each activity's facts gain `startedSessionId?`, the session whose response started it, and `codexUsageRecovery?`: while the activity hasn't started, the one-automatic-attempt record (§A Wait Before the Start), in the same shape as a session's `codex.usageRecovery`, with a fingerprint that leaves out the conversation. A reset builds new settings, so it returns a PRD's changes to the defaults as it does its other settings.
@@ -362,9 +362,9 @@ relaunchOf?: { sessionId, run }          the refused run a launch at the end of 
 
 `limit.label` is the window's name, "ordinary usage blocked" or "one automatic attempt used"; `percent` is present only for a window. Which limit is recorded follows §The launch decision's rule for the recorded limit.
 
-**Billing state.** `billing.lastLaunch` becomes `{ [agentId]: BillingSummary }`, written by each agent's launch. `version` stays 1, because the schema 26 record guards it.
+**Billing state.** `billing.lastLaunch` becomes `{ [agentId]: BillingSummary }`, written by each agent's launch. `version` stays 1, because the schema 27 record guards it.
 
-**Migration to schema 26** runs on load, as earlier ones do, and reads the PRD's saved sessions:
+**Migration to schema 27** runs on load, as earlier ones do, and reads the PRD's saved sessions:
 
 1. For each session with no `firstResponseAt`, derive it once from what is already saved, by the same test: for Claude Code, the first saved event that is a model response; for Codex, the first saved item notification that passes the same test. Each activity's `startedSessionId` is as §When an Activity Starts says. An activity's sessions run one after another, so this is also the earliest. The same derivation, with the agent's own history, then runs on every load for the sessions of an unfinished activity with no start (§When an Activity Starts). Step 1 also covers the sessions each retained earlier execution lists, so those rows read a saved `firstResponseAt`.
 2. Apply AC-KEEP-02's table to the saved selected agent's choice. A choice with no model (no saved entry, or Codex's empty entry left when Kiln couldn't pin the latest GPT Sol) is no choice and sets nothing: Start and every launch refuse it, so no activity ran on it. Otherwise: an activity that started sets `kept` to it; no started activity and a choice equal to Kiln's current default sets nothing; any other choice sets `kept`. Whether an activity had started is decided here from saved evidence only, by step 1's derivation. The agent's own history is read after the migration, and the migration runs once. A start found later only in an agent's history still binds that activity (§When an Activity Starts); only the PRD's other activities that haven't started may then take their choices from the tiers, and the person sees every row before it starts and can change it.
@@ -373,9 +373,9 @@ relaunchOf?: { sessionId, run }          the refused run a launch at the end of 
 
 **A continuation of a PRD whose settings carry `kept`** (AC-KEEP-02, KEEP-003): when Continue Added Phases builds the new execution's settings from the finished one's, `kept` is dropped if it equals Kiln's current default, by the KEEP-001 decision's test, and kept otherwise, before any of its activities resolves. Once it is dropped, the added phases take their tiers, and the audits, preflight and pull request session the Audits row. The per-phase entries and the Audits entry carry over as they are.
 
-**Settings saved outside the PRD record.** A continuation acceptance holds the settings it gives the new execution. An acceptance saved before schema 26 is converted when read, before anything uses it. The conversion is migration step 2 with no activity taken as started: KEEP-003's "Had none" rows apply, so `kept` is set only when the saved choice has a model and isn't Kiln's current default. Step 4 then removes the retired fields. A Folder missing start intent is not converted: every Start rebuilds settings from the PRD record and the panel, and a failed intent seeds the panel with no model, so its retired fields are ignored. Neither file changes its `formatVersion`, because an older Kiln refuses the schema 26 record before it can reach them.
+**Settings saved outside the PRD record.** A continuation acceptance holds the settings it gives the new execution. An acceptance saved before schema 27 is converted when read, before anything uses it. The conversion is migration step 2 with no activity taken as started: KEEP-003's "Had none" rows apply, so `kept` is set only when the saved choice has a model and isn't Kiln's current default. Step 4 then removes the retired fields. A Folder missing start intent is not converted: every Start rebuilds settings from the PRD record and the panel, and a failed intent seeds the panel with no model, so its retired fields are ignored. Neither file changes its `formatVersion`, because an older Kiln refuses the schema 27 record before it can reach them.
 
-An older Kiln refuses a schema 26 record, as with every earlier schema change.
+An older Kiln refuses a schema 27 record, as with every earlier schema change.
 
 ## Changes to Earlier Designs
 
@@ -397,7 +397,7 @@ Each line is added to the earlier section, as `Superseded in part by:`, in the c
 - Replaces in part: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Paused Page (for an activity that hasn't started, **Resume {activity}** launches a new session on its current choice and gives it any note, instead of calling the takeover resume of the same conversation, and the terminal column's released command reopens the saved conversation only while its current choice is the one that session ran on, otherwise it is the fresh-session command for its current choice's agent).
 - Replaces in part: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions (start checks for versions: an agent below its minimum is shown on Documents found when an activity will run on it or a fallback names it, not when it is selected).
 - Replaces in part: `docs/changes/kiln-build-preflight/kiln-build-preflight-technical-design.md`, §The Preflight Session, §Interfaces and §Display Contract (the preflight runs on the Audits choice, not the run's agent, model and effort; skill presence before Start is read for the preflight's own agent; `preflight.planned` gains `model`, and the planned Preflight row shows the Audits choice).
-- Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Data Models and Migration and §Implemented integrated-prerequisite continuation (Phase 3a) (the agent and model choices carry forward except a kept choice equal to Kiln's current default, which the fresh execution drops; the current plan's rows for phases finished in an earlier execution read each retained execution once per process, so the current execution's first read is no longer independent of how many archives it has; a continuation acceptance saved before schema 26 is converted when read, §Data Models).
+- Replaces in part: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Data Models and Migration and §Implemented integrated-prerequisite continuation (Phase 3a) (the agent and model choices carry forward except a kept choice equal to Kiln's current default, which the fresh execution drops; the current plan's rows for phases finished in an earlier execution read each retained execution once per process, so the current execution's first read is no longer independent of how many archives it has; a continuation acceptance saved before schema 27 is converted when read, §Data Models).
 - Replaces in part: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Screens (AC-SHOW-01) (Documents found's Agent, Model and Effort give way to the model lines and links, and phase rows gain the tier tag and model choice).
 
 ## Integration Points
@@ -431,10 +431,10 @@ Each line is added to the earlier section, as `Superseded in part by:`, in the c
 | AC-FALLBACK-02, AC-FALLBACK-03, AC-FALLBACK-04 | §The launch decision; `launch` on the session record; `fallback` and `forecast` in §Snapshot |
 | AC-AGENTS-01 to AC-AGENTS-04 | §Agents; `agents[]` in §Snapshot; `kiln account` in §Command line; §A Wait Before the Start |
 | AC-KEEP-01 | §Existing Code (switched off); the fields removed in §HTTP and §Snapshot |
-| AC-KEEP-02 | Migration step 2; the KEEP-001 decision; resolver step 3; a continuation of a PRD carrying `kept`, and a continuation acceptance saved before schema 26 (§Data Models) |
+| AC-KEEP-02 | Migration step 2; the KEEP-001 decision; resolver step 3; a continuation of a PRD carrying `kept`, and a continuation acceptance saved before schema 27 (§Data Models) |
 | AC-GUIDE-01 | The README's sections on how Kiln works, billing and driving Kiln from a terminal, and the command-line guide, gain tiers, Model defaults, the two commands and the fallback |
 
 ## Open Questions
 
 1. **DEF-001 and DEF-002 are still open** (GPT Astra at high for the demanding fallback, and whether only the Audits fallback gets extra high). The shipped defaults are one table of data, so either answer changes a value and nothing in this design.
-2. **KEEP-003 is still open** (when a PRD set up before this change has finished and is continued, its added phases take their tiers unless the person had picked its model). The other answer removes the step that drops `kept` when a continuation is set up, and has an acceptance saved before schema 26 keep any saved choice with a model (§Data Models).
+2. **KEEP-003 is still open** (when a PRD set up before this change has finished and is continued, its added phases take their tiers unless the person had picked its model). The other answer removes the step that drops `kept` when a continuation is set up, and has an acceptance saved before schema 27 keep any saved choice with a model (§Data Models).

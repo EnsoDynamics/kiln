@@ -477,6 +477,31 @@ const LEGACY_PAUSE_LAYOUT = `(() => {
   return true;
 })()`;
 
+/**
+ * The multi-repository Documents found mockup's repository rows as the find repositories anywhere
+ * mockup draws them (its state 1): the label line, then the address path and the checkout's folder
+ * under it, the row's base beside both; and the passed check "Repositories found on this computer".
+ */
+const ROWS_WITH_ADDRESS = `(() => {
+  const mono = "font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, Menlo, monospace; font-size: 12px; color: #bdb6a8; overflow-wrap: anywhere";
+  for (const li of document.querySelectorAll('ul[aria-labelledby="repos-h"] > li')) {
+    const [name, select] = li.children;
+    const repository = name.querySelector("label").textContent;
+    li.setAttribute("style", "display: flex; flex-direction: column; gap: 10px; padding: 10px 0; border-bottom: 1px solid rgba(237, 232, 221, 0.12)");
+    const line = Object.assign(document.createElement("div"), { style: "display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center" });
+    const text = Object.assign(document.createElement("span"), { style: "display: flex; flex-direction: column; gap: 3px; min-width: 0" });
+    const where = Object.assign(document.createElement("span"), { style: "font-size: 12px; line-height: 1.5" });
+    where.append(Object.assign(document.createElement("span"), { style: mono, textContent: "acme/" + repository }), Object.assign(document.createElement("span"), { style: "color: #8c8577", textContent: " · " }), Object.assign(document.createElement("span"), { style: mono, textContent: "~/devel/acme/" + repository }));
+    text.append(name, where);
+    line.append(text, select);
+    li.replaceChildren(line);
+  }
+  // The innermost span holding the words, so the check's icon stays.
+  const check = [...document.querySelectorAll("span")].filter((span) => span.textContent === "Named repositories found beside product").at(-1);
+  check.textContent = "Repositories found on this computer";
+  return true;
+})()`;
+
 /** Each screen with the mockup it is drawn from, and lines of its copy that must read as drawn. */
 const SCREENS: {
   name: string;
@@ -522,11 +547,13 @@ const SCREENS: {
     name: "documents-found-repositories",
     mockup: `${REPOSITORIES_MOCKUPS}kiln-screen-documents-found-repositories.html`,
     snapshot: documentsFoundRepositoriesSnapshot,
-    addition: WITH_LIMIT_CHECKBOX,
+    // Find repositories anywhere AC-SEE-01, AC-SEE-04: each row gains its address path and checkout
+    // folder, and the passed check its new words, as that change's mockup state 1 draws them.
+    addition: `${WITH_LIMIT_CHECKBOX} && ${ROWS_WITH_ADDRESS}`,
     copy: [
       "Repository product PRD folder docs/prds/customer-returns/ Customer returns Not started Review what Kiln found and how it will deliver, then start.",
       "Phase plan 6 phase docs 5 phases to implement, in this order 1 Return intake returns-api 2 Refund routing split into 2a and 2b returns-api 2a Card refunds returns-api 2b Store credit returns-api · storefront 3 Returns dashboard storefront 4 Restock check-in returns-api",
-      "Every phase cites its criteria Dependencies point backward Named repositories found beside product Working tree of product is clean",
+      "Every phase cites its criteria Dependencies point backward Repositories found on this computer Working tree of product is clean",
       "Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn.",
       "Used in every repository. Repositories Branch from, and PR into product PRD’s repository",
       `${SESSIONS_ADD} Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks. Models Chosen for each phase 4 not rated. Change any phase in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults.`,

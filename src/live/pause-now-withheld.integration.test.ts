@@ -43,6 +43,8 @@ const forged = (key: string, sessionId: string) => ({ executionId: h!.engine.rec
 /** Pause now is withheld for the running session: no target, no view, the control's reason, and the route refuses. */
 async function expectWithheld(key: string) {
   const engine = h!.engine;
+  // Kiln's own launch of the session is an instruction too, and until it is recorded as dispatched every live control gives "Kiln is checking, dispatching…" as its reason; the reason under test shows after that.
+  await waitFor(() => !engine.commands.busy);
   expect(engine.liveTarget()).toBeUndefined();
   expect(engine.liveView()).toBeUndefined();
   expect(engine.controlView().controls.find(c => c.name === "take-over")).toMatchObject({ available: false, reason: UNAVAILABLE });

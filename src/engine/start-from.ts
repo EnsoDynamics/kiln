@@ -9,7 +9,8 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, posix } from "node:path";
 import { AuditRefusal } from "../audit/contracts.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
-import { leavesOf, namedRepositories, planStartProblems, readPhasePlan, type PhasePlan } from "../plan/phase-plan.js";
+import { leavesOf, planStartProblems, readPhasePlan, type PhasePlan } from "../plan/phase-plan.js";
+import type { NamedRepositoryRow } from "./plan-repositories.js";
 import { runHelper } from "../platform/helper-process.js";
 import type { RepositoryEntry, RepositoryKind } from "../state/records.js";
 import { readGitPlan } from "./completed-plan-sources.js";
@@ -20,12 +21,16 @@ import { comparable, defaultBaseBranch, displayPath, expandHome, halfMadeMessage
 /** One of the PRD's repositories as the branch list and preview see it. */
 export interface StartRepository {
   name: string;
+  /** Its short name, when `name` is the whole-path form (find repositories anywhere AC-FOLDER-01). */
+  shortName?: string;
   kind: RepositoryKind;
   mainCheckoutPath: string;
   github: string;
   baseBranch: string;
   /** An earlier Start set it up: an existing-branch start keeps it whatever the start commit's plan names (AC-FROM-05). */
   setUp?: true;
+  /** The label its messages name it by (find repositories anywhere AC-FOLDER-02); absent: its name. */
+  label?: string;
 }
 
 /** A repository's refs, read once per list: local branches, origin's branches and the worktree list. */
@@ -95,7 +100,7 @@ export type Classification =
 
 /** The first row of AC-FROM-03's table that fits the branch in one repository. */
 export async function classifyBranch(git: GitContext, repository: StartRepository, refs: RepositoryRefs, branch: string, others: OtherPrdBranch[], multi: boolean, predicates = new Map<string, Promise<Awaited<ReturnType<typeof checkFolder>>>>()): Promise<Classification> {
-  const say = (reason: string): Classification => ({ kind: "unavailable", reason: multi ? `In ${repository.name}: ${reason}` : reason });
+  const say = (reason: string): Classification => ({ kind: "unavailable", reason: multi ? `In ${repository.label ?? repository.name}: ${reason}` : reason });
   if (branch === repository.baseBranch) return say("That's the base branch. Choose A new feature branch to start from it.");
   const main = comparable(realPathOfNearestAncestor(expandHome(repository.mainCheckoutPath)));
   const other = others.find(one => one.branch === branch && comparable(realPathOfNearestAncestor(expandHome(one.mainCheckoutPath))) === main);
@@ -171,7 +176,8 @@ export async function branchList(git: GitContext, repositories: StartRepository[
 }
 
 /** One offer for every qualifying repository, each with its own base and how far behind it the branch is (AC-CURRENT-01). */
-export interface CatchUpOffer { repositories: { name: string; branch: string; base: string; behind: number }[] }
+/** `label` is added for the page only (find repositories anywhere AC-FOLDER-02). */
+export interface CatchUpOffer { repositories: { name: string; label?: string; branch: string; base: string; behind: number }[] }
 
 /** A repository of the selection, with the preview's reads for the selected name. */
 export interface PreviewRepository extends StartRepository {
@@ -205,6 +211,10 @@ export interface StartPreview {
   workspaceFolder?: string;
   /** The message under Feature branch while Start is unavailable. */
   fieldError?: string;
+  /** Repositories the start commit's plan names that Documents found asks about (find repositories anywhere AC-ASK-01). */
+  asking?: NamedRepositoryRow[];
+  /** Every repository the start commit's plan names, found or asked about, with how each was found. */
+  named?: NamedRepositoryRow[];
   previewId: string;
 }
 
@@ -217,10 +227,12 @@ export interface PreviewInput {
   bringUpToDate: boolean;
   /** Today's repositories, the PRD's first. */
   repositories: StartRepository[];
-  /** Finds a repository the start commit's plan names beside the PRD's repository. */
-  find: (name: string, namedIn: string) => Promise<{ ok: true; repository: { name: string; mainCheckoutPath: string; github: string } } | { ok: false; problem: string }>;
+  /** Reaches the start commit's plan's names as the start checks do (find repositories anywhere "Names"). */
+  resolve: (phases: PhasePlan["phases"]) => Promise<{ named: NamedRepositoryRow[]; problems: string[] }>;
   /** The base a repository found from the start commit's plan uses. */
   baseOf: (name: string) => string;
+  /** The label of a repository the start commit's plan names, given Kiln's name for it (AC-FOLDER-02). */
+  label?: (name: string) => string;
   others: OtherPrdBranch[];
   refs?: Map<string, RepositoryRefs>;
 }
@@ -313,7 +325,7 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
     if (!one) { one = await readRepositoryRefs(git, repository.mainCheckoutPath); refs.set(repository.name, one); }
     const classified = await classifyBranch(git, repository, one, branch, input.others, false);
     classifications.set(repository.name, classified);
-    if (classified.kind === "unavailable") problems.push({ repository: repository.name, message: classified.reason });
+    if (classified.kind === "unavailable") problems.push({ repository: repository.label ?? repository.name, message: classified.reason });
     return classified;
   };
   for (const repository of input.repositories) await classify(repository);
@@ -324,7 +336,7 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
     if (classified.kind === "unavailable") { const one = refs.get(repository.name); read.set(repository.name, { ...repository, hasBranch: !!one && branch !== repository.baseBranch && (one.local.has(branch) || !!one.origin?.branches.has(branch)), qualifies: false }); return; }
     const outcome = await readRepository(input, repository, refs.get(repository.name)!, classified);
     read.set(repository.name, outcome.repository);
-    if (outcome.problem) problems.push({ repository: repository.name, message: outcome.problem });
+    if (outcome.problem) problems.push({ repository: repository.label ?? repository.name, message: outcome.problem });
   };
   await readOne(prd);
   const prdRead = read.get(prd.name)!;
@@ -353,17 +365,23 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
   }
   // Which repositories (AC-FROM-05): those an earlier Start set up, the PRD's, and those the start commit's plan names.
   const selection: StartRepository[] = [...input.repositories.filter(repository => repository.kind !== "named" || repository.setUp)];
+  const asking: NamedRepositoryRow[] = [];
+  let named: NamedRepositoryRow[] = [];
   if (plan && plan.problems.length === 0) {
-    for (const name of namedRepositories(plan.phases, prd.name)) {
+    const resolved = await input.resolve(plan.phases);
+    named = resolved.named;
+    problems.push(...resolved.problems.map(message => ({ message })));
+    for (const row of resolved.named) {
+      const name = row.name;
       if (selection.some(repository => repository.name === name)) continue;
       const today = input.repositories.find(repository => repository.name === name);
       if (today) { selection.push(today); continue; }
-      const found = await input.find(name, plan.phases.find(phase => phase.repositories.includes(name))!.fileName);
-      if (!found.ok) { problems.push({ message: found.problem }); continue; }
+      // A repository Kiln would ask about is asked about on its row, as the checkout's plan's are (find repositories anywhere "Asking Before Start").
+      if (!row.found) { asking.push(row); continue; }
       // A repository only the start commit's plan names starts from v1's base rule unless the person chose one (AC-FROM-05).
-      const foundRefs = await readRepositoryRefs(git, found.repository.mainCheckoutPath);
+      const foundRefs = await readRepositoryRefs(git, row.found.mainCheckoutPath);
       refs.set(name, foundRefs);
-      const repository: StartRepository = { ...found.repository, kind: "named", baseBranch: input.baseOf(name) || (foundRefs.origin ? defaultBaseBranch(foundRefs.origin) : "") };
+      const repository: StartRepository = { name, ...(row.found.shortName === undefined ? {} : { shortName: row.found.shortName }), mainCheckoutPath: row.found.mainCheckoutPath, github: row.found.github, kind: "named", baseBranch: input.baseOf(name) || (foundRefs.origin ? defaultBaseBranch(foundRefs.origin) : ""), ...(input.label ? { label: input.label(name) } : {}) };
       selection.push(repository);
       await classify(repository);
     }
@@ -390,7 +408,7 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
     from: "existing", branch, bringUpToDate: input.bringUpToDate, repositories,
     ...(catchUp ? { catchUp } : {}), ...(planSource ? { planSource } : {}), ...(documents ? { documents } : {}), ...(plan ? { plan } : {}),
     closedCount, ...(closedCount > 0 && open ? { startAt: { id: open.id, title: open.title } } : {}),
-    ...(workspaceFolder ? { workspaceFolder } : {}), ...(problems.length ? { fieldError: problems[0]!.repository && multi ? `In ${problems[0]!.repository}: ${problems[0]!.message}` : problems[0]!.message } : {}),
+    ...(workspaceFolder ? { workspaceFolder } : {}), ...(asking.length ? { asking } : {}), ...(named.length ? { named } : {}), ...(problems.length ? { fieldError: problems[0]!.repository && multi ? `In ${problems[0]!.repository}: ${problems[0]!.message}` : problems[0]!.message } : {}),
   };
   return { ...preview, previewId: digestPreview(preview) };
 }
@@ -423,7 +441,7 @@ export function newBranchPreview(branch: string, repositories: StartRepository[]
 // ---- Catching a branch up -------------------------------------------------------------------
 
 /** A repository as the catch-up reads it at the moment of use. */
-export interface CatchUpTarget { name: string; mainCheckoutPath: string; worktreePath?: string; baseBranch: string }
+export interface CatchUpTarget { name: string; /** What its messages name it by (find repositories anywhere AC-FOLDER-02); absent: its name. */ label?: string; mainCheckoutPath: string; worktreePath?: string; baseBranch: string }
 
 export interface CatchUpReading { name: string; base: string; baseTip: string; local?: string; origin?: string; ownCommits: number; behind: number; qualifies: boolean }
 
@@ -440,12 +458,13 @@ export function stoppedCatchUpOffer(readings: CatchUpReading[], branch: string):
  */
 export async function readCatchUp(git: GitContext, target: CatchUpTarget, branch: string): Promise<CatchUpReading> {
   const main = expandHome(target.mainCheckoutPath);
+  const label = target.label ?? target.name;
   const remote = await runGit(git, main, ["ls-remote", "origin", `refs/heads/${target.baseBranch}`, `refs/heads/${branch}`]);
-  if (remote.exitCode !== 0) throw new Error(`Kiln couldn't read origin for ${target.name}: ${gitError(remote)}`);
+  if (remote.exitCode !== 0) throw new Error(`Kiln couldn't read origin for ${label}: ${gitError(remote)}`);
   const tips = new Map<string, string>();
   for (const line of remote.stdout.split(/\r?\n/)) { const match = /^([0-9a-f]{40,64})\trefs\/heads\/(.+)$/.exec(line); if (match) tips.set(match[2]!, match[1]!); }
   const baseTip = tips.get(target.baseBranch);
-  if (!baseTip) throw new Error(`${target.baseBranch} isn’t on origin for ${target.name}.`);
+  if (!baseTip) throw new Error(`${target.baseBranch} isn’t on origin for ${label}.`);
   const origin = tips.get(branch);
   const localRead = await runGit(git, main, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]);
   const local = localRead.exitCode === 0 ? localRead.stdout.trim() : undefined;
@@ -453,18 +472,18 @@ export async function readCatchUp(git: GitContext, target: CatchUpTarget, branch
   const base = { name: target.name, base: target.baseBranch, baseTip, ...(local ? { local } : {}), ...(origin ? { origin } : {}) };
   if (!tip) return { ...base, ownCommits: 0, behind: 0, qualifies: false };
   const failed = await ensureObjects(git, main, baseTip, SETUP_TIMEOUT_MS);
-  if (failed) throw new Error(`Couldn’t reach origin for ${target.name}: ${gitError(failed)}`);
+  if (failed) throw new Error(`Couldn’t reach origin for ${label}: ${gitError(failed)}`);
   const own = await count(git, main, `${baseTip}..${tip}`);
   const behindLocal = await count(git, main, `${tip}..${baseTip}`);
   const behindOrigin = origin && origin !== tip ? (await ensureObjects(git, main, origin, SETUP_TIMEOUT_MS)) ? undefined : await count(git, main, `${origin}..${baseTip}`) : undefined;
-  if (own === undefined || behindLocal === undefined) throw new Error(`Kiln couldn't count ${target.name}'s commits.`);
+  if (own === undefined || behindLocal === undefined) throw new Error(`Kiln couldn't count ${label}'s commits.`);
   // A branch origin doesn't have is not behind there: only the local tip counts (a branch Kiln cut is never pushed by Kiln).
   const behind = Math.max(behindLocal, behindOrigin ?? 0);
   let clean = true;
   if (target.worktreePath) {
     const worktree = expandHome(target.worktreePath);
     const [head, status] = await Promise.all([runGit(git, worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]), uncommittedFiles(git, worktree)]);
-    if (status === undefined) throw new Error(`Kiln couldn't read ${target.name}'s uncommitted files.`);
+    if (status === undefined) throw new Error(`Kiln couldn't read ${label}'s uncommitted files.`);
     clean = head.exitCode === 0 && head.stdout.trim() === branch && status.length === 0;
   }
   return { ...base, ownCommits: own, behind: behindLocal > 0 ? behindLocal : behind, qualifies: own === 0 && clean && behind > 0 };
@@ -475,11 +494,12 @@ export async function readCatchUp(git: GitContext, target: CatchUpTarget, branch
  * already done: save `catchUp`, fast-forward the worktree to `to`, record it, then a plain push.
  * `record` is the step-3 save, given the commits moved; `save` persists step 1.
  */
-export async function catchUpRepository(git: GitContext, entry: RepositoryEntry, branch: string, to: string, hooks: { save: () => void; record: (from: string, to: string, commits: number) => void }): Promise<void> {
+export async function catchUpRepository(git: GitContext, entry: RepositoryEntry, branch: string, to: string, hooks: { save: () => void; record: (from: string, to: string, commits: number) => void; /** Its label (find repositories anywhere AC-FOLDER-02); absent: its name. */ label?: string }): Promise<void> {
+  const label = hooks.label ?? entry.name;
   const main = expandHome(entry.mainCheckoutPath);
   const worktree = expandHome(entry.worktreePath);
   const tipRead = await runGit(git, main, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}^{commit}`]);
-  if (tipRead.exitCode !== 0) throw new Error(`${entry.name} has no local ${branch}.`);
+  if (tipRead.exitCode !== 0) throw new Error(`${label} has no local ${branch}.`);
   const local = tipRead.stdout.trim();
   // A saved catch-up that never landed follows this read of the base; at Start the caller passes the saved target.
   if (entry.catchUp && local !== entry.catchUp.to && entry.catchUp.to !== to) { entry.catchUp = { from: local, to }; hooks.save(); }
@@ -489,7 +509,7 @@ export async function catchUpRepository(git: GitContext, entry: RepositoryEntry,
     const failed = await ensureObjects(git, main, target, SETUP_TIMEOUT_MS);
     if (failed) throw new Error(`Couldn’t fetch ${entry.baseBranch} from origin: ${gitError(failed)}`);
     const merged = await runGit(git, worktree, ["merge", "--ff-only", target], SETUP_TIMEOUT_MS);
-    if (merged.exitCode !== 0) throw new Error(`Couldn’t bring ${branch} up to date in ${entry.name}: ${gitError(merged)}`);
+    if (merged.exitCode !== 0) throw new Error(`Couldn’t bring ${branch} up to date in ${label}: ${gitError(merged)}`);
   }
   if (entry.catchUp) {
     const moved = await count(git, main, `${entry.catchUp.from}..${entry.catchUp.to}`) ?? 0;
@@ -499,7 +519,7 @@ export async function catchUpRepository(git: GitContext, entry: RepositoryEntry,
   if (origin.exitCode !== 0) throw new Error(`Couldn’t reach origin: ${gitError(origin)}`);
   if (origin.stdout.trim().split(/\s/)[0] !== target) {
     const pushed = await runGit(git, worktree, ["push", "origin", `${branch}`], SETUP_TIMEOUT_MS);
-    if (pushed.exitCode !== 0) throw new Error(`Couldn’t push ${branch} in ${entry.name}: ${gitError(pushed)}`);
+    if (pushed.exitCode !== 0) throw new Error(`Couldn’t push ${branch} in ${label}: ${gitError(pushed)}`);
   }
 }
 

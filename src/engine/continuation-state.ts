@@ -12,7 +12,9 @@ export interface ExecutionSummary {
   executionId: string; archiveId: string; startedAt?: string;
   /** Absent only for an execution set up again from the Folder missing page (`ending: "folder_missing_setup"`). */
   completedAt?: string;
-  branch: string; deliveries: { repository: string; url: string }[];
+  branch: string;
+  /** `label` is shown to the page only, never saved: the repository's label (find repositories anywhere AC-FOLDER-02). */
+  deliveries: { repository: string; url: string; label?: string }[];
   /** Schema 20; a summary without them reads as `ending: "completed"`, `endedAt = completedAt`. */
   endedAt?: string; ending?: "completed" | "folder_missing_setup";
   /** Its sessions' recorded running time, saved when it was archived (time totals AC-TOTAL-02); absent on rows archived before. */
@@ -72,7 +74,7 @@ export function writeAcceptance(directory: string, value: ContinuationAcceptance
 export function readAcceptance(directory: string, id: string): ContinuationAcceptance {
   if (!safeIdentity(id)) throw new Error("Invalid continuation acceptance identity.");
   const value = read<ContinuationAcceptance>(directory, join(directory, "continuation-acceptances", `${id}.json`));
-  // An acceptance saved before schema 26 holds the PRD-wide choice; it is converted as read (Kiln Phase Model Tiers, "Settings saved outside the PRD record").
+  // An acceptance saved before schema 27 holds the PRD-wide choice; it is converted as read (Kiln Phase Model Tiers, "Settings saved outside the PRD record").
   if (value?.settings) convertAcceptanceSettings(value.settings as unknown as Record<string, unknown>);
   if (value.formatVersion !== 1 || value.id !== id || !safeIdentity(value.operationId) || !safeIdentity(value.completedExecutionId) || !safeIdentity(value.newExecutionId) || !/^[a-f0-9]{64}$/.test(value.proposalId) || value.proposal.id !== value.proposalId || !["preparing", "blocked", "active", "superseded"].includes(value.state) || !Array.isArray(value.repositories)) throw new Error("Invalid retained continuation acceptance; restore its durable record before retrying.");
   if (!/^[a-f0-9]{64}$/.test(value.candidateId) || !/^[a-f0-9]{64}$/.test(value.archiveId) || !Number.isFinite(Date.parse(value.acceptedAt)) || typeof value.canonicalWorkspace !== "string" || value.settings.workspaceFolder !== value.canonicalWorkspace || !value.settings.featureBranch.endsWith(`-continue-${value.newExecutionId}`) || value.repositories.length !== value.proposal.repositories.length || new Set(value.repositories.map(repo => repo.name)).size !== value.repositories.length) throw new Error("Damaged continuation setup identity.");

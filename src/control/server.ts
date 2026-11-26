@@ -13,7 +13,7 @@ import { ControlFailure, failed, exitFor, result, errorFact, type Result } from 
 import { NO_CHECK_RUN } from "./commands.js";
 import { markCompletePreview } from "./waiver-facts.js";
 import { ResponseSpool } from "./spool.js";
-import { progressHeading, progressText, statusPause, type ProgressRow } from "./waiver-facts.js";
+import { progressHeading, progressText, statusLabels, statusPause, type ProgressRow } from "./waiver-facts.js";
 import type { Engine } from "../engine/engine.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
@@ -38,8 +38,8 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
   const route = (path: string, allowed: string[], handler: (c: Context) => Promise<Result> | Result) => {
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); } });
   };
-  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "after_delivery", "model"] }));
+  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 3, kiln_version: "1.0.0", execution_id: current().record.executionId,
+    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "locate_repository", "after_delivery", "model"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -226,7 +226,7 @@ function withProgress(answer: Result): ResponseSpool {
   if (!rows?.length) return body;
   const output = new ResponseSpool();
   try {
-    output.append(Buffer.from(`${progressText(heading, rows, statusPause(answer.live_control))}\n`));
+    output.append(Buffer.from(`${progressText(heading, rows, statusPause(answer.live_control), [], statusLabels(answer))}\n`));
     for (const chunk of body.chunks()) output.append(chunk);
     return output;
   } catch (error) { output.close(); throw error; }

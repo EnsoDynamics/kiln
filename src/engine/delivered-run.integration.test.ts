@@ -246,7 +246,8 @@ describe("the finished page and kiln status say the same (AC-LEFT-02, AC-BOT-02)
     const expected = { loops: { delivery: { used: 1, limit: 4 }, test: { used: 1, limit: 4 } }, pullRequests: [{ repository: current.engine.record.repository.name, number: 218, url: `https://github.com/${github}/pull/218` }] };
     expect(buildSnapshot(current.engine).delivered).toMatchObject({ ...expected, forYou: { items: [{ id: "item-1", kind: "other", words: null }], afterDelivery: [] } });
     const answer = status(current);
-    expect(answer.delivered).toEqual({ ...expected, forYou: { items: [{ id: "item-1", kind: "other", words: null, line: `${other.problem} ${other.action} Still open.`, problem: `${other.problem} ${other.action}`, action: "Still open.", waits_on: null, criterion: null }], afterDelivery: [] } });
+    // kiln status gives each pull request's label beside its repository's name (find repositories anywhere "kiln status --json").
+    expect(answer.delivered).toEqual({ ...expected, pullRequests: expected.pullRequests.map((pull) => ({ ...pull, label: pull.repository })), forYou: { items: [{ id: "item-1", kind: "other", words: null, line: `${other.problem} ${other.action} Still open.`, problem: `${other.problem} ${other.action}`, action: "Still open.", waits_on: null, criterion: null }], afterDelivery: [] } });
     const text = deliveredText(answer.delivered as Parameters<typeof deliveredText>[0], false)!;
     expect(text.split("\n").slice(0, 3)).toEqual(["Closing audits: Delivery audit: 1 of 4 loops. Test audit: 1 of 4 loops.", `Pull request: https://github.com/${github}/pull/218`, "For you:"]);
     // The block the pull request was given carries the same line.

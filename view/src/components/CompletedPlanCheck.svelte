@@ -9,8 +9,10 @@
   import { authorizeContinuation, checkForNewPhases, continueFeature, type PageConfig } from "../lib/api.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   // inCard: once every pull request has merged, the answer sits in the pull request card beside Exit Kiln (AC-WAIT-03, mockup state 3).
-  let { check, config, connected, acceptance, prdDirectory, inCard = false, now }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"]; prdDirectory: string; inCard?: boolean; now?: number } = $props();
-  let pending = $state(false);
+  let { check, config, connected, acceptance, prdDirectory, inCard = false, now, loading = false }: { check?: CompletedPlanCheck; config?: PageConfig; connected: boolean; acceptance?: NonNullable<Snapshot["continuation"]>["acceptance"]; prdDirectory: string; inCard?: boolean; now?: number; loading?: boolean } = $props();
+  // loading: the page's own check as it opens (AC-FIND-01), which the screen starts; it reads as checking here until it answers.
+  let refreshing = $state(false);
+  const pending = $derived(refreshing || loading);
   let continuing = $state(false);
   // Continue and Retry preparation, not the early-merge tick, show the busy spinner.
   let accepting = $state(false);
@@ -26,7 +28,7 @@
   // Check for new phases is a person's press (AC-WAIT-01).
   async function refresh() {
     if (!config || !connected || pending) return;
-    pending = true; error = undefined;
+    refreshing = true; error = undefined;
     try {
       const answer = await checkForNewPhases(config, true);
       if (!answer.check || !["unchanged", "available", "blocked", "failed", "awaiting_merge"].includes(answer.check.status)) throw new Error(answer.reason ?? "Could not check the current plan. Try again.");
@@ -34,7 +36,7 @@
       check = answer.check;
       refreshFailure = undefined;
     } catch (failure) { refreshFailure = (failure as Error).message; }
-    finally { pending = false; }
+    finally { refreshing = false; }
   }
   async function grant(target: import("../../../src/state/development-delivery.js").MergeTarget) {
     if (!config || !connected || !result?.proposal || continuing) return;
@@ -64,7 +66,7 @@
   {#if acceptance && ["preparing", "blocked"].includes(acceptance.state)}
     <h3>{acceptance.state === "preparing" ? "Preparing additional work" : "Preparation needs attention"}</h3>
     {#if acceptance.reason}<p class="problem">{acceptance.reason}</p>{/if}
-    {#each acceptance.repositories as repository}<p>{repository.name}: {repository.ready ? "Workspace ready" : "Waiting for setup"} · {repository.worktreePath}</p>{/each}
+    {#each acceptance.repositories as repository}<p>{repository.label}: {repository.ready ? "Workspace ready" : "Waiting for setup"} · {repository.worktreePath}</p>{/each}
     {#if acceptance.state === "blocked"}<button class="button" class:busy={accepting} aria-busy={accepting} disabled={!connected || continuing || pending} onclick={() => accept(true)}>Retry preparation</button>{#if accepting}<BusyStatus text="Preparing the workspace for the new phases." />{/if}{/if}
     <p>The accepted plan is retained. Earlier delivery remains complete while preparation is reconciled.</p>
   {/if}
@@ -80,7 +82,7 @@
       <h3>{earlier ? "Earlier readiness" : "Readiness"}: {result.proposal.readiness === "ready" ? "Ready" : "Not ready"}</h3>
       {#if result.proposal.firstEligiblePhase}<p>First phase to run: Phase {result.proposal.firstEligiblePhase}{#if result.proposal.readiness !== "ready"} — after the blockers below are resolved{/if}.</p>{/if}
       {#each result.proposal.preparation as preparation}
-        <p>Phase {preparation.phaseId} preparation: integrate Phase {preparation.prerequisites.join(", ")} in {preparation.repository} from {preparation.sourceRef} at {preparation.sourceRevision} into {preparation.destination === "assigned_feature" ? "the fresh phase branch" : preparation.destination}.</p>
+        <p>Phase {preparation.phaseId} preparation: integrate Phase {preparation.prerequisites.join(", ")} in {preparation.label ?? preparation.repository} from {preparation.sourceRef} at {preparation.sourceRevision} into {preparation.destination === "assigned_feature" ? "the fresh phase branch" : preparation.destination}.</p>
         <p>{preparation.authorization === "phase_preparation" ? "Continue authorizes this preparation." : "Requires the existing early-merge target authorization for the fresh run."} Verify before implementation: {preparation.checks.map(check => check.command).join("; ")}.</p>
       {/each}
       {#each result.proposal.prerequisites.filter(row => row.status === "preparation_available") as prerequisite}<p>Phase {prerequisite.phaseId}: awaiting planned preparation; not yet integrated.</p>{/each}
@@ -104,7 +106,7 @@
       <ul>{#each external as phase}<li>
         <strong>Phase {phase.id} · {phase.title}</strong>
         <p>{phase.classification === "externally_verified" ? "Completion and integration verified" : "Not verified"}.</p>
-        {#each phase.repositories as repository}<p class="source">{repository.repository}: {repository.revision} · {repository.integration === "integrated_verified" ? "Verified in" : "Not verified in"} {repository.baseBranch} at {repository.baseRevision}</p>{/each}
+        {#each phase.repositories as repository}<p class="source">{repository.label ?? repository.repository}: {repository.revision} · {repository.integration === "integrated_verified" ? "Verified in" : "Not verified in"} {repository.baseBranch} at {repository.baseRevision}</p>{/each}
       </li>{/each}</ul>
     {/if}
     {#each notes as note}<p class="note">{note}</p>{/each}

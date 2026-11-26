@@ -138,8 +138,8 @@ async function prepareAssignedReport(kind: "phase" | "delivery_audit" | "test_au
   await waitFor(() => existsSync(join(h.sandbox.root, "history-started")), 30000);
   target = h.engine.liveTarget()!; expect(target).toBeDefined();
   const audit = kind !== "phase";
-  // Report generation is fixture preparation, bounded by this hook's existing
-  // 60-second limit, separate from each history test's declared runner allowance.
+  // Report generation is fixture preparation, bounded by this hook's limit
+  // (the suite's default), separate from each history test's declared runner allowance.
   await waitFor(() => existsSync(join(h.sandbox.root, "history-ready")), 50000);
   if (audit) expect(h.engine.auditActivity(target.activityKey)).toMatchObject({ kind, acceptedResult: expect.any(String) });
 }

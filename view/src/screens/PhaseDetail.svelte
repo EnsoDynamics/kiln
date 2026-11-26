@@ -80,12 +80,12 @@
 
 <main class="page-main detail-page">
   {#if pausingHeader}
-    <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail">
+    <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail">
       <Pill tone="amber-outline" icon={connected ? "spinner" : undefined} spin={connected}>{pausingHeader.label}</Pill>
       {#each pausingHeader.facts as fact, index (index)}{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}<span class="header-fact">{fact}</span>{/each}
     </FeatureHeader>
   {:else}
-    <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
+    <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
   {/if}
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId, snapshot)} {now} />{/if}
   <section class="phase">
@@ -115,7 +115,7 @@
       <h3>{row.title}{#if row.file} · {row.file}{/if}</h3>
       {#if row.audit.outcome}<p>Outcome: {({ passed: "nothing left", completion_phases: "added phases", continue_test: "more test work", needs_you: "needs you", blocked: "blocked" } as Record<string, string>)[row.audit.outcome] ?? row.audit.outcome}</p>{/if}
       {#if row.audit.summary}<p>{row.audit.summary}</p>{/if}
-      {#each row.audit.repositories as repository}<p class="mono">{repository.name}: {repository.revision}</p>{/each}
+      {#each row.audit.repositories as repository}<p class="mono">{repository.label ?? repository.name}: {repository.revision}</p>{/each}
       {#each row.audit.criteria as criterion}<p>{criterion.key}: {criterion.status}</p>{#each criterion.findings as finding}<p>{finding}</p>{/each}{/each}
       {#each row.audit.checks.filter(c => !c.passed) as check}<p>{check.name}: {check.facts.join(" ")}</p>{/each}
       {#if row.audit.personItems}<p>{row.audit.personItems.waiting ? "For your review while Kiln builds the work. Every later audit must settle each item or list it again:" : "Listed for you while Kiln built the work; a later audit accounted for each:"}</p>{/if}
@@ -150,7 +150,7 @@
             <div class="groups">
               {#each grouped as repository (repository.name)}
                 <div class="group">
-                  <div class="repo"><span class="mono repo-name">{repository.name}</span>{#if repository.addedInPhase !== undefined}<span class="tag">{addedLabel(repository.addedInPhase)}</span>{/if}</div>
+                  <div class="repo"><span class="mono repo-name">{repository.label ?? repository.name}</span>{#if repository.addedInPhase !== undefined}<span class="tag">{addedLabel(repository.addedInPhase)}</span>{/if}</div>
                   {@render list(repository.commits)}
                 </div>
               {/each}

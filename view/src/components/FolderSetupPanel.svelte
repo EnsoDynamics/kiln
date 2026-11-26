@@ -134,7 +134,7 @@
           <ul class="repos" aria-labelledby="fm-repos">
             {#each panel.repositories as row (row.name)}
               <li>
-                <span><code>{row.name}</code>{#if row.kind === "prd"} <span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined} <span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}</span>
+                <span><code>{row.label ?? row.name}</code>{#if row.kind === "prd"} <span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined} <span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}</span>
                 {#if row.leftOut}<span class="help">{row.problem}</span>{:else}
                   <select class="mono" value={row.baseBranch} disabled={!connected || fixed("bases") || fixed("baseBranch")} onchange={(event) => change(panel.selected, row.kind === "prd" ? { baseBranch: event.currentTarget.value } : { bases: { [row.name]: event.currentTarget.value } })}>
                     {#each row.baseChoices as base (base)}<option value={base}>{base}</option>{/each}

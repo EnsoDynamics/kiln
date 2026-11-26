@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "0daa53fc-faef-4bd8-bfcc-e20abffe07c8",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Fourth session of test fixes for the whole PRD. It took four Weak rows. AC-ASK-01 (10 of 10 stated parts) and AC-NAME-01 (12 of 12) rose to Adequate, and fresh reviewers confirmed both grades. AC-SEE-04 rose from 4 of 7 to 6 of 7: the terminal's state 5 colours and the amber check that counts the repositories to locate are now pinned. A reviewer found one gap no earlier record listed: nothing compares the colour and type of the settings rows while Kiln works. AC-ASK-06 rose from 7 of 10 to 11 of 12 but is now marked stuck. Two attempts left kiln status's unavailable form unproven at the engine, and the row records the two-assertion fix. Each new test was seen to fail with the behaviour broken. The unit suite (1238 tests) is green. The integration suite had 2069 passed and 1 failed: a timing failure in src/live/takeover-history.integration.test.ts, a file this session didn't touch, on a heavily loaded machine. That file passes 18 of 18 when run alone. 5 Weak rows remain, starting with AC-SEE-04.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "kind": "test",
+      "criterion": "AC-ASK-06",
+      "problem": "AC-ASK-06's test row is stuck at Weak after two attempts. No test runs kiln status against a running Kiln and checks that it reports locate-repository as unavailable, with the engine's own reason, when no stop is asking or before Start.",
+      "action": "Say how to proceed: approve the fix recorded in test-audit.md (two assertions in src/kiln-run-ask-after-start.integration.test.ts), or accept the row as it is."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": false,
+  "raised": ["AC-ASK-01", "AC-NAME-01"]
+}

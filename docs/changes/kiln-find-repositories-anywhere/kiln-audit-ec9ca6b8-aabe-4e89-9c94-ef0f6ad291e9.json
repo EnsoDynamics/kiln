@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "ec9ca6b8-aabe-4e89-9c94-ef0f6ad291e9",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Repair audit of the whole PRD after Phase 5 (21 criteria, four rounds). Phase 5's repairs are all in the code, but 3 criteria are still not fully built. Several more places show Kiln's name for a repository instead of its label: the page header and clean-checkout check for the PRD's repository, the Reset footer, preparation and completed-plan messages, audit path refusals and stale-snapshot reasons, the kiln status heading, waived-item lines and the Waivers screen. A plan folder name can also be given another repository's label. After Start, a folder name reaches a recorded repository even in a different case. A repository whose setup was left unfinished can be counted twice, or looked for again by the Folder missing setup. Phase 6 builds them. The fourth round still found a new gap.",
+  "completionPhases": ["6"],
+  "needsYou": [],
+  "settled": []
+}

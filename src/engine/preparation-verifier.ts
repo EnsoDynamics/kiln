@@ -17,7 +17,7 @@ import { mergeTargetKey } from "../state/development-delivery.js";
 import { preparationAttemptNeedsReconciliation, preparationDigest, type PreparationState, type PreparationCheckpoint, type PreparationCheckAttempt } from "./preparation-state.js";
 import { checkArgv } from "./preparation-documents.js";
 
-export interface PreparationContext { /** The agent the preparation activity runs on (Kiln Phase Model Tiers AC-AGENTS-04). */ agentId: import("../state/records.js").AgentId; record: PrdRecord; stateDirectory: string; git: GitContext; env: NodeJS.ProcessEnv; signal: AbortSignal; codex?: string | undefined; sessionId?: string | undefined; transcriptPath?: string | undefined; authorizeCommands?(): Promise<void>; save(): void; now(): string }
+export interface PreparationContext { /** The agent the preparation activity runs on (Kiln Phase Model Tiers AC-AGENTS-04). */ agentId: import("../state/records.js").AgentId; record: PrdRecord; stateDirectory: string; git: GitContext; env: NodeJS.ProcessEnv; signal: AbortSignal; codex?: string | undefined; sessionId?: string | undefined; transcriptPath?: string | undefined; authorizeCommands?(): Promise<void>; save(): void; now(): string; /** A repository's label, for messages (find repositories anywhere AC-FOLDER-02). Absent: its name. */ label?(name: string): string }
 function environmentDigest(context: PreparationContext, environment: NodeJS.ProcessEnv): string {
   const values = { ...environment };
   if (context.agentId === "codex" && values.PATH) {
@@ -37,6 +37,7 @@ function inside(root: string, path: string): string {
 }
 export async function preparationCheckpoint(context: PreparationContext): Promise<PreparationCheckpoint> {
   const { record, git } = context; const state = record.preparation!;
+  const label = (name: string) => context.label?.(name) ?? name;
   const repositories: PreparationCheckpoint["repositories"] = [];
   for (const repo of record.repositories.filter(repo => repo.setupCompletedAt)) {
     const root = realpathSync(repo.worktreePath);
@@ -45,32 +46,32 @@ export async function preparationCheckpoint(context: PreparationContext): Promis
     const head = (await gitRead(git, root, ["rev-parse", "HEAD"])).trim();
     const tree = (await gitRead(git, root, ["rev-parse", "HEAD^{tree}"])).trim();
     const index = await gitRead(git, root, ["status", "--porcelain=v1", "--untracked-files=all"]);
-    if (branch !== record.settings.featureBranch || index.trim()) throw new Error(`Commit the prepared source and resolve conflicts in ${repo.name} on its assigned branch before verification. Unrelated files remain intact.`);
+    if (branch !== record.settings.featureBranch || index.trim()) throw new Error(`Commit the prepared source and resolve conflicts in ${label(repo.name)} on its assigned branch before verification. Unrelated files remain intact.`);
     const origin = (await gitRead(git, root, ["config", "--get", "remote.origin.url"])).trim();
     const { parseGithubOrigin } = await import("../github-origin.js");
     const identity = parseGithubOrigin(origin);
-    if (!identity || `${identity.owner}/${identity.name}`.toLowerCase() !== repo.github.toLowerCase()) throw new Error(`Repository identity changed in ${repo.name}.`);
+    if (!identity || `${identity.owner}/${identity.name}`.toLowerCase() !== repo.github.toLowerCase()) throw new Error(`Repository identity changed in ${label(repo.name)}.`);
     const names = (await gitRead(git, root, ["ls-files", "-z", "--cached", "--others", "--exclude-standard"])).split("\0").filter(Boolean).sort();
     const fingerprint = createHash("sha256");
     for (const name of names) {
       const path = resolve(root, name); inside(root, dirname(path)); const stat = lstatSync(path);
-      if (!stat.isFile() && !stat.isSymbolicLink()) throw new Error(`Unsupported source entry ${repo.name}/${name}.`);
+      if (!stat.isFile() && !stat.isSymbolicLink()) throw new Error(`Unsupported source entry ${label(repo.name)}/${name}.`);
       fingerprint.update(JSON.stringify([name, stat.mode, stat.isSymbolicLink() ? readlinkSync(path) : createHash("sha256").update(readFileSync(path)).digest("hex")]));
     }
     repositories.push({ name: repo.name, identity: repo.github, worktree: root, branch, head, tree, index, files: fingerprint.digest("hex") });
   }
   for (const binding of state.bindings) {
     const repo = record.repositories.find(repo => repo.name === binding.repository)!;
-    if (!repo || repo.github !== binding.repositoryIdentity) throw new Error(`Preparation repository ${binding.repository} is unavailable.`);
+    if (!repo || repo.github !== binding.repositoryIdentity) throw new Error(`Preparation repository ${label(binding.repository)} is unavailable.`);
     const source = (await gitRead(git, repo.mainCheckoutPath, ["rev-parse", "--verify", "--end-of-options", `${binding.sourceRef}^{commit}`])).trim();
     if (source !== binding.sourceRevision) throw new Error(`Preparation source ${binding.sourceRef} moved. Reconcile the pinned source before retrying.`);
     const covered = await runGit(git, repo.worktreePath, ["merge-base", "--is-ancestor", binding.sourceRevision, "HEAD"]);
-    if (covered.exitCode !== 0) throw new Error(`Integrate the pinned ${binding.repository} source ${binding.sourceRevision} before dependent implementation.`);
+    if (covered.exitCode !== 0) throw new Error(`Integrate the pinned ${label(binding.repository)} source ${binding.sourceRevision} before dependent implementation.`);
     if (binding.authorization === "delivery_target") {
       const target = { repository: `github.com/${binding.repositoryIdentity}`.toLowerCase(), baseBranch: binding.baseBranch };
-      if (!record.developmentAuthorization?.enabled || !record.developmentAuthorization.grants.some(grant => mergeTargetKey(grant.target) === mergeTargetKey(target) && grant.target.environment === undefined)) throw new Error(`The exact fresh-run target grant for ${binding.repository}/${binding.baseBranch} is unavailable.`);
+      if (!record.developmentAuthorization?.enabled || !record.developmentAuthorization.grants.some(grant => mergeTargetKey(grant.target) === mergeTargetKey(target) && grant.target.environment === undefined)) throw new Error(`The exact fresh-run target grant for ${label(binding.repository)}/${binding.baseBranch} is unavailable.`);
       const base = await remoteBase(git, repo.mainCheckoutPath, binding.baseBranch);
-      if ((await runGit(git, repo.mainCheckoutPath, ["merge-base", "--is-ancestor", binding.sourceRevision, base])).exitCode !== 0 || (await runGit(git, repo.worktreePath, ["merge-base", "--is-ancestor", base, "HEAD"])).exitCode !== 0) throw new Error(`Verify the pinned preparation in origin/${binding.baseBranch} and synchronize ${binding.repository}'s assigned branch before continuing.`);
+      if ((await runGit(git, repo.mainCheckoutPath, ["merge-base", "--is-ancestor", binding.sourceRevision, base])).exitCode !== 0 || (await runGit(git, repo.worktreePath, ["merge-base", "--is-ancestor", base, "HEAD"])).exitCode !== 0) throw new Error(`Verify the pinned preparation in origin/${binding.baseBranch} and synchronize ${label(binding.repository)}'s assigned branch before continuing.`);
     } else if (binding.destination !== "assigned_feature" && binding.destination !== record.settings.featureBranch) throw new Error("Preparation destination no longer matches the assigned branch.");
   }
   const tools = (await Promise.all(state.bindings.flatMap(binding => binding.checks.map((_, index) => resolveCheck(context, binding, index))))).map(check => ({ ...check, digest: preparationDigest(readFileSync(check.executable).toString("base64")) }));

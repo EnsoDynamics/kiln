@@ -270,6 +270,113 @@ describe("a run with several repositories (AC-SETUP-07)", () => {
   });
 });
 
+describe("a repository the base plan names that Kiln would ask about (find repositories anywhere AC-ASK-07)", () => {
+  it("is left out of a base-branch start, neither listed nor a problem, for the stop before its phase to ask", async () => {
+    const h = await twoRepositories();
+    // The plan on the base branch names, for phase 3, a repository nothing on this computer has.
+    const file = join(h.repository, "docs/prds/customer-returns/phase-3-returns-dashboard.md");
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const [title, ...rest] = readFileSync(file, "utf8").split("\n");
+    writeFileSync(file, [title, "", "**Repositories:** acme-labs/ledger", ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 3 names the ledger");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.repositories.map(row => [row.name, row.problem])).toEqual([["acme-shop", undefined], ["returns-api", undefined]]);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.repositories.map(entry => entry.name)).toEqual(["acme-shop", "returns-api"]);
+  });
+});
+
+describe("a repository the first phase's preparation reads that Kiln would ask about (find repositories anywhere AC-ASK-07)", () => {
+  it("stays a problem that keeps a base-branch start unavailable, in the question's words and what clears it on Check again", async () => {
+    const h = await twoRepositories();
+    Object.assign(h.env, { HOME: h.sandbox.root });
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const directory = join(h.repository, "docs/prds/customer-returns");
+    // Phase 1 is closed on the base branch, so phase 2b runs first, and its preparation reads a repository nothing on this computer has.
+    const intake = join(directory, "phase-1-return-intake.md");
+    const [intakeTitle, ...intakeRest] = readFileSync(intake, "utf8").split("\n");
+    writeFileSync(intake, [intakeTitle, "**Closed:** 2026-11-20", ...intakeRest].join("\n"));
+    const credit = join(directory, "phase-2b-store-credit.md");
+    const [title, ...rest] = readFileSync(credit, "utf8").split("\n");
+    writeFileSync(credit, [title, "", "**Repositories:** acme-labs/ledger", ...rest].join("\n") + "\n## Phase-specific notes\nFirst step: merge Phase 2a. In repository `acme-labs/ledger`, merge branch `wt/ledger` at `abcdef1` into this phase's branch before building.\n");
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 2b's preparation reads the ledger");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    // The base-branch start is unavailable on that problem, and the repository isn't left out silently.
+    expect(h.engine.folderPanel).toMatchObject({ choices: { base: { unavailable: expect.stringMatching(/^Unavailable: [Kk]iln couldn’t find a checkout of acme-labs\/ledger\. Check again once a checkout of it is where the search reaches\.$/) } } });
+    expect(await start(h, { start: "base" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("a repository set up beside one left out with the same short name (find repositories anywhere AC-FOLDER-01)", () => {
+  it("gives the one a base-branch start sets up its short name, since the one left out isn't set up with it", async () => {
+    const h = await twoRepositories();
+    const short = "admin";
+    const origin = createGithubOrigin(h.sandbox, "acme", short);
+    const admin = createRepository(h.sandbox, "admin-checkout", origin.url);
+    git(h.sandbox, admin, "push", "-q", "origin", "develop");
+    // The sandbox is the home folder, so the search stays inside it.
+    Object.assign(h.env, h.sandbox.env, { HOME: h.sandbox.root });
+    // The plan on the base branch names, for phase 3, acme/<short>, found, and other/<short>, which nothing on this computer has.
+    const file = join(h.repository, "docs/prds/customer-returns/phase-3-returns-dashboard.md");
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const [title, ...rest] = readFileSync(file, "utf8").split("\n");
+    writeFileSync(file, [title, "", `**Repositories:** acme/${short}, other/${short}`, ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 3 names two repositories with one short name");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).repositories.map(row => [row.name, row.problem])).toEqual([["acme-shop", undefined], ["returns-api", undefined], [short, undefined]]);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const workspace = join(h.sandbox.root, ".worktrees", "customer-returns-2");
+    const entry = readPrdRecord(h.stateDirectory)!.repositories.find(one => one.github === `acme/${short}`)!;
+    expect([entry.name, entry.shortName, entry.worktreePath]).toEqual([short, undefined, join(workspace, short)]);
+    expect(git(h.sandbox, join(workspace, short), "remote", "get-url", "origin").trim()).toBe(origin.url);
+  });
+});
+
+describe("a repository whose setup was left unfinished (find repositories anywhere AC-NAME-02)", () => {
+  it("is set up again from its recorded checkout, not looked for beside the PRD's repository by Kiln's name", async () => {
+    const files = prdDirectoryFiles();
+    const [title, ...rest] = files["phase-1-return-intake.md"]!.split("\n");
+    files["phase-1-return-intake.md"] = [title, "", "**Repositories:** acme/returns-api", ...rest].join("\n");
+    harness = await createHarness({ files, sessions: [{ actions: [{ result: "I need a decision." }] }] });
+    const h = harness;
+    // Checked out away from the PRD's repository, so only the search finds it.
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const api = createRepository(h.sandbox, "elsewhere/returns-api", origin.url);
+    git(h.sandbox, api, "push", "-q", "origin", "develop");
+    Object.assign(h.env, h.sandbox.env, { HOME: h.sandbox.root });
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.record.repositories.find(entry => entry.name === "returns-api")?.mainCheckoutPath).toBe(api);
+    // Its setup recorded as unfinished, then the PRD's worktree goes missing.
+    delete h.engine.record.repositories.find(entry => entry.name === "returns-api")!.setupCompletedAt;
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).repositories.map(row => [row.name, row.problem])).toEqual([["acme-shop", undefined], ["returns-api", undefined]]);
+    // A second checkout appears where the search reaches; the start still uses the recorded one.
+    createRepository(h.sandbox, "another/returns-api", origin.url);
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const entry = readPrdRecord(h.stateDirectory)!.repositories.find(one => one.name === "returns-api")!;
+    expect(entry.mainCheckoutPath).toBe(api);
+    expect(git(h.sandbox, api, "worktree", "list")).toContain(entry.worktreePath);
+  });
+});
+
 describe("what can't be checked, and what a base start leaves out (AC-FACTS-03, AC-SAFE-02, AC-SAFE-03)", () => {
   it("offers only Check again when origin can't be reached", async () => {
     const h = await landedThenStopped();

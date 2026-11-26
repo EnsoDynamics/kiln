@@ -182,6 +182,8 @@ A held phase (§A Stopped Phase's Facts) gets no offer and no catch-up. Verify, 
 
 ## A Stopped Phase's Facts (AC-CASE-01, 03, 04)
 
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Screens (a stopped phase's page gains the question about a repository a session asked for, below the card for how its session ended)
+
 A **stopped phase** is an implementation leaf that is not held, one of whose sessions has a run, and that has a stop of kind `done_check` or `not_resumable` or a billing hold on a resume (`action: "resume"`). A billing hold on a launch (`action: "launch"`) is a launch hold. While it lasts, the phase is not a stopped phase and keeps today's page, **The next AI launch is held for review.**, whatever stop the phase also keeps. When it clears, the kept stop's page returns.
 
 | Billing hold | The phase also has | Page | Stopped phase |

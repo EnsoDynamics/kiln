@@ -389,7 +389,7 @@ describe.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", h
   let recovery: NonNullable<ReturnType<Harness["engine"]["phaseRecoveryTarget"]>>;
   let releaseLock: (() => void) | undefined;
   // Preparing the prior real audit is a prerequisite, not part of the unchanged
-  // 60-second source-error recovery check. Hook timeout remains unchanged too.
+  // 60-second source-error recovery check. The hook keeps the suite's default timeout.
   beforeEach(async () => {
   const files = {
     "proof-prd.md": "# PRD: Audit value\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return value.** The exported function returns 42.\n",

@@ -257,7 +257,7 @@ kiln continue-with-phases <prd> --proposal ID --only-if-status-matches <token> -
 - `kiln status` lists `merge` and `exit` among the controls (AC-BOT-01); `exit`'s availability is §Exit Kiln's.
 - The controller advertises an `after_delivery` feature. The command line refuses `merge` and `exit` against a controller without it, as it does for other newer commands.
 
-**Local routes.** `POST /api/merge` and `POST /api/exit` submit the two actions from the page. `POST /api/continuation/check` and its control-API twin take the reading before the check; the page's load sends `{}`, and the Check now and Check for new phases buttons send `{ "press": true }` to mark a person's press (the control-API twin always counts as one), which counts only for the closed pull request rule (§The Delivery Reading, "Waiting"). The event stream gains the `exited` event.
+**Local routes.** `POST /api/merge` and `POST /api/exit` submit the two actions from the page. `POST /api/continuation/check` and its control-API twin take the reading before the check; the page's load sends `{}`, and the Check now and Check for new phases buttons send `{ "press": true }` to mark a person's press (the control-API twin always counts as one), which counts only for the closed pull request rule (§The Delivery Reading, "Waiting"). The check's answer carries `controlToken`, the status token once the check has ended: the page shows the check's answer before the next snapshot arrives, and a press of Exit Kiln or Merge in that moment would otherwise be refused as stale. The event stream gains the `exited` event.
 
 **Snapshot and status** carry the same object, as `after_delivery` in JSON:
 

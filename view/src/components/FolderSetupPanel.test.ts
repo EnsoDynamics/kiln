@@ -105,6 +105,15 @@ describe("the rest of Documents found's fields (Phase 5 of missing worktree reco
     panel.repositories = [panel.repositories[0]!, { ...panel.repositories[1]!, kind: "added", addedInPhase: "3" }];
     expect(text(html(snapshot))).toMatch(/harbor-portal added in phase 3/);
   });
+
+  it("shows each repository by its label, not Kiln's name for it (find repositories anywhere AC-FOLDER-02)", () => {
+    const snapshot = folderMissingSnapshot("multi");
+    const panel = snapshot.folderMissing!.panel as SetupPanel;
+    panel.repositories = [panel.repositories[0]!, { ...panel.repositories[1]!, name: "acme-labs+admin", label: "acme-labs/admin" }];
+    const shown = text(html(snapshot));
+    expect(shown).toContain("acme-labs/admin");
+    expect(shown).not.toContain("acme-labs+admin");
+  });
 });
 
 describe("a Start that stopped partway (Phase 9 of missing worktree recovery: AC-SAFE-01)", () => {

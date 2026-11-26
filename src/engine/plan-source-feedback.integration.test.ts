@@ -103,7 +103,9 @@ it.each(["checkout", "origin", "parent", "absent"])("distinguishes new-repositor
     f.write("phase-9-catalog.md", cometPhase(9).replace("## Acceptance criteria covered", "**Repositories:** missing-lending-api\n\n## Acceptance criteria covered") + "\n## Phase dependencies\n8.\n");
     git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: name absent repository"); f.publish();
   } else vi.spyOn(gitReads, "runGit").mockImplementation(async (...args) => args[1] === repo && args[2][0] === (boundary === "checkout" ? "rev-parse" : "remote") ? { exitCode: null, stdout: "", stderr: "", failure: "Injected Git helper unavailable" } : original(...args));
-  const response = await httpCheck(); const body = await response.json() as { check: import("./completed-plan-discovery.js").CompletedPlanCheck };
+  const response = await httpCheck(); const body = await response.json() as { check: import("./completed-plan-discovery.js").CompletedPlanCheck; controlToken?: string };
+  // A finished or a failed check both answer with the status token as it is once the check has ended (Kiln After Delivery, "Local routes").
+  expect(body.controlToken).toBe(h.engine.controlView().token);
   if (boundary === "absent") { expect(response.status).toBe(200); expect(body.check.status).toBe("blocked"); expect(body.check.result!.problems.join(" ")).toContain("missing-lending-api"); }
   else { expect(response.status).toBe(503); expect(body.check).toMatchObject({ status: "failed", lastSuccessfulAt: earlier.lastSuccessfulAt, earlierResult: earlier.result }); expect(body.check.result).toBeUndefined(); }
   expect(h.claudeCalls()).toEqual([]);
@@ -215,8 +217,8 @@ it("never keeps No new phases found after a browser-local failed unchanged-plan 
   git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: unchanged original plan"); f.publish(); await httpCheck();
   const chrome = await launchChrome(); const page = await chrome.open(server!.address);
   try {
-    await page.waitFor("document.body.innerText.includes('No new phases found') && [...document.querySelectorAll('button')].some(b=>b.textContent.includes('Check for new phases') && !b.disabled)");
-    await page.evaluate("window.fetch=()=>Promise.reject(new Error('Network unavailable')); [...document.querySelectorAll('button')].find(b=>b.textContent.includes('Check for new phases')).click()");
+    // The button reads "Checking…" while a check runs, so seeing it and pressing it happen in one step in the page: two separate steps let a check start between them.
+    await page.waitFor("(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.includes('Check for new phases') && !b.disabled); if(!b || !document.body.innerText.includes('No new phases found')) return false; window.fetch=()=>Promise.reject(new Error('Network unavailable')); b.click(); return true;})()");
     await page.waitFor("document.body.innerText.includes('Could not check for new phases')");
     expect(await page.evaluate("document.body.innerText")).not.toContain("No new phases found");
     expect(await page.evaluate("document.body.innerText")).toContain("The current phase count is unknown");

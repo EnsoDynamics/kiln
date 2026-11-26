@@ -10,7 +10,7 @@
   import FolderSetupPanel from "../components/FolderSetupPanel.svelte";
   import { checkFolders } from "../lib/api.js";
   import { baseCard, day, factRows, waitedChecks, folderLine, folderState, heading, intro, lostNote, restoreText, savedNote, savedTag, SAVED_TAGS, type Part } from "../lib/folder-missing.js";
-  import { phaseName } from "../lib/progress.js";
+  import { phaseName, repositoryLabel } from "../lib/progress.js";
   import { clockTime } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
   import { inUseAgent } from "../lib/agents.js";
@@ -37,7 +37,7 @@
 {#snippet parts(list: Part[])}{#each list as part, index (index)}{#if part.tone === "code"}<code>{part.text}</code>{:else if part.tone}<span class={part.tone}>{part.text}</span>{:else}{part.text}{/if}{/each}{/snippet}
 
 <main class="page-main">
-  <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
+  <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
     <Pill tone="amber" icon="warning" large>Folder missing</Pill>
   </FeatureHeader>
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
@@ -52,7 +52,7 @@
     {#each view.repositories as repository, index (repository.name)}
       {@const state = folderState(repository)}
       <div class:next={index > 0}>
-        <div class="between"><span class="small muted upper">{multi ? `${repository.name} · saved folder` : "The run’s saved folder"}</span><span class="state {state.tone}">{state.text}</span></div>
+        <div class="between"><span class="small muted upper">{multi ? `${repositoryLabel(snapshot, repository.name)} · saved folder` : "The run’s saved folder"}</span><span class="state {state.tone}">{state.text}</span></div>
         <p class="path">{repository.savedFolder}</p>
         <p class="small muted">{@render parts(folderLine(repository))}</p>
       </div>

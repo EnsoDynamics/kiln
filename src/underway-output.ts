@@ -57,9 +57,9 @@ export function formatSummaryLine(engine: Engine, colors: TerminalColors): strin
 }
 
 /** "Pull request #218 is ready for review.", or with several, each by repository. */
-function pullRequestsReady(pulls: { repository: string; number: number }[]): string {
+function pullRequestsReady(pulls: { repository: string; number: number }[], label: (name: string) => string): string {
   if (pulls.length <= 1) return `Pull request #${pulls[0]?.number ?? "?"} is ready for review.`;
-  return `Pull requests ${pulls.map((pull) => `${pull.repository} #${pull.number}`).join(" · ")} are ready for review.`;
+  return `Pull requests ${pulls.map((pull) => `${label(pull.repository)} #${pull.number}`).join(" · ")} are ready for review.`;
 }
 
 /**
@@ -110,9 +110,13 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
         text = formatCompletedPlanCheck(engine.record.completedPlanCheck, engine.record.prdDirectory);
         break;
       }
-      text = engine.record.developmentAuthorization?.enabled ? developmentDeliverySummary(engine.record) : engine.record.mergedBranches?.length
-        ? `${engine.record.pullRequests?.length ? pullRequestsReady(engine.record.pullRequests) + " " : ""}Already merged: ${engine.record.mergedBranches.map(branch => `${branch.repository} into ${branch.base}`).join(" · ")}.`
-        : pullRequestsReady(engine.record.pullRequests ?? []);
+    {
+      // Each repository by its label (find repositories anywhere AC-FOLDER-02).
+      const label = (name: string) => engine.labelOf(name);
+      text = engine.record.developmentAuthorization?.enabled ? developmentDeliverySummary(engine.record, label) : engine.record.mergedBranches?.length
+        ? `${engine.record.pullRequests?.length ? pullRequestsReady(engine.record.pullRequests, label) + " " : ""}Already merged: ${engine.record.mergedBranches.map(branch => `${label(branch.repository)} into ${branch.base}`).join(" · ")}.`
+        : pullRequestsReady(engine.record.pullRequests ?? [], label);
+    }
       break;
     case "resume":
       text =

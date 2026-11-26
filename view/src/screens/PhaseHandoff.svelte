@@ -28,6 +28,7 @@
   import PausePanel from "../components/PausePanel.svelte";
   import BillingPanels from "../components/BillingPanels.svelte";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
+  import RequestQuestions from "../components/RequestQuestions.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import LimitAccount from "../components/LimitAccount.svelte";
@@ -187,6 +188,7 @@
   </section>
   {/if}
   <CodexSessionFacts facts={stop} />
+  <RequestQuestions {snapshot} disabled={busy} />
   {#if stop.limit && limit}
     <section class="card">
       <p>{limit.reported} {limit.reset ?? ""}</p>

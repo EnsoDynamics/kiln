@@ -72,7 +72,11 @@
           <ul class="repos">
             {#each snapshot.repositories as row (row.name)}
               <li>
-                <span class="repo"><span class="mono repo-name">{row.name}</span>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}</span>
+                <!-- Each row as Documents found's found row: label, address path and checkout folder, fixed (find repositories anywhere AC-SEE-04). -->
+                <span class="repo-text">
+                  <span class="repo"><span class="mono repo-name">{row.label}</span>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}</span>
+                  <span class="where"><span class="mono">{row.addressPath}</span>{#if row.checkoutFolder}<span class="dot">{" · "}</span><span class="mono">{row.checkoutFolder}</span>{/if}</span>
+                </span>
                 <span class="mono base">{row.baseBranch}</span>
               </li>
             {/each}
@@ -122,6 +126,10 @@
   .repos li { display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .repo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
   .repo-name { font-size: 13px; color: var(--text); overflow-wrap: anywhere; }
+  .repo-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .where { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+  .where .mono { font-size: 12px; }
+  .dot { color: var(--dim); }
   .base { font-size: 13px; color: var(--muted); }
   .nowrap { white-space: nowrap; }
 </style>

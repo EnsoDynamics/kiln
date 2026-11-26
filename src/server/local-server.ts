@@ -26,7 +26,7 @@ import { serve } from "@hono/node-server";
 import { Hono, type Context } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import type { CommandResult, Engine } from "../engine/engine.js";
-import { buildSnapshot, type DocumentsFound, type Snapshot } from "../engine/snapshot.js";
+import { buildSnapshot, labelledExecution, type DocumentsFound, type Snapshot } from "../engine/snapshot.js";
 import { readOutputLines } from "../session/claude-session.js";
 import { NewerSchemaError, type AgentId, type Settings } from "../state/records.js";
 import { DEFAULTS_ROWS, type DefaultsRow, type FamilyChoice, type ModelChoice } from "../models/model-defaults.js";
@@ -242,7 +242,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       start = index + 1;
     }
     const page = rows.slice(start, start + 100);
-    return c.json({ executions: page.map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }), nextCursor: start + 100 < rows.length ? Buffer.from(page.at(-1)!.executionId).toString("base64url") : null });
+    return c.json({ executions: page.map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return labelledExecution(engine, row); }), nextCursor: start + 100 < rows.length ? Buffer.from(page.at(-1)!.executionId).toString("base64url") : null });
   });
   app.get("/api/executions/:id", c => {
     const execution = engine.historicalExecution(c.req.param("id"));
@@ -314,7 +314,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       const heartbeat = setInterval(() => void stream.writeSSE({ event: "heartbeat", data: new Date().toISOString() }), options.heartbeatMs ?? HEARTBEAT_MS);
       const closed = new Promise<void>((resolve) => stream.onAbort(resolve));
       // An engine a reset built reruns the start checks first, before the field checks (run restart AC-RESET-04).
-      await engine.rerunStartChecks().catch(() => undefined);
+      // Otherwise the plan's names are reached again, so a checkout cloned since, or an answer given in another Kiln, is found (find repositories anywhere "Finding a Checkout").
+      const rechecked = await engine.rerunStartChecks().catch(() => false);
+      if (!rechecked) await engine.resolveRepositoriesBeforeStart(true).catch(() => undefined);
       // Each page load or reconnect asks origin again, before Start (Worktree and Branch Setup).
       engine.checkBase();
       // ...and an unfinished run's folders again; the result is published through this stream (AC-GONE-01).
@@ -544,15 +546,54 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
   });
 
+  // Where a repository is, before Start (find repositories anywhere AC-ASK-03, "HTTP"): a setup
+  // request, as /api/settings is. `repository` is the question's address path, in any spelling.
+  app.post("/api/repository-location", async (c) => {
+    const body = await jsonBody(c);
+    if (typeof body?.repository !== "string" || body.repository.trim() === "" || typeof body.folder !== "string") return refuse(c, 400, "The body must be { \"repository\": \"<address path>\", \"folder\": \"<folder>\" }.");
+    // At a stop after Start it is the `locate-repository` action, with the page's status token and command id (AC-ASK-07).
+    if (engine.record.startedAt !== undefined) return locateAtStop(c, body.repository.trim(), body.folder);
+    if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+    const result = await engine.locateRepository(body.repository.trim(), body.folder);
+    if (!result.ok) return c.json({ ok: false, reason: result.reason }, result.status);
+    return c.json({ repository: result.repository, folder: result.folder });
+  });
+
+  async function locateAtStop(c: Context, repository: string, folder: string) {
+    const status = c.req.header("X-Kiln-Status") ?? engine.controlView().token;
+    const id = c.req.header("X-Kiln-Command-Id") ?? randomUUID();
+    try {
+      const answer = engine.commands.submit({ command_id: id, execution_id: status.split(":")[0], status_token: status, action: "locate-repository", inputs: { repository, folder } }, "caller", true);
+      if (!answer.ok) { const refusal = answer.errors[0]!; return c.json({ ok: false, code: refusal.code, reason: refusal.message }, exitFor(answer) === 4 ? 503 : 409); }
+      await engine.commands.settled();
+      const op = engine.commands.lookup(id).operation as Receipt;
+      const extra = { command_id: id, controlToken: engine.controlView().token };
+      if (op.state !== "completed") return c.json({ ok: false, code: op.outcome ?? "control_unavailable", reason: op.reason, ...extra }, op.outcome === "check_unavailable" || op.state === "indeterminate" ? 503 : 409);
+      if (op.outcome === "folder_not_accepted") return c.json({ ok: false, code: "folder_not_accepted", reason: op.reason, ...extra }, 422);
+      return c.json({ repository, folder: op.located?.folder ?? folder, outcome: op.outcome, ...extra });
+    } catch (error) {
+      if (error instanceof ControlFailure && ["invalid_input", "command_id_conflict"].includes(error.code)) return c.json({ ok: false, code: error.code, reason: error.message }, 400);
+      return c.json({ ok: false, code: "state_write_failed", reason: "Durable control state is unavailable; inspect status before retrying." }, 500);
+    }
+  }
+
+  app.post("/api/repository-location/change", async (c) => {
+    const body = await jsonBody(c);
+    if (typeof body?.repository !== "string" || body.repository.trim() === "") return refuse(c, 400, "The body must be { \"repository\": \"<address path>\" }.");
+    if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+    const result = await engine.changeRepositoryLocation(body.repository.trim());
+    return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
+  });
+
   // A session's `kiln add-repository` (multi-repo AC-ADD-01). Kiln carries a setup through to
   // its end even when the requester disconnects, so the request is never tied to the response.
   app.post("/api/repositories", async (c) => {
     const body = await jsonBody(c);
     const name = body?.name;
-    if (typeof name !== "string" || name.trim() === "") return refuse(c, 400, "The body must name a repository: { \"name\": \"<folder name>\" }.");
-    const result = await engine.addRepository(name);
-    if (!result.ok) return c.json({ ok: false, reason: result.reason }, result.status);
-    return c.json({ name: result.name, worktreePath: result.worktreePath, branch: result.branch, baseBranch: result.baseBranch, added: result.added });
+    if (typeof name !== "string" || name.trim() === "") return refuse(c, 400, "The body must name a repository: { \"name\": \"<owner>/<repository>\" }.");
+    const result = await engine.addRepository(name.trim());
+    if (!result.ok) return c.json({ ok: false, reason: result.reason, ...(result.asked ? { asked: true } : {}) }, result.status);
+    return c.json({ name: result.name, label: engine.labelOf(result.name), worktreePath: result.worktreePath, branch: result.branch, baseBranch: result.baseBranch, added: result.added });
   });
 
   app.post("/api/pause", (c) => legacyControl(c, "request-pause"));
@@ -565,8 +606,11 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     if (!keys || keys.some(key => key !== "press") || "press" in (body as object) && (body as { press: unknown }).press !== true) return refuse(c, 400, "Expected {} or { \"press\": true }.");
     try {
       const check = await engine.checkCompletedPlan({ press: keys.includes("press") });
-      if (check.failure) return c.json({ ok: false, ...check.failure, reason: check.errors.join(" "), checks: [], check }, 413);
-      return c.json({ check }, check.status === "failed" ? 503 : 200);
+      // The check's end changes which controls are available, so the answer carries the status token as it is now:
+      // the page shows this answer before the next snapshot, and a press in between must not be refused as stale.
+      const controlToken = engine.controlView().token;
+      if (check.failure) return c.json({ ok: false, ...check.failure, reason: check.errors.join(" "), checks: [], check, controlToken }, 413);
+      return c.json({ check, controlToken }, check.status === "failed" ? 503 : 200);
     }
     catch (error) { return auditError(c, error); }
   });

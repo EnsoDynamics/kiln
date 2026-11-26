@@ -20,6 +20,8 @@ export interface CommitFact { sha: string; date?: string }
 
 export interface FolderMissingRepository {
   name: string;
+  /** The label the page shows it by (find repositories anywhere AC-FOLDER-02); absent in facts saved before it. */
+  label?: string;
   /** For display, under `~/`. */
   savedFolder: string;
   branch: string;
@@ -134,10 +136,11 @@ const leavesOf = <T extends { splitInto?: string[] | undefined }>(phases: T[]) =
  * The read-only facts for every set-up repository of a run whose folder check failed. Reads run
  * per repository in parallel under the signal the engine passes (its reconciliation deadline).
  */
-export async function gatherFolderFacts(input: { git: GitContext; record: PrdRecord; check: FolderCheck; prdDirectoryFromRoot: string; now?: Date; startFolders?: Record<string, string> }): Promise<FolderMissingView> {
+export async function gatherFolderFacts(input: { git: GitContext; record: PrdRecord; check: FolderCheck; prdDirectoryFromRoot: string; now?: Date; startFolders?: Record<string, string>; label?: (name: string) => string }): Promise<FolderMissingView> {
   const { git, record, check } = input;
   const branch = record.settings.featureBranch;
   const reads = await Promise.all(check.repositories.map(classification => readRepository(git, record, classification, branch, input.startFolders?.[classification.name])));
+  for (const read of reads) read.facts.label = input.label?.(read.entry.name) ?? read.entry.name;
   const sources: { basePlan?: PlanSource; featurePlan?: PlanSource } = {};
   const plans = await readPlans(git, record, reads, input.prdDirectoryFromRoot, sources);
   // The existing-branch start depends on the feature plan too (The Facts, "What can't be checked").
@@ -346,13 +349,14 @@ export async function inBaseBranch(git: GitContext, cwd: string, record: PrdReco
 function availability(reads: RepositoryReads[]): Availability {
   const multi = reads.length > 1;
   for (const read of reads) {
-    const named = (text: string) => multi ? `in ${read.entry.name}, ${text}` : text;
+    const label = read.facts.label ?? read.entry.name;
+    const named = (text: string) => multi ? `in ${label}, ${text}` : text;
     if (read.gone === true) return { available: false, reason: named("the branch was deleted.") };
     if (read.facts.featureBranch.elsewhere) return { available: false, reason: named(`it’s checked out in ${read.facts.featureBranch.elsewhere}, and git allows a branch in one folder at a time.`) };
     if (read.facts.featureBranch.recordedAtMissing) return { available: false, reason: named(`git still records it at ${read.facts.featureBranch.recordedAtMissing}, a folder that no longer exists, and won’t add it elsewhere until that record is cleared.`) };
     const relation = read.facts.featureBranch.relation;
     if (relation === "behind" || relation === "diverged") return { available: false, reason: named(`your checkout’s branch is ${relation === "behind" ? "behind" : "diverged from"} origin’s, so its first push would be rejected.`) };
-    if (multi && read.check.state === "holds_something_else") return { available: false, reason: `${read.entry.name}’s saved folder holds something else.` };
+    if (multi && read.check.state === "holds_something_else") return { available: false, reason: `${label}’s saved folder holds something else.` };
   }
   const unknown = reads.find(read => read.gone === "unknown" || !read.worktreesRead || read.facts.featureBranch.elsewhereUnknown || !read.originRead || !read.localRead || read.check.state === "unknown" || read.facts.featureBranch.local && read.facts.featureBranch.origin && !read.facts.featureBranch.relation);
   if (unknown) return { available: "unknown", reason: unknown.originRead ? "Kiln couldn’t read everything it needs about the branch." : "Kiln couldn’t reach origin." };

@@ -37,7 +37,9 @@
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import SwitchAccountCommand from "../components/SwitchAccountCommand.svelte";
-  import { changeSettings, checkAgain, markComplete, refreshMetadata, resume } from "../lib/api.js";
+  import { changeSettings, checkAgain, locateRepository, markComplete, refreshMetadata, resume } from "../lib/api.js";
+  import RepositoryQuestion from "../components/RepositoryQuestion.svelte";
+  import RequestQuestions from "../components/RequestQuestions.svelte";
   import type { ItemChange, MarkCompleteOffer } from "../../../src/engine/waivers.js";
   import { verdict } from "../lib/waivers.js";
   import CheckFacts from "../components/CheckFacts.svelte";
@@ -63,6 +65,8 @@
   import { LOOP_STOP_LINE } from "../lib/audit-loops.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
+  // Where a repository is (find repositories anywhere AC-ASK-07, AC-SEE-05; mockup state 8): the plan
+  // stop's questions lead its card; a session's requests sit below the card for how the session ended.
   const { config, router, connection } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const nowDate = $derived(new Date(now));
@@ -85,6 +89,14 @@
   const file = $derived(snapshot.phases.find((phase) => phase.id === stop.phaseId)?.file);
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
   const steps = $derived([...(copy.firstStep === "none" ? [] : ["first"]), "finish", "again"]);
+  const planQuestions = $derived(stop.kind === "plan" ? (stop.locate ?? []).filter((question) => question.phaseFile !== undefined) : []);
+  // Another fact beside the plan stop's questions: a failure the additions met, or another plan problem.
+  const otherFacts = $derived(stop.checks.filter((check) => verdict(check) === "failed").flatMap((check) => check.facts).length > planQuestions.length);
+  const phaseNumber = $derived(stop.phaseId);
+  async function answerQuestion(repository: string, folder: string) {
+    const answer = await locateRepository(config, repository, folder);
+    return answer.ok ? { ok: true } : { ok: false, reason: answer.reason };
+  }
   // Any stop on a preflight key: no Pick it up yourself card and no fresh-prompt link, since a preflight run outside Kiln leaves its report unread (build preflight "Display Contract").
   const onPreflight = $derived(activityKeyKind(stop.phaseId) === "preflight");
   let showPrompt = $state(false);
@@ -192,6 +204,7 @@
       {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource, stop)}</p>{/if}
     </div>
     {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
+    {@render requests()}
     {#if stop.catchUp && !snapshot.liveControl && (stop.startAgain || stop.carryOn)}<CatchUpOffer offer={stop.catchUp} where="stop" {activity} bind:ticked={catchUpTicked} disabled={busy || !!restartPending} />{/if}
     {#if stop.startAgain}
       <StartAgainCard {activity} work={stop.work} control={stop.startAgain} pending={restartPending === "start"} disabled={busy || !!restartPending} reason={restartReason} onpress={() => restartAction("start")} />
@@ -217,6 +230,43 @@
         {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
       </aside>
     {/if}
+  </div>
+  {:else if planQuestions.length}
+  <div class="columns-main">
+    <div class="column-wide">
+      {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
+      <section class="card ended">
+        <div class="headline">
+          <h2>{copy.headline}</h2>
+          {#if planQuestions.length === 1}
+            <p class="line">Phase {phaseNumber} names <span class="mono code">{planQuestions[0]!.repository}</span>, and Kiln couldn’t add it to the workspace.</p>
+          {:else}
+            <p class="line">Phase {phaseNumber} names repositories Kiln couldn’t add to the workspace.</p>
+          {/if}
+        </div>
+        {#each planQuestions as question (question.repository)}
+          {#key question.kind + question.checkouts.length}<RepositoryQuestion {question} disabled={busy} onanswer={(folder) => answerQuestion(question.repository, folder)} />{/key}
+        {/each}
+        {#if planQuestions.length === 1 && !otherFacts}
+          <p class="after">Kiln then adds it to the workspace and starts phase {phaseNumber}. Or clone it where the search reaches, and press Check again.</p>
+        {:else}
+          <p class="after">Or clone {planQuestions.length === 1 ? "it" : "them"} where the search reaches, and press Check again. Phase {phaseNumber} starts once nothing else holds this stop.</p>
+        {/if}
+      </section>
+      {@render requests()}
+    </div>
+    <div class="column-side">
+      <aside class="card side">
+        <span class="eyebrow">{copy.sideHeading}</span>
+        {@render checkRows(reasonRows)}
+        <div class="again">
+          <button type="button" class="button solid wide" class:busy={checkPressed} aria-busy={checkPressed} disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
+          <span class="checked">{stop.checking ? "Checking…" : `Searches again. Checked ${stop.checkedAt ? clockTime(stop.checkedAt, nowDate) : clockTime(stop.stoppedAt, nowDate)}.`}</span>
+          {#if reason}<span class="reason">{reason}</span>{/if}
+        </div>
+        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
+      </aside>
+    </div>
   </div>
   {:else}
   <div class="columns-main">
@@ -259,6 +309,7 @@
       </section>
 
       <CodexSessionFacts facts={stop} />
+      {@render requests()}
       {#if stop.kind === "selection" && !itemCount}
         <section class="card">
           <!-- The stop's facts name the choice, where it came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
@@ -412,6 +463,8 @@
   <BillingPanels {snapshot} />
 </main>
 
+{#snippet requests()}<RequestQuestions {snapshot} disabled={busy} />{/snippet}
+
 {#snippet checkRows(list: typeof stop.checks)}
   <ul class="checks">
     {#each list as check, index (index)}
@@ -432,6 +485,8 @@
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
   .ended { border-color: rgba(230, 180, 80, 0.5); gap: 18px; }
   .loop-stop { max-width: 720px; }
+  .after { margin: 0; font-size: 14.5px; color: var(--muted); line-height: 1.6; }
+  .code { font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
   .loop-stop .again { align-items: flex-start; }
   .headline { display: flex; flex-direction: column; gap: 8px; }
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 3.6vw, 40px); line-height: 1.1; color: var(--text); }
