@@ -225,6 +225,8 @@ Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-tec
 
 Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §When an Activity Starts (in a run underway, planned Delivery audit, Test audit and pull request rows come before allocation, and each allocated row takes the planned row's place).
 
+Superseded in part by: `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-technical-design.md`, §Reading the Plan (rows for batches of test fixes that have not started follow the plan leaves that have not started).
+
 Expose a unified `activities` projection in the snapshot, retaining `phases` for plan details/counts. Rows include activity identity, kind, display label, round/continuation, state, timing, session details, result summary and checks. Started rows follow monotonic execution sequence; pending plan leaves follow them in plan order. Added completion phases appear after the audit that added them. Split parents keep their existing relationships and details, without counting audits as phases.
 
 Use the existing row styling and click-to-detail interaction for **Delivery audit** and **Test audit**, with “Round 2” and “Continuation 2” secondary labels when needed. Do not prefix them with “Phase.” Keep implementation steps for implementation rows; audit detail shows observed assessment/remediation/recording activity without inventing Build, Test hardening or Refactor completions. Report findings, affected criteria, checked repositories/revisions and blocked actions are available in the same detail panel as output. Terminal events carry identical labels/order and stop facts.

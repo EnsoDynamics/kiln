@@ -843,12 +843,12 @@ export function noReportAuditSnapshot(): Snapshot {
   const auditWaiver: WaiverView = { id: "waiver-audit", at: "2026-10-17T16:34:10Z", activityKey: "audit-da1", activity: "Delivery audit", effect: "completed", source: { via: "browser", account: "alex" }, checkRun: { id: "run-da1", at: "2026-10-17T16:33:00Z" }, items: [{ check: "Audit result recorded", kind: "other", subject: "No audit report yet.", text: "No audit report yet.", against: "acme-shop=0c4d8a2e9f10" }] };
   const reportCheck: CheckResult = { name: "Audit result recorded", passed: true, waived: true, facts: ["No audit report yet."], items: [{ kind: "other", subject: "No audit report yet.", text: "No audit report yet.", against: "acme-shop=0c4d8a2e9f10", waiver: { waiverId: auditWaiver.id, activityKey: "audit-da1", at: auditWaiver.at, via: "browser", account: "alex" } }] };
   const audit: PhaseView = {
-    id: "audit-da1", activityId: "da1", kind: "delivery_audit", title: "Delivery audit", file: "Loop 1 of 4", round: 1, continuationIndex: 1, state: "done", doneAt: auditWaiver.at, finishedByPerson: false,
+    id: "audit-da1", activityId: "da1", kind: "delivery_audit", title: "Delivery audit", file: "Loop 1 · max 4", round: 1, continuationIndex: 1, state: "done", doneAt: auditWaiver.at, finishedByPerson: false,
     audit: { checks: [reportCheck], criteria: [], repositories: [], blockers: [], pendingActions: [] },
     waivedChecks: 1, waivedCompletion: { checks: [reportCheck], counts: { passed: 0, waived: 1, failed: 0 } }, waivers: [auditWaiver],
     warnings: [{ kind: "no_audit_report", text: "no audit report: Kiln couldn’t tell what this audit found" }],
   };
-  snapshot.activities = [...snapshot.phases.filter(row => row.id !== "4"), audit, { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Loop 1 of 4", round: 1, continuationIndex: 1, state: "implementing", finishedByPerson: false }];
+  snapshot.activities = [...snapshot.phases.filter(row => row.id !== "4"), audit, { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Loop 1 · max 4", round: 1, continuationIndex: 1, state: "implementing", finishedByPerson: false }];
   snapshot.waivers = [WAIVER, auditWaiver];
   return snapshot;
 }
@@ -976,14 +976,14 @@ export function auditLoopsView(overrides: Partial<NonNullable<Snapshot["auditLoo
 }
 
 /**
- * A run on its last delivery audit loop (mockup screen 2): each delivery audit a loop of 4 with
+ * A run on its last delivery audit loop (mockup screen 2): each delivery audit a loop with max 4 and
  * the phase it added after it, Phase 10 building and the test audit waiting. `current` is the
  * activity running: Phase 10 by default, or the given audit row with its position.
  */
 export function closingAuditsSnapshot(current?: { id: string; position: NonNullable<NonNullable<Snapshot["auditLoops"]>["position"]> }): Snapshot {
   const snapshot = runningSnapshot();
   const done = { state: "done" as const, finishedByPerson: false };
-  const audit = (n: number, extra: Partial<PhaseView> = {}): PhaseView => ({ id: `audit-da${n}`, activityId: `da${n}`, kind: "delivery_audit", title: "Delivery audit", file: `Loop ${n} of 4`, round: n, continuationIndex: 1, ...done, loops: [{ kind: "delivery", number: n, limit: 4 }], ...extra });
+  const audit = (n: number, extra: Partial<PhaseView> = {}): PhaseView => ({ id: `audit-da${n}`, activityId: `da${n}`, kind: "delivery_audit", title: "Delivery audit", file: `Loop ${n} · max 4`, round: n, continuationIndex: 1, ...done, loops: [{ kind: "delivery", number: n, limit: 4 }], ...extra });
   const phase = (id: string, title: string, extra: Partial<PhaseView> = {}): PhaseView => ({ id, title, file: `phase-${id}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.md`, ...done, ...extra });
   const activities: PhaseView[] = [
     phase("6", "Refunds for a returned item"), audit(1),
@@ -993,7 +993,7 @@ export function closingAuditsSnapshot(current?: { id: string; position: NonNulla
     phase("10", "Refund email shows the restocking fee", current ? {} : { state: "implementing" }),
     phase("11", "Return reason required on the form", { state: "planned" }),
     // A session of test fixes (a test audit continuation) carries no loop of its own: it names the loop it works from (Kiln After Delivery AC-AUDIT-01).
-    { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Loop 1 of 4", round: 1, continuationIndex: 1, ...done, loops: [{ kind: "test", number: 1, limit: 4 }] },
+    { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Loop 1 · max 4", round: 1, continuationIndex: 1, ...done, loops: [{ kind: "test", number: 1, limit: 4 }] },
     { id: "audit-ta1-2", activityId: "ta1-2", kind: "test_audit", title: "Fixing tests", file: "From test audit loop 1 · session 1", round: 1, continuationIndex: 2, fixing: { loop: 1, session: 1 }, state: "planned", finishedByPerson: false },
   ];
   const running = current ? activities.find(row => row.id === current.id)! : activities.find(row => row.id === "10")!;
@@ -1013,7 +1013,7 @@ export function storedLoopStopSnapshot(): Snapshot {
   const snapshot = needsYouMessageSnapshot();
   const stop = { ...snapshot.needsYou! };
   for (const key of ["finalMessage", "exitCode", "lastSkill", "steps"] as const) delete stop[key];
-  const audit: PhaseView = { id: "audit-ta4", activityId: "ta4", kind: "test_audit", title: "Test audit", file: "Loop 4 of 4", round: 4, continuationIndex: 1, state: "needs_you", finishedByPerson: false, loops: [{ kind: "test", number: 4, limit: 4 }] };
+  const audit: PhaseView = { id: "audit-ta4", activityId: "ta4", kind: "test_audit", title: "Test audit", file: "Loop 4 · max 4", round: 4, continuationIndex: 1, state: "needs_you", finishedByPerson: false, loops: [{ kind: "test", number: 4, limit: 4 }] };
   snapshot.feature = { ...snapshot.feature, currentPhaseId: audit.id, phasesDone: 5 };
   snapshot.needsYou = { ...stop, phaseId: audit.id, kind: "loop_limit", checks: [], counts: { passed: 0, waived: 0, failed: 0 }, resumeOffered: false, resumeCommand: `cd ${WORKTREE}\nclaude --resume ${TEST_SESSION}`, sessionId: TEST_SESSION, markComplete: { offered: false, reason: "Kiln no longer stops at a loop limit. Check again to go on." } };
   snapshot.auditLoops = auditLoopsView({ delivery: { used: 2, limit: 4, closed: false, floor: 2 }, test: { used: 4, limit: 4, closed: true, floor: 4 }, position: { audit: "test", loop: 4, limit: 4 } });

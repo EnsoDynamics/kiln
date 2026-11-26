@@ -79,7 +79,16 @@ export interface AuditReportV2 {
   afterDeliveryActions?: string[];
   /** On a session of test fixes' `continue_test` report: the criteria whose rows it raised (AC-LAST-01). */
   raised?: string[];
+  /**
+   * On a test audit's or a session of test fixes' `continue_test` report: the test work left, as
+   * the batches planned, one for each later session, in the order they will be worked; `criteria`
+   * are the IDs of the acceptance criteria in each (Kiln Planned Test Fix Batches, "The Fix Plan in
+   * the Report"). Absent or [] when the session planned none.
+   */
+  fixBatches?: FixBatch[];
 }
+/** One batch of test fixes a test audit planned: the work of one later session. */
+export interface FixBatch { criteria: string[] }
 /** The kinds an item for a person may have (AC-ITEM-01). */
 export const PERSON_ITEM_KINDS = ["critical_next_step", "critical", "blocker", "business_question", "test", "other"] as const;
 export type PersonItemKind = typeof PERSON_ITEM_KINDS[number];
@@ -103,6 +112,13 @@ export interface AuditActivity {
    * did (Kiln Deliver When Audit Loops Run Out, "Upgrade").
    */
   itemsUnread?: true;
+  /**
+   * A test audit or session of test fixes whose effective result counts `continue_test`: its
+   * report's batches ([] when it listed none) and whether that result counts an implementation
+   * change. Written in the record write that records the result (Kiln Planned Test Fix Batches,
+   * "The Fix Plan on the Record"); absent on any other activity and on one recorded before it.
+   */
+  testWork?: { batches: FixBatch[]; changedImplementation: boolean };
 }
 export interface AuditState {
   revision: number; policy: "required" | "legacy_complete";

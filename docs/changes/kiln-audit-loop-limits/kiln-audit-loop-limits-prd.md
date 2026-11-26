@@ -32,6 +32,7 @@ The person chooses the limits before the run starts, on the same screen as Kiln'
 
 - [ ] **AC-LOOP-01 — Three settings before Start.** Documents found has an **Audit loops** section with three settings, each with help text that says what it does using the numbers currently chosen:
   - Superseded in part by: AC-CHOICE-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (two settings instead of three, named Max delivery audit loops and Max test audit loops; both defaults 4).
+  - Superseded in part by: AC-MAX-02 in `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md` (what the settings' help text says a loop and a limit are)
 
   | Setting | Values | Default |
   |---|---|---|

@@ -102,6 +102,20 @@ describe("an audit marked complete counts as its report allows (AC-WAIVE-12)", (
     if (expected.report !== "accepted") { f.saveReport(audit); await expect(f.submit(audit)).rejects.toMatchObject({ code: "result_conflict" }); }
   });
 
+  it("keeps the fix plan of a valid continue_test report it counts, and none without a usable report (Kiln Planned Test Fix Batches, \"The Fix Plan on the Record\")", async () => {
+    const f = await fixture(); const audit = await f.allocate("test_audit");
+    writeFileSync(join(f.root, directory, "test-audit.md"), "# Test audit\n"); commit(f.sandbox, f.root, [`${directory}/test-audit.md`]);
+    writeFileSync(join(f.root, "dirty.txt"), "x");
+    f.saveReport(audit, { outcome: "continue_test", fixBatches: [{ criteria: ["AC-PROOF-01"] }] });
+    expect(await f.submit(audit)).toMatchObject({ disposition: "unresolved" });
+    expect(audit.testWork).toBeUndefined();
+    await f.markComplete(audit);
+    expect(audit.testWork).toEqual({ batches: [{ criteria: ["AC-PROOF-01"] }], changedImplementation: false });
+    const none = await fixture(); const missing = await none.allocate("test_audit", 2);
+    await none.markComplete(missing);
+    expect(missing.testWork).toBeUndefined();
+  });
+
   it("moves from a no-report delivery audit to the test audit, and from a no-report test audit to final delivery", async () => {
     const f = await fixture();
     const delivery = await f.allocate("delivery_audit");

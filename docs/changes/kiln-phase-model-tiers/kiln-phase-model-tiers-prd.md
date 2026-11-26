@@ -55,6 +55,7 @@ Nothing about the model is hidden or decided silently. Every row says what it ra
   - Replaces in part: AC-WORK-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Codex runs the activities whose choice is on Codex, not every phase and the final session of a PRD that chose Codex; the rest remains).
 
 - [ ] **AC-PICK-02 — Every row says what it ran on, runs on or will run on.** Wherever Kiln shows the plan, each activity's row shows a model choice, as the table says. The model is named as its agent reports it. The current activity's card shows the same choice and, for a phase, its tier.
+  - Superseded in part by: AC-BATCH-01 in `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md` (while a test audit's planned batches have rows, they take the place of the planned Test audit row and each reads as that row does; the rest remains)
 
   | The activity | Its row shows |
   |---|---|

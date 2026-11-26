@@ -6,7 +6,7 @@ import type { SessionRecord, SessionRun } from "../state/records.js";
 import { deliveredItsBlock, descriptionRow } from "./description-check.js";
 import { DESCRIPTION_CHECK } from "./waivers.js";
 
-const BLOCK = "## Closing audits\n\nDelivery audit: 1 of 4 loops. Test audit: 1 of 4 loops.";
+const BLOCK = "## Closing audits\n\nDelivery audit: 1 loop (max 4). Test audit: 1 loop (max 4).";
 const ended: SessionRun = { cause: "launch", startedAt: "2026-11-20T01:00:00Z", endedAt: "2026-11-20T01:05:00Z", exitCode: 0, result: { subtype: "success", isError: false } };
 function session(runs: SessionRun[], extra: Partial<SessionRecord> = {}): SessionRecord {
   return { schemaVersion: 24, sessionId: `s-${Math.random()}`, phaseId: "pr", kind: "pull_request", createdAt: "2026-11-20T01:00:00Z", model: "opus", modelDisplayName: "Opus", runs, sleeps: [], steps: [], agentId: "claude_code", deliveryBlock: { block: BLOCK, run: 0 }, ...extra };

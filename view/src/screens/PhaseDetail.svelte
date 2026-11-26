@@ -46,7 +46,7 @@
   const pushRunning = $derived(row?.kind === "plan_push" && snapshot.afterDelivery?.planPush?.key === phaseId && snapshot.afterDelivery.planPush.state === "running");
   const live = $derived((current !== undefined || mergeRunning || pushRunning) && connected);
   const isAudit = $derived(row?.kind === "delivery_audit" || row?.kind === "test_audit");
-  // An audit's line, as its row shows it: "Loop 2 of 4", "From test audit loop 1 · session 2" (Kiln After Delivery AC-AUDIT-01).
+  // An audit's line, as its row shows it: "Loop 2 · max 4", "From test audit loop 1 · session 2" (Kiln After Delivery AC-AUDIT-01).
   const loopLabel = $derived(isAudit && row?.file ? row.file : undefined);
   const isPreflight = $derived(row?.kind === "preflight");
   const donePill = $derived(row ? preflightPill(row) : undefined);

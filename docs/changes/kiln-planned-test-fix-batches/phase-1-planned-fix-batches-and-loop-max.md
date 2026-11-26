@@ -1,5 +1,7 @@
 # Phase 1: Planned test fix batches and loops named with their maximum
 
+**Closed:** 2026-11-26
+
 **Parent PRD:** docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md
 **Technical design:** docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-technical-design.md — all sections
 **Model tier:** standard

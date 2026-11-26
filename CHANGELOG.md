@@ -10,6 +10,20 @@ section to the new version.
 
 ## [Unreleased]
 
+### Added
+
+- When a test audit plans its test fixes as batches, the phase plan shows a row for each batch
+  as soon as the audit ends, so you can see how many fixing sessions are coming. The audit's
+  row says how many test gaps it found and how many batches it planned, each batch row names
+  its batch and its number of gaps.
+
+### Changed
+
+- A loop is named with its maximum, "loop 1 · max 4", wherever "loop 1 of 4" appeared: the
+  phase plan, the status line, `kiln status`, the finished page and each pull request's
+  description. The **Audit loops** help now says a run makes only the loops it needs.
+- `kiln status` lists the batches of test fixes not yet started, with the new `planned` state.
+
 ## [1.5.0] - 2026-11-26
 
 ### Added

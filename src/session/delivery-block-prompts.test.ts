@@ -15,10 +15,10 @@ describe("the block each description opens with (AC-LEFT-01)", () => {
   it("is For you when it lists anything, then Closing audits, then Settled during the build", () => {
     const settled = [{ id: "item-2", problem: "Docs lag.", action: "Update.", listedBy: "Delivery audit round 1", settledBy: "Test audit round 1", how: "Updated." }] as unknown as Parameters<typeof deliveryBlock>[1];
     const block = deliveryBlock({ items: [item("Test gap: AC-1 has no test. Write one.", true)], afterDelivery: ["Release to production."] }, settled, tag, loops);
-    expect(block).toMatch(/^## For you\n\n- Test gap: AC-1 has no test\. Write one\. \(Waived: waived at Final delivery, 2026-11-19 10:00 UTC · browser · alex\)\n- Release to production\.\n\n## Closing audits\n\nDelivery audit: 4 of 4 loops\. Test audit: 2 of 4 loops\.\n\n## Settled during the build\n\n/);
+    expect(block).toMatch(/^## For you\n\n- Test gap: AC-1 has no test\. Write one\. \(Waived: waived at Final delivery, 2026-11-19 10:00 UTC · browser · alex\)\n- Release to production\.\n\n## Closing audits\n\nDelivery audit: 4 loops \(max 4\)\. Test audit: 2 loops \(max 4\)\.\n\n## Settled during the build\n\n/);
   });
   it("is Closing audits alone when nothing is listed or settled, with no acceptance line", () => {
-    expect(deliveryBlock({ items: [], afterDelivery: [] }, [], tag, loops)).toBe("## Closing audits\n\nDelivery audit: 4 of 4 loops. Test audit: 2 of 4 loops.");
+    expect(deliveryBlock({ items: [], afterDelivery: [] }, [], tag, loops)).toBe("## Closing audits\n\nDelivery audit: 4 loops (max 4). Test audit: 2 loops (max 4).");
   });
   it("reads the limits in force: the frozen ones once the first pull request session launched", () => {
     const record = { settings: { auditLoops: { deliveryLimit: 9, testLimit: 9 } }, auditLoops: { epochs: [], loops: [], atPullRequest: { at: "2026-11-19T10:00:00Z", deliveryLimit: 4, testLimit: 3 } } };
@@ -27,7 +27,7 @@ describe("the block each description opens with (AC-LEFT-01)", () => {
 });
 
 describe("the block in the pull request prompts (AC-LEFT-01)", () => {
-  const BLOCK = "## Closing audits\n\nDelivery audit: 1 of 4 loops. Test audit: 1 of 4 loops.";
+  const BLOCK = "## Closing audits\n\nDelivery audit: 1 loop (max 4). Test audit: 1 loop (max 4).";
   const repositories = [{ name: "product", github: "acme/product", worktreePath: "/w/product", baseBranch: "main", isPrd: true }, { name: "returns-api", github: "acme/returns-api", worktreePath: "/w/returns-api", baseBranch: "develop", isPrd: false }];
   const values = { featureName: "Customer returns", prdFile: "docs/prd.md", branch: "feature/returns", repositories, deliveryBlock: BLOCK };
   it.each([["the pull request session", undefined], ["development finalization", JSON.stringify({ executionId: "e", grants: [] })]])("%s gets it with nothing listed, for every pull request, editing one already open", (_name, deliveryAuthority) => {

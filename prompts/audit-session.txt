@@ -65,6 +65,11 @@ The report has these fields and nothing else is required:
   also uses, so Kiln runs a fresh delivery audit; otherwise false.
 - "raised" (a session of test fixes reporting continue_test): the IDs of the criteria whose rows
   it raised.
+- "fixBatches" (a test audit or a session of test fixes reporting continue_test): when the skill
+  left the remaining test work as a list of batches, one for each later session, list them in the
+  order they will be worked as [{"criteria": [...]}], each with the IDs of the acceptance criteria
+  in it, leaving out any batch this session worked. Name each criterion once. Omit the field with
+  any other outcome, and when the skill planned no batches.
 - "afterDeliveryActions" (optional): person actions the requirements place after Kiln's delivery,
   such as a later production release; these alone do not make the outcome needs_you.
 Report the outcome the skill actually reached. Never write "passed" to finish; if you are stuck,

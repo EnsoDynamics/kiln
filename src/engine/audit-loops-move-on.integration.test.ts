@@ -58,7 +58,7 @@ async function control(current: Harness, action: string, inputs: Record<string, 
 }
 
 describe("a loop is one run of an audit (AC-CHOICE-01, AC-LAST-02)", () => {
-  it("defaults both limits to 4 and counts a first delivery audit that passes as delivery 1 of 4", { timeout: 180_000 }, async () => {
+  it("defaults both limits to 4 and counts a first delivery audit that passes as delivery 1 (max 4)", { timeout: 180_000 }, async () => {
     const current = await fixture([audit(), audit()]);
     expect(current.engine.record.settings.auditLoops).toEqual({ deliveryLimit: 4, testLimit: 4 });
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
@@ -85,7 +85,7 @@ describe("a loop is one run of an audit (AC-CHOICE-01, AC-LAST-02)", () => {
 });
 
 describe("after a kind's last loop, no audit of that kind runs again (AC-LAST-03, AC-STOP-04)", () => {
-  it("builds the phases delivery audit loop 1 of 1 adds, then goes on to the test audit and the pull request", { timeout: 180_000 }, async () => {
+  it("builds the phases delivery audit loop 1 · max 1 adds, then goes on to the test audit and the pull request", { timeout: 180_000 }, async () => {
     const current = await fixture([audit({ gap: true }), audit()], [landing(), pullRequestSession()]);
     expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 4 } })).ok).toBe(true);
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();
@@ -100,7 +100,7 @@ describe("after a kind's last loop, no audit of that kind runs again (AC-LAST-03
     expect(buildSnapshot(current.engine).auditLoops).toMatchObject({ delivery: { used: 1, limit: 1, closed: true } });
   });
 
-  it("works through saved test work after test audit loop 1 of 1 in as many sessions of test fixes as it takes, with no test audit after", { timeout: 240_000 }, async () => {
+  it("works through saved test work after test audit loop 1 · max 1 in as many sessions of test fixes as it takes, with no test audit after", { timeout: 240_000 }, async () => {
     const current = await fixture([]);
     const path = marker(current, "fix-session-paused");
     writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [pullRequestSession()], auditSessions: [audit(), audit({ continueTest: true, findingText: "Batch one left." }), audit({ continueTest: true, findingText: "Batch two left." }), audit({ findingText: "Every criterion is adequate.", beforeSubmitFile: path })] }));
@@ -304,7 +304,7 @@ describe("the run's page names a phase an audit added, with no loop (AC-STOP-05)
     expect(snapshot.auditLoops!.position).toBeUndefined();
     expect(headerState(snapshot, true, new Date())).toMatchObject({ label: "Implementing phase 2" });
     expect(JSON.stringify(headerState(snapshot, true, new Date()))).not.toMatch(/loop \d+ of/i);
-    expect(auditLoopsText(snapshot.auditLoops)).toBe("Audit loops: delivery 1 of 4 · test 0 of 4");
+    expect(auditLoopsText(snapshot.auditLoops)).toBe("Audit loops: delivery 1 (max 4) · test 0 (max 4)");
     go(path); await current.engine.settled();
     expect(current.engine.record.completedAt).toBeTruthy();
   });
@@ -331,7 +331,7 @@ describe("Mark complete's next step respects a closed kind (AC-LAST-03)", () => 
     expect(loops(current)).toEqual(["delivery 1", "test 1", "delivery 2"]);
   });
 
-  it("phases from delivery audit loop 1 of 1 marked complete are built, with no delivery audit after them", { timeout: 240_000 }, async () => {
+  it("phases from delivery audit loop 1 · max 1 marked complete are built, with no delivery audit after them", { timeout: 240_000 }, async () => {
     const critical = { kind: "critical_next_step", problem: "The pull request would publish the production key.", action: "Rotate the key.", waitsOn: "The pull request." };
     const current = await fixture([audit({ gap: true, items: [critical] }), audit()], [landing(), pullRequestSession()]);
     expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 4 } })).ok).toBe(true);

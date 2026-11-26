@@ -5,10 +5,11 @@
  *
  *   loopSettingInputs({ "test-audit-loops": "5" })   // { test_audit_loops: 5 }
  *   auditLoopsText(view)
- *   // "Delivery audit loop 2 of 4\nAudit loops: delivery 2 of 4 · test 0 of 4"
+ *   // "Delivery audit loop 2 · max 4\nAudit loops: delivery 2 (max 4) · test 0 (max 4)"
  */
 import { ControlFailure } from "./result.js";
-import { positionText, type AuditLoopsView } from "../engine/loop-view.js";
+import type { AuditLoopsView } from "../engine/loop-view.js";
+import { loopCountLine, positionText } from "../audit/audit-names.js";
 
 export type { AuditLoopsView };
 
@@ -35,7 +36,7 @@ export function auditLoopsText(view: AuditLoopsView | null | undefined): string 
   if (!view) return undefined;
   const lines: string[] = [];
   if (view.position) lines.push(positionText(view.position));
-  lines.push(`Audit loops: delivery ${view.delivery.used} of ${view.delivery.limit} · test ${view.test.used} of ${view.test.limit}`);
+  lines.push(loopCountLine(view));
   if (view.frozen) lines.push("The limits are held for the rest of this run: a change to either limit applies to a continuation of it.");
   return lines.join("\n");
 }

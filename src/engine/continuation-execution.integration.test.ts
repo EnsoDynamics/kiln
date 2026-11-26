@@ -532,7 +532,7 @@ it("after Continue with N phases, the phases a delivery audit adds at its last l
     expect((await h.engine.continuationCommand("accept", request(check.result!.proposal!.id, "continue-gated"))).ok).toBe(true);
     await h.engine.settled();
     const audits = h.engine.record.completionAudits!.activities;
-    // Delivery audit loop 1 of 1 adds a phase; it is built, and no delivery audit runs after it: the test audit, then the pull request.
+    // Delivery audit loop 1 · max 1 adds a phase; it is built, and no delivery audit runs after it: the test audit, then the pull request.
     expect(audits.map(row => row.kind)).toEqual(["delivery_audit", "test_audit"]);
     const added = effectiveAudit(h.stateDirectory, audits[0]!)!.completionPhases();
     expect(added).toHaveLength(1);

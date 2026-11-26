@@ -1,7 +1,7 @@
 // The audit prompt's {{nextSteps}} forecast (Kiln Deliver When Audit Loops Run Out, "Prompts";
 // AC-LAST-03): the step each outcome leads to, by "Routing After the Last Loop", with no loop number and no "last".
 import { describe, expect, it } from "vitest";
-import { nextStepsForecast } from "./next-steps.js";
+import { nextStepsForecast, stepsAfter } from "./next-steps.js";
 
 const open = { delivery: false, test: false };
 const HOLD = " Kiln stops before the pull request while a blocker or business question not marked waived is open.";
@@ -74,5 +74,23 @@ describe("nextStepsForecast", () => {
       const text = nextStepsForecast({ kind, fixing, closed: { delivery, test }, latestTestContinues });
       expect(text).not.toMatch(/\d|last/i);
     }
+  });
+});
+
+describe("stepsAfter, the rule the forecast words (Kiln Planned Test Fix Batches, \"Reading the Plan\")", () => {
+  const test = (closed: { delivery: boolean; test: boolean }, fixing = false) => ({ kind: "test_audit" as const, fixing, closed, latestTestContinues: false });
+  it("leads a continue_test result to a new test audit only when it changed implementation while both kinds have a loop left", () => {
+    expect(stepsAfter(test(open), "continue_test", false)).toEqual(["session of test fixes"]);
+    expect(stepsAfter(test(open), "continue_test", true)).toEqual(["delivery audit", "test audit"]);
+    expect(stepsAfter(test({ delivery: false, test: true }), "continue_test", true)).toEqual(["delivery audit", "session of test fixes"]);
+    expect(stepsAfter(test({ delivery: true, test: false }), "continue_test", true)).toEqual(["session of test fixes"]);
+  });
+  it("puts a session of test fixes first after a delivery audit only when the test kind is closed and saved test work remains", () => {
+    const delivery = (closed: { delivery: boolean; test: boolean }, latestTestContinues: boolean) => ({ kind: "delivery_audit" as const, fixing: false, closed, latestTestContinues });
+    expect(stepsAfter(delivery({ delivery: false, test: true }, true), "passed", false)).toEqual(["session of test fixes"]);
+    expect(stepsAfter(delivery({ delivery: false, test: true }, true), "completion_phases", false)).toEqual(["delivery audit"]);
+    expect(stepsAfter(delivery({ delivery: true, test: true }, true), "completion_phases", false)).toEqual(["session of test fixes"]);
+    expect(stepsAfter(delivery(open, true), "passed", false)).toEqual(["test audit"]);
+    expect(stepsAfter(delivery(open, true), "needs_you", false)).toEqual([]);
   });
 });

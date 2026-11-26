@@ -98,7 +98,7 @@ it("reads and changes the two limits during a run, refusing a limit below the ru
   const status = await cli(["status", target(), "--json"]);
   expect(status.json().audit_loops).toEqual({ settings: { deliveryLimit: 2, testLimit: 5 }, delivery: { used: 2, limit: 2, closed: true, floor: 2 }, test: { used: 0, limit: 5, closed: false, floor: 1 }, position: { audit: "delivery", loop: 2, limit: 2 } });
   const text = await cli(["status", target()]);
-  expect(text.stdout).toContain("Delivery audit loop 2 of 2\nAudit loops: delivery 2 of 2 · test 0 of 5\n");
+  expect(text.stdout).toContain("Delivery audit loop 2 · max 2\nAudit loops: delivery 2 (max 2) · test 0 (max 5)\n");
   const full = await cli(["status", target(), "--detail", "full", "--json"]);
   expect(full.json().settings).toMatchObject({ delivery_audit_loops: 2, test_audit_loops: 5 });
   expect(full.json().settings).not.toHaveProperty("after_last_test_audit_loop");
@@ -215,7 +215,7 @@ it("prints the loop lines and a finished run's facts only from a controller that
   try {
     const text = await cli(["status", target()]);
     expect(text.stdout).not.toContain("Audit loops:");
-    expect(text.stdout).toContain("Closing audits: Delivery audit: 4 of 4 loops. Test audit: 2 of 4 loops.\nPull request: https://github.com/acme/acme-shop/pull/214\nFor you:\n  - Test gap: AC-1 has no test. Write one.\nCheck for new phases: unchanged at 2026-11-20T01:00:00Z\n");
+    expect(text.stdout).toContain("Closing audits: Delivery audit: 4 loops (max 4). Test audit: 2 loops (max 4).\nPull request: https://github.com/acme/acme-shop/pull/214\nFor you:\n  - Test gap: AC-1 has no test. Write one.\nCheck for new phases: unchanged at 2026-11-20T01:00:00Z\n");
     // A critical finding puts For you first, ahead of the loop counts.
     const critical = await standIn(["status", "commands", "loop_limits_move_on"], { ...answer, delivered: { ...answer.delivered, forYou: { items: [{ kind: "critical", line: "Critical finding: Keys are logged. Rotate them." }], afterDelivery: [] } } });
     try { expect((await cli(["status", target()])).stdout).toMatch(/For you:\n {2}- Critical finding: Keys are logged\. Rotate them\.\nClosing audits:/); } finally { await critical.close(); }
