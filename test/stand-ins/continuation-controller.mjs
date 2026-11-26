@@ -23,7 +23,7 @@ CommandJournal.prototype.save = function (receipt) {
   return value;
 };
 const engine = new Engine({ ...options, env: process.env, sleepReader: { next: async () => [] } });
-await engine.agents.refresh();
+await engine.refreshAgents();
 bindExecutionAliases(engine);
 const check = await engine.checkCompletedPlan();
 if (check.status !== 'available') throw Error(JSON.stringify(check));

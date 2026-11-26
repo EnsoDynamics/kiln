@@ -59,6 +59,8 @@ The take-over receipt stays `takeover_requested`; the cancel receipt records `ta
 
 ## The Pause Now State
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "No live controls" (Pause now is withheld while the merge session runs, with the reason the page prints), and §Closing-Audit Names (an audit's label in the pause panel and the paused page's eyebrow).
+
 Replaces in part: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (the pause panel's heading, choices and narrow-screen order, and the requested and completed takeover wording, for a hold that is not delivery recovery).
 
 The engine projects one state for the activity under a takeover hold that is not delivery recovery:
@@ -112,6 +114,8 @@ The session page takes its pill, back link, phase circle and pause panel from th
 
 ## The Paused Page
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session and §Snapshot (for an activity that hasn't started, **Resume {activity}** launches a new session on its current choice and gives it any note, instead of calling the takeover resume of the same conversation, and the terminal column's released command reopens the saved conversation only while its current choice is the one that session ran on, otherwise it is the fresh-session command for its current choice's agent).
+
 Replaces in part: `docs/changes/kiln-run-restart/kiln-run-restart-technical-design.md`, §A Held Phase That Can't Be Reopened (for a Pause now hold, the page's header is the Paused header and the page shows no checks).
 
 Replaces in part: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Display Contract (the hand-back page bullet does not apply to a Pause now hold's page).
@@ -139,6 +143,8 @@ Resume's answers keep their existing handling: a Resume refusal's reason is show
 Data model additions, all optional and additive: gate `stop` and `turnEndedAt`, and per-operation `label` and backgrounded mark; gate hold `inFlight` (operation IDs at acceptance); saved hold `releasedAt` and `obstacle`, which also appear in the bot JSON as above. The private execution schema does not change version.
 
 ## Wording
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Closing-Audit Names (an audit's label in the pause panel, the pause sentences and the paused page's eyebrow).
 
 Replaces in part: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Compatibility notices row (the `takeover` feature's display name is **Pause now**).
 

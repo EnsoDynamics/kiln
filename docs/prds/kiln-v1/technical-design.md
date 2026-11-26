@@ -231,6 +231,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions (the workspace in place of the one worktree; no PowerShell tool)
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §The launch decision (each session's model and effort come from its activity's choice, not the settings).
+
 ```
 claude -p --input-format stream-json
   --session-id <UUID Kiln generates and records first>
@@ -257,6 +259,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (the resume prompt after the person's Resume, with its note)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (the opening after a usage limit)
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (for an activity that hasn't started, the `claude --resume` command is offered only while its current choice is the one that session ran on).
 
 Each is a template file; `<…>` are filled from the record. Everything in them is something a person could type (AC-RUN-06). `<phase doc>` and `<PRD file>` are paths relative to the worktree root (`docs/prds/customer-returns/phase-2b-store-credit.md`), never main-checkout paths, which would send the session to files outside its worktree. After a session splits its leaf, the fresh-session prompt's `<phase doc>` is its judged leaf's document and the resume prompt's stays the launched leaf's ([Which phase a split session is shown as](#snapshot)).
 
@@ -359,6 +363,8 @@ Superseded in part by: [Safe Checkpoint and Release](../../changes/kiln-live-ses
 Superseded in part by: [Message Delivery and Attempt Settlement](../../changes/kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — exact live input, correlated multi-result settlement and unresolved-delivery recovery holds.
 
 Superseded in part by: `docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md`, §Resume and stopping (Codex tracked-process cleanup and visible native limitation; Claude behavior retained).
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Exit Kiln (Exit Kiln also ends the process, with exit code 0).
 
 Kiln handles SIGINT (Ctrl+C), SIGHUP (the terminal closed) and SIGTERM the same way (AC-KEEP-02). On Windows, Node raises SIGINT for Ctrl+C and SIGHUP for a closed console window, which Windows follows with ending Kiln about 5 seconds later; the interrupt below finishes well within that:
 
@@ -524,6 +530,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Command line (the wait's lines)
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`kiln merge` and `kiln exit`).
+
 `kiln run <PRD directory or PRD file>` is the only command. Kiln resolves the path from the current directory and finds the checkout the path is in with `git -C <the path's directory> rev-parse --show-toplevel`. The PRD directory is the path itself, or its parent when the path is a file, and must sit directly under `docs/prds/` or `docs/changes/` at that checkout's root. Run from inside Kiln's worktree, that root is the worktree folder, so Kiln finds the main checkout separately: the first `worktree` entry of `git -C <the path's directory> worktree list --porcelain`, then `git -C <that entry> rev-parse --show-toplevel`. In an ordinary repository the entry is the main working tree; in a submodule it is the submodule's git directory, `<superproject>/.git/modules/<name>` (found on Git 2.50.1 while building Phase 1), and the second call turns it into the submodule's working tree. The parent of `git rev-parse --git-common-dir` isn't used for the same reason. The repository name (AC-LOOK-05), the state directory's key and the PRD key come from the main checkout, whichever checkout the path is in, so the main checkout and the worktree reach the same record ([Kiln's state on disk](#kilns-state-on-disk)). A file path must be that directory's `<folder name>-prd.md`, whether or not the file exists. The PRD is always `<folder name>-prd.md`; any other `*-prd.md` there is ignored, and when it is absent the start checks list it among what is missing, as the terminal mockup draws. Any other path prints one line naming the problem, then usage, and exits non-zero: no path, a path that doesn't exist (other than a missing `<folder name>-prd.md` in an existing PRD directory), a path outside a Git repository, any other folder (including `docs/prds/` itself, the "several PRDs" case of AC-START-01) and any other file. Start-check failures print what is missing or failed and where Kiln looked, one line per problem in the terminal mockup's frame (missing documents as drawn, every other problem as UI-010 gives), and exit non-zero. Phase event lines are `<local time> <phase id> <title> <started | done · pushed <sha> | stopped | interrupted | resumed | opened #<n>>`, as in the terminal mockup; after a session splits its leaf, all but the started line name its judged leaf ([Snapshot](#snapshot)). Kiln needs `claude`, `git` and `gh` on the PATH, `gh` signed in, and `origin` on GitHub; a missing one is reported among the start checks. "`gh` signed in" means `gh auth status --hostname github.com` exits 0. "`origin` on GitHub" means `git remote get-url origin` parses as `https://[user@]github.com/<owner>/<name>[.git]`, `git@github.com:<owner>/<name>[.git]` or `ssh://git@github.com[:port]/<owner>/<name>[.git]`, host matched case-insensitively; anything else, GitHub Enterprise hosts and SSH host aliases included, fails with "origin isn't on GitHub: <url>", since the PRD covers GitHub-hosted repositories only. Kiln records `<owner>/<name>` as the record's `repository.github`, which every `gh` call passes ([Dependencies](#dependencies)). It never runs `gh repo set-default`, which writes Git config (AC-GIT-01).
 
 ### HTTP API
@@ -541,6 +549,8 @@ Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §HTTP API (`resumeAfterUsageLimit`; Resume now during a wait)
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (`POST /api/settings` takes `auditLoops`, changeable after Start; two new stop routes; `POST /api/check-again` at a loop stop starts nothing the gate refuses).
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`POST /api/merge`, `POST /api/exit` and the `exited` event).
 
 All under the view's origin; JSON bodies; times in UTC ISO 8601, shown in local time by the view, with a day when not today (UI-010). A control not allowed in the current state returns 409 with the reason.
 
@@ -583,6 +593,10 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 Superseded in part by: `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Progress and Detail Contract (ordered audit activities alongside preserved phase details), implemented in Phase 2b. Existing authority and evidence protections remain.
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`auditLoops` position and floor; `delivered` and `continuation` on a finished run).
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`afterDelivery` with the merge offer and the merge activity's state; audit rows carry the title and line of §Closing-Audit Names).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (settings and each phase's model).
 
 **Running and waiting time (AC-WATCH-01, 02, 06).** Derive timing from saved runs across all sessions belonging to a phase; no schema migration. Count the union of run intervals, capped at interruption or exit, as running. For an unended run not currently executing, use its last recorded output as the known boundary. Everything else from the original start through Done (or now while unfinished) is waiting, including Needs you and usage limits. Feature totals use all runs, from feature start to completion, including pauses between phases. Snapshots carry running/waiting milliseconds, the calculation time and which clock advances; the view ticks only that clock and freezes on disconnect. A running process includes tests and tool waits; this does not claim model compute time.
 
@@ -678,6 +692,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait, §Design Decisions (Kiln waits for a reset; rows keep their kind; readings keep `orgId` and their start)
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Settings (Claude Code defaults to `medium` effort).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (one account: account and usage are shown for each needed agent).
 
 - **Account:** `claude auth status --json`; the screens use `email` and `subscriptionType` (the plan, shown with its first letter capitalized and followed by "plan": `max` → "Max plan"). Not signed in means the output's `loggedIn` is false, whatever the exit code. `subscriptionType` can be absent (an API-key login, for example); the plan is then left out and the email shows alone. When the call fails with no JSON Kiln can parse (an error, a timeout, other output), `account.error` carries that error, shown like the not-signed-in line: amber, in place of the email and plan, and Start isn't held.
 - **When Claude Code isn't signed in**, `account.error` carries the amber line UI-010 gives in place of the email, plan and limits. Start isn't held by it, and nothing waits for a sign-in: a session that then fails comes to Needs you like any other stop (UI-005).

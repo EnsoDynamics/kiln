@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSandbox, createRepository, commitFiles, git, type Sandbox } from "../test-support/git-repositories.js";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { FOLDER, prdDirectoryFiles } from "../test-support/fixture-documents.js";
+import { CODEX_CHOICE } from "../test-support/model-choices.js";
 import { newPrdRecord } from "../state/new-record.js";
 import { prdStateDirectory, stateRoot, writeJsonAtomically } from "../state/state-files.js";
 import { SCHEMA_VERSION, writePrdRecord, writeSessionRecord, type SessionRecord } from "../state/records.js";
@@ -31,7 +32,7 @@ afterEach(async () => { await secondServer?.close(); secondServer=undefined; sec
 function fixture(name = 'shop with spaces') {
   sandbox ??= createSandbox();
   const repository = createRepository(sandbox, name); commitFiles(sandbox, repository, `docs/prds/${FOLDER}`, prdDirectoryFiles());
-  const record = newPrdRecord({ mainCheckoutPath: repository, repositoryName: name, github: `test/${name}`, prdDirectoryFromRoot: `docs/prds/${FOLDER}`, featureName: 'Customer returns', settings: { workspaceFolder: sandbox.root, worktreePath: repository, featureBranch: 'kiln/returns', baseBranch: 'develop', bases: {}, model: 'opus', effort: 'high', keepAwake: false, resumeAfterUsageLimit: true } });
+  const record = newPrdRecord({ mainCheckoutPath: repository, repositoryName: name, github: `test/${name}`, prdDirectoryFromRoot: `docs/prds/${FOLDER}`, featureName: 'Customer returns', settings: { workspaceFolder: sandbox.root, worktreePath: repository, featureBranch: 'kiln/returns', baseBranch: 'develop', bases: {}, modelChoices: { phases: {} }, keepAwake: false, resumeAfterUsageLimit: true } });
   record.startedAt = '2026-01-01T00:00:00.000Z'; record.plan = [{ id: '1a', title: 'Nested intake', file: 'phase-1a-intake.md', closed: false, repositories: [] }, { id: '2', title: 'Later phase', file: 'phase-2-later.md', closed: false, repositories: [] }];
   const directory = prdStateDirectory(stateRoot(sandbox.env), repository, name, record.prdDirectory);
   writePrdRecord(directory, record);
@@ -67,7 +68,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     rmSync(join(h.engine.worktreePath,`docs/prds/${FOLDER}/phase-2b-store-credit.md`));
     expect(await h.engine.decide()).toEqual({kind:'plan_stop',phaseKey:'1'});
     expect(h.engine.latestSession('1')).toBeUndefined();
-    h.engine.record.settings.agentId=agent;
+    if(agent==='codex'){h.engine.record.settings.modelChoices.kept={...CODEX_CHOICE};h.engine.modelChoicesChanged();}
     if(agent==='codex') {
       // A first readiness stop in a multi-repository execution starts a fresh
       // session at the workspace root, distinct from either repository.
@@ -196,7 +197,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   it('independently inventories every supported command and legacy helper without confusing execution contracts',async()=>{
     sandbox=createSandbox();const root=(await command(['--help','--json'])).json();
     const actual=(root.commands as {path:string[]}[]).map(c=>c.path.join(' ')).sort();
-    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','check-for-new-phases','continue-with-phases','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
+    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','locate-repository','check-for-new-phases','continue-with-phases','merge','exit','model','model-defaults','model-defaults set','model-defaults restore','model-defaults fallback','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
     const reply=JSON.parse((await command(['reply','--help','--json'])).stdout).command;
     expect(Object.keys(reply.flags)).toEqual(expect.arrayContaining(['message-file','message-from-stdin','command-id','only-if-status-matches','help','json']));
     expect(reply.examples).toHaveLength(2);expect(reply.required_exclusive_groups).toContainEqual({exactly_one:['message-file','message-from-stdin']});
@@ -285,16 +286,16 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
     expect(detail.agent).toBe('claude_code');expect(detail.stop).toMatchObject({reason:'done_check',final_message:'Literal final question: "UPS?"\nDo not run $(anything).',message_complete:true,session_id:h.engine.latestSession('1')!.sessionId,phaseId:'1',checked_at:h.engine.record.phases['1']!.stop!.checkedAt,checks:browser.checks,failed_checks:browser.checks.filter(c=>!c.passed),resumeOffered:true,resumeCommand:browser.resumeCommand,freshSessionCommand:browser.freshSessionCommand,freshSessionPrompt:browser.freshSessionPrompt});
     // AC-ACT-01: pin the complete inventory, not an every() over a possibly empty list.
-    const controlNames=['reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','check-for-new-phases','continue-with-phases','handoff','settings','message','take-over'].sort();
+    const controlNames=['reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','locate-repository','check-for-new-phases','continue-with-phases','merge','exit','handoff','settings','message','take-over','model'].sort();
     const controls=detail.controls as {name:string;available:boolean;reason:string|null}[];
     expect(controls.map(c=>c.name).sort()).toEqual(controlNames);
-    for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);expect(c).toMatchObject({required_inputs:c.name==='check-for-new-phases'||c.name==='handoff'?['PRD-path']:c.name==='continue-with-phases'?['PRD-path','--proposal','--only-if-status-matches','--command-id']:['PRD-path','--only-if-status-matches','--command-id'],invocation:['kiln',c.name,path]});}
+    for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);expect(c).toMatchObject({required_inputs:c.name==='check-for-new-phases'||c.name==='handoff'?['PRD-path']:c.name==='locate-repository'?['PRD-path','address-path','folder','--only-if-status-matches','--command-id']:c.name==='continue-with-phases'?['PRD-path','--proposal','--only-if-status-matches','--command-id']:c.name==='model'?['PRD-path','--phase | --audits','--agent --model [--effort] | --use-default','--only-if-status-matches','--command-id']:['PRD-path','--only-if-status-matches','--command-id'],invocation:['kiln',c.name,path]});}
     for(const name of ['reply','resume','settings','handoff'])expect(controls.find(c=>c.name===name)?.available).toBe(true);
 
     const handoff=await command(['handoff',path,'--json'],h.env,h.sandbox.root);
     expect(handoff.code,handoff.stdout).toBe(0);expect(handoff.json().data).toMatchObject({resume_command:browser.resumeCommand,continuation_prompt:browser.resumePrompt??null,working_directory:h.engine.worktreePath,resumable:true});
     const account=(await command(['account',path,'--json'],h.env,h.sandbox.root)).json().data as Record<string,unknown>;
-    expect(account.next_attempt).toMatchObject({observed_at:h.engine.agents.state.account!.updatedAt,state:'current'});
+    expect(account.next_attempt).toMatchObject({observed_at:h.engine.readers.claude_code.state.account!.updatedAt,state:'current'});
     const calls=h.claudeCalls().length;await command(['account',path,'--refresh','--json'],h.env,h.sandbox.root);expect(h.claudeCalls()).toHaveLength(calls);
     expect((await command(['status','--json'],h.env)).json().counts).toEqual({live_controllers:1,working:0,waiting:0,needs_you:1,paused:0,stopped_unfinished:0,unknown:0});
     const facts=h.engine.record.phases['1']!;const stop=facts.stop!;delete facts.stop;
@@ -349,19 +350,19 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     expect(offlineLatest.json().data).toMatchObject({session_id:current.sessionId,provider_session_id:current.sessionId,phase_key:'1',working_directory:current.workingDirectory,resumable:true,continuation_prompt:latest.continuation_prompt,fresh_session_instructions:latest.fresh_session_instructions});
   });
   it('preserves independently dated attempt/current accounts, usage windows, effective models and named nested/audit activity',async()=>{
-    sandbox=createSandbox();const f=fixture();const s=session(f);f.record.settings.agentId='codex';s.record.initModel='effective-provider-model';
+    sandbox=createSandbox();const f=fixture();const s=session(f);f.record.settings.modelChoices.kept={...CODEX_CHOICE};s.record.initModel='effective-provider-model';
     s.record.codex={launchIntent:{version:'0.162.1',cwd:f.repository,writableRoots:[f.repository],repositories:[],skills:[]},originalAccount:{at:'2026-01-01T00:00:00Z',email:'original@example.invalid'}};
     s.record.runs.at(-1)!.billing={agentId:'codex',route:'subscription',sources:[],email:'attempt@example.invalid',observedAt:'2026-01-02T02:00:00Z',diagnostics:[],approved:false};writeSessionRecord(f.directory,s.record);
     f.record.phases['1a']!.stop={kind:'done_check',at:'2026-01-03T00:00:00Z',checkedAt:'2026-01-03T00:00:00Z',checks:[]};
-    f.record.billing!.lastLaunch={agentId:'codex',route:'subscription',sources:[],email:'last@example.invalid',observedAt:'2026-01-02T00:00:00Z',diagnostics:[],approved:false};writePrdRecord(f.directory,f.record);
+    f.record.billing!.lastLaunch={codex:{agentId:'codex',route:'subscription',sources:[],email:'last@example.invalid',observedAt:'2026-01-02T00:00:00Z',diagnostics:[],approved:false}};writePrdRecord(f.directory,f.record);
     const next={agentId:'codex',email:'next@example.invalid',plan:'Next plan',startedAt:'2026-01-04T00:00:00Z',updatedAt:'2026-01-04T00:00:01Z',limitsObservedAt:'2026-01-04T00:00:00Z',limits:[{id:'five-hour',kind:'session',label:'5-hour',shortLabel:'5h',percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300,nearLimit:false}],stale:true};
-    writeJsonAtomically(join(f.directory,'inspection-view.json'),{version:1,execution_id:f.record.executionId,observed_at:'2026-01-04T00:00:01Z',snapshot:{feature:{state:'needs_you',currentPhaseId:'1a',phasesDone:0,phasesTotal:2},account:next}});
+    writeJsonAtomically(join(f.directory,'inspection-view.json'),{version:1,execution_id:f.record.executionId,observed_at:'2026-01-04T00:00:01Z',snapshot:{feature:{state:'needs_you',currentPhaseId:'1a',phasesDone:0,phasesTotal:2},agents:[{agentId:'codex',agent:'Codex',installed:true,pending:false,inUse:true,neededBy:{activities:['Phase 1a'],fallbackOnly:false},account:next}]}});
     const answer=(await command(['status',f.path,'--detail','full','--json'])).json();
     expect(answer).toMatchObject({agent:'codex',requested_model:{model:'gpt-model'},effective_model:{model:'effective-provider-model'},phases:{completed:0,total:2},activity:{phase_id:'1a',title:'Nested intake'}});
     expect(answer.account).toMatchObject({last_attempt:{value:{email:'attempt@example.invalid'},observed_at:'2026-01-02T02:00:00Z',state:'stale'},original_attempt:{value:{email:'original@example.invalid'}},next_attempt:{value:{email:'next@example.invalid'},observed_at:'2026-01-04T00:00:01Z',state:'stale'},usage:{value:[{percent:72,resetsAt:'2026-01-04T05:00:00Z',durationMinutes:300}],state:'stale'}});
     f.record.completionAudits!.activities=[{activityId:'audit-id',sequence:1,kind:'test_audit',round:3,continuationIndex:2,createdAt:'2026-01-05T00:00:00Z',sessionIds:[],reportPath:'audit.json',skill:{name:'test-audit',path:'/skill',digest:'digest'},snapshots:[],attempts:[]}];
     f.record.phases={...f.record.phases,'audit-audit-id':{sessionIds:[],stop:{kind:'done_check',at:'2026-01-05T00:00:00Z',checkedAt:'2026-01-05T00:00:00Z',checks:[]},repositories:{},finishedByPerson:false,outsideConfirmations:[]}};delete f.record.phases['1a']!.stop;writePrdRecord(f.directory,f.record);rmSync(join(f.directory,'inspection-view.json'));
-    const audit=(await command(['status',f.path,'--json'])).json();expect(audit.activity).toMatchObject({kind:'test_audit',round:3,continuation_index:2,title:'Test audit',phase_id:null});
+    const audit=(await command(['status',f.path,'--json'])).json();expect(audit.activity).toMatchObject({kind:'test_audit',round:3,continuation_index:2,title:'Fixing tests',phase_id:null});
   });
   it('handles incomplete/malformed saved records and compact metadata errors within both final stdout budgets',async()=>{
     sandbox=createSandbox();const f=fixture();const s=session(f);
@@ -510,7 +511,7 @@ it.each(['claude_code', 'codex'] as const)('preserves independent %s billing obs
   saved.record.runs.at(-1)!.codex = { intentAt: at, account: { at, plan: 'pro' }, requested: { model: 'saved' }, profile: { version: '0.162.1', cwd: f.repository, writableRoots: [], repositories: [], skills: [] }, modelActivityAt: [], humanRequests: [] };
   saved.record.codex = { originalAccount: { at }, launchIntent: saved.record.runs.at(-1)!.codex!.profile }; writeSessionRecord(f.directory, saved.record);
   const billing = { agentId: agent, route: 'settings' as const, observedAt: billingAt, sources: [], diagnostics: [], approved: false };
-  const snapshot = { account: { agentId: agent, email: 'known@example.invalid', plan: 'pro', startedAt: at, updatedAt: at, limitsObservedAt: at, limits: [{ id: 'reported-window', kind: 'reported-window', label: 'Reported', shortLabel: 'Reported', nearLimit: false }] }, billing: { executionId: f.record.executionId, selectionGeneration: 0, pending: false, next: { ...billing, readingId: 'private-authority-id', canApprove: true, canClear: true }, lastLaunch: { ...billing, observedAt: '2026-01-02T00:00:00.000Z' }, canLaunch: true, hold: { phaseKey: '1a', action: 'resume', sessionId: saved.record.sessionId, reason: 'Approval is required for this context.', at: billingAt, observed: billing } } } as unknown as Snapshot;
+  const snapshot = { agents: [{ agentId: agent, agent: agent === 'codex' ? 'Codex' : 'Claude Code', installed: true, pending: false, inUse: true, neededBy: { activities: ['Phase 1a'], fallbackOnly: false }, account: { agentId: agent, email: 'known@example.invalid', plan: 'pro', startedAt: at, updatedAt: at, limitsObservedAt: at, limits: [{ id: 'reported-window', kind: 'reported-window', label: 'Reported', shortLabel: 'Reported', nearLimit: false }] }, billing: { executionId: f.record.executionId, selectionGeneration: 0, pending: false, next: { ...billing, readingId: 'private-authority-id', canApprove: true, canClear: true }, lastLaunch: { ...billing, observedAt: '2026-01-02T00:00:00.000Z' }, canLaunch: true, hold: { phaseKey: '1a', action: 'resume', sessionId: saved.record.sessionId, reason: 'Approval is required for this context.', at: billingAt, observed: billing } } }] } as unknown as Snapshot;
   const history = readHistory(f.work());
   try {
     const live = accountFacts(f.work(), snapshot, true, history);
@@ -580,7 +581,8 @@ it('removes the CLI response spool after a real HTTP body fails mid-read', async
 
 it('withholds a restart handoff throughout asynchronous preflight before a current process exists', async () => {
   sandbox = createSandbox(); const gateFile = join(sandbox.root, 'never-finish');
-  h = await createHarness({ sessions: [{ actions: [{ waitForFile: gateFile }] }, { actions: [{ result: 'Resumed once' }] }] });
+  // The model has responded before the stop, so the phase has started and Kiln resumes it (Kiln Phase Model Tiers AC-PICK-04).
+  h = await createHarness({ sessions: [{ actions: [{ text: 'Working.' }, { waitForFile: gateFile }] }, { actions: [{ result: 'Resumed once' }] }] });
   await h.engine.start({ refinementConfirmed: true }); await waitFor(() => !!h!.engine.current?.processRunning && !!h!.engine.current?.session?.initModel);
   await h.engine.stop('sigint'); await h.engine.settled(); const saved = h.engine.latestSession('1')!; h.engine.close();
   let release!: () => void; let entered = false; const gate = new Promise<void>(resolve => { release = resolve; });
@@ -753,7 +755,7 @@ it('guards audit result and work-snapshot sidecars through real controller/CLI s
       for (const json of [true, false]) {
         const child = spawnSync(process.execPath, ['--max-old-space-size=48', fileURLToPath(new URL('../../dist/cli.js', import.meta.url)), 'status', path, '--detail', 'full', ...(json ? ['--json'] : [])], { env: h.env, cwd: h.sandbox.root, encoding: 'utf8' });
         expect(child.stderr).toBe(''); expect(child.status, child.stdout).toBe(id === valid ? 0 : 4);
-        if (json) { const answer = JSON.parse(child.stdout); expect(answer.ok).toBe(id === valid); if (id === valid) expect(answer.activity_history[0].audit.repositories).toEqual([{ name: 'fixture', revision: 'saved-revision' }]); else expect(answer.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'state_unavailable', message: expect.stringContaining('projection') })])); }
+        if (json) { const answer = JSON.parse(child.stdout); expect(answer.ok).toBe(id === valid); if (id === valid) expect(answer.activity_history[0].audit.repositories).toEqual([{ name: 'fixture', label: 'fixture', revision: 'saved-revision' }]); else expect(answer.errors).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'state_unavailable', message: expect.stringContaining('projection') })])); }
         else expect(child.stdout).toContain(id === valid ? 'saved-revision' : 'state_unavailable');
       }
     }

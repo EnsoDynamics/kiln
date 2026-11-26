@@ -45,6 +45,8 @@ Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-ad
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (`kiln model` is a new bot mutation that selects models for activities that haven't started).
+
 Only the post-start controls in SCOPE-001 are new bot mutations. No new-run setup, model selection, billing approval, delivery grant, merge or release command is added. Read-only billing facts use the billing feature's authoritative projection. Its implementation is owned by another chat; this design consumes that boundary and does not redesign it.
 
 Each controller admits at most one conflicting work transition, including completion evaluation, resumption and dispatch. Explicit pause requests/cancellations and setting values remain allowed where existing eligibility permits them; their writes serialize with other changes. Duplicate accepted instructions join their existing operation. A different competing instruction is refused as `busy`, never queued for a later stop. The existing port range 4700–4799 admits at most 100 simultaneous controllers (and fewer when other processes occupy it); this interface does not enlarge it. Inventory includes unprobed rows as unknown when its 15-second fan-out deadline expires, so its counts never imply complete discovery after that ceiling. Every state write that authorizes subsequent dispatch must succeed before dispatch can happen.
@@ -107,6 +109,12 @@ Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limi
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`check-for-new-phases` and `continue-with-phases` added; `allow-more-loops`, `accept-and-deliver` and the third loop setting refused as removed).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`kiln merge` and `kiln exit`).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session (`reply` and `resume` settle `started` for an activity that hasn't started).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (`kiln model`, and `kiln model-defaults`, whose changing commands take a new side effect, `computer_setting`, with no PRD path, controller or safety flags).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |
@@ -161,6 +169,8 @@ Errors contain `{ code, message, retryable, next_command, next_argv }`; `next_*`
 Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Folder Check (a run whose folder is missing reports `folder_missing` and offers no resume or continuation).
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (with no session, status's agent and requested model are the reported activity's `model.choice`; handoff facts follow the activity's agent, and `resume_command` and `resume_argv` for an activity that hasn't started are present only while its current choice is the one that session ran on).
 
 Targeted status always includes execution/PRD/repository identity, controller reachability, current work state/activity (phase, audit round or delivery), phase counts, agent/requested/effective model, start/latest activity times, pending pause, usage wait, completion outcome and recorded PR links. The complete stop includes its exact final message or explicit absence, reason, failed checks and their check times, human requests and browser recovery instructions. No quiet-time heuristic claims healthy or stuck. Disconnected facts retain their last-known dates; no executable controls or current status token are returned.
 
@@ -250,6 +260,8 @@ A cursor fixes snapshot and exclusive endpoint; repeated requests with the same 
 
 ## Account and Usage Facts
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (account facts cover every needed agent, the activity's in today's fields and the others in `other_agents[]`).
+
 `account` and full status separate `last_attempt`/`original_attempt` provenance from `next_attempt` current authentication. Each account, plan, billing route, usage bucket and permission observation retains its own timestamp/state/reason. Codex preserves provider window IDs, duration and account identity; five-hour and weekly names are only assigned when provider data supports them. Claude preserves provider-specific weekly scoped rows. Missing usage is not 0%, and credit balance is not ordinary usage permission. Refresh uses provider metadata, never an inference request. Concurrency joins identical display refreshes; a required prelaunch check starts freshly after older reads settle.
 
 ## Durable Data and Evolution
@@ -280,6 +292,8 @@ Inspection cache writes share the existing 100 ms snapshot cadence and flush pen
 ## Local API and Integration Points
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`POST /api/control/v1/continuation/check`).
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`POST /api/merge` and `POST /api/exit`, the `merge` and `exit` journal actions and the `after_delivery` feature).
 
 Every route retains loopback-only binding, strict Host and matching mutation Origin, `X-Kiln-Token`, no CORS, no-store and owner-only token lookup. CLI does not expose tokens in argv or public output. Validate execution binding on all responses. Redirects are refused; a loopback redirect cannot forward a token elsewhere.
 

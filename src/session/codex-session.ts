@@ -3,6 +3,7 @@ import { codexBillingSummary } from "../billing/codex.js";
 import type { BillingSummary } from "../billing/inspection.js";
 import { appendFileSync } from "node:fs";
 import { realpathSync } from "node:fs";
+import { isCodexModelItem, type CodexNotification } from "../models/start-line.js";
 import { createHash, randomUUID } from "node:crypto";
 import { processStartTime } from "../platform/process-start-time.js";
 import { readSessionRecord, writeSessionRecord, sessionStorageKey, type SessionRecord, type SessionRun, type CodexRunFacts } from "../state/records.js";
@@ -15,7 +16,7 @@ import { CodexOwnedProcesses, stopCodexOwnedProcesses } from "./codex-owned-proc
 import { readCodexTurnExecutions } from "./codex-turn-provenance.js";
 import { CODEX_NATIVE_CLEANUP_WARNING, stopCodexBackgroundTerminals } from "./codex-background-terminals.js";
 import { codexSessionPrompt, requiredBackgroundWorkPrompt } from "./prompts.js";
-import { CodexUsageRecoveryUnavailable, codexUsageRefusal, codexUsageRelease, consumeCodexUsage, recordCodexUsageProgress } from "./codex-usage.js";
+import { activityUsageRelease, CodexUsageRecoveryUnavailable, codexUsageRefusal, codexUsageRelease, consumeCodexUsage, recordCodexUsageProgress } from "./codex-usage.js";
 
 interface Turn { id: string; status: string; error?: unknown; items?: { type: string; phase?: string; text?: string }[] }
 const TERMINAL = new Set(["completed", "failed", "interrupted"]);
@@ -37,6 +38,8 @@ export interface CodexSessionOptions extends Omit<CodexLaunchOptions, "choice"> 
   /** Kiln guidance, separate from provider-native events. Wire to terminal/browser in 3b2. */
   onWarning?(text: string): void;
   stopWaitMs?: number;
+  /** A launch ending a wait for an activity that hasn't started: the activity's one-attempt record, the refusal's time, and how to save the record. */
+  automaticAttempt?: { recovery: import("../state/records.js").CodexUsageRecovery; refusalAt: string; save: () => void };
 }
 
 async function turns(rpc: HistoryRpc, threadId: string): Promise<Turn[]> {
@@ -74,9 +77,12 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
   const env = { ...options.env, ...(record.conversation?.codexHome ? { CODEX_HOME: record.conversation.codexHome } : {}) };
   const prepared = await prepareCodexLaunch({ ...options, env, choice: { model: record.model, ...(record.effort ? { effort: record.effort } : {}) } });
   if (options.signal?.aborted) throw new Error("Kiln is stopping.");
-  const automaticRelease = options.cause === "limit_resume" ? codexUsageRelease(record, previous!.limitRefusal!, prepared.usage) : undefined;
+  // A launch at the end of a wait for an activity that hasn't started is bounded by the activity's own record (Kiln Phase Model Tiers, "A Wait Before the Start").
+  const attempt = options.cause === "launch" ? options.automaticAttempt : undefined;
+  const automaticRelease = options.cause === "limit_resume" ? codexUsageRelease(record, previous!.limitRefusal!, prepared.usage) : attempt ? activityUsageRelease(attempt.recovery, { model: record.model, effort: record.effort }, attempt.refusalAt, prepared.usage) : undefined;
   if (automaticRelease && automaticRelease.state !== "allowed") {
     writeSessionRecord(options.stateDirectory, record);
+    attempt?.save();
     throw new CodexUsageRecoveryUnavailable(automaticRelease);
   }
   await options.beforeStart?.();
@@ -89,7 +95,7 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
   const prompt = options.cause === "launch" && ["phase", "delivery_audit", "test_audit"].includes(record.kind) ? codexSessionPrompt(task, prepared.profile.skills, record.kind === "delivery_audit" ? "delivery-audit" : record.kind === "test_audit" ? "test-audit" : "implement-from-requirements") : task;
   const now = () => new Date().toISOString();
   const facts: CodexRunFacts = { intentAt: now(), requested: prepared.choice, account: prepared.account, profile: prepared.profile, humanRequests: [], modelActivityAt: [], processOwner: randomUUID(), cleanupWarning: CODEX_NATIVE_CLEANUP_WARNING };
-  if (automaticRelease) facts.automaticUsageEvidence = consumeCodexUsage(record, automaticRelease);
+  if (automaticRelease) { facts.automaticUsageEvidence = consumeCodexUsage(attempt ? attempt.recovery : record, automaticRelease); attempt?.save(); }
   const billing = codexBillingSummary(prepared.usage);
   options.onBilling?.(billing); // PRD history must be durable before any work process exists.
   const run: SessionRun = { ...(options.control ? { control: { ...options.control, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}), billing, startedAt: facts.intentAt, cause: options.cause, codex: facts, ...(options.note ? { note: options.note } : {}) };
@@ -154,6 +160,10 @@ async function execute(options: CodexSessionOptions): Promise<SessionRun> {
     if (message.method === "thread/started" && record.conversation) {
       const thread = params.thread as { id?: string; parentThreadId?: string };
       if (thread?.parentThreadId === parentId || record.conversation.knownThreadIds?.includes(thread?.parentThreadId ?? "")) rememberChild(thread.id);
+    }
+    // The first item the model issued starts the activity (Kiln Phase Model Tiers, "When an Activity Starts").
+    if (facts.firstResponseAt === undefined && isCodexModelItem(message as CodexNotification)) {
+      facts.firstResponseAt = at; record.firstResponseAt ??= at; save();
     }
     if (["item/started", "item/completed"].includes(message.method ?? "")) {
       const item = params.item as { type?: string; phase?: string; text?: string; questions?: unknown[]; receiverThreadIds?: string[]; agentThreadId?: string };

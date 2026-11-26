@@ -48,7 +48,8 @@ const output = (sessionId, lines) => {
   }
 };
 engine.onOutput(output);
-await engine.changeSettings({ agentId: 'codex' }); await engine.agents.refresh();
+// Every activity runs on Codex · GPT Sol · high, as a PRD whose saved choice was kept (Kiln Phase Model Tiers AC-KEEP-02).
+engine.record.settings.modelChoices.kept = { agentId: 'codex', model: 'gpt-6.1-sol', effort: 'high' }; engine.modelChoicesChanged(); await engine.refreshAgents();
 let server = await serverFor(engine);
 writeFileSync(join(root, 'workflow-proof.json'), JSON.stringify({ root, repository, stateDirectory, address: server.address, purpose: 'isolated production Codex workflow proof' }), { mode: 0o600 });
 console.log('PROOF_ROOT', root); console.log('BROWSER', server.address);
@@ -62,8 +63,8 @@ try {
   const preservedEdit = readFileSync(join(engine.worktreePath, 'greeting.js'), 'utf8');
   writeFileSync(join(root, 'interrupted-snapshot.json'), JSON.stringify(buildSnapshot(engine)), { mode: 0o600 });
   // Next-session settings differ; recovery must retain the original pair.
-  const saved = readPrdRecord(stateDirectory); saved.settings.agentChoices.codex.effort = 'low';
-  engine = make(saved); engine.onOutput(output); await engine.agents.refresh();
+  const saved = readPrdRecord(stateDirectory); saved.settings.modelChoices.kept.effort = 'low';
+  engine = make(saved); engine.onOutput(output); await engine.refreshAgents();
   server = await serverFor(engine);
   const decision = await engine.decide(); console.log('RESTART', JSON.stringify(decision));
   if (decision.kind !== 'resume') throw new Error('Interrupted proof could not resume: ' + JSON.stringify(buildSnapshot(engine).needsYou));
@@ -89,14 +90,14 @@ async function resumeExisting(folder) {
   const original = JSON.parse(readFileSync(join(stateDirectory, phaseKey, id, 'session.json'), 'utf8'));
   if (original.runs.at(-1)?.codex?.terminal?.status !== 'interrupted' || original.runs.at(-1)?.codex?.cleanup !== 'tracked_processes_stopped') throw new Error('No qualified real interruption to recover');
   const preservedEdit = readFileSync(join(record.repositories[0].worktreePath, 'greeting.js'), 'utf8');
-  record.settings.agentChoices.codex.effort = 'low';
+  record.settings.modelChoices.kept.effort = 'low';
   const env = { ...process.env, PATH: join(root, 'bin') + delimiter + process.env.PATH, KILN_WORKFLOW_PR_STATE: join(root, 'local-pr.json') };
   const paths = { mainCheckoutPath: manifest.repository, repositoryName: 'proof-app', folderName: 'codex-workflow-proof', prdDirectoryFromRoot: record.prdDirectory, featureName: record.featureName };
   const engine = new Engine({ paths, record, tools: { git: 'git', gh: join(root, 'bin', 'gh'), claude: '/missing/claude', codex: 'codex' }, env, stateDirectory, sleepReader: { next: async () => [] }, onTerminal: event => console.log(JSON.stringify(event)) });
   engine.onOutput((sessionId, lines) => { for (const line of lines) console.log(JSON.stringify({ sessionId, line: line.line, source: line.source, text: line.text.slice(0,180) })); });
   const server = await startLocalServer({ engine, port: 41448, folderName: paths.folderName, featureName: paths.featureName, token: record.token });
   try {
-    await engine.agents.refresh(); await engine.prepare();
+    await engine.refreshAgents(); await engine.prepare();
     const decision = await engine.decide(); console.log('RESTART', JSON.stringify(decision));
     let recovery;
     if (decision.kind === 'resume') { recovery = 'automatic'; await engine.continue(); }

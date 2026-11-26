@@ -627,7 +627,7 @@ describe("Resume now and the setting (AC-AUTO-04)", () => {
     await startToWait(s);
     claude.deliver(signedIn([usageRow("session", 100)]));
     const pressed = h.engine.resume(recoveryRequest(h.engine));
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ resumeAfterUsageLimit: false })).toEqual({ ok: true });
     expect(h.engine.waitingPhaseKey()).toBe("1");
     claude.queue(signedIn([usageRow("session", 100)]));
     expect(await pressed).toEqual({ ok: true });
@@ -642,7 +642,7 @@ describe("the setting (AC-AUTO-04)", () => {
     const s = await setup((reset) => [refusedSession({ rateLimitType: "five_hour", resetsAt: reset }), landingSession("src/intake.txt")]);
     const { h, claude } = s;
     expect(h.engine.record.settings.resumeAfterUsageLimit).toBe(true);
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false });
+    await h.engine.changeSettings({ resumeAfterUsageLimit: false });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]!.stop).toMatchObject({ kind: "done_check", limit: { label: "5-hour window", resetsAt: resetIso(s.reset) } });
@@ -653,7 +653,7 @@ describe("the setting (AC-AUTO-04)", () => {
     expect(buildSnapshot(h.engine).needsYou!.limit).toMatchObject({ account: { percent: 100, atLimitUntil: resetIso(s.reset) } });
 
     // Switched on at Needs you, it changes the setting only.
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: true });
+    await h.engine.changeSettings({ resumeAfterUsageLimit: true });
     await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1);
     // Resume at Needs you after a usage limit tells the session so.
@@ -670,7 +670,7 @@ describe("the setting (AC-AUTO-04)", () => {
     const { h } = s;
     await startToWait(s);
     const checks = h.engine.record.phases["1"]!.wait!.checks;
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ resumeAfterUsageLimit: false })).toEqual({ ok: true });
     expect(h.engine.record.phases["1"]!.wait).toBeUndefined();
     expect(h.engine.record.phases["1"]!.stop).toMatchObject({ kind: "done_check", checks, limit: { label: "5-hour window" } });
     expect(states.at(-1)).toBe(false);
@@ -684,7 +684,7 @@ describe("the setting (AC-AUTO-04)", () => {
     claude.deliver(signedIn([usageRow("session", 3)]));
     // The check has failed; Kiln is reading the account before resuming.
     await waitFor(() => claude.waiting);
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, resumeAfterUsageLimit: false })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ resumeAfterUsageLimit: false })).toEqual({ ok: true });
     expect(h.engine.waitingPhaseKey()).toBe("1");
     // A reading during the resume's hold changes the card only, never the refused account.
     claude.deliver(signedIn([usageRow("session", 3)], { email: "sam@acme-shop.dev", orgId: "org-sam" }));

@@ -198,7 +198,7 @@ describe("Running during the pull-request session (AC-PR-05)", () => {
     const words = text(running(snapshot));
     expect(words).toContain("Implementing the pull request");
     expect(words).toContain("Now implementing · the pull request Final pull request");
-    expect(words).toContain("Model and effort changes apply from the next phase; the pull-request session keeps what it started with.");
+    expect(words).toContain("A phase that has started keeps the model it started with.");
     expect(words).toContain("Close to the limit. Weekly");
     expect(words).toContain("Ctrl+C there interrupts the pull-request session");
     // The final-delivery note names Pause now (Kiln Pause Now AC-PAUSE-02); no pause panel is offered.
@@ -370,11 +370,11 @@ describe("the progress screens across repositories (multi-repo AC-PRS-03, AC-PRS
     const page = running(runningRepositoriesSnapshot());
     const words = text(page);
     expect(words).toContain(
-      "Workspace folder ~/devel/acme/.worktrees/ customer-returns/ 4 repositories, one added in phase 2b Feature branch feature/customer-returns Repositories Branch from, and PR into product PRD’s repository main returns-api develop storefront develop notifications added in phase 2b main The same for every phase Workspace folder, feature branch, and one PR in each repository into its base, set before the first phase.",
+      "Workspace folder ~/devel/acme/.worktrees/ customer-returns/ 4 repositories, one added in phase 2b Feature branch feature/customer-returns Repositories Branch from, and PR into product PRD’s repository acme/product · ~/devel/acme/product main returns-api acme/returns-api · ~/devel/acme/returns-api develop storefront acme/storefront · ~/devel/acme/storefront develop notifications added in phase 2b acme/notifications · ~/devel/acme/notifications main The same for every phase Workspace folder, feature branch, and one PR in each repository into its base, set before the first phase.",
     );
     // What Kiln may do in each repository, those added later included (multi-repo AC-PRS-04).
     expect(words).toContain(
-      "In each repository Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It never merges, deploys, or touches other branches.",
+      "In each repository Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page, in the PRD’s repository pushes this PRD’s documents to its base only when you press Continue there, and never deploys or touches other branches.",
     );
     const now = text(/<section class="now[\s\S]*?<\/section>/.exec(page)![0]);
     expect(now).toContain("Model Opus 5.5 · high effort Commits 3 in 2 repositories returns-api 7f3d9a0 feat(credit): store credit ledger (phase 2b) 4c1a8e5 test(credit): ledger balances notifications added in phase 2b 2b6f1d3 feat(emails): store credit issued email (phase 2b) Session");

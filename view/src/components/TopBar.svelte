@@ -13,7 +13,8 @@
   import { buildDetails, type BuildInfo } from "../../../src/build-label.js";
   import { build as embedded } from "../lib/build.js";
 
-  let { connected, lastEventAt, now, home, router, latest, open = false, build = embedded }: { connected: boolean; lastEventAt: number | undefined; now: number; home?: string; router?: Router; latest?: string; open?: boolean; build?: BuildInfo | undefined } = $props();
+  // `exited`: Kiln was exited from the page or the command line (Kiln After Delivery AC-EXIT-02), so the page no longer updates.
+  let { connected, lastEventAt, now, home, router, latest, open = false, build = embedded, exited = false }: { connected: boolean; lastEventAt: number | undefined; now: number; home?: string; router?: Router; latest?: string; open?: boolean; build?: BuildInfo | undefined; exited?: boolean } = $props();
   // A development build says which commit and when, in the browser's time zone (AC-LOOK-05, AC-HELP-03).
   const details = $derived(buildDetails(build, new Date(now)));
   const ago = $derived(lastEventAt === undefined ? undefined : Math.max(0, Math.round((now - lastEventAt) / 1000)));
@@ -50,7 +51,7 @@
   <div class="right">
     {#if lastEventAt !== undefined}
       <span class="status" data-testid="connection">
-        <span class="dot" class:connected></span>{#if connected}Connected to Kiln{#if ago !== undefined}<span class="dim">· updated {ago}s ago</span>{/if}{:else}<span class="lost">Disconnected from Kiln</span><span class="dim">· last seen {clockTime(new Date(lastEventAt).toISOString(), new Date(now), { afterWord: true })}</span>{/if}
+        <span class="dot" class:connected={connected && !exited}></span>{#if exited}Kiln has exited{:else if connected}Connected to Kiln{#if ago !== undefined}<span class="dim">· updated {ago}s ago</span>{/if}{:else}<span class="lost">Disconnected from Kiln</span><span class="dim">· last seen {clockTime(new Date(lastEventAt).toISOString(), new Date(now), { afterWord: true })}</span>{/if}
       </span>
       <span class="divider" aria-hidden="true"></span>
     {/if}

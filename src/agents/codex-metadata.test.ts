@@ -24,4 +24,11 @@ describe("Codex metadata rules", () => {
     expect(result.limits).toHaveLength(3); expect(result.limits[0]).toMatchObject({ durationMinutes: 10080, nearLimit: false });
     expect(result.limits[0]!.percent).toBeUndefined(); expect(result.limits[0]!.resetsAt).toBeUndefined(); expect(result.limits[1]!.nearLimit).toBe(true);
   });
+  it("carries a bucket's normalModelSlug and limitName on each of its windows, for the fallback's counted limits (Kiln Phase Model Tiers AC-FALLBACK-02)", () => {
+    const account = { account: { type: "chatgpt", email: "known@example.invalid" } };
+    const result = codexAccount(account, { accountId: "known", rateLimitsByLimitId: { sol: { limitId: "sol", normalModelSlug: "gpt-6.2-sol", limitName: "GPT Sol", primary: { usedPercent: 97 }, secondary: { usedPercent: 40 } }, codex: { limitId: "codex", primary: { usedPercent: 10 } } } } as Parameters<typeof codexAccount>[1], account, "2026-10-23T00:00:00Z", "2026-10-23T00:00:01Z");
+    expect(result.limits.filter(limit => limit.id?.startsWith("sol:"))).toEqual([expect.objectContaining({ modelSlug: "gpt-6.2-sol", limitName: "GPT Sol", percent: 97 }), expect.objectContaining({ modelSlug: "gpt-6.2-sol", limitName: "GPT Sol", percent: 40 })]);
+    const codexWindow = result.limits.find(limit => limit.id === "codex:primary")!;
+    expect(codexWindow.modelSlug).toBeUndefined(); expect(codexWindow.limitName).toBeUndefined();
+  });
 });

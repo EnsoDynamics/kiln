@@ -1,6 +1,8 @@
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 // Automatic routing with real Git, packaged CLI/HTTP, persisted state and scripted provider
 // transcripts. Both actual providers are separately exercised by the installed-package proof.
+import { formatDecisionLine } from "../underway-output.js";
+import { terminalColors } from "../terminal-output.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as auditAdmission from "../audit/admission.js";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -18,6 +20,7 @@ import { AuditRefusal, type AuditResult } from "../audit/contracts.js";
 import { auditKey } from "../audit/workflow.js";
 import { ScriptedClaude, signedIn, usageRow } from "../test-support/scripted-claude.js";
 import type { EngineOptions } from "./engine.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 
 let h: Harness | undefined; let server: LocalServer | undefined; let release: (() => void) | undefined;
 afterEach(async () => { await server?.close(); server = undefined; release?.(); release = undefined; await h?.cleanup(); h = undefined; });
@@ -31,6 +34,7 @@ const files = {
 };
 async function fixture(auditSessions?: unknown[], sessions = [pullRequestSession()], documentFiles = files, engineOptions: Partial<EngineOptions> = {}) {
   h = await createHarness({ folder: "proof", files: documentFiles, sessions, auditCycles: true, engineOptions });
+  h.useGithubOrigin();
   writeFileSync(join(h.repository, ".gitignore"), ".proof/\n"); git(h.sandbox, h.repository, "add", "--", ".gitignore"); git(h.sandbox, h.repository, "commit", "-m", "test(audit): ignore transient requests"); git(h.sandbox, h.repository, "push", "origin", "develop");
   if (auditSessions) writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions }));
   const hosted = await startFixtureController({ engine: h.engine, folderName: "proof", featureName: "Audit value", token: h.engine.record.token });
@@ -62,13 +66,13 @@ describe("automatic completion activities", () => {
       await expect(current.engine.resume({})).rejects.toThrow("Broken Codex compaction window chain.");
       expect(current.claudeCalls()).toHaveLength(1);
       const billing = current.engine.record.billing!;
-      billing.hold = { phaseKey: key, action: "resume", sessionId: sessionIds[0]!, reason: "Fixture billing requires review.", observed: structuredClone(billing.lastLaunch!), at: new Date().toISOString() };
+      billing.hold = { phaseKey: key, action: "resume", sessionId: sessionIds[0]!, reason: "Fixture billing requires review.", observed: structuredClone(billing.lastLaunch!.claude_code!), at: new Date().toISOString() };
       await expect(current.engine.resume({})).rejects.toThrow("Broken Codex compaction window chain.");
       expect(current.claudeCalls()).toHaveLength(1);
       expect(current.engine.record.billing!.hold).toBeDefined();
       delete current.engine.record.billing!.hold;
       writePrdRecord(current.stateDirectory, current.engine.record);
-      current.reopenFromDisk(); await current.engine.agents.refresh();
+      current.reopenFromDisk(); await current.engine.refreshAgents();
       await current.engine.decide(); await current.engine.settled();
       expect(current.engine.record.phases[key]!.stop).toBeDefined();
       expect(current.engine.record.completionAudits!.activities.at(-1)!.sessionIds).toEqual(sessionIds);
@@ -172,7 +176,7 @@ describe("automatic completion activities", () => {
     writeFileSync(current.scenarioPath, JSON.stringify({ sessions: [], auditSessions: [{ actions: [{ touch: marker }, { work: "audit verification" }] }] }));
     await current.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
     await current.engine.stop("sigint");
-    current.reopenFromDisk(); await current.engine.agents.refresh();
+    current.reopenFromDisk(); await current.engine.refreshAgents();
     const key = auditKey(current.engine.record.completionAudits!.activities[0]!);
     const submit = vi.spyOn(auditAdmission, "submitAudit").mockRejectedValue(new AuditRefusal("evidence_unavailable", "Unavailable original audit history.", 503));
     try {
@@ -201,7 +205,7 @@ describe("automatic completion activities", () => {
       await waitFor(() => existsSync(marker));
       await current.engine.stop("sigint");
       current.reopenFromDisk();
-      await current.engine.agents.refresh();
+      await current.engine.refreshAgents();
     } else if (entry !== "completed") {
       await current.engine.start({ refinementConfirmed: true });
       await current.engine.settled();
@@ -298,7 +302,7 @@ describe("automatic completion activities", () => {
         writeFileSync(join(process.env.KILN_SCREENSHOTS, "completion-for-you-after-delivery.png"), await page.screenshot());
       }
     } finally { await chrome.close(); }
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     expect((await again.decide()).kind).toBe("complete");
     expect(buildSnapshot(again).delivered!.forYou.afterDelivery).toEqual(remaining);
   });
@@ -307,10 +311,10 @@ describe("automatic completion activities", () => {
     // AC-BILL-05 covers actual audit routing as well as implementation phases.
     // The synthetic model process is paired with the real passive SDK/auth proof.
     h.env.ANTHROPIC_API_KEY = "synthetic-audit-billing-canary";
-    await h.engine.refreshBilling(); await waitFor(() => !h.engine.agents.state.pending);
+    await h.engine.refreshBilling(); await waitFor(() => !h.engine.readers.claude_code.state.pending);
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false });
     expect(h.claudeCalls()).toHaveLength(0);
-    await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, selectionGeneration: h.engine.record.settings.selectionGeneration ?? 0, readingId: h.engine.billing.view.next!.readingId, approved: true });
+    await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, readingId: h.engine.billing.view.next!.readingId, approved: true });
     expect(h.claudeCalls()).toHaveLength(0);
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
@@ -332,13 +336,13 @@ describe("automatic completion activities", () => {
     audit.acceptedResult = store.put(historical);
     expect(buildSnapshot(h.engine).activities!.find(a => a.kind === "delivery_audit")!.audit!.checks).toEqual(original.checks);
     expect(store.read<AuditResult>(audit.acceptedResult).checks).toEqual(historical.checks);
-    const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
+    const again = h.reopenFromDisk(); await again.refreshAgents(); expect((await again.decide()).kind).toBe("complete");
     expect(h.claudeCalls()).toHaveLength(3);
   });
   it("reinspects changed billing between delivery audit, test audit and final delivery", async () => {
     const current = await fixture(); current.env.ANTHROPIC_API_KEY = "initial-audit-context";
-    await current.engine.refreshBilling(); await waitFor(() => !current.engine.agents.state.pending);
-    const approve = () => current.engine.billingCommand("approval", { executionId: current.engine.record.executionId, selectionGeneration: current.engine.record.settings.selectionGeneration ?? 0, readingId: current.engine.billing.view.next!.readingId, approved: true });
+    await current.engine.refreshBilling(); await waitFor(() => !current.engine.readers.claude_code.state.pending);
+    const approve = () => current.engine.billingCommand("approval", { executionId: current.engine.record.executionId, readingId: current.engine.billing.view.next!.readingId, approved: true });
     await approve(); let accepted = 0;
     const off = current.engine.onChange(() => {
       const count = current.engine.record.completionAudits?.activities.filter(activity => activity.acceptedResult && current.engine.record.phases[auditKey(activity)]?.doneAt).length ?? 0;
@@ -368,18 +372,38 @@ describe("automatic completion activities", () => {
     expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["delivery_audit", 2], ["delivery_audit", 3], ["test_audit", 1]]);
     expect(buildSnapshot(h.engine).activities!.map(a => a.title)).toEqual(["Return value", "Delivery audit", "Repair value", "First repair", "Second repair", "Delivery audit", "Repair value", "Delivery audit", "Test audit", "Final pull request"]);
     expect(readFileSync(join(h.engine.worktreePath, directory, "phase-1-value.md"), "utf8")).toBe(files["phase-1-value.md"]);
-    expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.label} round ${e.round}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit round 1","Phase 2","Phase 2b","Delivery audit round 2","Phase 3","Delivery audit round 3","Test audit round 1"]);
+    expect(h.events.flatMap(e=>e.kind==="audit"&&e.event==="started"?[`${e.title} · ${e.line}`]:e.kind==="phase"&&e.event==="started"?[`Phase ${e.phaseId}`]:[])).toEqual(["Delivery audit · Loop 1 of 4","Phase 2","Phase 2b","Delivery audit · Loop 2 of 4","Phase 3","Delivery audit · Loop 3 of 4","Test audit · Loop 1 of 4"]);
   // Eight real process sessions plus Git/audit handoffs have a whole-workflow budget.
   });
   it("builds an added phase while a person settles what the audit listed, then hands the item to the next audit (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
     const decision = "AC-PROOF-01 names a file the design kept.";
     const h = await fixture([auditSession({ gap: true, decision }), auditSession({ blocked: true, relist: true })], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
-    expect(h.events.flatMap(e => e.kind === "audit" && e.event === "started" ? [`${e.label} round ${e.round}`] : e.kind === "phase" && e.event === "started" ? [`Phase ${e.phaseId}`] : [])).toEqual(["Delivery audit round 1", "Phase 2", "Delivery audit round 2"]);
+    expect(h.events.flatMap(e => e.kind === "audit" && e.event === "started" ? [`${e.title} · ${e.line}`] : e.kind === "phase" && e.event === "started" ? [`Phase ${e.phaseId}`] : [])).toEqual(["Delivery audit · Loop 1 of 4", "Phase 2", "Delivery audit · Loop 2 of 4"]);
     const rows = buildSnapshot(h.engine).activities!.filter(row => row.kind === "delivery_audit");
     expect(rows[0]).toMatchObject({ state: "done", audit: { outcome: "completion_phases", blockers: [`${decision} Decide it before the next audit.`], personItems: { count: 1, waiting: true } } });
     expect(rows[1]!.state).toBe("needs_you");
-    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (other; listed by Delivery audit round 1): ${decision} Decide it before the next audit.`);
+    expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (other; listed by Delivery audit loop 1): ${decision} Decide it before the next audit.`);
+  });
+  it("launches each delivery audit round, the test audit and the pull request on this PRD's changed Audits choice, and the repair phase on its tier's (Kiln Phase Model Tiers AC-OTHER-01)", { timeout: 120_000 }, async () => {
+    const h = await fixture([auditSession({ gap: true }), auditSession(), auditSession()], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
+    // Audits' Model defaults first choice is Claude Code · Opus · high; this PRD changes it before Start.
+    expect(await h.engine.changeModel("audits", { agentId: "claude_code", model: "sonnet", effort: "low" })).toEqual({ ok: true });
+    await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
+    expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
+    expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["delivery_audit", 2], ["test_audit", 1]]);
+    const flag = (args: string[], name: string) => args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
+    // The final pull request session's prompt is the one that opens each pull request's description with Kiln's block.
+    const label = (prompt: string) => /^Run (Delivery audit|Test audit)/.exec(prompt)?.[1] ?? (prompt.includes("Open each pull request's description with the block below") ? "Final pull request" : "Phase");
+    // Every session launched new on the stand-in claude (Claude Code), with its own model and effort.
+    expect(h.claudeCalls().map(c => [label(c.prompt), c.args.includes("--resume"), flag(c.args, "--model"), flag(c.args, "--effort")])).toEqual([
+      ["Delivery audit", false, "sonnet", "low"],
+      // The repair phase the first round added is Not rated: Standard's Claude Code · Opus · medium, not the Audits choice.
+      ["Phase", false, "opus", "medium"],
+      ["Delivery audit", false, "sonnet", "low"],
+      ["Test audit", false, "sonnet", "low"],
+      ["Final pull request", false, "sonnet", "low"],
+    ]);
   });
   it("carries a test audit's item through its repair to the next delivery audit, which must settle it, and names it in the final pull request (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {
     const decision = "AC-PROOF-01's export name differs from the design.";
@@ -388,17 +412,17 @@ describe("automatic completion activities", () => {
     expect(h.engine.record.completedAt, JSON.stringify(h.engine.record.phases)).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["test_audit", 1], ["delivery_audit", 2], ["test_audit", 2]]);
     const calls = h.claudeCalls(); const audits = calls.filter(c => /^Run (Delivery|Test) audit/.test(c.prompt));
-    expect(audits[2]!.prompt).toContain(`- item-1 (other; listed by Test audit round 1): ${decision} Decide it before the next audit.`);
+    expect(audits[2]!.prompt).toContain(`- item-1 (other; listed by Test audit loop 1): ${decision} Decide it before the next audit.`);
     expect(audits[3]!.prompt).toContain("Items earlier audits left for a person (outstanding):\nNone.");
     const rows = buildSnapshot(h.engine).activities!.filter(row => row.audit);
     expect(rows.find(row => row.kind === "test_audit")!.audit!.personItems).toEqual({ count: 1, waiting: false });
-    expect(rows.filter(row => row.kind === "delivery_audit")[1]!.audit!.settledItems).toEqual([`${decision} Listed by Test audit round 1, settled by Delivery audit round 2: A person kept the design's name.`]);
+    expect(rows.filter(row => row.kind === "delivery_audit")[1]!.audit!.settledItems).toEqual([`${decision} Listed by Test audit loop 1, settled by Delivery audit loop 2: A person kept the design's name.`]);
     const pr = calls.at(-1)!.prompt;
     // The block each description opens with (Kiln Deliver When Audit Loops Run Out AC-ITEM-03): nothing is left For you, so only Settled during the build.
     expect(pr).toContain("Open each pull request's description with the block below, word for word");
     expect(pr).toContain("## Settled during the build\n\n");
     expect(pr).not.toContain("## For you");
-    expect(pr).toContain(`- ${decision} Listed by Test audit round 1, settled by Delivery audit round 2: A person kept the design's name.`);
+    expect(pr).toContain(`- ${decision} Listed by Test audit loop 1, settled by Delivery audit loop 2: A person kept the design's name.`);
   });
   it("continues test-only work in a fresh conversation in the same round and retains both immutable records", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession(), auditSession({ continueTest: true }), auditSession()]);
@@ -409,9 +433,9 @@ describe("automatic completion activities", () => {
     expect(new Set(activities.flatMap(a => a.sessionIds)).size).toBe(3);
     expect(activities.every(a => a.acceptedResult && h.engine.record.phases[auditKey(a)]?.doneAt)).toBe(true);
     expect(h.claudeCalls()[2]!.prompt).toContain('Test work remains for another session.');
-    expect(buildSnapshot(h.engine).activities!.filter(a => a.kind === "test_audit").map(a => a.file)).toEqual(["Round 1", "Round 1 · Continuation 2"]);
-    expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ continuationIndex: 2 });
-    const again = h.reopenFromDisk(); await again.agents.refresh(); expect((await again.decide()).kind).toBe("complete");
+    expect(buildSnapshot(h.engine).activities!.filter(a => a.kind === "test_audit").map(a => [a.title, a.file])).toEqual([["Test audit", "Loop 1 of 4"], ["Fixing tests", "From test audit loop 1 · session 1"]]);
+    expect(h.events.filter(e => e.kind === "audit" && e.event === "started").at(-1)).toMatchObject({ title: "Fixing tests", line: "From test audit loop 1 · session 1" });
+    const again = h.reopenFromDisk(); await again.refreshAgents(); expect((await again.decide()).kind).toBe("complete");
     expect(h.claudeCalls()).toHaveLength(4);
   // Four sessions include full test-audit red/restore evidence and real Git work.
   });
@@ -445,7 +469,7 @@ describe("automatic completion activities", () => {
     const pending=h.engine.record.completionAudits!.activities.at(-1)!;
     expect(pending).toMatchObject({kind:"test_audit",round:1,continuationIndex:2,sessionIds:[]});
     expect(h.engine.record.nextActivityKey).toBe(auditKey(pending));expect(h.claudeCalls()).toHaveLength(2);
-    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.agents.refresh();
+    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.refreshAgents();
     server=await startLocalServer({engine:again,port,folderName:"proof",featureName:"Audit value",token:again.record.token});
     expect((await again.decide()).kind).toBe("paused");await again.start();await again.settled();
     expect(again.record.completedAt,JSON.stringify(again.record.phases)).toBeTruthy();expect(again.record.completionAudits!.activities).toHaveLength(3);
@@ -461,10 +485,10 @@ describe("automatic completion activities", () => {
       await h.engine.start({refinementConfirmed:true});await waitFor(()=>existsSync(marker), 60_000);
       const activity=h.engine.record.completionAudits!.activities.at(-1)!;const key=auditKey(activity);
       expect(activity).toMatchObject({round:1,continuationIndex:2});
-      const page=await chrome.open(server!.address);await page.waitFor(`document.body.innerText.includes('Continuation 2')`);
-      expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Test audit");
+      const page=await chrome.open(server!.address);await page.waitFor(`document.body.innerText.includes('From test audit loop 1 · session 1')`);
+      expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toMatch(/^FT\nFixing tests\nFrom test audit loop 1 · session 1/);
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
-      await page.waitFor(`document.body.innerText.includes('Continuation 2') && /Pause after test audit · round \\d/.test(document.body.innerText)`);
+      await page.waitFor(`document.body.innerText.includes('From test audit loop 1 · session 1') && /Pause after fixing tests from test audit loop \\d, session \\d/.test(document.body.innerText)`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
       writeFileSync(marker,"continue");await h.engine.settled();expect(h.engine.record.completedAt).toBeTruthy();
       await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);await page.waitFor(`document.body.innerText.includes('PR ready for review')`);
@@ -535,19 +559,20 @@ describe("automatic completion activities", () => {
     try {
       await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
       const page = await chrome.open(server!.address);
-      await page.waitFor(`/Pause after (delivery|test) audit · round \\d/.test(document.body.innerText)`);
+      await page.waitFor(`/Pause after (delivery|test) audit loop \\d/.test(document.body.innerText)`);
       const key = auditKey(h.engine.record.completionAudits!.activities[0]!);
       expect(await page.evaluate(`document.querySelector('li[data-phase="${key}"]').innerText`)).toContain("Delivery audit");
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
-      await page.waitFor(`document.body.innerText.includes('Delivery audit · Round 1')`);
+      await page.waitFor(`document.body.innerText.includes('Loop 1 of 4')`);
       expect(await page.evaluate(`document.body.innerText`)).not.toContain("Phase audit-");
-      await page.evaluate(`[...document.querySelectorAll('button')].find(b=>/^Pause after (delivery|test) audit · round \\d/.test(b.textContent.trim())).click()`);
+      await page.evaluate(`[...document.querySelectorAll('button')].find(b=>/^Pause after (delivery|test) audit loop \\d/.test(b.textContent.trim())).click()`);
       await waitFor(() => !!h.engine.record.pause.requestedAt);
       writeFileSync(marker, "continue"); await h.engine.settled();
       expect(h.engine.record.pause.activeSince).toBeTruthy();
       await h.engine.start(); await h.engine.settled();
       await page.evaluate(`location.href=${JSON.stringify(server!.address)}`);
-      await page.waitFor(`document.body.innerText.includes('Test audit') && document.body.innerText.includes('No new phases found')`);
+      // The pull request is open, so the delivery waits to merge (Kiln After Delivery AC-WAIT-01).
+      await page.waitFor(`document.body.innerText.includes('Test audit') && document.body.innerText.includes('New phases: Kiln can check for them once #218 has merged into develop.')`);
       expect(await page.evaluate(`document.querySelector('a[href="${h.engine.record.pullRequests![0]!.url}"]')?.href`)).toBe(h.engine.record.pullRequests![0]!.url);
       await page.evaluate(`document.querySelector('li[data-phase="${key}"] a').click()`);
       await page.waitFor(`document.body.innerText.includes('Outcome: nothing left')`);
@@ -563,7 +588,7 @@ describe("automatic completion activities", () => {
     const old = structuredClone(h.engine.record); old.schemaVersion = 5; old.completedAt = timestamp; old.phases = {};
     delete old.completionAudits; delete old.activities; delete old.nextActivityKey;
     writeFileSync(join(h.stateDirectory,"prd.json"), JSON.stringify(old));
-    const historical = h.reopenFromDisk(); await historical.agents.refresh();
+    const historical = h.reopenFromDisk(); await historical.refreshAgents();
     expect((await historical.decide()).kind).toBe("complete");
     expect(historical.record.completedAt).toBe(timestamp); expect(historical.record.completionAudits!.policy).toBe("legacy_complete");
     expect(buildSnapshot(historical).auditHistoryUnavailable).toBe(true);
@@ -572,7 +597,7 @@ describe("automatic completion activities", () => {
     // An unfinished saved execution is migrated and driven, not a fresh unrelated record.
     delete old.completedAt; writeFileSync(join(h.stateDirectory,"prd.json"), JSON.stringify(old));
     const port=Number(new URL(server!.address).port); await server!.close();
-    const unfinished=h.reopenFromDisk(); await unfinished.agents.refresh();
+    const unfinished=h.reopenFromDisk(); await unfinished.refreshAgents();
     server=await startLocalServer({engine:unfinished,port,folderName:"proof",featureName:"Audit value",token:unfinished.record.token});
     expect(unfinished.record.completionAudits!.policy).toBe("required");
     expect((await unfinished.decide()).kind).toBe("start_audit"); await unfinished.continue();
@@ -588,10 +613,12 @@ describe("automatic completion activities", () => {
     const original = h.engine.record.completionAudits!.activities[0]!;
     const stopped = h.engine.stop("sigint"); writeFileSync(marker, "continue"); await stopped;
     await server!.close(); server = undefined;
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     server = await startLocalServer({ engine: again, port, folderName: "proof", featureName: "Audit value", token: again.record.token });
     const decision = await again.decide();
     expect(decision.kind).toBe("start_audit");
+    // The terminal's restart line names the audit by its loop, never its round (Kiln After Delivery AC-AUDIT-01).
+    expect(formatDecisionLine(decision, again, terminalColors({}, {}))).toMatch(/Starting (delivery|test) audit loop 1\./);
     expect(again.record.completionAudits!.activities[0]!.sessionIds).toEqual(original.sessionIds);
     expect(again.record.completionAudits!.activities[0]!.acceptedResult).toBeTruthy();
     await again.continue(); expect(again.record.completedAt).toBeTruthy();
@@ -611,7 +638,7 @@ describe("automatic completion activities", () => {
     old.developmentAuthorization = { revision: 1, enabled: true, grants: [{ target: { repository: "github.com/acme/acme-shop", baseBranch: "develop", environment: "audit-fixture-dev" }, confirmedAt: historicalAt, source: "start" }] };
     writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(old));
     const port = Number(new URL(server!.address).port); await server!.close();
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     server = await startLocalServer({ engine: again, port, folderName: "proof", featureName: "Audit value", token: again.record.token });
     expect(again.record.completionAudits!.policy).toBe("legacy_complete");
     expect(await again.decide()).toMatchObject({ kind: "needs_you", phaseKey: "1" });
@@ -804,12 +831,12 @@ describe("automatic completion activities", () => {
   });
 
   it("keeps an allocated audit with no session through readiness refusal and Check again", async () => {
-    const h=await fixture();const original={...h.engine.record.settings.agentChoices.claude_code!};let changed=false;
-    const off=h.engine.onChange(()=>{if(!changed&&h.engine.record.completionAudits!.activities.length){changed=true;h.engine.record.settings.agentChoices.claude_code={model:"unavailable-model",effort:"high"};}});
+    const h=await fixture();let changed=false;
+    const off=h.engine.onChange(()=>{if(!changed&&h.engine.record.completionAudits!.activities.length){changed=true;h.engine.record.settings.modelChoices.audits={agentId:"claude_code",model:"unavailable-model",effort:"high"};h.engine.modelChoicesChanged();}});
     await h.engine.start({refinementConfirmed:true});await h.engine.settled();off();
     const audit=h.engine.record.completionAudits!.activities[0]!;const key=auditKey(audit);
     expect(h.engine.record.phases[key]!.stop!.kind).toBe("selection");expect(audit.sessionIds).toEqual([]);expect(h.claudeCalls()).toEqual([]);
-    expect(await h.engine.changeSettings({agentId:h.engine.record.settings.agentId,selectionGeneration:h.engine.record.settings.selectionGeneration??0,model:original.model,effort:original.effort!})).toEqual({ok:true});
+    delete h.engine.record.settings.modelChoices.audits;h.engine.modelChoicesChanged();
     await h.engine.checkAgain(recoveryRequest(h.engine, "verify"));await h.engine.settled();
     expect(h.engine.record.completedAt).toBeTruthy();
     expect(h.engine.record.completionAudits!.activities[0]!.activityId).toBe(audit.activityId);
@@ -824,10 +851,10 @@ describe("automatic completion activities", () => {
     writeFileSync(h.scenarioPath,JSON.stringify({sessions:[first,landingSession(`${directory}/value.mjs`,files["value.mjs"]),pullRequestSession()]}));
     await h.engine.start({refinementConfirmed:true});await waitFor(()=>existsSync(marker));
     const original=h.engine.latestSession("1")!;
-    expect(await h.engine.changeSettings({agentId:"claude_code",selectionGeneration:h.engine.record.settings.selectionGeneration??0,model:"sonnet",effort:"high"})).toEqual({ok:true});
+    await runPrdOn(h.engine,{agentId:"claude_code",model:"sonnet",effort:"high"},false);writePrdRecord(h.stateDirectory,h.engine.record);
     const stopping=h.engine.stop("sigint");writeFileSync(finish,"continue");await stopping;
     const path=join(h.stateDirectory,"prd.json");const old=JSON.parse(readFileSync(path,"utf8"));old.schemaVersion=5;delete old.completionAudits;delete old.activities;delete old.nextActivityKey;writeFileSync(path,JSON.stringify(old));
-    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.agents.refresh();
+    const port=Number(new URL(server!.address).port);await server!.close();const again=h.reopenFromDisk();await again.refreshAgents();
     server=await startLocalServer({engine:again,port,folderName:"proof",featureName:"Audit value",token:again.record.token});
     expect(await again.decide()).toMatchObject({kind:"resume",phaseKey:"1",sessionId:original.sessionId});
     expect(again.record.completionAudits!.activities).toEqual([]);await again.continue();

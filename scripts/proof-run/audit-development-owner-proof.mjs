@@ -33,7 +33,7 @@ writeFileSync(join(repository, directory, 'phase-1-interface.md'), '# Phase 1: I
 git(repository, 'add', '--', directory); git(repository, 'commit', '-m', 'test(owner proof): seed disposable interface fixture'); git(repository, 'push', '-u', 'origin', 'proof');
 const at = new Date().toISOString();
 const target = { repository: 'github.com/example/owner-proof', baseBranch: 'proof', environment: 'disposable-local-proof' };
-const record = newPrdRecord({ mainCheckoutPath: repository, repositoryName: 'owner-proof', github: 'example/owner-proof', prdDirectoryFromRoot: directory, featureName: 'Audit owner proof', settings: { workspaceFolder: root, worktreePath: repository, featureBranch: 'proof', baseBranch: 'proof', bases: {}, model: 'sonnet', effort: 'high', keepAwake: false, resumeAfterUsageLimit: false } });
+const record = newPrdRecord({ mainCheckoutPath: repository, repositoryName: 'owner-proof', github: 'example/owner-proof', prdDirectoryFromRoot: directory, featureName: 'Audit owner proof', settings: { workspaceFolder: root, worktreePath: repository, featureBranch: 'proof', baseBranch: 'proof', bases: {}, keepAwake: false, resumeAfterUsageLimit: false } });
 record.startedAt = at; record.setupCompletedAt = at;
 record.developmentAuthorization = { enabled: true, revision: 1, grants: [{ target, confirmedAt: at, source: 'start' }] };
 record.repositories = [{ name: 'owner-proof', kind: 'prd', github: 'example/owner-proof', mainCheckoutPath: repository, worktreePath: repository, baseBranch: 'proof', baseCommit: git(repository, 'rev-parse', 'HEAD'), setupCompletedAt: at }];
@@ -48,7 +48,7 @@ const engine = new Engine({ record, stateDirectory, paths: { mainCheckoutPath: r
 const lock = await takeInstanceLock(stateRoot(env), stateDirectory); if (!lock.taken) throw new Error('No proof instance lock');
 let server;
 try {
-  await engine.agents.refresh();
+  await engine.refreshAgents();
   server = await startLocalServer({ engine, port: lock.port, folderName: 'owner-proof', featureName: record.featureName, token: record.token });
   const owner = { kind: 'audit', activityId: activity.activityId };
   const context = { record, stateDirectory, prdWorktree: repository, prdDirectory: directory };

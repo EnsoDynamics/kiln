@@ -17,6 +17,7 @@ import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { statusProjection } from "../control/projection.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot } from "../state/state-files.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 
 let harness: Harness | undefined;
 afterEach(() => harness?.cleanup());
@@ -67,7 +68,8 @@ describe("the engine from Start to the pull request", () => {
     expect(git(h.sandbox, h.repository, "worktree", "list", "--porcelain").match(/^worktree /gm)).toHaveLength(2);
     expect(git(h.sandbox, h.repository, "merge-base", "feature/customer-returns", "develop").trim()).toBe(developBefore);
 
-    // AC-RUN-02, AC-RUN-03: a fresh session per leaf, in the worktree, with the PRD's model and effort and the authorization prompt.
+    // AC-RUN-02, AC-RUN-03: a fresh session per leaf, in the worktree, with its model and effort and the authorization prompt.
+    // Not-rated phases default to Opus at medium; the pull request session runs on the Audits default, Opus at high (Kiln Phase Model Tiers AC-DEFAULT-01).
     const calls = h.claudeCalls();
     expect(calls).toHaveLength(4);
     const sessionIds = calls.map((call) => call.args[call.args.indexOf("--session-id") + 1]);
@@ -76,7 +78,7 @@ describe("the engine from Start to the pull request", () => {
       expect(call.cwd).toBe(worktree);
       expect(call.args).toEqual([
         "-p", "--input-format", "stream-json", "--session-id", call.args[4],
-        "--model", "opus", "--effort", "medium",
+        "--model", "opus", "--effort", call === calls.at(-1) ? "high" : "medium",
         "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--forward-subagent-text",
         "--permission-mode", "auto", "--permission-prompts", "none",
         // Multi-repo design, "Sessions": no PowerShell tool, so every shell command is one Stayed in the workspace reads.
@@ -91,7 +93,7 @@ describe("the engine from Start to the pull request", () => {
         "",
         `Work only in this worktree, \`${worktree}\`, on branch \`feature/customer-returns\`. Kiln created this worktree and branch for this PRD; it is not a shared checkout and not a parallel-session worktree. Don't switch branches, create another branch or worktree, or land work on any other branch, whatever other instructions say.`,
         "",
-        `If you need a repository that isn't in this worktree's workspace, run \`kiln add-repository <folder name>\`; Kiln adds a worktree of it on \`feature/customer-returns\` and prints where. Work there, never in a repository's own checkout such as \`${displayPath(h.sandbox.root)}/<folder name>\`. Before you change a repository, read its own \`CLAUDE.md\` and \`AGENTS.md\`, if it has them, and follow them in that repository.`,
+        `If you need a repository that isn't in this worktree's workspace, run \`kiln add-repository <owner>/<repository>\`, the path in the repository's remote address; Kiln adds a worktree of it on \`feature/customer-returns\` and prints where. Work there, never in a repository's own checkout such as \`${displayPath(h.sandbox.root)}/<folder name>\`. Before you change a repository, read its own \`CLAUDE.md\` and \`AGENTS.md\`, if it has them, and follow them in that repository.`,
         "",
         "You are authorized, without asking, to commit to `feature/customer-returns`, push it to origin (`git push -u origin feature/customer-returns`), and run refactor-pass after the feature commit. You are not authorized to open a pull request, merge, deploy, or touch any other branch.",
         "",
@@ -157,7 +159,8 @@ describe("the engine from Start to the pull request", () => {
     expect(snapshot.phases.find((phase) => phase.id === "2a")?.details).toBeUndefined();
     expect(snapshot.phases[0]!.details).toMatchObject({ model: "Opus 5.5", effort: "medium", branch: "feature/customer-returns", commitCount: 1 });
     // AC-PR-04, AC-PR-05: the Complete screen's pull request, from the record, and the pull-request session's own row.
-    expect(snapshot.pullRequests).toEqual(record.pullRequests);
+    // Each with its label (find repositories anywhere AC-FOLDER-02).
+    expect(snapshot.pullRequests).toEqual(record.pullRequests!.map((pull) => ({ ...pull, label: pull.repository })));
     expect(snapshot.pullRequests?.[0]).toMatchObject({ repository: "acme-shop", number: 218, url: expect.stringMatching(/\/pull\/218$/), head: "feature/customer-returns", base: "develop" });
     const prRow = snapshot.phases.at(-1)!;
     expect(prRow).toMatchObject({ id: "pr", title: "Final pull request", file: "pull request session", state: "done" });
@@ -259,10 +262,10 @@ describe("the snapshot while a phase works", () => {
       ["Push", "unreached"],
     ]);
 
-    // AC-WATCH-07: a settings change shows in the settings; the working phase keeps what it started with.
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet", effort: "max" })).toEqual({ ok: true });
+    // A model choice changed mid-run reaches the next phase; the working phase keeps what it started with
+    // (Kiln Phase Model Tiers AC-PICK-01; the PRD-wide setting of AC-WATCH-07 was replaced by AC-KEEP-01).
+    await runPrdOn(h.engine, { agentId: "claude_code", model: "sonnet", effort: "max" });
     const changed = buildSnapshot(h.engine);
-    expect(changed.settings).toMatchObject({ model: { value: "sonnet" }, effort: "max" });
     expect(changed.current).toMatchObject({ model: "Opus 5.5", effort: "medium" });
 
     writeFileSync(release, "");
@@ -327,7 +330,7 @@ describe("a phase that doesn't land", () => {
     // Full session output identifies the stopped session, with the phase's commits read from Git (AC-WATCH-06, AC-WATCH-10).
     expect(snapshot.needsYou).toMatchObject({ sessionId: session.sessionId, model: session.modelDisplayName, effort: "medium", sessionStartedAt: session.runs[0]!.startedAt });
     const head = git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim();
-    expect(snapshot.needsYou!.repositories).toEqual([{ name: "acme-shop", commits: [{ sha: head, subject: "feat: intake" }] }]);
+    expect(snapshot.needsYou!.repositories).toEqual([{ name: "acme-shop", label: "acme-shop", commits: [{ sha: head, subject: "feat: intake" }] }]);
     // The stopped row's Details, drawn on the Disconnected layout, has the same commits (AC-WATCH-01).
     expect(snapshot.phases.find((phase) => phase.id === "1")?.details).toMatchObject({ commitCount: 1, latestCommit: head });
     // A fresh session starts in the worktree (UI-007): the path needs no quoting here, and isn't under the home folder.
@@ -619,7 +622,7 @@ describe("pausing between phases", () => {
     expect(h.claudeCalls()).toHaveLength(1);
     expect(buildSnapshot(reopened).feature.state).toBe("paused");
 
-    await h.engine.agents.refresh();
+    await h.engine.refreshAgents();
     expect(await h.engine.start()).toEqual({ ok: true });
     await waitFor(() => h.claudeCalls().length === 2);
     await h.engine.settled();
@@ -863,13 +866,13 @@ describe("Start and the settings", () => {
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, fieldErrors: { featureBranch: expect.stringMatching(/^That branch already exists\./) } });
     expect(h.engine.fieldErrors.worktreePath).toBeUndefined();
 
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: join(h.repository, "inside"), featureBranch: "bad..name", baseBranch: "nope" });
+    await h.engine.changeSettings({ worktreePath: join(h.repository, "inside"), featureBranch: "bad..name", baseBranch: "nope" });
     expect(h.engine.fieldErrors).toEqual({
       worktreePath: "That folder is inside a checkout of this repository. Choose one outside it.",
       featureBranch: "That isn’t a valid branch name.",
       baseBranch: "nope isn’t on origin.",
     });
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: "relative/path", featureBranch: "", baseBranch: "develop" });
+    await h.engine.changeSettings({ worktreePath: "relative/path", featureBranch: "", baseBranch: "develop" });
     expect(h.engine.fieldErrors).toEqual({ worktreePath: "Enter a full path, starting with / or ~.", featureBranch: "Enter a branch name." });
 
     // PRD documents on origin that differ from the checkout's.
@@ -877,7 +880,7 @@ describe("Start and the settings", () => {
     git(h.sandbox, h.repository, "commit", "-qam", "change phase 3");
     git(h.sandbox, h.repository, "push", "-q", "origin", "develop:develop");
     git(h.sandbox, h.repository, "reset", "-q", "--hard", "HEAD~1");
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: join(h.sandbox.root, "elsewhere"), featureBranch: "feature/x" });
+    await h.engine.changeSettings({ worktreePath: join(h.sandbox.root, "elsewhere"), featureBranch: "feature/x" });
     expect(h.engine.fieldErrors).toEqual({
       baseBranch: "develop on origin has different PRD documents from this checkout. Push them to develop first; every session starts from there.",
     });
@@ -890,9 +893,9 @@ describe("Start and the settings", () => {
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, ...landingSession().actions] }, { actions: [{ result: "Stop here." }] }] }));
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => h.claudeCalls().length === 1);
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, featureBranch: "feature/other" })).toMatchObject({ ok: false, status: 409 });
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "turbo" as never })).toMatchObject({ ok: false, status: 422 });
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet", effort: "max" })).toEqual({ ok: true });
+    expect(await h.engine.changeSettings({ featureBranch: "feature/other" })).toMatchObject({ ok: false, status: 409 });
+    // The PRD-wide effort check (422 for "turbo") was removed: models are chosen per activity (Kiln Phase Model Tiers AC-KEEP-01).
+    await runPrdOn(h.engine, { agentId: "claude_code", model: "sonnet", effort: "max" });
     writeFileSync(release, "");
     await h.engine.settled();
     const second = h.claudeCalls()[1]!.args;
@@ -910,7 +913,7 @@ describe("setup that fails", () => {
     // A path whose parent is a file passes the path check, but git can't create the folder.
     const blocker = join(h.sandbox.root, "blocker");
     writeFileSync(blocker, "");
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: join(blocker, "worktree") });
+    await h.engine.changeSettings({ worktreePath: join(blocker, "worktree") });
     expect(h.engine.fieldErrors).toEqual({});
 
     const failed = await h.engine.start({ refinementConfirmed: true });
@@ -926,7 +929,7 @@ describe("setup that fails", () => {
     expect(buildSnapshot(h.engine, undefined).feature.state).toBe("not_started");
 
     // Kiln's own branch isn't "taken"; after a new path, Start sets up on it from its recorded commit.
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: join(h.sandbox.root, "good", "worktree") });
+    await h.engine.changeSettings({ worktreePath: join(h.sandbox.root, "good", "worktree") });
     expect(h.engine.fieldErrors).toEqual({});
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await h.engine.settled();
@@ -1068,7 +1071,7 @@ describe("kiln run on a feature underway", () => {
     await engine.prepare();
     expect(await engine.decide()).toEqual({ kind: "paused", beforePhaseKey: "pr" });
     h.setPulls([{ number: 12, title: "t", url: "u", isDraft: false, isCrossRepository: false, headRefName: "feature/customer-returns", baseRefName: "develop", additions: 1, deletions: 0, commits: [] }]);
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     expect(await engine.start()).toEqual({ ok: true });
     await engine.settled();
     expect(engine.record.pullRequests?.map(pull => pull.number)).toEqual([12]);

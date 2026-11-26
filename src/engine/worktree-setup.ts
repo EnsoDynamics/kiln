@@ -6,7 +6,7 @@
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { defaultWorkspaceFolder, type CreatedBranch, type RepositoryEntry, type RepositoryKind, type AgentSettings, type Settings } from "../state/records.js";
+import { defaultWorkspaceFolder, type CreatedBranch, type RepositoryEntry, type RepositoryKind, type Settings } from "../state/records.js";
 import { defaultLoopSettings } from "../state/audit-loops.js";
 import { gitError, listWorktrees, localBranchCommit, originBranches, runGit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
 
@@ -27,8 +27,8 @@ export interface RepositoryPaths {
  * The settings a PRD starts with (AC-START-07, UI-004): branch `feature/<folder>`, worktree
  * `.worktrees/<folder>/<repository>` in the folder that holds the repository, as the Enso Method
  * places its worktrees, base `develop` when origin has it,
- * otherwise origin's default branch, the latest Opus at medium effort (Kiln Audit Loop Limits
- * AC-EFFORT-01) and the default audit loop settings (AC-LOOP-01).
+ * otherwise origin's default branch, no model choices of its own, so each phase takes its tier's
+ * from Model defaults (Kiln Phase Model Tiers AC-PICK-01), and the default audit loop settings (AC-LOOP-01).
  */
 export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches | undefined): Settings {
   const base = origin === undefined ? "" : defaultBaseBranch(origin);
@@ -38,8 +38,7 @@ export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches |
     featureBranch: `feature/${paths.folderName}`,
     baseBranch: base,
     bases: {},
-    model: "opus",
-    effort: "medium",
+    modelChoices: { phases: {} },
     keepAwake: true,
     resumeAfterUsageLimit: true,
     auditLoops: defaultLoopSettings(),
@@ -70,11 +69,15 @@ export type FieldErrors = Partial<Record<"workspaceFolder" | "worktreePath" | "f
 /** One of the PRD's repositories as the field checks and setup see it, the PRD's repository first. */
 export interface PlannedRepository {
   name: string;
+  /** Its short name, when `name` is the whole-path form (find repositories anywhere AC-FOLDER-01). */
+  shortName?: string;
   kind: RepositoryKind;
   mainCheckoutPath: string;
   github: string;
   /** The entry Kiln recorded for it: set up, or holding a branch an earlier Start made. */
   entry?: RepositoryEntry;
+  /** The label its messages name it by (find repositories anywhere AC-FOLDER-02); absent: its name. */
+  label?: string;
 }
 
 export type OriginRead = { ok: true; value: OriginBranches } | { ok: false; error: string };
@@ -82,7 +85,7 @@ export type OriginRead = { ok: true; value: OriginBranches } | { ok: false; erro
 export interface FieldCheckInput {
   git: GitContext;
   paths: RepositoryPaths;
-  settings: AgentSettings | Settings;
+  settings: Settings;
   /** The PRD directory's tree as Kiln read it, `git rev-parse HEAD:<PRD directory>`. */
   prdTree: string;
   /** The PRD's repository first, then the others in list order. */
@@ -108,14 +111,14 @@ export function joinNames(names: string[]): string {
 }
 
 /** The base a repository's branch starts from: its set-up or fixed entry's, else the settings'. */
-export function baseFor(repository: PlannedRepository, settings: AgentSettings | Settings, branchFixed: boolean): string {
+export function baseFor(repository: PlannedRepository, settings: Settings, branchFixed: boolean): string {
   const entry = repository.entry;
   if (entry && (entry.setupCompletedAt !== undefined || entry.kind === "added" || (branchFixed && entry.createdBranch !== undefined))) return entry.baseBranch;
   return repository.kind === "prd" ? settings.baseBranch : (settings.bases[repository.name] ?? "");
 }
 
 /** Where a repository's worktree goes: v1's worktree field for a one-repository PRD, else `<workspace folder>/<name>`. */
-export function worktreePathFor(name: string, kind: RepositoryKind, settings: AgentSettings | Settings, multiRepository: boolean): string {
+export function worktreePathFor(name: string, kind: RepositoryKind, settings: Settings, multiRepository: boolean): string {
   if (kind === "prd" && !multiRepository) return expandHome(settings.worktreePath);
   return join(expandHome(settings.workspaceFolder), name);
 }
@@ -200,7 +203,7 @@ async function checkBranchName(input: FieldCheckInput, pending: PlannedRepositor
     const local = await localBranchCommit(input.git, repository.mainCheckoutPath, featureBranch);
     const origin = input.origins.get(repository.name);
     const onOrigin = origin?.ok === true && origin.value.branches.has(featureBranch);
-    if (local !== undefined || onOrigin) taken.push(repository.name);
+    if (local !== undefined || onOrigin) taken.push(repository.label ?? repository.name);
   }
   if (taken.length === 0) return undefined;
   if (!input.multiRepository) {
@@ -264,14 +267,14 @@ async function checkSetUpPrdTree(input: FieldCheckInput, repository: PlannedRepo
   const tree = await runGit(input.git, repository.mainCheckoutPath, ["rev-parse", `${featureBranch}:${input.paths.prdDirectoryFromRoot}`]);
   if (tree.exitCode === 0 && tree.stdout.trim() === input.prdTree) return undefined;
   const path = displayPath(repository.entry!.worktreePath);
-  return `${repository.name}’s worktree has different PRD documents from this checkout. Make the same change on ${featureBranch} in ${path}, or run kiln run from that worktree; sessions start from it.`;
+  return `${repository.label ?? repository.name}’s worktree has different PRD documents from this checkout. Make the same change on ${featureBranch} in ${path}, or run kiln run from that worktree; sessions start from it.`;
 }
 
 /**
  * The workspace folder check: absolute (after `~`), missing or an empty directory, and not
  * inside any checkout of any of the PRD's repositories.
  */
-export async function checkWorkspaceFolder(git: GitContext, repositories: { name: string; mainCheckoutPath: string }[], folder: string, staleAbsent: string[] = []): Promise<string | undefined> {
+export async function checkWorkspaceFolder(git: GitContext, repositories: { name: string; mainCheckoutPath: string; label?: string }[], folder: string, staleAbsent: string[] = []): Promise<string | undefined> {
   if (folder.trim() === "") return "Enter a workspace folder.";
   const expanded = expandHome(folder);
   if (!isAbsolute(expanded)) return "Enter a full path, starting with / or ~.";
@@ -282,11 +285,13 @@ export async function checkWorkspaceFolder(git: GitContext, repositories: { name
 }
 
 /** Not inside any checkout of the given repositories: "That folder is inside a checkout of returns-api. Choose one outside it." */
-export async function checkWorkspaceFolderPlacement(git: GitContext, repositories: { name: string; mainCheckoutPath: string }[], folder: string, staleAbsent: string[] = []): Promise<string | undefined> {
+export async function checkWorkspaceFolderPlacement(git: GitContext, repositories: { name: string; mainCheckoutPath: string; label?: string }[], folder: string, staleAbsent: string[] = []): Promise<string | undefined> {
   for (const repository of repositories) {
     const inside = await insideCheckout(git, repository.mainCheckoutPath, expandHome(folder), staleAbsent);
-    if (inside === "error") return `Couldn't list ${repository.name}'s worktrees.`;
-    if (inside) return `That folder is inside a checkout of ${repository.name}. Choose one outside it.`;
+    // Each repository by its label (find repositories anywhere AC-FOLDER-02).
+    const label = repository.label ?? repository.name;
+    if (inside === "error") return `Couldn't list ${label}'s worktrees.`;
+    if (inside) return `That folder is inside a checkout of ${label}. Choose one outside it.`;
   }
   return undefined;
 }
@@ -355,12 +360,12 @@ export type SetupOutcome = { ok: true } | { ok: false; error: string };
  * branch gets `git worktree add --no-track -b <branch> <path> <baseCommit>`. `again` ends the
  * half-made message: "then press Start again." or "then ask again.".
  */
-export async function addEntryWorktree(git: GitContext, entry: RepositoryEntry, branch: string, again: string, askOrigin = true): Promise<SetupOutcome> {
+export async function addEntryWorktree(git: GitContext, entry: RepositoryEntry, branch: string, again: string, askOrigin = true, label = entry.name): Promise<SetupOutcome> {
   const path = expandHome(entry.worktreePath);
   const worktrees = await listWorktrees(git, entry.mainCheckoutPath);
   if (!worktrees.ok) return { ok: false, error: worktrees.error };
   const existing = worktrees.worktrees.find((worktree) => comparable(worktree.path) === comparable(realPathOfNearestAncestor(resolve(path))));
-  if (existing?.locked === "initializing") return { ok: false, error: halfMadeMessage(entry, again) };
+  if (existing?.locked === "initializing") return { ok: false, error: halfMadeMessage(entry, again, label) };
   if (existing && existing.branch === branch) return { ok: true };
 
   const baseCommit = entry.baseCommit;
@@ -381,16 +386,16 @@ export async function addEntryWorktree(git: GitContext, entry: RepositoryEntry, 
       const worktrees = await listWorktrees(git, entry.mainCheckoutPath);
       own = branchCommit === ownCommit && worktrees.ok && !worktrees.worktrees.some((worktree) => worktree.branch === branch);
     }
-    if (!own) return { ok: false, error: entry.kind === "prd" ? `${branch} already exists and isn't the branch Kiln made.` : `${branch} already exists in ${entry.name} and isn't the branch Kiln made.` };
+    if (!own) return { ok: false, error: entry.kind === "prd" ? `${branch} already exists and isn't the branch Kiln made.` : `${branch} already exists in ${label} and isn't the branch Kiln made.` };
     result = await runGit(git, entry.mainCheckoutPath, ["worktree", "add", path, branch], SETUP_TIMEOUT_MS);
   }
   if (result.exitCode !== 0) return { ok: false, error: gitError(result) };
   return { ok: true };
 }
 
-export function halfMadeMessage(entry: RepositoryEntry, again: string): string {
+export function halfMadeMessage(entry: RepositoryEntry, again: string, label = entry.name): string {
   const path = expandHome(entry.worktreePath);
-  return `${entry.name}’s worktree at ${displayPath(path)} was left half made. Remove it with git -C ${displayPath(entry.mainCheckoutPath)} worktree remove -f -f ${displayPath(path)}, ${again}`;
+  return `${label}’s worktree at ${displayPath(path)} was left half made. Remove it with git -C ${displayPath(entry.mainCheckoutPath)} worktree remove -f -f ${displayPath(path)}, ${again}`;
 }
 
 /**

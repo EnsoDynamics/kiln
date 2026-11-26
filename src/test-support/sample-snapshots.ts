@@ -1,7 +1,7 @@
 // The mockups' sample data as Snapshots (fictional), for the view's tests: Documents found,
 // then the progress screens, then the multi-repo delivery mockups' PRD across repositories.
 
-import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot, WaiverView } from "../engine/snapshot.js";
+import type { AgentView, PhaseView, RepositoryDetails, RepositoryRow, Snapshot, WaiverView } from "../engine/snapshot.js";
 import type { CheckItem, MarkCompleteOffer, WaiverRef } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 import type { OutputLine } from "../session/session-output.js";
@@ -12,7 +12,7 @@ import type { PauseNowView } from "../live/pause-now.js";
 export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot["settings"]>; documents?: Partial<NonNullable<Snapshot["documents"]>> } & Partial<Omit<Snapshot, "settings" | "documents">> = {}): Snapshot {
   const { settings, documents, ...rest } = overrides;
   return {
-    feature: { name: "Customer returns", repositoryName: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
+    feature: { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
     documents: {
       prd: { file: "customer-returns-prd.md", criteriaCount: 14, firstLabel: "AC-RET-01", lastLabel: "AC-RET-14" },
       design: { file: "technical-design.md", criteriaCited: 14 },
@@ -38,10 +38,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       ...documents,
     },
     settings: {
-      agent: "Claude Code",
-      model: { value: "opus", displayName: "Opus 5.5" },
-      effort: "high",
-      effortLevels: ["low", "medium", "high", "xhigh", "max"],
+      models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, fallback: { enabled: false, threshold: 95 }, audits: { choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" }, changedByYou: false, change: { available: true } }, revision: "missing" },
       keepAwake: true,
       resumeAfterUsageLimit: true,
       workspaceFolder: "~/devel/.worktrees/customer-returns",
@@ -55,16 +52,11 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       ...settings,
     },
     repositories: [
-      { name: "acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop", "main"], baseCheck: "ok", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: false, fieldErrors: {} },
-    ],
-    models: [
-      { value: "opus", displayName: "Opus 5.5" },
-      { value: "fable", displayName: "Fable 5.1" },
-      { value: "sonnet", displayName: "Sonnet 5.5" },
+      { name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: "~/devel/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop", "main"], baseCheck: "ok", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: false, fieldErrors: {} },
     ],
     phases: [],
     pause: { pending: false, active: false },
-    account: {
+    agents: [claudeAgent({
       email: "alex@acme-shop.dev",
       plan: "Max plan",
       startedAt: "2026-10-17T13:15:00Z",
@@ -75,9 +67,43 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
         { kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 22, nearLimit: false },
         { kind: "weekly_scoped", scope: { by: "model", name: "Fable" }, label: "Weekly · Fable", shortLabel: "Fable", percent: 0, nearLimit: false },
       ],
-    },
+    })],
     ...rest,
   };
+}
+
+export type AccountView = NonNullable<AgentView["account"]>;
+
+export const CLAUDE_MODELS = [
+  { value: "opus", displayName: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { value: "fable", displayName: "Fable 5.1", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { value: "sonnet", displayName: "Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+];
+
+/** Claude Code as the one agent every activity needs, in use, with this account. */
+export function claudeAgent(account: AccountView | undefined, change: Partial<AgentView> = {}): AgentView {
+  return { agentId: "claude_code", agent: "Claude Code", installed: true, pending: false, inUse: true, neededBy: { activities: ["1", "2a", "2b", "3", "4"], fallbackOnly: false }, models: CLAUDE_MODELS, ...(account ? { account: { ...account, inUse: true } } : {}), ...change };
+}
+
+/** The in-use agent's account in a sample snapshot. */
+/** The agent entry the snapshot's current activity runs on. */
+export function inUse(snapshot: Snapshot): AgentView {
+  return snapshot.agents.find((agent) => agent.inUse)!;
+}
+
+/**
+ * Makes one agent the run's only needed, in-use agent, keeping the in-use entry's account and billing:
+ *
+ *   useAgent(runningSnapshot(), "codex")  // a run whose every activity is on Codex
+ */
+export function useAgent(snapshot: Snapshot, agentId: AgentView["agentId"]): Snapshot {
+  const current = snapshot.agents.find((agent) => agent.inUse) ?? snapshot.agents[0];
+  snapshot.agents = [{ ...(current ?? claudeAgent(undefined)), agentId, agent: agentId === "codex" ? "Codex" : "Claude Code", inUse: true }];
+  return snapshot;
+}
+
+export function inUseAccount(snapshot: Snapshot): AccountView | undefined {
+  return snapshot.agents.find((agent) => agent.inUse)?.account;
 }
 
 // ---- The progress mockups' sample data (fictional). Times are the mockups' local times in
@@ -141,9 +167,9 @@ function underwaySettings(): Snapshot["settings"] {
 }
 
 /** The PRD's one repository once Kiln has set it up. */
-const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", kind: "prd", baseBranch: "develop", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: true, fieldErrors: {} }];
+const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: "~/devel/acme-shop", kind: "prd", baseBranch: "develop", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: true, fieldErrors: {} }];
 
-const ACCOUNT: NonNullable<Snapshot["account"]> = {
+const ACCOUNT: AccountView = {
   email: "alex@acme-shop.dev",
   plan: "Max plan",
   startedAt: "2026-10-17T15:45:00Z",
@@ -157,10 +183,10 @@ const ACCOUNT: NonNullable<Snapshot["account"]> = {
 };
 
 function underway(rest: Partial<Snapshot> & Pick<Snapshot, "feature" | "phases">): Snapshot {
-  return { settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, models: documentsFoundSnapshot().models!, pause: { pending: false, active: false }, account: ACCOUNT, ...rest };
+  return { settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, pause: { pending: false, active: false }, agents: [claudeAgent(ACCOUNT)], ...rest };
 }
 
-const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
+const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
 
 /** Running and Phase detail: phase 2b, Store credit, at Deliverable review, its reviewer working. */
 export function runningSnapshot(): Snapshot {
@@ -336,10 +362,10 @@ export function completeSnapshot(): Snapshot {
 // (docs/changes/kiln-multi-repo-delivery/mockups/).
 
 const WORKSPACE = "~/devel/acme/.worktrees/customer-returns";
-const MULTI_FEATURE = { ...FEATURE, repositoryName: "product", multiRepository: true };
+const MULTI_FEATURE = { ...FEATURE, repositoryName: "product", repositoryLabel: "product", multiRepository: true };
 
 function multiRow(name: string, kind: RepositoryRow["kind"], baseBranch: string, extra: Partial<RepositoryRow> = {}): RepositoryRow {
-  return { name, kind, baseBranch, worktreePath: `${WORKSPACE}/${name}`, fixed: true, fieldErrors: {}, ...extra };
+  return { name, label: name, addressPath: `acme/${name}`, checkoutFolder: `~/devel/acme/${name}`, kind, baseBranch, worktreePath: `${WORKSPACE}/${name}`, fixed: true, fieldErrors: {}, ...extra };
 }
 
 /** Documents found for the PRD across three repositories (kiln-screen-documents-found-repositories.html). */
@@ -349,14 +375,14 @@ export function documentsFoundRepositoriesSnapshot(): Snapshot {
   const documents = snapshot.documents!;
   return {
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     documents: {
       ...documents,
       plan: { ...documents.plan!, phases: documents.plan!.phases.map((phase) => ({ ...phase, repositories: repositories[phase.id]! })) },
       checks: [
         { name: "Every phase cites its criteria", passed: true },
         { name: "Dependencies point backward", passed: true },
-        { name: "Named repositories found beside product", passed: true },
+        { name: "Repositories found on this computer", passed: true },
         { name: "Working tree of product is clean", passed: true },
       ],
     },
@@ -364,6 +390,40 @@ export function documentsFoundRepositoriesSnapshot(): Snapshot {
       multiRow("product", "prd", "main", { baseBranches: ["main"], baseCheck: "ok", fixed: false }),
       multiRow("returns-api", "named", "develop", { baseBranches: ["develop", "main"], baseCheck: "ok", fixed: false }),
       multiRow("storefront", "named", "develop", { baseBranches: ["develop", "main"], baseCheck: "ok", fixed: false }),
+    ],
+  };
+}
+
+// ---- The find repositories anywhere mockup's sample data (fictional): product at ~/code/acme/product,
+// returns-api beside it, storefront under acme-labs (docs/changes/kiln-find-repositories-anywhere/mockups/).
+
+/**
+ * Documents found in the mockup's states: 1 every repository found, 2 asks where storefront is,
+ * 3 asks which of two checkouts, 4 after the answer, with Change.
+ */
+export function findRepositoriesSnapshot(state: 1 | 2 | 3 | 4): Snapshot {
+  const base = documentsFoundRepositoriesSnapshot();
+  const row = (name: string, addressPath: string, folder: string | undefined, kind: RepositoryRow["kind"], baseBranch: string, extra: Partial<RepositoryRow> = {}): RepositoryRow =>
+    ({ name, label: name, addressPath, ...(folder ? { checkoutFolder: folder } : {}), kind, baseBranch, baseBranches: baseBranch ? [baseBranch, "main"].filter((one, index, all) => all.indexOf(one) === index) : [], baseCheck: "ok", worktreePath: `~/code/acme/.worktrees/customer-returns/${name}`, fixed: false, fieldErrors: {}, ...extra });
+  const question = state === 2
+    ? { kind: "where" as const, repository: "acme-labs/storefront", label: "storefront", searchedFrom: "~/code/acme", checkouts: [], found: 0 }
+    : { kind: "which" as const, repository: "acme-labs/storefront", label: "storefront", searchedFrom: "~/code/acme", found: 2, checkouts: [
+      { folder: "~/code/acme-labs/storefront", remote: "git@github.com:acme-labs/storefront.git", pickable: true },
+      { folder: "~/code/archive/storefront", remote: "git@github.com:acme-labs/storefront.git", pickable: true },
+    ] };
+  const asking = state === 2 || state === 3;
+  const storefront = asking
+    ? row("storefront", "acme-labs/storefront", undefined, "named", "", { baseBranches: [], fixed: true, question })
+    : row("storefront", "acme-labs/storefront", state === 4 ? "/Volumes/work/storefront" : "~/code/acme-labs/storefront", "named", "develop", { located: state === 4 ? "answer" : "search" });
+  const documents = base.documents!;
+  return {
+    ...base,
+    settings: { ...base.settings, workspaceFolder: "~/code/acme/.worktrees/customer-returns", ...(asking ? { startBlockedBy: state === 2 ? "Tell Kiln where acme-labs/storefront is to start." : "Tell Kiln which checkout of acme-labs/storefront to use to start." } : {}) },
+    documents: { ...documents, checks: documents.checks.map((check) => (check.name === "Repositories found on this computer" && asking ? { name: "1 repository to locate", passed: true, locate: true as const } : check)) },
+    repositories: [
+      row("product", "acme/product", "~/code/acme/product", "prd", "main", { baseBranches: ["main"] }),
+      row("returns-api", "acme/returns-api", "~/code/acme/returns-api", "named", "develop", { located: "beside" }),
+      storefront,
     ],
   };
 }
@@ -440,7 +500,7 @@ export function runningRepositoriesSnapshot(): Snapshot {
   const snapshot = runningSnapshot();
   return multiUnderway({
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     phases: [MULTI_PHASE_1, PHASE_2, MULTI_PHASE_2A, ...snapshot.phases.slice(3)],
     current: {
       ...snapshot.current!,
@@ -458,7 +518,7 @@ export function needsYouRepositoriesSnapshot(): Snapshot {
   const complete = completeRepositoriesSnapshot();
   return multiUnderway({
     ...snapshot,
-    feature: { ...snapshot.feature, repositoryName: "product", multiRepository: true },
+    feature: { ...snapshot.feature, repositoryName: "product", repositoryLabel: "product", multiRepository: true },
     phases: [...complete.phases.slice(0, 4), { ...PHASE_3, state: "needs_you", sessionStartedAt: "2026-10-17T16:17:00Z" }, PHASE_4],
     needsYou: {
       ...snapshot.needsYou!,
@@ -544,8 +604,12 @@ function fiveHourLimit(readAt: string): NonNullable<Snapshot["waiting"]>["limit"
 }
 
 /** The account panel's reading behind the limit card, the 5-hour window at 100%. */
-function accountAtLimit(readAt: string): NonNullable<Snapshot["account"]> {
+function accountAtLimit(readAt: string): AccountView {
   return { ...ACCOUNT, startedAt: readAt, updatedAt: readAt, limitsObservedAt: readAt, limits: [{ ...ACCOUNT.limits[0]!, percent: 100, resetsAt: "2026-10-17T19:39:59.700Z" }, ...ACCOUNT.limits.slice(1)] };
+}
+
+function agentsAtLimit(readAt: string): AgentView[] {
+  return [claudeAgent(accountAtLimit(readAt))];
 }
 
 const LIMIT_STEPS: NonNullable<NonNullable<Snapshot["waiting"]>["steps"]> = [
@@ -562,7 +626,7 @@ export function waitingSnapshot(): Snapshot {
   return underway({
     feature: { ...FEATURE, state: "waiting", currentPhaseId: "2b", phasesDone: 2 },
     phases: [PHASE_1, PHASE_2, PHASE_2A, { ...PHASE_2B, state: "waiting", sessionStartedAt: "2026-10-17T14:58:00Z" }, { ...PHASE_3, state: "planned" }, PHASE_4],
-    account: accountAtLimit("2026-10-17T18:28:00Z"),
+    agents: agentsAtLimit("2026-10-17T18:28:00Z"),
     waiting: {
       phaseId: "2b",
       since: "2026-10-17T18:28:00Z",
@@ -588,7 +652,7 @@ export function needsYouUsageLimitSnapshot(): Snapshot {
   return underway({
     feature: { ...FEATURE, state: "needs_you", currentPhaseId: "2b", phasesDone: 2, stoppedAt: "2026-10-17T18:28:00Z" },
     phases: [PHASE_1, PHASE_2, PHASE_2A, { ...PHASE_2B, state: "needs_you", sessionStartedAt: "2026-10-17T14:58:00Z" }, { ...PHASE_3, state: "planned" }, PHASE_4],
-    account: accountAtLimit("2026-10-17T18:27:00Z"),
+    agents: agentsAtLimit("2026-10-17T18:27:00Z"),
     needsYou: {
       phaseId: "2b",
       kind: "done_check",
@@ -779,12 +843,12 @@ export function noReportAuditSnapshot(): Snapshot {
   const auditWaiver: WaiverView = { id: "waiver-audit", at: "2026-10-17T16:34:10Z", activityKey: "audit-da1", activity: "Delivery audit", effect: "completed", source: { via: "browser", account: "alex" }, checkRun: { id: "run-da1", at: "2026-10-17T16:33:00Z" }, items: [{ check: "Audit result recorded", kind: "other", subject: "No audit report yet.", text: "No audit report yet.", against: "acme-shop=0c4d8a2e9f10" }] };
   const reportCheck: CheckResult = { name: "Audit result recorded", passed: true, waived: true, facts: ["No audit report yet."], items: [{ kind: "other", subject: "No audit report yet.", text: "No audit report yet.", against: "acme-shop=0c4d8a2e9f10", waiver: { waiverId: auditWaiver.id, activityKey: "audit-da1", at: auditWaiver.at, via: "browser", account: "alex" } }] };
   const audit: PhaseView = {
-    id: "audit-da1", activityId: "da1", kind: "delivery_audit", title: "Delivery audit", file: "Round 1", round: 1, continuationIndex: 1, state: "done", doneAt: auditWaiver.at, finishedByPerson: false,
+    id: "audit-da1", activityId: "da1", kind: "delivery_audit", title: "Delivery audit", file: "Loop 1 of 4", round: 1, continuationIndex: 1, state: "done", doneAt: auditWaiver.at, finishedByPerson: false,
     audit: { checks: [reportCheck], criteria: [], repositories: [], blockers: [], pendingActions: [] },
     waivedChecks: 1, waivedCompletion: { checks: [reportCheck], counts: { passed: 0, waived: 1, failed: 0 } }, waivers: [auditWaiver],
     warnings: [{ kind: "no_audit_report", text: "no audit report: Kiln couldn’t tell what this audit found" }],
   };
-  snapshot.activities = [...snapshot.phases.filter(row => row.id !== "4"), audit, { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Round 1", round: 1, continuationIndex: 1, state: "implementing", finishedByPerson: false }];
+  snapshot.activities = [...snapshot.phases.filter(row => row.id !== "4"), audit, { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Loop 1 of 4", round: 1, continuationIndex: 1, state: "implementing", finishedByPerson: false }];
   snapshot.waivers = [WAIVER, auditWaiver];
   return snapshot;
 }
@@ -841,7 +905,7 @@ export function folderMissingSnapshot(which: FolderMissingCase): Snapshot {
   const multi = which === "multi";
   cases[which].panel = folderMissingPanel(which);
   return underway({
-    feature: { name: "Invoice evidence collection", repositoryName: "harbor-ledger", multiRepository: multi, prdFolder: "docs/prds/invoice-evidence-collection/", state: "folder_missing", phasesDone: 4, phasesTotal: 5, startedAt: OCT23 },
+    feature: { name: "Invoice evidence collection", repositoryName: "harbor-ledger", repositoryLabel: "harbor-ledger", multiRepository: multi, prdFolder: "docs/prds/invoice-evidence-collection/", state: "folder_missing", phasesDone: 4, phasesTotal: 5, startedAt: OCT23 },
     phases: ["1", "2", "3", "4"].map(id => ({ id, title: `Phase ${id} work`, file: `phase-${id}.md`, state: "done" as const, doneAt: OCT24, finishedByPerson: false })),
     folderMissing: { checkedAt: new Date(FOLDER_MISSING_NOW).toISOString(), factsId: "f".repeat(64), ...cases[which] },
   });
@@ -875,12 +939,15 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
     ? [{ allowed: true, parts: [{ text: "In each repository, commit and push to " }, { text: branch, tone: "code" }] }, { allowed: true, parts: [{ text: "In each repository, open one pull request into its base branch once every phase closes" }] }]
     : [{ allowed: true, parts: [{ text: "Commit and push to " }, { text: branch, tone: "code" }] }, { allowed: true, parts: [{ text: "Open one pull request into " }, { text: "develop", tone: "code" }, { text: " once every phase closes" }] }];
   if (!fromBase && which !== "occupied") lets.push({ allowed: true, parts: [{ text: "Clear git’s record of the missing folder " }, { text: multi ? `${WT}/harbor-portal` : SAVED, tone: "code" }] });
-  lets.push({ allowed: false, parts: [{ text: "Never merge, deploy, or touch other branches" }] });
+  // After delivery: the merge and, in the PRD's repository, the plan push (Kiln After Delivery AC-MERGE-08).
+  lets.push({ allowed: true, parts: [{ text: "Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page" }] });
+  lets.push({ allowed: true, parts: [{ text: `${multi ? "In the PRD’s repository, push" : "Push"} this PRD’s documents to develop only when you press Continue on the finished page` }] });
+  lets.push({ allowed: false, parts: [{ text: "Never deploy or touch other branches" }] });
   const folder = fromBase ? (multi ? WT2 : NEWDIR) : which === "occupied" ? NEWDIR : multi ? WT : SAVED;
   return {
     suggested: pick, selected: pick, multi,
     choices: { base: choice(baseLine), branch: branchChoice },
-    fields: { worktreePath: multi ? SAVED : folder, workspaceFolder: multi ? folder : fromBase ? WT2 : WT, featureBranch: branch, baseBranch: "develop", bases: multi ? { "harbor-portal": "develop" } : {}, model: "opus", effort: "high", keepAwake: true, resumeAfterUsageLimit: true },
+    fields: { worktreePath: multi ? SAVED : folder, workspaceFolder: multi ? folder : fromBase ? WT2 : WT, featureBranch: branch, baseBranch: "develop", bases: multi ? { "harbor-portal": "develop" } : {}, keepAwake: true, resumeAfterUsageLimit: true },
     fixed: fromBase ? ["agentId"] : ["agentId", "featureBranch", "baseBranch", "bases", ...(multi ? ["workspaceFolder"] : [])],
     fieldErrors: {},
     helpLines: {
@@ -889,7 +956,6 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
     },
     repositories: multi ? [{ name: "harbor-ledger", kind: "prd", baseBranch: "develop", baseChoices: ["develop", "main"] }, { name: "harbor-portal", kind: "named", baseBranch: "develop", baseChoices: ["develop", "main"] }] : [],
     baseChoices: ["develop", "main"],
-    effortLevels: ["low", "medium", "high", "xhigh", "max"],
     preview: { ...preview, lets },
     previewId: "e".repeat(64), draftRevision: 0,
   };
@@ -917,7 +983,7 @@ export function auditLoopsView(overrides: Partial<NonNullable<Snapshot["auditLoo
 export function closingAuditsSnapshot(current?: { id: string; position: NonNullable<NonNullable<Snapshot["auditLoops"]>["position"]> }): Snapshot {
   const snapshot = runningSnapshot();
   const done = { state: "done" as const, finishedByPerson: false };
-  const audit = (n: number, extra: Partial<PhaseView> = {}): PhaseView => ({ id: `audit-da${n}`, activityId: `da${n}`, kind: "delivery_audit", title: "Delivery audit", file: `Round ${n}`, round: n, continuationIndex: 1, ...done, loops: [{ kind: "delivery", number: n, limit: 4 }], ...extra });
+  const audit = (n: number, extra: Partial<PhaseView> = {}): PhaseView => ({ id: `audit-da${n}`, activityId: `da${n}`, kind: "delivery_audit", title: "Delivery audit", file: `Loop ${n} of 4`, round: n, continuationIndex: 1, ...done, loops: [{ kind: "delivery", number: n, limit: 4 }], ...extra });
   const phase = (id: string, title: string, extra: Partial<PhaseView> = {}): PhaseView => ({ id, title, file: `phase-${id}-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.md`, ...done, ...extra });
   const activities: PhaseView[] = [
     phase("6", "Refunds for a returned item"), audit(1),
@@ -926,9 +992,9 @@ export function closingAuditsSnapshot(current?: { id: string; position: NonNulla
     phase("9", "Partial refunds for a bundle"), audit(4),
     phase("10", "Refund email shows the restocking fee", current ? {} : { state: "implementing" }),
     phase("11", "Return reason required on the form", { state: "planned" }),
-    // A session of test fixes (a test audit continuation) carries no loop of its own.
-    { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Round 1", round: 1, continuationIndex: 1, ...done, loops: [{ kind: "test", number: 1, limit: 4 }] },
-    { id: "audit-ta1-2", activityId: "ta1-2", kind: "test_audit", title: "Test audit", file: "Round 1", round: 1, continuationIndex: 2, state: "planned", finishedByPerson: false },
+    // A session of test fixes (a test audit continuation) carries no loop of its own: it names the loop it works from (Kiln After Delivery AC-AUDIT-01).
+    { id: "audit-ta1", activityId: "ta1", kind: "test_audit", title: "Test audit", file: "Loop 1 of 4", round: 1, continuationIndex: 1, ...done, loops: [{ kind: "test", number: 1, limit: 4 }] },
+    { id: "audit-ta1-2", activityId: "ta1-2", kind: "test_audit", title: "Fixing tests", file: "From test audit loop 1 · session 1", round: 1, continuationIndex: 2, fixing: { loop: 1, session: 1 }, state: "planned", finishedByPerson: false },
   ];
   const running = current ? activities.find(row => row.id === current.id)! : activities.find(row => row.id === "10")!;
   running.state = "implementing";
@@ -947,7 +1013,7 @@ export function storedLoopStopSnapshot(): Snapshot {
   const snapshot = needsYouMessageSnapshot();
   const stop = { ...snapshot.needsYou! };
   for (const key of ["finalMessage", "exitCode", "lastSkill", "steps"] as const) delete stop[key];
-  const audit: PhaseView = { id: "audit-ta4", activityId: "ta4", kind: "test_audit", title: "Test audit", file: "Round 4", round: 4, continuationIndex: 1, state: "needs_you", finishedByPerson: false, loops: [{ kind: "test", number: 4, limit: 4 }] };
+  const audit: PhaseView = { id: "audit-ta4", activityId: "ta4", kind: "test_audit", title: "Test audit", file: "Loop 4 of 4", round: 4, continuationIndex: 1, state: "needs_you", finishedByPerson: false, loops: [{ kind: "test", number: 4, limit: 4 }] };
   snapshot.feature = { ...snapshot.feature, currentPhaseId: audit.id, phasesDone: 5 };
   snapshot.needsYou = { ...stop, phaseId: audit.id, kind: "loop_limit", checks: [], counts: { passed: 0, waived: 0, failed: 0 }, resumeOffered: false, resumeCommand: `cd ${WORKTREE}\nclaude --resume ${TEST_SESSION}`, sessionId: TEST_SESSION, markComplete: { offered: false, reason: "Kiln no longer stops at a loop limit. Check again to go on." } };
   snapshot.auditLoops = auditLoopsView({ delivery: { used: 2, limit: 4, closed: false, floor: 2 }, test: { used: 4, limit: 4, closed: true, floor: 4 }, position: { audit: "test", loop: 4, limit: 4 } });

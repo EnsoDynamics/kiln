@@ -20,6 +20,8 @@ Everything here is Kiln's. The Enso Method's skills are unchanged: the test audi
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Settings (two limits, default 4, no third setting).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Resolving a Choice (Effort: no PRD-wide default effort).
+
 `Settings` (and so `AgentSettings`) gains:
 
 ```
@@ -216,6 +218,8 @@ The stop's `controls` list adds the two actions with availability and reason. Ma
 ## Display Contract (AC-LOOP-01, AC-STOP-01, AC-SHOW-01, AC-TEST-03)
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §The Status Line (no loop stop page; the status line names the loop).
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Closing-Audit Names (only audit rows carry Loop _n_ of _limit_, never **last loop**; a session of test fixes names the loop it works from).
 
 - **Documents found and the run's settings panel:** the **Audit loops** section of mockup screens 0 and 1, help text computed from the values shown; Effort's help line as screen 0.
 - **Activity rows:** `PhaseView` gains `loops?: { number, limit, last, sessionId?, observed? }[]` (`sessionId` on test loops, `observed` copied from the ledger loop) from the ledger (each with the limit in force when it started), one per loop the activity holds (§The Loop Ledger, "Which loop a session belongs to"). The row reads by the latest: **loop N of M**, or **last loop** when `last`. The detail lists each loop with its time, `runTiming` over its own sessions' runs, and what it did: its latest attempt holding a report, as the outcome in words, then that report's `summary`, absent when it left none. A delivery loop names the phases it built. A row whose session carried a sentence says which one, and its detail quotes it. A loop with `observed` adds "counted from this run's history when Kiln was upgraded" to its entry in the detail, and to its line on a stop page (§Upgrade).

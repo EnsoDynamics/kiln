@@ -1,7 +1,7 @@
 import { ResponseSpool, spoolResult, releaseResult } from "./spool.js";
 import { readMessage } from "./input.js";
 import { lookupReceipt, receiptResult, validateInstruction, validBy, type Action } from "./commands.js";
-import { personItemsText, progressHeading, progressText, receiptLines, statusPause, type ProgressRow } from "./waiver-facts.js";
+import { locateText, personItemsText, progressHeading, progressText, receiptLines, statusLabels, statusPause, type ProgressRow } from "./waiver-facts.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { processStartTime } from "../platform/process-start-time.js";
@@ -15,7 +15,9 @@ import { ControlFailure, errorFact, failed, exitFor, result, serialize, type Res
 import type { CommandContext } from "../kiln-command.js";
 import { loopSettings, REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
 import { auditLoopsText, loopSettingInputs, SETTING_FLAGS, type AuditLoopsView } from "./loop-text.js";
-import { continuationText, deliveredText } from "./delivered-facts.js";
+import { afterDeliveryText, continuationText, deliveredText } from "./delivered-facts.js";
+import { modelDefaultsCommand } from "./model-defaults-command.js";
+import { terminalColors } from "../terminal-output.js";
 
 interface Capability { protocol_major: number; execution_id: string; prd_path: string; instance: { pid: number; process_start_time: string | null }; features: string[] }
 interface Controller { features?: string[]; state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
@@ -119,7 +121,8 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     const loops = current && !delivered ? auditLoopsText(answer.audit_loops as AuditLoopsView | null | undefined) : undefined;
     const items = personItemsText(answer.items as Record<string, unknown>[] | null | undefined);
     const offer = current ? continuationText(answer.continuation as Parameters<typeof continuationText>[0]) : undefined;
-    const lead = [rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control)).trimEnd() : undefined, loops, items, delivered, offer].filter(Boolean).join("\n");
+    const merge = current ? afterDeliveryText(answer.after_delivery as Parameters<typeof afterDeliveryText>[0], (answer.repositories as unknown[] | undefined ?? []).length > 1) : undefined;
+    const lead = [rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control), locateText(answer.stop as Record<string, unknown> | null | undefined, terminalColors(context.stdout, context.env)), statusLabels(answer)).trimEnd() : undefined, loops, items, delivered, merge, offer].filter(Boolean).join("\n");
     return lead ? `${lead}\n` : undefined;
   };
   const receiptLead = (answer: Result, record: SavedWork["record"] | undefined, waive = false) => receiptLines(answer, record, waive)?.join("\n");
@@ -144,6 +147,9 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       for (const key of ["keep-awake", "resume-after-usage-limit"]) if (flags[key] && !["on", "off"].includes(String(flags[key]))) throw new ControlFailure("invalid_input", "Settings accept on or off.", 2);
     }
     const loopInputs = name === "settings" ? loopSettingInputs(flags) : {};
+    // Model defaults are a setting for this computer, not a run: no PRD path, controller or safety flags (Kiln Phase Model Tiers, "Command line").
+    if (name === "model-defaults") { const { answer, lead } = await modelDefaultsCommand(parsed, context.env, context.cwd); return write(answer, answer.ok ? lead : undefined); }
+    if (name === "model" && (flags.agent === undefined) !== (flags.model === undefined)) throw new ControlFailure("invalid_input", "--agent and --model go together.", 2);
 
     if (name === "status" && !parsed.positionals.length) {
       if (flags.detail) throw new ControlFailure("invalid_input", "--detail full requires a PRD path.", 2);
@@ -174,12 +180,16 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       if (feature && !owner.features?.includes(feature)) throw new ControlFailure("instance_incompatible", "This controller does not support the requested live control. Restart it with updated Kiln.");
       const waive = name === "waive-and-advance";
       if (waive && !owner.features?.includes("waive_and_advance")) throw new ControlFailure("instance_incompatible", "This controller does not support waive-and-advance. Restart it with updated Kiln.");
-      if ((name === "carry-on" || name === "start-again" || name === "reset") && !owner.features?.includes(name.replace("-", "_"))) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
+      if ((name === "carry-on" || name === "start-again" || name === "reset" || name === "locate-repository") && !owner.features?.includes(name.replace("-", "_"))) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
+      // A newer client refuses kiln model against a Kiln that predates it (Kiln Phase Model Tiers, "Command line").
+      if (name === "model" && !owner.features?.includes("model")) throw new ControlFailure("instance_incompatible", "This controller does not support kiln model. Restart it with updated Kiln.");
+      // Merging after delivery needs a controller that has the merge activity (Kiln After Delivery, "Interfaces").
+      if ((name === "merge" || name === "exit") && !owner.features?.includes("after_delivery")) throw new ControlFailure("instance_incompatible", `This controller does not support ${name}. Restart it with updated Kiln.`);
       // The loop limits and continuing with new phases need a controller that moves on at the limits (AC-BOT-01).
       if ((name === "continue-with-phases" || Object.keys(loopInputs).length) && !owner.features?.includes("loop_limits_move_on")) throw new ControlFailure("instance_incompatible", INCOMPATIBLE_LOOPS);
       const token = String(flags["only-if-status-matches"]);
       const instruction = { command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
-        inputs: name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}), ...loopInputs } : name === "continue-with-phases" ? { proposal_id: flags.proposal } : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : {} };
+        inputs: name === "merge" || name === "exit" ? { via: "command_line" } : name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}), ...loopInputs } : name === "continue-with-phases" ? { proposal_id: flags.proposal } : name === "model" ? modelInputs(flags) : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : name === "locate-repository" ? { repository: parsed.positionals[1], folder: parsed.positionals[2] } : {} };
       if (flags["message-reviewed"]) Object.assign(instruction.inputs, { reviewed_receipt_ids: flags["message-reviewed"] });
       // Run restart AC-CURRENT-01: the session-starting commands catch an untouched branch up unless told not to.
       if (flags["leave-branch-as-is"]) Object.assign(instruction.inputs, { leave_branch: true });
@@ -192,7 +202,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
         const response = await fetch(`${owner.address}/api/control/v1/commands`, { method: "POST", headers: { Origin: owner.address!, "X-Kiln-Token": work.record.token, "Content-Type": "application/json" }, redirect: "error", signal: AbortSignal.timeout(5000), body: JSON.stringify(instruction) });
         const answer = await response.json() as Result;
         if (answer.schema_version !== "1" || answer.prd_path !== work.canonical || answer.command_id !== instruction.command_id || !Array.isArray(answer.errors)) throw new Error("Invalid command receipt");
-        return write(answer, waive ? receiptLead(answer, freshRecord(work), true) : Object.keys(loopInputs).length && answer.ok ? loopLimitsLead(freshRecord(work)) : undefined);
+        return write(answer, waive || name === "locate-repository" ? receiptLead(answer, freshRecord(work), true) : Object.keys(loopInputs).length && answer.ok ? loopLimitsLead(freshRecord(work)) : undefined);
       } catch { return write(result({ prd_path: work.canonical, execution_id: instruction.execution_id, command_id: instruction.command_id }, [errorFact("operation_indeterminate", "The command response was lost. Inspect its receipt before retrying.", ["kiln", "command-status", work.canonical, "--command-id", instruction.command_id, "--json"])])); }
     }
     if (owner.state === "incompatible" || owner.state === "unreachable") {
@@ -245,6 +255,11 @@ export function waiveInputs(flags: Record<string, string | true | string[]>): Re
   if (flags.by !== undefined && !confirm) throw new ControlFailure("invalid_input", "--by records who marked an activity complete; it needs --confirm.", 2);
   if (flags.by !== undefined && !validBy(flags.by)) throw new ControlFailure("invalid_input", "--by takes a name of 1 to 64 printable characters.", 2);
   return { confirm, ...(typeof flags.by === "string" ? { by: flags.by } : {}), ...(flags["without-sending-reply"] ? { without_sending_reply: true } : {}) };
+}
+
+/** `kiln model`'s journal inputs: the phase or the Audits choice, and a choice or a return to the default. */
+function modelInputs(flags: Record<string, string | true | string[]>): Record<string, unknown> {
+  return { ...(typeof flags.phase === "string" ? { phase: flags.phase } : { audits: true }), ...(flags["use-default"] ? { use_default: true } : { agent_id: flags.agent, model: flags.model, ...(typeof flags.effort === "string" ? { effort: flags.effort } : {}) }) };
 }
 
 /** The saved record as it is now, for naming a waiver's activity and source; the target's snapshot when it cannot be reread. */

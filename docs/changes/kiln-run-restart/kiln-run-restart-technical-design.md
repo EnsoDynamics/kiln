@@ -182,6 +182,8 @@ A held phase (§A Stopped Phase's Facts) gets no offer and no catch-up. Verify, 
 
 ## A Stopped Phase's Facts (AC-CASE-01, 03, 04)
 
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Screens (a stopped phase's page gains the question about a repository a session asked for, below the card for how its session ended)
+
 A **stopped phase** is an implementation leaf that is not held, one of whose sessions has a run, and that has a stop of kind `done_check` or `not_resumable` or a billing hold on a resume (`action: "resume"`). A billing hold on a launch (`action: "launch"`) is a launch hold. While it lasts, the phase is not a stopped phase and keeps today's page, **The next AI launch is held for review.**, whatever stop the phase also keeps. When it clears, the kept stop's page returns.
 
 | Billing hold | The phase also has | Page | Stopped phase |
@@ -226,6 +228,8 @@ A stopped phase keeps today's choice of page: `PhaseHandoff` when it has a recov
 On both pages the drawn section takes the place of the page's whole check card: the **Is Phase N already done?** card on `PhaseHandoff`, and the side card on `NeedsYou`. `NeedsYou` then drops its side column, and the section follows the page's cards as drawn. The section's first line is the drawn text, with **Check Phase N anyway** beside it, keeping today's checking label and refresh warning. Each row with `reason` shows below that line, in today's row markup (`CheckFacts`).
 
 ## Starting a Session at a Stop (AC-CASE-02, AC-CARRY-01 to 05)
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session (Resume and reply on an activity that hasn't started launch a new session).
 
 ### Whether the conversation can be reopened
 
@@ -321,6 +325,8 @@ A hold with `history` set stays `pending`: it is never reported as released, and
 ## Reset (AC-RESET-01 to 06)
 
 ### Availability
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Closing-Audit Names (an audit's label in the reset line).
 
 `reset` is a control of every started PRD: `startedAt` is set, whatever the screen (Needs you, a wait, a pause, Folder missing, Complete). It is unavailable while Kiln is working: a session process is running or being watched, the engine is driving, checking, setting up, reading a completed plan, saving billing or delivery state, running a Folder missing start, or stopping, or another instruction is pending. A held phase whose attempt has ended is not working. `controlView()` computes `reset` with the other controls, so the page's `controlToken` and `kiln status`'s `status_token` are the same value and give the same availability on every screen. The snapshot carries `reset: { available, reason? }`. The view renders the reset line once, after everything else on the page, Earlier deliveries included. It shows on every screen, the phase detail screen included, while `snapshot.reset` is present, so Documents found never has it. It is the drawn footer: a rule, then the text with **Reset Kiln for this PRD** beside it. While reset is available the text reads "In a state nothing above fixes? Reset makes Kiln forget its progress on this PRD and takes you back to the first screen. Your branch, worktree and commits are kept." While it is unavailable, the text is `reset.reason` and the button is unavailable. The button is also unavailable while the page is disconnected. Pressing it opens the confirmation in place, below the line in the same footer, with the button marked open. **Cancel** closes it.
 
@@ -432,6 +438,8 @@ liveControl.takeover: adds history?: ReopenCheck
 ```
 
 ### Command line
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (a fifth help group, `models`, headed **Choose models** and printed after **Message, pause or take over**).
 
 All three are changing commands under bot control's contract: a PRD path, `--only-if-status-matches`, `--command-id`, text and JSON results, the same exit classes, no prompt. Each has a command contract with examples and joins `kiln status`'s controls and the controller's advertised features (`carry_on`, `start_again`, `reset`).
 

@@ -1,4 +1,11 @@
+import { AGENT_NAMES, type AgentId } from "../state/records.js";
+import { judgedPhase, readPlanAt, recordedPlan } from "../engine/plan-reading.js";
+import { notStartedChoice } from "../engine/activity-models.js";
+import { modelDefaultsPath } from "../models/model-defaults.js";
+import type { ActivityChoice, ModelList } from "../models/resolver.js";
+import type { Effort } from "../state/records.js";
 import { activityKeyKind } from "../state/activity-keys.js";
+import { auditSentenceStart, recordedAuditName } from "../audit/audit-names.js";
 import { AuditStore, hashBytes } from "../audit/storage.js";
 import { pausingStatusText } from "../live/pause-now.js";
 import { messageReceiptLabel } from "../live/target.js";
@@ -13,11 +20,10 @@ import { sessionStorageKey } from "../state/records.js";
 import type { SessionRecord } from "../state/records.js";
 import type { OutputLine } from "../session/session-output.js";
 import type { Engine } from "../engine/engine.js";
-import { buildSnapshot, codexResumeCommand, resumeCommand, codexCommand, claudeCommand, type Snapshot, type LimitView } from "../engine/snapshot.js";
+import { buildSnapshot, codexResumeCommand, resumeCommand, codexCommand, claudeCommand, type AgentView, type Snapshot, type LimitView } from "../engine/snapshot.js";
 import { freshSessionPrompt, resumePrompt, auditRecoveryPrompt, pullRequestSessionPrompt, codexSessionPrompt } from "../session/prompts.js";
 import { claudeHistoryAvailability } from "../session/transcripts.js";
 import { CodexHistoryRpc } from "../session/codex-history-rpc.js";
-import { selectedChoice } from "../state/records.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import type { BillingView } from "../billing/authority.js";
 import { publicProvenance, publicUsage, publicBillingSummary, publicCredits, fieldAvailability } from "./public-facts.js";
@@ -25,9 +31,9 @@ import { ownResult } from "./spool.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { privateJson, privateBytes, deadlineCheck, safeSelector, type SavedWork } from "./private-state.js";
 import { chooseSession, readHistory, readInspectionSession, newestSession, workingDirectoryAvailable, type Conversation, type History } from "./history.js";
-import { ControlFailure, errorFact, result, type Result } from "./result.js";
+import { commandText, ControlFailure, errorFact, result, type Result } from "./result.js";
 import { latestActivity, type ActivityObservation } from "./activity.js";
-import { markCompletePreview, progressRows, projectCheck, projectPersonItem, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
+import { markCompletePreview, NEW_COMMAND_ID, progressRows, projectCheck, projectPersonItem, type AuditWaiverReader, type ProgressRow } from "./waiver-facts.js";
 import { checkCounts, effectiveRecordedClosed, type AuditWaiverResult } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 import { statusCompatibility } from "../engine/compatibility-notices.js";
@@ -36,11 +42,12 @@ import { findExecutable } from "../platform/helper-process.js";
 import { displayPath } from "../engine/worktree-setup.js";
 import { kindClosed, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed } from "../state/audit-loops.js";
 import type { AuditLoopsView } from "../engine/loop-view.js";
-import { continuationFacts, deliveredFacts } from "./delivered-facts.js";
+import { afterDeliveryFacts, continuationFacts, deliveredFacts } from "./delivered-facts.js";
+import { questionLabel, recordLabelSet, repositoryDetails } from "../engine/plan-repositories.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "check-for-new-phases", "continue-with-phases", "handoff"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "locate-repository", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff", "model"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
-const requiredInputs = (name: string) => name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
+const requiredInputs = (name: string) => name === "model" ? ["PRD-path", "--phase | --audits", "--agent --model [--effort] | --use-default", "--only-if-status-matches", "--command-id"] : name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "locate-repository" ? ["PRD-path", "address-path", "folder", "--only-if-status-matches", "--command-id"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -159,7 +166,9 @@ function cached(work: SavedWork, deadline = Date.now() + 5000): InspectionCache 
 }
 export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, reachable: boolean, history: History): Record<string, unknown> {
   const cache = snapshot ? null : cached(work); const view = snapshot ?? cache?.snapshot;
-  const account = view?.account;
+  // The agent of the activity status reports takes today's fields; every other needed agent is listed after it (Kiln Phase Model Tiers, "Command line").
+  const needed = (view?.agents ?? []).filter(entry => entry.neededBy.activities.length > 0 || entry.neededBy.fallbackOnly);
+  const reported = needed.find(entry => entry.inUse);
   const observed = (value: unknown, at: string | null, reason: string | null, stale = false) => ({ value: value ?? null, observed_at: at, state: value == null ? "unavailable" : stale || !reachable ? "stale" : "current", reason: reason ?? (!reachable ? "Controller disconnected; last-known observation." : null) });
   const lastSession = history.complete ? newestSession(history, true)?.record : undefined;
   const lastRun = lastSession?.runs.at(-1);
@@ -168,25 +177,38 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
   // Legacy run.account has no observation time or plan and cannot supply these.
   const attemptAccount = (lastRun?.codex?.account ? publicProvenance(lastRun.codex.account) : null) ?? (lastRun?.billing ? publicBilling(lastRun.billing, !reachable) : null);
   const attemptAt = lastRun?.codex?.account?.at ?? lastRun?.billing?.observedAt ?? null;
-  const next = account && (account.agentId !== "codex" || account.email || account.accountId || account.routingAccountId) ? publicAccount(account, !reachable || !!account.stale) : null;
-  const usageAt = account?.limitsObservedAt ?? null;
+  const fallback = view?.settings?.models?.fallback;
+  const facts = (entry: AgentView | undefined) => {
+    if (!entry) {
+      const reason = "No activity is current or next.";
+      return { next_attempt: observed(null, null, reason), usage: observed(null, null, reason), recovery: observed(null, null, reason), billing: billingFacts(undefined, undefined, reachable, reason) };
+    }
+    const account = entry.account;
+    const next = account && (account.agentId !== "codex" || account.email || account.accountId || account.routingAccountId) ? publicAccount(account, !reachable || !!account.stale) : null;
+    const usageAt = account?.limitsObservedAt ?? null;
+    return {
+      next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? entry.readinessErrors?.join(" ") ?? (!next ? "Current provider identity is unavailable." : null), account?.stale || !!account?.error),
+      usage: observed(usageAt ? account?.limits.map(limit => ({ ...(publicUsage(limit) as object), ...(fallback?.enabled ? { over_threshold: (limit as { overThreshold?: true }).overThreshold === true } : {}) })) : null, usageAt, account?.limitsError ?? account?.limitsUnavailable ?? (!usageAt ? "Dated usage for this account is unavailable." : account?.limitsStale ? "Usage was retained without a fresh usage read." : null), account?.limitsStale || account?.stale || !!account?.limitsError),
+      recovery: observed(account?.codexUsageObservedAt ? account.codexUsage : null, account?.codexUsageObservedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
+      billing: billingFacts(entry.billing, account, reachable),
+    };
+  };
   return {
-    agent: work.record.settings.agentId,
+    agent: reported?.agentId ?? null,
     last_attempt: observed(attemptAccount, attemptAt, !history.complete ? "Saved attempt history is incomplete; last-attempt account provenance is unavailable." : attemptAccount ? null : "Dated account provenance was not recorded for the last attempt."),
     original_attempt: observed(lastSession?.codex?.originalAccount ? publicProvenance(lastSession.codex.originalAccount) : null, lastSession?.codex?.originalAccount?.at ?? null, lastSession?.codex?.originalAccount ? null : "Original account provenance unavailable."),
-    next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? (!next ? "Current provider identity is unavailable." : null), account?.stale || !!account?.error),
-    usage: observed(usageAt ? account?.limits.map(publicUsage) : null, usageAt, account?.limitsError ?? account?.limitsUnavailable ?? (!usageAt ? "Dated usage for this account is unavailable." : account?.limitsStale ? "Usage was retained without a fresh usage read." : null), account?.limitsStale || account?.stale || !!account?.limitsError),
-    recovery: observed(account?.codexUsageObservedAt ? account.codexUsage : null, account?.codexUsageObservedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
-    billing: billingFacts(view?.billing, account, reachable),
+    ...facts(reported),
+    other_agents: needed.filter(entry => entry !== reported).map(entry => ({ agent: entry.agentId, ...facts(entry) })),
+    ...(fallback?.enabled ? { fallback: { enabled: true, threshold: fallback.threshold } } : {}),
     resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit,
   };
 }
-function publicBilling(b: NonNullable<SavedWork["record"]["billing"]>["lastLaunch"], stale = false): unknown {
+function publicBilling(b: import("../billing/inspection.js").BillingSummary | undefined, stale = false): unknown {
   if (!b) return null;
   const summary = publicBillingSummary(b, stale);
   return { ...summary, agent: b.agentId, account_id: b.accountId ?? null };
 }
-function billingFacts(view: BillingView | undefined, account: AgentAccount | undefined, reachable: boolean): unknown {
+function billingFacts(view: BillingView | undefined, account: AgentAccount | undefined, reachable: boolean, unavailableReason?: string): unknown {
   const observation = (value: unknown, at?: string, reason?: string, stale = false) => ({ value: value ?? null, observed_at: at ?? null,
     state: value == null || !at ? "unavailable" : !reachable || stale ? "stale" : "current",
     reason: reason ?? (!at || value == null ? "Dated billing observation is unavailable." : !reachable ? "Controller disconnected; last-known billing observation." : null) });
@@ -194,8 +216,8 @@ function billingFacts(view: BillingView | undefined, account: AgentAccount | und
   const codex = next?.agentId === "codex";
   const unavailable = codex && (!account || !!account.error && !account.stale);
   const summaryFields = (summary: BillingView["lastLaunch"]) => summary ? { ...summary, ...publicBillingSummary(summary, !reachable) } : {};
-  return { ...(view ? { executionId: view.executionId, selectionGeneration: view.selectionGeneration, pending: view.pending } : {}), observed_at: next?.observedAt ?? null, state: !next || unavailable ? "unavailable" : !reachable || account?.stale || view?.pending ? "stale" : "current",
-    reason: !next || unavailable ? "Current billing observation is unavailable." : !reachable ? "Controller disconnected; last-known billing observation." : account?.error ?? (view?.pending ? "Billing refresh is pending; previous observation retained." : null),
+  return { ...(view ? { executionId: view.executionId, pending: view.pending } : {}), observed_at: next?.observedAt ?? null, state: !next || unavailable ? "unavailable" : !reachable || account?.stale || view?.pending ? "stale" : "current",
+    reason: !next || unavailable ? unavailableReason ?? "Current billing observation is unavailable." : !reachable ? "Controller disconnected; last-known billing observation." : account?.error ?? (view?.pending ? "Billing refresh is pending; previous observation retained." : null),
     next: { ...summaryFields(next), ...observation(unavailable ? null : publicBilling(next, !reachable), next?.observedAt, codex ? account?.error : undefined, account?.stale || view?.pending), canApprove: reachable ? next?.canApprove ?? false : false, canClear: reachable ? next?.canClear ?? false : false },
     lastLaunch: { ...summaryFields(view?.lastLaunch), ...observation(publicBilling(view?.lastLaunch, !reachable), view?.lastLaunch?.observedAt) },
     hold: { ...(view?.hold ? { ...view.hold, observed: publicBillingSummary(view.hold.observed, !reachable) } : {}), ...observation(view?.hold ? { phase_key: view.hold.phaseKey, action: view.hold.action, session_id: view.hold.sessionId ?? null, reason: view.hold.reason, observed: publicBilling(view.hold.observed, !reachable) } : null, view?.hold?.at), ...(view?.hold ? { reason: view.hold.reason, observation_reason: !reachable ? "Controller disconnected; last-known billing hold." : null } : {}) },
@@ -231,8 +253,11 @@ function failingFolders(record: SavedWork["record"], engine: Engine | undefined,
   const check = checkFoldersSync(git, env, record, deadline);
   return check.passed ? undefined : check;
 }
-function folderFacts(check: FolderCheck, canonical: string): Record<string, unknown> {
-  return { checked_at: check.checkedAt, repositories: check.repositories.map(r => ({ name: r.name, saved_folder: displayPath(r.savedFolder), state: r.state, holds: r.holds ?? null, unknown: r.unknown ?? null })),
+function folderFacts(check: FolderCheck, canonical: string, record: SavedWork["record"]): Record<string, unknown> {
+  // Labels and address paths beside the names (find repositories anywhere "kiln status --json").
+  const details = repositoryDetails(record);
+  const labelled = (name: string) => { const one = details.find(detail => detail.name === name); return { label: one?.label ?? name, address_path: one?.address_path ?? null }; };
+  return { checked_at: check.checkedAt, repositories: check.repositories.map(r => ({ name: r.name, ...labelled(r.name), saved_folder: displayPath(r.savedFolder), state: r.state, holds: r.holds ?? null, unknown: r.unknown ?? null })),
     set_up_again: { description: "Open the run with kiln run to see what Kiln still knows and set it up again.", argv: ["kiln", "run", canonical] } };
 }
 export function statusProjection(work: SavedWork, engine?: Engine, full = false, deadline = Date.now() + 5000): Result {
@@ -276,12 +301,12 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const savedMessage = savedStop && savedStop[1].stop?.kind !== "not_resumable" && !savedStop[1].stop?.interrupted ? modelSession?.runs.at(-1)?.result?.text : undefined;
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
   const preflight = phase !== null && activityKeyKind(phase) === "preflight";
-  const savedActivity = { phase_id: audit || preflight ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === null ? null : activityKeyKind(phase) === "phase" ? "implementation" : activityKeyKind(phase)), title: audit ? audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit" : preflight ? "Preflight" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
+  const savedActivity = { phase_id: audit || preflight ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === null ? null : activityKeyKind(phase) === "phase" ? "implementation" : activityKeyKind(phase)), title: audit ? recordedAuditName(record, audit).title : preflight ? "Preflight" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
   const completedKey = record.activities?.findLast(a => record.phases[a.key]?.doneAt)?.key;
   // A pending request carried through a Folder missing base-branch start names its phase (missing worktree recovery, "The Folder Check").
   const pauseKey = record.pause.activeSince ? completedKey : record.pause.requestedFor ?? view?.liveControl?.target.activityKey ?? phase;
   const pauseAudit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === pauseKey);
-  const pauseLabel = pauseAudit ? `${pauseAudit.kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${pauseAudit.round}` : pauseKey && activityKeyKind(pauseKey) === "preflight" ? "Preflight" : pauseKey ? `Phase ${pauseKey}` : "Activity";
+  const pauseLabel = pauseAudit ? auditSentenceStart(recordedAuditName(record, pauseAudit)) : pauseKey && activityKeyKind(pauseKey) === "preflight" ? "Preflight" : pauseKey ? `Phase ${pauseKey}` : "Activity";
   const takeover = view?.liveControl?.takeover;
   const pauseNow = view?.liveControl?.pauseNow;
   // Under Pause now: "Pausing — …" with its running commands or processes, or "Paused."; with no projection, a launch from the paused page is starting (Kiln Pause Now, "The Pause Now State").
@@ -321,13 +346,18 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
       mark_complete: markComplete };
   };
   const activityFacts = (activity: Record<string, unknown> | null | undefined) => activity && { ...activity, ...waived(keyOf(activity)) };
+  // The activity status reports: the current one, else the next (Kiln Phase Model Tiers, "Command line").
+  const reportedRow = view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? view?.activities?.find(a => a.state === "next" || a.state === "planned");
+  const reportedChoice = reportedRow?.model?.choice;
   const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
+    repository_details: repositoryDetails(record),
     controller: reachable ? "reachable" : "stopped", working_sessions: active ? 1 : 0, facts: { state: reachable ? "current" : "stale", observed_at: reachable ? new Date().toISOString() : cache?.observed_at ?? work.observedAt, reason: reachable ? null : "Controller disconnected; only last-known facts are available." },
     state, phases: { completed: view?.feature.phasesDone ?? leaves.filter(p => effectiveRecordedClosed(record, p)).length, total: view?.feature.phasesTotal ?? leaves.length },
     activity: activityFacts((view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? savedActivity) as Record<string, unknown>),
-    agent: view?.current?.agentId ?? stop?.agentId ?? record.settings.agentId, model: view?.current?.requested ?? view?.current?.model ?? stop?.requested ?? selectedChoice(record.settings),
-    requested_model: modelSession ? { model: modelSession.model, effort: modelSession.effort ?? null } : selectedChoice(record.settings), effective_model: modelSession?.runs.at(-1)?.codex?.effective ?? (modelSession?.initModel ? { model: modelSession.initModel } : null),
+    // The reported activity's agent and model: its session's recorded choice, else its row's choice (Kiln Phase Model Tiers, "Command line").
+    agent: view?.current?.agentId ?? stop?.agentId ?? modelSession?.agentId ?? reportedChoice?.agentId ?? null, model: view?.current?.requested ?? view?.current?.model ?? stop?.requested ?? (reportedChoice ? { model: reportedChoice.model, ...(reportedChoice.effort ? { effort: reportedChoice.effort } : {}) } : null),
+    requested_model: modelSession ? { model: modelSession.model, effort: modelSession.effort ?? null } : reportedChoice ? { model: reportedChoice.model, effort: reportedChoice.effort ?? null } : null, effective_model: modelSession?.runs.at(-1)?.codex?.effective ?? (modelSession?.initModel ? { model: modelSession.initModel } : null),
     started_at: record.startedAt ?? null, last_activity: { ...last.activity, state: last.errors.length ? "unavailable" : reachable ? "current" : "stale", ...(last.errors.length ? { reason: "Latest activity could not be read completely; dated known facts are retained." } : {}) },
     live_control: view?.liveControl ? { ...view.liveControl, messages: view.liveControl.messages?.map(m => ({ ...m, receipt: messageReceiptLabel(m.delivery) })), state: reachable ? "current" : "stale", ...(reachable ? {} : { available: false, reason: "Controller disconnected; reconnect before acting.", input: { ...view.liveControl.input, available: false, reason: "Controller disconnected; reconnect before sending." } }) } : null,
     compatibility: statusCompatibility(record),
@@ -338,9 +368,14 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     items: view?.items?.map(projectPersonItem) ?? null,
     // A finished run's loops, For you and pull requests, and the offer to continue the finished page shows (AC-LEFT-02, AC-BOT-02).
     delivered: view?.delivered ? deliveredFacts(view.delivered, record) : null,
-    continuation: record.completedAt && (view?.continuation?.check ?? record.completedPlanCheck) ? continuationFacts((view?.continuation?.check ?? record.completedPlanCheck)!) : null,
-    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && stopWaivers(stopDetail as Record<string, unknown>),
-    progress,
+    continuation: record.completedAt && (view?.continuation?.check ?? record.completedPlanCheck) ? continuationFacts((view?.continuation?.check ?? record.completedPlanCheck)!, record.prdDirectory) : null,
+    // What GitHub last showed of the delivery's pull requests, and whether it waits to merge (Kiln After Delivery AC-BOT-02).
+    after_delivery: afterDeliveryFacts(record, view?.afterDelivery),
+    pause: record.pause, usage_wait: view?.waiting ? { ...view.waiting, ...publicIdentity(view.waiting), limit: publicLimit(view.waiting.limit, !reachable) } : wait?.[1].wait ?? null, stop: stopDetail && { ...stopWaivers(stopDetail as Record<string, unknown>), locate: locateFacts(record, work.canonical, control) },
+    // Each activity's tier and model, as the snapshot gives them (Kiln Phase Model Tiers, "Command line").
+    progress: progress.map(row => { const shown = view?.activities?.find(a => a.id === row.key || a.id === engine?.judgedId(row.key)); return { ...row, tier: shown?.tier ?? null, model: shown?.model ?? null }; }),
+    // Every row of the plan, those Kiln hasn't allocated yet and the planned ones included, with its tier and model, so a bot reads which it may change with kiln model (AC-PICK-05).
+    plan_models: view?.activities ? view.activities.map(a => ({ id: a.id, title: a.title, kind: a.kind ?? "phase", planned: a.plannedActivity === true, tier: a.tier ?? null, model: a.model ?? null })) : null,
     completion: { completed_at: record.completedAt ?? null, pull_requests: record.pullRequests ?? [], merged_branches: record.mergedBranches ?? [] },
     status_token: control?.token ?? null, controls, unsent_replies: engine && control ? engine.commands.unsent(control.target).map(r => ({ command_id: r.command_id, text: r.reply_text, delivery: r.effects.reply })) : [],
     ...(full ? { plan: record.plan ?? [], activity_history: ((view?.activities ?? record.activities ?? []) as unknown as Record<string, unknown>[]).map(activityFacts), settings: settingsFacts(record), account: accountFacts(work, view, reachable && !!view, history), session_history: { complete: history!.complete, errors: history!.errors, phases: history!.phases } } : {}),
@@ -369,8 +404,9 @@ function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folder
   const reset = control?.controls.find(one => one.name === "reset");
   return result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
+    repository_details: repositoryDetails(record),
     controller: reachable ? "reachable" : "stopped", working_sessions: engine?.current?.processRunning ? 1 : 0, facts: { state: "current", observed_at: folders.checkedAt, reason: null },
-    state: "folder_missing", folder_missing: folderFacts(folders, work.canonical), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
+    state: "folder_missing", folder_missing: folderFacts(folders, work.canonical, record), phases: null, activity: null, stop: null, usage_wait: null, live_control: null, pause: record.pause, pause_status: null,
     progress: [], started_at: record.startedAt ?? null, completion: { completed_at: null, pull_requests: [], merged_branches: [] },
     // Reset is the one control left while a folder is missing (run restart "Availability"), so a running Kiln returns its status token.
     status_token: control?.token ?? null, controls: PLANNED_CONTROLS.map(name => name === "reset" && reset ? { name, available: reset.available, reason: reset.reason, required_inputs: ["PRD-path", "--only-if-status-matches", "--command-id"], invocation: ["kiln", name, work.canonical] } : { name, available: false, reason: "This run’s folder is missing; set the run up again with kiln run.", required_inputs: requiredInputs(name), invocation: null }), unsent_replies: [],
@@ -411,8 +447,8 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
   if (folders) {
     // No resume command, continuation prompt or fresh-session instructions from a folder that is gone (AC-GONE-01).
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
-      session_id: null, provider_session_id: null, agent: engine?.record.settings.agentId ?? work.record.settings.agentId, phase_key: null, working_directory: null,
-      resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical),
+      session_id: null, provider_session_id: null, agent: reportedAgentId(engine), phase_key: null, working_directory: null,
+      resumable: false, reason: "This run’s folder is missing. Set the run up again with kiln run.", active_under_kiln: false, state: "folder_missing", folder_missing: folderFacts(folders, work.canonical, engine?.record ?? work.record),
       provider_history: { state: "unavailable", observed_at: null, reason: "This run’s folder is missing." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null, fresh_session_instructions: null,
     } });
@@ -426,12 +462,16 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     const view = engine ? inspectionSnapshot(engine) : cached(work)?.snapshot;
     const stop = view?.needsYou;
     const cwd = stop && view ? engine?.sessionFolder ?? expandHome(view.feature.multiRepository ? view.settings.workspaceFolder : view.settings.worktreePath) : null;
+    // With Kiln not running, a stop on an activity that hasn't started takes its current choice resolved now,
+    // so a Model defaults, tier or change made after Kiln stopped names the agent its fresh session runs on (AC-PICK-07).
+    const offline = !engine && stop && view && notStartedRow(work, view, stop.phaseId) ? offlineChoice(work, view, stop.phaseId, env).agentId : undefined;
     return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: {
-      session_id: null, provider_session_id: null, agent: engine?.record.settings.agentId ?? work.record.settings.agentId,
+      // With no session, the facts follow the activity's current choice (Kiln Phase Model Tiers AC-AGENTS-04).
+      session_id: null, provider_session_id: null, agent: (stop && engine ? engine.agentOf(stop.phaseId) : offline) ?? view?.agents?.find(entry => entry.inUse)?.agentId ?? null,
       phase_key: stop?.phaseId ?? null, working_directory: cwd, resumable: false, reason: "No saved session.", active_under_kiln: false,
       provider_history: { state: "unavailable", observed_at: null, reason: "No saved session." },
       resume_command: null, resume_argv: null, environment: {}, continuation_prompt: null,
-      fresh_session_instructions: stop ? { command: stop.freshSessionCommand, prompt: stop.freshSessionPrompt } : null,
+      fresh_session_instructions: stop ? { command: offline && cwd ? (offline === "codex" ? codexCommand(cwd) : claudeCommand(cwd)) : stop.freshSessionCommand, prompt: stop.freshSessionPrompt } : null,
     } }, history.errors);
   }
   const session = selected.record; const cwd = session.workingDirectory ?? work.record.settings.worktreePath;
@@ -470,15 +510,107 @@ export async function handoffProjection(work: SavedWork, selector: string | unde
     available = false;
     reason = !engine ? "Controller disconnected; reconnect to establish safe terminal release." : hold?.reason ?? reason;
   }
+  // An activity that hasn't started reopens a saved conversation only while its current choice is the one that session ran on (Kiln Phase Model Tiers AC-PICK-07).
+  // With Kiln not running, the choice is resolved now from the saved record, Model defaults and the plan on disk.
+  const movedTo = engine ? (engine.reopenMatchesChoice(selected.phase, session) ? undefined : engine.agentOf(selected.phase)) : cachedChoiceMove(work, view, selected.phase, session, env);
+  const choiceMoved = movedTo !== undefined;
+  if (movedTo && instructions.fresh_session_instructions) {
+    // The fresh session runs on the activity's current choice, so its command names that agent.
+    instructions.fresh_session_instructions = { ...instructions.fresh_session_instructions, command: movedTo === "codex" ? codexCommand(cwd) : claudeCommand(cwd) };
+  }
+  if (available && movedTo) {
+    available = false;
+    reason = `This activity hasn't started, and its model choice is no longer the one this conversation ran on, so it isn't reopened. Start a fresh ${AGENT_NAMES[movedTo]} session with the instructions below.`;
+  }
   const argv = session.agentId === "codex" ? ["codex", "resume", provider!, "--model", session.model, ...(session.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(session.effort)}`] : [])] : ["claude", "--resume", provider!];
   return result({ prd_path: work.canonical, execution_id: work.record.executionId!, data: { session_id: session.sessionId, provider_session_id: provider ?? null, agent: session.agentId ?? "claude_code", phase_key: selected.phase,
     takeover: heldSession ? hold : null, terminal_readiness: requiresRelease ? { ready: available, observed_at: heldSession ? hold.observedAt : view?.liveControl?.observedAt ?? null, reason } : null,
     working_directory: cwd, resumable: available, reason, active_under_kiln: owned,
     provider_history: { state: available ? "available" : owned ? "unknown" : "unavailable", observed_at: new Date().toISOString(), reason },
     resume_command: available ? currentStop?.resumeCommand ?? (session.agentId === "codex" ? codexResumeCommand(cwd, session) : resumeCommand(cwd, session.sessionId)) : null,
-    resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, instructions_availability: { state: instructionReason ? "unavailable" : "available", reason: instructionReason, continuation: instructions.continuation_prompt ? "available" : instructionsRecorded ? "not_required" : "unavailable" }, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: requiresRelease && !available && !heldFresh ? null : instructions.fresh_session_instructions } }, [...history.errors, ...(instructionReason ? [errorFact("state_unavailable", instructionReason)] : []), ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
+    resume_argv: available ? argv : null, environment: session.conversation?.codexHome ? { CODEX_HOME: session.conversation.codexHome } : {}, instructions_availability: { state: instructionReason ? "unavailable" : "available", reason: instructionReason, continuation: instructions.continuation_prompt ? "available" : instructionsRecorded ? "not_required" : "unavailable" }, continuation_prompt: instructions.continuation_prompt, fresh_session_instructions: requiresRelease && !available && !heldFresh && !choiceMoved ? null : instructions.fresh_session_instructions } }, [...history.errors, ...(instructionReason ? [errorFact("state_unavailable", instructionReason)] : []), ...(!available ? [errorFact("provider_unavailable", reason)] : [])]);
   } finally { history.dispose(); }
 }
+/**
+ * With Kiln not running (AC-PICK-07): the agent of the activity's current choice when that choice
+ * has moved off the one this session ran on. While the activity hasn't started, the choice is
+ * resolved now, from the record's own changes, the Model defaults file and the plan's tier on
+ * disk, so a Model defaults or tier change made after Kiln stopped counts too. Undefined while
+ * they match, or once it has started.
+ *
+ *   cachedChoiceMove(work, view, "2", codexSession, env)  // "claude_code", after Phase 2 was changed to Claude Code
+ */
+function cachedChoiceMove(work: SavedWork, view: Snapshot | undefined, key: string, session: SessionRecord, env: NodeJS.ProcessEnv): AgentId | undefined {
+  if (!view) return undefined;
+  const model = notStartedRow(work, view, key);
+  if (!model) return undefined;
+  const sessionAgent = session.agentId ?? "claude_code";
+  const now = offlineChoice(work, view, key, env);
+  // Another agent is a move even when the saved snapshot holds no model list to resolve its model against;
+  // so is Model defaults that can't be read, which leaves no model to match, as `reopenMatchesChoice` finds.
+  if (!now.modelName || now.agentId !== sessionAgent) return now.agentId;
+  const choice = now.listed ? now : model.choice;
+  if (!choice) return sessionAgent;
+  const same = choice.agentId === sessionAgent && choice.model === session.model && (choice.effort ?? undefined) === (session.effort ?? undefined);
+  return same ? undefined : choice.agentId;
+}
+
+/**
+ * The saved snapshot row's model for an activity that hasn't started, undefined otherwise. A
+ * saved snapshot that carries no rows says nothing about whether the activity has started.
+ */
+function notStartedRow(work: SavedWork, view: Snapshot, key: string) {
+  const rows = [...(view.activities ?? []), ...(view.phases ?? [])];
+  const rowId = judgedPhase(work.record.plan ?? [], key)?.id ?? key;
+  const model = (rows.find(row => row.id === key) ?? rows.find(row => row.id === rowId))?.model;
+  return model?.state === "will_run_on" ? model : undefined;
+}
+
+/**
+ * An activity's choice resolved now with Kiln not running (AC-PICK-07), against the model lists the
+ * saved snapshot carries. `listed` is false when it holds no list for the agent the choice names,
+ * so only the agent is known and the saved row decides the model.
+ */
+function offlineChoice(work: SavedWork, view: Snapshot, key: string, env: NodeJS.ProcessEnv): ActivityChoice & { listed: boolean } {
+  const lists: Partial<Record<AgentId, ModelList>> = {};
+  for (const agent of view.agents ?? []) {
+    if (agent.models) lists[agent.agentId] = { models: agent.models.map(entry => ({ value: entry.value, resolvedModel: entry.value, displayName: entry.displayName, description: "", supportsEffort: entry.efforts.length > 0, supportedEffortLevels: entry.efforts as Effort[], supportsAutoMode: !entry.needsAutoMode, ...(entry.defaultEffort ? { defaultEffort: entry.defaultEffort } : {}) })) };
+  }
+  const prd = work.record.repositories.find(entry => entry.kind === "prd");
+  const read = readPlanAt(expandHome(prd?.worktreePath ?? work.record.settings.worktreePath), work.record.prdDirectory);
+  const plan = read.ok ? recordedPlan(read.plan) : work.record.plan ?? [];
+  // The snapshot lists every installed agent, so an absent Claude Code entry means it isn't installed; one saved before agents were listed ran Claude Code.
+  const claudeCodeInstalled = view.agents ? view.agents.some(entry => entry.agentId === "claude_code" && entry.installed) : true;
+  const choice = notStartedChoice({ record: work.record, plan, defaultsPath: modelDefaultsPath(env), claudeCodeInstalled, lists, session: () => undefined }, key);
+  return { ...choice, listed: !!lists[choice.agentId] };
+}
+
+/** The agent of the activity status reports, from the controller. */
+function reportedAgentId(engine: Engine | undefined): string | null { return engine ? engine.inUseAgent(undefined) ?? null : null; }
 /** An epoch is response identity, never a mutation authorization in this read-only release. */
 export const instanceEpoch = () => randomUUID();
 export const recordRevision = (record: SavedWork["record"]) => createHash("sha256").update(JSON.stringify(record)).digest("hex");
+
+/**
+ * A stop's questions about where a repository is, projected for `kiln status --json` from the
+ * saved record (find repositories anywhere, "`kiln status --json`"), never the snapshot's field.
+ */
+export function locateFacts(record: import("../state/records.js").PrdRecord, canonical: string, control: { token: string; controls: { name: string; available: boolean; reason: string | null }[] } | undefined): Record<string, unknown>[] {
+  const stopped = Object.entries(record.phases).find(([, facts]) => facts.stop)?.[0] ?? record.billing?.hold?.phaseKey;
+  if (stopped === undefined) return [];
+  const questions = record.phases[stopped]?.stop?.locate ?? (record.billing?.hold?.phaseKey === stopped ? record.billing.hold.locate : undefined) ?? [];
+  const set = recordLabelSet(record, record.plan ?? []);
+  const command = control?.controls.find(one => one.name === "locate-repository");
+  const argv = (addressPath: string, folder: string) => control ? ["kiln", "locate-repository", canonical, addressPath, folder, "--only-if-status-matches", control.token, "--command-id", NEW_COMMAND_ID] : null;
+  return questions.map(question => {
+    const available = !!command?.available;
+    const next = available ? argv(question.repository, "<folder>") : null;
+    return {
+      kind: question.kind, address_path: question.repository, label: questionLabel(set, question.repository), phase_file: question.phaseFile ?? null,
+      searched_from: question.searchedFrom, searched_to: question.searchedTo ?? null,
+      checkouts: question.checkouts.map(checkout => ({ folder: checkout.folder, remote: checkout.remote, pickable: checkout.pickable, remembered: checkout.remembered === true, ...(checkout.pickable && available ? { next_argv: argv(question.repository, checkout.folder) } : {}) })),
+      available, reason: available ? null : command?.reason ?? "Controller is disconnected; no executable controls.",
+      next_argv: next, next_command: next ? commandText(next) : null,
+    };
+  });
+}

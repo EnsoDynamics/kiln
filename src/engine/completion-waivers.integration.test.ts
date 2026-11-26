@@ -164,7 +164,7 @@ describe("a Mark complete interrupted before its write (design §Interfaces, AC-
     try {
       // A restarted Kiln reads the receipt left applying with no waiver carrying its operation id.
       const reopened = h.reopenFromDisk();
-      await reopened.agents.refresh();
+      await reopened.refreshAgents();
       const receipt = reopened.commands.all().find(r => r.command_id === id)!;
       expect(receipt).toMatchObject({ state: "failed", stage: "settled", outcome: "not_applied", effects: { plan: "not_advanced" } });
       expect(receipt.reason).toMatch(/interrupted before anything was saved/);
@@ -212,7 +212,7 @@ describe("checking, resuming and restarting never waive anything (AC-WAIVE-01)",
 
     // A restart's recovery reads the stop again and waives nothing.
     const reopened = h.reopenFromDisk();
-    await reopened.agents.refresh();
+    await reopened.refreshAgents();
     await reopened.prepare();
     await reopened.decide();
     await reopened.settled();
@@ -252,7 +252,7 @@ describe("a waiver covers its items while they are unchanged (AC-WAIVE-09, AC-WA
 
     // The waiver survives a restart and still covers the unchanged item.
     h.reopenFromDisk();
-    await h.engine.agents.refresh();
+    await h.engine.refreshAgents();
     await h.engine.prepare();
     expect(h.engine.record.waivers!.map(w => w.waiverId)).toEqual([waiverId]);
     expect(pushedAt2b(await recheck(h.engine))).toMatchObject({ passed: true, waived: true });

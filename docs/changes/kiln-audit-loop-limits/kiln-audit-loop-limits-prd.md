@@ -100,6 +100,7 @@ The last session of test fixes, and any test audit after it, is told no more loo
   - Superseded in part by: AC-ITEM-03 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (once no test loop is left, only an item that stops or holds the run under AC-ITEM-01 stops it)
 - [ ] **AC-TEST-03 — The last loop is shown, never hidden.** The last test audit loop's row and detail say it was the last, and those of each session whose prompt quoted the default's sentence (AC-TEST-01) or an Accept sentence (AC-STOP-02) say which sentence it carried. The pull request session gets a line saying the same, with the latest such session's summary, to include word for word, as for settled items.
   - Superseded in part by: AC-LEFT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (its line is replaced by the loop counts)
+  - Superseded in part by: AC-AUDIT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the last test audit loop's row and detail show Loop _n_ of _n_, with no separate mark saying it was the last; the rest remains)
 
 ### Decide at the Stop
 
@@ -152,6 +153,7 @@ A person looking at a run should see how close it is to a limit without opening 
 
 - [ ] **AC-SHOW-01 — Each loop's row says which loop it is.** In the run's list of activity, a phase or test audit session that is part of a loop shows its number and the limit, such as **loop 2 of 3**, and the last one allowed shows **last loop**.
   - Replaces in part: AC-RUN-01 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (completion-phase and test audit rows that are part of a loop also show its number and the limit, or **last loop**)
+  - Superseded in part by: AC-AUDIT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (only audit rows carry a loop number and the limit, never **last loop**, and a session of test fixes names the loop it works from)
 
 ### Start Claude Code at Medium Effort
 
@@ -160,6 +162,8 @@ A change to the same settings panel, made with this PRD because it touches the s
 - [ ] **AC-EFFORT-01 — A new PRD on Claude Code starts at Medium effort.** On Documents found, a PRD whose settings have not been saved yet starts with Claude Code at **Medium** effort instead of High. A PRD on Codex still starts at High (AC-MODEL-02 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md`), and a PRD whose settings were already saved keeps the effort it has.
   - Replaces in part: AC-START-06 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the starting effort for Claude Code only)
   - Replaces in part: validated assumption UI-004 in `docs/prds/kiln-v1/assumptions.md` (Claude Code's starting effort is Medium)
+  - Superseded in part by: AC-KEEP-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (a new PRD no longer starts on one effort for every session; each activity's effort comes from its row; the rest remains).
+  - Superseded in part by: AC-KEEP-02 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (a PRD whose settings were already saved keeps its effort only as the table says; the rest remains).
 
 ## Out of Scope
 

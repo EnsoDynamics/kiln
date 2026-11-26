@@ -34,7 +34,7 @@ async function setup(actions: object[]) {
   h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.311";
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
   const ready = join(h.sandbox.root, "ready");
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...actions.map(a => Object.fromEntries(Object.entries(a).map(([key, value]) => [key, ["waitForFile", "touch"].includes(key) && typeof value === "string" && !isAbsolute(value) ? join(h.sandbox.root, value) : value])))] }, { actions: [{ result: "Continued." }] }] }));
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ text: "Working on the phase." }, { touch: ready }, ...actions.map(a => Object.fromEntries(Object.entries(a).map(([key, value]) => [key, ["waitForFile", "touch"].includes(key) && typeof value === "string" && !isAbsolute(value) ? join(h.sandbox.root, value) : value])))] }, { actions: [{ result: "Continued." }] }] }));
   await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready));
   await waitFor(() => h.engine.liveView()?.input?.available === true); await serve();
   return h.engine.liveTarget()!;
@@ -238,7 +238,7 @@ describe.skipIf(process.platform !== "darwin").each([
   // completes its ownership handback. Budget that whole workflow separately from
   // the unchanged request, ownership-read and process-stop deadlines.
   it("takes over and returns the same audit using its real completion evidence", { timeout: action === "verify-and-advance" ? 120_000 : 60_000 }, async () => {
-  const observed = await status(); expect(observed.live_control).toMatchObject({ label: `${kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${audit.round}`, target });
+  const observed = await status(); expect(observed.live_control).toMatchObject({ label: `${kind === "delivery_audit" ? "Delivery audit" : "Test audit"} loop ${audit.round}`, target });
   expect((await cli(args("take-over", "audit-takeover", String(observed.status_token)))).code).toBe(0); await h.engine.commands.settled();
   writeFileSync(end, "finish naturally"); await release();
   if (action === "verify-and-advance") {
@@ -249,7 +249,7 @@ describe.skipIf(process.platform !== "darwin").each([
     writeFileSync(report, original);
   }
   h.engine.record.pause.requestedAt = new Date().toISOString(); await h.engine.reconcileTakeover();
-  const label = `${kind === "delivery_audit" ? "Delivery audit" : "Test audit"} · Round ${audit.round}`;
+  const label = `${kind === "delivery_audit" ? "Delivery audit" : "Test audit"} loop ${audit.round}`;
   expect((await status()).pause_status).toBe(`Paused. Will pause after ${label} finishes. Current work continues.`);
   expect((await cli(["status", path()], undefined, false)).text).toContain(`Will pause after ${label} finishes. Current work continues.`);
   const returned = await cli(args(action, "audit-return")); expect(returned.code, returned.text).toBe(0); await h.engine.commands.settled(); await h.engine.settled();

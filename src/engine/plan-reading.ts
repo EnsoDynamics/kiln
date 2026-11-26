@@ -62,21 +62,23 @@ export function recordedPlan(plan: PhasePlan): RecordedPlanPhase[] {
     repositories: phase.repositories,
     ...(phase.attended === undefined ? {} : { attended: phase.attended }),
     ...(phase.earlyMerge === undefined ? {} : { earlyMerge: phase.earlyMerge }),
+    ...(phase.modelTier === undefined ? {} : { modelTier: phase.modelTier }),
   }));
 }
 
 /**
- * A recorded plan's phase identities, closure and structure, without the display-only Attended and
- * Early merge text (build preflight AC-ATTEND-04): what a comparison of two plans may judge, so a
+ * A recorded plan's phase identities, closure and structure, without the display-only Attended,
+ * Early merge and Model tier lines (Kiln Phase Model Tiers, "The Tier Line") (build preflight AC-ATTEND-04): what a comparison of two plans may judge, so a
  * record saved before Kiln read those lines still matches its plan.
  *
  *   planStructure(recordedPlan(plan))  // [{ id: "1", title, file, closed, repositories }, ...]
  */
-export function planStructure(plan: RecordedPlanPhase[]): Omit<RecordedPlanPhase, "attended" | "earlyMerge">[] {
+export function planStructure(plan: RecordedPlanPhase[]): Omit<RecordedPlanPhase, "attended" | "earlyMerge" | "modelTier">[] {
   return plan.map((phase) => {
     const structure = { ...phase };
     delete structure.attended;
     delete structure.earlyMerge;
+    delete structure.modelTier;
     return structure;
   });
 }

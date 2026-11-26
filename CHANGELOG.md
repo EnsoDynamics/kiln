@@ -10,6 +10,86 @@ section to the new version.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-26
+
+### Added
+
+- Model tiers. Kiln picks the agent, model and effort for each phase from its phase document's
+  `**Model tier:**` line, **demanding**, **standard** or **mechanical**, instead of one choice
+  for the whole PRD. A phase without the line is **Not rated** and runs as standard. Each phase
+  row shows its tier and the model it will run on, runs on or ran on, and **Change** sets a
+  phase that hasn't started; `kiln model` does the same from the command line. The preflight,
+  audits and pull request session share one **Audits** choice.
+- **Model defaults**, a page holding the first choice and fallback behind each tier and Audits
+  for every PRD on this computer, also set with `kiln model-defaults`. A computer with only
+  Codex installed needs no setup.
+- **Use the fallback when usage is nearly out**, off by default. With it on, an activity about
+  to start launches on the other agent when the first choice's account reads at or above a
+  threshold, 95% unless changed. The row shows a **Fallback** tag and says which limit read
+  what. The fallback spends the other agent's account.
+- A phase document's `**Repositories:**` line can name a repository by the path in its remote
+  address, such as `acme-labs/admin`, which is the same on every computer. Kiln finds that
+  repository's checkout by its `origin`, beside the PRD's repository or in the folders above it
+  up to your home folder, without asking the system for access to Desktop, Documents, Downloads
+  or other guarded folders. Lines that use folder names keep working as before.
+- When Kiln can't find a checkout, or finds more than one, Documents found asks where it is or
+  which to use, and Kiln remembers the answer on this computer for every PRD that names that
+  repository. **Change** on the row asks again. The terminal says how many repositories need
+  locating, and Start waits until each is answered.
+- Two repositories with the same name under different organizations get separate worktree
+  folders and are shown by their whole path, such as `acme/admin` and `acme-labs/admin`.
+- After Start, `kiln add-repository acme-labs/admin` asks for a repository by the path in its
+  remote address. When Kiln can't tell where it is, it tells the session where it searched and
+  adds nothing, and the phase's next Needs you stop asks you where it is. A phase that comes to
+  name such a repository stops before it starts and asks the same way; once answered, Kiln adds
+  the repository and starts the phase.
+- `kiln locate-repository` answers that question from the command line, and `kiln status`
+  lists it with the command to run.
+- **Merge with {agent}**: when every phase is done and the pull requests are open, one press
+  starts a session that brings the base branch in, resolves conflicts, runs the project's
+  checks, waits for GitHub's required checks and merges each pull request in order. The press
+  authorizes that delivery only. `kiln merge <PRD-path>` does the same.
+- **Exit Kiln** on a finished run's page closes Kiln without Ctrl+C, leaving pull requests,
+  branches, worktrees and records as they are. `kiln exit <PRD-path>` does the same.
+- A finished run whose pull request hasn't merged says it is waiting to merge, with
+  **Merged it yourself? Check now**. Once Kiln sees the merge it checks for new phases
+  itself, and the header reads **Merged** or **New phases found**. `kiln status` shows these
+  states and controls.
+- Once the delivery has merged, Kiln brings your checkout's base branch up to date with
+  GitHub, fast-forward only. If the checkout has uncommitted changes or commits of its own,
+  Kiln leaves it as it is, and the Merged card says how many commits it is behind and the
+  command to run.
+
+### Changed
+
+- The PRD-wide agent and model choice is replaced by per-phase choices. A PRD's saved choice is
+  kept on its phases as **Changed by you**, except Kiln's old default on a PRD not yet started.
+- Documents found shows each repository's address path and the folder its checkout is in, and
+  its passed check reads "Repositories found on this computer". A full remote address or a
+  path on one computer on a `**Repositories:**` line is now refused with the name to use.
+- A finished PRD whose documents gained phases afterwards offers one **Continue**, which
+  pushes the plan before building them, in place of reconciling the documents.
+  `kiln continue-with-phases` pushes too.
+- Closing audits are named **Delivery audit** and **Test audit** with **Loop n of limit**, and
+  the sessions fixing a test audit's findings read **Fixing tests**. "Round" and
+  "Continuation" no longer appear.
+
+### Fixed
+
+- A finished run whose pull request hasn't merged no longer shows "Plan needs reconciliation".
+
+- When a restarted run's setup can't be finished and Kiln returns to Documents found, Ctrl+C
+  no longer leaves that setup's `claude` account and skill reads running after Kiln exits.
+- Kiln no longer refuses a PRD whose retired criterion names the criteria that replaced it,
+  such as `AC-X-03 — retired, split into AC-X-09 and AC-X-10`. Starting from a branch with
+  such a PRD failed with "doesn't have this PRD's documents", and its audits could not start.
+  When Kiln can't read a PRD's acceptance criteria, Documents found now says that and why,
+  instead of saying the documents are missing.
+- Fable no longer goes missing from Claude Code's models when Kiln reads them before Claude
+  Code has loaded its model catalog. Kiln left Fable out of the Model list, and phases set to
+  Fable said "Claude Code doesn't offer Fable on this account" until the next read, five
+  minutes later.
+
 ## [1.4.0] - 2026-11-21
 
 ### Added

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ModelChanges from "../components/ModelChanges.svelte";
   import BusyStatus from "../components/BusyStatus.svelte";
   import { tick } from "svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
@@ -25,14 +26,16 @@
   import { atLimitLine, limitStopCopy } from "../lib/usage-limit.js";
   import LiveMessages from "../components/LiveMessages.svelte";
   import PausePanel from "../components/PausePanel.svelte";
-  import BillingPanel from "../components/BillingPanel.svelte";
+  import BillingPanels from "../components/BillingPanels.svelte";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
+  import RequestQuestions from "../components/RequestQuestions.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import LimitAccount from "../components/LimitAccount.svelte";
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import SwitchAccountCommand from "../components/SwitchAccountCommand.svelte";
+  import { activityAgent, billingHolds, choiceSourceLine } from "../lib/agents.js";
 
   let { snapshot, now, page }: { snapshot: Snapshot; now: number; page: PhaseRecoveryPage } = $props();
   const { config, router, connection } = viewContext();
@@ -45,12 +48,14 @@
   const pendingTakeover = $derived(snapshot.liveControl?.takeover?.state === "pending" && snapshot.liveControl.pauseNow?.phase !== "paused");
   const heldCarryOn = $derived(!!snapshot.liveControl && !!stop.carryOn);
   const savedUnsent = $derived(snapshot.unsentReplies ?? []);
-  const agent = $derived(stop.agent ?? snapshot.settings.agent);
+  // The session that ran, else the activity's own agent; Resume launches on the activity's (Kiln Phase Model Tiers AC-AGENTS-04).
+  const nextAgent = $derived(activityAgent(snapshot, stop.phaseId));
+  const agent = $derived(stop.agent ?? nextAgent.agent);
   const connected = $derived(connection?.connected ?? false);
   // A held page whose conversation can't be reopened stays pending with its history, yet carries on
   // and advances from the carry-on's already-complete choice (run restart AC-CARRY-06).
   const busy = $derived(!!page.pending || !!stop.checking || !connected || pendingTakeover && !heldCarryOn || !!snapshot.liveControl?.reviewRequired?.length);
-  const resumeBlocked = $derived(busy || !!snapshot.billing && !snapshot.billing.canLaunch);
+  const resumeBlocked = $derived(busy || billingHolds(snapshot, nextAgent.agentId));
   const nowDate = $derived(new Date(now));
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
   const ending = $derived(endingFact(stop));
@@ -107,7 +112,7 @@
       ? await resumePhase(config, target, action === "reply" ? state.draft : undefined, bringUpToDate)
       : await verifyPhase(config, target, action);
     state.pending = undefined;
-    if (answer.ok && answer.outcome === "advanced" && connection && connection.snapshot?.billing?.executionId === target.executionId) {
+    if (answer.ok && answer.outcome === "advanced" && connection && connection.snapshot?.agents.some(one => one.billing?.executionId === target.executionId)) {
       return;
     }
     // An old response cannot put a choice or draft onto another stopped session.
@@ -153,6 +158,8 @@
   {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
   <h1>{snapshot.liveControl?.takeover && snapshot.liveControl.takeover.kind !== "delivery_recovery" ? pendingTakeover ? `Pausing ${inSentence}.` : `Paused in ${inSentence}.` : restart?.headline ?? `${activity} needs your input.`}</h1>
   <p>{restart?.line ?? "Answer here, or talk it through in your terminal."}</p>
+  <!-- Where the stopped session's choice came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
+  {#if stop.choiceSource}<p data-choice-source>{choiceSourceLine(stop.choiceSource, stop)}</p>{/if}
   {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
   {#if stop.launchFailure && stop.conversationMessage}
     <section class="card message" aria-label="Earlier conversation">
@@ -181,12 +188,13 @@
   </section>
   {/if}
   <CodexSessionFacts facts={stop} />
+  <RequestQuestions {snapshot} disabled={busy} />
   {#if stop.limit && limit}
     <section class="card">
       <p>{limit.reported} {limit.reset ?? ""}</p>
       {#if limit.refusedAgain}<p>{limit.refusedAgain}</p>{/if}
       <p>{limit.waitText}</p>
-      <SwitchAccountCommand agentId={stop.agentId} />
+      <SwitchAccountCommand agentId={nextAgent.agentId} />
       <LimitAccount limit={stop.limit} footnote={limit.footnote} />
       <p>{atLimitLine(stop.limit, nowDate) ?? ""}</p>
     </section>
@@ -208,7 +216,7 @@
     <p>Exit {agent} first if it is open on this conversation. While it is, or while work the paused session started is still running, neither choice below is available, and Kiln says why.</p>
     <div class="peer-choices">
       <CarryOnCard {agent} activity={inSentence} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={!connected || !!page.pending} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
-      <FreshTerminalCard {agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held blocked={snapshot.liveControl?.takeover?.carryOnObstacle} />
+      <FreshTerminalCard agent={nextAgent.agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held blocked={snapshot.liveControl?.takeover?.carryOnObstacle} />
     </div>
   {:else if pendingTakeover && !page.choice}<section class="card"><h2>Wait before opening Claude</h2><p>{snapshot.liveControl?.takeover?.reason}</p><p>Keep viewing the latest output. Kiln will not force the operation to stop.</p>{#if snapshot.liveControl?.takeover?.reason.includes("conversation is missing")}<h3>Saved conversation recovery</h3><p>The original conversation cannot be resumed. After resolving release and ownership checks, use this fresh-session guidance.</p><pre>{stop.freshSessionCommand}</pre><pre class="prompt">{stop.freshSessionPrompt}</pre><CopyButton text={stop.freshSessionPrompt} label="Copy fresh-session prompt" />{/if}</section>
   {:else if page.choice}
@@ -231,7 +239,7 @@
     {@render catchUp()}
     <div class="peer-choices">
       <CarryOnCard {agent} activity={inSentence} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={page.draft} pending={page.pending === "carry"} checking={page.pending === "reopen"} disabled={busy} reason={page.feedback} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
-      <FreshTerminalCard {agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held={false} />
+      <FreshTerminalCard agent={nextAgent.agent} activity={inSentence} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held={false} />
     </div>
     {@render checkSection()}
   {:else}
@@ -243,7 +251,7 @@
       <section class="card">
         {#if stop.resumeOffered}
           <h2>Reply here and let Kiln finish</h2>
-          <p>For a straightforward answer. Your reply goes to the same {agent} conversation, and Kiln resumes {inSentence}.</p>
+          <p>For a straightforward answer. {#if stop.newSession}Your reply goes to a new {nextAgent.agent} session, since this phase never got a response, and Kiln resumes {inSentence}.{:else}Your reply goes to the same {agent} conversation, and Kiln resumes {inSentence}.{/if}</p>
           <label for="phase-reply">Your reply to {agent}</label>
           <textarea id="phase-reply" bind:this={replyField} bind:value={page.draft} rows="4" maxlength="4000" placeholder="Your answer or instructions for the remaining work"></textarea>
           {#if page.unsent && page.draft}<p class="warning">Your reply has not been sent.</p>{/if}
@@ -262,7 +270,7 @@
           <pre>{stop.resumeCommand}</pre><CopyButton text={stop.resumeCommand} label="Copy resume command" />
         {:else}
           <h2>Start a fresh session in your terminal</h2>
-          <p>The saved conversation cannot be opened. Start {agent} in the recorded workspace and supply the recovery prompt.</p>
+          <p>The saved conversation cannot be opened. Start {nextAgent.agent} in the recorded workspace and supply the recovery prompt.</p>
           <pre>{stop.freshSessionCommand}</pre><CopyButton text={stop.freshSessionCommand} label="Copy terminal command" />
         {/if}
         <details><summary>{stop.resumeCommand ? "Session cannot be opened? Use a fresh session" : "Fresh-session recovery prompt"}</summary><pre>{stop.freshSessionPrompt}</pre><CopyButton text={stop.freshSessionPrompt} label="Copy fresh-session prompt" /></details>
@@ -313,7 +321,8 @@
     </ul>
   {/snippet}
   {#if page.feedback && !stop.carryOn && !stop.startAgain}<p class="warning" role="status">{page.feedback}</p>{/if}
-  <BillingPanel {snapshot} {connected} />
+  <ModelChanges {snapshot} phaseId={snapshot.needsYou?.phaseId} {connected} />
+  <BillingPanels {snapshot} {connected} />
   <DevelopmentDelivery {snapshot} {config} {connected} />
 </main>
 

@@ -51,6 +51,10 @@ Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Mark Complete (a third intent, Mark complete, after a failed Verify).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "At the stop" (a merge stop takes its own reading of GitHub first and never offers a fresh session).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session (for a phase that hasn't started, reply and Resume launch a new session on its current choice and give it the reply, instead of queueing the same conversation with its recorded model and effort).
+
 An evaluation returns one of: **complete**, **incomplete**, or **check unavailable**, with an authoritative result time for completed evaluations. It may refresh the accepted plan and evidence records as existing checks require, but does not delete a stop, mark Done, clear a billing hold, activate a pause or kick subsequent work merely because it passed.
 
 | Person’s intent | Complete | Incomplete | Check unavailable |
@@ -141,6 +145,8 @@ Superseded in part by: [Terminal Ownership and Hand-back](../kiln-live-session-c
 
 Superseded in part by: [Message Delivery and Attempt Settlement](../kiln-live-session-control/kiln-live-session-control-technical-design.md#message-delivery-and-attempt-settlement) — uncertain-message review and explicit phase/audit hand-back; acknowledgement alone keeps the hold.
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §An activity that hasn't started goes on in a new session (for a phase that hasn't started, reply and Resume launch a new session on its current choice and give it the reply, instead of queueing the same conversation with its recorded model and effort).
+
 Store the draft in browser page memory above the screen component, keyed by the recovery target. This preserves it when Needs you unmounts for Full session output, disconnect/reconnect, checking results or the already-complete choice. Do not put an unsent draft in snapshots, disk, URLs or provider history. A new page load need not restore it. Never transfer it into another stopped session’s reply field.
 
 Only the direct-reply action reads the draft into a request. Copy, Verify, advance and no-reply Resume omit it. Refusals and incomplete/error results retain it. Returning from the complete choice restores its exact contents with **Your reply has not been sent**; advance explicitly warns it will proceed without sending. Preserve the original draft while a request’s outcome is uncertain; do not automatically retry delivery.
@@ -150,6 +156,8 @@ On a permitted unfinished-work resume, send the note first in the existing promp
 Claude resumes its recorded session in its recorded working directory. Codex resumes its saved provider thread with current authoritative terminal history, restored recorded model/effort, existing protected launch profile, account checks and dispatch reconciliation. Preserve distinct original/attempt account facts. Neither agent is replaced with a fresh conversation on refusal; fresh-session recovery remains a separately explained terminal option. Copy the existing agent-specific recovery command, preserving native quoting and workspace selection. Do not display or require an additional prompt for a saved conversation, including after a permission change; retain the separately explained fresh-session prompt. Copying only copies text.
 
 ## Needs you Layout
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (for a phase that hasn't started, the terminal choice offers the resume command only while the phase's current choice is the one that session ran on, otherwise the fresh-session command for the current choice's agent).
 
 Show billing below the reply/terminal choices and the terminal-return controls. Its eligibility and refresh behavior remain unchanged; launch restrictions still disable unavailable actions.
 

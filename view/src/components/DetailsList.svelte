@@ -17,12 +17,12 @@
         <dd class:mono={row.mono}
           >{row.value}{#if row.repositories}<div class="repositories">
               {#each row.repositories as repository (repository.name)}
-                {@render name(repository.name, repository.addedInPhase)}
+                {@render name(repository.label ?? repository.name, repository.addedInPhase)}
                 <div class="repo-lines"><span class="mono path">{repository.worktree}</span><span><span class="mono">{repository.branch}</span> · {repositoryCommitsLine(repository.commitCount, repository.latestCommit)}</span></div>
               {/each}
             </div>{:else if row.commits}<div class="repositories">
               {#each row.commits as repository (repository.name)}
-                {@render name(repository.name, repository.addedInPhase)}
+                {@render name(repository.label ?? repository.name, repository.addedInPhase)}
                 <div class="repo-lines">{#each repository.commits as commit (commit.sha)}<span><span class="mono sha">{commit.sha.slice(0, 7)}</span> {commit.subject}</span>{/each}</div>
               {/each}
             </div>{/if}</dd

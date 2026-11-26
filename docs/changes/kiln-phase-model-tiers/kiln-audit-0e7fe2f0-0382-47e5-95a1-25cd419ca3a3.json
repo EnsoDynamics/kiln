@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "95065ee9-8f1d-47ab-8a48-dce65dc38742",
+  "activityId": "0e7fe2f0-0382-47e5-95a1-25cd419ca3a3",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Repair delivery audit of the whole Kiln Phase Model Tiers PRD at 5507813, after Phase 6. It re-read the 15 criteria whose code Phase 6 changed; the other 11 keep their earlier Implemented status. Four rounds ran, and the fourth confirmed no new gap. Phase 6's fixes are in, but six criteria are still built only in part: AC-PICK-06, AC-PICK-07, AC-PICK-03, AC-KEEP-02, AC-DEFAULT-04 and AC-FALLBACK-03. Start again, Send reply & continue and Check Preflight again skip the launch checks when the choice can't be used. An audit skill readiness stop doesn't name the Audits choice. With Kiln not running, kiln handoff gets a stop with no session and a computer without Claude Code wrong. Changed by you and the not-installed note drop in some row states. The Continue offer's Preflight row shows a kept default the continuation drops. A pull request session's detail and an earlier execution's row lose the fallback facts. Phases 7 and 8 were added to build them. No criterion was amended and nothing was changed outside the requirements.",
+  "completionPhases": ["7", "8"],
+  "needsYou": [],
+  "settled": []
+}

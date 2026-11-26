@@ -3,7 +3,7 @@
 // stop on an unstarted phase marked complete, final delivery marked complete, and a delivery
 // audit with no report marked complete before the test audit runs.
 
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { git } from "../test-support/git-repositories.js";
@@ -17,6 +17,7 @@ import { readPrdRecord } from "../state/records.js";
 import { stateRoot } from "../state/state-files.js";
 import { createHarness, landingSession, pullRequestSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
+import { writeModelDefaults } from "../test-support/model-choices.js";
 import type { Engine } from "./engine.js";
 import { formatTerminalEvent } from "../kiln-command.js";
 import { formatSummaryLine } from "../underway-output.js";
@@ -147,7 +148,7 @@ describe("a launch stop on a phase that has not run (AC-WAIVE-02, AC-WAIVE-04, A
     // After a restart, 2b stays complete and is not relaunched once a model is chosen again.
     writeFileSync(modelsPath, JSON.stringify(recorded));
     const reopened = h.reopenFromDisk();
-    await reopened.agents.refresh();
+    await reopened.refreshAgents();
     await reopened.prepare();
     expect(await reopened.decide()).toEqual({ kind: "start_phase", phaseId: "3" });
     // 2b, closed only by its waiver, counts as done in the terminal summary and in a disconnected status.
@@ -292,7 +293,7 @@ describe("an audit with no usable report marked complete (AC-WAIVE-12, AC-WAIVE-
     // The terminal reads the waived audit as complete · 2 checks waived with its no-report warning, never Audit result recorded.
     const auditDone = h.events.find(event => event.kind === "audit" && event.event === "done" && event.activityId === delivery.activityId)!;
     const [auditLine, auditWarning] = formatTerminalEvent(auditDone, h.engine.record, plain, id => new AuditStore(h.stateDirectory).read<AuditWaiverResult>(id)).split("\n");
-    expect(auditLine).toMatch(/Delivery audit · Round 1 +complete · 2 checks waived \d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+ · browser · \S+$/);
+    expect(auditLine).toMatch(/Delivery audit · Loop 1 of \d +complete · 2 checks waived \d{4}-\d{2}-\d{2} \d{2}:\d{2} \S+ · browser · \S+$/);
     expect(auditLine).not.toContain("Audit result recorded");
     expect(auditWarning!.trim()).toBe(`! ${NO_REPORT_WARNING}`);
 
@@ -403,6 +404,43 @@ describe("a readiness stop raised by audit allocation (AC-WAIVE-02, AC-WAIVE-04)
   });
 });
 
+describe("a readiness stop on an audit skill that doesn't resolve on the Audits choice's agent (Kiln Phase Model Tiers AC-PICK-06)", () => {
+  it("names the Audits choice as it is now, where it came from and where to change it, at allocation and at Check again", { timeout: 120_000 }, async () => {
+    harness = await createHarness({ folder: "proof", files: proofFiles, auditCycles: true, sessions: [pullRequestSession()] });
+    const h = harness;
+    // Both names listed is unresolvable on Claude Code, the Audits choice's agent.
+    const both = join(h.sandbox.root, "claude-config", "skills", "enso-method:delivery-audit");
+    mkdirSync(both, { recursive: true });
+    writeFileSync(join(both, "SKILL.md"), "---\nname: enso-method:delivery-audit\n---\n");
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    const key = h.engine.stoppedPhaseKey()!;
+    const facts = () => h.engine.record.phases[key]!.stop!.checks.filter(check => check.name === "Completion audit readiness").flatMap(check => check.facts);
+    const audits = h.engine.notStartedChoice("pr");
+    expect(audits).toMatchObject({ agentId: "claude_code", from: "model_defaults" });
+    const where = "Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.";
+    expect(audits.modelName).toMatch(/^Opus/);
+    expect(facts()).toEqual([`The audits, preflight and pull request session run on Claude Code · ${audits.modelName} · ${audits.effort} from Model defaults (Audits row): Enable exactly one delivery-audit skill in ${h.engine.sessionFolder}. ${where}`]);
+    expect(h.engine.record.completionAudits?.activities ?? []).toEqual([]);
+    // Model defaults' Audits row changes its effort; Check again names the Audits choice as it is now.
+    writeModelDefaults(h.env, { audits: { first: { agentId: "claude_code", family: "opus", effort: "low" } } });
+    h.engine.modelChoicesChanged();
+    expect(await h.engine.checkAgain()).toMatchObject({ ok: true, outcome: "still_stopped" });
+    await h.engine.settled();
+    expect(facts()).toEqual([expect.stringMatching(/^The audits, preflight and pull request session run on Claude Code · Opus[^·]* · low from Model defaults \(Audits row\): Enable exactly one delivery-audit skill in .*\. Change the Audits row in Model defaults, /)]);
+    // Mark complete's known problem is the fact the stop shows.
+    const offer = h.engine.markCompleteOffer();
+    expect(offer).toMatchObject({ offered: true, items: [{ check: "Completion audit readiness", kind: "known_problem", text: facts()[0] }] });
+    expect(h.claudeCalls()).toHaveLength(0);
+    // Mark complete waives that fact: the next allocation's readiness failure matches it and the run goes on past it.
+    if (!offer.offered) throw new Error("Mark complete not offered");
+    expect((await submit(h.engine, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" })).outcome).toBe("continued");
+    await h.engine.settled();
+    expect(h.engine.record.waivers).toHaveLength(1);
+    expect(Object.values(h.engine.record.phases).some(facts => facts.stop?.checks.some(check => check.name === "Completion audit readiness"))).toBe(false);
+  });
+});
+
 /** The proof feature with a split phase whose second part has no document: the plan never reads. */
 const brokenPlanFiles = {
   ...proofFiles,
@@ -498,7 +536,7 @@ describe("a billing hold on a phase that has not run (AC-WAIVE-04)", () => {
   it("marks the unstarted phase complete with its Closed item waived, never launches it, and keeps holding the next launch", async () => {
     harness = await createHarness({ sessions: [landingSession(), landingSession("src/credit.txt")] });
     const h = harness;
-    await h.engine.refreshBilling(); await waitFor(() => !h.engine.agents.state.pending);
+    await h.engine.refreshBilling(); await waitFor(() => !h.engine.readers.claude_code.state.pending);
     // The launch environment changes as setup finishes: phase 1 is held before any model run.
     const off = h.engine.onChange(() => { if (h.engine.record.setupCompletedAt) h.env.ANTHROPIC_API_KEY = "waiver-hold-canary"; });
     await h.engine.start({ refinementConfirmed: true });
@@ -528,7 +566,7 @@ describe("a billing hold on a phase that has not run (AC-WAIVE-04)", () => {
 
     // A restarted Kiln keeps phase 1 complete and goes on to 2b, never relaunching phase 1.
     const reopened = h.reopenFromDisk();
-    await reopened.agents.refresh();
+    await reopened.refreshAgents();
     await reopened.prepare();
     expect(reopened.record.phases["1"]).toMatchObject({ doneAt: saved.phases["1"]!.doneAt, waiverId: waiver.waiverId });
     expect(reopened.latestSession("1")?.runs ?? []).toEqual([]);

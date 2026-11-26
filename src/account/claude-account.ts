@@ -184,10 +184,11 @@ export async function readAccount(options: AccountReadOptions): Promise<AccountV
   }
   const reading = parseUsage(usage.stdout, status.plan !== undefined);
   // Usage has no account identity of its own. Bracket every successful usage read,
-  // including reports without overflow, before assigning gauges to an account.
+  // including reports without overflow, before assigning gauges to an account. A reading with no
+  // plan and no rate limits attributes no windows, so it needs no email or organization to bind it.
   const after = parseAuthStatus(await call(["auth", "status", "--json"]));
   updatedAt = (options.now?.() ?? new Date()).toISOString();
-  if (after.error || !(status.email || status.orgId) || status.email !== after.email || status.orgId !== after.orgId || status.plan !== after.plan || status.authMethod !== after.authMethod || status.apiProvider !== after.apiProvider || status.apiKeySource !== after.apiKeySource) {
+  if (after.error || !(status.email || status.orgId) && !(status.plan === undefined && reading.limitsAvailable === false) || status.email !== after.email || status.orgId !== after.orgId || status.plan !== after.plan || status.authMethod !== after.authMethod || status.apiProvider !== after.apiProvider || status.apiKeySource !== after.apiKeySource) {
     return { ...after, startedAt, updatedAt, limits: [], limitsError: "Usage could not be bound to a stable authenticated account across the reading. Refresh account information." };
   }
   account.updatedAt = updatedAt;

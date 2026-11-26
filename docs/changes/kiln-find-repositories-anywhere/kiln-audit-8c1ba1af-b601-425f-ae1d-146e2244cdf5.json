@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "8c1ba1af-b601-425f-ae1d-146e2244cdf5",
+  "kind": "test_audit",
+  "outcome": "passed",
+  "summary": "Sixth session of test fixes for the whole PRD. It took AC-SEE-04, the last Weak row being worked. A coloured kiln run now pins the Located line's grey rest as the engine makes it, and the settings while Kiln works are compared with a row the person told Kiln about, proving they never offer Change. Both new tests were seen to fail with the behaviour broken, and a fresh reviewer graded AC-SEE-04 Adequate. Every criterion is now Adequate except AC-ASK-06, which stays stuck at Weak and waits on the person. The unit suite (1239 tests) passed, and the integration suite passed in four shards apart from one failure that was already there: src/live/pause-now-withheld.integration.test.ts (AC-PAUSE-02, another PRD's criterion) reports \"Kiln is checking, dispatching or reconciling an instruction.\" where it expects the Pause now reason. Only test files changed.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-3",
+      "problem": "AC-ASK-06's test row is stuck at Weak after two attempts. No test runs kiln status against a running Kiln and checks that it reports locate-repository as unavailable, with the engine's own reason, when no stop is asking or before Start.",
+      "action": "Say how to proceed: approve the fix recorded in test-audit.md (two assertions in src/kiln-run-ask-after-start.integration.test.ts), or accept the row as it is."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": false
+}

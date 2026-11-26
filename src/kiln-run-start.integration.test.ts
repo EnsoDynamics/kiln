@@ -3,6 +3,7 @@
 // terminal, and Kiln staying in the foreground until Ctrl+C. Real git throughout, with origin
 // reached as github.com through an SSH stand-in, and the stand-in claude and gh.
 
+import { displayPath } from "./engine/worktree-setup.js";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { Socket } from "node:net";
@@ -131,10 +132,10 @@ function startKiln(f: Feature, folder = FOLDER, openBrowser?: (address: string) 
 
 async function api(address: string, token: string, method: string, path: string, body?: unknown) {
   // A real chooser waits for its current metadata before enabling Start or model edits.
-  if (method === "POST" && (path === "/api/start" || path === "/api/settings" && body && typeof body === "object" && ("model" in body || "effort" in body))) {
+  if (method === "POST" && (path === "/api/start" || path === "/api/settings" && body && typeof body === "object" && "keepAwake" in body)) {
     await waitFor(async () => {
       const current = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
-      return current.settings.metadataPending === false;
+      return current.agents.every(agent => !agent.pending);
     });
   }
   const origin = new URL(address).origin;
@@ -204,7 +205,7 @@ describe("kiln run on a feature not started", () => {
     // The record is written when Documents found is served, with the default settings (AC-START-07, UI-004).
     const record = readPrdRecord(stateDirectoryOf(f))!;
     expect(record.startedAt).toBeUndefined();
-    expect(record.settings).toMatchObject({ featureBranch: "feature/customer-returns", baseBranch: "develop", agentId: "claude_code", agentChoices: { claude_code: { model: "opus", effort: "medium" } }, keepAwake: true });
+    expect(record.settings).toMatchObject({ featureBranch: "feature/customer-returns", baseBranch: "develop", modelChoices: { phases: {} }, keepAwake: true });
     expect(record.repository.github).toBe("acme/acme-shop");
 
     // AC-MULTI-02: the tab's title names the feature.
@@ -216,8 +217,9 @@ describe("kiln run on a feature not started", () => {
     const view = await connectView(address, token);
     await waitFor(() => view.snapshots.length > 0);
     await waitFor(async () => {
-      const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as { account?: unknown; models?: unknown; settings: { baseCheck?: string; metadataPending?: boolean } };
-      return snapshot.account !== undefined && snapshot.models !== undefined && snapshot.settings.baseCheck === "ok" && snapshot.settings.metadataPending === false;
+      const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
+      const claude = snapshot.agents.find(agent => agent.inUse);
+      return claude?.account !== undefined && claude.models !== undefined && snapshot.settings.baseCheck === "ok" && snapshot.agents.every(agent => !agent.pending);
     });
     const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
     expect(snapshot.feature).toMatchObject({ name: "Customer returns", repositoryName: "acme-shop", prdFolder: "docs/prds/customer-returns/", state: "not_started" });
@@ -227,23 +229,26 @@ describe("kiln run on a feature not started", () => {
       assumptions: { file: "assumptions.md", total: 4, notYetConfirmed: 2 },
       plan: { phaseDocCount: 5, leafCount: 4, closedCount: 1 },
     });
+    // Each phase with no child phases has its tag and the model it will run on (Kiln Phase Model Tiers AC-TIER-02, AC-PICK-02).
+    // Each phase that hasn't started offers Change (AC-PICK-03).
+    const opus = { state: "will_run_on", from: "model_defaults", choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "medium" }, change: { available: true } };
+    const notRated = { value: "not_rated" };
     expect(snapshot.documents!.plan!.phases).toEqual([
-      { id: "1", title: "Return intake", closed: false, repositories: [] },
+      { id: "1", title: "Return intake", closed: false, repositories: [], tier: notRated, model: opus },
       { id: "2", title: "Refunds", splitInto: ["2a", "2b"], closed: false, repositories: [] },
-      { id: "2a", title: "Card refunds", closed: true, repositories: [] },
-      { id: "2b", title: "Store credit", closed: false, repositories: [] },
-      { id: "3", title: "Returns dashboard", closed: false, repositories: [] },
+      { id: "2a", title: "Card refunds", closed: true, repositories: [], tier: notRated, model: { state: "none_recorded" } },
+      { id: "2b", title: "Store credit", closed: false, repositories: [], tier: notRated, model: opus },
+      { id: "3", title: "Returns dashboard", closed: false, repositories: [], tier: notRated, model: opus },
     ]);
     expect(snapshot.documents!.checks).toEqual([
       { name: "Every phase cites its criteria", passed: true },
       { name: "Dependencies point backward", passed: true },
       { name: "Working tree is clean", passed: true },
     ]);
+    expect(snapshot.agents.find(entry => entry.inUse)?.agent).toBe("Claude Code");
     expect(snapshot.settings).toMatchObject({
-      agent: "Claude Code",
-      model: { value: "opus", displayName: "Opus 5.5" },
-      effort: "medium",
-      effortLevels: ["low", "medium", "high", "xhigh", "max"],
+      // Models are chosen for each phase, not once for the PRD (Kiln Phase Model Tiers AC-KEEP-01).
+      models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 } },
       worktreePath: expect.stringMatching(/\.worktrees[/\\]customer-returns[/\\]acme-shop$/),
       featureBranch: "feature/customer-returns",
       baseBranch: "develop",
@@ -253,16 +258,17 @@ describe("kiln run on a feature not started", () => {
       fieldErrors: {},
     });
     expect(snapshot.repositories).toEqual([
-      { name: "acme-shop", github: "github.com/acme/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", worktreePath: snapshot.settings.worktreePath, fixed: false, fieldErrors: {} },
+      // Its label, address path and checkout's folder (find repositories anywhere AC-SEE-01).
+      { name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: displayPath(f.repository), github: "github.com/acme/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop"], baseCheck: "ok", worktreePath: snapshot.settings.worktreePath, fixed: false, fieldErrors: {} },
     ]);
-    expect(snapshot.models!.map((model) => model.displayName)).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"]);
-    expect(snapshot.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });
-    expect(snapshot.account!.limits.map((limit) => `${limit.shortLabel} ${limit.percent}%`)).toEqual(["5-hour 5%", "weekly 42%", "Fable 0%"]);
+    expect(snapshot.agents.find(entry => entry.inUse)?.models!.map((model) => model.displayName)).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"]);
+    expect(snapshot.agents.find(entry => entry.inUse)?.account).toMatchObject({ email: "alex@acme-shop.dev", plan: "Max plan" });
+    expect(snapshot.agents.find(entry => entry.inUse)?.account!.limits.map((limit) => `${limit.shortLabel} ${limit.percent}%`)).toEqual(["5-hour 5%", "weekly 42%", "Fable 0%"]);
 
     // AC-BILL-03 brackets usage; AC-RUN-01 also reads required readiness in the launch context.
     await waitFor(async () => {
       const latest = await api(address, token, "GET", "/api/snapshot");
-      return !!(latest.body as unknown as Snapshot).billing?.next && !(latest.body as unknown as Snapshot).billing?.pending;
+      return !!(latest.body as unknown as Snapshot).agents.find(entry => entry.inUse)?.billing?.next && !(latest.body as unknown as Snapshot).agents.find(entry => entry.inUse)?.billing?.pending;
     });
     const helpers = readJsonLines<{ kind: string; cwd: string }>(`${f.scenarioPath}.helpers.jsonl`);
     expect(helpers.map((call) => call.kind).sort()).toEqual(["account", "account", "account", "models", "models", "skills", "skills", "usage"]);
@@ -275,11 +281,13 @@ describe("kiln run on a feature not started", () => {
     expect(git(f.sandbox, f.repository, "branch", "--list", "feature/*")).toBe("");
 
     // Settings change before Start, and are saved as they are made (AC-START-06).
-    expect((await api(address, token, "POST", "/api/settings", { agentId: "claude_code", selectionGeneration: 0, effort: "max", keepAwake: false })).status).toBe(200);
+    expect((await api(address, token, "POST", "/api/settings", { keepAwake: false })).status).toBe(200);
+    // One model for the whole PRD is no longer a setting (Kiln Phase Model Tiers AC-KEEP-01).
+    expect((await api(address, token, "POST", "/api/settings", { effort: "max" })).status).toBe(400);
     const badBranch = await api(address, token, "POST", "/api/settings", { featureBranch: "no..dots" });
     expect((badBranch.body.settings as { fieldErrors: unknown }).fieldErrors).toEqual({ featureBranch: "That isn’t a valid branch name." });
     await api(address, token, "POST", "/api/settings", { featureBranch: "feature/returns" });
-    expect(readPrdRecord(stateDirectoryOf(f))!.settings).toMatchObject({ agentChoices: { claude_code: { effort: "max" } }, keepAwake: false, featureBranch: "feature/returns" });
+    expect(readPrdRecord(stateDirectoryOf(f))!.settings).toMatchObject({ modelChoices: { phases: {} }, keepAwake: false, featureBranch: "feature/returns" });
 
     // Start stays unavailable until the person confirms refinement (AC-START-05).
     expect(await api(address, token, "POST", "/api/start", {})).toEqual({ status: 400, body: { ok: false, reason: "Confirm the documents have been through requirements refinement first." } });
@@ -305,9 +313,9 @@ describe("kiln run on a feature not started", () => {
       expect.stringMatching(new RegExp(`^${time}  PR  Final pull request  started$`)),
       expect.stringMatching(new RegExp(`^${time}  PR  Final pull request  opened #218$`)),
     ]);
-    // The settings chosen before Start are the ones the sessions ran with.
+    // Each phase ran on its tier's choice: the fixture's phases are not rated, so Standard's Opus at medium.
     const calls = readJsonLines<{ args: string[] }>(`${f.scenarioPath}.calls.jsonl`);
-    expect(calls[0]!.args.join(" ")).toContain("--model opus --effort max");
+    expect(calls[0]!.args.join(" ")).toContain("--model opus --effort medium");
 
     // AC-KEEP-01: Kiln stays in the foreground after the pull request is ready, until Ctrl+C.
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -450,18 +458,32 @@ describe("kiln run on a feature not started", () => {
     const entry = { name: "acme-shop", kind: "prd", mainCheckoutPath: record.repository.mainCheckoutPath, github: record.repository.github, baseBranch: "develop", worktreePath: record.settings.worktreePath, baseCommit: "0".repeat(40) };
     writeFileSync(recordPath, JSON.stringify({ ...record, startedAt: "2026-10-17T13:00:00.000Z", refinementConfirmedAt: "2026-10-17T13:00:00.000Z", repositories: [entry] }));
 
-    const again = startKiln(f);
-    const address = await again.address;
-    await waitFor(() => again.lines().some((line) => line.startsWith("● Opened")));
-    expect(again.lines()[0]).toMatch(/^✗ Couldn’t set up the worktree: /);
-    expect(again.lines()[1]).toBe("Customer returns  ·  PRD, technical design, assumptions, 5 phase docs  ·  all checks passed");
-    const { token } = await tokenFromPage(address);
-    const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
-    expect(snapshot.feature.state).toBe("not_started");
-    expect(snapshot.documents!.startError).toMatch(/^Couldn’t set up the worktree: /);
-    expect(readPrdRecord(stateDirectoryOf(f))!.startedAt).toBeUndefined();
-    again.signals.emit("SIGINT");
-    expect(await again.done).toBe(130);
+    // Every account read is held open, so one that Kiln's stop didn't end would still be running after it.
+    const gate = join(f.sandbox.root, "auth-gate");
+    f.env.KILN_STANDIN_AUTH_WAIT = gate;
+    f.env.KILN_STANDIN_AUTH_AFTER_WAIT = gate;
+    try {
+      const again = startKiln(f);
+      const address = await again.address;
+      await waitFor(() => again.lines().some((line) => line.startsWith("● Opened")));
+      expect(again.lines()[0]).toMatch(/^✗ Couldn’t set up the worktree: /);
+      expect(again.lines()[1]).toBe("Customer returns  ·  PRD, technical design, assumptions, 5 phase docs  ·  all checks passed");
+      const { token } = await tokenFromPage(address);
+      const snapshot = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
+      expect(snapshot.feature.state).toBe("not_started");
+      expect(snapshot.documents!.startError).toMatch(/^Couldn’t set up the worktree: /);
+      expect(readPrdRecord(stateDirectoryOf(f))!.startedAt).toBeUndefined();
+      again.signals.emit("SIGINT");
+      expect(await again.done).toBe(130);
+      // AC-KEEP-02: the setup that couldn't finish left no claude helper behind, either.
+      const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+      const helpers = () => readJsonLines<{ kind: string; cwd: string; pid: number }>(`${f.scenarioPath}.helpers.jsonl`);
+      await waitFor(() => helpers().every((call) => !alive(call.pid)), 5_000).catch(() => {
+        throw new Error(`Helpers still running after Kiln stopped:\n${helpers().filter((call) => alive(call.pid)).map((call) => `${call.kind} in ${call.cwd}`).join("\n")}`);
+      });
+    } finally {
+      writeFileSync(gate, "");
+    }
   });
 
   it("serves each PRD its own view at its own address, and a PRD keeps its address the next time", async () => {
@@ -494,7 +516,7 @@ describe("kiln run on a feature not started", () => {
     const first = startKiln(f);
     const address = await first.address;
     const { token } = await tokenFromPage(address);
-    await api(address, token, "POST", "/api/settings", { agentId: "claude_code", selectionGeneration: 0, effort: "low" });
+    await api(address, token, "POST", "/api/settings", { keepAwake: false });
     first.signals.emit("SIGINT");
     await first.done;
 
@@ -502,8 +524,8 @@ describe("kiln run on a feature not started", () => {
     const reopened = await second.address;
     expect(reopened).toBe(address);
     // The token is kept per PRD, so a tab left open keeps working after kiln run restarts.
-    const snapshot = (await api(reopened, token, "GET", "/api/snapshot")).body as { settings: { effort: string } };
-    expect(snapshot.settings.effort).toBe("low");
+    const snapshot = (await api(reopened, token, "GET", "/api/snapshot")).body as { settings: { keepAwake: boolean } };
+    expect(snapshot.settings.keepAwake).toBe(false);
     second.signals.emit("SIGINT");
     await second.done;
   });

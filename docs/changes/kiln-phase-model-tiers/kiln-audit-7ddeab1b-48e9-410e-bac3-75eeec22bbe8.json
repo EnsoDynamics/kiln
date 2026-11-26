@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "95065ee9-8f1d-47ab-8a48-dce65dc38742",
+  "activityId": "7ddeab1b-48e9-410e-bac3-75eeec22bbe8",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Repair delivery audit of the whole Kiln Phase Model Tiers PRD at a7d23c2, after Phases 7 and 8. It re-read the 19 criteria whose code those phases changed; the other 7 keep their earlier Implemented status. Two rounds ran: the first confirmed one new gap and the second confirmed none. Phases 7 and 8's fixes are in, and AC-PICK-06, AC-PICK-07, AC-PICK-03, AC-KEEP-02, AC-DEFAULT-04 and AC-FALLBACK-03 are now Implemented. One criterion is still built only in part: AC-AGENTS-04. On the Pause now page, when Resume will start a new session on another agent, the note label, its placeholder and the busy status still name Claude and say the conversation is reopened. Phase 9 was added to build it. No criterion was amended and nothing was changed outside the requirements.",
+  "completionPhases": ["9"],
+  "needsYou": [],
+  "settled": []
+}

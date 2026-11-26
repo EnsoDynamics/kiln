@@ -2,11 +2,15 @@
 // `kiln status`", AC-WAIVE-05, AC-WAIVE-10). Everything here reads the saved record and the
 // marked check results; nothing decides coverage, which belongs to `applyWaivers` alone.
 
+import { displayPath } from "../engine/worktree-setup.js";
+import { auditName, auditNameFacts } from "../audit/audit-names.js";
 import { activityKeyKind } from "../state/activity-keys.js";
 import type { AuditActivity } from "../audit/contracts.js";
 import type { CheckResult, PrdRecord } from "../state/records.js";
 import { AUDIT_WARNING, checkCounts, checksWord, completeLabel, countsText, NO_REPORT_WARNING, PLAN_WARNING, READINESS_CHECK, type AuditWaiverResult, type CheckItem, type MarkCompleteOffer, type Waiver, type WaiverRef } from "../engine/waivers.js";
 import { commandText } from "./result.js";
+import { repositoryDetails } from "../engine/plan-repositories.js";
+import { terminalColors, type TerminalColors } from "../terminal-output.js";
 
 export type CheckState = "passed" | "waived" | "failed";
 /** A check item as status shows it: the saved item's own fields plus `waived` in snake case. */
@@ -27,6 +31,8 @@ export interface ActivityWaivers {
 /** A row of the activity progress `kiln status` prints (the mockup's terminal blocks). */
 export interface ProgressRow extends ActivityWaivers {
   key: string; kind: string; label: string; title: string;
+  /** A session of test fixes: the test audit loop it works from and its session (Kiln After Delivery AC-AUDIT-01). */
+  fixing?: { loop?: number; session: number };
   state: "complete" | "running" | "needs_you" | "waiting" | "skipped" | "not_finished";
   status_label: string | null;
 }
@@ -113,11 +119,15 @@ function activityRowKind(key: string): string {
   return kind === "phase" ? "implementation" : kind;
 }
 
-function rowLabel(record: PrdRecord, key: string, kind: string): { label: string; title: string } {
+function rowLabel(record: PrdRecord, key: string, kind: string): { label: string; title: string; fixing?: { loop?: number; session: number } } {
   const audit = key.startsWith("audit-") ? record.completionAudits?.activities.find(a => `audit-${a.activityId}` === key) : undefined;
-  if (audit) return { label: audit.kind === "delivery_audit" ? "Delivery audit" : "Test audit", title: `Round ${audit.round}${audit.continuationIndex > 1 ? ` · Continuation ${audit.continuationIndex}` : ""}` };
+  // An audit row is named for what it does; a session of test fixes also carries its loop and session (Kiln After Delivery AC-AUDIT-01, AC-BOT-02).
+  if (audit) { const facts = auditNameFacts(record, audit); const name = auditName(facts); return { label: name.title, title: name.line ?? "", ...(facts.fixing ? { fixing: facts.fixing } : {}) }; }
   if (key === "pr" || kind === "final_delivery") return { label: "Final delivery", title: "" };
   if (activityKeyKind(key) === "preflight") return { label: "Preflight", title: "" };
+  // The after-delivery rows read as the screens name them (Kiln After Delivery AC-BOT-02).
+  if (activityKeyKind(key) === "merge") return { label: "Merge", title: "" };
+  if (activityKeyKind(key) === "plan_push") return { label: "Push the plan", title: "" };
   return { label: `Phase ${key}`, title: record.plan?.find(p => p.id === key)?.title ?? "" };
 }
 
@@ -167,9 +177,9 @@ export function terminalWaivers(record: PrdRecord, key: string, readAudit?: Audi
 }
 
 /** The subject a waived item is named by in the terminal: a checkpoint and requirement, a repository, or its check. */
-function itemName(check: string, item: { kind: string | null; subject: string | null }): string {
+function itemName(check: string, item: { kind: string | null; subject: string | null }, label: (name: string) => string): string {
   if (item.kind === "development_requirement" && item.subject) return item.subject.split("/").join(" / ");
-  if (item.kind === "repository_work" && item.subject) return `${check} · ${item.subject}`;
+  if (item.kind === "repository_work" && item.subject) return `${check} · ${label(item.subject)}`;
   return check;
 }
 
@@ -177,12 +187,12 @@ function itemName(check: string, item: { kind: string | null; subject: string | 
  * The detail lines under an activity's terminal line: its warnings, its counts and each waived item
  * (the mockup's `kiln status` blocks), already indented by `indent`.
  */
-export function waiverDetailLines(row: Pick<ActivityWaivers, "warnings" | "counts" | "checks" | "waived_checks">, indent: string): string[] {
+export function waiverDetailLines(row: Pick<ActivityWaivers, "warnings" | "counts" | "checks" | "waived_checks">, indent: string, label: (name: string) => string = (name) => name): string[] {
   if (!row.waived_checks && !row.warnings.length) return [];
   const lines = row.warnings.map(w => `${indent}! ${w.text}`);
   if (row.counts && row.waived_checks) lines.push(`${indent}${countsText(row.counts)}`);
   for (const check of row.checks ?? []) for (const item of check.items) if (item.waived) {
-    lines.push(`${indent}waived  ${itemName(check.name, item)}`);
+    lines.push(`${indent}waived  ${itemName(check.name, item, label)}`);
     lines.push(`${indent}        ${item.text}`);
   }
   return lines;
@@ -193,7 +203,19 @@ const STATE_WORDS: Record<ProgressRow["state"], string> = { complete: "complete"
 /** "Example feature · example-app · docs/prds/example-feature", from a status result. */
 export function progressHeading(answer: Record<string, unknown>): string {
   const prd = answer.prd as { name?: string; directory?: string } | undefined;
-  return [prd?.name, ((answer.repositories ?? []) as string[]).join(", "), prd?.directory].filter(Boolean).join(" · ");
+  const label = statusLabels(answer);
+  return [prd?.name, ((answer.repositories ?? []) as string[]).map(label).join(", "), prd?.directory].filter(Boolean).join(" · ");
+}
+
+/**
+ * The label each repository is shown by, from a status result's `repository_details`
+ * (find repositories anywhere AC-FOLDER-02); a name it doesn't list is shown as it is.
+ *
+ *   statusLabels({ repository_details: [{ name: "acme+admin", label: "acme/admin" }] })("acme+admin")  // "acme/admin"
+ */
+export function statusLabels(answer: Record<string, unknown>): (name: string) => string {
+  const details = (answer.repository_details ?? []) as { name: string; label: string }[];
+  return (name) => details.find((one) => one.name === name)?.label ?? name;
 }
 
 /**
@@ -211,7 +233,7 @@ export function statusPause(liveControl: unknown): { activityKey: string; phase:
  * The progress block `kiln status` prints first in text mode (the mockup's `kiln status` blocks).
  * An activity under Pause now reads "pausing" or "paused" where it says "needs you"; its JSON state stays `needs_you`.
  */
-export function progressText(heading: string, rows: readonly ProgressRow[], pauseNow?: { activityKey: string; phase: "pausing" | "paused" }): string {
+export function progressText(heading: string, rows: readonly ProgressRow[], pauseNow?: { activityKey: string; phase: "pausing" | "paused" }, stopLines: readonly string[] = [], label: (name: string) => string = (name) => name): string {
   const labelWidth = Math.max(0, ...rows.map(r => r.label.length)) + 3;
   const titleWidth = rows.some(r => r.title) ? Math.max(...rows.map(r => r.title.length)) + 3 : 0;
   const indent = " ".repeat(labelWidth + titleWidth);
@@ -219,7 +241,9 @@ export function progressText(heading: string, rows: readonly ProgressRow[], paus
   for (const row of rows) {
     const suffix = row.state === "complete" ? waiverSuffix(row) : undefined;
     lines.push(`${row.label.padEnd(labelWidth)}${titleWidth ? row.title.padEnd(titleWidth) : ""}${pauseNow?.activityKey === row.key && row.state === "needs_you" ? pauseNow.phase : STATE_WORDS[row.state]}${suffix ? ` ${suffix}` : ""}`.trimEnd());
-    lines.push(...waiverDetailLines(row, indent));
+    lines.push(...waiverDetailLines(row, indent, label));
+    // A stop that asks where a repository is lists its questions under its row, under the title column (find repositories anywhere, mockup state 7).
+    if (row.state === "needs_you") lines.push(...stopLines.map(line => `${" ".repeat(labelWidth)}${line}`));
   }
   return `${lines.join("\n")}\n`;
 }
@@ -261,7 +285,7 @@ function nextText(next: unknown): string {
  * What a recheck that still fails would let Mark complete waive, as the CLI prints it (the
  * mockup's "A bot doing it through the command line").
  */
-export function previewLines(preview: Record<string, unknown>, checkedAt: string): string[] {
+export function previewLines(preview: Record<string, unknown>, checkedAt: string, label: (name: string) => string = (name) => name): string[] {
   if (preview.offered !== true) return typeof preview.reason === "string" ? [`Mark complete is not offered: ${preview.reason}`] : [];
   const activity = offeredActivity(preview);
   const items = (preview.items ?? []) as { check: string; kind: string; subject: string; text: string }[];
@@ -273,7 +297,7 @@ export function previewLines(preview: Record<string, unknown>, checkedAt: string
   for (const [check, list] of byCheck) {
     lines.push(`  ${check}`);
     for (const item of list) {
-      if (item.kind === "development_requirement" || item.kind === "repository_work") lines.push(`    ${item.kind === "development_requirement" ? item.subject.split("/").join(" / ") : item.subject}`);
+      if (item.kind === "development_requirement" || item.kind === "repository_work") lines.push(`    ${item.kind === "development_requirement" ? item.subject.split("/").join(" / ") : label(item.subject)}`);
       lines.push(`    ${item.text}`);
     }
   }
@@ -298,6 +322,17 @@ function activityName(record: PrdRecord | undefined, key: string): string {
   return label;
 }
 
+/**
+ * The label each repository is shown by in a receipt (find repositories anywhere AC-FOLDER-02):
+ * from the PRD's record when the CLI has it, else from the answer's `repository_details`. A
+ * subject that names no repository, such as a check's own subject, is shown as it is.
+ */
+function receiptLabels(answer: Record<string, unknown>, record?: PrdRecord): (name: string) => string {
+  if (!record?.repository || !record.repositories) return statusLabels(answer);
+  const details = repositoryDetails({ repository: record.repository, repositories: record.repositories, ...(record.plan ? { plan: record.plan } : {}) });
+  return (name) => details.find((one) => one.name === name)?.label ?? name;
+}
+
 const CHANGE_WORDS = { newly_failing: "now fails", newly_passing: "now passes", text_changed: "changed" } as const;
 
 /**
@@ -306,21 +341,23 @@ const CHANGE_WORDS = { newly_failing: "now fails", newly_passing: "now passes", 
  * for every other receipt, whose text output is unchanged.
  */
 export function receiptLines(answer: Record<string, unknown>, record?: PrdRecord, waiveCommand = false): string[] | undefined {
-  const op = answer.operation as { id: string; action?: string; state: string; outcome: string | null; reason: string | null; updated_at: string; waiver_id?: string; changes?: { check: string; subject: string; change: keyof typeof CHANGE_WORDS; before?: string; after?: string }[]; instruction?: unknown; target?: string } | undefined;
+  const op = answer.operation as { id: string; action?: string; state: string; outcome: string | null; reason: string | null; updated_at: string; waiver_id?: string; located?: { repository: string; folder: string; label?: string; phase?: string; facts?: string[] }; changes?: { check: string; subject: string; change: keyof typeof CHANGE_WORDS; before?: string; after?: string }[]; instruction?: unknown; target?: string } | undefined;
   const preview = answer.mark_complete as Record<string, unknown> | undefined;
   const errors = (answer.errors ?? []) as { code: string; message: string }[];
   if (!op) {
     const refusal = errors[0];
     return refusal && waiveCommand ? [refusalLine(refusal.code, refusal.message)] : undefined;
   }
-  if (op.action !== "waive-and-advance" && !preview && !waiveCommand) return undefined;
+  if (op.action !== "waive-and-advance" && op.action !== "locate-repository" && !preview && !waiveCommand) return undefined;
   if (op.state === "refused") return [refusalLine(op.outcome ?? "refused", op.reason ?? "Kiln refused this instruction.")];
   if (op.state === "accepted" || op.state === "in_progress") return [`Operation ${op.id} accepted.`];
   if (op.state === "indeterminate") return [`Operation ${op.id} is indeterminate. ${op.reason ?? "Inspect its receipt before retrying."}`];
   if (op.state === "failed") return [op.outcome === "check_unavailable" ? `Operation ${op.id} failed: the check could not finish. ${op.reason ?? ""}`.trim() : `Operation ${op.id} failed: ${op.outcome ?? "failed"}. ${op.reason ?? ""}`.trim()];
+  if (op.action === "locate-repository") return locatedLines(op);
+  const label = receiptLabels(answer, record);
   if (preview) {
     const activity = preview.offered === true ? offeredActivity(preview) : "The activity";
-    return [`Operation ${op.id} completed. ${activity} is still at Needs you.`, ...previewLines(preview, op.updated_at)];
+    return [`Operation ${op.id} completed. ${activity} is still at Needs you.`, ...previewLines(preview, op.updated_at, label)];
   }
   const waiver = op.waiver_id ? record?.waivers?.find(w => w.waiverId === op.waiver_id) : undefined;
   const name = waiver ? activityName(record, waiver.activityKey) : "The activity";
@@ -333,11 +370,28 @@ export function receiptLines(answer: Record<string, unknown>, record?: PrdRecord
     case "checks_passed": return [`Operation ${op.id} completed. Every check passed when Kiln checked again, so nothing was waived and Kiln advanced.`];
     case "check_results_changed": return [
       `Operation ${op.id} completed. The results changed when Kiln checked again, so nothing was waived or advanced:`,
-      ...(op.changes ?? []).map(c => `  ${c.check} · ${c.subject}: ${CHANGE_WORDS[c.change]}${c.after ? ` — ${c.after}` : c.before ? ` — was: ${c.before}` : ""}`),
+      ...(op.changes ?? []).map(c => `  ${c.check} · ${label(c.subject)}: ${CHANGE_WORDS[c.change]}${c.after ? ` — ${c.after}` : c.before ? ` — was: ${c.before}` : ""}`),
       "Read kiln status for the new check run; to mark it complete, run again with --confirm, the new status token and a new command id.",
     ];
     default: return [`Operation ${op.id} completed: ${op.outcome ?? "completed"}.`];
   }
+}
+
+/**
+ * `kiln command-status` for an answer to where a repository is (find repositories anywhere, "The command").
+ *
+ *   locatedLines({ id: "op_61a2", outcome: "located_phase_starting", located: { repository: "acme-labs/inventory", folder: "/Volumes/work/inventory", label: "inventory", phase: "Phase 4 · Restock check-in" } })
+ *   // ["Operation op_61a2 completed. acme-labs/inventory is at /Volumes/work/inventory. Kiln will remember that on this computer.",
+ *   //  "Added inventory. Phase 4 · Restock check-in is starting."]
+ */
+export function locatedLines(op: { id: string; outcome: string | null; reason: string | null; located?: { repository: string; folder: string; label?: string; phase?: string; facts?: string[] } }): string[] {
+  const located = op.located;
+  if (op.outcome === "folder_not_accepted") return [`Operation ${op.id} completed. Kiln didn’t accept ${located?.folder ?? "that folder"}: ${op.reason ?? ""}`.trimEnd()];
+  if (!located) return [`Operation ${op.id} completed: ${op.outcome ?? "completed"}.`];
+  const lead = `Operation ${op.id} completed. ${located.repository} is at ${displayPath(located.folder)}. Kiln will remember that on this computer.`;
+  if (op.outcome === "located_phase_starting") return [lead, `Added ${located.label ?? located.repository}. ${located.phase} is starting.`];
+  if (op.outcome === "located_still_stopped") return [lead, `${located.phase} is still at Needs you:`, ...(located.facts ?? []).map((fact) => `  ${fact}`)];
+  return [lead];
 }
 
 function refusalLine(code: string, message: string): string {
@@ -364,4 +418,32 @@ export function personItemsText(items: readonly Record<string, unknown>[] | null
     if (item.waits_on) lines.push(`    What waits on it: ${String(item.waits_on)}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * A stop's questions in `kiln status`'s text form (find repositories anywhere, "The command"):
+ * each question's sentences, the checkouts found, then the controls that answer it. On a terminal the
+ * questions are light grey and the Controls line grey, as mockup state 7 draws them.
+ *
+ *   locateText(stop)
+ *   // ["Phase plan reads: Kiln couldn’t find a checkout of acme-labs/inventory.",
+ *   //  "It searched outward from ~/code/acme/, never above your home folder.",
+ *   //  "Controls: locate-repository (available) · waive-and-advance (once a recheck still fails)"]
+ */
+export function locateText(stop: Record<string, unknown> | null | undefined, colors: Pick<TerminalColors, "grey" | "lightGrey"> = terminalColors({ isTTY: false }, {})): string[] {
+  const questions = (stop?.locate ?? []) as { kind: string; address_path: string; label: string; phase_file: string | null; searched_from: string; searched_to: string | null; checkouts: { folder: string; remote: string; pickable: boolean }[]; available: boolean; reason: string | null }[];
+  if (!questions.length) return [];
+  const lines: string[] = [];
+  for (const question of questions) {
+    const lead = question.phase_file !== null ? "Phase plan reads: " : `A session asked for ${question.label}: `;
+    const first = question.kind === "which" ? `Kiln found ${question.checkouts.filter(one => !(one as { remembered?: boolean }).remembered).length} checkouts of ${question.address_path}.` : question.checkouts.length ? `Kiln couldn’t find a checkout of ${question.address_path} that it can deliver to.` : `Kiln couldn’t find a checkout of ${question.address_path}.`;
+    lines.push(colors.lightGrey(`${lead}${first}`));
+    lines.push(colors.lightGrey(question.kind === "which" ? "Which should it use?" : `It searched outward from ${displayPath(question.searched_from)}/, ${question.searched_to === null ? "never above your home folder." : `as far as ${displayPath(question.searched_to)}/.`}`));
+    for (const checkout of question.checkouts) lines.push(colors.lightGrey(`  ${displayPath(checkout.folder)}  ${checkout.remote}${checkout.pickable ? "" : "  (not on GitHub)"}`));
+  }
+  const first = questions[0]!;
+  const mark = stop?.mark_complete as { offered?: boolean; reason?: string } | undefined;
+  const waive = mark?.offered ? " · waive-and-advance (available)" : mark?.reason && /no check has run since/i.test(mark.reason) ? " · waive-and-advance (once a recheck still fails)" : "";
+  lines.push(colors.grey(`Controls: locate-repository (${first.available ? "available" : first.reason ?? "unavailable"})${waive}`));
+  return lines;
 }

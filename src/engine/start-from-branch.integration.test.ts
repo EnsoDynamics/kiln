@@ -14,6 +14,7 @@ import { prdDirectoryFiles } from "../test-support/fixture-documents.js";
 import type { Engine } from "./engine.js";
 import { buildSnapshot, documentsFound } from "./snapshot.js";
 import { existingBranchPreview, readCatchUp, stoppedCatchUpOffer } from "./start-from.js";
+import { resolvePlanRepositories } from "./plan-repositories.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
 import * as ownership from "../live/ownership.js";
 
@@ -296,7 +297,7 @@ describe("one catch-up offer for repositories with different bases (AC-CURRENT-0
         { name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" },
         { name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "main" },
       ],
-      find: async () => ({ ok: false, problem: "not looked up" }), baseOf: () => "", others: [],
+      resolve: async () => ({ named: [], problems: [] }), baseOf: () => "", others: [],
     });
     expect(preview.catchUp).toEqual({ repositories: [
       { name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 },
@@ -308,6 +309,32 @@ describe("one catch-up offer for repositories with different bases (AC-CURRENT-0
       await readCatchUp(context, { name: "acme-api", mainCheckoutPath: api, baseBranch: "main" }, BRANCH),
     ];
     expect(stoppedCatchUpOffer(readings, BRANCH)).toEqual(preview.catchUp);
+  });
+});
+
+describe("a repository the start commit's plan names that Kiln can't place (find repositories anywhere \"Asking Before Start\")", () => {
+  it("is asked about on its row, not a problem under Feature branch", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    // The branch's plan names a repository by an address path nothing on this computer has.
+    git(h.sandbox, h.repository, "checkout", "-q", "-b", BRANCH);
+    const file = join(h.repository, DIRECTORY, "phase-3-returns-dashboard.md");
+    const [title, ...rest] = readFileSync(file, "utf8").split("\n");
+    writeFileSync(file, [title, "", "**Repositories:** acme-labs/storefront", ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "name storefront");
+    git(h.sandbox, h.repository, "push", "-q", "origin", BRANCH);
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const context = { git: h.tools.git, env: h.env };
+    const preview = await existingBranchPreview({
+      git: context, gh: h.tools.gh, env: h.env, prdDirectoryFromRoot: DIRECTORY, branch: BRANCH, bringUpToDate: false,
+      repositories: [{ name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" }],
+      // The engine's own resolution, its search kept to the sandbox.
+      resolve: (phases) => resolvePlanRepositories({ git: context, env: h.env, home: h.sandbox.root, prd: { name: "acme-shop", mainCheckoutPath: h.repository, github: "acme/acme-shop" }, entries: [], phases }),
+      baseOf: () => "", others: [],
+    });
+    expect(preview.asking?.map((row) => [row.name, row.question?.kind, row.question?.repository])).toEqual([["storefront", "where", "acme-labs/storefront"]]);
+    expect(preview.fieldError).toBeUndefined();
+    expect(preview.repositories.map((one) => one.name)).toEqual(["acme-shop"]);
   });
 });
 
@@ -328,7 +355,7 @@ describe("a repository that has an unavailable branch (AC-FROM-05, several repos
         { name: "acme-shop", kind: "prd", mainCheckoutPath: h.repository, github: "acme/acme-shop", baseBranch: "develop" },
         { name: "acme-api", kind: "added", mainCheckoutPath: api, github: "acme/acme-api", baseBranch: "develop" },
       ],
-      find: async () => ({ ok: false, problem: "not looked up" }), baseOf: () => "", others: [],
+      resolve: async () => ({ named: [], problems: [] }), baseOf: () => "", others: [],
     });
     expect(preview.fieldError).toMatch(/^In acme-api: Its local copy is behind or diverged from origin's/);
     expect(preview.repositories.map(one => ({ name: one.name, hasBranch: one.hasBranch }))).toEqual([{ name: "acme-shop", hasBranch: false }, { name: "acme-api", hasBranch: true }]);
@@ -344,7 +371,7 @@ describe("a stopped phase's untouched branch (AC-CURRENT-01 at a stop)", () => {
     expect(h.engine.stoppedPhase()).toBe("1");
     const developTip = advanceDevelop(h, "merged-elsewhere.txt");
     await h.engine.refreshStoppedWork();
-    expect(buildSnapshot(h.engine).needsYou!.catchUp).toEqual({ repositories: [{ name: "acme-shop", branch: BRANCH, base: "develop", behind: 1 }] });
+    expect(buildSnapshot(h.engine).needsYou!.catchUp).toEqual({ repositories: [{ name: "acme-shop", label: "acme-shop", branch: BRANCH, base: "develop", behind: 1 }] });
 
     // Ticked on the page, but the branch has an uncommitted file now: nothing starts (branch_changed).
     const scratch = join(h.engine.worktreePath, "scratch.txt");
@@ -864,5 +891,47 @@ describe("which branches get no catch-up offer, and which buttons and commands c
     expect(git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD").trim()).toBe(before);
     expect(h.engine.record.branchCatchUps).toBeUndefined();
     delete h.engine.record.liveControl;
+  });
+});
+
+describe("a branch whose PRD retired a criterion into the ones that replaced it (AC-FROM-02; the requirement manifest's identity rule)", () => {
+  it("reads the plan there, and names the line to change when a title claims two criteria", async () => {
+    harness = await createHarness({ sessions: [] });
+    const h = harness;
+    const documents = checkoutDocuments(h);
+    const prd = `${DIRECTORY}/customer-returns-prd.md`;
+    const amendOnBranch = (from: string, to: string) => {
+      const text = readFileSync(join(h.repository, prd), "utf8");
+      expect(text).toContain(from);
+      writeFileSync(join(h.repository, prd), text.replace(from, to));
+      git(h.sandbox, h.repository, "commit", "-q", "-am", "docs: amend the criteria");
+      git(h.sandbox, h.repository, "push", "-q", "-u", "origin", BRANCH);
+      const tip = git(h.sandbox, h.repository, "rev-parse", "HEAD").trim();
+      git(h.sandbox, h.repository, "switch", "-q", "develop");
+      return tip;
+    };
+
+    // The retirement note as phase-split writes it: its title names the two criteria that replaced it.
+    git(h.sandbox, h.repository, "switch", "-q", "-c", BRANCH);
+    const split = amendOnBranch("- [ ] **AC-RET-05 — retired.** Merged into AC-RET-01.", [
+      "- **AC-RET-05 — retired, split into AC-RET-06 and AC-RET-07.**",
+      "- [ ] **AC-RET-06 — Told by email.** The customer is told by email.",
+      "- [ ] **AC-RET-07 — Told in the app.** The customer is told in the app.",
+    ].join("\n"));
+    expect(await h.engine.changeStart({ from: "existing", bringUpToDate: false })).toEqual({ ok: true });
+    expect(h.engine.startPreview!.fieldError).toBeUndefined();
+    expect(h.engine.startPreview!.planSource).toEqual({ kind: "branch", branch: BRANCH, sha: split });
+    let snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.documents!.start).toMatchObject({ from: "existing", planSource: { kind: "branch", branch: BRANCH, sha: split } });
+    expect(snapshot.settings.fieldErrors.featureBranch).toBeUndefined();
+
+    // A title that opens on two labels is still refused, and the page says which line and what to change.
+    git(h.sandbox, h.repository, "switch", "-q", BRANCH);
+    const joined = amendOnBranch("**AC-RET-06 — Told by email.**", "**AC-RET-06 and AC-RET-08 — Told by email.**");
+    await h.engine.changeStart({ from: "existing", bringUpToDate: false });
+    const line = readFileSync(join(h.repository, prd), "utf8").split("\n").findIndex(text => text.includes("AC-RET-05")) + 2;
+    expect(h.engine.startPreview!.fieldError).toBe(`Kiln can't read the PRD's acceptance criteria on ${BRANCH} at ${joined.slice(0, 7)}: The bold title at ${prd}:${line} holds more than one criterion label (AC-RET-06, AC-RET-08), so Kiln can't tell which criterion it is. Open the title with that criterion's own label and its title text, and give each criterion its own list item.`);
+    snapshot = buildSnapshot(h.engine, documents);
+    expect(snapshot.documents!.start).not.toHaveProperty("planSource");
   });
 });

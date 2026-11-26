@@ -47,6 +47,8 @@ Phase identity is the existing parsed phase ID, not a title, filename or highest
 
 ### Comparison rules
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §The Plan Check on a Finished Run, step 3 (a completed phase is carried by the run's completion record alone; an unfinished phase beneath one is an addition; no unresolved earlier-work class for a finished run).
+
 Use a versioned Markdown structural normalization: normalize line endings, equivalent Markdown emphasis/list formatting and prose line wrapping; preserve words, numbers, code spans/fences, link targets and section structure. Resolve phase-document links to phase IDs before comparing renames. Ignore checkbox state and parsed historical Closed metadata when comparing scope, but compare closure state separately. All other phase content, including phase-specific notes and inherited work stated in the leaf, participates. Existing split-parent repository additions (Multi-Repo Delivery AC-ADD-04) apply to remaining children without retroactively assigning new repositories to earlier completed receipts. A title wording change is material; changing only its Markdown styling is not.
 
 Carry an earlier completed phase forward only when its ID, normalized scope, repositories, dependencies and split structure remain intact and it is still closed. Removal, ID reuse, reopening, splitting a previously completed leaf or unexplained material edits are unresolved earlier-work changes. Show the affected IDs and source differences; do not rerun them or silently call them additions. Unfinished leaves may split through the normal split contract, including judging the first descendant of a splitting session.
@@ -73,6 +75,8 @@ Integration proof must cover the identified work in every affected repository. E
 
 ### Completed feature discovery
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §The Delivery Reading and §The Plan Check on a Finished Run, steps 1 and 2 (waiting is read from GitHub; one source by AC-BACK-03's table, read from committed objects; no source conflict).
+
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Coverage (a leaf closed or skipped by waiver counts as closed and carries its `waiverId` and `waivedHead`).
 
 Read the shared checkout's saved document bytes and the latest configured remote delivery-base revision of the PRD repository. Resolve the base through the existing origin read and objects-only fetch, and read its files directly from Git objects; discovery creates no checkout and never alters a working branch or index. Read the PRD, design, assumptions when present, phase files and their required local document references as one candidate document set. Retain the path/revision/digest and exact files that are absent, dirty or unintegrated. Resolve local references within the assigned repository, reject escaping paths and symlinks, detect cycles by document identity, and apply the aggregate size/phase limits while reading. A document link cannot authorize reading arbitrary local files or fetching a remote URL.
@@ -87,11 +91,15 @@ A candidate read detects concurrent edits by checking its document membership an
 
 ### Implemented completed-check observation (Phase 2a)
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §The Plan Check on a Finished Run, step 2 (one source, read from committed objects; the main checkout's files are no longer read from disk).
+
 Private schema 14 adds `completedPlanCheck`: current status, attempt and last-success timestamps, per-source path/revision/digest/error facts, and either a current result or explicitly earlier retained result. A result references immutable baseline and candidate sidecars and records observed added leaves, earlier-scope problems and relevant documents absent from the delivery base. It is an observation, not an executable proposal or authorization; Phase 2b builds classification/readiness on this boundary.
 
 `Engine.checkCompletedPlan()` joins concurrent reads under the existing engine checking/command admission. `prepare()` checks a historically completed execution before CLI output; `POST /api/continuation/check` serves authenticated same-origin refreshes; the Complete component checks once on mount and exposes the same retry action. Snapshot reads and SSE reconnects do not initiate discovery. The check cannot create provider work, reset execution state, replace the accepted baseline, or change repository checkouts. Legacy recovery uses the recorded delivery revision and original completion receipts, including recursive split-first-leaf ownership; current source bytes alone cannot establish the historical baseline.
 
 ### Active execution handback
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §The Plan Check on a Finished Run, step 3 (in an execution Continue created, a carried-finished phase counts as closed whatever its document says).
 
 Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Folder Check and §The Facts (a missing assigned worktree is Folder missing, not an unreadable active plan, and its plan is read read-only outside the worktree).
 
@@ -118,6 +126,8 @@ Retained Kiln sessions require fresh provider history through the existing Claud
 The CLI and browser expose seven unfinished Comet additions separately from externally closed phase 8 and carried historical work. The observation and accounting IDs are evidence only: no executable proposal, preparation authorization or first-eligible-phase decision exists yet. Phase 2b2 owns those additions and extends the fixture with explicit preparation. [External-completion validation](kiln-external-completion-accounting-validation.md) records the current proof.
 
 ## Readiness and Planned Preparation
+
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §The Plan Check on a Finished Run, step 4 (a confirmed final merge is integration evidence; an offer read from the main checkout is ready before its documents are in the base).
 
 A ready finished-run proposal binds every participating repository to its configured base revision and validates the complete revised document set on the PRD base. Include new repositories in existing discovery, base selection and authorization checks. Readiness must not require unrelated working-tree edits to be discarded; only relevant source disagreements, inaccessible repositories or unsafe target workspace paths block it.
 
@@ -192,6 +202,7 @@ Preparation under the assigned-feature destination is presented as authorized by
 ### Durable proposal and one acceptance
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Interfaces (`continuation-accept` is public as `continue-with-phases`; the grant action stays browser-only).
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Continue and the Push Session (accepting an offer read from the main checkout pushes first, then accepts the matching refreshed offer itself).
 
 A successful completed-feature check retains a `ContinuationProposal` and an opaque content-derived `proposalId`. Bind the ID to the completed execution, baseline ID, candidate document bytes, ordered eligible leaves, repository/base revisions, prerequisite source revisions and evidence, preparation bindings, and applicable authority/settings revisions. Exclude check timestamps and display-only observation times so an identical recheck preserves identity.
 
@@ -221,6 +232,8 @@ Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-te
 ### Implemented integrated-prerequisite continuation (Phase 3a)
 
 Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §Start (the activation core is shared with a base-branch start from an unfinished execution, which brings panel names and carried state and no acceptance).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §When an Activity Starts (the agent and model choices carry forward except a kept choice equal to Kiln's current default, which the fresh execution drops; the current plan's rows for phases finished in an earlier execution read each retained execution once per process, so the current execution's first read is no longer independent of how many archives it has; a continuation acceptance saved before schema 26 is converted when read, §Data Models).
 
 Private schema 17 adds `continuation` with a current acceptance pointer, retained acceptance summaries and immutable execution archive references. The integrated path implements acceptance/retry, complete multi-repository setup and fresh activation. A preparation-dependent proposal stays read-only and acceptance returns `preparation_unverified`; pending target grants and the preparation runner remain Phase 3b.
 
@@ -281,6 +294,8 @@ Errors use `{ok:false, code, reason, checks[], check?, acceptance?}`: `400 malfo
 
 ### Snapshot and screen contract
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces and §Display Contract (the check result's new fields; the two answers; the waiting line in the pull request card).
+
 Add `continuation` to the existing snapshot, keeping the current feature-state enum for compatibility. It contains:
 
 - `check`: status `never_checked | checking | unchanged | available | blocked | failed`, attempt time, last successful time, source observations, errors and optional earlier result.
@@ -297,6 +312,8 @@ Render the seven mock-up states with the same titles, order and control emphasis
 ## Data Models and Migration
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Ledger (the fresh execution also starts its loop ledger with a `start` epoch per kind; the loop settings carry with the other settings).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Data Models (the agent and model choices carry forward except a kept choice equal to Kiln's current default, which the fresh execution drops; the current plan's rows for phases finished in an earlier execution read each retained execution once per process, so the current execution's first read is no longer independent of how many archives it has; a continuation acceptance saved before schema 26 is converted when read, §Data Models).
 
 Retain the same PRD private directory, token, instance lock and session storage paths. Phase 1 advances the persisted schema from 12 to 13 after integrating the live-session-control track for the retained active-plan baseline and handback/check references. Later phases use the next available version for their additional durable contracts; recheck other Kiln work at implementation time. The schema reader must reject a newer version before any write.
 

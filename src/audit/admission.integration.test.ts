@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createBareOrigin, createRepository, createSandbox, commitFiles, git, installStandIns, type Sandbox } from "../test-support/git-repositories.js";
 import { newPrdRecord } from "../state/new-record.js";
+import { appendLoop, startedLedger } from "../state/audit-loops.js";
 import { readPrdRecord, writePrdRecord } from "../state/records.js";
 import { prdStateDirectory, stateRoot } from "../state/state-files.js";
 import { ownerDeliveryCheck, ownerDocuments, recordAssessment, type DeliveryContext } from "../engine/development-delivery.js";
@@ -34,7 +35,7 @@ async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit",
   writeFileSync(join(root, "value.mjs"), "export const value = () => 42;\n");
   writeFileSync(join(root, "value.test.mjs"), "import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n");
   commit(sandbox, root, ["value.mjs", "value.test.mjs"]);
-  const record = newPrdRecord({ mainCheckoutPath: root, repositoryName: "proof", github: "example/proof", prdDirectoryFromRoot: directory, featureName: "Audit proof", settings: { workspaceFolder: sandbox.root, worktreePath: root, featureBranch: "develop", baseBranch: "develop", bases: {}, model: "sonnet", effort: "low", keepAwake: false, resumeAfterUsageLimit: false } });
+  const record = newPrdRecord({ mainCheckoutPath: root, repositoryName: "proof", github: "example/proof", prdDirectoryFromRoot: directory, featureName: "Audit proof", settings: { workspaceFolder: sandbox.root, worktreePath: root, featureBranch: "develop", baseBranch: "develop", bases: {}, modelChoices: { phases: {} }, keepAwake: false, resumeAfterUsageLimit: false } });
   const started = new Date(Date.now() - 60_000).toISOString(); record.startedAt = started; record.setupCompletedAt = started;
   record.repositories = [{ name: "proof", kind: "prd", mainCheckoutPath: root, github: "example/proof", baseBranch: "develop", worktreePath: root, setupCompletedAt: started }];
   if (options.companion) {
@@ -127,6 +128,9 @@ describe("version-2 audit admission", () => {
     /** An accepted round-1 delivery audit that added phase 2 and listed one item, then phase 2 closed and round 2 allocated. */
     async function carried() {
       const f = await fixture(); appendPhase(f, "2");
+      // Each audit is a loop the ledger counted, so its items are listed and settled by "Delivery audit loop n" (Kiln After Delivery AC-AUDIT-01).
+      f.record.auditLoops = startedLedger(new Date().toISOString());
+      appendLoop(f.record.auditLoops, { kind: "delivery", startedAt: new Date().toISOString(), activityKey: `audit-${f.activity.activityId}` });
       f.report.outcome = "completion_phases"; f.report.completionPhases = ["2"]; f.report.needsYou = [item]; f.saveReport();
       expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "implementation" });
       f.record.phases[`audit-${f.activity.activityId}`] = { sessionIds: [], finishedByPerson: false, repositories: {}, doneAt: new Date().toISOString() };
@@ -134,6 +138,7 @@ describe("version-2 audit admission", () => {
       const allocate = async (sequence: number, kind: AuditActivity["kind"] = f.activity.kind) => {
         const next: AuditActivity = { ...f.activity, kind, activityId: randomUUID(), sequence, round: sequence, snapshots: [], attempts: [] }; delete next.acceptedResult;
         next.reportPath = `${directory}/kiln-audit-${next.activityId}.json`; f.record.completionAudits!.activities.push(next);
+        appendLoop(f.record.auditLoops!, { kind: kind === "delivery_audit" ? "delivery" : "test", startedAt: new Date().toISOString(), activityKey: `audit-${next.activityId}` });
         next.snapshots.push(f.store.put(await captureSnapshot({ ...f.context, activity: next, now: new Date().toISOString() })));
         const report = (change: Partial<AuditReportV2>): AuditReportV2 => ({ ...f.report, kind, activityId: next.activityId, outcome: "passed", completionPhases: [], needsYou: [], ...(kind === "test_audit" ? { changedImplementation: false } : {}), ...change });
         const submit = async (body: AuditReportV2) => { writeFileSync(join(f.root, next.reportPath), JSON.stringify(body)); commit(f.sandbox, f.root, [next.reportPath]); return submitAudit(f.context, { ...f.body(), activityId: next.activityId, reportPath: next.reportPath }); };
@@ -143,7 +148,7 @@ describe("version-2 audit admission", () => {
     }
     it("refuses a later report that leaves an outstanding item out, naming it, and an unknown id", async () => {
       const { f, allocate } = await carried(); const round2 = await allocate(2);
-      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", ...item, listedBy: "Delivery audit round 1" }]);
+      expect(personItems(f.stateDirectory, f.record).outstanding).toMatchObject([{ id: "item-1", ...item, listedBy: "Delivery audit loop 1" }]);
       expect((await round2.submit(round2.report({}))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining(`missing item-1 (${item.problem})`) });
       expect((await round2.submit(round2.report({ settled: [{ id: "item-9", how: "x" }] }))).refusal).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("No outstanding item item-9") });
       expect((await round2.submit(round2.report({ needsYou: [{ id: "item-1", ...item }], settled: [{ id: "item-1", how: "x" }] }))).refusal).toMatchObject({ reason: expect.stringContaining("repeated: item-1") });
@@ -156,16 +161,16 @@ describe("version-2 audit admission", () => {
       expect(relisted.refusal).toBeUndefined(); expect(relisted).toMatchObject({ disposition: "unresolved", nextAction: "needs_you" });
       const settled = await round2.submit(round2.report({ settled: [{ id: "item-1", how: "A person amended AC-RET-04 to keep the name." }] }));
       expect(settled).toMatchObject({ disposition: "recorded", nextAction: "test_audit" });
-      const ledger = personItems(f.stateDirectory, f.record.completionAudits!.activities);
+      const ledger = personItems(f.stateDirectory, f.record);
       expect(ledger.outstanding).toEqual([]);
-      expect(ledger.settled).toMatchObject([{ id: "item-1", listedBy: "Delivery audit round 1", settledBy: "Delivery audit round 2", how: "A person amended AC-RET-04 to keep the name." }]);
+      expect(ledger.settled).toMatchObject([{ id: "item-1", listedBy: "Delivery audit loop 1", settledBy: "Delivery audit loop 2", how: "A person amended AC-RET-04 to keep the name." }]);
     });
     it("lets a delivery audit that found nothing to build pass with an item relisted by id alone and a new item, keeping the kind (AC-ITEM-02)", async () => {
       const { f, allocate } = await carried(); const round2 = await allocate(2);
       // A relisting needs only id, problem and action; a passing report may list new items (Kiln Deliver When Audit Loops Run Out, "Report contract").
       const carriedOn = await round2.submit(round2.report({ needsYou: [{ id: "item-1", problem: item.problem, action: item.action }, { kind: "test", problem: "AC-PROOF-01 has no test.", action: "Add one.", criterion: "AC-PROOF-01" }] }));
       expect(carriedOn.refusal).toBeUndefined(); expect(carriedOn).toMatchObject({ disposition: "recorded", nextAction: "test_audit" });
-      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", kind: "other", listedBy: "Delivery audit round 1" }, { id: "item-2", kind: "test", criterion: "AC-PROOF-01", listedBy: "Delivery audit round 2" }]);
+      expect(personItems(f.stateDirectory, f.record).outstanding).toMatchObject([{ id: "item-1", kind: "other", listedBy: "Delivery audit loop 1" }, { id: "item-2", kind: "test", criterion: "AC-PROOF-01", listedBy: "Delivery audit loop 2" }]);
     });
     it("admits a passing test audit that changed only tests with an item open, leading to final delivery (AC-ITEM-03)", async () => {
       const { allocate } = await carried(); const tests = await allocate(2, "test_audit");
@@ -183,15 +188,15 @@ describe("version-2 audit admission", () => {
       const blocker = { kind: "blocker" as const, problem: "The key is missing.", action: "Add it.", waitsOn: "Delivery." };
       const bytes = JSON.stringify(round2.report({ outcome: "needs_you", needsYou: [blocker], settled: [{ id: "item-1", how: "Renamed." }] }));
       round2.activity.waivedResult = f.store.put({ kind: "audit_waiver", activityId: round2.activity.activityId, waiverId: "waiver-2", report: "valid", reportBytes: bytes, reportDigest: hashBytes(bytes), countedOutcome: "passed", snapshotRef: round2.activity.snapshots[0] });
-      const read = personItems(f.stateDirectory, f.record.completionAudits!.activities);
-      expect(read.settled).toMatchObject([{ id: "item-1", settledBy: "Delivery audit round 2", how: "Renamed." }]);
-      expect(read.outstanding).toMatchObject([{ id: "item-2", kind: "blocker", waitsOn: "Delivery.", auditWaiverId: "waiver-2", auditWaivedBy: "Delivery audit round 2" }]);
+      const read = personItems(f.stateDirectory, f.record);
+      expect(read.settled).toMatchObject([{ id: "item-1", settledBy: "Delivery audit loop 2", how: "Renamed." }]);
+      expect(read.outstanding).toMatchObject([{ id: "item-2", kind: "blocker", waitsOn: "Delivery.", auditWaiverId: "waiver-2", auditWaivedBy: "Delivery audit loop 2" }]);
       // Kiln 1.3.0 read nothing from a waiver: an upgraded audit keeps that, so later ids are unchanged.
       round2.activity.itemsUnread = true;
-      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities)).toMatchObject({ outstanding: [{ id: "item-1" }], settled: [] });
+      expect(personItems(f.stateDirectory, f.record)).toMatchObject({ outstanding: [{ id: "item-1" }], settled: [] });
       // An upgraded audit accepted before it was marked complete is read from its accepted report, as 1.3.0 did, and its waiver covers nothing.
       f.activity.itemsUnread = true; f.activity.waivedResult = round2.activity.waivedResult;
-      const upgraded = personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding;
+      const upgraded = personItems(f.stateDirectory, f.record).outstanding;
       expect(upgraded).toMatchObject([{ id: "item-1", kind: "other" }]); expect(upgraded[0]!.auditWaiverId).toBeUndefined();
     });
     it("refuses needs_you whose only holding item is waived, admits a new blocker beside it, and a passing relisting of a waived critical finding (AC-ITEM-01)", async () => {
@@ -211,7 +216,7 @@ describe("version-2 audit admission", () => {
     it("carries items past an audit marked complete without an accepted report", async () => {
       const { f, allocate } = await carried(); const round2 = await allocate(2);
       round2.activity.waivedResult = f.store.put({ kind: "audit_waiver", activityId: round2.activity.activityId });
-      expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding.map(open => open.id)).toEqual(["item-1"]);
+      expect(personItems(f.stateDirectory, f.record).outstanding.map(open => open.id)).toEqual(["item-1"]);
       const round3 = await allocate(3);
       expect((await round3.submit(round3.report({}))).refusal).toMatchObject({ reason: expect.stringContaining("missing item-1") });
       expect(await round3.submit(round3.report({ settled: [{ id: "item-1", how: "Renamed." }] }))).toMatchObject({ disposition: "recorded" });
@@ -254,7 +259,7 @@ describe("version-2 audit admission", () => {
     const f = await fixture("test_audit"); f.activity.continuationIndex = 2;
     f.report.needsYou = [{ kind: "test", problem: "AC-PROOF-01 is still Weak.", action: "Strengthen its test.", criterion: "AC-PROOF-01" }]; f.saveReport();
     expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "final_delivery" });
-    expect(personItems(f.stateDirectory, f.record.completionAudits!.activities).outstanding).toMatchObject([{ id: "item-1", kind: "test", criterion: "AC-PROOF-01" }]);
+    expect(personItems(f.stateDirectory, f.record).outstanding).toMatchObject([{ id: "item-1", kind: "test", criterion: "AC-PROOF-01" }]);
   });
   it("requires a test audit to say whether it changed implementation", async () => {
     const f = await fixture("test_audit"); delete f.report.changedImplementation; f.saveReport();
@@ -393,7 +398,7 @@ describe("version-2 audit admission", () => {
     const f = await fixture(); f.saveReport(); writePrdRecord(f.stateDirectory, f.record);
     const tools = { git: "git", ...installStandIns(join(f.sandbox.root, "bin")) };
     const engine = new Engine({ paths: { mainCheckoutPath: f.root, repositoryName: "proof", folderName: "proof", prdDirectoryFromRoot: directory, featureName: "Audit proof" }, tools, env: f.sandbox.env, stateDirectory: f.stateDirectory, record: f.record });
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     let server: LocalServer | undefined; let release: (() => void) | undefined;
     try {
       const hosted = await startFixtureController({ engine, folderName: "proof", featureName: "Audit proof", token: f.record.token });

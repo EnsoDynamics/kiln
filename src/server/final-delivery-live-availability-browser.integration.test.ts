@@ -1,3 +1,4 @@
+import { useAgent } from "../test-support/sample-snapshots.js";
 // AC-LIVE-02/SCOPE-001: prove availability copy in the built view. The snapshot
 // fixture supplies presentation states; provider execution is not under test here.
 import { writeFileSync } from "node:fs";
@@ -16,7 +17,7 @@ it.each([
   { agent: "Codex", width: 1200 }, { agent: "Codex", width: 390 },
 ] as const)("explains final-delivery availability in overview/detail and through disconnection for $agent at $width", async ({ agent, width }) => {
   const snapshot = runningSnapshot();
-  snapshot.settings.agent = agent;
+  useAgent(snapshot, agent === "Codex" ? "codex" : "claude_code");
   snapshot.current = { ...snapshot.current!, phaseId: "pr", agent, sessionId: "final-delivery-session", steps: [], latestLine: { line: 1283, source: "out", text: "Preparing the final review pull request.", at: "2026-10-27T20:00:00Z" } };
   delete snapshot.current.seenInSession;
   snapshot.feature.currentPhaseId = "pr";

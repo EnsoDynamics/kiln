@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatTerminalEvent } from "./kiln-command.js";
 import type { PrdRecord } from "./state/records.js";
-import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatStartedLine, formatStartFailure, resetClock, terminalColors, TransientStatus } from "./terminal-output.js";
+import { formatDocumentsFound, formatOpenedLine, formatPhaseLine, formatRepositoryLine, formatStartedLine, formatStartFailure, resetClock, terminalColors, TransientStatus } from "./terminal-output.js";
 
 const plain = terminalColors({ isTTY: false }, {});
 
@@ -211,7 +211,7 @@ describe("a stop that needs a person (AC-START-09)", () => {
 
   it("says Kiln is waiting and where, for a phase, an audit and final delivery", () => {
     expect(formatTerminalEvent({ kind: "phase", at, phaseId: "2b", title: "Store credit", event: "stopped" }, record, plain, undefined, address)).toBe(`11:31  2b  Store credit  ${says}`);
-    expect(formatTerminalEvent({ kind: "audit", at, activityId: "a1", label: "Test audit", round: 1, event: "stopped" }, record, plain, undefined, address)).toBe(`11:31      Test audit · Round 1  ${says}`);
+    expect(formatTerminalEvent({ kind: "audit", at, activityId: "a1", title: "Test audit", line: "Loop 1 of 4", event: "stopped" }, record, plain, undefined, address)).toBe(`11:31      Test audit · Loop 1 of 4  ${says}`);
     expect(formatTerminalEvent({ kind: "pull_request", at, event: "stopped" }, record, plain, undefined, address)).toBe(`11:31  PR  Final pull request  ${says}`);
   });
 
@@ -228,17 +228,19 @@ describe("a stop that needs a person (AC-START-09)", () => {
 });
 
 describe("audit activity terminal names", () => {
-  it("prints audit rounds and stop/wait facts without exposing an audit as a numbered phase", () => {
+  it("names each closing audit for what it does, never by round or continuation (Kiln After Delivery AC-AUDIT-01)", () => {
     const at = new Date(2026,9,24,11,31);const record={plan:[]} as unknown as PrdRecord;
-    for(const label of ["Delivery audit","Test audit"]){
-      const event={kind:"audit" as const,at,activityId:"opaque-audit-id",label,round:2};
+    for(const title of ["Delivery audit","Test audit"]){
+      const event={kind:"audit" as const,at,activityId:"opaque-audit-id",title,line:"Loop 2 of 4"};
       const started=formatTerminalEvent({...event,event:"started"},record,plain);
-      expect(started).toContain(`${label} · Round 2`);expect(started).toContain("started");
-      expect(formatTerminalEvent({...event,continuationIndex:3,event:"started"},record,plain)).toContain(`${label} · Round 2 · Continuation 3`);
-      expect(started).not.toContain("opaque-audit-id");expect(started).not.toContain("Phase");
+      expect(started).toContain(`${title} · Loop 2 of 4`);expect(started).toContain("started");
+      expect(started).not.toContain("opaque-audit-id");expect(started).not.toContain("Phase");expect(started).not.toMatch(/Round|Continuation/);
       expect(formatTerminalEvent({...event,event:"waiting",limit:{label:"Weekly"}},record,plain)).toContain("waiting · Weekly");
       expect(formatTerminalEvent({...event,event:"done"},record,plain)).toContain("Audit result recorded");
     }
+    const fixing=formatTerminalEvent({kind:"audit",at,activityId:"f",title:"Fixing tests",line:"From test audit loop 1 · session 2",event:"started"},record,plain);
+    expect(fixing).toContain("Fixing tests · From test audit loop 1 · session 2");
+    expect(formatTerminalEvent({kind:"audit",at,activityId:"u",title:"Delivery audit",event:"started"},record,plain)).toMatch(/Delivery audit +started/);
   });
 });
 
@@ -263,5 +265,52 @@ describe("TransientStatus", () => {
     status.show("Checking where things stand…");
     status.clear();
     expect(out.written).toEqual([]);
+  });
+});
+
+describe("the terminal when a repository needs locating (find repositories anywhere AC-SEE-02, mockup state 5)", () => {
+  const found = { designFile: "technical-design.md", assumptionsFile: "assumptions.md", phaseDocCount: 6 };
+  it("counts the repositories to locate in place of all checks passed, in amber", () => {
+    expect(formatDocumentsFound("Customer returns", found, plain, 3, 1)).toBe("Customer returns  ·  PRD, technical design, assumptions, 6 phase docs, 3 repositories  ·  1 repository to locate");
+    expect(formatDocumentsFound("Customer returns", found, plain, 4, 2)).toBe("Customer returns  ·  PRD, technical design, assumptions, 6 phase docs, 4 repositories  ·  2 repositories to locate");
+    const colored = terminalColors({ isTTY: true }, {});
+    expect(formatDocumentsFound("Customer returns", found, colored, 3, 1)).toContain(colored.amber("1 repository to locate"));
+  });
+
+  it("says under it to tell Kiln where the repository is in the browser", () => {
+    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, plain, false, ["acme-labs/storefront"]).split("\n")[0]).toBe("● Opened http://127.0.0.1:4700/customer-returns. Tell Kiln where acme-labs/storefront is there, then review it and press Start.");
+    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, plain, false, ["a/b", "c/d"]).split("\n")[0]).toBe("● Opened http://127.0.0.1:4700/customer-returns. Tell Kiln where 2 repositories are there, then review it and press Start.");
+  });
+
+  it("says so too when Kiln couldn't open a browser, or runs on a remote machine", () => {
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", { kind: "no_opener" }, plain, false, ["acme-labs/storefront"]).split("\n")[0]).toBe("● Kiln’s view is at http://127.0.0.1:4700/x. Open it in your browser, tell Kiln where acme-labs/storefront is there, then review it and press Start.");
+    expect(formatOpenedLine("http://127.0.0.1:4712/x", { kind: "remote" }, plain, false, ["a/b", "c/d"]).split("\n").slice(0, 2)).toEqual([
+      "● Kiln’s view is at http://127.0.0.1:4712/x on this remote machine. Open it from your own computer through an SSH tunnel to port 4712, tell Kiln where 2 repositories are there, then review it and press Start.",
+      "  For example: ssh -N -L 4712:127.0.0.1:4712 <this host>",
+    ]);
+    expect(formatOpenedLine("http://127.0.0.1:4700/x", { kind: "failed", reason: "xdg-open exited with code 3" }, plain, false, ["acme-labs/storefront"]).split("\n")[0]).toBe("● Kiln’s view is at http://127.0.0.1:4700/x. Tell Kiln where acme-labs/storefront is there, then review it and press Start.");
+  });
+
+  it("prints one line when an answer is accepted, the rest of it grey", () => {
+    const at = new Date(2026, 10, 22, 9, 14);
+    expect(formatRepositoryLine(at, "Located acme-labs/storefront", plain, " at /Volumes/work/storefront. Kiln will remember that on this computer.")).toBe(" 9:14  Located acme-labs/storefront at /Volumes/work/storefront. Kiln will remember that on this computer.");
+  });
+
+  it("colours each line as state 5 draws it: the separators grey, the count amber, the Opened suffix grey, the Located time and rest grey (AC-SEE-04)", () => {
+    const c = terminalColors({ isTTY: true }, {});
+    expect(formatDocumentsFound("Customer returns", found, c, 3, 1)).toBe(`Customer returns${c.grey("  ·  PRD, technical design, assumptions, 6 phase docs, 3 repositories  ·  ")}${c.amber("1 repository to locate")}`);
+    expect(formatOpenedLine("http://127.0.0.1:4700/customer-returns", { kind: "opened" }, c, false, ["acme-labs/storefront"]).split("\n")[0]).toBe(`${c.red("●")} Opened ${c.red("http://127.0.0.1:4700/customer-returns")}${c.grey(". Tell Kiln where acme-labs/storefront is there, then review it and press Start.")}`);
+    expect(formatRepositoryLine(new Date(2026, 10, 22, 9, 14), "Located acme-labs/storefront", c, " at /Volumes/work/storefront. Kiln will remember that on this computer.")).toBe(`${c.grey(" 9:14  ")}Located acme-labs/storefront${c.grey(" at /Volumes/work/storefront. Kiln will remember that on this computer.")}`);
+  });
+});
+
+describe("terminal lines show a repository by its label (find repositories anywhere AC-FOLDER-02)", () => {
+  it("relabels an addition, a phase's pushes and opened pull requests", async () => {
+    const { labelledEvent } = await import("./kiln-command.js");
+    const label = (name: string) => (name === "acme-labs+admin" ? "acme-labs/admin" : name);
+    const at = new Date(2026, 10, 22, 9, 17);
+    expect(labelledEvent({ kind: "repository_added", at, phaseId: "2", title: "T", name: "acme-labs+admin" }, label)).toMatchObject({ name: "acme-labs/admin" });
+    expect(labelledEvent({ kind: "phase", at, phaseId: "2", title: "T", event: "done", pushes: [{ name: "acme-labs+admin", sha: "abc" }, { name: "product", sha: "def" }] }, label)).toMatchObject({ pushes: [{ name: "acme-labs/admin", sha: "abc" }, { name: "product", sha: "def" }] });
+    expect(labelledEvent({ kind: "pull_request", at, event: "opened", opened: [{ repository: "acme-labs+admin", number: 9 }] }, label)).toMatchObject({ opened: [{ repository: "acme-labs/admin", number: 9 }] });
   });
 });

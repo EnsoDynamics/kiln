@@ -5,7 +5,9 @@ export interface BillingHold { phaseKey: string; action: "launch" | "resume"; se
   /** The hold's own check run and rows (waivers "Check Runs"); never a separate stop. */
   run?: import("../state/records.js").CheckRun; checks?: import("../state/records.js").CheckResult[];
   /** The rows came from a finished recheck that ran the activity's completion checks (checks at a stop AC-STOPCHECK-03). */
-  rowsAreCompletionChecks?: true; }
+  rowsAreCompletionChecks?: true;
+  /** The questions of the phase it holds, saved as a stop's are (find repositories anywhere, "The stops that ask"). */
+  locate?: import("../state/records.js").SavedQuestion[]; }
 export interface BillingState {
   version: 1;
   executionId: string;
@@ -14,11 +16,11 @@ export interface BillingState {
   current?: { fingerprint: string; summary: BillingSummary };
   approval?: { executionId: string; contextFingerprint: string; approvedAt: string; contractVersion: string };
   hold?: BillingHold;
-  lastLaunch?: BillingSummary;
+  /** Each agent's summary at its own latest launch (Kiln Phase Model Tiers, "Billing state"). */
+  lastLaunch?: Partial<Record<import("../state/records.js").AgentId, BillingSummary>>;
 }
 export interface BillingView {
   executionId: string;
-  selectionGeneration: number;
   pending: boolean;
   next?: BillingSummary & { readingId: string; canApprove: boolean; canClear: boolean; readinessError?: string };
   lastLaunch?: BillingSummary;
@@ -36,7 +38,7 @@ export function assertBillingState(value: BillingState | undefined, executionId:
   if (value.current && (!/^[0-9a-f]{64}$/.test(value.current.fingerprint) || !summary(value.current.summary))) throw new Error("Invalid current billing context.");
   if (value.approval && (value.approval.executionId !== executionId || !/^[0-9a-f]{64}$/.test(value.approval.contextFingerprint) || typeof value.approval.approvedAt !== "string" || typeof value.approval.contractVersion !== "string")) throw new Error("Invalid billing approval.");
   if (value.hold && (!value.hold.phaseKey || !["launch", "resume"].includes(value.hold.action) || !summary(value.hold.observed))) throw new Error("Invalid billing hold.");
-  if (value.lastLaunch && !summary(value.lastLaunch)) throw new Error("Invalid launch billing snapshot.");
+  if (value.lastLaunch && (typeof value.lastLaunch !== "object" || !Object.entries(value.lastLaunch).every(([agent, one]) => ["claude_code", "codex"].includes(agent) && summary(one!) && one!.agentId === agent))) throw new Error("Invalid launch billing snapshot.");
 }
 /** One current grant. Persistence must succeed before publishing a transition or releasing work. */
 export class BillingAuthority {
@@ -66,7 +68,7 @@ export class BillingAuthority {
     const state = this.options.state(); const r = this.reading;
     const valid = r?.generation === this.options.generation() && !this.options.cancelled();
     const next = valid && r ? { ...r.inspection.summary, readingId: r.id, ...(r.inspection.readinessError ? { readinessError: r.inspection.readinessError } : {}), canApprove: !this.pending && !this.options.busy() && !r.inspection.readinessError && this.options.readiness() && r.inspection.summary.route === "metered" && !this.options.completed(), canClear: !this.pending && !this.options.busy() && !!state.approval } : undefined;
-    return { executionId: state.executionId, selectionGeneration: this.options.generation(), pending: this.pending, ...(next ? { next } : {}), ...(state.lastLaunch ? { lastLaunch: state.lastLaunch } : {}), ...(state.hold ? { hold: state.hold } : {}), canLaunch: !this.options.completed() && !!next && !this.pending && !next.readinessError && (next.route !== "metered" || next.approved) && this.options.readiness() };
+    return { executionId: state.executionId, pending: this.pending, ...(next ? { next } : {}), ...(state.lastLaunch?.claude_code ? { lastLaunch: state.lastLaunch.claude_code } : {}), ...(state.hold ? { hold: state.hold } : {}), canLaunch: !this.options.completed() && !!next && !this.pending && !next.readinessError && (next.route !== "metered" || next.approved) && this.options.readiness() };
   }
   async refresh(cwd: string, env: NodeJS.ProcessEnv, args: string[] = [], fresh = false): Promise<Inspection> {
     const context = JSON.stringify([cwd, args, env]);
@@ -99,10 +101,11 @@ export class BillingAuthority {
     return pending;
   }
   async command(action: "approval" | "clear", body: Record<string, unknown>, cwd: string, env: NodeJS.ProcessEnv): Promise<BillingView> {
-    const allowed = action === "approval" ? ["executionId", "selectionGeneration", "readingId", "approved"] : ["executionId", "selectionGeneration", "readingId"];
-    if (Object.keys(body).some(key => !allowed.includes(key)) || typeof body.executionId !== "string" || !Number.isSafeInteger(body.selectionGeneration) || typeof body.readingId !== "string" || action === "approval" && body.approved !== true) throw new BillingError("invalid_request", "Use the current billing reading and explicit approval.", 400);
+    const allowed = action === "approval" ? ["executionId", "readingId", "approved"] : ["executionId", "readingId"];
+    if (Object.keys(body).some(key => !allowed.includes(key)) || typeof body.executionId !== "string" || typeof body.readingId !== "string" || action === "approval" && body.approved !== true) throw new BillingError("invalid_request", "Use the current billing reading and explicit approval.", 400);
     if (this.options.busy() || this.commandBusy || this.pending) throw new BillingError("billing_busy", "Kiln is busy. Wait for the current operation.");
-    if (body.executionId !== this.options.state().executionId || body.selectionGeneration !== this.options.generation()) throw new BillingError("execution_changed", "The selected execution changed. Recheck billing.");
+    // The execution ID and reading bind a request; a reading taken before the run's agent changed binds nothing (Kiln Phase Model Tiers, "HTTP").
+    if (body.executionId !== this.options.state().executionId || this.reading && this.reading.generation !== this.options.generation()) throw new BillingError("execution_changed", "The selected execution changed. Recheck billing.");
     const reviewed = this.reading;
     if (!reviewed || reviewed.id !== body.readingId && !(this.lastCommand?.id === body.readingId && this.lastCommand.fingerprint === reviewed.fingerprint && this.lastCommand.action === action)) throw new BillingError("stale_billing_reading", "Billing changed. Review the current reading.");
     this.commandBusy = true;

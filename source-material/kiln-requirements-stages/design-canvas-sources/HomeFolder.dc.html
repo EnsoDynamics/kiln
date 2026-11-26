@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kiln home, from a folder of repositories</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.dash{border-style:dashed}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;border:1px solid transparent}
+.pill.now{background:#e2694f;color:#12110e;border-color:#e2694f}
+.pill.next{border-color:rgba(237,232,221,.4);color:#ede8dd}
+.pill.planned{border-style:dashed;border-color:rgba(237,232,221,.24);color:#8c8577}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap;box-sizing:border-box}
+.btn.primary{border-color:#ede8dd;background:#ede8dd;color:#12110e}
+.chip{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:999px;border:1px solid rgba(237,232,221,.18);background:transparent;color:#bdb6a8;font:inherit;font-size:13.5px;cursor:pointer;box-sizing:border-box}
+.chip.on{border-color:#ede8dd;color:#ede8dd;font-weight:600}
+.chip .n{font-size:12px;color:#8c8577;font-weight:400}
+.item{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:18px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.title{font-size:16px;font-weight:500}
+.file{font-size:12.5px;color:#8c8577}
+.file b{color:#ede8dd;font-weight:500}
+.detail{font-size:13.5px;color:#bdb6a8}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.help{margin:0;font-size:13.5px;color:#bdb6a8;line-height:1.55}
+.step{display:flex;gap:14px;align-items:flex-start}
+.num{flex:0 0 auto;width:26px;height:26px;border-radius:999px;border:1px solid rgba(237,232,221,.4);display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600}
+</style>
+</helmet>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Folder <span class="mono" style="color: #ede8dd">acme/</span></span><span>5 repositories directly inside it</span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">What are we building?</h1>
+<p style="margin: 0; max-width: 640px; color: #bdb6a8">This folder is not a repository, so Kiln looked in each repository inside it. Everything is in one list, and each line says which repository holds its documents.</p>
+</div>
+
+<div role="group" aria-label="Repositories" style="display: flex; flex-wrap: wrap; gap: 10px">
+<button type="button" class="chip on" aria-pressed="true">All repositories <span class="n">9</span></button>
+<button type="button" class="chip" aria-pressed="false">acme-shop <span class="n">6</span></button>
+<button type="button" class="chip" aria-pressed="false">acme-admin <span class="n">2</span></button>
+<button type="button" class="chip" aria-pressed="false">acme-mobile <span class="n">1</span></button>
+<span style="align-self: center; font-size: 13px; color: #8c8577">Nothing found in <span class="mono">acme-docs</span> or <span class="mono">acme-infra</span></span>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 36px">
+
+<section aria-labelledby="under-h" style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="under-h" class="eyebrow">Under way</h2><span style="font-size: 13px; color: #8c8577">Anything waiting for you comes first</span></div>
+<ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li class="item">
+<span class="names"><span class="title">Purchase approvals</span><span class="file mono"><b>acme-admin</b> · docs/prds/purchase-approvals/</span><span class="detail">Requirements. The early stakeholder review has been ready since 12:47 PM.</span></span>
+<span class="right"><span class="pill now">Waiting for your review</span><button type="button" class="btn">Open</button></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="title">Data audit viewer</span><span class="file mono"><b>acme-shop</b> · docs/prds/data-audit-viewer/</span><span class="detail">Requirements done, with a phase plan of 4. The final stakeholder review has been ready since 6:32 PM.</span></span>
+<span class="right"><span class="pill now">Waiting for your review</span><button type="button" class="btn">Open</button></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="title">Customer returns</span><span class="file mono"><b>acme-shop</b> · docs/prds/customer-returns/</span><span class="detail">Build. 2 of 5 phases done. Also changes <span class="mono" style="font-size: 12.5px">acme-admin</span>, and is listed once, under the repository that holds its documents.</span></span>
+<span class="right"><span class="pill next">Implementing phase 3</span><button type="button" class="btn">Open</button></span>
+</li>
+
+<li class="item" style="border-bottom: 0">
+<span class="names"><span class="title">Push notification settings</span><span class="file mono"><b>acme-mobile</b> · docs/changes/push-notification-settings/</span><span class="detail">Started by hand. The PRD is written and refined, and there is no technical design yet.</span></span>
+<span class="right"><span class="pill planned">Not running</span><button type="button" class="btn">Review and continue</button></span>
+</li>
+</ul>
+</section>
+
+<section aria-labelledby="ready-h" style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="ready-h" class="eyebrow">Ready to start</h2><span style="font-size: 13px; color: #8c8577">Source material on each repository's shared branch, with no PRD yet</span></div>
+<ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li class="item">
+<span class="names"><span class="line"><span class="title">Gift card balance lookup</span><span class="tag">Brief</span></span><span class="file mono"><b>acme-shop</b> · source-material/gift-card-balance/gift-card-balance-brief.md</span><span class="detail">1,240 words, and a prototype with 6 screens beside it</span></span>
+<span class="right"><button type="button" class="btn primary">Review and start</button></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="line"><span class="title">Wholesale price lists</span><span class="tag">Intake record</span></span><span class="file mono"><b>acme-admin</b> · source-material/wholesale-price-lists/wholesale-price-lists-requirements-intake.md</span><span class="detail">38 decisions recorded from 4 meeting transcripts</span></span>
+<span class="right"><button type="button" class="btn primary">Review and start</button></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="line"><span class="title">Loyalty program: Points earning</span><span class="tag">Planned PRD</span></span><span class="file mono"><b>acme-shop</b> · docs/initiatives/loyalty-program/loyalty-program-initiative-prds.md</span><span class="detail">Second of 4 in the Loyalty program initiative</span></span>
+<span class="right"><button type="button" class="btn primary">Review and start</button></span>
+</li>
+
+<li class="item" style="border-bottom: 0">
+<span class="names"><span class="line"><span class="title">Loyalty program: Redemption</span><span class="tag">Planned PRD</span></span><span class="file mono"><b>acme-shop</b> · docs/initiatives/loyalty-program/loyalty-program-initiative-prds.md</span><span class="detail">Third of 4. Its requirements can be written now. Its build waits for Points earning.</span></span>
+<span class="right"><button type="button" class="btn primary">Review and start</button></span>
+</li>
+</ul>
+</section>
+
+<section aria-labelledby="notyet-h" style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="notyet-h" class="eyebrow">Not ready yet</h2><span style="font-size: 13px; color: #8c8577">Found, but Kiln can't start from it as it is</span></div>
+<ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+<li class="item" style="border-bottom: 0">
+<span class="names"><span class="line"><span class="title">Store locator</span><span class="tag dash">No brief or intake record</span></span><span class="file mono"><b>acme-shop</b> · source-material/store-locator/</span><span class="detail">5 files, and neither of the two documents Kiln starts from. The prompt on the right turns them into one.</span></span>
+</li>
+</ul>
+</section>
+
+</div>
+
+<section class="card" aria-labelledby="bring-h" style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 id="bring-h" class="eyebrow">Not listed?</h2>
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 30px; line-height: 1.15">Bring your source material in</span>
+<p class="help">Source material lives in one repository, the one its PRD will live in, even when the build ends up changing several. Pick that repository first.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,.12)">
+<div class="step"><span class="num">1</span><span style="font-size: 14.5px">Open Claude Code or Codex in the repository this work belongs to.</span></div>
+<div class="step"><span class="num">2</span><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 14.5px">Paste this, and say what you have and where it is.</span>
+<div style="padding: 14px 16px; border-radius: 12px; background: #12110e; border: 1px solid rgba(237,232,221,.18); display: flex; flex-direction: column; gap: 12px">
+<span class="mono" style="font-size: 12.5px; line-height: 1.6; color: #ede8dd">Use the Enso Method. I have source material for something new to build in this repository. Help me bring it into source-material/ the way the method describes, commit it on the shared branch, and stop there. Kiln will take it from the PRD on.</span>
+<button type="button" class="btn" style="align-self: flex-start">Copy prompt</button>
+</div>
+</div></div>
+<div class="step"><span class="num">3</span><span style="font-size: 14.5px">When the session commits it, it appears under Ready to start. This page updates by itself.</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,.12)">
+<span class="eyebrow">How much is enough</span>
+<p class="help">Several paragraphs on what you want and why, and screens wherever there is something to look at. Everything Kiln writes afterwards is only as good as this.</p>
+</div>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1760}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

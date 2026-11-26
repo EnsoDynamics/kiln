@@ -9,6 +9,7 @@ import { Engine } from '../engine/engine.js';
 import { prdTreeAtHead } from '../engine/worktree-setup.js';
 import { createHarness, type Harness } from '../test-support/engine-harness.js';
 import { codexWorkFixture } from '../test-support/codex-work-fixture.js';
+import { runPrdOn } from '../test-support/model-choices.js';
 import { historyFixture } from '../test-support/codex-history-fixture.js';
 import type { Receipt } from './commands.js';
 import { deliveredInHistory } from './delivery-evidence.js';
@@ -24,7 +25,7 @@ it('requires the exact Codex thread, turn and user text before recording deliver
   work.set({ dynamicRecord: true, stateDirectory: h.stateDirectory }); h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-  await h.engine.changeSettings({ agentId: 'codex' }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const input = { command_id: 'codex-history-proof', execution_id: h.engine.record.executionId!, status_token: h.engine.controlView().token, action: 'reply', inputs: { message: 'Literal "quoted" reply\n$(echo data) 🐦' } };
   expect(h.engine.commands.submit(input).ok).toBe(true); await h.engine.commands.settled(); await h.engine.settled();

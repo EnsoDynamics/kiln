@@ -42,9 +42,8 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'proof', folderNam
 const settings = defaultSettings(paths, { branches: new Map([['develop', baseCommit]]), defaultBranch: 'develop' });
 Object.assign(settings, { featureBranch: 'develop', worktreePath: repository, workspaceFolder: root, keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: 'proof/disposable', featureName: 'Disposable restart proof', settings });
-record.settings.agentId = agentId;
 const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus';
-record.settings.agentChoices[agentId] = { model, effort: 'high' };
+record.settings.modelChoices.kept = { agentId, model, effort: 'high' };
 
 // The earlier conversation: one real turn whose last message carries a marker the carry-on prompt must pass on.
 const earlierMarker = `marker-earlier-${randomUUID().slice(0, 8)}`;
@@ -73,7 +72,7 @@ let server;
 const result = { agentId, root };
 try {
   assert.equal((await engine.prepare()).ok, true);
-  for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+  for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
   server = await startLocalServer({ engine, port: 0, folderName: 'restart-proof', featureName: 'Restart proof', token: record.token });
   const origin = new URL(server.address).origin;
   const act = async (path, body) => {

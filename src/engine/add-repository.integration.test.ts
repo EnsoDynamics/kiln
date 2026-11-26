@@ -4,11 +4,13 @@
 // commit, and two requests for one repository at once. Real git, the PRD's repository beside the
 // one added, the stand-in claude stopping phase 1 at Needs you so additions are allowed.
 
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 import { createHarness, landingSession, type Harness } from "../test-support/engine-harness.js";
 import { createGithubOrigin, createRepository, git } from "../test-support/git-repositories.js";
+import { rememberLocation } from "../state/repository-locations.js";
 import { displayPath } from "./worktree-setup.js";
 
 const BRANCH = "feature/customer-returns";
@@ -135,7 +137,7 @@ describe("adding a repository after Start", () => {
     git(h.sandbox, checkout, "push", "-q", "origin", "develop");
     h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
     const elsewhere = join(h.sandbox.root, "elsewhere", "acme-shop");
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, worktreePath: elsewhere })).toMatchObject({ ok: true });
+    expect(await h.engine.changeSettings({ worktreePath: elsewhere })).toMatchObject({ ok: true });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.stoppedPhaseKey()).toBe("1");
@@ -219,6 +221,48 @@ describe("adding a repository after Start", () => {
     h.env.GIT_SSH_COMMAND = "false";
     expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: true, added: true, baseBranch: "develop" });
     expect(git(h.sandbox, path, "rev-parse", "HEAD").trim()).toBe(base);
+  });
+});
+
+describe("a session's request by the names a Repositories line takes (find repositories anywhere AC-SESSION-01)", () => {
+  it("refuses a full remote address, a path on one computer and another host in the name check's words, and adds nothing", async () => {
+    const { h } = await stoppedWithNeighbour();
+    expect(await h.engine.addRepository("git@github.com:acme/returns-api.git")).toEqual({ ok: false, status: 422, reason: "git@github.com:acme/returns-api.git is a full remote address. Name the repository by the path in it, acme/returns-api." });
+    for (const path of ["/tmp/returns-api", "~/code/returns-api", "./returns-api", "C:/code/returns-api", "acme\\returns-api"]) {
+      expect(await h.engine.addRepository(path)).toEqual({ ok: false, status: 422, reason: `${path} is a path on one computer. Name the repository by the path in its remote address, <owner>/<repository>.` });
+    }
+    expect(await h.engine.addRepository("git.example.com:acme/returns-api")).toEqual({ ok: false, status: 422, reason: "git.example.com:acme/returns-api. Kiln delivers only to GitHub, so it can’t deliver a repository on git.example.com." });
+    expect(h.engine.record.repositories.map((entry) => entry.name)).toEqual(["acme-shop"]);
+  });
+
+  it("adds the one checkout the search finds, by an address path or the github.com: form, under its short name", async () => {
+    const { h, checkout, workspace } = await stoppedWithNeighbour();
+    // The sandbox is the home folder, so the search stays inside it; the checkout sits in a folder of another name.
+    Object.assign(h.env, h.sandbox.env, { HOME: h.sandbox.root });
+    const moved = join(h.sandbox.root, "code", "api-checkout");
+    mkdirSync(join(h.sandbox.root, "code"), { recursive: true });
+    renameSync(checkout, moved);
+    expect(await h.engine.addRepository("github.com:acme/returns-api")).toMatchObject({ ok: true, name: "returns-api", added: true, worktreePath: join(workspace, "returns-api") });
+    expect(h.engine.record.repositories[1]).toMatchObject({ name: "returns-api", github: "acme/returns-api", mainCheckoutPath: moved, kind: "added" });
+    // Address paths are compared without regard to case: the same repository, already added.
+    expect(await h.engine.addRepository("Acme/Returns-API")).toMatchObject({ ok: true, name: "returns-api", added: false });
+  });
+
+  it("uses the answer remembered on this computer for a checkout the search can't reach", async () => {
+    const { h, workspace } = await stoppedWithNeighbour();
+    // The sandbox is the home folder; the checkout is outside it, where the search never goes.
+    Object.assign(h.env, h.sandbox.env, { HOME: h.sandbox.root });
+    const origin = createGithubOrigin(h.sandbox, "acme-labs", "ledger");
+    const made = createRepository(h.sandbox, "ledger", origin.url);
+    git(h.sandbox, made, "push", "-q", "origin", "develop");
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "kiln-outside-")));
+    onTestFinished(() => rmSync(outside, { recursive: true, force: true }));
+    const ledger = join(outside, "ledger");
+    renameSync(made, ledger);
+    expect(await h.engine.addRepository("acme-labs/ledger")).toMatchObject({ ok: false });
+    rememberLocation(h.env, "acme-labs/ledger", ledger, new Date());
+    expect(await h.engine.addRepository("acme-labs/ledger")).toMatchObject({ ok: true, name: "ledger", added: true, worktreePath: join(workspace, "ledger") });
+    expect(h.engine.record.repositories.find((entry) => entry.name === "ledger")).toMatchObject({ github: "acme-labs/ledger", mainCheckoutPath: ledger });
   });
 });
 

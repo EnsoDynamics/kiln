@@ -27,23 +27,50 @@ export interface ModelEntry {
 /** The model a new PRD starts on: the latest Opus (UI-004). */
 export const DEFAULT_MODEL = "opus";
 
+const isAlias = (value: string) => /^[a-z]+$/.test(value);
+
+/** The model ID a row resolves to, without a variant suffix such as `[1m]`. */
+const resolvedId = (model: ModelInfo) => (model.resolvedModel ?? model.value).replace(/\[[^\]]*\]$/, "");
+
+/** A full model ID's family and version: `claude-fable-5-2` → fable, [5, 2]. */
+function idFamily(id: string): { family: string; version: [number, number] } | undefined {
+  const match = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/.exec(id);
+  return match ? { family: match[1]!, version: [Number(match[2]), Number(match[3] ?? 0)] } : undefined;
+}
+
 /**
  * The Model list's entries from `supportedModels()`: the family-alias entries (`opus`, `fable`,
- * `sonnet`, …), one per resolved model, leaving out `default`, concrete and legacy IDs, and
- * entries Claude Code marks `disabled: true`.
+ * `sonnet`, …), one per resolved model, leaving out `default`, older IDs, and entries Claude Code
+ * marks `disabled: true`. Before its model catalog loads, Claude Code can list a family only by
+ * a variant of its full ID, such as `claude-fable-5-2[1m]` with no `fable` row; that family
+ * still gets its alias entry, from its newest variant, and Claude Code resolves the alias at
+ * launch. An older ID without a variant, such as `claude-opus-5`, never stands in for a family.
  *
  *   modelEntries(recorded).map((entry) => entry.displayName)  // ["Opus 5.5", "Fable 5.1", "Sonnet 5.5", "Haiku 5.5"]
+ *   modelEntries([opusRow, { value: "claude-fable-5-2[1m]", resolvedModel: "claude-fable-5-2", … }]).map((entry) => entry.value)  // ["opus", "fable"]
  */
 export function modelEntries(models: (ModelInfo & { disabled?: boolean })[]): ModelEntry[] {
+  const usable = models.filter(model => model.disabled !== true && model.value !== "default");
+  const aliases = new Set(usable.map(model => model.value).filter(isAlias));
+  // Each family with no alias row: its newest variant row.
+  const newest = new Map<string, { model: ModelInfo; version: [number, number] }>();
+  for (const model of usable) {
+    const parsed = /\[[^\]]*\]$/.test(model.value) ? idFamily(resolvedId(model)) : undefined;
+    if (!parsed || aliases.has(parsed.family)) continue;
+    const held = newest.get(parsed.family)?.version;
+    if (!held || parsed.version[0] > held[0] || (parsed.version[0] === held[0] && parsed.version[1] > held[1])) newest.set(parsed.family, { model, version: parsed.version });
+  }
+  const familyRows = new Map([...newest].map(([family, held]) => [held.model, family]));
   const entries: ModelEntry[] = [];
   const seen = new Set<string>();
-  for (const model of models) {
-    if (model.disabled === true || model.value === "default" || !/^[a-z]+$/.test(model.value)) continue;
-    const resolved = model.resolvedModel ?? model.value;
+  for (const model of usable) {
+    const family = isAlias(model.value) ? model.value : familyRows.get(model);
+    if (family === undefined) continue;
+    const resolved = resolvedId(model);
     if (seen.has(resolved)) continue;
     seen.add(resolved);
     entries.push({
-      value: model.value,
+      value: family,
       resolvedModel: resolved,
       displayName: modelNameFromId(resolved),
       description: model.description,

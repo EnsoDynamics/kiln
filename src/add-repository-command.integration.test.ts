@@ -26,7 +26,7 @@ function writeRecord(s: Sandbox, repository: string, folder: string, worktrees: 
     github: `acme/${repository}`,
     prdDirectoryFromRoot: `docs/prds/${folder}`,
     featureName: folder,
-    settings: { workspaceFolder, worktreePath: join(workspaceFolder, repository), featureBranch: `feature/${folder}`, baseBranch: "develop", bases: {}, model: "opus", effort: "high", keepAwake: true, resumeAfterUsageLimit: true },
+    settings: { workspaceFolder, worktreePath: join(workspaceFolder, repository), featureBranch: `feature/${folder}`, baseBranch: "develop", bases: {}, modelChoices: { phases: {} }, keepAwake: true, resumeAfterUsageLimit: true },
   });
   record.repositories = worktrees.map((name) => ({ name, kind: "named", mainCheckoutPath: join(s.root, name), github: `acme/${name}`, baseBranch: "develop", worktreePath: join(workspaceFolder, name), setupCompletedAt: "x" }));
   for (const name of worktrees) mkdirSync(join(workspaceFolder, name), { recursive: true });
@@ -99,8 +99,8 @@ describe("kiln add-repository", () => {
     }
   });
 
-  it("takes exactly one folder name", async () => {
+  it("takes exactly one repository", async () => {
     sandbox = createSandbox();
-    for (const args of [[], ["a", "b"], ["--help"]]) expect(await run(sandbox.root, args)).toEqual({ code: 2, stdout: "", stderr: "Usage: kiln add-repository <folder name>\n" });
+    for (const args of [[], ["a", "b"], ["--help"]]) expect(await run(sandbox.root, args)).toEqual({ code: 2, stdout: "", stderr: "Usage: kiln add-repository <owner>/<repository>, the path in the repository's remote address\n" });
   });
 });

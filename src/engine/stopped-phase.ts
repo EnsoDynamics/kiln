@@ -57,7 +57,7 @@ export interface PhaseWork {
 }
 export type WorkRead = PhaseWork | { unknown: string };
 
-export interface WorkRepository { name: string; worktreePath: string; baseBranch: string; startCommit: string | undefined }
+export interface WorkRepository { name: string; /** What a failed read names it by (find repositories anywhere AC-FOLDER-02); absent: its name. */ label?: string; worktreePath: string; baseBranch: string; startCommit: string | undefined }
 
 /**
  * Per set-up repository: the commits the feature branch's tip has that neither the phase's start
@@ -75,12 +75,12 @@ export async function readPhaseWork(git: GitContext, repositories: readonly Work
       const base = `refs/remotes/origin/${entry.baseBranch}`;
       const hasBase = await runGit(git, entry.worktreePath, ["rev-parse", "--verify", "--quiet", `${base}^{commit}`]);
       const log = await runGit(git, entry.worktreePath, ["log", "--format=%H%x09%s", `refs/heads/${branch}`, `^${entry.startCommit}`, ...(hasBase.exitCode === 0 ? [`^${base}`] : []), "--"]);
-      if (log.exitCode !== 0) return `Kiln couldn't read ${entry.name}'s commits.`;
+      if (log.exitCode !== 0) return `Kiln couldn't read ${entry.label ?? entry.name}'s commits.`;
       commits = log.stdout.split(/\r?\n/).filter(line => line.includes("\t")).map(line => { const [sha, ...subject] = line.split("\t"); return { sha: sha!, subject: subject.join("\t") }; });
     }
     // A read never takes the index lock, so it can't make a catch-up's fast-forward fail (run restart AC-CURRENT-01).
     const status = await runGit(git, entry.worktreePath, ["--no-optional-locks", "status", "--porcelain", "--untracked-files=all"]);
-    if (status.exitCode !== 0) return `Kiln couldn't read ${entry.name}'s uncommitted changes.`;
+    if (status.exitCode !== 0) return `Kiln couldn't read ${entry.label ?? entry.name}'s uncommitted changes.`;
     const uncommittedFiles = status.stdout.split(/\r?\n/).filter(line => line.trim() !== "").length;
     return { name: entry.name, commits, uncommittedFiles };
   };

@@ -42,6 +42,8 @@ An extension of the local TypeScript engine, the browser view and the CLI. No ne
 
 ## When the Preflight Is Due (AC-PREFLIGHT-01, AC-PREFLIGHT-05)
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Continue and the Push Session (when Continue pushes the plan first, the push session runs before the preflight; the preflight's mark is set when the acceptance that follows the push activates).
+
 An execution's preflight is **settled** once one of its preflight activities has `doneAt` and no `no_report` result: it reported ready, or Mark complete finished it at a preflight or launch-check stop before any report was read. So "marked complete" in AC-PREFLIGHT-01 means a Mark complete that finished the preflight: a waived Codex-safety check followed by no report leaves the preflight finished but not settled, and a later Resume runs one (AC-PREFLIGHT-06, Reading the Result).
 
 These entry points set `preflight.due` in the same record write that records the action, with the `trigger` shown (Data Models):
@@ -74,6 +76,8 @@ Launch checks that guard every launch (billing approval, agent selection and rea
 A launch check that fails before a preflight session starts stops on the preflight's key as it would on any unstarted activity; it is never read as no report. The stop, its Check again, its Mark complete and the recheck before it work as at any launch-check stop. A preflight has no completion rows, so each check run at that stop holds only the launch check. Check again clears the stop once the launch check passes, and the loop then launches the still-unfinished preflight with its own prompt. Start again launches it through the same fresh-session path as Check Preflight again, with the preflight prompt and session kind. Mark complete saves the waiver and finishes the preflight, with that `waiverId` in its per-key activity facts, which settles it.
 
 ## The Preflight Session
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Resolving a Choice (the preflight runs on the Audits choice, not the run's agent, model and effort; skill presence before Start is read for the preflight's own agent; `preflight.planned` gains `model`, and the planned Preflight row shows the Audits choice).
 
 The session uses the run's agent, model and effort, and the same session folder and added directories as an audit session. Its session record has kind `preflight`.
 
@@ -146,6 +150,8 @@ A line with no text after it still marks the phase, with empty text. Neither lin
 
 ## Interfaces
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (the preflight runs on the Audits choice, not the run's agent, model and effort; skill presence before Start is read for the preflight's own agent; `preflight.planned` gains `model`, and the planned Preflight row shows the Audits choice).
+
 No new HTTP route or command. The snapshot and the `kiln status` JSON gain:
 
 ```
@@ -180,6 +186,10 @@ Skill presence before Start comes from the enabled-skill read agent metadata alr
 In the `kiln status` JSON a preflight is one more activity kind. A preflight stop is reported as any stop, and a preflight marked complete as a waived audit is (PRD, Out of Scope).
 
 ## Display Contract
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §When an Activity Starts (the preflight runs on the Audits choice, not the run's agent, model and effort; skill presence before Start is read for the preflight's own agent; `preflight.planned` gains `model`, and the planned Preflight row shows the Audits choice).
+
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Screens (a marked phase's Needs you page gains the question below the card for how its session ended, with the planned-as-needing-you card still first)
 
 Build arrangement and wording from the approved mockup; the numbers are its states.
 

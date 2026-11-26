@@ -1,13 +1,13 @@
 // The PRD's settings on Documents found against a real engine and repository: the model list
-// and the effort it allows (AC-START-06, UI-011), the auto-mode message that holds Start, and
+// and a choice it does not offer holding Start (Kiln Phase Model Tiers AC-PICK-06), the auto-mode message that holds Start, and
 // the base check a connecting view runs (Worktree and Branch Setup).
 
 import { afterEach, describe, expect, it } from "vitest";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import type { ModelEntry } from "../account/model-list.js";
-import { readPrdRecord } from "../state/records.js";
 import { createHarness, landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { git } from "../test-support/git-repositories.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 import { buildSnapshot } from "./snapshot.js";
 
 let harness: Harness | undefined;
@@ -44,20 +44,21 @@ class ModelList implements ClaudeInfoSource {
 }
 
 describe("the model and effort before Start", () => {
-  it("keeps an invalid saved effort visible until explicitly corrected and refuses unchecked model choices", async () => {
+  // The PRD-wide Model and Effort controls are gone (Kiln Phase Model Tiers AC-KEEP-01); what
+  // remains is that a choice its agent doesn't offer holds Start with the reason (AC-PICK-06).
+  it("holds Start with the reason while a choice names an effort its model doesn't offer, until the choice is corrected", async () => {
     const list = new ModelList();
     harness = await createHarness({ sessions: [], engineOptions: { claude: list } });
     const { engine } = harness;
-    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" })).toMatchObject({ ok: false, status: 409 });
-    engine.record.settings.agentChoices.claude_code!.effort = "max";
+    await runPrdOn(engine, { agentId: "claude_code", model: "opus", effort: "max" }, false);
     list.arrive([model({ supportedEffortLevels: ["low", "medium", "high"] }), model({ value: "fable", displayName: "Fable 5.1", supportedEffortLevels: ["high", "max"] })]);
-    expect(buildSnapshot(engine).settings).toMatchObject({ effort: "max", fieldErrors: { model: expect.stringContaining("supported effort") } });
-    expect(await engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409 });
-    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "high" })).toEqual({ ok: true });
-    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "fable" })).toEqual({ ok: true });
-    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "low" })).toMatchObject({ ok: false, status: 422 });
-    expect(await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "max" })).toEqual({ ok: true });
-    expect(readPrdRecord(harness.stateDirectory)?.settings.agentChoices.claude_code).toEqual({ model: "fable", effort: "max" });
+    expect(buildSnapshot(engine).settings).toMatchObject({ fieldErrors: { model: expect.stringContaining("Opus 5.5 doesn't offer max effort") } });
+    expect(await engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409, reason: expect.stringContaining("doesn't offer max effort") });
+    expect(engine.record.startedAt).toBeUndefined();
+    await runPrdOn(engine, { agentId: "claude_code", model: "fable", effort: "max" }, false);
+    expect(engine.selectionError).toBeUndefined();
+    expect(buildSnapshot(engine).settings.fieldErrors.model).toBeUndefined();
+    expect(harness.claudeCalls()).toEqual([]);
   });
 
   it("passes no --effort for a model that takes none, and records the model's name from its ID", async () => {
@@ -65,8 +66,7 @@ describe("the model and effort before Start", () => {
     harness = await createHarness({ sessions: [landingSession()], engineOptions: { claude: list } });
     const { engine } = harness;
     list.arrive([model({}), model({ value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku 5.5", supportsEffort: false, supportedEffortLevels: [] })]);
-    await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "haiku" });
-    expect(buildSnapshot(engine).settings.effortLevels).toEqual([]);
+    await runPrdOn(engine, { agentId: "claude_code", model: "haiku" }, false);
     expect(await engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await engine.settled();
     const args = harness.claudeCalls()[0]!.args;
@@ -82,22 +82,23 @@ describe("the model and effort before Start", () => {
     harness = await createHarness({ sessions: [landingSession()], engineOptions: { claude: list } });
     const { engine } = harness;
     list.arrive([model({}), model({ value: "haiku", resolvedModel: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5", supportsAutoMode: false })]);
-    await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "haiku" });
+    await runPrdOn(engine, { agentId: "claude_code", model: "haiku", effort: "medium" }, false);
     const message = "Haiku 4.5 can’t run unattended on this account; it needs auto mode.";
-    expect(buildSnapshot(engine).settings.fieldErrors).toEqual({ model: message });
-    expect(await engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409, reason: message });
+    expect(buildSnapshot(engine).settings.fieldErrors.model).toContain(message);
+    expect(await engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409, reason: expect.stringContaining(message) });
     expect(engine.record.startedAt).toBeUndefined();
-    await engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "opus" });
+    await runPrdOn(engine, { agentId: "claude_code", model: "opus", effort: "medium" }, false);
     expect(await engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await engine.settled();
   });
 
-  it("keeps the unsupported saved model visible with a blocking explanation", async () => {
+  it("holds Start with a blocking explanation when the default's model isn't offered", async () => {
     const list = new ModelList();
     harness = await createHarness({ sessions: [], engineOptions: { claude: list } });
     list.arrive([model({ value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1" })]);
     const settings = buildSnapshot(harness.engine).settings;
-    expect(settings).toMatchObject({ model: { value: "opus", displayName: "opus" }, effortLevels: null, fieldErrors: { model: expect.stringContaining("Saved choice: opus") } });
+    expect(settings.fieldErrors.model).toContain("Claude Code doesn't offer");
+    expect(await harness.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, status: 409 });
   });
 });
 
@@ -115,7 +116,7 @@ describe("the base check when a view connects", () => {
     expect(buildSnapshot(h.engine).settings).toMatchObject({ baseBranches: ["develop", "main", "release"], baseCheck: "ok", fieldErrors: {} });
 
     // A base the person picks that holds other PRD documents fails the check, naming the branch.
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, baseBranch: "release" });
+    await h.engine.changeSettings({ baseBranch: "release" });
     expect(buildSnapshot(h.engine).settings).toMatchObject({ baseCheck: "ok" });
     git(h.sandbox, h.repository, "checkout", "-q", "release");
     git(h.sandbox, h.repository, "rm", "-q", "docs/prds/customer-returns/assumptions.md");

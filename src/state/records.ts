@@ -20,15 +20,19 @@ import { readJson, writeJsonAtomically } from "./state-files.js";
 import type { AuditState } from "../audit/contracts.js";
 import { AuditStore } from "../audit/storage.js";
 import { assertPreflightState } from "../engine/preflight.js";
-import { preflightKey } from "./activity-keys.js";
+import { MERGE_KEY, preflightKey } from "./activity-keys.js";
+import type { ModelChoice } from "../models/model-defaults.js";
+import { migrateModelChoices, assertModelChoices } from "../models/keep.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 27;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
 export const AGENT_NAMES: Record<AgentId, string> = { claude_code: "Claude Code", codex: "Codex" };
+export const AGENT_IDS: readonly AgentId[] = ["claude_code", "codex"];
 export interface AgentChoice { model: string; effort?: string }
+export type { ModelChoice } from "../models/model-defaults.js";
 export const EFFORT_LEVELS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
 
 export interface Settings {
@@ -42,10 +46,8 @@ export interface Settings {
   baseBranch: string;
   /** The other repositories' bases, by name; never keyed by the PRD's repository's name. */
   bases: Record<string, string>;
-  model: string;
-  effort: Effort;
-  agentId?: AgentId;
-  selectionGeneration?: number;
+  /** Each activity's model choice where the person set one, and a choice kept from before schema 27 (Kiln Phase Model Tiers, "Data Models"). */
+  modelChoices: ModelChoices;
   keepAwake: boolean;
   /** Wait out a usage limit and resume by itself (usage-limit recovery AC-AUTO-04). */
   resumeAfterUsageLimit: boolean;
@@ -53,27 +55,31 @@ export interface Settings {
   auditLoops?: AuditLoopSettings;
 }
 
-/** Only the per-agent map owns next-session settings on disk. */
-export interface AgentSettings extends Omit<Settings, "model" | "effort" | "agentId" | "selectionGeneration"> {
-  agentId: AgentId;
-  selectionGeneration?: number;
-  agentChoices: Partial<Record<AgentId, AgentChoice>>;
+/**
+ * A PRD's model choices (Kiln Phase Model Tiers, "Resolving a Choice"): a phase's own entry, by
+ * phase id; the PRD's one Audits entry, for the preflight, every audit and the pull request
+ * session; and `kept`, the one choice a PRD saved before schema 27 keeps (AC-KEEP-02), written
+ * only by the migration. `"default"` is Use the default over a kept choice.
+ */
+export interface ModelChoices {
+  phases: Record<string, ModelChoice | "default">;
+  audits?: ModelChoice | "default";
+  kept?: ModelChoice;
 }
-export function selectedChoice(settings: AgentSettings): AgentChoice {
-  return settings.agentChoices[settings.agentId] ?? { model: "" };
+
+/** A record's settings, with model choices in place, as the new-record path and the migration leave them. */
+export function agentSettings(settings: Omit<Settings, "modelChoices"> & { modelChoices?: ModelChoices }): Settings {
+  return { ...settings, modelChoices: settings.modelChoices ?? { phases: {} } };
 }
-export function agentSettings(settings: Settings | AgentSettings): AgentSettings {
-  if ("agentChoices" in settings) return settings;
-  const { model, effort, ...rest } = settings;
-  delete rest.agentId; delete rest.selectionGeneration;
-  return { ...rest, agentId: "claude_code", selectionGeneration: 0, agentChoices: { claude_code: { model, effort } } };
-}
+
 export function assertAgent(agent: unknown): asserts agent is AgentId {
   if (agent !== "claude_code" && agent !== "codex") throw new NewerSchemaError(`Unknown Kiln agent: ${String(agent)}. Update Kiln.`);
 }
 
 /** `preflight`: a preflight that reported items stops on its key (build preflight "The Preflight Stop"). */
-export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight";
+/** `merge_check`: a merge session ended with a pull request GitHub does not show merged (Kiln After Delivery AC-MERGE-06). */
+/** `plan_push_check`: a push session ended with the plan not in the remote base branch (AC-BACK-05). */
+export type StopKind = "billing" | "done_check" | "pull_request_check" | "not_resumable" | "plan" | "selection" | "loop_limit" | "preflight" | "merge_check" | "plan_push_check";
 
 export interface CheckResult {
   name: string;
@@ -133,6 +139,24 @@ export interface PhaseStop {
    * complete the run with no pull request session.
    */
   holdLeadsTo?: "pull_request_session" | "complete";
+  /** Each question the stop asks about a repository Kiln couldn't place (find repositories anywhere AC-ASK-07; schema 26). */
+  locate?: SavedQuestion[];
+}
+
+/**
+ * A question a stop saves whole (find repositories anywhere, "Data Models"): `phaseFile` on the
+ * plan stop's question, absent on one from a session's request. The label is worked out each time
+ * it is shown and a field message belongs to one answer, so neither is saved.
+ */
+export interface SavedQuestion {
+  kind: "where" | "which";
+  /** The address path, as the plan or the session's request writes it. */
+  repository: string;
+  searchedFrom: string;
+  searchedTo?: string;
+  checkouts: { folder: string; remote: string; pickable: boolean; remembered?: true }[];
+  found: number;
+  phaseFile?: string;
 }
 
 /** A usage limit's facts on a stop: `refusedAgainAt` when Kiln's own resume was refused again (AC-AUTO-05). */
@@ -188,9 +212,19 @@ export interface RepositoryPhaseFacts {
 export interface PhaseFacts {
   completedByOperation?: string;
   sessionIds: string[];
+  /** The session whose first model response started this activity (Kiln Phase Model Tiers, "When an Activity Starts"); only ever added. */
+  startedSessionId?: string;
+  /**
+   * While the activity hasn't started, Codex's one-automatic-attempt record (Kiln Phase Model
+   * Tiers, "A Wait Before the Start"): a session's `codex.usageRecovery` shape, its fingerprint
+   * leaving out the conversation. Removed when the activity starts.
+   */
+  codexUsageRecovery?: CodexUsageRecovery;
   doneAt?: string;
   finishedByPerson: boolean;
   stop?: PhaseStop;
+  /** A session's requests for a repository Kiln would ask about, once per address path (find repositories anywhere AC-SESSION-01). */
+  repositoryRequests?: { addressPath: string; at: string }[];
   /** Waiting for usage (usage-limit recovery AC-AUTO-01); never beside `stop`. */
   wait?: PhaseWait;
   /** By repository name. */
@@ -265,6 +299,8 @@ export interface RecordedPlanPhase {
   attended?: string;
   /** The `**Early merge:**` line's text (build preflight, schema 23). Display only. */
   earlyMerge?: string;
+  /** The `**Model tier:**` line's tier and reason (Kiln Phase Model Tiers AC-TIER-01). Display and model choice only; left out of plan comparisons. */
+  modelTier?: import("../plan/phase-document.js").ModelTier;
 }
 
 export type RepositoryKind = "prd" | "named" | "added";
@@ -280,7 +316,13 @@ export interface CreatedBranch {
  * `setupCompletedAt`; before that it holds what a setup under way, or a failed one, left.
  */
 export interface RepositoryEntry {
+  /** Kiln's name for it: the record key and its worktree folder's name, fixed once written. */
   name: string;
+  /**
+   * Its short name, kept only when it differs from `name`, which is then the whole-path form
+   * (find repositories anywhere AC-FOLDER-01, schema 26).
+   */
+  shortName?: string;
   kind: RepositoryKind;
   mainCheckoutPath: string;
   /** `<owner>/<name>`. */
@@ -343,6 +385,13 @@ export interface PrdRecord {
   preparation?: import("../engine/preparation-state.js").PreparationState;
   continuation?: import("../engine/continuation-state.js").ContinuationState;
   completedPlanCheck?: import("../engine/completed-plan-discovery.js").CompletedPlanCheck;
+  /** What GitHub last showed of a finished run's pull requests (schema 25; Kiln After Delivery "The Delivery Reading"). */
+  afterDelivery?: import("../engine/delivery-reading.js").AfterDeliveryState;
+  /**
+   * The retained baseline Continue activated this execution with (schema 25; Kiln After Delivery
+   * "The Plan Check", step 3): its completions with no waiver are this execution's carried-finished set.
+   */
+  continuationBaselineId?: string;
   liveControl?: { version: 1; revision: number; takeover: import("../live/target.js").TakeoverHold };
   planReconciliation?: import("../engine/plan-reconciliation.js").PlanReconciliationState;
   controlEpoch?: string;
@@ -361,7 +410,7 @@ export interface PrdRecord {
   prdDirectory: string;
   featureName: string;
   token: string;
-  settings: AgentSettings;
+  settings: Settings;
   refinementConfirmedAt?: string;
   startedAt?: string;
   setupCompletedAt?: string;
@@ -473,6 +522,8 @@ export interface CodexTurnExecution extends AgentChoice {
 
 export interface CodexRunFacts {
   intentAt: string;
+  /** The first item the model issued in this run, on the parent or a child thread (Kiln Phase Model Tiers, "When an Activity Starts"). */
+  firstResponseAt?: string;
   requested: AgentChoice;
   account: CodexAccountProvenance;
   profile: CodexExecutionProfile;
@@ -527,12 +578,26 @@ export interface SessionRecord {
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
-  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight";
+  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight" | "merge" | "plan_push";
   createdAt: string;
   /** The chosen alias, as passed to --model. */
   model: string;
   /** The concrete model ID the session's init event reported. */
   initModel?: string;
+  /** When the session got its first response from the model (Kiln Phase Model Tiers, "When an Activity Starts"). */
+  firstResponseAt?: string;
+  /** The refused run a launch at the end of a wait follows (Kiln Phase Model Tiers, "A Wait Before the Start"). */
+  relaunchOf?: { sessionId: string; run: number };
+  /**
+   * The launch decision this session was launched on (Kiln Phase Model Tiers, "The launch
+   * decision"), saved before its process starts: where the choice came from and, with the usage
+   * fallback on and a limit at or above the threshold, whether the fallback was used.
+   */
+  launch?: {
+    from: "model_defaults" | "changed";
+    claudeCodeMissing?: true;
+    fallback?: { used: boolean; limit: { agentId: AgentId; label: string; percent?: number }; threshold: number; first?: { agentId: AgentId; model: string; modelName: string; effort?: string }; reason?: string };
+  };
   modelDisplayName: string;
   /** The --effort Kiln passed; absent when it passed none. */
   effort?: Effort;
@@ -587,7 +652,7 @@ export function readPrdRecord(stateDirectory: string): PrdRecord | undefined {
       record.executionId ??= saved?.executionId ?? randomUUID();
       if (!saved) writeJsonAtomically(migrationPath, { executionId: record.executionId, original });
     }
-    return record === undefined ? undefined : migrateRecord(record);
+    return record === undefined ? undefined : migrateRecord(record, stateDirectory);
   } catch (error) { throw new Error(`Invalid record ${path}: ${(error as Error).message}`, { cause: error }); }
 }
 
@@ -611,7 +676,7 @@ interface SchemaOnePhase {
  * limit" on, as a new one does (UI-003). Schema 4 adds the Claude agent and moves saved choices
  * into its map without changing conversation keys. Written as schema 4 at its next write.
  */
-export function migrateRecord(record: PrdRecord): PrdRecord {
+export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRecord {
   assertContinuationState(record.continuation);
   assertPreparationState(record.preparation);
   if (record.liveControl && (record.liveControl.version !== 1 || !Number.isSafeInteger(record.liveControl.revision) || !validLiveTarget(record.liveControl.takeover?.target) || record.liveControl.takeover.target.executionId !== record.executionId || !record.liveControl.takeover.operationId || !record.liveControl.takeover.instructionId || !Number.isFinite(Date.parse(record.liveControl.takeover.requestedAt)) || !["pending", "released"].includes(record.liveControl.takeover.state))) throw new Error("Malformed takeover authority; no effects authorized.");
@@ -626,7 +691,7 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -652,12 +717,11 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   }
   if (record.completionAudits && (!record.executionId || !Number.isSafeInteger(record.completionAudits.revision) || !["required", "legacy_complete"].includes(record.completionAudits.policy) || !Array.isArray(record.completionAudits.activities) || !Array.isArray(record.completionAudits.evidence))) throw new Error("Invalid completion audit state.");
   if (record.schemaVersion < 5) { if (record.startedAt) record.executionId ??= randomUUID(); record.developmentAuthorization = restrictedAuthorization(); record.developmentDelivery = emptyDevelopmentLedger(); record.settings.developmentDeployments = { enabled: false, targets: [] }; }
-  if (record.schemaVersion < 4) record.settings = agentSettings(record.settings);
   if (record.schemaVersion < 8) record.billing = newBillingState(record.executionId ??= randomUUID());
+  // Schema 27: one choice for the PRD becomes each activity's (Kiln Phase Model Tiers, "Migration to schema 27").
+  if (record.schemaVersion < 27) migrateModelChoices(record, stateDirectory);
   assertBillingState(record.billing, record.executionId);
-  assertAgent(record.settings.agentId);
-  record.settings.selectionGeneration ??= 0;
-  for (const id of Object.keys(record.settings.agentChoices)) assertAgent(id);
+  assertModelChoices(record.settings.modelChoices);
   // Retire only the old confinement predicate; keep every independent recovery obligation.
   for (const facts of Object.values(record.phases)) {
     delete facts.outsideConfirmations;
@@ -690,6 +754,11 @@ export function migrateRecord(record: PrdRecord): PrdRecord {
   if (record.schemaVersion < 24) migrateLoops(record);
   assertAuditLoopSettings(record.settings.auditLoops);
   assertLedger(record.auditLoops);
+  // Schema 25: a check result saved under the old rules is dropped, so no stale "Plan needs reconciliation"
+  // or waiting panel renders before the first new check (Kiln After Delivery "Data Models and Upgrade").
+  if (record.schemaVersion < 25) delete record.completedPlanCheck;
+  // Schema 26 adds a repository's optional `shortName` (find repositories anywhere "Data Models"); every earlier entry was named by folder, so it is read as it was.
+  if (record.continuationBaselineId !== undefined && !/^[a-f0-9]{64}$/.test(record.continuationBaselineId)) throw new Error("Malformed continuation baseline reference.");
   // Schema 23 adds `preflight`; a record from earlier has none, so its preflight is not settled (build preflight "Upgrade").
   assertPreflightState(record.preflight);
   // Schema 20 adds `planReadAt`, written with the next plan read; the migration leaves it unset.
@@ -777,7 +846,7 @@ export function writePrdRecord(stateDirectory: string, record: PrdRecord): void 
   assertPreparationState(record.preparation);
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln before writing this record.");
   assertBillingState(record.billing, record.executionId);
-  assertAgent(record.settings.agentId);
+  assertModelChoices(record.settings.modelChoices);
   writeDurableMetadata(prdRecordPath(stateDirectory), record);
 }
 
@@ -811,5 +880,6 @@ export function sessionStorageKey(record: Pick<SessionRecord, "kind" | "phaseId"
     if (!record.activityId || !/^[a-zA-Z0-9-]+$/.test(record.activityId)) throw new Error("Preflight session needs a safe activity identity.");
     return preflightKey(record.activityId);
   }
+  if (record.kind === "merge") return MERGE_KEY;
   return record.kind === "pull_request" ? PR_PHASE_KEY : record.phaseId;
 }

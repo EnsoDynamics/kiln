@@ -5,7 +5,7 @@
 import { render } from "svelte/server";
 import { describe, expect, it } from "vitest";
 import type { ForYou } from "../../../src/audit/for-you.js";
-import { completeSnapshot, RUNNING_NOW } from "../../../src/test-support/sample-snapshots.js";
+import { closingAuditsSnapshot, completeSnapshot, RUNNING_NOW } from "../../../src/test-support/sample-snapshots.js";
 import Complete from "./Complete.svelte";
 import { headerState } from "../lib/progress.js";
 
@@ -40,6 +40,14 @@ describe("For you on the finished page (AC-ITEM-03)", () => {
     expect(html.indexOf('id="for-you"')).toBeGreaterThan(html.indexOf('<section class="pr'));
   });
 
+  it("names an audit that waived an item by what it does, never by round or continuation (Kiln After Delivery AC-AUDIT-01)", () => {
+    const snapshot = completeSnapshot();
+    snapshot.activities = closingAuditsSnapshot().activities;
+    snapshot.delivered = { loops: LOOPS, pullRequests: [], forYou: { items: [item("item-2", "test", "Test gap", "AC-RET-04 is Weak.", { waiver: { waiverId: "w9", activityKey: "audit-ta1-2", at: "2026-11-22T10:00:00.000Z", via: "browser", account: "alex" } })], afterDelivery: [] } };
+    const block = section(renderComplete(snapshot))!;
+    expect(block).toMatch(/Waived[\s\S]*waived at Fixing tests,[\s\S]*browser · alex/);
+    expect(block).not.toMatch(/Round|Continuation/);
+  });
   it("moves For you directly below the state header when it lists a critical finding (mockup screen 3b)", () => {
     const html = page({ items: [item("item-1", "critical", "Critical finding", "Card numbers are logged.")], afterDelivery: [] });
     expect(html.indexOf('id="for-you"')).toBeLessThan(html.indexOf('<section class="pr'));

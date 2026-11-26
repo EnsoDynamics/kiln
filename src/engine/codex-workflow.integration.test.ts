@@ -18,6 +18,7 @@ import type { EngineOptions } from "./engine.js";
 import { sessionFiles } from "../session/claude-session.js";
 import { appendJsonLine } from "../state/state-files.js";
 import { CodexOutputReader } from "../session/codex-output.js";
+import { CODEX_CHOICE, runPrdOn } from "../test-support/model-choices.js";
 
 let h: Harness;
 let f: ReturnType<typeof codexWorkFixture>;
@@ -34,8 +35,7 @@ async function setup(value: Record<string, unknown> = {}, engineOptions: Partial
   h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] }, ...engineOptions });
-  await h.engine.changeSettings({ agentId: "codex" });
-  await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   expect(h.engine.selectionError).toBeUndefined();
 }
 const set = (value: Record<string, unknown>) => f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...value });
@@ -45,6 +45,9 @@ it("shows a refused first launch at Needs you without scanning nonexistent histo
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const session = h.engine.latestSession("1")!;
   expect(session.runs[0]?.codex?.dispatch).toBeUndefined();
+  // Refused before any item the model issued: the activity hasn't started (Kiln Phase Model Tiers AC-PICK-04, AC-PICK-06).
+  expect(session.firstResponseAt).toBeUndefined();
+  expect(h.engine.record.phases["1"]!.startedSessionId).toBeUndefined();
   expect(buildSnapshot(h.engine)).toMatchObject({ feature: { state: "needs_you" }, needsYou: { kind: "selection", resumeOffered: false, checks: [{ facts: [expect.stringContaining("protected launch profile")] }] } });
   expect(f.calls().some(call => ["turn/start", "thread/read", "thread/turns/list"].includes(call.method ?? ""))).toBe(false);
   server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
@@ -106,19 +109,23 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   const session = h.engine.latestSession("1")!;
   expect(session).toMatchObject({ agentId: "codex", model: "gpt-6.1-sol", effort: "high", conversation: { threadId: expect.any(String) } });
   expect(session.initModel).toBeUndefined();
+  // The first item the model issued starts the activity on its Codex choice (Kiln Phase Model Tiers AC-PICK-04).
+  expect(session.firstResponseAt).toBeDefined();
+  expect(session.runs[0]?.codex?.firstResponseAt).toBe(session.firstResponseAt);
+  expect(h.engine.record.phases["1"]!.startedSessionId).toBe(session.sessionId);
   expect(session.codex?.launchIntent.writableRoots).toEqual([h.engine.workspaceFolder]);
   expect(buildSnapshot(h.engine).needsYou).toMatchObject({ agent: "Codex", resumeOffered: true, requested: { effort: "high" }, observed: [expect.objectContaining({ effort: "high" })], cleanupWarning: expect.stringContaining("Independently detached") });
   expect(h.engine.outputLines(session).some(line => line.source === "codex" && line.text.includes("Fixture final"))).toBe(true);
   expect(partials).toContain("Fixture streaming");
   expect(h.claudeCalls()).toEqual([]);
-  expect(await h.engine.changeSettings({ agentId: "claude_code" })).toMatchObject({ ok: false });
-  await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+  // Refusing a switch of the PRD's agent after Start (Codex support AC-AGENT-02) was replaced by per-activity choices (Kiln Phase Model Tiers AC-KEEP-01).
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
   expect(session.runs[0]?.billing).toMatchObject({ agentId: "codex", email: "proof@example.invalid", accountId: "proof-account", credits: [{ balance: "50", scope: "workspace" }] });
-  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch).toEqual(session.runs[0]?.billing);
+  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch?.codex).toEqual(session.runs[0]?.billing);
   set({ email: "next@example.test", accountId: "next-workspace" });
-  h.reopenFromDisk(); await h.engine.agents.refresh();
-  expect(buildSnapshot(h.engine).billing?.lastLaunch?.email).toBe("proof@example.invalid");
-  expect(buildSnapshot(h.engine).billing?.next?.email).toBe("next@example.test");
+  h.reopenFromDisk(); await h.engine.refreshAgents();
+  expect(buildSnapshot(h.engine).agents.find(entry => entry.inUse)?.billing?.lastLaunch?.email).toBe("proof@example.invalid");
+  expect(buildSnapshot(h.engine).agents.find(entry => entry.inUse)?.billing?.next?.email).toBe("next@example.test");
   expect((await h.engine.decide()).kind).toBe("needs_you");
   expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the saved context." })).toMatchObject({ ok: true }); await h.engine.settled();
   const resumed = h.engine.latestSession("1")!;
@@ -128,7 +135,7 @@ it("starts with only Codex, streams/saves native output, fixes the agent, and re
   expect(resumed.runs[0]?.billing?.email).toBe("proof@example.invalid");
   expect(resumed.runs[1]?.billing).toMatchObject({ email: "next@example.test", accountId: "next-workspace" });
   expect(resumed.runs[1]?.billing?.credits).toBeUndefined();
-  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch).toEqual(resumed.runs[1]?.billing);
+  expect(readPrdRecord(h.stateDirectory)?.billing?.lastLaunch?.codex).toEqual(resumed.runs[1]?.billing);
   expect(resumed.runs[1]?.codex?.requested).toEqual({ model: session.model, effort: "high" });
   const dispatches = f.calls().filter(call => call.method === "turn/start");
   expect(JSON.stringify(dispatches[1]?.params?.input)).toMatch(/Keep the saved context.*carry on/is);
@@ -218,14 +225,38 @@ it("removes resume actions for unavailable conversations while retaining the fre
   expect(readPrdRecord(h.stateDirectory)!.completedAt).toBeUndefined();
 });
 
+it("keeps the note that Claude Code isn't installed on a row while its launch is under way (Kiln Phase Model Tiers AC-DEFAULT-04)", async () => {
+  // Codex runs the turn and the model issues nothing, so Phase 1's session runs with no response yet.
+  await setup({ hang: true });
+  // Phase 1 is not changed for this PRD, so the Standard row's Claude Code first choice gives way to its Codex Fallback column choice.
+  // The Audits line names a choice the stand-in's Codex offers, as Start checks it too.
+  delete h.engine.record.settings.modelChoices.kept; h.engine.record.settings.modelChoices.audits = { agentId: "codex", model: "gpt-6.1-sol", effort: "high" }; h.engine.modelChoicesChanged();
+  // The row as it reads the moment the launch decision is saved, before its session exists.
+  const decisions = (h.engine as unknown as { decisions: Map<string, unknown> }).decisions;
+  let decided: unknown;
+  const unsubscribe = h.engine.onChange(() => { if (decided === undefined && decisions.has("1") && !h.engine.record.phases["1"]?.sessionIds.length) decided = buildSnapshot(h.engine).phases.find(row => row.id === "1")!.model; });
+  const starting = h.engine.start({ refinementConfirmed: true });
+  await waitFor(() => f.calls().some(call => call.method === "turn/start"));
+  unsubscribe();
+  expect(decided).toMatchObject({ state: "will_run_on", claudeCodeMissing: true, from: "model_defaults", choice: { agentId: "codex" } });
+  // The launch itself runs on the Standard row's Fallback column choice, Codex · GPT Sol · high, not the model's default effort (AC-PICK-01).
+  expect(f.calls().filter(call => call.method === "turn/start").map(call => [call.params?.model, call.params?.effort])).toEqual([["gpt-6.1-sol", "high"]]);
+  // Then while its session runs with no response yet.
+  expect(h.engine.startedSessionOf("1")).toBeUndefined();
+  const phase = buildSnapshot(h.engine).phases.find(row => row.id === "1")!;
+  expect(phase.model).toMatchObject({ state: "will_run_on", claudeCodeMissing: true, from: "model_defaults", choice: { agentId: "codex" } });
+  await h.engine.stop("sigint"); await starting.catch(() => undefined); await h.engine.settled();
+});
+
 it("interrupts a live Codex turn and checks before automatically resuming the same conversation", async () => {
-  await setup({ hang: true }); await h.engine.start({ refinementConfirmed: true });
+  // The model issued an item, so the phase has started and keeps its conversation (Kiln Phase Model Tiers AC-PICK-04).
+  await setup({ hang: true, itemFirst: true }); await h.engine.start({ refinementConfirmed: true });
   await waitFor(() => f.calls().some(call => call.method === "turn/start"));
   const report = await h.engine.stop("sigint"); await h.engine.settled();
   expect(report.grey).toContain("Independently detached");
   const original = h.engine.latestSession("1")!;
   expect(original.runs[0]).toMatchObject({ interruptedBy: "sigint", codex: { cleanup: "tracked_processes_stopped" } });
-  set({}); h.reopenFromDisk(); await h.engine.agents.refresh();
+  set({}); h.reopenFromDisk(); await h.engine.refreshAgents();
   expect((await h.engine.decide()).kind).toBe("resume");
   await h.engine.continue();
   expect(h.engine.latestSession("1")?.conversation?.threadId).toBe(original.conversation?.threadId);
@@ -279,7 +310,7 @@ it("follows a phase's own split through fresh Codex conversations and the final 
   set({ command, delayMs: 250 });
   expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
   await waitFor(() => f.calls().some(call => call.method === "turn/start"));
-  expect(await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" })).toEqual({ ok: true });
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
   await h.engine.settled();
   expect(buildSnapshot(h.engine).feature.state).toBe("complete");
   expect(h.engine.record.pullRequests?.[0]?.number).toBe(219);
@@ -294,24 +325,27 @@ it("follows a phase's own split through fresh Codex conversations and the final 
 });
 
 // AC-MODEL-01/03: schema-valid provider refusal, not an actual entitlement/quota proof.
-it("shows model access refusal without substituting a model or conversation on launch and resume", async () => {
+it("shows model access refusal without substituting a model, and launches the reply in a new session on the changed choice", async () => {
   const error = { message: "The requested model is unavailable on this account.", codexErrorInfo: "unauthorized", additionalDetails: null };
   await setup({ terminalError: error }); await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   const original = h.engine.latestSession("1")!;
   expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
   expect(original.runs[0]?.codex?.terminal).toEqual(expect.objectContaining({ status: "failed", error }));
   expect(h.engine.outputLines(original).some(line => line.source === "exit" && line.text.includes(error.message))).toBe(true);
-  await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
-  h.reopenFromDisk(); await h.engine.agents.refresh();
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" }); writePrdRecord(h.stateDirectory, h.engine.record);
+  h.reopenFromDisk(); await h.engine.refreshAgents();
+  // Refused before any response, the phase hasn't started: Resume with a reply launches a new
+  // session on its current choice and gives it the reply (Kiln Phase Model Tiers AC-PICK-07).
   expect(await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the original requested model." })).toMatchObject({ ok: true }); await h.engine.settled();
-  const resumed = h.engine.latestSession("1")!;
+  const relaunched = h.engine.latestSession("1")!;
   expect(buildSnapshot(h.engine).feature.state).toBe("needs_you");
-  expect(resumed.sessionId).toBe(original.sessionId);
-  expect(resumed.conversation?.threadId).toBe(original.conversation?.threadId);
-  expect(resumed.runs[1]?.codex?.terminal).toMatchObject({ status: "failed", error });
-  expect(resumed.runs.map(run => run.codex?.requested)).toEqual([{ model: "gpt-6.1-sol", effort: "high" }, { model: "gpt-6.1-sol", effort: "high" }]);
-  expect(f.calls().filter(call => call.method === "thread/start")).toHaveLength(1);
-  expect(f.calls().filter(call => call.method === "turn/start").map(call => [call.params?.model, call.params?.effort])).toEqual([["gpt-6.1-sol", "high"], ["gpt-6.1-sol", "high"]]);
+  expect(relaunched.sessionId).not.toBe(original.sessionId);
+  expect(relaunched.conversation?.threadId).not.toBe(original.conversation?.threadId);
+  expect(relaunched.runs[0]).toMatchObject({ cause: "launch", codex: { terminal: { status: "failed", error } } });
+  expect([original, relaunched].map(one => one.runs[0]?.codex?.requested)).toEqual([{ model: "gpt-6.1-sol", effort: "high" }, { model: "gpt-6.1-sol", effort: "low" }]);
+  expect(f.calls().filter(call => call.method === "thread/start")).toHaveLength(2);
+  expect(f.calls().filter(call => call.method === "turn/start").map(call => [call.params?.model, call.params?.effort])).toEqual([["gpt-6.1-sol", "high"], ["gpt-6.1-sol", "low"]]);
+  expect(JSON.stringify(f.calls().filter(call => call.method === "turn/start").at(-1)?.params)).toContain("Keep the original requested model.");
   expect(h.claudeCalls()).toEqual([]);
   server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
   chrome = await launchChrome(); const page = await chrome.open(server.address);
@@ -363,13 +397,13 @@ it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved o
     h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
     const program = "const fs=require('node:fs');fs.writeFileSync('codex-only.txt','Codex work\\n');setInterval(()=>{if(fs.existsSync('release-mixed-test'))process.exit(0)},20);setTimeout(()=>process.exit(2),20000)";
     set({ command: `${JSON.stringify(process.execPath)} -e '${program.replaceAll("'", "'\\''")}'` });
-    await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
-    const claudeChoices = structuredClone(other.record.settings.agentChoices);
+    await runPrdOn(h.engine);
+    const claudeChoices = structuredClone(other.record.settings.modelChoices);
     expect(await other.start({ refinementConfirmed: true })).toEqual({ ok: true });
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await waitFor(() => existsSync(join(other.worktreePath, "claude-only.txt")) && existsSync(join(h.engine.worktreePath, "codex-only.txt")));
     expect(h.engine.current).toBeDefined(); expect(other.current).toBeDefined();
-    await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+    await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
     writeFileSync(join(other.worktreePath, "release-mixed-test"), "release");
     writeFileSync(join(h.engine.worktreePath, "release-mixed-test"), "release");
     await Promise.all([h.engine.settled(), other.settled()]);
@@ -381,8 +415,8 @@ it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved o
     expect(readFileSync(join(other.worktreePath, "claude-only.txt"), "utf8")).toBe("Claude work\n");
     expect(existsSync(join(other.worktreePath, "codex-only.txt"))).toBe(false);
     expect(existsSync(join(h.engine.worktreePath, "claude-only.txt"))).toBe(false);
-    expect(other.record.settings.agentChoices).toEqual(claudeChoices);
-    expect(h.engine.record.settings.agentChoices.codex).toEqual({ model: "gpt-6.1-sol", effort: "low" });
+    expect(other.record.settings.modelChoices).toEqual(claudeChoices);
+    expect(h.engine.record.settings.modelChoices.kept).toEqual({ ...CODEX_CHOICE, effort: "low" });
     expect(codexSession.effort).toBe("high"); expect(claudeSession.model).toBe("opus");
     expect(h.engine.outputLines(codexSession).some(line => line.source === "codex" && line.text === "Fixture final turn-1")).toBe(true);
     expect(other.outputLines(claudeSession).some(line => line.source === "claude" && line.text === "Claude-only result")).toBe(true);
@@ -391,7 +425,7 @@ it("isolates simultaneous Claude and Codex PRDs, worktrees, settings and saved o
     expect(buildSnapshot(h.engine).needsYou?.agent).toBe("Codex");
     expect(buildSnapshot(other).needsYou?.agent).toBe("Claude Code");
     expect(h.claudeCalls()[0]?.cwd).toBe(other.worktreePath);
-    expect(readPrdRecord(h.stateDirectory)?.settings.agentId).toBe("codex");
+    expect(readPrdRecord(h.stateDirectory)?.settings.modelChoices.kept?.agentId).toBe("codex");
   } finally {
     if (existsSync(other.worktreePath)) writeFileSync(join(other.worktreePath, "release-mixed-test"), "release");
     if (existsSync(h.engine.worktreePath)) writeFileSync(join(h.engine.worktreePath, "release-mixed-test"), "release");

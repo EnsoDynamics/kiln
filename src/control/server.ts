@@ -1,3 +1,4 @@
+import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import { spoolResult, releaseResult } from "./spool.js";
 import { strictJson } from "../audit/storage.js";
 /** Versioned inspection and durable control API, behind the local server's unchanged authentication middleware. */
@@ -12,7 +13,7 @@ import { ControlFailure, failed, exitFor, result, errorFact, type Result } from 
 import { NO_CHECK_RUN } from "./commands.js";
 import { markCompletePreview } from "./waiver-facts.js";
 import { ResponseSpool } from "./spool.js";
-import { progressHeading, progressText, statusPause, type ProgressRow } from "./waiver-facts.js";
+import { progressHeading, progressText, statusLabels, statusPause, type ProgressRow } from "./waiver-facts.js";
 import type { Engine } from "../engine/engine.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
@@ -37,8 +38,8 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
   const route = (path: string, allowed: string[], handler: (c: Context) => Promise<Result> | Result) => {
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); } });
   };
-  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 2, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on"] }));
+  app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 3, kiln_version: "1.0.0", execution_id: current().record.executionId,
+    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "locate_repository", "after_delivery", "model"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -76,11 +77,14 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
           if (!(await reader.read()).done || expired) throw new ControlFailure("invalid_input", "Account refresh accepts no inputs and must finish within five seconds.", 2);
         } finally { clearTimeout(timeout); await reader.cancel(); reader.releaseLock(); }
       }
-      await Promise.all([current().agents.refresh(), current().refreshBilling()]);
+      await current().refreshAgents(); await current().refreshBilling();
       const saved = work(); const status = statusProjection(saved, current(), true);
       releaseResult(status);
       const facts = (status.account ?? null) as Record<string, unknown> | null;
-      const errors = current().agents.state.account?.error || current().agents.state.account?.limitsError || !current().agents.state.account?.limitsObservedAt || !current().agents.state.account ? [{ code: "provider_unavailable", message: "Provider account refresh is unavailable.", retryable: false, next_command: null, next_argv: null }] : [];
+      // `--refresh` reads every needed agent; provider_unavailable names each whose account or usage couldn't be read.
+      const engine = current();
+      const errors = (Object.keys(engine.neededBy()) as import("../state/records.js").AgentId[]).filter(id => { const account = engine.readers[id].state.account; return !engine.installed(id) || !account || !!account.error || !!account.limitsError || !account.limitsObservedAt; })
+        .map(id => ({ code: "provider_unavailable", message: `${AGENT_NAMES[id]} account refresh is unavailable.`, retryable: false, next_command: null, next_argv: null }));
       return send(c, result({ prd_path: saved.canonical, execution_id: saved.record.executionId!, data: facts }, [...status.errors, ...errors]));
     } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); }
   });
@@ -92,9 +96,10 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
       if (c.req.header("content-length") && Number(c.req.header("content-length")) !== 0) throw new ControlFailure("invalid_input", "check-for-new-phases accepts no inputs.", 2);
       const control = engine.newPhaseControls().find(one => one.name === "check-for-new-phases")!;
       if (!control.available) throw new ControlFailure(engine.currentlyComplete ? "busy" : "wrong_activity", control.reason!, 3);
-      const check = await engine.checkCompletedPlan();
+      // Does what the card's Check now does, and counts as a person's press (Kiln After Delivery AC-BOT-01).
+      const check = await engine.checkCompletedPlan({ press: true });
       const errors = check.status === "failed" ? [errorFact("check_unavailable", check.errors.join(" ") || "The check for new phases could not read the plan.")] : [];
-      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check) }, errors));
+      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check, engine.record.prdDirectory) }, errors));
     } catch (e) { return send(c, { ...failed(e), prd_path: canonical, execution_id: engine.record.executionId! }); }
   });
   app.post("/api/control/v1/commands", async c => {
@@ -127,6 +132,20 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
           const inputs = command.inputs as Record<string, unknown>;
           const errors = current().loopLimitErrors({ ...(typeof inputs.delivery_audit_loops === "number" ? { deliveryLimit: inputs.delivery_audit_loops } : {}), ...(typeof inputs.test_audit_loops === "number" ? { testLimit: inputs.test_audit_loops } : {}) });
           if (Object.keys(errors).length) throw new ControlFailure("invalid_input", Object.values(errors).join(" "), 2);
+        }
+        // `kiln model` is checked at admission as `POST /api/model` checks it (Kiln Phase Model Tiers, "Command line"): an id that
+        // isn't a phase Kiln builds is target_not_found, a choice its agent doesn't offer invalid_input, a phase that can't change now control_unavailable.
+        if (command.action === "model" && command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
+          const inputs = command.inputs as Record<string, unknown>;
+          const target = typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits" as const;
+          const choice = inputs.use_default === true ? "default" as const : typeof inputs.agent_id === "string" && typeof inputs.model === "string" ? { agentId: inputs.agent_id as AgentId, model: inputs.model, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) } : undefined;
+          if (choice && (target === "audits" || typeof target.phase === "string")) {
+            const engine = current();
+            const checked = engine.checkModelChange(target, choice);
+            if (!checked.ok) throw new ControlFailure(target !== "audits" && !engine.shownPlan.some(phase => phase.id === target.phase && phase.splitInto === undefined) ? "target_not_found" : "invalid_input", checked.reason, 2);
+            const refused = target === "audits" ? undefined : engine.modelChangeRefusal(target.phase, `Phase ${target.phase}`);
+            if (refused) throw new ControlFailure("control_unavailable", refused, 3);
+          }
         }
         // `kiln continue-with-phases` is the finished page's Continue with N phases: the journal's continuation acceptance (AC-BOT-01).
         if (command.action === "continue-with-phases") {
@@ -163,7 +182,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
  * phases does, and answers with its receipt, refusals included (AC-BOT-01).
  */
 async function continueWithPhases(engine: Engine, command: Record<string, unknown>): Promise<[Result, 202 | 400 | 409 | 503]> {
-  const answer = engine.commands.submitInternal({ command_id: command.command_id, execution_id: command.execution_id, status_token: command.status_token, action: "continuation-accept", inputs: { proposal_id: (command.inputs as Record<string, unknown>).proposal_id } });
+  const answer = engine.commands.submitInternal({ command_id: command.command_id, execution_id: command.execution_id, status_token: command.status_token, action: "continuation-accept", inputs: { proposal_id: (command.inputs as Record<string, unknown>).proposal_id, via: "command_line" } });
   return [answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400];
 }
 
@@ -207,7 +226,7 @@ function withProgress(answer: Result): ResponseSpool {
   if (!rows?.length) return body;
   const output = new ResponseSpool();
   try {
-    output.append(Buffer.from(`${progressText(heading, rows, statusPause(answer.live_control))}\n`));
+    output.append(Buffer.from(`${progressText(heading, rows, statusPause(answer.live_control), [], statusLabels(answer))}\n`));
     for (const chunk of body.chunks()) output.append(chunk);
     return output;
   } catch (error) { output.close(); throw error; }

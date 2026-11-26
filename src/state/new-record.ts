@@ -2,7 +2,7 @@ import { newBillingState } from "../billing/authority.js";
 import { emptyDevelopmentLedger, restrictedAuthorization } from "./development-delivery.js";
 // A PRD's record as Kiln first writes it, before Start.
 
-import { SCHEMA_VERSION, agentSettings, type AgentSettings, type PrdRecord, type Settings } from "./records.js";
+import { SCHEMA_VERSION, agentSettings, type PrdRecord, type Settings } from "./records.js";
 import { newToken } from "./state-files.js";
 import { randomUUID } from "node:crypto";
 
@@ -13,7 +13,7 @@ export interface NewRecordInput {
   github: string;
   prdDirectoryFromRoot: string;
   featureName: string;
-  settings: Settings | AgentSettings;
+  settings: Settings;
 }
 
 export function newPrdRecord(input: NewRecordInput): PrdRecord {

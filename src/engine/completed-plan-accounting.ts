@@ -16,13 +16,16 @@ import { judgedPhase } from "./plan-reading.js";
 import { PLAN_LIMIT, PlanCapacityError, completedPhaseScopeUnchanged, type PlanBaseline, type PlanSource } from "./plan-reconciliation.js";
 import { expandHome } from "./worktree-setup.js";
 import { findRepository, repositoriesParent } from "./repositories.js";
+import { reachedName, reachRecordNames, type NamedRepositoryRow, type PlanReach } from "./plan-repositories.js";
 import type { ContinuationInputObservation } from "./continuation-authority.js";
 
-export type LeafClassification = "carried_completed" | "new_unfinished" | "externally_verified" | "externally_unverified" | "unresolved_earlier_work";
+export type LeafClassification = "carried_completed" | "new_unfinished" | "externally_verified" | "externally_unverified";
 export interface CompletionRepositoryEvidence {
   repository: string; identity: string; revision: string; baseBranch: string; baseRevision: string;
   integration: "integrated_verified" | "blocked";
   merge?: { sourceHead: string; resultSha: string; url: string };
+  /** Shown to the page only, never saved: the repository's label (find repositories anywhere AC-FOLDER-02). */
+  label?: string;
 }
 export interface AccountedLeaf {
   id: string; title: string; file: string; classification: LeafClassification;
@@ -68,36 +71,48 @@ async function ancestor(git: GitContext, path: string, from: string, to: string)
   return result.exitCode === 0;
 }
 
-/** Completion is bound to the immutable scope, never to today's Closed line alone. */
-export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; observeInput?: (observation: ContinuationInputObservation) => void }): Promise<Omit<CompletionAccounting, "id">> {
+/** A finished phase is the completion record's; a phase Closed outside the run is bound to its immutable scope, never to today's Closed line alone. */
+export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; observeInput?: (observation: ContinuationInputObservation) => void; /** What a repository is shown by (find repositories anywhere AC-FOLDER-02). */ label?: (name: string) => string }): Promise<Omit<CompletionAccounting, "id">> {
   const { record, baseline, candidate, git, shared, verifiedAt } = input;
+  const label = input.label ?? ((name: string) => name);
   const extracted = externalCompletionReferences(candidate, record.prdDirectory);
   const prdName = record.repository.name;
   const leaves: AccountedLeaf[] = [];
   const bases = new Map<string, { path: string; branch: string; revision: string }>();
+  // Names reach their repository first, so the evidence, the scope and the revisions share Kiln's name (find repositories anywhere "Names").
+  let reach: Map<string, PlanReach> | undefined;
+  const reachedRows = new Map<string, NamedRepositoryRow>();
+  const kilnName = (written: string): { name: string } | { problem: string; unavailable?: true } => {
+    const reached = reach?.get(written);
+    if (reached === undefined) return { name: written };
+    const result = reachedName(written, prdName, reached);
+    if ("row" in result && result.row) reachedRows.set(result.name, result.row);
+    return result;
+  };
   for (const phase of leavesOf(candidate.plan)) {
-    const old = baseline.active.plan.phases.find(p => p.id === phase.id);
     const row: AccountedLeaf = { id: phase.id, title: phase.title, file: posix.join(record.prdDirectory, phase.fileName), classification: "new_unfinished", problems: [], repositories: [] };
     leaves.push(row);
-    if (!old && leavesOf(baseline.active.plan).some(previous => previous.closed && isAncestorOf(previous.id, phase.id))) {
-      row.classification = "unresolved_earlier_work";
-      row.problems.push(`Phase ${phase.id}: splitting earlier completed work is not a new addition.`); continue;
-    }
-    if (old) {
-      // A leaf completed or skipped on a waiver is carried while its scope is unchanged, Closed line or not (waivers "Continuation executions").
-      const waived = !!baseline.completions[phase.id]?.waiverId;
-      row.classification = (old.closed && phase.closed || waived) && !old.splitInto && completedPhaseScopeUnchanged(baseline.active, candidate, phase.id, baseline.completions[phase.id]?.scopeRepositories) ? "carried_completed" : "unresolved_earlier_work";
-      if (row.classification === "unresolved_earlier_work") row.problems.push(`Phase ${phase.id}: Earlier work cannot be carried forward with this scope and closure.`);
-      const completion = baseline.completions[phase.id];
-      if (completion?.doneAt) row.completedAt = completion.doneAt;
+    // A phase in the run's completion record stays finished whatever its document now says, and is
+    // never compared (Kiln After Delivery AC-BACK-01). Every other leaf not Closed is unfinished,
+    // wherever it sits, beneath a finished phase included.
+    const completion = baseline.completions[phase.id];
+    if (completion) {
+      row.classification = "carried_completed";
+      if (completion.doneAt) row.completedAt = completion.doneAt;
       continue;
     }
     if (!phase.closed) continue;
     row.classification = "externally_unverified";
     const owners = Object.entries(record.phases).filter(([id, facts]) => facts.sessionIds.length && judgedPhase(candidate.plan.phases, id)?.id === phase.id);
     const owner = owners[0];
-    const names = [...new Set([prdName, ...candidate.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories)])];
-    let references = extracted.references.filter(ref => ref.phaseId === phase.id);
+    reach ??= await reachRecordNames(git, record, shared, candidate.plan.phases);
+    const names = [prdName];
+    for (const written of candidate.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories)) {
+      const reached = kilnName(written);
+      if ("problem" in reached) { if (reached.unavailable) throw new Error(`source_unavailable: ${reached.problem} Restore repository access, then check again.`); row.problems.push(`Phase ${phase.id}: ${reached.problem}`); continue; }
+      if (!names.includes(reached.name)) names.push(reached.name);
+    }
+    let references = extracted.references.filter(ref => ref.phaseId === phase.id).map(ref => { const reached = kilnName(ref.repository); return "name" in reached ? { ...ref, repository: reached.name } : ref; });
     if (owner) {
       row.provenance = "retained_kiln";
       if (owners.length !== 1 || !owner[1].doneAt) {
@@ -116,25 +131,26 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
     for (const name of names) {
       const refs = references.filter(ref => ref.repository === name);
       if (!refs.length || new Set(refs.map(ref => ref.revision)).size !== 1) {
-        row.problems.push(`Phase ${phase.id}: ${name} needs one unambiguous immutable work revision under External completion evidence in the PRD or design.`); continue;
+        row.problems.push(`Phase ${phase.id}: ${label(name)} needs one unambiguous immutable work revision under External completion evidence in the PRD or design.`); continue;
       }
       let repo: { mainCheckoutPath: string; github: string; baseBranch: string } | undefined = record.repositories.find(entry => entry.name === name);
       if (!repo) {
-        const found = await findRepository(git, repositoriesParent(shared), name, phase.fileName);
+        const reachedRow = reachedRows.get(name);
+        const found = reachedRow?.found ? { ok: true as const, repository: reachedRow.found } : await findRepository(git, repositoriesParent(shared), name, phase.fileName);
         if (!found.ok) { if (found.unavailable) throw new Error(`source_unavailable: ${found.problem} Restore repository access, then check again.`); row.problems.push(`Phase ${phase.id}: ${found.problem}`); continue; }
         const baseBranch = record.settings.bases[name];
-        if (!baseBranch) { row.problems.push(`Phase ${phase.id}: configure the delivery base for ${name} before its completion can be verified.`); continue; }
+        if (!baseBranch) { row.problems.push(`Phase ${phase.id}: configure the delivery base for ${label(name)} before its completion can be verified.`); continue; }
         repo = { ...found.repository, baseBranch };
       }
       const path = name === prdName ? shared : expandHome(repo.mainCheckoutPath);
       const origin = parseGithubOrigin(await gitRead(git, path, ["config", "--get", "remote.origin.url"]));
       input.observeInput?.({ kind: "repository", repository: name, identity: origin ? `${origin.owner}/${origin.name}` : null });
-      if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { row.problems.push(`Phase ${phase.id}: ${name} origin no longer identifies ${repo.github}. Restore the recorded repository before checking again.`); continue; }
+      if (!origin || `${origin.owner}/${origin.name}`.toLowerCase() !== repo.github.toLowerCase()) { row.problems.push(`Phase ${phase.id}: ${label(name)} origin no longer identifies ${repo.github}. Restore the recorded repository before checking again.`); continue; }
       let base = bases.get(name);
       if (!base) { base = { path, branch: repo.baseBranch, revision: await remoteBase(git, path, repo.baseBranch, true, revision => input.observeInput?.({ kind: "base", repository: name, branch: repo.baseBranch, revision })) }; bases.set(name, base); }
       const revision = refs[0]!.revision;
       const exists = await runGit(git, path, ["cat-file", "-t", revision]);
-      if (exists.exitCode !== 0 || exists.stdout.trim() !== "commit") { row.problems.push(`Phase ${phase.id}: restore immutable commit ${revision} in ${name}, then check again.`); continue; }
+      if (exists.exitCode !== 0 || exists.stdout.trim() !== "commit") { row.problems.push(`Phase ${phase.id}: restore immutable commit ${revision} in ${label(name)}, then check again.`); continue; }
       if (name === prdName) {
         const original = await observeGitPlan(git, path, record.prdDirectory, revision);
         const originalPhase = leavesOf(original.plan).find(p => p.id === phase.id);
@@ -156,14 +172,12 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
           }
         }
       }
-      if (evidence.integration !== "integrated_verified") row.problems.push(`Phase ${phase.id}: ${name} work ${revision} is not verified in origin/${repo.baseBranch}. Supply verified integration evidence or reconcile an explicit preparation step in the dependent phase; a Closed line or closed PR is insufficient.`);
+      if (evidence.integration !== "integrated_verified") row.problems.push(`Phase ${phase.id}: ${label(name)} work ${revision} is not verified in origin/${repo.baseBranch}. Supply verified integration evidence or reconcile an explicit preparation step in the dependent phase; a Closed line or closed PR is insufficient.`);
     }
     // Accounting runs before the continuation starts, so every leaf it accepts was Closed before that run (AC-DEV-03).
     if (record.developmentAuthorization?.enabled && owesDevelopmentEvidence(record, phase.id, true)) checkDevelopment(record, candidate, phase, row.problems);
     if (!row.problems.length) { row.classification = "externally_verified"; row.verifiedAt = verifiedAt; }
   }
-  // Removed or split completed identities must remain represented in total accounting.
-  for (const old of leavesOf(baseline.active.plan)) if (!leaves.some(row => row.id === old.id)) leaves.push({ id: old.id, title: old.title, file: posix.join(record.prdDirectory, old.fileName), classification: "unresolved_earlier_work", repositories: [], problems: [`Phase ${old.id}: earlier completed leaf is absent or split in the current plan.`] });
   for (const [repository, base] of bases) {
     const revision = await remoteBase(git, base.path, base.branch, false);
     input.observeInput?.({ kind: "base", repository, branch: base.branch, revision });

@@ -9,7 +9,7 @@ export const METHOD_SKILLS = ["implement-from-requirements", "deliverable-review
 interface CodexModel { model: string; displayName: string; description: string; hidden?: boolean; selectable?: boolean; supportedReasoningEfforts: { reasoningEffort: string; description?: string }[]; defaultReasoningEffort?: string }
 export interface AccountResult { account?: { type: string; email?: string; planType?: string } | null; workspaceRouting?: { chatgptAccountId?: string } }
 interface Window { usedPercent?: number | null; windowDurationMins?: number | null; resetsAt?: number | null }
-interface Bucket { credits?: { balance?: string | null; hasCredits?: boolean; unlimited?: boolean } | null; limitId?: string | null; limitName?: string | null; primary?: Window | null; secondary?: Window | null; spendControlReached?: boolean | null; rateLimitReachedType?: string | null }
+interface Bucket { normalModelSlug?: string | null; credits?: { balance?: string | null; hasCredits?: boolean; unlimited?: boolean } | null; limitId?: string | null; limitName?: string | null; primary?: Window | null; secondary?: Window | null; spendControlReached?: boolean | null; rateLimitReachedType?: string | null }
 export interface CodexLimits { accountId?: string; ordinaryUsageAllowed?: boolean | null; rateLimitsByLimitId?: Record<string, Bucket> | null; rateLimits?: Bucket | null }
 interface Skill { name: string; path: string; enabled: boolean }
 export interface CodexMetadata { models?: ModelEntry[]; modelListError?: string; account: AgentAccount; blockers: string[]; /** As Codex reported it: the parsed version, or `unrecognised`. */ version?: string; /** The raw `--version` output. */ versionOutput?: string; skills: { cwd: string; entries: Skill[] }[] }
@@ -59,7 +59,9 @@ export function codexAccount(before: AccountResult, usage: CodexLimits | undefin
       const percent = typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent) ? window.usedPercent : undefined;
       const name = bucket.limitName ?? bucket.limitId ?? id;
       const label = `${name === id ? id : `${name} [${id}]`} · ${role}`;
-      result.limits.push({ id: `${id}:${role}`, kind: `${id}:${role}`, label, shortLabel: label, ...(percent === undefined ? {} : { percent }), nearLimit: percent !== undefined && percent >= 80,
+      result.limits.push({ id: `${id}:${role}`, kind: `${id}:${role}`, label, shortLabel: label,
+        ...(typeof bucket.normalModelSlug === "string" && bucket.normalModelSlug ? { modelSlug: bucket.normalModelSlug } : {}),
+        ...(typeof bucket.limitName === "string" && bucket.limitName ? { limitName: bucket.limitName } : {}), ...(percent === undefined ? {} : { percent }), nearLimit: percent !== undefined && percent >= 80,
         ...(typeof window.windowDurationMins === "number" ? { durationMinutes: window.windowDurationMins } : {}),
         ...(typeof window.resetsAt === "number" && Number.isFinite(window.resetsAt) && Math.abs(window.resetsAt * 1000) < 8.64e15 ? { resetsAt: new Date(window.resetsAt * 1000).toISOString() } : {}) });
     }

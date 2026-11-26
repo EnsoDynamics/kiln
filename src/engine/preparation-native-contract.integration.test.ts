@@ -47,7 +47,7 @@ async function fixture(mode: "default" | "explicit" | "escape" | "ordered" | "si
   git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: assign native check contract"); f.publish();
   h.engine.close();
   const make = () => new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
-  h.engine = make(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  h.engine = make(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   const release = join(h.sandbox.root, "release-native-contract");
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ waitForFile: release }, { result: "Prepared source submitted; native checks belong to the engine." }, { exit: 0 }] }, landingSession(), { actions: [{ result: "Next phase remains unfinished." }, { exit: 0 }] }] }));
   const checkResult = await h.engine.checkCompletedPlan();
@@ -130,7 +130,7 @@ nativeIt("holds a missing successful output record across restart without repeat
   expect(attempt.outcome).toBe("succeeded");
   expect(existsSync(attempt.output)).toBe(true); unlinkSync(attempt.output);
   h.engine.close(); h.engine = f.make(); await h.engine.prepare();
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   expect(await h.engine.start()).toMatchObject({ ok: true }); await h.engine.settled();
   expect(h.engine.record.preparation!.attempts).toHaveLength(1);
   expect(h.engine.record.preparation!.attempts[0]).toMatchObject({ id: attempt.id, outcome: "unresolved", reason: "The retained check output is missing or changed. Resume preparation to reconcile that check before repeating it." });

@@ -13,7 +13,7 @@ describe("current execution development setting",()=>{
     const html=page(false);expect(html).toContain("Allow early merges");expect(html).toContain("existing CI/CD may run before the PRD finishes");const option=html.match(/<label\b[^>]*>(?:(?!<\/label>)[\s\S])*Allow early merges(?:(?!<\/label>)[\s\S])*<\/label>/)?.[0];expect(option).toBeDefined();expect(option).not.toContain('checked=""');
   });
   it("identifies the actual repository and base branch for early merges",()=>{
-    const html=page(true);expect(html).toContain("github.com/acme/acme-shop");expect(html).toContain("May merge into");expect(html).toContain("Early merges may happen on approved repository branches");expect(html).not.toContain("Never merge, deploy, or touch other branches");
+    const html=page(true);expect(html).toContain("github.com/acme/acme-shop");expect(html).toContain("May merge into");expect(html).toContain("Early merges may happen on approved repository branches");expect(html).not.toContain("Never merge, deploy, or touch other branches");expect(html).toContain("Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page");expect(html).toContain("documents to develop only when you press Continue on the finished page");
   });
 });
 
@@ -100,11 +100,13 @@ it.each([false, true])("shows exact saved authority in ongoing settings for mult
   expect(html).toContain("Early merges allowed");
   expect(html).toContain("github.com/acme/returns-api · develop · Existing scope: returns-api-dev");
   expect(html).toContain("Required checks and reviews still apply; the repository’s existing CI/CD may run before the PRD finishes");
-  expect(html).not.toContain("never merges, deploys");
+  expect(html).not.toContain("never deploys or touches other branches");
   expect(html).toContain(multi ? "Required early merges may reach approved repository branches" : "approved early merges and any remaining review PRs target");
+  // With early merges on, the merge and the plan push are still stated (Kiln After Delivery AC-MERGE-08).
+  if (multi) expect(html).toContain("Remaining work stays open for review, and Kiln merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page. In the PRD’s repository, it pushes this PRD’s documents to its base only when you press Continue there.");
   const restricted = words(runningPage(multi ? runningRepositoriesSnapshot() : runningSnapshot()));
   expect(restricted).not.toContain("Early merges allowed");
-  expect(restricted).toContain(multi ? "It never merges, deploys, or touches other branches" : "one PR into");
+  expect(restricted).toContain(multi ? "never deploys or touches other branches" : "one PR into");
 });
 
 it.each(["Merging", "Deploying", "Verifying", "Implementing"])("renders observed %s activity independently of historical Push and Follow-up", label => {
@@ -194,10 +196,22 @@ it("renders all-delivered completion without an invented final session or review
   expect(text).not.toContain("Ready for review");
   expect(text).not.toContain("Final pull request");
   expect(text).not.toContain("Finalize delivery");
-  expect(text).toContain(snapshot.settings.agent);
+  expect(text).toContain("Claude Code");
   expect(text).toContain("Store credit");
   expect(text).toContain(snapshot.settings.worktreePath);
   expect(text).toContain("Kiln keeps it until you remove it");
+});
+
+it("shows each repository's result by its label, not Kiln's name for it (find repositories anywhere AC-FOLDER-02)", () => {
+  const snapshot = delivered(completeRepositoriesSnapshot());
+  snapshot.developmentDelivery!.repositoryResults = [
+    { repository: "admin", label: "acme/admin", state: "delivered", deliveredCheckpointIds: [], reasons: [] },
+    { repository: "acme-labs+admin", label: "acme-labs/admin", state: "unresolved", deliveredCheckpointIds: [], reasons: ["acme-labs/admin: uncommitted work remains."] },
+  ];
+  const text = words(completePage(snapshot));
+  expect(text).toContain("acme/admin: delivered");
+  expect(text).toContain("acme-labs/admin: unresolved");
+  expect(text).not.toContain("acme-labs+admin");
 });
 
 it("renders mixed repositories with separate historical merges and current review links and a real finalization row", () => {
@@ -221,8 +235,22 @@ it("renders mixed repositories with separate historical merges and current revie
   expect(text).toContain("Remaining work ready for review");
   expect(text).toContain("Finalize delivery");
   expect(text).not.toContain("Final pull request");
-  expect(text).toContain(snapshot.settings.agent);
+  expect(text).toContain("Claude Code");
   expect(text).toContain("Store credit");
   expect(text).toContain("customer-returns");
   expect(text).toContain("Kiln keeps the folder and its worktrees until you remove them");
+});
+
+it("names each repository by its label in the Needs you stop's Allow merging into list (find repositories anywhere AC-FOLDER-02)", () => {
+  const snapshot = enabled(needsYouMessageSnapshot());
+  const row = snapshot.repositories[0]!;
+  snapshot.repositories = [
+    { ...row, name: "admin", label: "acme/admin", github: "github.com/acme/admin", baseBranch: "develop" },
+    { ...row, name: "acme-labs+admin", label: "acme-labs/admin", github: "github.com/acme-labs/admin", baseBranch: "develop" },
+  ];
+  const text = words(render(NeedsYou, { props: { snapshot, now: RUNNING_NOW } }).body);
+  const section = text.slice(text.indexOf("Allow merging into a selected branch"));
+  expect(section).toContain("acme/admin");
+  expect(section).toContain("acme-labs/admin");
+  expect(text).not.toContain("acme-labs+admin");
 });

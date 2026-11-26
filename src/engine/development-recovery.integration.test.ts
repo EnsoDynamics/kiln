@@ -28,8 +28,8 @@ it("resumes only description repair after every source change is delivered, then
   // deterministic here; the actual provider continuation is proved by the kept runner.
   f.h.tools.gh = f.context.gh;
   Object.assign(f.h.env, f.context.env);
-  writeFileSync(f.h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [] }, { actions: [] }] }));
-  const engine = f.h.reopen(); await engine.agents.refresh();
+  writeFileSync(f.h.scenarioPath, JSON.stringify({ sessions: [landingSession(), { actions: [{ text: "Checking the delivery." }] }, { actions: [] }] }));
+  const engine = f.h.reopen(); await engine.refreshAgents();
   await engine.checkAgain(recoveryRequest(engine, "verify")); await engine.settled();
   expect(engine.stoppedPhaseKey()).toBe("pr");
   const session = engine.latestSession("pr")!;
@@ -65,7 +65,7 @@ it("resumes only description repair after every source change is delivered, then
   f.pull.body+=`\nReview: ${review.html_url}`;
   f.responses[`repos/acme/acme-shop/pulls?state=open&head=${encodeURIComponent("acme:"+f.checkpoint.featureBranch)}&base=develop&per_page=100&page=1`]={body:[review]};
   f.responses["repos/acme/acme-shop/pulls/2"]={body:review}; f.save();
-  const reopened=f.h.reopenFromDisk(); await reopened.agents.refresh();
+  const reopened=f.h.reopenFromDisk(); await reopened.refreshAgents();
   expect(await reopened.decide()).toMatchObject({kind:"needs_you",phaseKey:"pr"});
   expect(reopened.currentlyComplete).toBe(false);
   expect(reopened.record.completedAt).toBe(completedAt);
@@ -91,7 +91,7 @@ it("resumes only description repair after every source change is delivered, then
 it("completes delivered work without inventing a finalization session or row", async () => {
   const f=fixture=await deliveryFixture(); f.synchronize();
   f.h.tools.gh=f.context.gh; Object.assign(f.h.env,f.context.env);
-  const engine=f.h.reopen(); await engine.agents.refresh();
+  const engine=f.h.reopen(); await engine.refreshAgents();
   const calls=f.h.claudeCalls().length;
   await engine.checkAgain(recoveryRequest(engine, "verify")); await engine.settled();
   expect(engine.currentlyComplete).toBe(true);

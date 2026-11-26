@@ -43,9 +43,8 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'comet', folderNam
 const settings = defaultSettings(paths, { branches: new Map([['develop', baseCommit]]), defaultBranch: 'develop' });
 Object.assign(settings, { featureBranch: 'develop', worktreePath: repository, workspaceFolder: root, keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: 'fictional/comet', featureName: paths.featureName, settings });
-record.settings.agentId = agentId;
 const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus';
-record.settings.agentChoices[agentId] = { model, effort: 'high' };
+record.settings.modelChoices.kept = { agentId, model, effort: 'high' };
 const session = { schemaVersion: 4, executionId: record.executionId, agentId, sessionId: randomUUID(), phaseId: '1', kind: 'phase', createdAt: new Date().toISOString(), model, modelDisplayName: model, effort: 'high', workingDirectory: repository, runs: [], sleeps: [], steps: [] };
 const oldMarker = `earlier-conversation-${randomUUID()}`;
 writeSessionRecord(stateDirectory, session);
@@ -72,7 +71,7 @@ const engine = new Engine({ paths, tools: { git: 'git', gh: 'gh', claude: 'claud
 let server;
 try {
   assert.equal((await engine.prepare()).ok, true);
-  for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+  for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
   const check = await engine.checkCompletedPlan(); assert.equal(check.status, 'available', JSON.stringify(check));
   for (let port = agentId === 'codex' ? 41960 : 41970; port < (agentId === 'codex' ? 41970 : 41980); port++) if (await isPortFree(port)) { server = await startLocalServer({ engine, port, folderName: paths.folderName, featureName: paths.featureName, token: record.token }); server.proofOrigin = `http://127.0.0.1:${port}`; break; }
   assert.ok(server);

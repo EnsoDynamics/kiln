@@ -30,6 +30,8 @@ export interface AdmissionContext {
   closed?: { delivery: boolean; test: boolean };
   /** While a waived plan problem stops the plan from reading, the phases Normal Order uses; snapshots read them (waivers AC-WAIVE-04). */
   planPhases?: import("../plan/phase-plan.js").PlannedPhase[];
+  /** The label a repository is shown by, given Kiln's name for it (find repositories anywhere AC-FOLDER-02). Absent: the name. */
+  label?(name: string): string;
 }
 export function activeAudit(record: PrdRecord): AuditActivity {
   const activity = record.completionAudits?.activities.at(-1);
@@ -79,13 +81,14 @@ export async function repositoryChecks(context: AdmissionContext): Promise<Check
   const committed: CheckItem[] = []; const pushed: CheckItem[] = [];
   const item = (kind: CheckItem["kind"], subject: string, text: string): CheckItem => ({ kind, subject, text, against: "" });
   for (const repo of context.record.repositories) {
-    const status = await gitText(context.git, repo, ["status", "--porcelain"]);
-    if (status.trim()) committed.push(item("repository_work", repo.name, `${repo.name}: uncommitted or untracked work remains.`));
-    const branch = (await gitText(context.git, repo, ["branch", "--show-current"])).trim();
-    if (branch !== context.record.settings.featureBranch) committed.push(item("other", repo.name, `${repo.name}: assigned branch changed.`));
-    const head = (await gitText(context.git, repo, ["rev-parse", "HEAD"])).trim();
-    const origin = await gitText(context.git, repo, ["ls-remote", "--heads", "origin", `refs/heads/${branch}`]);
-    if (origin.trim().split(/\s/)[0] !== head) pushed.push(item("repository_work", repo.name, `${repo.name}: current head is not pushed to its assigned branch.`));
+    const label = context.label?.(repo.name) ?? repo.name;
+    const status = await gitText(context.git, repo, ["status", "--porcelain"], label);
+    if (status.trim()) committed.push(item("repository_work", repo.name, `${label}: uncommitted or untracked work remains.`));
+    const branch = (await gitText(context.git, repo, ["branch", "--show-current"], label)).trim();
+    if (branch !== context.record.settings.featureBranch) committed.push(item("other", repo.name, `${label}: assigned branch changed.`));
+    const head = (await gitText(context.git, repo, ["rev-parse", "HEAD"], label)).trim();
+    const origin = await gitText(context.git, repo, ["ls-remote", "--heads", "origin", `refs/heads/${branch}`], label);
+    if (origin.trim().split(/\s/)[0] !== head) pushed.push(item("repository_work", repo.name, `${label}: current head is not pushed to its assigned branch.`));
   }
   const row = (name: string, items: CheckItem[], passing: string): CheckResult => items.length ? { name, passed: false, facts: items.map(one => one.text), items } : { name, passed: true, facts: [passing] };
   return [row("Everything committed", committed, "Every assigned worktree is clean."), row("Pushed", pushed, "Every assigned head matches origin.")];
@@ -117,7 +120,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
   if (body.reportPath !== activity.reportPath) throw new AuditRefusal("outside_execution", "Only the assigned audit report path may be submitted.", 403);
   let path: string; let bytes: string;
   try {
-    path = assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath);
+    path = assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath, context.label?.(context.record.repository.name));
     if (statSync(path).size > REPORT_LIMIT) throw new AuditRefusal("report_too_large", `Maximum report size is ${REPORT_LIMIT} bytes.`, 413);
     bytes = readFileSync(path, "utf8");
   } catch (error) {
@@ -141,7 +144,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     // Kiln captures what the audit left behind; the session never declares a snapshot (AC-NEUTRAL-02).
     const current = await captureSnapshot({ ...context, activity, now: new Date().toISOString() });
     activity.snapshots.push(store.put(current)); snapshotId = current.id;
-    const outstanding = personItems(context.stateDirectory, context.record.completionAudits!.activities, activity.sequence, store).outstanding;
+    const outstanding = personItems(context.stateDirectory, context.record, activity.sequence, store).outstanding;
     const validated = validateReport(raw, { record: context.record, activity, initial: store.read<WorkSnapshot>(activity.snapshots[0]!), current, outstanding, waivers: context.record.waivers ?? [] });
     checks.push({ name: RESULT_CHECK, passed: true, facts: [`Outcome ${validated.report.outcome}: ${validated.report.summary}`.slice(0, 600)] });
     checks.push(...await repositoryChecks(context));
@@ -184,7 +187,7 @@ export async function auditCurrentness(context: AdmissionContext, activity: Audi
   requireAudit(effective, "Audit result has not been accepted.", "missing_evidence");
   const checked = effective.snapshot();
   if (effective.reportDigest !== undefined) {
-    const portable = readFileSync(assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath), "utf8");
+    const portable = readFileSync(assignedPath(repositoryFor(context.record, context.record.repository.name), activity.reportPath, context.label?.(context.record.repository.name)), "utf8");
     requireAudit(hashBytes(portable) === effective.reportDigest, "Latest portable audit report changed.", "stale_snapshot");
   }
   const current = await captureSnapshot({ ...context, activity, now: new Date().toISOString(), retainedClassification: true }, checked.testPaths);

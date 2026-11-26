@@ -76,7 +76,7 @@ describe.skipIf(process.platform !== "darwin").each(cases)("$kind $channel $acti
     }
     mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
     const ready = join(h.sandbox.root, "ready"); const release = join(h.sandbox.root, "release");
-    const paused = { actions: [{ touch: ready }, ...(recovery === "takeover" ? [{ waitForFile: release }, { result: "Yielded with unfinished work." }] : [{ liveMessages: 1, uncorrelated: true, exitAfter: true }])] };
+    const paused = { actions: [{ text: "Working on the activity." }, { touch: ready }, ...(recovery === "takeover" ? [{ waitForFile: release }, { result: "Yielded with unfinished work." }] : [{ liveMessages: 1, uncorrelated: true, exitAfter: true }])] };
     // Only the prerequisite delivery audit completes; the assigned audit remains unfinished.
     const ordinary = { actions: [{ auditReport: {} }, { result: "Prior audit recorded." }] };
     const resumed = { actions: [{ touch: join(h.sandbox.root, "resumed") }, { result: "Continued the assigned activity, still unfinished." }] };

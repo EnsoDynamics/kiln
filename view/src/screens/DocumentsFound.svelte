@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { mergeAllowedLine, NEVER_LINE, pushAllowedLine } from "../../../src/engine/authority-statement.js";
   import BusyStatus from "../components/BusyStatus.svelte";
-  import BillingPanel from "../components/BillingPanel.svelte";
+  import BillingPanels from "../components/BillingPanels.svelte";
   // Documents found (docs/design/mockups/kiln-screen-documents-found.html): what Kiln found
   // beside the PRD (PRD AC-START-04), the PRD's settings, changeable before Start and saved as
   // they are made (AC-START-06), the refinement confirmation (AC-START-05), what Kiln may and
@@ -21,13 +22,21 @@
   import NeedsYouThere from "../components/NeedsYouThere.svelte";
   import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import type { RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
-  import type { Effort, Settings } from "../../../src/state/records.js";
+  import type { Settings } from "../../../src/state/records.js";
+  import TierTag from "../components/TierTag.svelte";
+  import RowModel from "../components/RowModel.svelte";
+  import ModelLines from "../components/ModelLines.svelte";
+  import type { ModelView, TierView } from "../../../src/engine/activity-models.js";
+  import { rowModelLine, tierCountsLine } from "../lib/models.js";
   import AccountPanel from "../components/AccountPanel.svelte";
+  import { inUseAgent, mergeAgent, neededAgents } from "../lib/agents.js";
   import CodeText from "../components/CodeText.svelte";
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import FeatureHeader from "../components/FeatureHeader.svelte";
-  import { changeSettings, start, type PageConfig } from "../lib/api.js";
+  import { changeRepositoryLocation, changeSettings, locateRepository, start, type PageConfig } from "../lib/api.js";
+  import RepositoryQuestion from "../components/RepositoryQuestion.svelte";
   import {
+    accountHeading,
     accountLines,
     adoptedWorktreeHelp,
     assumptionsLine,
@@ -36,16 +45,12 @@
     startCountLine,
     designLine,
     linkedDocumentsLine,
-    EFFORT_LABELS,
-    EFFORTS,
-    effortDisabled,
-    modelOptions,
     planCountLine,
     planRows,
     prdLine,
     startState,
   } from "../lib/documents-found.js";
-  import { addedLabel } from "../lib/progress.js";
+  import { addedLabel, countWord, repositoryLabel } from "../lib/progress.js";
   import AuditLoopSettings from "../components/AuditLoopSettings.svelte";
   import { shownLoopSettings } from "../lib/audit-loops.js";
 
@@ -60,12 +65,19 @@
   // The planned Preflight row, above the activity it comes before, or after the phases (build preflight AC-PREFLIGHT-08).
   const preflightBefore = $derived(snapshot.preflight?.planned?.before);
   const planHas = (list: typeof rows, id: string): boolean => list.some(row => row.id === id || planHas(row.children, id));
-  const account = $derived(accountLines(snapshot.account));
-  const models = $derived(modelOptions(snapshot));
+  // Each agent the run can use, its account and readiness (Kiln Phase Model Tiers AC-AGENTS-01 to 03).
+  const agents = $derived(neededAgents(snapshot));
+  const fallbackWarning = $derived(settings.models.fallback.warning);
+  // A fallback-only agent's problem is told by the warning instead.
+  const readiness = $derived(agents.filter((agent) => agent.readinessErrors?.length && agent.agentId !== fallbackWarning?.agentId));
+  // Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01): the tier counts, under "Chosen for each phase".
+  const tierLine = $derived(tierCountsLine(settings.models.tiers));
+  const preflightModel = $derived(snapshot.preflight?.planned?.model);
   const baseChoices = $derived(settings.baseBranches && settings.baseBranches.length > 0 ? settings.baseBranches : settings.baseBranch ? [settings.baseBranch] : []);
   const fixedLocked = $derived(!connected || documents.starting === true);
   const multi = $derived(snapshot.feature.multiRepository);
   const repositoryName = $derived(snapshot.feature.repositoryName);
+  const prdLabel = $derived(snapshot.feature.repositoryLabel);
   // The PRD's repository's row: its base is fixed once Start set it up.
   const prdRow = $derived(snapshot.repositories.find((row) => row.kind === "prd"));
   const startFrom = $derived(documents.start);
@@ -86,6 +98,26 @@
   let pressing = $state(false);
   let startReason = $state<string | undefined>(undefined);
   const startNow = $derived(startState(snapshot, refined, connected));
+  // While a row asks, the status line says what to tell Kiln first (find repositories anywhere "Asking Before Start").
+  const asking = $derived(snapshot.repositories.filter((row) => row.question !== undefined));
+  const lead = $derived(asking.length === 0
+    ? "Review what Kiln found and how it will deliver, then start."
+    : asking.length > 1
+      ? `Tell Kiln where ${countWord(asking.length)} repositories are, then review and start.`
+      : asking[0]!.question!.kind === "which" ? "Tell Kiln which checkout to use, then review and start." : "Tell Kiln where one repository is, then review and start.");
+
+  /** An answer to a row's question, through POST /api/repository-location (AC-ASK-03). */
+  async function answer(row: RepositoryRow, folder: string): Promise<{ ok: boolean; reason?: string }> {
+    const result = await locateRepository(config, row.question!.repository, folder);
+    return result.ok ? { ok: true } : { ok: false, reason: result.reason };
+  }
+
+  /** Change: the row asks again, its remembered answer standing until another is accepted (AC-ASK-05). */
+  async function change(row: RepositoryRow) {
+    startReason = undefined;
+    const result = await changeRepositoryLocation(config, row.addressPath);
+    if (!result.ok) startReason = result.reason;
+  }
 
   // Text fields keep what the person types; the saved value comes back with the next snapshot.
   // A folder is shown with its trailing slash, as the mockup draws it; Kiln reads it either way.
@@ -96,7 +128,7 @@
 
   async function save(change: Partial<Settings> & { start?: { from: "new" | "existing"; bringUpToDate: boolean } }) {
     startReason = undefined;
-    const answer = await changeSettings(config, { ...change, ...((change.model !== undefined || change.effort !== undefined) ? { agentId: settings.agentId ?? "claude_code", selectionGeneration: settings.selectionGeneration ?? 0 } : {}) });
+    const answer = await changeSettings(config, change);
     if (!answer.ok) startReason = answer.reason;
   }
 
@@ -129,10 +161,6 @@
     save({ start: { from: "existing", bringUpToDate: ticked } });
   }
 
-  function chooseEffort(effort: Effort) {
-    if (!effortDisabled(settings, effort)) save({ effort });
-  }
-
   async function pressStart() {
     if (!startNow.enabled || pressing) return;
     pressing = true;
@@ -145,9 +173,9 @@
 </script>
 
 <main>
-  <FeatureHeader repositoryName={snapshot.feature.repositoryName} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name}>
+  <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name}>
     <span class="pill">Not started</span>
-    <span class="lead">Review what Kiln found and how it will deliver, then start.</span>
+    <span class="lead">{lead}</span>
   </FeatureHeader>
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
 
@@ -229,12 +257,16 @@
       </ul>
       <div class="checks">
         {#each documents.checks as passed (passed.name)}
-          {@const named = passed.name.split(` ${repositoryName}`)}
-          {#if !passed.passed}
+          {@const named = passed.name.split(` ${prdLabel}`)}
+          {#if passed.locate}
+            <span class="locate"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--amber)" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 4.8v3.8M8 11.2v.2"></path></svg><span>{passed.name}</span></span>
+          {:else if !passed.passed}
             <!-- A start check that failed on a page a reset built, in kiln run's words (run restart AC-RESET-04). -->
             <span class="failed"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="var(--amber)" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"></path></svg>{passed.text ?? passed.name}</span>
+          {:else if passed.name === "Repositories found on this computer"}
+            <span class="passed">{@render check(12)}<span>{passed.name}</span></span>
           {:else if multi && named.length === 2 && (named[1] === "" || named[1]!.startsWith(" "))}
-            <span class="passed">{@render check(12)}<span>{named[0]} <span class="mono check-name">{repositoryName}</span>{named[1]}</span></span>
+            <span class="passed">{@render check(12)}<span>{named[0]} <span class="mono check-name">{prdLabel}</span>{named[1]}</span></span>
           {:else}
             <span class="passed">{@render check(12)}{passed.name}</span>
           {/if}
@@ -271,9 +303,9 @@
           {/if}
           {#if settings.fieldErrors.workspaceFolder}<span class="message">{settings.fieldErrors.workspaceFolder}</span>{/if}
           {#if existing && startFrom?.workspaceFolder}
-            <span class="help">The branch's worktrees are in this folder, so Kiln works here: {startFrom.repositories.filter((repository) => repository.worktree).map((repository) => `${repository.name} with ${repository.worktree!.uncommittedFiles === undefined ? "an unknown number of" : repository.worktree!.uncommittedFiles === 0 ? "no" : repository.worktree!.uncommittedFiles} uncommitted ${repository.worktree!.uncommittedFiles === 1 ? "file" : "files"}`).join(", ")}. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+            <span class="help">The branch's worktrees are in this folder, so Kiln works here: {startFrom.repositories.filter((repository) => repository.worktree).map((repository) => `${repositoryLabel(snapshot, repository.name)} with ${repository.worktree!.uncommittedFiles === undefined ? "an unknown number of" : repository.worktree!.uncommittedFiles === 0 ? "no" : repository.worktree!.uncommittedFiles} uncommitted ${repository.worktree!.uncommittedFiles === 1 ? "file" : "files"}`).join(", ")}. These are set once, before the first phase; keep-awake can be changed later.</span>
           {:else}
-            <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; model, effort and keep-awake can be changed later.</span>
+            <span class="help">Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn. These are set once, before the first phase; keep-awake can be changed later.</span>
           {/if}
         </div>
 
@@ -291,12 +323,22 @@
           <ul aria-labelledby="repos-h" class="repos">
             {#each snapshot.repositories as row (row.name)}
               <li>
-                <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.name}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}{#if existing && startRepository(row.name)?.hasBranch}<span class="tag">PR into</span>{/if}</span>
-                <select id="base-{row.name}" class="mono" value={row.baseBranch} disabled={fixedLocked || row.fixed} onchange={(event) => chooseBase(row, event.currentTarget.value)}>
-                  {#if row.baseBranch === ""}<option value=""></option>{/if}
-                  {#each rowChoices(row) as base (base)}<option value={base}>{base}</option>{/each}
-                </select>
+                <div class="repo-line">
+                  <span class="repo-text">
+                    <span class="repo"><label for="base-{row.name}" class="mono repo-name">{row.label}</label>{#if row.kind === "prd"}<span class="tag">PRD’s repository</span>{:else if row.addedInPhase !== undefined}<span class="tag">{addedLabel(row.addedInPhase)}</span>{/if}{#if existing && startRepository(row.name)?.hasBranch}<span class="tag">PR into</span>{/if}{#if row.located === "answer" && !row.question}<span class="told">You told Kiln where this is · <button type="button" class="change" disabled={fixedLocked || documents.checksFailed} onclick={() => change(row)}>Change</button></span>{/if}</span>
+                    <span class="where"><span class="mono">{row.addressPath}</span>{#if row.checkoutFolder}<span class="dot">{" · "}</span><span class="mono">{row.checkoutFolder}</span>{/if}</span>
+                  </span>
+                  {#if row.question}
+                    <select id="base-{row.name}" class="mono" disabled><option value="">—</option></select>
+                  {:else}
+                    <select id="base-{row.name}" class="mono" value={row.baseBranch} disabled={fixedLocked || row.fixed} onchange={(event) => chooseBase(row, event.currentTarget.value)}>
+                      {#if row.baseBranch === ""}<option value=""></option>{/if}
+                      {#each rowChoices(row) as base (base)}<option value={base}>{base}</option>{/each}
+                    </select>
+                  {/if}
+                </div>
                 {#if row.fieldErrors.baseBranch}<span class="message row-message">{row.fieldErrors.baseBranch}</span>{/if}
+                {#if row.question}{#key row.question.kind + row.question.checkouts.length + (row.question.field ?? "")}<RepositoryQuestion question={row.question} disabled={fixedLocked} onanswer={(folder) => answer(row, folder)} />{/key}{/if}
               </li>
             {/each}
           </ul>
@@ -312,7 +354,7 @@
             <input id="worktree" type="text" class="mono" value={drafts.worktreePath ?? settings.worktreePath} disabled={fixedLocked || settings.fixed.worktreePath} oninput={(event) => typed("worktreePath", event.currentTarget.value)} onblur={() => committed("worktreePath")} />
           {/if}
           {#if settings.fieldErrors.worktreePath}<span class="message">{settings.fieldErrors.worktreePath}</span>{/if}
-          <span class="help">{adopted ? adoptedWorktreeHelp(adopted.uncommittedFiles) : "One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; model, effort and keep-awake can be changed later."}</span>
+          <span class="help">{adopted ? adoptedWorktreeHelp(adopted.uncommittedFiles) : "One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; keep-awake can be changed later."}</span>
         </div>
 
         <div class="field">
@@ -337,39 +379,20 @@
         </div>
       {/if}
 
-      <div class="pair">
-        <div class="field">
-          <label for="agent">Agent</label>
-          <select id="agent" value={settings.agentId ?? "claude_code"} disabled={fixedLocked || settings.agentFixed} onchange={(event) => save({ agentId: event.currentTarget.value as "claude_code" | "codex" })}><option value="claude_code">Claude Code</option><option value="codex">Codex</option></select>
-          <span class="agent">{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
-        </div>
-        <div class="field">
-          <label for="model">Model</label>
-          <select id="model" class="model" value={settings.model.value} disabled={!connected || documents.starting === true} onchange={(event) => save({ model: event.currentTarget.value })}>
-            {#each models as model (model.value)}<option value={model.value}>{model.displayName}</option>{/each}
-          </select>
-          {#if settings.fieldErrors.model}<span class="message">{settings.fieldErrors.model}</span>{/if}
-          {#if settings.modelListError}<span class="message">{settings.modelListError}</span>{/if}
-        </div>
+      <div class="field models">
+        <ModelLines {snapshot} {connected} counts={tierLine} />
+        {#each agents as agent (agent.agentId)}
+          {@const account = accountLines(agent.account, settings.models.fallback.enabled ? settings.models.fallback.threshold : undefined)}
+          <span class="agent">{#if agents.length > 1}<span class="sub">{accountHeading(agent)}</span>{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
+          {#if agent.modelListError}<span class="message">{agent.modelListError}</span>{/if}
+        {/each}
+        {#if settings.models.problem}<span class="message">{settings.models.problem}</span>{/if}
+        {#if fallbackWarning}<span class="fallback-warning"><strong>The fallback’s agent, {fallbackWarning.agent}, isn’t ready</strong><span class="message">{fallbackWarning.problem} {fallbackWarning.remedy} Until then, this run waits at a usage limit as if the fallback were off.</span></span>{/if}
+        <span class="help">Listed models do not guarantee account access.</span>
       </div>
-
-      <span class="help">Listed models do not guarantee account access.</span>
-      {#if settings.choiceNotice}<p class="message">{settings.choiceNotice}</p>{/if}
-      {#if settings.readinessErrors?.length}<p class="message">{settings.readinessErrors.join(" ")}</p>{/if}
-      <button type="button" class="button" disabled={!connected || settings.metadataPending || snapshot.billing?.pending} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
-      <fieldset class="effort">
-        <legend>Effort</legend>
-        <div class="segments">
-          {#each settings.effortLevels ?? EFFORTS as effort (effort)}
-            {@const pressed = settings.effortLevels?.length !== 0 && settings.effort === effort}
-            <button type="button" aria-pressed={pressed} class:pressed disabled={!connected || documents.starting === true || effortDisabled(settings, effort)} onclick={() => chooseEffort(effort)}>{settings.efforts?.find((e) => e.value === effort)?.label ?? EFFORT_LABELS[effort] ?? effort}</button>
-          {/each}
-        </div>
-        <span class="help">Applies to each phase’s session. Higher effort is slower and uses more of your plan.</span>
-        <span class="help effort-default">Claude Code now starts at Medium. Codex still starts at High.</span>
-        {#if settings.effortLevels?.length === 0}<span class="help">This model takes no effort setting.</span>{/if}
-      </fieldset>
-      {#if snapshot.account && settings.agentId === "codex"}<AccountPanel account={snapshot.account} agent={settings.agent} paused={false} notStarted={true} {now} />{/if}
+      {#each readiness as agent (agent.agentId)}<p class="message">{agent.readinessErrors!.join(" ")}</p>{/each}
+      <button type="button" class="button" disabled={!connected || agents.some((agent) => agent.pending || agent.billing?.pending)} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
+      {#each agents as agent (agent.agentId)}{#if agent.account && agent.agentId === "codex"}<AccountPanel account={agent.account} agent={agent.agent} paused={false} notStarted={true} markInUse={agents.length > 1} threshold={settings.models.fallback.enabled ? settings.models.fallback.threshold : undefined} {now} />{/if}{/each}
 
 
       <label for="awake" class="awake">
@@ -392,7 +415,7 @@
         <dt>Ends at</dt><dd>{settings.developmentDeployments?.enabled ? "Confirmed development deliveries and any remaining review PRs" : multi ? "One PR in each repository that changed, ready for review. Kiln won’t merge." : "One PR, ready for review. Kiln won’t merge."}</dd>
       </dl>
       <DevelopmentDelivery {snapshot} {config} {connected} editable />
-      <BillingPanel {snapshot} {connected} />
+      <BillingPanels {snapshot} {connected} />
     </section>
   </div>
 
@@ -413,7 +436,7 @@
         {#if multi}
           {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code nowrap">{settings.featureBranch}</span> up to date with each repository’s base where offered, as ticked above</span></li>{/if}
           <li>{@render check(14, true)}<span>In each repository, commit and push to <span class="mono code nowrap">{settings.featureBranch}</span></span></li>
-          {#if existing}{#each startFrom?.repositories.filter((repository) => repository.pullRequest) ?? [] as repository (repository.name)}<li>{@render check(14, true)}<span>{#if repository.pullRequest && "number" in repository.pullRequest}In <span class="mono code">{repository.name}</span>, use its open pull request <a href={repository.pullRequest.url}>#{repository.pullRequest.number}</a>{:else}In <span class="mono code">{repository.name}</span>: {repository.pullRequest && "unknown" in repository.pullRequest ? repository.pullRequest.unknown : ""}{/if}</span></li>{/each}{/if}
+          {#if existing}{#each startFrom?.repositories.filter((repository) => repository.pullRequest) ?? [] as repository (repository.name)}<li>{@render check(14, true)}<span>{#if repository.pullRequest && "number" in repository.pullRequest}In <span class="mono code">{repositoryLabel(snapshot, repository.name)}</span>, use its open pull request <a href={repository.pullRequest.url}>#{repository.pullRequest.number}</a>{:else}In <span class="mono code">{repositoryLabel(snapshot, repository.name)}</span>: {repository.pullRequest && "unknown" in repository.pullRequest ? repository.pullRequest.unknown : ""}{/if}</span></li>{/each}{/if}
           <li>{@render check(14, true)}<span>{settings.developmentDeployments?.enabled ? "Early merges may happen on approved repository branches; remaining work stays open for review" : "In each repository, open one pull request into its base branch once every phase closes"}</span></li>
         {:else}
           {#if offer && catchUpTicked}<li>{@render check(14, true)}<span>Bring <span class="mono code">{settings.featureBranch}</span> up to date with <span class="mono code">{offer.repositories[0]!.base}</span>, as ticked above</span></li>{/if}
@@ -421,14 +444,18 @@
           {#if settings.developmentDeployments?.enabled && pullRequest}<li>{@render check(14, true)}<span>{#if "number" in pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, <a href={pullRequest.url}>#{pullRequest.number}</a>, for the work that stays open{:else}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, or open one, for the work that stays open. {pullRequest.unknown}{/if}</span></li>{/if}
           <li>{@render check(14, true)}<span>{#if settings.developmentDeployments?.enabled}Early merges may happen on approved repository branches; remaining work stays open for review{:else if pullRequest && "number" in pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, <a href={pullRequest.url}>#{pullRequest.number}</a>, once every phase closes{:else if pullRequest}Use its open pull request into <span class="mono code">{settings.baseBranch}</span>, or open one, once every phase closes. {pullRequest.unknown}{:else}Open one pull request into <span class="mono code">{settings.baseBranch}</span> once every phase closes{/if}</span></li>
         {/if}
-        <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Early merges only into approved repository branches; no unrelated or destructive actions" : "Never merge, deploy, or touch other branches"}</span></li>
+        <!-- After delivery: the merge and, in the PRD's repository, the plan push (Kiln After Delivery AC-MERGE-08). -->
+        <li>{@render check(14, true)}<span>{mergeAllowedLine(mergeAgent(snapshot))}</span></li>
+        <li>{@render check(14, true)}<span>{multi ? `In the PRD’s repository, p${pushAllowedLine(settings.baseBranch).slice(1)}` : pushAllowedLine(settings.baseBranch)}</span></li>
+        <li><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#8c8577" stroke-width="2" stroke-linecap="round" aria-hidden="true" class="mark"><path d="M4 4l8 8M12 4l-8 8"></path></svg><span>{settings.developmentDeployments?.enabled ? "Early merges only into approved repository branches; no unrelated or destructive actions" : NEVER_LINE}</span></li>
       </ul>
     </div>
 
     <div class="column end">
       <button type="button" class="start" class:ready={startNow.enabled} class:busy={pressing} aria-busy={pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
-      {#if pressing}<BusyStatus text={`Setting up the run and launching ${settings.agent}.`} />{/if}
-      {#if closedLine || startNow.note}<span class="help">{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
+      {#if pressing}<BusyStatus text={`Setting up the run and launching ${inUseAgent(snapshot)?.agent ?? "Claude Code"}.`} />{/if}
+      {#if startNow.asks && closedLine}<span class="help">{closedLine} <span class="asks">{startNow.note}</span></span>
+      {:else if closedLine || startNow.note}<span class="help" class:asks={startNow.asks}>{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
       {#if documents.startError}<span class="message">{documents.startError}</span>{:else if startReason}<span class="message">{startReason}</span>{/if}
     </div>
   </section>
@@ -439,12 +466,21 @@
 {/snippet}
 
 {#snippet preflight()}
-  <li class="phase preflight-row"><span class="circle mono">PF</span><span class="title">Preflight</span><span class="note">checks access and stops, then goes straight on</span></li>
+  <li class="phase preflight-row"><span class="circle mono">PF</span><span class="title">Preflight</span><span class="note">checks access and stops, then goes straight on</span>{@render model(preflightModel)}</li>
 {/snippet}
 
-{#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[]; attended?: string | undefined })}
+{#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[]; attended?: string | undefined; tier?: TierView | undefined; model?: ModelView | undefined })}
   {@const here = startFrom?.startAt?.id === row.id}
-  <li class="phase"><span class="circle mono" class:here>{row.id}</span>{#if here}<strong class="title">{row.title}</strong>{@render attended(row.attended)}<span class="starts">Kiln starts here</span>{:else}<span class="title">{row.title}</span>{@render attended(row.attended)}{/if}{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}</li>
+  <li class="phase" data-phase={row.id}><span class="circle mono" class:here>{row.id}</span>{#if here}<strong class="title">{row.title}</strong>{@render tag(row.tier)}{@render attended(row.attended)}<span class="starts">Kiln starts here</span>{:else}<span class="title">{row.title}</span>{@render tag(row.tier)}{@render attended(row.attended)}{/if}{#if row.closed}<span class="closed">closed</span>{/if}{@render repositories(row.repositories)}{@render model(row.model, { phase: row.id }, row.title)}</li>
+{/snippet}
+
+{#snippet tag(tier: TierView | undefined)}
+  {#if tier}<TierTag {tier} />{/if}
+{/snippet}
+
+{#snippet model(shown: ModelView | undefined, target?: { phase: string }, title?: string)}
+  <!-- Each phase shows the model it will run on, with Change for one that hasn't started (Kiln Phase Model Tiers AC-PICK-02, AC-PICK-03). -->
+  {#if shown && (rowModelLine(shown, false) || shown.problem || shown.change)}<span class="phase-model"><RowModel model={shown} underway={false} {target} agents={snapshot.agents} {connected} label={`${title ?? "Preflight"} model`} /></span>{/if}
 {/snippet}
 
 {#snippet branchField()}
@@ -468,6 +504,8 @@
 {/snippet}
 
 <style>
+  .phase-model { flex-basis: 100%; padding-left: 40px; }
+  .models .value { font-size: 14.5px; color: var(--text); }
   main { max-width: 1160px; margin: 0 auto; padding: 48px clamp(16px, 4vw, 32px) 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px; }
   .pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 600; border: 1px solid var(--line-stronger); color: var(--text); }
   .lead { font-size: 14px; color: var(--muted); }
@@ -493,7 +531,7 @@
   .link-from .mono { font-size: 12.5px; }
   .phases { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   .split { display: flex; flex-direction: column; gap: 8px; }
-  .phase { display: flex; align-items: center; gap: 12px; }
+  .phase { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
   .circle { flex: 0 0 auto; width: 28px; height: 28px; border-radius: 999px; border: 1px solid var(--line-stronger); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: var(--muted); box-sizing: border-box; }
   .circle.dashed { border-style: dashed; color: var(--dim); }
   .title { font-size: 14.5px; color: var(--text); }
@@ -522,14 +560,23 @@
   label, .label, legend { font-size: 13px; font-weight: 500; color: var(--muted); }
   input[type="text"], select { height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--field); color: var(--text); font-size: 13px; box-sizing: border-box; width: 100%; }
   select { padding: 0 10px; }
-  select.model { font-family: var(--sans); font-size: 14px; }
   input:disabled, select:disabled { opacity: 0.6; }
   .help { font-size: 12.5px; font-weight: 400; color: var(--dim); line-height: 1.55; }
   .message { font-size: 12.5px; font-weight: 400; color: var(--amber); line-height: 1.55; }
   .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 16px; }
   .repos-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
   .repos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
-  .repos li { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .repos li { display: flex; flex-direction: column; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .repo-line { display: grid; grid-template-columns: minmax(0, 1fr) 132px; gap: 12px; align-items: center; }
+  .repo-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .where { font-size: 12px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+  .where .mono { font-size: 12px; }
+  .dot { color: var(--dim); }
+  .told { font-size: 12px; color: var(--dim); white-space: nowrap; }
+  .change { padding: 0; border: 0; background: none; font: inherit; line-height: normal; color: var(--red); text-decoration: underline; cursor: pointer; }
+  .change:disabled { cursor: not-allowed; opacity: 0.6; }
+  .help.asks, .help .asks { color: var(--amber); }
+  .checks .locate { display: inline-flex; align-items: center; gap: 6px; color: var(--amber); }
   .repo { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
   .repo-name { font-size: 13px; font-weight: 400; color: var(--text); overflow-wrap: anywhere; }
   .repos select { height: 36px; padding: 0 8px; border-radius: 8px; }
@@ -537,13 +584,8 @@
   .sessions { padding-top: 2px; }
   .agent { min-height: 44px; display: flex; flex-direction: column; justify-content: center; font-size: 14.5px; color: var(--text); }
   .sub { font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
-  .effort { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .fallback-warning { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--text); }
   legend { padding: 0; margin-bottom: 8px; }
-  .segments { display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); gap: 0; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
-  .segments button { min-height: 44px; padding: 0 6px; border: 0; background: transparent; color: var(--muted); font-family: var(--sans); font-size: 13.5px; font-weight: 500; cursor: pointer; }
-  .segments button.pressed { background: var(--text); color: var(--bg); font-weight: 600; }
-  .segments button:disabled { cursor: not-allowed; opacity: 0.4; }
-  .segments button.pressed:disabled { opacity: 0.6; }
   .awake { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 0 12px; align-items: start; cursor: pointer; }
   .awake input, .refined input { width: 18px; height: 18px; margin: 2px 0 0; }
   .awake input { accent-color: var(--red); }

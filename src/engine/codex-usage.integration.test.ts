@@ -16,13 +16,15 @@ import { releaseResult } from "../control/spool.js";
 import { cacheSnapshot, handoffProjection, inspectionSnapshot, statusProjection } from "../control/projection.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot, writeJsonAtomically } from "../state/state-files.js";
+import { CODEX_CHOICE, runPrdOn } from "../test-support/model-choices.js";
 
 let h: Harness;
 let f: ReturnType<typeof codexWorkFixture>;
 let server: LocalServer | undefined;
 let chrome: HeadlessChrome | undefined;
 afterEach(async () => { await chrome?.close(); chrome = undefined; await server?.close(); server = undefined; await h?.cleanup(); await f?.sandbox.cleanup(); });
-const set = (value: Record<string, unknown>) => f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usageRefusal: true, ordinaryUsageAllowed: false, ...value });
+// The model issues a reasoning item before the refusal, so the phase has started and its waits resume its own conversation (Kiln Phase Model Tiers AC-PICK-04).
+const set = (value: Record<string, unknown>) => f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usageRefusal: true, ordinaryUsageAllowed: false, itemFirst: true, ...value });
 const dispatches = () => f.calls().filter(call => call.method === "turn/start");
 async function setup(value: Record<string, unknown> = {}) {
   h = await createHarness({ sessions: [], claude: join("missing", "claude") }); f = codexWorkFixture();
@@ -30,14 +32,14 @@ async function setup(value: Record<string, unknown> = {}) {
   set(value); h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-  await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
-  await h.engine.agents.refresh(); await h.engine.settled();
+  await h.engine.refreshAgents(); await h.engine.settled();
 }
 async function refresh(value: Record<string, unknown>) {
   // A refresh joins a read already under way, which may have started before set() changed the
   // stand-in's answer; the second refresh is always a read that starts after the change.
-  set(value); await h.engine.agents.refresh(); await h.engine.agents.refresh(); await h.engine.settled();
+  set(value); await h.engine.refreshAgents(); await h.engine.refreshAgents(); await h.engine.settled();
 }
 
 it("waits on explicit blocked permission, resumes once with the original pair, persists repeat-refusal suppression, and releases after a blocked-to-allowed transition", async () => {
@@ -46,10 +48,10 @@ it("waits on explicit blocked permission, resumes once with the original pair, p
   expect(buildSnapshot(h.engine).feature.state).toBe("waiting");
   expect(original.runs[0]).toMatchObject({ limitRefusal: { agentId: "codex", codex: { code: "usageLimitExceeded", accountId: "proof-account" } }, codex: { errors: [{ willRetry: false }], terminal: { status: "failed" } } });
   expect(original.runs[0]?.limitRefusal?.resetsAt).toBeUndefined();
-  await h.engine.changeSettings({ agentId: "codex", selectionGeneration: h.engine.agents.state.generation, effort: "low" });
+  await runPrdOn(h.engine, { ...CODEX_CHOICE, effort: "low" });
   await refresh({ ordinaryUsageAllowed: true });
   await waitFor(() => h.engine.latestSession("1")?.runs.length === 2 && h.engine.latestSession("1")?.runs[1]?.endedAt !== undefined);
-  await h.engine.agents.refresh(); await h.engine.settled();
+  await h.engine.refreshAgents(); await h.engine.settled();
   expect(h.engine.latestSession("1")?.runs[1]).toMatchObject({ cause: "limit_resume", codex: { automaticUsageEvidence: { accountId: "proof-account" }, requested: { effort: "high" }, modelActivityAt: [] } });
   const automaticPrompt = JSON.stringify(dispatches()[1]?.params?.input);
   expect(automaticPrompt).toContain("because Codex's usage limit refused its request. Kiln has resumed it on the Codex account signed in now.");
@@ -57,7 +59,7 @@ it("waits on explicit blocked permission, resumes once with the original pair, p
   expect(automaticPrompt).not.toContain("Claude");
   expect(buildSnapshot(h.engine).waiting?.limit.recovery?.reason).toContain("Unchanged permission");
   const consumed = h.engine.latestSession("1")?.codex?.usageRecovery?.consumed;
-  h.reopenFromDisk(); await h.engine.agents.refresh(); expect((await h.engine.decide()).kind).toBe("waiting"); await h.engine.continue();
+  h.reopenFromDisk(); await h.engine.refreshAgents(); expect((await h.engine.decide()).kind).toBe("waiting"); await h.engine.continue();
   await refresh({ ordinaryUsageAllowed: true });
   expect(dispatches()).toHaveLength(2);
   expect(h.engine.latestSession("1")?.codex?.usageRecovery?.consumed).toEqual(consumed);
@@ -85,12 +87,12 @@ it.each(["blocked", "off", "blocked_off"])("rechecks %s at fresh launch prefligh
   await setup();
   const before = f.calls().filter(call => call.method === "account/rateLimits/read").length;
   set({ ordinaryUsageAllowed: true, usageDelayMs: 500 });
-  await h.engine.agents.refresh();
+  await h.engine.refreshAgents();
   await waitFor(() => f.calls().filter(call => call.method === "account/rateLimits/read").length >= before + 2);
   if (mode !== "blocked") await h.engine.changeSettings({ resumeAfterUsageLimit: false });
   if (mode !== "off") set({ ordinaryUsageAllowed: false });
   await waitFor(() => !h.engine.checking); await h.engine.settled();
-  await h.engine.agents.refresh();
+  await h.engine.refreshAgents();
   expect(dispatches()).toHaveLength(1);
   expect(h.engine.latestSession("1")?.runs).toHaveLength(1);
   expect(buildSnapshot(h.engine).feature.state).toBe(mode === "blocked" ? "waiting" : "needs_you");
@@ -110,10 +112,10 @@ it.each(["off", "blocked", "unknown", "suppressed"])("reconciles a crashed quota
   if (mode === "off") h.engine.record.settings.resumeAfterUsageLimit = false;
   writeSessionRecord(h.stateDirectory, session); writePrdRecord(h.stateDirectory, h.engine.record);
   set({ ordinaryUsageAllowed: mode === "suppressed" ? true : mode === "unknown" ? null : false });
-  h.reopenFromDisk(); await h.engine.agents.refresh();
+  h.reopenFromDisk(); await h.engine.refreshAgents();
   const decision = await h.engine.decide();
   expect(decision.kind).not.toBe("resume");
-  await h.engine.continue(); await h.engine.agents.refresh(); await h.engine.settled();
+  await h.engine.continue(); await h.engine.refreshAgents(); await h.engine.settled();
   expect(dispatches()).toHaveLength(before);
   expect(buildSnapshot(h.engine).feature.state).toBe(mode === "off" || mode === "unknown" ? "needs_you" : "waiting");
   expect(h.engine.latestSession("1")?.runs.at(-1)?.limitRefusal?.codex?.code).toBe("usageLimitExceeded");
@@ -121,7 +123,7 @@ it.each(["off", "blocked", "unknown", "suppressed"])("reconciles a crashed quota
 
 it("preserves the original wait when Ctrl+C cancels a launch preflight before allocation", async () => {
   await setup(); const before = f.calls().filter(call => call.method === "account/rateLimits/read").length;
-  set({ ordinaryUsageAllowed: true, usageDelayMs: 500 }); await h.engine.agents.refresh();
+  set({ ordinaryUsageAllowed: true, usageDelayMs: 500 }); await h.engine.refreshAgents();
   await waitFor(() => f.calls().filter(call => call.method === "account/rateLimits/read").length >= before + 2);
   await h.engine.stop("sigint"); await h.engine.settled();
   expect(h.engine.latestSession("1")?.runs).toHaveLength(1);
@@ -141,7 +143,7 @@ it.each([
   expect(snapshot.feature.state).toBe("needs_you"); expect(snapshot.needsYou?.limit?.agentId).toBe("codex");
   expect(snapshot.needsYou?.limit?.resetsAt).toBeUndefined(); expect(snapshot.needsYou?.resumeOffered).toBe(true);
   expect(dispatches()).toHaveLength(1);
-  await h.engine.agents.refresh(); expect(dispatches()).toHaveLength(1);
+  await h.engine.refreshAgents(); expect(dispatches()).toHaveLength(1);
 });
 
 it("does not classify a transient retry or generic rate failure as an exhausted allowance", async () => {
@@ -158,7 +160,7 @@ it("retains manual Resume now and setting-off behavior and does not gate usage r
   await h.engine.changeSettings({ resumeAfterUsageLimit: true }); await refresh({ ordinaryUsageAllowed: true });
   expect(dispatches()).toHaveLength(1); // Turning the setting on never launches from Needs you.
   set({ ordinaryUsageAllowed: false }); await h.engine.resume({ ...recoveryRequest(h.engine), note: "Keep the original settings." }); await h.engine.settled();
-  await h.engine.agents.refresh();
+  await h.engine.refreshAgents();
   expect(dispatches()).toHaveLength(2);
   const manualPrompt = JSON.stringify(dispatches()[1]?.params?.input);
   expect(manualPrompt).toContain("because Codex's usage limit refused its request. Kiln has resumed it on the Codex account signed in now.");
@@ -188,7 +190,7 @@ it("preserves independent allowance observations through waiting, failed refresh
   const usage = { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimitsByLimitId: { codex: { primary: { usedPercent: 85 } } } };
   await setup({ usage });
   const initial = buildSnapshot(h.engine).waiting!.limit;
-  const usageAt = h.engine.agents.state.account!.limitsObservedAt!;
+  const usageAt = h.engine.readers.codex.state.account!.limitsObservedAt!;
   expect(initial.allowancesObservation).toEqual({ observedAt: usageAt, state: "current", reason: null });
   expect(initial.allowances).toEqual([expect.objectContaining({ percent: 85 })]);
   server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Returns", token: h.engine.record.token });
@@ -243,7 +245,7 @@ it("preserves independent allowance observations through waiting, failed refresh
   expect(retained("stop")).toMatchObject({ allowances: [], allowancesObservation: { observedAt: null, state: "unavailable" } });
   // Legacy retained gauges have no independent date. Their nearby auth timestamp
   // cannot supply one or make the gauges current in another status projection.
-  delete h.engine.agents.state.account!.limitsObservedAt;
+  delete h.engine.readers.codex.state.account!.limitsObservedAt;
   const undated = buildSnapshot(h.engine).needsYou!.limit!;
   expect(undated.allowancesObservation).toMatchObject({ observedAt: null, state: "unavailable" });
   expect(undated.allowances).toEqual([]); expect(dispatches()).toHaveLength(1);
@@ -252,7 +254,7 @@ it("preserves independent allowance observations through waiting, failed refresh
 it("shows Codex wait and unknown recovery, account allowances and native cleanup guidance in the real browser", async () => {
   const usage = { accountId: "proof-account", ordinaryUsageAllowed: false, rateLimits: {}, rateLimitsByLimitId: { codex: { limitName: "Ordinary allowance", primary: { usedPercent: 85, resetsAt: 1793000000 }, secondary: { usedPercent: 12 } } } };
   await setup({ usage });
-  const usageAt = h.engine.agents.state.account!.limitsObservedAt;
+  const usageAt = h.engine.readers.codex.state.account!.limitsObservedAt;
   server = await startLocalServer({ engine: h.engine, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token }); chrome = await launchChrome();
   for (const state of ["waiting", "unknown"]) {
     if (state === "unknown") await refresh({ ordinaryUsageAllowed: null });

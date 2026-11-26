@@ -1,7 +1,8 @@
 <script lang="ts">
+  import ModelChanges from "../components/ModelChanges.svelte";
   import PersonItems from "../components/PersonItems.svelte";
   import BusyStatus from "../components/BusyStatus.svelte";
-  import BillingPanel from "../components/BillingPanel.svelte";
+  import BillingPanels from "../components/BillingPanels.svelte";
   // Needs you (docs/design/mockups/kiln-screen-needs-you-ended-with-message.html and
   // kiln-screen-needs-you-crashed.html): how the session ended, word for word (PRD AC-STOP-02),
   // the command that reopens it (AC-STOP-05) or a fresh-session prompt (AC-STOP-06), each check
@@ -23,11 +24,12 @@
   // A `loop_limit` stop saved by Kiln 1.3.0 shows one line and Check again only, which always
   // clears it (Kiln Deliver When Audit Loops Run Out AC-STOP-04, technical design "Upgrade").
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
+  import ExitKiln from "../components/ExitKiln.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
   import CodexSessionFacts from "../components/CodexSessionFacts.svelte";
-  import AccountPanel from "../components/AccountPanel.svelte";
-  import ModelEffortEditor from "../components/ModelEffortEditor.svelte";
+  import AccountPanels from "../components/AccountPanels.svelte";
+  import { activityAgent, billingHolds, choiceSourceLine, shortAgentName } from "../lib/agents.js";
   import CodeText from "../components/CodeText.svelte";
   import CopyButton from "../components/CopyButton.svelte";
   import Icon from "../components/Icon.svelte";
@@ -35,7 +37,9 @@
   import OutputRow from "../components/OutputRow.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import SwitchAccountCommand from "../components/SwitchAccountCommand.svelte";
-  import { changeSettings, checkAgain, markComplete, refreshMetadata, resume } from "../lib/api.js";
+  import { changeSettings, checkAgain, locateRepository, markComplete, refreshMetadata, resume } from "../lib/api.js";
+  import RepositoryQuestion from "../components/RepositoryQuestion.svelte";
+  import RequestQuestions from "../components/RequestQuestions.svelte";
   import type { ItemChange, MarkCompleteOffer } from "../../../src/engine/waivers.js";
   import { verdict } from "../lib/waivers.js";
   import CheckFacts from "../components/CheckFacts.svelte";
@@ -61,23 +65,38 @@
   import { LOOP_STOP_LINE } from "../lib/audit-loops.js";
 
   let { snapshot, now }: { snapshot: Snapshot; now: number } = $props();
+  // Where a repository is (find repositories anywhere AC-ASK-07, AC-SEE-05; mockup state 8): the plan
+  // stop's questions lead its card; a session's requests sit below the card for how the session ended.
   const { config, router, connection } = viewContext();
   const stop = $derived(snapshot.needsYou!);
   const nowDate = $derived(new Date(now));
   // An audit's items, or the hold stop's: one heading whichever step listed them (AC-ITEM-02).
   const itemCount = $derived(snapshot.items?.length ?? 0);
   const itemsHeadline = $derived(itemCount ? `Kiln needs you for ${itemCount === 1 ? "one thing" : `${itemCount} things`}` : undefined);
-  const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository, snapshot.developmentDelivery?.authorization.enabled));
+  // The agent the activity's next session launches on (Kiln Phase Model Tiers AC-AGENTS-04, AC-PICK-07);
+  // `stop.agent` stays the session that ran.
+  const next = $derived(activityAgent(snapshot, stop.phaseId));
+  const nextEntry = $derived(snapshot.agents.find((agent) => agent.agentId === next.agentId));
+  const ranOn = $derived(stop.agent ?? next.agent);
+  const copy = $derived(needsYouCopy(stop, snapshot.settings, nowDate, snapshot.feature.multiRepository, snapshot.developmentDelivery?.authorization.enabled, next.agent));
   const ending = $derived(endingFact(stop));
   const output = $derived(outputTail(stop.lastLines ?? []));
   const failure = $derived(stop.cleanupFailure ?? stop.failure);
-  const accountAgent = $derived((stop.agent ?? snapshot.settings.agent) === "Codex" ? "Codex" : "Claude");
+  const accountAgent = $derived(shortAgentName(next.agent));
   // Worked out from the view's clock, so the countdown keeps counting while the screen is open (AC-LIMIT-01).
-  const limitCopy = $derived(stop.limit ? limitStopCopy(stop.phaseId, stop.limit, stop.resumeOffered, nowDate, stop.agent ?? snapshot.settings.agent) : undefined);
+  const limitCopy = $derived(stop.limit ? limitStopCopy(stop.phaseId, stop.limit, stop.resumeOffered, nowDate, ranOn) : undefined);
   const atLimit = $derived(stop.limit ? atLimitLine(stop.limit, nowDate) : undefined);
   const file = $derived(snapshot.phases.find((phase) => phase.id === stop.phaseId)?.file);
   const outputLink = $derived(phasePath(config.base, stop.phaseId));
   const steps = $derived([...(copy.firstStep === "none" ? [] : ["first"]), "finish", "again"]);
+  const planQuestions = $derived(stop.kind === "plan" ? (stop.locate ?? []).filter((question) => question.phaseFile !== undefined) : []);
+  // Another fact beside the plan stop's questions: a failure the additions met, or another plan problem.
+  const otherFacts = $derived(stop.checks.filter((check) => verdict(check) === "failed").flatMap((check) => check.facts).length > planQuestions.length);
+  const phaseNumber = $derived(stop.phaseId);
+  async function answerQuestion(repository: string, folder: string) {
+    const answer = await locateRepository(config, repository, folder);
+    return answer.ok ? { ok: true } : { ok: false, reason: answer.reason };
+  }
   // Any stop on a preflight key: no Pick it up yourself card and no fresh-prompt link, since a preflight run outside Kiln leaves its report unread (build preflight "Display Contract").
   const onPreflight = $derived(activityKeyKind(stop.phaseId) === "preflight");
   let showPrompt = $state(false);
@@ -109,7 +128,7 @@
   const runsAll = $derived(!stop.rowsAreCompletionChecks && stop.recheckRunsAll ? `Check again runs all of ${activityInSentence(stop.phaseId, snapshot)}’s completion checks.` : undefined);
   // A stopped phase's case (run restart AC-CASE-01): its own headline, first card and way forward.
   const activity = $derived(`Phase ${stop.phaseId}`);
-  const agentName = $derived(stop.agent ?? snapshot.settings.agent);
+  const agentName = $derived(ranOn);
   const restart = $derived(stop.case ? caseHeadline(stop, activity, agentName) : undefined);
   let restartPending = $state<"carry" | "start" | "reopen" | undefined>(undefined);
   let restartReason = $state<string | undefined>(undefined);
@@ -156,10 +175,6 @@
     if (answer.outcome === "check_results_changed") markChanges = (answer.changes as ItemChange[] | undefined) ?? [];
     else if (answer.outcome === "check_unavailable") markError = String(answer.reason ?? "The checks could not finish. Nothing was marked complete.");
   }
-  async function saveSelection(change: Partial<Settings>) {
-    const answer = await changeSettings(config, { ...change, agentId: snapshot.settings.agentId ?? "claude_code", selectionGeneration: snapshot.settings.selectionGeneration ?? 0 });
-    reason = answer.ok ? undefined : answer.reason;
-  }
   async function refreshSelection() {
     pressing = true;
     const answer = await refreshMetadata(config);
@@ -186,15 +201,17 @@
     <div class="headline">
       <h2>{restart?.headline ?? copy.headline}</h2>
       <p class="line">{restart?.line ?? copy.line}</p>
+      {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource, stop)}</p>{/if}
     </div>
     {#if stop.launchFailure}<LaunchFound failure={stop.launchFailure} now={nowDate} />{/if}
+    {@render requests()}
     {#if stop.catchUp && !snapshot.liveControl && (stop.startAgain || stop.carryOn)}<CatchUpOffer offer={stop.catchUp} where="stop" {activity} bind:ticked={catchUpTicked} disabled={busy || !!restartPending} />{/if}
     {#if stop.startAgain}
       <StartAgainCard {activity} work={stop.work} control={stop.startAgain} pending={restartPending === "start"} disabled={busy || !!restartPending} reason={restartReason} onpress={() => restartAction("start")} />
     {:else if stop.carryOn && stop.reopen}
       <div class="peer-choices">
         <CarryOnCard agent={agentName} {activity} work={stop.work} reopen={stop.reopen} control={stop.carryOn} bind:draft={carryDraft} pending={restartPending === "carry"} checking={restartPending === "reopen"} disabled={busy || !!restartPending} reason={restartReason} onpress={() => restartAction("carry")} oncheck={() => restartAction("reopen")} />
-        <FreshTerminalCard agent={agentName} {activity} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held={false} />
+        <FreshTerminalCard agent={next.agent} {activity} command={stop.freshSessionCommand} prompt={stop.freshSessionPrompt} held={false} />
       </div>
     {/if}
     {#if stop.nothingToCheck}
@@ -214,6 +231,43 @@
       </aside>
     {/if}
   </div>
+  {:else if planQuestions.length}
+  <div class="columns-main">
+    <div class="column-wide">
+      {#if stop.attended !== undefined}<AttendedCard text={stop.attended} />{/if}
+      <section class="card ended">
+        <div class="headline">
+          <h2>{copy.headline}</h2>
+          {#if planQuestions.length === 1}
+            <p class="line">Phase {phaseNumber} names <span class="mono code">{planQuestions[0]!.repository}</span>, and Kiln couldn’t add it to the workspace.</p>
+          {:else}
+            <p class="line">Phase {phaseNumber} names repositories Kiln couldn’t add to the workspace.</p>
+          {/if}
+        </div>
+        {#each planQuestions as question (question.repository)}
+          {#key question.kind + question.checkouts.length}<RepositoryQuestion {question} disabled={busy} onanswer={(folder) => answerQuestion(question.repository, folder)} />{/key}
+        {/each}
+        {#if planQuestions.length === 1 && !otherFacts}
+          <p class="after">Kiln then adds it to the workspace and starts phase {phaseNumber}. Or clone it where the search reaches, and press Check again.</p>
+        {:else}
+          <p class="after">Or clone {planQuestions.length === 1 ? "it" : "them"} where the search reaches, and press Check again. Phase {phaseNumber} starts once nothing else holds this stop.</p>
+        {/if}
+      </section>
+      {@render requests()}
+    </div>
+    <div class="column-side">
+      <aside class="card side">
+        <span class="eyebrow">{copy.sideHeading}</span>
+        {@render checkRows(reasonRows)}
+        <div class="again">
+          <button type="button" class="button solid wide" class:busy={checkPressed} aria-busy={checkPressed} disabled={busy} onclick={pressCheckAgain}><Icon name="check-again" size={15} />Check again</button>
+          <span class="checked">{stop.checking ? "Checking…" : `Searches again. Checked ${stop.checkedAt ? clockTime(stop.checkedAt, nowDate) : clockTime(stop.stoppedAt, nowDate)}.`}</span>
+          {#if reason}<span class="reason">{reason}</span>{/if}
+        </div>
+        {#if offer}<MarkComplete {offer} pending={marking} disabled={busy} changes={markChanges} error={markError} onmark={pressMarkComplete} />{:else if waiting}<MarkComplete {waiting} />{/if}
+      </aside>
+    </div>
+  </div>
   {:else}
   <div class="columns-main">
     <div class="column-wide">
@@ -230,6 +284,8 @@
             <h2>{copy.headline}</h2>
             <p class="line">{copy.line}</p>
           {/if}
+          <!-- Where the stopped session's choice came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
+          {#if stop.choiceSource}<p class="line" data-choice-source>{choiceSourceLine(stop.choiceSource, stop)}</p>{/if}
         </div>
         <PersonItems {snapshot} />
         {#if failure}<p class="failure">{failure}</p>{/if}
@@ -240,7 +296,7 @@
           <!-- Only the record is out of date: no session ending to show. -->
         {:else if stop.finalMessage !== undefined && stop.kind !== "not_resumable"}
           <div class="message-block">
-            <span class="eyebrow">Last message from {stop.agent ?? snapshot.settings.agent}</span>
+            <span class="eyebrow">Last message from {ranOn}</span>
             <div class="final">{@html finalMessageHtml(stop.finalMessage)}</div>
           </div>
         {:else if output.lines.length > 0}
@@ -253,14 +309,15 @@
       </section>
 
       <CodexSessionFacts facts={stop} />
+      {@render requests()}
       {#if stop.kind === "selection" && !itemCount}
         <section class="card">
-          <h2 class="eyebrow">{snapshot.settings.agent} · Model and effort</h2>
-          <ModelEffortEditor {snapshot} save={saveSelection} />
-          <SwitchAccountCommand agentId={snapshot.settings.agentId} />
-          <button type="button" class="button small" disabled={busy || snapshot.settings.metadataPending} onclick={refreshSelection}>Refresh agent information</button>
+          <!-- The stop's facts name the choice, where it came from and where to change it (Kiln Phase Model Tiers AC-PICK-06). -->
+          <h2 class="eyebrow">{next.agent} · Model and readiness</h2>
+          <SwitchAccountCommand agentId={next.agentId} />
+          <button type="button" class="button small" disabled={busy || nextEntry?.pending} onclick={refreshSelection}>Refresh agent information</button>
         </section>
-        {#if snapshot.account}<AccountPanel account={snapshot.account} paused={false} notStarted {now} />{/if}
+        <AccountPanels {snapshot} paused={false} notStarted {now} />
       {:else if stop.bookkeeping}
         <section class="card lead-mark">
           <!-- Here the checks sit beside or below the card, not above it. -->
@@ -281,7 +338,7 @@
               <div class="step">
                 <span class="step-title">Or switch to another {accountAgent} account now</span>
                 <p>In another terminal, sign in with an account that has usage left, then press Resume. The session picks up on that account.</p>
-                <SwitchAccountCommand agentId={snapshot.settings.agentId} />
+                <SwitchAccountCommand agentId={next.agentId} />
               </div>
             </li>
           </ol>
@@ -290,13 +347,13 @@
             <span class="note-label">Your reply to {accountAgent} <span class="optional">Optional</span></span>
             <textarea rows="3" placeholder={copy.notePlaceholder} maxlength={4000} bind:value={note}></textarea>
           </label>
-          <p class="hint">Your reply goes to the same {accountAgent} session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
+          <p class="hint">{#if stop.newSession}Your reply goes to a new {accountAgent} session on this activity’s model, with the last recorded message and the work so far, since it never got a response.{:else}Your reply goes to the same {accountAgent} session, with its full history.{/if} It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
           <div class="actions">
             <!-- The amber line never holds Resume (AC-LIMIT-03). -->
-            <button type="button" class="button solid" class:busy={resuming} aria-busy={resuming} disabled={busy || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
+            <button type="button" class="button solid" class:busy={resuming} aria-busy={resuming} disabled={busy || billingHolds(snapshot, next.agentId)} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
             {#if atLimit}<span class="at-limit">{atLimit}</span>{/if}
           </div>
-          {#if resuming}<BusyStatus text={`Checking the work, then reopening the ${accountAgent} session.`} />{/if}
+          {#if resuming}<BusyStatus text={stop.newSession ? `Checking the work, then starting a new ${accountAgent} session.` : `Checking the work, then reopening the ${accountAgent} session.`} />{/if}
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
         </section>
       {:else if stop.resumeOffered}
@@ -310,12 +367,12 @@
             <span class="note-label">Your reply to {accountAgent} <span class="optional">Optional</span></span>
             <textarea rows="3" placeholder={copy.notePlaceholder} maxlength={4000} bind:value={note}></textarea>
           </label>
-          <p class="hint">Your reply goes to the same {accountAgent} session, with its full history. It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
+          <p class="hint">{#if stop.newSession}Your reply goes to a new {accountAgent} session on this activity’s model, with the last recorded message and the work so far, since it never got a response.{:else}Your reply goes to the same {accountAgent} session, with its full history.{/if} It continues unattended unless your reply calls for an answer before proceeding or it needs a material decision. For a longer conversation, open the session in your terminal below. Kiln checks completion first; if the work is already done, it continues without sending your reply.</p>
           <div class="actions">
-            <button type="button" class="button solid" class:busy={resuming} aria-busy={resuming} disabled={busy || snapshot.billing && !snapshot.billing.canLaunch} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
+            <button type="button" class="button solid" class:busy={resuming} aria-busy={resuming} disabled={busy || billingHolds(snapshot, next.agentId)} onclick={pressResume}><Icon name="play" size={15} />{note.trim() ? "Send and resume" : "Resume"}</button>
             <span class="hint">Uses whichever {accountAgent} account is signed in now. Close the session first if you opened it in a terminal.</span>
           </div>
-          {#if resuming}<BusyStatus text={`Checking the work, then reopening the ${accountAgent} session.`} />{/if}
+          {#if resuming}<BusyStatus text={stop.newSession ? `Checking the work, then starting a new ${accountAgent} session.` : `Checking the work, then reopening the ${accountAgent} session.`} />{/if}
           {#if resumeReason}<span class="reason">{resumeReason}</span>{/if}
         </section>
       {/if}
@@ -347,11 +404,11 @@
               <span class="number">{index + 1}</span>
               <div class="step">
                 {#if step === "first" && copy.firstStep === "resume" && stop.resumeCommand}
-                  <span class="step-title">Open the same {stop.agent ?? snapshot.settings.agent} session in a terminal</span>
+                  <span class="step-title">Open the same {ranOn} session in a terminal</span>
                   <div class="block"><pre>{stop.resumeCommand}</pre><div class="actions"><CopyButton text={stop.resumeCommand} /><span class="hint">Full history, right where it stopped. Kiln stays out of it.</span></div></div>
                 {:else if step === "first"}
-                  <span class="step-title">Start a fresh {stop.agent ?? snapshot.settings.agent} session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
-                  {#if stop.limit}<p>{stop.limit.agentId === "codex" ? "Check usage in Codex before starting, or switch accounts." : "Start it after the reset, or after switching accounts."}</p><SwitchAccountCommand agentId={snapshot.settings.agentId} />{/if}
+                  <span class="step-title">Start a fresh {next.agent} session in the {snapshot.feature.multiRepository ? "workspace" : "worktree"}</span>
+                  {#if stop.limit}<p>{stop.limit.agentId === "codex" ? "Check usage in Codex before starting, or switch accounts." : "Start it after the reset, or after switching accounts."}</p><SwitchAccountCommand agentId={next.agentId} />{/if}
                   <div class="block">
                     <pre>{stop.freshSessionCommand}</pre>
                     <pre class="prompt">{stop.freshSessionPrompt}</pre>
@@ -398,9 +455,15 @@
     </div>
   </div>
   {/if}
+  <!-- Every stop, a preflight stop and one saved by Kiln 1.3.0 included: their own-controls rules cover session controls, and kiln model works there (Kiln Phase Model Tiers AC-PICK-03). -->
+  <ModelChanges {snapshot} phaseId={snapshot.needsYou?.phaseId} {connected} />
+  <!-- A merge or push stop on a finished run also offers Exit Kiln (Kiln After Delivery AC-EXIT-01). -->
+  {#if snapshot.exit}<section class="exit-row" aria-label="Exit Kiln"><ExitKiln {snapshot} {connected} /></section>{/if}
   <DevelopmentDelivery {snapshot} {config} connected={connection?.connected ?? false} />
-  <BillingPanel {snapshot} />
+  <BillingPanels {snapshot} />
 </main>
+
+{#snippet requests()}<RequestQuestions {snapshot} disabled={busy} />{/snippet}
 
 {#snippet checkRows(list: typeof stop.checks)}
   <ul class="checks">
@@ -422,6 +485,8 @@
   @media(max-width: 680px) { .peer-choices { grid-template-columns: 1fr; } }
   .ended { border-color: rgba(230, 180, 80, 0.5); gap: 18px; }
   .loop-stop { max-width: 720px; }
+  .after { margin: 0; font-size: 14.5px; color: var(--muted); line-height: 1.6; }
+  .code { font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
   .loop-stop .again { align-items: flex-start; }
   .headline { display: flex; flex-direction: column; gap: 8px; }
   h2 { margin: 0; font-family: var(--serif); font-weight: 400; font-size: clamp(30px, 3.6vw, 40px); line-height: 1.1; color: var(--text); }

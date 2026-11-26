@@ -117,6 +117,7 @@ When Kiln can't reopen a phase's saved conversation, today's page offers only te
 
   - Replaces in part: the "A phase's conversation cannot be resumed" row of the Scope table in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (the page offers a Kiln-run new session).
   - Replaces in part: AC-NEXT-01 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (row 2's terminal card has no resume-unavailable note).
+  - Superseded in part by: AC-PICK-07 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (for a phase that hasn't started, the first row's reply and resume launch a new session on its current choice; the rest remains).
 - [ ] **AC-CARRY-05 — Carrying on starts a new session that knows what was done.** The carry-on card keeps the reply box, now optional. Its button, **Send reply & continue Phase N**, first checks completion as resuming does, with today's already-complete choice, and otherwise starts a new session for the phase in the same worktree and on the same branch, given the person's reply, the agent's last message, and the phase's work (AC-CASE-01), which the card also shows. The earlier session stays in the phase's history, and the new one is judged by the completion checks as before.
   - Replaces in part: AC-STOP-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (another way for a session to start after a stop).
   - Replaces in part: AC-VIEW-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Send reply & continue Phase N joins the browser view's controls).
@@ -186,6 +187,7 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
   - Replaces in part: AC-LOOK-01 in `docs/prds/kiln-v1/kiln-v1-prd.md`, AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md`, AC-PAGE-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` and AC-LOOK-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (the screens this change draws, and the reset line on every screen; the rest of each layout remains).
   - Superseded in part by: AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (in a marked phase, the planned-as-needing-you card comes first on the stopped-phase pages).
   - Superseded in part by: AC-PAUSE-06 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the held page's header and layout for a Pause now hold).
+  - Superseded in part by: AC-SEE-05 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (a stopped phase's page gains the question about a repository a session asked for, below the card for how its session ended)
 
 ## Out of Scope
 

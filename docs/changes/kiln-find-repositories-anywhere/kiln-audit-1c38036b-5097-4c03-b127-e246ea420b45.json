@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 2,
+  "executionId": "8fc1f839-3669-4fe0-96cb-f8b462e7a8c7",
+  "activityId": "1c38036b-5097-4c03-b127-e246ea420b45",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Second session of test fixes for the whole PRD. It raised AC-SEE-05 from Weak to Adequate (15 of 15 stated parts), and a fresh reviewer confirmed the grade. New tests compare the stop before a phase with mockup state 8 in real Chrome, pin kiln status's plan-stop lines and colours, and place the question correctly on restart-case, attended, catch-up and billing-hold stops. They also pin the accepted receipt line. Each new test was seen to fail with the behaviour broken. Unit and integration suites are green except one timing failure under load, in pause-now-withheld, unrelated to these changes; it passes when run alone. 10 Weak rows remain in test-audit.md, starting with AC-ASK-07.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "changedImplementation": false,
+  "raised": ["AC-SEE-05"]
+}

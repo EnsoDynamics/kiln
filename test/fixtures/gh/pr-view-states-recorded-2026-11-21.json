@@ -1,0 +1,9 @@
+{
+  "_recorded": "2026-11-21 with gh pr view <n> --repo github.com/<owner>/<name> --json number,state,mergedAt,mergeCommit,headRefOid,baseRefName,mergeable,mergeStateStatus,body,url,closed and gh api repos/<owner>/<name>/compare/<base>...<sha>, read-only, from public pull requests. Third-party descriptions are replaced with \"(redacted)\"; nothing else is changed.",
+  "open": {"baseRefName": "trunk", "body": "(redacted)", "closed": false, "headRefOid": "86e6579ad9025df5188c7ec138b460f998dc47a0", "mergeCommit": null, "mergeStateStatus": "BLOCKED", "mergeable": "MERGEABLE", "mergedAt": null, "number": 15117, "state": "OPEN", "url": "https://github.com/cli/cli/pull/15117"},
+  "conflicting": {"baseRefName": "trunk", "body": "(redacted)", "closed": false, "headRefOid": "31514b61d0d70cd4150b473d0f61488a72b0116d", "mergeCommit": null, "mergeStateStatus": "DIRTY", "mergeable": "CONFLICTING", "mergedAt": null, "number": 15108, "state": "OPEN", "url": "https://github.com/cli/cli/pull/15108"},
+  "closed": {"baseRefName": "trunk", "body": "(redacted)", "closed": true, "headRefOid": "ea7704b3a5a109db63b567670ffb9b239251dfb8", "mergeCommit": null, "mergeStateStatus": "BLOCKED", "mergeable": "MERGEABLE", "mergedAt": null, "number": 15107, "state": "CLOSED", "url": "https://github.com/cli/cli/pull/15107"},
+  "merged": {"baseRefName": "develop", "body": "(redacted)", "closed": true, "headRefOid": "6fe26c603509346637f4dff2150e721e99bbab85", "mergeCommit": {"oid": "52232a6d76c9aa170bf740d2dfed170dde53c6af"}, "mergeStateStatus": "UNKNOWN", "mergeable": "UNKNOWN", "mergedAt": "2026-11-21T20:09:59Z", "number": 20, "state": "MERGED", "url": "https://github.com/EnsoDynamics/kiln/pull/20"},
+  "compareContainsMergeCommit": {"ahead_by": 0, "behind_by": 4, "merge_base_commit": {"sha": "52232a6d76c9aa170bf740d2dfed170dde53c6af"}, "status": "behind"},
+  "notFound": "GraphQL: Could not resolve to a PullRequest with the number of 99999. (repository.pullRequest)"
+}

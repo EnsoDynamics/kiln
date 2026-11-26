@@ -1,26 +1,28 @@
 import type { PhaseRecoveryView } from "./phase-recovery.js";
+import { auditName, auditNameFacts, recordedAuditName } from "../audit/audit-names.js";
 import type { ReopenCheck } from "./reopen-check.js";
 import { lastRecordedRun, launchFailure, type LaunchFailure, type WorkRead } from "./stopped-phase.js";
 import { runLastOutputAt } from "../session/claude-session.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
 import { RESULT_CHECK } from "../audit/admission.js";
-import { activityHistory, auditLabel, acceptedAudit } from "../audit/workflow.js";
+import { activityHistory, acceptedAudit, auditKey as auditKeyOf } from "../audit/workflow.js";
 import { AuditStore } from "../audit/storage.js";
 import { personItems, settledLines } from "../audit/person-items.js";
 import type { WorkSnapshot } from "../audit/contracts.js";
 import { simpleCommands } from "../session/bash-command.js";
 import { DELIVERY_CHECK, deliveryEnabled, finishedBy } from "./development-delivery.js";
 import { sameOwner, type DevelopmentSettings } from "../state/development-delivery.js";
-import { AGENT_NAMES, type AgentId } from "../state/records.js";
+import { AGENT_IDS, AGENT_NAMES, type AgentId } from "../state/records.js";
+import { readModelDefaults } from "../models/model-defaults.js";
 import type { AgentAccount } from "../agents/metadata.js";
-import { selectedChoice } from "../state/records.js";
+import { readSessionRecord } from "../state/records.js";
+import type { ChoiceView, FallbackView, ModelView, TierView } from "./activity-models.js";
 // The Snapshot every screen renders from (technical design, "Snapshot"), built from the
 // engine's record, the plan as last read, what the engine is doing, and the account and model
 // list once they have arrived.
 
-import { readFileSync } from "node:fs";
-import { effortLevelsFor } from "../account/model-list.js";
+import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
@@ -30,6 +32,11 @@ import { runTiming, type Timing } from "../session/timing.js";
 import { stepStates, type OutputLine } from "../session/session-output.js";
 import { automaticResumeSchedule, blockingRow, limitRow } from "../session/usage-limit.js";
 import type { StartCheckReport } from "../start-checks.js";
+import { deliveryWaiting, latestPlanPush, mergeOffer, openAfterDeliveryKey, type MergeOffer, type PlanPushActivity } from "./delivery-reading.js";
+import { closedOfferLine, mergeNote, unreadableLine } from "./merge-wording.js";
+import { baseBranchLines } from "./base-branch-sync.js";
+import { isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
+import { readAcceptance } from "./continuation-state.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
 import { closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
@@ -38,10 +45,15 @@ import type { Engine, RepositoryCommits } from "./engine.js";
 import type { ExecutionSummary } from "./continuation-state.js";
 import { judgedPhase, recordedLeaves } from "./plan-reading.js";
 import { baseFor, displayPath, expandHome, type FieldErrors } from "./worktree-setup.js";
+import { labelAmong } from "./repository-labels.js";
+import type { Question } from "./repository-finding.js";
+import type { SavedQuestion } from "../state/records.js";
+import { questionLabel } from "./plan-repositories.js";
 import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
+import { fallbackView, launchSource, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
 import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
 export const PR_TITLE = "Final pull request";
@@ -130,12 +142,15 @@ export interface DocumentsFound {
      * `repositories`: the names on each document's `**Repositories:**` line (multi-repo AC-REPO-03);
      * `attended` and `earlyMerge`: its `**Attended:**` and `**Early merge:**` lines' text (build preflight AC-ATTEND-01, AC-ATTEND-05).
      */
-    phases: { id: string; title: string; splitInto?: string[]; closed: boolean; repositories: string[]; attended?: string; earlyMerge?: string }[];
+    phases: { id: string; title: string; splitInto?: string[]; closed: boolean; repositories: string[]; attended?: string; earlyMerge?: string;
+      /** A phase with no child phases: its tag and the model it will run on (Kiln Phase Model Tiers AC-TIER-02, AC-PICK-02). */
+      tier?: TierView; model?: ModelView }[];
   };
   /** Links in the requirements Kiln won't follow, when there are any: neither a passed nor a failed check (Kiln Linked Documents AC-LINK-04). */
   unfollowedLinks?: { target: string; from: string; reason: string }[];
   /** A failed row, on a page a reset built, names the check in `kiln run`'s words (run restart AC-RESET-04). */
-  checks: { name: string; passed: boolean; text?: string }[];
+  /** `locate`: the unpassed "<n> repository to locate", which a question answers rather than a fix (find repositories anywhere AC-SEE-01). */
+  checks: { name: string; passed: boolean; text?: string; locate?: true }[];
   /** On a page a reset built: a start check failed, so Start is unavailable until a reload finds them all passing. */
   checksFailed?: true;
   /** Where Kiln starts from (run restart AC-FROM-01 to 05, AC-CURRENT-01); absent until the first preview finishes. */
@@ -161,7 +176,9 @@ export interface StartView {
 
 export interface PhaseView {
   activityId?: string;
-  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight";
+  kind?: "implementation" | "delivery_audit" | "test_audit" | "final_delivery" | "preflight" | "merge" | "plan_push";
+  /** The archived execution a Push the plan row's session ran in, for its session links (Kiln After Delivery, "Activation and the row"). */
+  executionId?: string;
   /** A Preflight row (build preflight "Interfaces"). */
   preflight?: {
     /** Absent when no report has been read: running, or marked complete before a session reported. */
@@ -171,9 +188,12 @@ export interface PhaseView {
     /** Why a no_report preflight launched no session for its last attempt. */
     reason?: string;
   };
+  /** Identifiers only; a person reads the title and line (Kiln After Delivery AC-AUDIT-01). */
   round?: number;
   continuationIndex?: number;
-  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; revision: string }[]; blockers: string[]; pendingActions: string[];
+  /** A session of test fixes: the test audit loop that started its chain and its place in that chain, from 1. */
+  fixing?: { loop?: number; session: number };
+  audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; label?: string; revision: string }[]; blockers: string[]; pendingActions: string[];
     /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
     personItems?: { count: number; waiting: boolean };
     /** Items this audit settled, each as "<problem> Listed by <audit>, settled by <audit>: <how>". */
@@ -183,9 +203,15 @@ export interface PhaseView {
   title: string;
   file: string;
   state: "planned" | "next" | "implementing" | "needs_you" | "waiting" | "done" | "split";
+  /** A row for an audit or the pull request session Kiln hasn't allocated yet (AC-PICK-02): no steps, timing or details. */
+  plannedActivity?: true;
   splitInto?: string[];
   /** The phase document's `**Attended:**` text, closed or not (build preflight AC-ATTEND-01): the Needs you there marker. */
   attended?: string;
+  /** A phase with no child phases: its Model tier tag (Kiln Phase Model Tiers AC-TIER-02). */
+  tier?: TierView;
+  /** What the activity will run on, runs on or ran on (AC-PICK-02); absent on rows that aren't Kiln activities. */
+  model?: ModelView;
   sessionStartedAt?: string;
   timing?: Timing;
   doneAt?: string;
@@ -205,6 +231,8 @@ export interface PhaseView {
   loops?: import("./loop-view.js").ActivityLoopView[];
   /** Skipped under a waived plan problem (AC-WAIVE-04): not built, counted as closed. */
   skippedByWaiver?: true;
+  /** The merge row while its session is held at the restart review (Kiln After Delivery "Display Contract"): it reads Interrupted. */
+  interrupted?: true;
   details?: SessionIdentityView & {
     from: string;
     to?: string;
@@ -217,6 +245,8 @@ export interface PhaseView {
     sessionId: string;
     /** A multi-repository PRD: each repository with commits in the phase, in list order (AC-PRS-03). */
     repositories?: RepositoryDetails[];
+    /** The launch decision it started on, kept after it finishes (Kiln Phase Model Tiers AC-FALLBACK-03). */
+    fallback?: FallbackView;
   };
 }
 
@@ -241,6 +271,8 @@ export interface CheckCounts { passed: number; waived: number; failed: number }
 
 export interface RepositoryDetails {
   name: string;
+  /** What it is shown by (find repositories anywhere AC-FOLDER-02). */
+  label?: string;
   /** The judged leaf it was added in, for an added repository. */
   addedInPhase?: string;
   worktree: string;
@@ -249,10 +281,40 @@ export interface RepositoryDetails {
   latestCommit: string;
 }
 
+/**
+ * What Documents found asks about a repository (find repositories anywhere AC-ASK-01, AC-ASK-02;
+ * technical design, "Snapshot"). Folders are shown under `~/`.
+ */
+export interface QuestionView {
+  kind: "where" | "which";
+  /** The address path, as the plan writes it. */
+  repository: string;
+  label: string;
+  searchedFrom: string;
+  searchedTo?: string;
+  checkouts: { folder: string; remote: string; pickable: boolean; remembered?: true }[];
+  /** How many checkouts the search itself found. */
+  found: number;
+  /** Change, when the search found nothing: the remembered folder, already in the field. */
+  field?: string;
+  fieldError?: string;
+}
+
 /** One of the PRD's repositories, as Documents found and the settings list them (multi-repo AC-REPO-03, AC-PRS-04). */
 export interface RepositoryRow {
   github?: string;
+  /** Kiln's name for it: the key `bases` takes. */
   name: string;
+  /** What it is shown by: its short name, or its address path while another of the PRD's repositories shares the short name (AC-FOLDER-02). */
+  label: string;
+  /** Its address path, as its origin spells it, or as the plan writes it while the row asks (AC-SEE-01). */
+  addressPath: string;
+  /** Its own checkout's folder; absent while the row asks. */
+  checkoutFolder?: string;
+  /** How its checkout was found, before Start only: `answer` offers Change (AC-ASK-05). */
+  located?: "beside" | "search" | "answer";
+  /** The row's question, while Kiln can't tell where its checkout is (AC-ASK-01). */
+  question?: QuestionView;
   kind: RepositoryKind;
   /** The judged leaf it was added in, for an added repository. */
   addedInPhase?: string;
@@ -267,19 +329,56 @@ export interface RepositoryRow {
   fieldErrors: { baseBranch?: string };
 }
 
+/** A finished run's delivery as GitHub last showed it, the merge offer and the merge activity (Kiln After Delivery "Interfaces"). */
+export interface AfterDeliveryView {
+  pullRequests: Omit<import("./delivery-reading.js").PullRequestReading, "headSha">[];
+  readError?: { at: string; problem: string };
+  waiting: boolean;
+  /** What the pull request card offers (AC-MERGE-07): the note beside Merge with {agent}, or the line saying why it is not offered. */
+  offer: { kind: MergeOffer["kind"]; available: boolean; reason?: string; note?: string; line?: string };
+  merge?: MergeView;
+  /** The latest push of the plan (Kiln After Delivery "Interfaces"). */
+  planPush?: PlanPushView;
+  /** What Kiln did with each repository's local base branch after the merge (AC-MERGE-09); only repositories with something to say. */
+  baseBranches?: { repository: string; line: string; command?: string }[];
+}
+export interface PlanPushView {
+  key: string;
+  state: "running" | "stopped" | "waiting" | "interrupted" | "accepting" | "done";
+  sessionId?: string;
+  proposalId: string;
+}
+export interface MergeView {
+  state: "running" | "stopped" | "waiting" | "interrupted" | "done";
+  sessionId?: string; startedAt?: string; doneAt?: string; summary?: string;
+  /** The pull requests the press opened it for. */
+  pullRequests: { repository: string; number: number }[];
+  /** Where the session runs, as shown. */
+  folder: string;
+}
+
 export interface Snapshot {
   /** Set exactly when `feature.state` is `folder_missing` (AC-GONE-02). */
   folderMissing?: FolderMissingSnapshot;
   /** The record's compatibility notices, one line each, shown on every screen (AC-AGENT-04). */
   compatibility?: string[];
   liveControl?: import("../live/target.js").LiveView;
+  /** A finished run's delivery as GitHub last showed it (Kiln After Delivery "Interfaces"). */
+  afterDelivery?: AfterDeliveryView;
+  /** Exit Kiln on a finished run (Kiln After Delivery AC-EXIT-01): offered, or unavailable with why, and the command that opens the PRD again. */
+  exit?: { available: boolean; reason?: string; command: string };
   continuation?: { preparation?: ReturnType<Engine["preparationStatus"]>; acceptance?: ReturnType<Engine["continuationAcceptance"]>; executions?: Omit<import("./continuation-state.js").ExecutionSummary, "archiveId">[]; check?: import("./completed-plan-discovery.js").CompletedPlanCheck; handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
   controlToken?: string;
   unsentReplies?: { id: string; text: string }[];
-  billing?: BillingView;
+  /**
+   * One entry per installed agent, plus one per needed agent that isn't installed (Kiln Phase Model
+   * Tiers, "Snapshot"): models for every installed one; readiness, account and billing for each
+   * needed one; the current activity's agent marked as in use.
+   */
+  agents: AgentView[];
   activities?: PhaseView[];
   /** A preflight the next Start, Continue or Resume would run, or one due and not yet allocated (build preflight "Interfaces"). */
-  preflight?: { planned?: { before: string } };
+  preflight?: { planned?: { before: string; model?: ModelView } };
   /** The audit loop settings, counts and, at a loop stop, its page (Kiln Audit Loop Limits). */
   auditLoops?: import("./loop-view.js").AuditLoopsView;
   /** The items for a person at a Needs you stop on an audit, and at the hold stop (Kiln Deliver When Audit Loops Run Out AC-ITEM-02). */
@@ -294,6 +393,8 @@ export interface Snapshot {
   feature: {
     name: string;
     repositoryName: string;
+    /** The label the PRD's repository is shown by (find repositories anywhere AC-FOLDER-02). */
+    repositoryLabel: string;
     /** More than one repository (multi-repo AC-SPACE-03): the screens then show them. */
     multiRepository: boolean;
     prdFolder: string;
@@ -303,6 +404,8 @@ export interface Snapshot {
     phasesTotal: number;
     startedAt?: string;
     completedAt?: string;
+    /** When a finished run last became complete, when an after-delivery activity closed after `completedAt`: Complete's span ends here (Kiln After Delivery AC-MERGE-05). */
+    completeUntil?: string;
     timing?: Timing;
     /** When the PRD total starts, when it counts earlier executions too (time totals AC-TOTAL-02); otherwise `startedAt`. */
     timingSince?: string;
@@ -313,18 +416,18 @@ export interface Snapshot {
   reset?: { available: boolean; reason?: string };
   settings: {
     developmentDeployments?: DevelopmentSettings;
-    agent: string;
-    agentId?: AgentId;
-    agentFixed?: boolean;
-    selectionGeneration?: number;
-    metadataPending?: boolean;
-    readinessErrors?: string[];
-    choiceNotice?: string;
-    efforts?: { value: string; label: string; description?: string }[];
-    model: { value: string; displayName: string };
-    effort: Effort;
-    effortLevels: Effort[] | null;
-    modelListError?: string;
+    /** The reason under Start while a repository row asks (find repositories anywhere "Asking Before Start"). */
+    startBlockedBy?: string;
+    /** Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01): the phases carrying each tier, closed or not. */
+    models: { tiers: { demanding: number; standard: number; mechanical: number; notRated: number };
+      /** Why Start is unavailable for the models: an agent an activity needs isn't ready, or a choice can't be used (AC-AGENTS-01, AC-PICK-06). */
+      problem?: string;
+      /** The fallback switch, and the warning for an agent only a fallback names that isn't ready (AC-AGENTS-01). */
+      fallback: { enabled: boolean; threshold: number; warning?: { agent: string; agentId: AgentId; problem: string; remedy: string } };
+      /** This PRD's Audits choice, which the preflight, the audits and the pull request session run on (AC-OTHER-01). */
+      audits: AuditsChoiceView;
+      /** Changes whenever the Model defaults file is written, so the Model defaults page reads it again. */
+      revision: string };
     keepAwake: boolean;
     keepAwakeError?: string;
     /** Usage-limit recovery AC-AUTO-04. */
@@ -342,14 +445,18 @@ export interface Snapshot {
   };
   /** The PRD's repositories in list order: the PRD's repository, named, then added. */
   repositories: RepositoryRow[];
-  /** The Model list's entries, once Claude Code's list has loaded (Startup order). */
-  models?: { value: string; displayName: string }[];
   phases: PhaseView[];
   /** Every saved waiver, oldest first (AC-WAIVE-08), for the tags and the delivery panel. */
   waivers?: WaiverView[];
   current?: SessionIdentityView & {
     deliveryActivity?: { label: string; repository?: string; environment?: string };
     phaseId: string;
+    /** A phase's tag (AC-PICK-02: the card shows its tier). */
+    tier?: TierView;
+    /** The choice the activity's row shows (AC-PICK-02). */
+    choice?: import("./activity-models.js").ChoiceView;
+    /** The launch decision its session was launched on (AC-FALLBACK-03). */
+    fallback?: FallbackView;
     sessionId?: string;
     model: string;
     effort?: Effort;
@@ -365,6 +472,8 @@ export interface Snapshot {
   needsYou?: SessionIdentityView & {
     phaseId: string;
     kind: StopKind;
+    /** Each question the stop asks about where a repository is (find repositories anywhere AC-ASK-07); the plan stop's carry `phaseFile`. */
+    locate?: (QuestionView & { phaseFile?: string })[];
     stoppedAt: string;
     /** `stoppedAt` is the interrupted run's last output, since Kiln recorded no interruption time. */
     stoppedAtIsLastOutput?: true;
@@ -393,6 +502,8 @@ export interface Snapshot {
     checking?: true;
     /** Resume, with its note, is offered (usage-limit recovery AC-RESUME-01). */
     resumeOffered: boolean;
+    /** The activity hasn't started: Resume and a reply launch a new session on its current choice, not the same conversation (AC-PICK-07). */
+    newSession?: true;
     resumeCommand?: string;
     /** Send in the reopened conversation before working, so older instructions receive current authority. */
     resumePrompt?: string;
@@ -406,6 +517,12 @@ export interface Snapshot {
     sessionId?: string;
     model?: string;
     effort?: Effort;
+    /**
+     * Where the stopped session's choice came from and where to change it (Kiln Phase Model Tiers
+     * AC-PICK-06): Model defaults, a change for this PRD or the fallback, from its saved decision;
+     * for a started activity, what it started on, with no place to change it.
+     */
+    choiceSource?: string;
     sessionStartedAt?: string;
     /** The phase's commits by repository, only those with commits, newest first. */
     repositories?: RepositoryCommits[];
@@ -461,6 +578,8 @@ export interface Snapshot {
    */
   waiting?: SessionIdentityView & {
     phaseId: string;
+    /** The activity hasn't started: the end of the wait launches a new session on its current choice (AC-PICK-07). */
+    newSession?: true;
     since: string;
     limit: LimitView;
     sessionId: string;
@@ -482,10 +601,8 @@ export interface Snapshot {
   };
   pause: { pending: boolean; active: boolean };
   restartReview?: { activityKey: string; action: "start" | "resume" | "wait" };
-  /** The signed-in account and its usage, once the first calls return (Startup order). */
-  account?: AgentAccount;
   /** Every pull request, in list order, once the PRD is complete (multi-repo AC-PRS-03). */
-  pullRequests?: PullRequestFacts[];
+  pullRequests?: (PullRequestFacts & { label?: string })[];
   mergedBranches?: MergedBranchFacts[];
   deliveryHistory?: DeliveryHistory;
   deliveryHistoryPending?: boolean;
@@ -522,7 +639,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ? "not_started"
     : folderMissing
       ? "folder_missing"
-      : engine.currentlyComplete
+      // A merge activity held at the restart review shows the finished page, waiting or not (Kiln After Delivery, "Ctrl+C and restart").
+      : engine.currentlyComplete || engine.finished && openAfterDeliveryKey(record) !== undefined && stoppedKey === undefined && (waitingKey === undefined || engine.restartReview?.activityKey === openAfterDeliveryKey(record)) && !record.billing?.hold
       ? "complete"
       : stoppedKey !== undefined
         ? "needs_you"
@@ -539,19 +657,20 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
   const waiting = state === "waiting" ? waitingView(engine, waitingKey!) : undefined;
   const current = state === "implementing" ? currentView(engine, reads) : undefined;
   const settings = record.settings;
-  const entry = engine.modelEntry(selectedChoice(settings).model);
-  const metadata = engine.agents.state;
 
   const views = phaseViews(engine, state, includeTiming);
   const snapshot: Snapshot = {
     ...(record.continuation || record.completedPlanCheck || record.planReconciliation?.handback || record.planReconciliation?.check?.status === "failed" ? { continuation: {
       ...(record.preparation ? { preparation: engine.preparationStatus(record.executionId, record.preparation.phaseId) } : {}),
-      ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return row; }) } : {}),
-      ...(record.completedPlanCheck ? { check: record.completedPlanCheck } : {}),
+      ...(record.continuation ? { acceptance: engine.continuationAcceptance(), executions: record.continuation.executions.slice(-100).reverse().map(({ archiveId: _archiveId, ...row }) => { void _archiveId; return labelledExecution(engine, row); }) } : {}),
+      ...(record.completedPlanCheck ? { check: labelledPlanCheck(engine, record.completedPlanCheck) } : {}),
       ...(record.planReconciliation?.handback ? { handback: record.planReconciliation.handback } : {}),
-      ...(record.planReconciliation?.check?.status === "failed" ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
+      // An in-progress plan's "Plan needs reconciliation" notice is never rendered on a finished run (Kiln After Delivery AC-BACK-01).
+      ...(record.planReconciliation?.check?.status === "failed" && !record.completedAt ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
-    activities: activityViews(engine, state, views, includeTiming, reads.auditStore),
+    ...(record.completedAt && record.afterDelivery ? { afterDelivery: afterDeliveryView(engine) } : {}),
+    ...(engine.finished ? { exit: { ...engine.exitControl(), command: engine.reopenCommand } } : {}),
+    activities: withPlannedRows(engine, state, activityViews(engine, state, views, includeTiming, reads.auditStore)),
     ...preflightPlanned(engine, state, documents),
     auditLoops: auditLoopsView(engine),
     ...personItemFields(engine, reads.auditStore),
@@ -559,16 +678,19 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     feature: {
       name: engine.paths.featureName,
       repositoryName: engine.paths.repositoryName,
+      repositoryLabel: engine.labelOf(engine.paths.repositoryName),
       multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
       state,
-      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && phase.state === "done").length : leaves.filter((leaf) => effectiveRecordedClosed(record, leaf)).length,
+      phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && !isAfterDeliveryKey(phase.id) && phase.state === "done").length : leaves.filter((leaf) => effectiveRecordedClosed(record, leaf)).length,
       phasesTotal: leaves.length,
       ...optional("currentPhaseId", needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
       ...optional("startedAt", record.startedAt),
       ...optional("completedAt", record.completedAt),
-      // Delivery can reopen a completed PRD and leave completedAt set; its totals keep counting until it is complete again (time totals AC-TOTAL-03).
-      ...(includeTiming ? prdTimingFields(prdTiming(engine, timingFor(engine, Object.keys(record.phases), record.startedAt, state === "complete" ? record.completedAt : undefined)), record.startedAt) : {}),
+      // Delivery, or an open after-delivery activity, can reopen a completed PRD and leave completedAt set; its totals keep
+      // counting until it is complete again, and then end when it last became complete (time totals AC-TOTAL-03, Kiln After Delivery AC-MERGE-05).
+      ...(includeTiming ? prdTimingFields(prdTiming(engine, timingFor(engine, Object.keys(record.phases), record.startedAt, completeUntil(engine))), record.startedAt) : {}),
+      ...optional("completeUntil", completeUntil(engine) !== record.completedAt ? completeUntil(engine) : undefined),
       ...optional("stoppedAt", needsYou?.stoppedAt),
     },
     ...optional("liveControl", engine.liveView()),
@@ -576,19 +698,8 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...(stoppedKey !== undefined || deliveryEnabled(record) ? { developmentDelivery: engine.deliveryStatus() } : {}),
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),
-      agent: AGENT_NAMES[settings.agentId],
-      agentId: settings.agentId,
-      agentFixed: engine.agentFixed,
-      selectionGeneration: metadata.generation,
-      metadataPending: metadata.pending,
-      readinessErrors: metadata.blockers,
-      ...optional("choiceNotice", engine.choiceNotice),
-      ...optional("efforts", entry?.efforts),
-      // A saved alias the list doesn't offer, or any model before the list loads, is named as saved.
-      model: { value: selectedChoice(settings).model, displayName: entry?.displayName ?? selectedChoice(settings).model },
-      effort: selectedChoice(settings).effort ?? "",
-      effortLevels: effortLevelsFor(entry),
-      ...optional("modelListError", metadata.modelListError),
+      ...(state === "not_started" ? optional("startBlockedBy", engine.startBlockedBy) : {}),
+      models: { tiers: tierCounts(engine), ...(state === "not_started" ? optional("problem", engine.modelsProblem) : {}), fallback: fallbackSettings(engine), audits: auditsChoice(engine), revision: modelDefaultsRevision(engine.modelDefaultsFile) },
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
       resumeAfterUsageLimit: settings.resumeAfterUsageLimit,
@@ -605,14 +716,12 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       fieldErrors: engine.currentFieldErrors,
     },
     repositories: repositoryRows(engine, state),
-    ...optional("models", metadata.models?.map((model) => ({ value: model.value, displayName: model.displayName }))),
     phases: views,
     ...(record.waivers?.length ? { waivers: record.waivers.map(waiver => waiverView(engine, waiver)) } : {}),
     ...optional("restartReview", engine.restartReview),
     pause: { pending: record.pause.requestedAt !== undefined && record.pause.activeSince === undefined, active: record.pause.activeSince !== undefined },
-    ...optional("account", metadata.account),
-    billing: record.settings.agentId === "claude_code" ? engine.billing.view : codexBillingView(metadata, record.executionId!, record.billing?.lastLaunch),
-    ...optional("pullRequests", record.pullRequests),
+    agents: agentViews(engine, needsYou?.phaseId ?? waiting?.phaseId ?? current?.phaseId),
+    ...optional("pullRequests", record.pullRequests?.map((pull) => ({ ...pull, label: engine.labelOf(pull.repository) }))),
     ...optional("mergedBranches", record.mergedBranches),
     ...optional("deliveryHistory", record.deliveryHistory),
     deliveryHistoryPending: engine.deliveryHistoryPending,
@@ -635,9 +744,48 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     const found = fromGit ? { ...fromGit, checks: [...resetRows!, ...documents.checks.filter(check => !check.passed)], ...(documents.checksFailed ? { checksFailed: true as const } : {}) } : documents;
     // The page says where the plan was read only over documents read there (AC-FROM-02): the start commit's, or a base the checkout matches.
     const readAtStart = preview?.from === "existing" ? fromGit !== undefined : preview !== undefined && engine.baseDocumentsMatched === preview.previewId;
-    snapshot.documents = { ...found, ...(preview ? { start: startView(engine, preview, readAtStart) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
+    const checked = withRepositoriesCheck(found, engine);
+    const withModels = checked.plan ? { ...checked, plan: { ...checked.plan, phases: checked.plan.phases.map(phase => phase.splitInto === undefined ? { ...phase, model: documentsModel(engine, phase) } : phase) } } : checked;
+    snapshot.documents = { ...withModels, ...(preview ? { start: startView(engine, preview, readAtStart) } : {}), ...(engine.settingUp ? { starting: true as const } : {}), ...optional("startError", engine.startError) };
   }
+  if (state !== "complete" && state !== "folder_missing") placeHeadsUp(engine, snapshot);
+  addFallbackDetails(engine, snapshot);
   return snapshot;
+}
+
+/**
+ * The heads-up (Kiln Phase Model Tiers AC-FALLBACK-04): `model.forecast` on the one row Kiln
+ * will launch next, while the decision on the latest readings would launch it on the fallback.
+ * A planned row stands for the audits and the pull request session, the planned Preflight row
+ * for the preflight.
+ */
+function placeHeadsUp(engine: Engine, snapshot: Snapshot): void {
+  const headsUp = engine.headsUp();
+  if (!headsUp) return;
+  const { key, forecast } = headsUp;
+  if (key === PLANNED_PREFLIGHT_KEY) { if (snapshot.preflight?.planned?.model) snapshot.preflight.planned.model.forecast = forecast; return; }
+  const ids = key === PLANNED_AUDITS_KEY ? ["planned-delivery-audit", "planned-test-audit"] : key === PR_PHASE_KEY ? [PR_PHASE_KEY, "planned-pull-request"] : [key];
+  const rows: { id: string; model?: ModelView }[] = [...(snapshot.documents?.plan?.phases ?? []), ...snapshot.phases, ...(snapshot.activities ?? [])];
+  for (const id of ids) {
+    const matching = rows.filter(row => row.id === id && row.model);
+    if (!matching.length) continue;
+    for (const row of matching) row.model!.forecast = forecast;
+    return;
+  }
+}
+
+/** Each row's phase detail keeps the fallback facts of the session that started it (AC-FALLBACK-03). */
+function addFallbackDetails(engine: Engine, snapshot: Snapshot): void {
+  for (const row of [...snapshot.phases, ...(snapshot.activities ?? [])]) {
+    if (!row.details) continue;
+    // A phase its session split shows its first child with the launched phase's facts.
+    const fallback = engine.detailsFallback(engine.factsKeyOf(row.id));
+    if (fallback) row.details.fallback = fallback;
+  }
+}
+
+function withPlannedRows(engine: Engine, state: FeatureState, rows: PhaseView[]): PhaseView[] {
+  return [...rows, ...plannedRows(engine, state, rows)];
 }
 
 function folderMissingSnapshot(view: import("./folder-facts.js").FolderMissingView, engine: Engine): FolderMissingSnapshot {
@@ -665,16 +813,54 @@ function folderMissingSnapshot(view: import("./folder-facts.js").FolderMissingVi
  * Model's message and the efforts the panel's model takes, as the model catalogue arrives (AC-SETUP-01).
  */
 function livePanel(stored: import("./folder-setup.js").SetupPanel, engine: Engine): import("./folder-setup.js").SetupPanel {
-  const { busy: _busy, efforts: _efforts, fieldErrors: { model: _model, ...fieldErrors }, ...panel } = stored;
-  void _busy; void _efforts; void _model;
+  const { busy: _busy, ...panel } = stored;
+  void _busy;
   const busy = engine.folderBusy();
-  const model = engine.folderModelCheck({ model: panel.fields.model, ...(panel.fields.effort ? { effort: panel.fields.effort } : {}) });
-  return { ...panel, fieldErrors: { ...fieldErrors, ...(model.error ? { model: model.error } : {}) }, effortLevels: model.effortLevels, ...(model.efforts ? { efforts: model.efforts } : {}), ...(busy ? { busy } : {}) };
+  return { ...panel, ...(busy ? { busy } : {}) };
 }
 
 /** A plan phase as Documents found lists it. */
+/**
+ * The repositories' passed check as the named rows stand now: "Repositories found on this
+ * computer", or, while a row asks, the unpassed "<n> repository to locate" (AC-SEE-01). Each
+ * phase's repositories are shown by label (AC-FOLDER-02).
+ */
+function withRepositoriesCheck(found: DocumentsFound, engine: Engine): DocumentsFound {
+  const asking = engine.locatingRepositories.length;
+  // While a start check fails on a page a reset built, Kiln says nothing about a repository it would ask about (AC-ASK-01).
+  const held = asking > 0 && engine.resetCheckFailing;
+  const named = (name: string) => name === REPOSITORIES_FOUND || / repositor(y|ies) to locate$/.test(name);
+  // A named repository Kiln couldn't find or check since kiln run started is a failed check, in the terminal's words.
+  const problems = engine.record.startedAt === undefined ? engine.repositoryProblems : [];
+  const checks = found.checks.flatMap((check) => {
+    if (!check.passed || !named(check.name)) return [check];
+    if (problems.length > 0) return problems.map((problem) => ({ name: problem, passed: false, text: problem }));
+    if (held) return [];
+    return [asking === 0 ? { name: REPOSITORIES_FOUND, passed: true } : { name: `${asking} ${asking === 1 ? "repository" : "repositories"} to locate`, passed: true, locate: true as const }];
+  });
+  const plan = found.plan ? { ...found.plan, phases: found.plan.phases.map((phase) => ({ ...phase, repositories: phase.repositories.map((name) => engine.labelOfWritten(name)) })) } : undefined;
+  return { ...found, checks, ...(plan ? { plan } : {}), ...(problems.length > 0 ? { checksFailed: true as const } : {}) };
+}
+
+/** The passed check once every named repository is found (find repositories anywhere AC-SEE-01). */
+export const REPOSITORIES_FOUND = "Repositories found on this computer";
+
 function documentsPhase(phase: PlannedPhase): NonNullable<DocumentsFound["plan"]>["phases"][number] {
-  return { id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories, ...optional("attended", phase.attended), ...optional("earlyMerge", phase.earlyMerge) };
+  return { id: phase.id, title: phase.title, ...optional("splitInto", phase.splitInto), closed: phase.closed, repositories: phase.repositories, ...optional("attended", phase.attended), ...optional("earlyMerge", phase.earlyMerge), ...(phase.splitInto === undefined ? { tier: tierView(phase) } : {}) };
+}
+
+/**
+ * The phases with no child phases carrying each tier, closed or not, as their tags show them
+ * (Kiln Phase Model Tiers, "Snapshot": Documents found's "Chosen for each phase" line).
+ */
+function tierCounts(engine: Engine): Snapshot["settings"]["models"]["tiers"] {
+  const counts = { demanding: 0, standard: 0, mechanical: 0, notRated: 0 };
+  for (const phase of engine.shownPlan) {
+    if (phase.splitInto !== undefined) continue;
+    const tier = phase.modelTier?.tier;
+    counts[tier ?? "notRated"]++;
+  }
+  return counts;
 }
 
 function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
@@ -696,9 +882,11 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
   if (!current) return undefined;
   const plan = engine.record.plan ?? [];
   const session = current.session;
-  const settings = engine.record.settings;
+  const tier = isPhaseKey(current.phaseKey) && current.phaseKey !== PR_PHASE_KEY ? { tier: engine.tierOf(judgedKeyFor(plan, current.phaseKey)) } : {};
   if (!session) {
-    return { phaseId: current.phaseKey, model: selectedChoice(settings).model, effort: selectedChoice(settings).effort ?? "", steps: engine.auditActivity(current.phaseKey) || isPreflightKey(current.phaseKey) ? [] : stepStates([], settings.agentId), repositories: [] };
+    // Until its session exists, the card takes the row's choice (Kiln Phase Model Tiers, "Snapshot").
+    const choice = engine.activityModel(current.phaseKey, { finished: false }).choice;
+    return { phaseId: current.phaseKey, ...tier, ...optional("choice", choice), model: choice?.modelName ?? "", ...optional("effort", choice?.effort), steps: engine.auditActivity(current.phaseKey) || isPreflightKey(current.phaseKey) ? [] : stepStates([], choice?.agentId ?? engine.agentOf(current.phaseKey)), repositories: [] };
   }
   const followUp = session.runs.some((run, index) => run.cause === "person_resume" && (run.note !== undefined || session.runs[index - 1]?.limitRefusal === undefined));
   const steps = sessionSteps(engine, current.phaseKey, session).map(step => followUp && step.state === "current" ? { ...step, state: "observed" as const } : step);
@@ -709,6 +897,9 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
   return {
     ...(deliveryEnabled(engine.record) ? { deliveryActivity: observedDeliveryActivity(engine, session, reads.output) } : {}),
     phaseId: judgedKeyFor(plan, current.phaseKey),
+    ...tier,
+    choice: sessionChoice(session),
+    ...optional("fallback", cardFallback(engine, current.phaseKey, session)),
     ...sessionIdentity(session),
     sessionId: session.sessionId,
     model: session.modelDisplayName,
@@ -718,9 +909,20 @@ function currentView(engine: Engine, reads: SnapshotReads): Snapshot["current"] 
     ...(followUp ? { followUp: true } : {}),
     ...optional("seenInSession", seen),
     ...optional("latestLine", current.latestLine),
-    repositories: current.commits,
+    repositories: labelled(engine, current.commits),
     ...(current.processRunning && current.reader?.reviewerWorking ? { reviewerWorking: true } : {}),
   };
+}
+
+/**
+ * The card's fallback facts (AC-FALLBACK-03): an activity that started on the fallback says so in
+ * every later session too, from the session that started it; otherwise the current session's own
+ * decision, its "fallback wasn't used" note included.
+ */
+function cardFallback(engine: Engine, key: string, session: SessionRecord): FallbackView | undefined {
+  const started = engine.startedSessionOf(key);
+  const from = started?.launch?.fallback?.used ? started : session;
+  return from.launch?.fallback ? fallbackView(from.launch.fallback, from.launch.from) : undefined;
 }
 
 /** A started step's line on Phase detail (UI-010 item 11). */
@@ -769,12 +971,14 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     ...(phaseRecovery ? { phaseRecovery, ...optional("checkedAt", retainedStop?.checkedAt) } : { checkedAt: stop.checkedAt }),
     ...(engine.checking ? { checking: true as const } : {}),
     resumeOffered: engine.resumeOffered(phaseKey),
+    ...(engine.launchesNewSession(phaseKey) ? { newSession: true as const } : {}),
     ...optional("limit", stop.limit === undefined ? undefined : { ...limitView(engine, phaseKey, stop.limit, false), ...optional("refusedAgainAt", stop.limit.refusedAgainAt) }),
     // A bookkeeping stop has no session to restart or carry on: the work is done.
     ...(bookkeeping ? { bookkeeping } : restartFacts(engine, phaseKey, checkRun)),
     ...preflightStopFacts(engine, phaseKey),
     // Only a phase carries the line; an audit, preflight or final delivery stop never shows the card.
     ...optional("attended", isPhaseKey(phaseKey) ? plan.find(phase => phase.id === judged)?.attended : undefined),
+    ...optional("locate", locateView(engine, retainedStop?.locate ?? hold?.locate)),
   };
   const session = stop.kind === "plan" || stop.kind === "selection" ? undefined : sessionFor(engine, phaseKey);
   // Resume, reply and the terminal command read the latest conversation, or the latest launch when none began (run restart "A session record with no run").
@@ -784,6 +988,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const auditTask = engine.auditRecoveryTask(phaseKey, folder);
   const preflight = engine.preflightActivity(phaseKey);
   const originalPrompts = (ran: boolean) =>
+      phaseKey === MERGE_KEY ? engine.mergePrompt(folder) :
+      isPlanPushKey(phaseKey) ? engine.planPushPrompt(phaseKey) :
       preflight ? engine.preflightPrompt(preflight, folder) :
       auditTask ? auditRecoveryPrompt(auditTask, engine.deliveryAuthority()) :
       isPr
@@ -803,8 +1009,11 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
           })
         : freshSessionPrompt(engine.phasePromptValues(engine.fileOf(judged) ?? "", folder), ran);
 
-  const prompts = (ran: boolean) => session?.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(originalPrompts(ran), session.codex.launchIntent.skills) : originalPrompts(ran);
-  const freshSessionCommand = (session?.agentId ?? record.settings.agentId) === "codex" ? codexCommand(folder) : claudeCommand(folder);
+  // The fresh-session command and its prompt name the agent the activity's next session runs on:
+  // what it started on, or for one that hasn't started its current choice (Kiln Phase Model Tiers AC-PICK-07).
+  const nextAgent = engine.agentOf(phaseKey);
+  const prompts = (ran: boolean) => nextAgent === "codex" && session?.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(originalPrompts(ran), session.codex.launchIntent.skills) : originalPrompts(ran);
+  const freshSessionCommand = nextAgent === "codex" ? codexCommand(folder) : claudeCommand(folder);
   if (!session) return { ...base, stoppedAt: stop.at, freshSessionPrompt: prompts(false), freshSessionCommand };
 
   const run = session.runs.at(-1);
@@ -813,8 +1022,9 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
     sessionId: session.sessionId,
     model: session.modelDisplayName,
     ...optional("effort", session.effort),
+    ...optional("choiceSource", choiceSource(engine, phaseKey, session)),
     ...optional("sessionStartedAt", session.runs[0]?.startedAt),
-    repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
+    repositories: labelled(engine, engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : []),
   };
   const everStarted = session.runs.some((candidate) => candidate.pid !== undefined);
   const lines = engine.outputLines(session);
@@ -856,7 +1066,8 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const messageRun = engine.stoppedPhase() === phaseKey ? lastRecordedRun(session) : run;
   const finalMessage = interrupted === undefined && messageRun?.result?.text?.trim() ? messageRun.result.text : undefined;
   // `claude --resume` needs the conversation the reopen check finds available (OUT-003; run restart AC-CARRY-01).
-  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released" || record.liveControl.takeover.kind !== "delivery_recovery" && record.liveControl.takeover.releasedAt !== undefined);
+  // For an activity that hasn't started, only while its current choice is the one that session ran on (AC-PICK-07).
+  const resumable = recovery!.runs.some(candidate => candidate.pid !== undefined) && engine.reopenMatchesChoice(phaseKey, recovery!) && engine.reopenCheck(phaseKey).state === "available" && (!record.liveControl || record.liveControl.takeover.state === "released" || record.liveControl.takeover.kind !== "delivery_recovery" && record.liveControl.takeover.releasedAt !== undefined);
   // A held Pause now keeps its command from the release on, whatever later readings find (Kiln Pause Now, "The Paused Page").
   const resumeFolder = engine.workingDirectoryOf(recovery!);
   return {
@@ -967,7 +1178,7 @@ function restartFacts(engine: Engine, phaseKey: string, checkRun: CheckRun | und
     ...(began ? { reopen: engine.reopenCheck(phaseKey) } : {}),
     ...optional("carryOn", carryOn),
     ...(start.offered ? { startAgain: { available: start.available, ...optional("reason", start.reason) } } : {}),
-    ...optional("catchUp", engine.stoppedCatchUp?.phaseKey === phaseKey ? engine.stoppedCatchUp.offer : undefined),
+    ...optional("catchUp", labelledCatchUp(engine, engine.stoppedCatchUp?.phaseKey === phaseKey ? engine.stoppedCatchUp.offer : undefined)),
   };
 }
 
@@ -984,6 +1195,7 @@ function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
   return {
     phaseId: judgedKeyFor(engine.record.plan ?? [], phaseKey),
     ...(session ? sessionIdentity(session) : {}),
+    ...(engine.launchesNewSession(phaseKey) ? { newSession: true as const } : {}),
     since: wait.since,
     limit: limitView(engine, phaseKey, undefined, true),
     sessionId: wait.sessionId,
@@ -995,12 +1207,12 @@ function waitingView(engine: Engine, phaseKey: string): Snapshot["waiting"] {
     ...(finalMessage === undefined ? { lastLines: lines.slice(-10) } : {}),
     outputLineCount: lines.length,
     ...(engine.checking ? { checking: true as const } : {}),
-    model: session?.modelDisplayName ?? selectedChoice(engine.record.settings).model,
+    model: session?.modelDisplayName ?? "",
     ...optional("effort", session?.effort),
     ...optional("sessionStartedAt", session?.runs[0]?.startedAt),
     ...optional("sessionEndedAt", run?.endedAt),
     ...(session ? { steps: sessionSteps(engine, phaseKey, session) } : {}),
-    repositories: engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : [],
+    repositories: labelled(engine, engine.stoppedCommits?.phaseKey === phaseKey ? engine.stoppedCommits.commits : []),
   };
 }
 
@@ -1015,12 +1227,13 @@ function limitView(engine: Engine, phaseKey: string, stop: StopLimit | undefined
   const label = stop?.label ?? refusal?.label ?? "A usage limit";
   const resetsAt = refusal?.resetsAt ?? stop?.resetsAt;
   const view: LimitView = { label, ...optional("resetsAt", resetsAt), resetPassed: resetsAt !== undefined && now >= Date.parse(resetsAt) };
-  if (found?.session.agentId === "codex") {
+  // The account the wait watches: a started activity's refused one; one that hasn't started, its current choice's (AC-AGENTS-04).
+  if (found && engine.waitAgent(phaseKey) === "codex") {
     view.agentId = "codex";
     view.allowancesObservation = { observedAt: null, state: "unavailable", reason: "No dated Codex usage reading is available after the refusal." };
-    const release = found.session.codex?.usageRecovery?.release;
+    const release = (found.session.agentId === "codex" && engine.startedSessionOf(phaseKey) ? found.session.codex?.usageRecovery : engine.record.phases[phaseKey]?.codexUsageRecovery ?? found.session.codex?.usageRecovery)?.release;
     if (release) view.recovery = { state: release.state, reason: release.reason };
-    const current = engine.agents.state.account;
+    const current = engine.readers.codex.state.account;
     if (current && Date.parse(current.startedAt) >= Date.parse(refusal!.at)) {
       view.account = { ...optional("email", current.email), ...optional("plan", current.plan), ...optional("error", current.error ?? current.limitsError), at: current.updatedAt };
       const usageAt = current.limitsObservedAt;
@@ -1091,6 +1304,17 @@ export function codexResumeCommand(folder: string, session: SessionRecord, platf
 }
 
 /** Timing is derived from saved runs; historical open runs stop at their last evidence. */
+/**
+ * When the run last became complete: the later of `completedAt` and the latest after-delivery
+ * activity's close; undefined while it is not complete (Kiln After Delivery, "While open").
+ */
+function completeUntil(engine: Engine): string | undefined {
+  const { record } = engine;
+  if (!engine.currentlyComplete || !record.completedAt) return undefined;
+  const closed = [record.afterDelivery?.merge?.closedAt, ...(record.afterDelivery?.planPushes ?? []).map(push => push.closedAt)].filter((at): at is string => at !== undefined).sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+  return closed && Date.parse(closed) > Date.parse(record.completedAt) ? closed : record.completedAt;
+}
+
 function timingFor(engine: Engine, keys: string[], from?: string, doneAt?: string): Timing | undefined {
   if (!from) return undefined;
   const { runs, running } = engine.sessionRuns(keys);
@@ -1178,6 +1402,12 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
       };
     }
     if (key !== undefined) Object.assign(view, waivedFacts(engine, key, view.state === "done"));
+    // Every leaf shows its tag and what it will run on, runs on or ran on (Kiln Phase Model Tiers AC-TIER-02, AC-PICK-02).
+    view.tier = engine.tierOf(phase.id);
+    // A phase finished in an earlier execution has no facts in this one: its row reads the retained executions.
+    view.model = key === undefined && view.state === "done" ? engine.earlierExecutionModel(phase.id) : rowModel(engine, key ?? phase.id, view.state === "done");
+    // A leaf that hasn't started offers Change, and Use the default once changed (AC-PICK-03).
+    if (phase.splitInto === undefined) Object.assign(view.model, engine.modelControls(key ?? phase.id, `Phase ${phase.id}`, view.model));
     return view;
   });
 
@@ -1186,19 +1416,162 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     const firstSession = engine.sessionRecord(PR_PHASE_KEY, facts?.sessionIds[0] ?? "");
     const startedAt = firstSession?.runs[0]?.startedAt;
     const row: PhaseView = { id: PR_PHASE_KEY, title: deliveryEnabled(record) ? "Finalize delivery" : PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
-    if (engine.currentlyComplete) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
+    if (engine.finished) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
     else if (facts?.stop) row.state = "needs_you";
     else if (facts?.wait) row.state = "waiting";
     else if (state === "implementing" && engine.current?.phaseKey === PR_PHASE_KEY) row.state = "implementing";
     else if (state === "paused") row.state = "next";
+    const session = engine.latestSession(PR_PHASE_KEY);
+    if (session) row.outputLineCount = engine.outputLines(session).length;
     if (startedAt) {
       row.sessionStartedAt = startedAt;
       if (includeTiming) row.timing = timingFor(engine, [PR_PHASE_KEY], startedAt, facts?.doneAt)!;
+      // Its row has no Details (Kiln v1 AC-PR-05) unless its launch decision recorded the fallback's facts, which its phase detail keeps once it stops, waits or finishes (AC-FALLBACK-03).
+      if (session && engine.detailsFallback(PR_PHASE_KEY)) row.details = { ...sessionIdentity(session), from: startedAt, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.workingDirectoryOf(session)), branch: record.settings.featureBranch, sessionId: session.sessionId };
     }
     Object.assign(row, waivedFacts(engine, PR_PHASE_KEY, row.state === "done"));
+    row.model = rowModel(engine, PR_PHASE_KEY, row.state === "done");
     rows.push(row);
   }
+  const merge = mergeRow(engine, includeTiming);
+  if (merge) rows.push(merge);
+  const push = planPushRow(engine, includeTiming);
+  if (push) {
+    // In the build a push led to, the row sits before the first added phase; on the finished page, after the rest.
+    const before = push.executionId ? rows.findIndex(row => row.id === push.beforeId) : -1;
+    const { beforeId: _before, ...row } = push; void _before;
+    if (before >= 0) rows.splice(before, 0, row); else rows.push(row);
+  }
   return rows;
+}
+
+/**
+ * The Push the plan row (Kiln After Delivery AC-MERGE-05): on the finished page while a push is
+ * open, and while the acceptance it led to is being prepared; in the build that acceptance
+ * activated, Done before the first added phase, read from the archived execution. Never counted
+ * among the phases done.
+ */
+function planPushRow(engine: Engine, includeTiming: boolean): (PhaseView & { beforeId?: string }) | undefined {
+  const { record } = engine;
+  const current = record.continuation?.acceptances.find(row => row.id === record.continuation?.currentAcceptanceId);
+  const latest = latestPlanPush(record);
+  const preparing = !!current && current.completedExecutionId === record.executionId && current.state === "preparing";
+  if (latest && (!latest.closedAt || preparing && readAcceptance(engine.stateDirectory, current!.id).planPushKey === planPushKey(latest.operationId))) {
+    return pushRowFor(engine, record, latest, planPushState(engine, latest).state, includeTiming);
+  }
+  if (!current || current.completedExecutionId === record.executionId) return undefined;
+  const acceptance = readAcceptance(engine.stateDirectory, current.id);
+  if (!acceptance.planPushKey) return undefined;
+  const archived = engine.historicalExecution(acceptance.completedExecutionId)?.record;
+  const push = archived?.afterDelivery?.planPushes?.find(one => planPushKey(one.operationId) === acceptance.planPushKey);
+  if (!archived || !push) return undefined;
+  return { ...pushRowFor(engine, archived, push, "done", includeTiming, acceptance.completedExecutionId), executionId: acceptance.completedExecutionId, ...optional("beforeId", acceptance.proposal.added[0]?.id) };
+}
+
+/** `archivedIn`: the archived execution the push ran in, whose sessions are read as that execution's, never this one's. */
+function pushRowFor(engine: Engine, record: Pick<PrdRecord, "phases" | "repositories" | "settings">, push: PlanPushActivity, state: PlanPushView["state"], includeTiming: boolean, archivedIn?: string): PhaseView {
+  const key = planPushKey(push.operationId);
+  const facts = record.phases[key];
+  const ids = facts?.sessionIds ?? [];
+  const read = (id: string) => {
+    if (!archivedIn) return engine.sessionRecord(key, id);
+    const saved = readSessionRecord(engine.stateDirectory, key, id);
+    return saved?.executionId === archivedIn ? saved : undefined;
+  };
+  const session = ids.length ? read(ids.at(-1)!) : undefined;
+  const base = record.repositories.find(entry => entry.kind === "prd")?.baseBranch ?? record.settings.baseBranch;
+  const checkout = displayPath(engine.record.repository.mainCheckoutPath);
+  const line = `${state === "done" || state === "accepting" ? "pushed" : "pushing"} this PRD’s documents to ${base} from ${checkout}`;
+  const row: PhaseView = { id: key, kind: "plan_push", title: "Push the plan", file: session ? `${AGENT_NAMES[session.agentId ?? "claude_code"]} · ${session.modelDisplayName} · ${line}` : line,
+    state: state === "done" || state === "accepting" ? "done" : state === "stopped" ? "needs_you" : state === "waiting" ? "waiting" : state === "interrupted" ? "next" : "implementing", finishedByPerson: false, ...optional("doneAt", push.doneAt), ...(state === "interrupted" ? { interrupted: true as const } : {}) };
+  const first = ids[0] ? read(ids[0]) : undefined;
+  const from = first?.runs[0]?.startedAt;
+  if (session) {
+    if (!archivedIn) row.outputLineCount = engine.outputLines(session).length;
+    if (from) {
+      row.sessionStartedAt = from;
+      if (includeTiming) row.timing = archivedIn ? runTiming(session.runs.map(run => ({ startedAt: run.startedAt, ...optional("interruptedAt", run.interruptedAt), endedAt: run.endedAt ?? run.startedAt })), from, push.doneAt ?? from) : timingFor(engine, [key], from, push.doneAt)!;
+      row.details = { ...sessionIdentity(session), from, ...optional("to", push.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.workingDirectoryOf(session)), branch: base, sessionId: session.sessionId };
+    }
+  }
+  return row;
+}
+
+/** A push's state (Kiln After Delivery "Interfaces"): done, accepting (past Done, its check not decided), stopped, waiting, interrupted or running. */
+function planPushState(engine: Engine, push: PlanPushActivity): PlanPushView {
+  const { record } = engine;
+  const key = planPushKey(push.operationId);
+  const facts = record.phases[key];
+  const session = engine.latestSession(key);
+  const state: PlanPushView["state"] = push.closedAt ? "done" : push.doneAt ? "accepting" : facts?.stop || record.billing?.hold?.phaseKey === key ? "stopped" : engine.restartReview?.activityKey === key ? "interrupted" : facts?.wait ? "waiting" : "running";
+  return { key, state, ...optional("sessionId", session?.sessionId), proposalId: push.proposalId };
+}
+
+/**
+ * The Merge row, after the final pull request row (Kiln After Delivery AC-MERGE-05): never counted
+ * among the phases done. Its line names the agent, the model and what it merges.
+ */
+function mergeRow(engine: Engine, includeTiming: boolean): PhaseView | undefined {
+  const { record } = engine;
+  const merge = record.afterDelivery?.merge;
+  if (!merge) return undefined;
+  const facts = record.phases[MERGE_KEY];
+  const session = engine.latestSession(MERGE_KEY);
+  const view = mergeState(engine)!;
+  const pulls = merge.pullRequests.map(pull => record.pullRequests?.find(one => one.repository === pull.repository && one.number === pull.number)).filter(pull => pull !== undefined);
+  const what = pulls.map(pull => `${pulls.length > 1 ? `${pull.repository} ` : ""}#${pull.number}`).join(" and ");
+  const bases = [...new Set(pulls.map(pull => pull.base))];
+  const line = `${view.state === "done" ? "merged" : "merging"} ${what}${bases.length === 1 ? ` into ${bases[0]}` : ""}`;
+  const row: PhaseView = { id: MERGE_KEY, kind: "merge", title: "Merge", file: session ? `${AGENT_NAMES[session.agentId ?? "claude_code"]} · ${session.modelDisplayName} · ${line}` : line, state: view.state === "done" ? "done" : view.state === "stopped" ? "needs_you" : view.state === "waiting" ? "waiting" : view.state === "interrupted" ? "next" : "implementing", finishedByPerson: false, ...optional("doneAt", facts?.doneAt), ...(view.state === "interrupted" ? { interrupted: true as const } : {}) };
+  const first = facts?.sessionIds[0] ? engine.sessionRecord(MERGE_KEY, facts.sessionIds[0]) : undefined;
+  const from = first?.runs[0]?.startedAt;
+  if (session) {
+    row.outputLineCount = engine.outputLines(session).length;
+    if (from) {
+      row.sessionStartedAt = from;
+      if (includeTiming) row.timing = timingFor(engine, [MERGE_KEY], from, facts?.doneAt)!;
+      row.details = { ...sessionIdentity(session), from, ...optional("to", facts?.doneAt ?? session.runs.at(-1)?.endedAt), model: session.modelDisplayName, ...optional("effort", session.effort), worktree: displayPath(engine.workingDirectoryOf(session)), branch: record.settings.featureBranch, sessionId: session.sessionId };
+    }
+  }
+  return row;
+}
+
+/** The merge activity's state (Kiln After Delivery "Interfaces"): done, stopped (a stop or billing hold), waiting, interrupted (held at the restart review) or running. */
+function mergeState(engine: Engine): MergeView | undefined {
+  const { record } = engine;
+  const merge = record.afterDelivery?.merge;
+  if (!merge) return undefined;
+  const facts = record.phases[MERGE_KEY];
+  const session = engine.latestSession(MERGE_KEY);
+  const state: MergeView["state"] = merge.closedAt ? "done" : facts?.stop || record.billing?.hold?.phaseKey === MERGE_KEY ? "stopped" : engine.restartReview?.activityKey === MERGE_KEY ? "interrupted" : facts?.wait ? "waiting" : "running";
+  return { state, ...optional("sessionId", session?.sessionId), ...optional("startedAt", session?.runs[0]?.startedAt), ...optional("doneAt", merge.doneAt), ...optional("summary", merge.summary), pullRequests: merge.pullRequests, folder: displayPath(session ? engine.workingDirectoryOf(session) : engine.sessionFolder) };
+}
+
+/** The pull request card's facts (AC-MERGE-01, AC-MERGE-04, AC-MERGE-07, AC-WAIT-02). */
+export function afterDeliveryView(engine: Engine): AfterDeliveryView {
+  const { record } = engine;
+  const state = record.afterDelivery!;
+  const offer = mergeOffer(record);
+  const control = engine.mergeControl();
+  const multi = (record.pullRequests ?? []).length > 1;
+  const agent = AGENT_NAMES[engine.agentOf(MERGE_KEY)];
+  const base = (row: { repository: string; number: number }) => record.pullRequests?.find(pull => pull.repository === row.repository && pull.number === row.number)?.base ?? "";
+  const merge = mergeState(engine);
+  const offerView: AfterDeliveryView["offer"] = {
+    kind: offer.kind, available: control.available, ...optional("reason", control.available ? undefined : control.reason),
+    ...(offer.kind === "offered" && control.offered ? { note: mergeNote({ agent, multi, toMerge: offer.toMerge.map(row => ({ repository: row.repository, number: row.number, base: base(row), ordered: !!row.order })), merged: offer.merged }) } : {}),
+    // The closed line shows only while no merge activity exists (Display Contract).
+    ...(offer.kind === "closed" && !merge ? { line: closedOfferLine({ multi, ...offer }) } : offer.kind === "unreadable" && !merge ? { line: unreadableLine(offer.problem) } : {}),
+  };
+  return {
+    pullRequests: state.pullRequests.map(({ headSha: _head, ...row }) => { void _head; return row; }),
+    ...(state.readError ? { readError: { at: state.readError.at, problem: state.readError.problem } } : {}),
+    waiting: deliveryWaiting(record) === true,
+    offer: offerView,
+    ...(merge ? { merge } : {}),
+    ...(latestPlanPush(record) ? { planPush: planPushState(engine, latestPlanPush(record)!) } : {}),
+    ...(baseBranchLines(state.baseBranches, multi).length ? { baseBranches: baseBranchLines(state.baseBranches, multi) } : {}),
+  };
 }
 
 /**
@@ -1209,7 +1582,7 @@ export function documentsFound(
   prdDirectory: string,
   folderName: string,
   plan: PhasePlan,
-  found: StartCheckReport["found"] & { repositories: StartCheckReport["repositories"] },
+  found: StartCheckReport["found"] & { repositories: StartCheckReport["repositories"]; namedCount?: number },
   repositoryName: string,
   read: (name: string) => string = (name) => readFileSync(join(prdDirectory, name), "utf8"),
 ): DocumentsFound {
@@ -1231,9 +1604,9 @@ export function documentsFound(
     checks: [
       { name: "Every phase cites its criteria", passed: true },
       { name: "Dependencies point backward", passed: true },
-      ...(found.repositories.length > 0
+      ...(found.repositories.length > 0 || (found.namedCount ?? 0) > 0
         ? [
-            { name: `Named repositories found beside ${repositoryName}`, passed: true },
+            { name: REPOSITORIES_FOUND, passed: true },
             { name: `Working tree of ${repositoryName} is clean`, passed: true },
           ]
         : [{ name: "Working tree is clean", passed: true }]),
@@ -1261,7 +1634,7 @@ export function startCheckDocuments(prdDirectory: string, folderName: string, re
   const assumptions = readable(report.found.assumptionsFile);
   const plan = report.plan && report.plan.problems.length === 0 ? report.plan : undefined;
   const leaves = plan ? leavesOf(plan) : [];
-  const cleanName = report.repositories.length > 0 ? `Working tree of ${repositoryName} is clean` : "Working tree is clean";
+  const cleanName = report.named.length > 0 ? `Working tree of ${repositoryName} is clean` : "Working tree is clean";
   return {
     prd: { file: prdFile, criteriaCount: criteria.count, ...optional("firstLabel", criteria.firstLabel), ...optional("lastLabel", criteria.lastLabel) },
     ...(design !== undefined ? { design: { file: report.found.designFile!, criteriaCited: countDesignCitations(design, criteria.labels) } } : {}),
@@ -1270,7 +1643,7 @@ export function startCheckDocuments(prdDirectory: string, folderName: string, re
     ...(report.found.unfollowedLinks?.length ? { unfollowedLinks: report.found.unfollowedLinks.filter((link, index, all) => all.findIndex(other => other.from === link.from && other.target === link.target) === index).map(link => ({ target: link.target, from: link.from, reason: link.reason })) } : {}),
     checks: [
       ...(plan ? [{ name: "Every phase cites its criteria", passed: true }, { name: "Dependencies point backward", passed: true }] : []),
-      ...(report.repositories.length > 0 && !report.problems.some(problem => problem.includes("repositor")) ? [{ name: `Named repositories found beside ${repositoryName}`, passed: true }] : []),
+      ...(report.named.length > 0 && !report.problems.some(problem => problem.includes("repositor")) ? [{ name: REPOSITORIES_FOUND, passed: true }] : []),
       // Uncommitted files an adopted worktree holds are counted on the page, never shown as a clean tree.
       ...(report.uncommitted !== undefined || report.problems.some(problem => problem.startsWith("Couldn't read the checkout's status")) ? [] : [{ name: cleanName, passed: true }]),
       ...failed.map(text => ({ name: text, passed: false, text })),
@@ -1292,7 +1665,7 @@ function startView(engine: Engine, preview: StartPreview, readAtStart: boolean):
     closedCount: preview.closedCount,
     // The closed marks belong to the plan read at the start commit, so Start at Phase N waits for it too.
     ...optional("startAt", readAtStart ? preview.startAt : undefined),
-    ...optional("catchUp", preview.catchUp),
+    ...optional("catchUp", labelledCatchUp(engine, preview.catchUp)),
   };
 }
 
@@ -1306,15 +1679,26 @@ function gitDocumentsFound(preview: StartPreview, engine: Engine): DocumentsFoun
   const assumptionsFile = pick("assumptions.md");
   const read = (name: string) => contents[`${directory}/${name}`] ?? "";
   const repositories = preview.repositories.filter(repository => repository.kind !== "prd").map(repository => ({ name: repository.name, mainCheckoutPath: repository.mainCheckoutPath, github: repository.github }));
-  return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.paths.repositoryName, read);
+  return documentsFound("", folder, preview.plan!, { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: names.filter(isPhaseFileName).length, ...(unfollowed.length ? { unfollowedLinks: unfollowed.map(link => ({ ...link, href: link.target })) as unknown as NonNullable<StartCheckReport["found"]["unfollowedLinks"]> } : {}), repositories }, engine.labelOf(engine.paths.repositoryName), read);
+}
+
+/** A catch-up offer with each repository's label beside its name (find repositories anywhere AC-FOLDER-02). */
+function labelledCatchUp(engine: Engine, offer: CatchUpOffer | undefined): CatchUpOffer | undefined {
+  return offer && { repositories: labelled(engine, offer.repositories) };
 }
 
 /** Each repository's commits and latest commit in a phase: what its Done recorded, or what Kiln read for its stop. */
+
+/** Each repository's label beside its name (find repositories anywhere AC-FOLDER-02). */
+function labelled<T extends { name: string }>(engine: Engine, list: T[]): (T & { label: string })[] {
+  return list.map((one) => ({ ...one, label: engine.labelOf(one.name) }));
+}
+
 function repositoryDetails(engine: Engine, facts: { repositories: Record<string, { startCommit: string; pushedSha?: string; commitCount?: number }> }, stopped: RepositoryCommits[] | undefined): RepositoryDetails[] {
   const rows: RepositoryDetails[] = [];
   for (const entry of engine.setUpRepositories) {
     const added = entry.kind === "added" && entry.addedInPhase !== undefined ? { addedInPhase: engine.judgedId(entry.addedInPhase) } : {};
-    const base = { name: entry.name, ...added, worktree: displayPath(expandHome(entry.worktreePath)), branch: engine.record.settings.featureBranch };
+    const base = { name: entry.name, label: engine.labelOf(entry.name), ...added, worktree: displayPath(expandHome(entry.worktreePath)), branch: engine.record.settings.featureBranch };
     if (stopped) {
       const commits = stopped.find((repository) => repository.name === entry.name)?.commits ?? [];
       if (commits.length > 0) rows.push({ ...base, commitCount: commits.length, latestCommit: commits[0]!.sha });
@@ -1327,21 +1711,30 @@ function repositoryDetails(engine: Engine, facts: { repositories: Record<string,
   return rows;
 }
 
-/** The PRD's repositories as rows: before Start the planned list with its bases and messages, after it the set-up entries. */
+/** The PRD's repositories as rows: before Start the planned list with its bases and messages, and each row that asks; after it the set-up entries. */
 function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
   const notStarted = state === "not_started";
   const { settings } = engine.record;
   const multi = engine.multiRepository;
+  const labels = engine.labelSet();
+  const labelOf = (shortName: string, addressPath: string) => labelAmong({ shortName, addressPath }, labels);
+  const located = new Map(notStarted ? engine.namedRows.flatMap((row) => (row.found ? [[row.found.name, row.found.located] as const] : [])) : []);
   const repositories = notStarted ? engine.plannedRepositories : engine.setUpRepositories.map((entry) => ({ ...entry, entry }));
-  return repositories.map((repository) => {
+  const rows: RepositoryRow[] = repositories.map((repository) => {
     const entry = repository.entry;
     const isPrd = repository.kind === "prd";
     const fixed = !notStarted || entry?.setupCompletedAt !== undefined || (engine.workspaceFixed && entry?.createdBranch !== undefined);
     const message = isPrd ? engine.currentFieldErrors.baseBranch : engine.baseErrors[repository.name];
     const choices = isPrd ? engine.baseBranches : engine.repositoryBaseBranches[repository.name];
     const worktreePath = entry?.setupCompletedAt !== undefined ? expandHome(entry.worktreePath) : isPrd && !multi ? engine.worktreePath : `${expandHome(settings.workspaceFolder)}/${repository.name}`;
+    const shortName = repository.shortName ?? entry?.shortName ?? repository.name;
+    const how = located.get(repository.name);
     return {
       name: repository.name,
+      label: labelOf(shortName, repository.github),
+      addressPath: repository.github,
+      checkoutFolder: displayPath(expandHome(repository.mainCheckoutPath)),
+      ...(how === undefined ? {} : { located: how }),
       github: `github.com/${repository.github}`.toLowerCase(),
       kind: repository.kind,
       ...(entry?.kind === "added" && entry.addedInPhase !== undefined ? { addedInPhase: engine.judgedId(entry.addedInPhase) } : {}),
@@ -1352,6 +1745,53 @@ function repositoryRows(engine: Engine, state: FeatureState): RepositoryRow[] {
       fieldErrors: message === undefined ? {} : { baseBranch: message },
     };
   });
+  if (!notStarted) return rows;
+  // A row that asks sits in plan order among the named repositories (find repositories anywhere AC-ASK-01).
+  const order = engine.namedRows.map((row) => row.name);
+  // A failing start check on a page a reset built holds each row's question until it passes (AC-ASK-01).
+  const held = engine.resetCheckFailing;
+  for (const row of engine.locatingRepositories) {
+    const question = row.question!;
+    const label = labelOf(row.shortName, row.addressPath);
+    const asking: RepositoryRow = {
+      name: row.name,
+      label,
+      addressPath: question.repository,
+      kind: "named",
+      baseBranch: "",
+      worktreePath: displayPath(`${expandHome(settings.workspaceFolder)}/${row.name}`),
+      fixed: true,
+      fieldErrors: {},
+      ...(held ? {} : { question: questionView(question, label) }),
+    };
+    if (!order.includes(row.name)) { rows.push(asking); continue; }
+    const before = order.slice(0, order.indexOf(row.name)).reverse().find((name) => rows.some((one) => one.name === name));
+    const at = before === undefined ? rows.findIndex((one) => one.kind !== "prd") : rows.findIndex((one) => one.name === before) + 1;
+    rows.splice(at === -1 ? rows.length : at, 0, asking);
+  }
+  return rows;
+}
+
+/** A stop's saved questions as the page shows them, each with its label (find repositories anywhere, "Screens"). */
+function locateView(engine: Engine, questions: SavedQuestion[] | undefined): NonNullable<Snapshot["needsYou"]>["locate"] {
+  if (!questions?.length) return undefined;
+  const set = engine.labelSet();
+  return questions.map((question) => ({ ...questionView({ ...question }, questionLabel(set, question.repository)), ...optional("phaseFile", question.phaseFile) }));
+}
+
+/** A question as the page shows it: folders under `~/`. */
+export function questionView(question: Question | SavedQuestion, label: string): QuestionView {
+  return {
+    kind: question.kind,
+    repository: question.repository,
+    label,
+    searchedFrom: displayPath(question.searchedFrom),
+    ...optional("searchedTo", question.searchedTo === undefined ? undefined : displayPath(question.searchedTo)),
+    checkouts: question.checkouts.map((checkout) => ({ folder: displayPath(checkout.folder), remote: checkout.remote, pickable: checkout.pickable, ...(checkout.remembered ? { remembered: true as const } : {}) })),
+    found: question.found,
+    ...optional("field", !("field" in question) || question.field === undefined ? undefined : displayPath(question.field)),
+    ...optional("fieldError", "fieldError" in question ? question.fieldError : undefined),
+  };
 }
 
 /** Labels actual tool invocations or observed remote activity, never a prepared intent. */
@@ -1389,9 +1829,9 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
   const started = new Set<string>();
   const audits = record.completionAudits?.activities ?? [];
   let ledger: ReturnType<typeof personItems> | undefined;
-  try { ledger = personItems(engine.stateDirectory, audits, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
+  try { ledger = personItems(engine.stateDirectory, record, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
   for (const activity of activityHistory(record, engine.stateDirectory)) {
-    if (activity.kind === "implementation" || activity.kind === "final_delivery") {
+    if (activity.kind === "implementation" || activity.kind === "final_delivery" || activity.kind === "merge" || activity.kind === "plan_push") {
       const parent = phases.find(r => r.id === activity.key && r.state === "split");
       if (parent && !started.has(parent.id)) { rows.push(parent); started.add(parent.id); }
       const row = phases.find(r => r.id === engine.judgedId(activity.key));
@@ -1404,8 +1844,10 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       continue;
     }
     const audit = engine.auditActivity(activity.key)!;
+    // Each audit row is named for what it does (Kiln After Delivery AC-AUDIT-01).
+    const nameFacts = auditNameFacts(record, audit); const name = auditName(nameFacts);
     const facts = record.phases[activity.key]; const session = engine.latestSession(activity.key);
-    const row: PhaseView = { id: activity.key, activityId: activity.activityId, kind: audit.kind, title: auditLabel(audit.kind), file: `Round ${audit.round}${audit.continuationIndex > 1 ? ` · Continuation ${audit.continuationIndex}` : ""}`, round: audit.round, continuationIndex: audit.continuationIndex, state: facts?.stop ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing", finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt) };
+    const row: PhaseView = { id: activity.key, activityId: activity.activityId, kind: audit.kind, title: name.title, file: name.line ?? "", ...(nameFacts.fixing ? { fixing: nameFacts.fixing } : {}), round: audit.round, continuationIndex: audit.continuationIndex, state: facts?.stop ? "needs_you" : facts?.wait ? "waiting" : facts?.doneAt ? "done" : state === "paused" ? "next" : "implementing", finishedByPerson: facts?.finishedByPerson ?? false, ...optional("doneAt", facts?.doneAt) };
     if (session) {
       const first = facts?.sessionIds[0] ? engine.sessionRecord(activity.key, facts.sessionIds[0]) : undefined;
       const from = first?.runs[0]?.startedAt;
@@ -1424,7 +1866,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
       const report = accepted?.report ?? (!attempt?.refusal && attempt?.reportBytes ? JSON.parse(attempt.reportBytes) as import("../audit/contracts.js").AuditReport : undefined);
       const snapshot = audit.snapshots.at(-1) ? store.read<WorkSnapshot>(audit.snapshots.at(-1)!) : undefined;
       const checks = (facts?.stop?.checks ?? attempt?.checks ?? []).filter(check => check.name !== "Stayed in the workspace").map(check => auditCheckTitle(activity.key, check));
-      const repositories = snapshot?.repositories.map(r => ({ name: r.repository, revision: r.head })) ?? [];
+      const repositories = snapshot?.repositories.map(r => ({ name: r.repository, label: engine.labelOf(r.repository), revision: r.head })) ?? [];
       if (report?.schemaVersion === 2) {
         row.audit = { outcome: report.outcome, summary: report.summary, checks, criteria: [], repositories, blockers: report.needsYou.map(item => `${item.problem} ${item.action}`), pendingActions: [] };
         // An audit marked complete with a valid report counts as accepted (AC-ITEM-01), unless Kiln 1.3.0 marked it.
@@ -1442,6 +1884,9 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
     } catch (error) { if (inspectionStore) throw error; row.audit = { checks: [{ name: "Audit evidence", passed: false, facts: [(error as Error).message] }], criteria: [], repositories: [], blockers: [(error as Error).message], pendingActions: [] }; }
     Object.assign(row, waivedFacts(engine, activity.key, row.state === "done", waivedResult));
     Object.assign(row, loopFacts(engine, activity.key));
+    row.model = rowModel(engine, activity.key, row.state === "done");
+    // A Delivery audit or Test audit row that hasn't started changes this PRD's Audits choice (AC-OTHER-01).
+    Object.assign(row.model, engine.modelControls(activity.key, name.title, row.model));
     // A waived audit's checks are its waived completion's, never the refused attempt's (AC-WAIVE-10).
     if (row.audit && row.waivedCompletion) row.audit.checks = row.waivedCompletion.checks;
     rows.push(row); started.add(row.id);
@@ -1490,7 +1935,57 @@ function preflightRow(engine: Engine, key: string, state: FeatureState, includeT
     }
   }
   Object.assign(row, waivedFacts(engine, key, row.state === "done"));
+  row.model = rowModel(engine, key, row.state === "done");
   return row;
+}
+
+/** A Documents found leaf's model, with Change for one that hasn't started (AC-PICK-02, AC-PICK-03). */
+function documentsModel(engine: Engine, phase: { id: string; closed: boolean }): ModelView {
+  if (phase.closed && !engine.record.phases[phase.id]) return engine.earlierExecutionModel(phase.id);
+  const model = engine.activityModel(phase.id, { finished: phase.closed });
+  return { ...model, ...engine.modelControls(phase.id, `Phase ${phase.id}`, model) };
+}
+
+/**
+ * Where a stopped session's choice came from (Kiln Phase Model Tiers AC-PICK-06, "A choice that
+ * can't be used, found at launch"): from its saved decision while the activity hasn't started.
+ *
+ *   choiceSource(engine, "2", session)  // "The fallback, from Model defaults' Fallback column. Change it in Model defaults."
+ */
+function choiceSource(engine: Engine, key: string, session: SessionRecord): string | undefined {
+  if (!engine.choiceActivity(key)) return undefined;
+  const started = engine.startedSessionOf(key);
+  if (started) return `Started on ${[AGENT_NAMES[started.agentId ?? "claude_code"], started.modelDisplayName, started.effort].filter(Boolean).join(" · ")}, which it finishes on.`;
+  return session.launch ? launchSource(key, session.launch) : undefined;
+}
+
+/** A row's model (AC-PICK-02): a launching or running session's recorded choice shows until the activity starts. */
+function rowModel(engine: Engine, key: string, finished: boolean): ModelView {
+  const current = engine.current?.phaseKey === key;
+  const live = current ? engine.current!.session : undefined;
+  return engine.activityModel(key, { finished, liveSession: live, current });
+}
+
+
+/**
+ * The planned rows (Kiln Phase Model Tiers, "Planned rows"): in a run underway, after the last
+ * row, one for each audit kind the routing still expects and has no open activity of, Delivery
+ * audit then Test audit, then the pull request session's until it is allocated. Each reads Will
+ * run on with the Audits choice; it has no steps, timing or details.
+ */
+function plannedRows(engine: Engine, state: FeatureState, rows: PhaseView[]): PhaseView[] {
+  const { record } = engine;
+  if (state === "not_started" || state === "complete" || state === "folder_missing" || engine.finished || record.completedAt) return [];
+  const expected = engine.expectedAuditKinds();
+  const open = (kind: "delivery_audit" | "test_audit") => (record.completionAudits?.activities ?? []).some(activity => activity.kind === kind && !record.phases[auditKeyOf(activity)]?.doneAt);
+  const model = engine.activityModel(PLANNED_AUDITS_KEY, { finished: false });
+  const planned: PhaseView[] = [];
+  // A planned Delivery audit or Test audit row offers Change, which changes this PRD's Audits choice; the pull request row doesn't (AC-OTHER-01).
+  const row = (id: string, kind: NonNullable<PhaseView["kind"]>, title: string): PhaseView => ({ id, kind, title, file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: kind === "final_delivery" ? model : { ...model, ...engine.modelControls(PLANNED_AUDITS_KEY, title, model) } });
+  if (expected.includes("delivery_audit") && !open("delivery_audit")) planned.push(row("planned-delivery-audit", "delivery_audit", "Delivery audit"));
+  if (expected.includes("test_audit") && !open("test_audit")) planned.push(row("planned-test-audit", "test_audit", "Test audit"));
+  if (!rows.some(one => one.id === PR_PHASE_KEY)) planned.push(row("planned-pull-request", "final_delivery", deliveryEnabled(record) ? "Finalize delivery" : "Pull request"));
+  return planned;
 }
 
 /**
@@ -1500,20 +1995,22 @@ function preflightRow(engine: Engine, key: string, state: FeatureState, includeT
  */
 function preflightPlanned(engine: Engine, state: FeatureState, documents?: DocumentsFound): Pick<Snapshot, "preflight"> {
   const { record } = engine;
-  if (!engine.agents.state.optionalSkills?.buildPreflight) return {};
+  if (!engine.readers[engine.auditsAgent].state.optionalSkills?.buildPreflight) return {};
   const unallocated = !record.preflight?.activities.some(activity => !record.phases[preflightKeyOf(activity)]?.doneAt);
   const due = !!record.preflight?.due && unallocated;
   const nextStart = state === "not_started"
     || state === "paused" && unallocated && (record.pause.activeSince !== undefined || engine.restartReview !== undefined && !preflightSettled(record))
     || state === "complete" && !!record.completedPlanCheck?.result?.proposal;
   if (!due && !nextStart) return {};
+  // The planned Preflight row shows the Audits choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row").
+  const model = engine.activityModel(PLANNED_PREFLIGHT_KEY, { finished: false });
   if (state === "not_started") {
     const leaf = documents?.start?.startAt?.id ?? documents?.plan?.phases.find(phase => !phase.splitInto && !phase.closed)?.id;
-    return { preflight: { planned: { before: leaf ?? "end" } } };
+    return { preflight: { planned: { before: leaf ?? "end", model } } };
   }
-  if (state === "complete") return { preflight: { planned: { before: "end" } } };
+  if (state === "complete") return { preflight: { planned: { before: "end", model: engine.continuationPreflightModel() } } };
   const next = engine.preflightNextActivity(undefined);
-  return { preflight: { planned: { before: next.key ?? "end" } } };
+  return { preflight: { planned: { before: next.key ?? "end", model } } };
 }
 
 /** The loop an audit row is, with the limit in force (Kiln Deliver When Audit Loops Run Out AC-STOP-05); phase rows and sessions of test fixes carry none. */
@@ -1527,7 +2024,7 @@ function activityName(engine: Engine, key: string): string {
   if (key === PR_PHASE_KEY) return "Final delivery";
   if (isPreflightKey(key)) return PREFLIGHT_TITLE;
   const audit = key.startsWith("audit-") ? engine.auditActivity(key) : undefined;
-  if (audit) return auditLabel(audit.kind);
+  if (audit) return recordedAuditName(engine.record, audit).title;
   return `Phase ${judgedKeyFor(engine.record.plan ?? [], key)}`;
 }
 
@@ -1591,4 +2088,101 @@ function personItemFields(engine: Engine, store?: Pick<AuditStore, "read">): Pic
     const delivered = forYou && { loops: closingAudits(engine.record), forYou, pullRequests: (engine.record.pullRequests ?? []).map(pull => ({ repository: pull.repository, number: pull.number, url: pull.url })) };
     return { ...(items?.length ? { items } : {}), ...(delivered ? { delivered } : {}) };
   } catch (error) { if (store) throw error; return {}; }
+}
+
+/** A needed agent's entry in `Snapshot.agents` (Kiln Phase Model Tiers, "Snapshot"). */
+export interface AgentView {
+  agentId: AgentId;
+  agent: string;
+  installed: boolean;
+  pending: boolean;
+  /** The agent the current activity runs on, or else the next one's (AC-AGENTS-03). */
+  inUse?: true;
+  readinessErrors?: string[];
+  neededBy: { activities: string[]; fallbackOnly: boolean };
+  /** Each model the agent offers, with the efforts it takes (none for one that takes no effort), for Change's editor. */
+  models?: { value: string; displayName: string; efforts: string[]; defaultEffort?: string; needsAutoMode?: true }[];
+  modelListError?: string;
+  /** Today's account view, the one the current activity runs on marked in use, and each limit at or above the fallback's threshold marked. */
+  account?: AgentAccount & { inUse?: true; limits: (AgentAccount["limits"][number] & { overThreshold?: true })[] };
+  billing?: BillingView;
+}
+
+/** `settings.models.audits` (AC-OTHER-01): the Audits choice, whether it is this PRD's own, and Change, never limited by an activity's state. */
+export interface AuditsChoiceView { choice?: ChoiceView; changedByYou: boolean; claudeCodeMissing?: true; problem?: string; change: { available: boolean; reason?: string }; useDefault?: true }
+
+function modelDefaultsRevision(path: string): string {
+  try { const stat = statSync(path); return `${stat.mtimeMs}:${stat.size}:${stat.ino}`; } catch { return "missing"; }
+}
+
+function auditsChoice(engine: Engine): AuditsChoiceView {
+  const model = engine.activityModel(PLANNED_AUDITS_KEY, { finished: false });
+  const complete = !!engine.record.completedAt;
+  return {
+    ...optional("choice", model.choice), changedByYou: model.from === "changed",
+    ...(model.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}), ...optional("problem", model.problem),
+    change: complete ? { available: false, reason: "The run is complete; no activity is left to change." } : { available: true },
+    ...(!complete && model.from === "changed" ? { useDefault: true as const } : {}),
+  };
+}
+
+/** `settings.models.fallback`: the switch as Model defaults says now, and the fallback-only agent's warning. */
+function fallbackSettings(engine: Engine): Snapshot["settings"]["models"]["fallback"] {
+  const read = readModelDefaults(engine.modelDefaultsFile);
+  const fallback = read.ok ? read.defaults.fallback : { enabled: false, threshold: 95 };
+  const warning = fallback.enabled ? engine.fallbackWarning() : undefined;
+  return { enabled: fallback.enabled, threshold: fallback.threshold, ...(warning ? { warning } : {}) };
+}
+
+/**
+ * `Snapshot.agents` (AC-AGENTS-01 to 03): each installed agent with its model list; each needed one
+ * with its readiness, account and billing, the latter at that agent's own latest launch. The
+ * current activity's agent, or else the next one's, is in use.
+ */
+function agentViews(engine: Engine, currentKey: string | undefined): AgentView[] {
+  const needs = engine.neededBy();
+  const read = readModelDefaults(engine.modelDefaultsFile);
+  const threshold = read.ok && read.defaults.fallback.enabled ? read.defaults.fallback.threshold : undefined;
+  const inUse = engine.inUseAgent(currentKey);
+  const views: AgentView[] = [];
+  for (const agentId of AGENT_IDS) {
+    const need = needs[agentId];
+    const installed = engine.installed(agentId);
+    if (!installed && !need) continue;
+    const metadata = engine.readers[agentId].state;
+    const view: AgentView = { agentId, agent: AGENT_NAMES[agentId], installed, pending: installed && metadata.pending, ...(need && inUse === agentId ? { inUse: true as const } : {}), neededBy: need ?? { activities: [], fallbackOnly: false } };
+    if (installed) {
+      if (metadata.models) view.models = metadata.models.map(model => ({ value: model.value, displayName: model.displayName, efforts: model.supportsEffort ? [...model.supportedEffortLevels] : [], ...optional("defaultEffort", model.defaultEffort), ...(model.supportsAutoMode ? {} : { needsAutoMode: true as const }) }));
+      if (metadata.modelListError) view.modelListError = metadata.modelListError;
+    }
+    if (need) {
+      const problem = installed ? metadata.blockers : [engine.agentProblem(agentId)!];
+      if (problem.length) view.readinessErrors = problem;
+      if (installed && metadata.account) {
+        view.account = { ...metadata.account, ...(inUse === agentId ? { inUse: true as const } : {}), limits: metadata.account.limits.map(limit => threshold !== undefined && limit.percent !== undefined && limit.percent >= threshold ? { ...limit, overThreshold: true as const } : limit) };
+      }
+      if (installed) view.billing = agentId === "claude_code" ? engine.billing.view : codexBillingView(metadata, engine.record.executionId!, engine.record.billing?.lastLaunch?.codex);
+    }
+    views.push(view);
+  }
+  return views;
+}
+
+/**
+ * An earlier execution with each delivery's repository label (find repositories anywhere AC-FOLDER-02).
+ * A delivery records Kiln's name, or a development checkpoint's `github.com/<address path>` target.
+ */
+export function labelledExecution<T extends { deliveries: { repository: string; url: string }[] }>(engine: Engine, row: T): T {
+  const nameOf = (repository: string) => repository.toLowerCase().startsWith("github.com/") ? repository.slice("github.com/".length) : repository;
+  return { ...row, deliveries: row.deliveries.map((delivery) => ({ ...delivery, label: engine.labelOf(nameOf(delivery.repository)) })) };
+}
+
+/** A completed-plan check with each repository's label beside Kiln's name for it, for the page (find repositories anywhere AC-FOLDER-02). */
+function labelledPlanCheck(engine: Engine, check: NonNullable<PrdRecord["completedPlanCheck"]>): NonNullable<PrdRecord["completedPlanCheck"]> {
+  const labelled = (result: typeof check.result) => result && {
+    ...result,
+    ...(result.leaves ? { leaves: result.leaves.map((leaf) => ({ ...leaf, repositories: leaf.repositories.map((repository) => ({ ...repository, label: engine.labelOf(repository.repository) })) })) } : {}),
+    ...(result.proposal ? { proposal: { ...result.proposal, preparation: result.proposal.preparation.map((binding) => ({ ...binding, label: engine.labelOf(binding.repository) })) } } : {}),
+  };
+  return { ...check, ...(check.result ? { result: labelled(check.result)! } : {}), ...(check.earlierResult ? { earlierResult: labelled(check.earlierResult)! } : {}) };
 }

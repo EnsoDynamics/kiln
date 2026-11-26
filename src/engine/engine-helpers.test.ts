@@ -67,7 +67,7 @@ describe("the prompts", () => {
   it("sends proof gate 2's launch prompt word for word, with the paragraph on adding a repository after the worktree's (multi-repo AC-SPACE-02)", () => {
     const recorded = readFileSync(new URL("../../test/fixtures/proof-gate-2/launch-prompt.txt", import.meta.url), "utf8").trimEnd().split("\n\n");
     const added =
-      "If you need a repository that isn't in this worktree's workspace, run `kiln add-repository <folder name>`; Kiln adds a worktree of it on `feature/greeting-cli` and prints where. Work there, never in a repository's own checkout such as `/tmp/kiln-gate2/<folder name>`. Before you change a repository, read its own `CLAUDE.md` and `AGENTS.md`, if it has them, and follow them in that repository.";
+      "If you need a repository that isn't in this worktree's workspace, run `kiln add-repository <owner>/<repository>`, the path in the repository's remote address; Kiln adds a worktree of it on `feature/greeting-cli` and prints where. Work there, never in a repository's own checkout such as `/tmp/kiln-gate2/<folder name>`. Before you change a repository, read its own `CLAUDE.md` and `AGENTS.md`, if it has them, and follow them in that repository.";
     expect(phaseSessionPrompt(values)).toBe([...recorded.slice(0, 2), added, ...recorded.slice(2)].join("\n\n"));
   });
 
@@ -79,16 +79,17 @@ describe("the prompts", () => {
         folder: "/home/a/acme/.worktrees/customer-returns",
         repositories: [
           { name: "product", github: "acme/product", worktreePath: "/home/a/acme/.worktrees/customer-returns/product", baseBranch: "main", isPrd: true },
-          { name: "returns-api", github: "acme/returns-api", worktreePath: "/home/a/acme/.worktrees/customer-returns/returns-api", baseBranch: "develop", isPrd: false },
+          { name: "returns-api", github: "acme/returns-api", worktreePath: "/home/a/acme/.worktrees/customer-returns/returns-api", baseBranch: "develop", isPrd: false, checkout: "~/code/acme-labs/returns-api" },
         ],
       },
     });
     expect(prompt).toContain("Work only in this Kiln workspace, `/home/a/acme/.worktrees/customer-returns`: one worktree of each repository below, every one on branch `feature/greeting-cli`.");
-    expect(prompt).toContain("such as `/tmp/kiln-gate2/returns-api`");
+    // Each repository by label and address path; the example own checkout is a listed repository's real one (find repositories anywhere, "A session's request").
+    expect(prompt).toContain("such as `~/code/acme-labs/returns-api`");
     expect(prompt).toContain(
-      "- `product`: `/home/a/acme/.worktrees/customer-returns/product`, base `main` (the PRD's repository)\n- `returns-api`: `/home/a/acme/.worktrees/customer-returns/returns-api`, base `develop`",
+      "- `product` (`acme/product`): `/home/a/acme/.worktrees/customer-returns/product`, base `main` (the PRD's repository)\n- `returns-api` (`acme/returns-api`): `/home/a/acme/.worktrees/customer-returns/returns-api`, base `develop`",
     );
-    expect(prompt).toContain("run `kiln add-repository <folder name>` from this workspace");
+    expect(prompt).toContain("run `kiln add-repository <owner>/<repository>`, the path in the repository's remote address, from this workspace");
     expect(prompt).toContain("Before you change a repository, read its own `CLAUDE.md` and `AGENTS.md`");
     expect(prompt).toContain("push it to origin (`git push -u origin feature/greeting-cli`) in each repository you change");
     expect(prompt).toContain("committed and pushed to `origin/feature/greeting-cli` in every repository.");
@@ -119,7 +120,8 @@ describe("the prompts", () => {
       deliveryBlock: BLOCK,
     });
     expect(several).toContain("- `returns-api` (`acme/returns-api`), worktree `/w/returns-api`, into `develop`\n\nEach description names the PRD and links every other pull request opened for it");
-    expect(several).toContain("as the technical design gives the order.\n\nOpen them ready for review");
+    expect(several).toContain("as the technical design gives the order. Where they must merge in an order, end each description with the line `Merge order: N of M`");
+    expect(several).toContain("its pull request can merge at any point.\n\nOpen them ready for review");
   });
 
   it("states Kiln's version-2 report contract without the method's vocabulary (AC-NEUTRAL-01, AC-NEUTRAL-02)", () => {
@@ -339,7 +341,7 @@ describe("plan order after Start", () => {
 
 describe("the default settings", () => {
   const paths = { mainCheckoutPath: join("/work", "acme-shop"), repositoryName: "acme-shop", folderName: "customer-returns", prdDirectoryFromRoot: "docs/prds/customer-returns" };
-  it("branch feature/<folder>, workspace .worktrees/<folder> beside it with the worktree in it, base develop or else origin's default, latest Opus at medium (AC-EFFORT-01), the default audit loops (AC-LOOP-01)", () => {
+  it("branch feature/<folder>, workspace .worktrees/<folder> beside it with the worktree in it, base develop or else origin's default, no model choices of its own (Kiln Phase Model Tiers AC-PICK-01), the default audit loops (AC-LOOP-01)", () => {
     const withDevelop = defaultSettings(paths, { branches: new Map([["main", "a"], ["develop", "b"]]), defaultBranch: "main" });
     expect(withDevelop).toEqual({
       workspaceFolder: join("/work", ".worktrees", "customer-returns"),
@@ -347,8 +349,7 @@ describe("the default settings", () => {
       featureBranch: "feature/customer-returns",
       baseBranch: "develop",
       bases: {},
-      model: "opus",
-      effort: "medium",
+      modelChoices: { phases: {} },
       keepAwake: true,
       resumeAfterUsageLimit: true,
       auditLoops: { deliveryLimit: 4, testLimit: 4 },

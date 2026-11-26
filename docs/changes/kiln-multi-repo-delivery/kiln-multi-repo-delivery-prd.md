@@ -41,8 +41,10 @@ Before anything starts, Kiln shows which repositories the PRD will change, as fa
 - [ ] **AC-REPO-01 — A phase can name the repositories it changes.** A phase document names the repositories its phase changes on a `**Repositories:**` line under its title, by folder name, separated by commas: `**Repositories:** returns-api, storefront` (REPO-004). The PRD's repository is named there only when the phase changes code in it. A phase document with no such line changes only the PRD's repository, as in v1. Kiln reads the line in every phase document. A split parent's names join the PRD's repositories like any other; they aren't passed down to its children.
 - [ ] **AC-REPO-02 — Kiln finds each named repository beside the PRD's repository.** Kiln looks for each named repository beside the PRD's repository (REPO-001). The start checks fail, naming the repository and the folder Kiln looked in, when a named repository isn't there, isn't a Git checkout, or has no `origin` on GitHub. A named repository's own checkout doesn't have to be clean, since other work may be in progress there and Kiln starts its feature branch from the base branch on `origin`. The clean-checkout check stays on the PRD's repository, whose documents Kiln reads.
   - Replaces in part: AC-START-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the named repositories are checked too; the clean-checkout check still covers only the PRD's repository)
+  - Superseded in part by: AC-ASK-01 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (a repository named by its address path is asked about on Documents found, not failed in the terminal)
 - [ ] **AC-REPO-03 — Documents found shows the repositories.** For a PRD with more than one repository, each phase in the plan on Documents found shows the repositories it names, and the delivery settings list every repository: its name, the PRD's repository marked as such, and the base branch the feature branch starts from. Documents found also says that sessions can add a repository they find they need (AC-ADD-01), and that they follow each repository's CLAUDE.md but not its `.claude/settings.json` or hooks (REPO-005). Its passed checks add "Named repositories found beside <PRD's repository>", and the clean-checkout check names the PRD's repository, the only one it covers. The terminal's first line counts the repositories ("3 repositories"). The repository label above the feature name stays the PRD's repository.
   - Replaces in part: AC-START-04 and AC-START-09 in `docs/prds/kiln-v1/kiln-v1-prd.md` (Documents found and the terminal's first line show the repositories)
+  - Superseded in part by: AC-SEE-02 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (the terminal's first line and the line under it when a repository needs locating, and a line when an answer is accepted)
 
 ### Give the PRD One Workspace Across Its Repositories
 
@@ -64,6 +66,7 @@ Kiln sets up everything the sessions need before the first phase starts, so ever
   - Superseded in part by: AC-CHECK-01 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (workspace auditing and acceptance only; independent completion requirements remain).
   - Superseded in part by: AC-OFFER-01 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (new-work status and the ordered readiness offer precede earlier delivery; historical delivery facts and unaffected presentation remain).
   - Superseded in part by: AC-DISPLAY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (a one-repository execution using development deployments adopts this change’s authorization, progress and final-result presentation; assigned workspace layout and restricted behavior remain).
+  - Superseded in part by: AC-SEE-05 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (a one-repository PRD's Needs you page gains the question about a repository a session asked for)
 
   | What | For a one-repository PRD |
   |---|---|
@@ -155,9 +158,11 @@ The PRD ends with each changed repository ready for review or already merged int
   - Replaces in part: AC-PR-02 in `docs/prds/kiln-v1/kiln-v1-prd.md` (its check includes Stayed in the workspace)
 - [ ] **AC-PRS-02 — The pull requests point at each other and say the merge order.** Each pull request's description names the PRD and links every other pull request opened for it. Where one must merge before another, for example an endpoint before the page that calls it, each description says so. Kiln doesn't check the order; it is the pull-request session's reading of the technical design. Kiln still merges nothing (Kiln v1, AC-PR-03).
   - Superseded in part by: AC-DELIVER-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (authorized development delivery may follow the documented merge order; links include earlier deliveries rather than only simultaneously open pull requests).
+  - Superseded in part by: AC-MERGE-02 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (on the press of Merge with {agent} the merge session merges the delivery's pull requests in the order the descriptions state; otherwise Kiln still merges nothing, and still does not check that order)
 - [ ] **AC-PRS-03 — Complete shows every pull request.** The Complete screen shows each remaining review pull request with its repository, number, title, branches, link, commit count and lines added and removed. It separately names repositories already merged, their intended base and feature branch, without inventing pull-request facts. The header and final plan row say “Already merged” when all repositories are already merged, or distinguish ready pull requests and merged repositories in a mixed result. The terminal makes the same distinction, and the result survives restart.
   - Superseded in part by: AC-OFFER-01 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (new-work status and the ordered readiness offer precede earlier delivery; historical delivery facts and unaffected presentation remain).
   - Superseded in part by: AC-DISPLAY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (final pull-request summaries and terminal lines include delivery history and remaining review work).
+  - Superseded in part by: AC-MERGE-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (the card gains the merge offer, the conflict mark and each pull request's state on GitHub; the header reads **Merged** where it said "Already merged" once GitHub shows every pull request merged; the rest remains)
 
   Complete also shows the merged pull requests and Git merge events that can be proven to have introduced recorded PRD work, grouped by repository, with links and target branches. PRs and merges carrying work no verified PR represents form the main history, with the latest three initially visible per repository and Show all/Show fewer controls for longer lists. Other verified merges remain reachable in a collapsed, counted disclosure explaining that the work is already represented by PRs. All verified events remain available; grouping never changes attribution or coverage.
 
@@ -177,6 +182,8 @@ The PRD ends with each changed repository ready for review or already merged int
   - Superseded in part by: AC-PERMIT-02 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (the authorization summary and unconditional prohibition on merging and deploying, for explicitly authorized targets).
   - Replaces in part: AC-START-06, AC-START-08, AC-WATCH-07 and AC-VIEW-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` (per repository, and where Kiln stops)
   - Superseded in part by: AC-FROM-04 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (Starting lets Kiln names the chosen branch, its open pull request, and bringing an untouched branch up to date).
+  - Superseded in part by: AC-MERGE-08 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (merging stays forbidden except on the press of Merge with {agent}, and the statement names Continue's push of this PRD's documents; the rest remains)
+  - Superseded in part by: AC-BACK-05 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (Continue may push this PRD's documents to the base branch; touching other branches stays forbidden).
 
 ### Look Like This Change's Mockups
 
@@ -195,6 +202,8 @@ Four screens are drawn for this change. The others it touches follow the nearest
   - Superseded in part by: AC-AUTO-04, AC-LIMIT-01 and AC-LIMIT-05 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Documents found and the settings while Kiln works gain the "Resume after a usage limit" row; Needs you after work outside the workspace, when its session hit a usage limit, gains the limit facts, choices and account; the terminal gains the wait and resume lines)
   - Superseded in part by: AC-WAIVE-02/10 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` (Mark complete on the standard Needs you page and the waived markers follow this change's mockup; unaffected layout remains).
   - Superseded in part by: AC-LOOP-01 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (Documents found, the run's settings and the loop stop page gain the audit loop sections; the rest of each layout remains).
+  - Superseded in part by: AC-SEE-04 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (the repository rows on Documents found and in the settings while Kiln works, and the terminal's lines about locating a repository before Start)
+  - Superseded in part by: AC-SEE-05 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (the stop for a repository Kiln can't add, the terminal's lines about locating a repository after Start, and that question on the phase's other Needs you pages)
 
   | Screen | Follows |
   |---|---|
@@ -210,6 +219,7 @@ Four screens are drawn for this change. The others it touches follow the nearest
   - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Needs you after work outside the workspace gains Resume and its note, where that change's mockups put them)
   - Superseded in part by: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the three stopped-phase pages and the held page AC-CARRY-06 changes, and the reset line on every screen; the rest of each layout remains).
   - Superseded in part by: AC-LEFT-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (Complete also shows the loops of each kind used and **For you**; the rest of its layout remains)
+  - Superseded in part by: AC-KEEP-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (Documents found drops Agent, Model and Effort for the model lines and links, and phase rows gain the tier tag and model choice, as this change's mockups draw them; the rest of the layout remains).
 
 ### Proven on Real Features
 

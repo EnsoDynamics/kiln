@@ -35,7 +35,7 @@ describe("execution development authorization", () => {
     const payload = { executionId: status.executionId, revision: status.revision, phaseId: "1", documentsDigest: status.documentsDigest, required: true, criteria: c.criteria, reason: "Criterion requires deployed verification.", checkpoints: [c] };
     const assessment = await h.engine.deliveryCommand("assessment", payload);
     expect(assessment, JSON.stringify(assessment)).toMatchObject({ ok: true });
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     expect(again.record.developmentDelivery!.checkpoints[0]!.target.environment).toBe("workflow-selected-environment");
     const bad = { ...c, id: "wrong-branch", target: { ...c.target, baseBranch: "main" } };
     expect(await again.deliveryCommand("assessment", { ...payload, revision: again.deliveryStatus().revision, checkpoints: [bad] })).toMatchObject({ ok: false });
@@ -66,7 +66,7 @@ describe("execution development authorization", () => {
     expect(await h.engine.addRepository("returns-api")).toMatchObject({ ok: true, added: true, baseBranch: "develop" });
     expect(h.engine.record.developmentAuthorization).toEqual(authority);
     expect(readPrdRecord(h.stateDirectory)!.developmentAuthorization).toEqual(authority);
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     expect(again.record.developmentAuthorization).toEqual(authority);
     expect(JSON.parse(again.deliveryAuthority()!).grants).toEqual([target]);
     const added = again.record.repositories.find(repo => repo.name === "returns-api")!;
@@ -85,7 +85,7 @@ describe("execution development authorization", () => {
     expect(h.engine.record.phases["1"]?.stop?.checks).toContainEqual(expect.objectContaining({ name: "Required development delivery verified", passed: false }));
     const saved = readPrdRecord(h.stateDirectory)!;
     expect(saved.executionId).toBeTruthy(); expect(saved.developmentAuthorization?.grants[0]?.target).toEqual(target);
-    const again = h.reopenFromDisk(); await again.agents.refresh();
+    const again = h.reopenFromDisk(); await again.refreshAgents();
     expect(again.record.executionId).toBe(saved.executionId);
     expect(await again.changeSettings({ developmentDeployments: { enabled: false, targets: [] } })).toMatchObject({ ok: false, status: 409 });
     expect(await again.deliveryCommand("assessment", { executionId: "wrong", revision: 0 })).toMatchObject({ ok: false, status: 409 });
@@ -211,7 +211,7 @@ describe("retained delivery obligations", () => {
     state.splits.push({phaseId:"1b",documentsDigest:documentsDigest(c,"1b"),revision:1,assignments:structuredClone(state.splits[0]!.assignments)});expect(()=>validateSplits(c)).not.toThrow();
     state.splits[1]!.assignments[0]!.leafIds=["1b1"];expect(()=>validateSplits(c)).toThrow(/contradicts|before its required merge/);state.splits[1]!.assignments[0]!.leafIds=["1b2"];
     const status=h.engine.deliveryStatus();expect(await h.engine.deliveryCommand("assessment",{executionId:status.executionId,revision:status.revision,phaseId:"1a",documentsDigest:documentsDigest(c,"1a"),required:false,criteria:[],reason:"Later descendants own the retained delivery",checkpoints:[]})).toMatchObject({ok:true});
-    const reopened=h.reopenFromDisk();await reopened.agents.refresh();expect(reopened.record.developmentDelivery!.splits.map(one=>one.phaseId)).toEqual(["1","1b"]);expect(phaseDeliveryCheck(context(h,"1a"),"1a").passed).toBe(true);
+    const reopened=h.reopenFromDisk();await reopened.refreshAgents();expect(reopened.record.developmentDelivery!.splits.map(one=>one.phaseId)).toEqual(["1","1b"]);expect(phaseDeliveryCheck(context(h,"1a"),"1a").passed).toBe(true);
   });
   it("retains failed obligations in a corrected checkpoint and never grants a late target implicitly",async()=>{
     const h=await setup();await h.engine.start({refinementConfirmed:true});await h.engine.settled();const c=context(h);const state=h.engine.record.developmentDelivery!;

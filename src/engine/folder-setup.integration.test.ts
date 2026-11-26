@@ -18,8 +18,6 @@ import { BILLING_CONTRACT } from "../billing/contract.js";
 import { readExecution } from "./continuation-state.js";
 import { plannedSteps, readStartIntent, writeStartIntent } from "./folder-setup-start.js";
 import { buildSnapshot } from "./snapshot.js";
-import type { ClaudeInfoSource } from "../account/claude-info.js";
-import type { ModelEntry } from "../account/model-list.js";
 import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
 
 let harness: Harness | undefined;
@@ -83,7 +81,7 @@ describe("Start from the base branch (AC-SETUP-02, AC-SETUP-03, AC-SETUP-04)", (
     expect(panel.preview.again).toEqual([]);
     expect(panel.choices.base).toMatchObject({ sha: baseCommit, total: 4, done: 2, holdsAllWork: true });
     expect((panel.choices.base as { line: string }).line).toBe(`origin/develop at ${baseCommit.slice(0, 7)} · 4 phases, 2 done. Has all of this run’s work.`);
-    expect(panel.preview.lets.map(row => text(row.parts))).toEqual(["Commit and push to feature/customer-returns-2", "Open one pull request into develop once every phase closes", "Never merge, deploy, or touch other branches"]);
+    expect(panel.preview.lets.map(row => text(row.parts))).toEqual(["Commit and push to feature/customer-returns-2", "Open one pull request into develop once every phase closes", "Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page", "Push this PRD’s documents to develop only when you press Continue on the finished page", "Never deploy or touch other branches"]);
     // Editing the panel writes nothing (AC-SAFE-01).
     expect((await h.engine.changeFolderPanel({ start: "base", fields: { keepAwake: false } })).ok).toBe(true);
     expect(readFileSync(join(h.stateDirectory, "prd.json"), "utf8")).toBe(recordBefore);
@@ -269,6 +267,113 @@ describe("a run with several repositories (AC-SETUP-07)", () => {
     expect(record.repositories.map(entry => [entry.name, entry.worktreePath])).toEqual([["acme-shop", join(workspace, "acme-shop")], ["returns-api", join(workspace, "returns-api")]]);
     for (const entry of record.repositories) expect(git(h.sandbox, entry.mainCheckoutPath, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("develop");
     expect(git(h.sandbox, join(workspace, "returns-api"), "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("feature/customer-returns-2");
+  });
+});
+
+describe("a repository the base plan names that Kiln would ask about (find repositories anywhere AC-ASK-07)", () => {
+  it("is left out of a base-branch start, neither listed nor a problem, for the stop before its phase to ask", async () => {
+    const h = await twoRepositories();
+    // The plan on the base branch names, for phase 3, a repository nothing on this computer has.
+    const file = join(h.repository, "docs/prds/customer-returns/phase-3-returns-dashboard.md");
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const [title, ...rest] = readFileSync(file, "utf8").split("\n");
+    writeFileSync(file, [title, "", "**Repositories:** acme-labs/ledger", ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 3 names the ledger");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    const panel = panelOf(h);
+    expect(panel.repositories.map(row => [row.name, row.problem])).toEqual([["acme-shop", undefined], ["returns-api", undefined]]);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    expect(readPrdRecord(h.stateDirectory)!.repositories.map(entry => entry.name)).toEqual(["acme-shop", "returns-api"]);
+  });
+});
+
+describe("a repository the first phase's preparation reads that Kiln would ask about (find repositories anywhere AC-ASK-07)", () => {
+  it("stays a problem that keeps a base-branch start unavailable, in the question's words and what clears it on Check again", async () => {
+    const h = await twoRepositories();
+    Object.assign(h.env, { HOME: h.sandbox.root });
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const directory = join(h.repository, "docs/prds/customer-returns");
+    // Phase 1 is closed on the base branch, so phase 2b runs first, and its preparation reads a repository nothing on this computer has.
+    const intake = join(directory, "phase-1-return-intake.md");
+    const [intakeTitle, ...intakeRest] = readFileSync(intake, "utf8").split("\n");
+    writeFileSync(intake, [intakeTitle, "**Closed:** 2026-11-20", ...intakeRest].join("\n"));
+    const credit = join(directory, "phase-2b-store-credit.md");
+    const [title, ...rest] = readFileSync(credit, "utf8").split("\n");
+    writeFileSync(credit, [title, "", "**Repositories:** acme-labs/ledger", ...rest].join("\n") + "\n## Phase-specific notes\nFirst step: merge Phase 2a. In repository `acme-labs/ledger`, merge branch `wt/ledger` at `abcdef1` into this phase's branch before building.\n");
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 2b's preparation reads the ledger");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    // The base-branch start is unavailable on that problem, and the repository isn't left out silently.
+    expect(h.engine.folderPanel).toMatchObject({ choices: { base: { unavailable: expect.stringMatching(/^Unavailable: [Kk]iln couldn’t find a checkout of acme-labs\/ledger\. Check again once a checkout of it is where the search reaches\.$/) } } });
+    expect(await start(h, { start: "base" })).toMatchObject({ ok: false });
+  });
+});
+
+describe("a repository set up beside one left out with the same short name (find repositories anywhere AC-FOLDER-01)", () => {
+  it("gives the one a base-branch start sets up its short name, since the one left out isn't set up with it", async () => {
+    const h = await twoRepositories();
+    const short = "admin";
+    const origin = createGithubOrigin(h.sandbox, "acme", short);
+    const admin = createRepository(h.sandbox, "admin-checkout", origin.url);
+    git(h.sandbox, admin, "push", "-q", "origin", "develop");
+    // The sandbox is the home folder, so the search stays inside it.
+    Object.assign(h.env, h.sandbox.env, { HOME: h.sandbox.root });
+    // The plan on the base branch names, for phase 3, acme/<short>, found, and other/<short>, which nothing on this computer has.
+    const file = join(h.repository, "docs/prds/customer-returns/phase-3-returns-dashboard.md");
+    git(h.sandbox, h.repository, "checkout", "-q", "develop");
+    const [title, ...rest] = readFileSync(file, "utf8").split("\n");
+    writeFileSync(file, [title, "", `**Repositories:** acme/${short}, other/${short}`, ...rest].join("\n"));
+    git(h.sandbox, h.repository, "commit", "-q", "-am", "phase 3 names two repositories with one short name");
+    git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+    rmSync(h.engine.setUpRepositories.find(entry => entry.name === "returns-api")!.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).repositories.map(row => [row.name, row.problem])).toEqual([["acme-shop", undefined], ["returns-api", undefined], [short, undefined]]);
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const workspace = join(h.sandbox.root, ".worktrees", "customer-returns-2");
+    const entry = readPrdRecord(h.stateDirectory)!.repositories.find(one => one.github === `acme/${short}`)!;
+    expect([entry.name, entry.shortName, entry.worktreePath]).toEqual([short, undefined, join(workspace, short)]);
+    expect(git(h.sandbox, join(workspace, short), "remote", "get-url", "origin").trim()).toBe(origin.url);
+  });
+});
+
+describe("a repository whose setup was left unfinished (find repositories anywhere AC-NAME-02)", () => {
+  it("is set up again from its recorded checkout, not looked for beside the PRD's repository by Kiln's name", async () => {
+    const files = prdDirectoryFiles();
+    const [title, ...rest] = files["phase-1-return-intake.md"]!.split("\n");
+    files["phase-1-return-intake.md"] = [title, "", "**Repositories:** acme/returns-api", ...rest].join("\n");
+    harness = await createHarness({ files, sessions: [{ actions: [{ result: "I need a decision." }] }] });
+    const h = harness;
+    // Checked out away from the PRD's repository, so only the search finds it.
+    const origin = createGithubOrigin(h.sandbox, "acme", "returns-api");
+    const api = createRepository(h.sandbox, "elsewhere/returns-api", origin.url);
+    git(h.sandbox, api, "push", "-q", "origin", "develop");
+    Object.assign(h.env, h.sandbox.env, { HOME: h.sandbox.root });
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.record.repositories.find(entry => entry.name === "returns-api")?.mainCheckoutPath).toBe(api);
+    // Its setup recorded as unfinished, then the PRD's worktree goes missing.
+    delete h.engine.record.repositories.find(entry => entry.name === "returns-api")!.setupCompletedAt;
+    rmSync(h.engine.worktreePath, { recursive: true, force: true });
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(panelOf(h).repositories.map(row => [row.name, row.problem])).toEqual([["acme-shop", undefined], ["returns-api", undefined]]);
+    // A second checkout appears where the search reaches; the start still uses the recorded one.
+    createRepository(h.sandbox, "another/returns-api", origin.url);
+    await h.engine.folderGuard({ gather: true });
+    await h.engine.changeFolderPanel({ start: "base", fields: {} });
+    expect(await start(h, { start: "base" })).toEqual({ ok: true, status: 200 });
+    await h.engine.settled();
+    const entry = readPrdRecord(h.stateDirectory)!.repositories.find(one => one.name === "returns-api")!;
+    expect(entry.mainCheckoutPath).toBe(api);
+    expect(git(h.sandbox, api, "worktree", "list")).toContain(entry.worktreePath);
   });
 });
 
@@ -722,54 +827,8 @@ describe("work a base-branch start would leave behind (AC-SAFE-02)", () => {
   });
 });
 
-describe("the panel's Agent, Model and Effort, as on Documents found (AC-SETUP-01)", () => {
-  const model = (overrides: Partial<ModelEntry>): ModelEntry => ({ value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsAutoMode: true, ...overrides });
-  /** The model list as the engine sees it, arriving when the test says. */
-  class ModelList implements ClaudeInfoSource {
-    account = { email: "fixture@example.test", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), limits: [] };
-    models: ModelEntry[] | undefined;
-    modelListError: string | undefined;
-    private readonly listeners = new Set<() => void>();
-    arrive(models: ModelEntry[] | undefined, error?: string) { this.models = models; this.modelListError = error; for (const listener of this.listeners) listener(); }
-    refreshAccount() { return Promise.resolve(); }
-    onChange(listener: () => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
-  }
-
-  it("lists the efforts of the model chosen in the panel, says when it takes none, refuses one it doesn't take, and shows Model's message", async () => {
-    const list = new ModelList();
-    harness = await createHarness({ sessions: [landingSession(), { actions: [{ result: "I need a decision." }] }], engineOptions: { claude: list } });
-    const h = harness;
-    list.arrive([model({}), model({ value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1", supportedEffortLevels: ["high", "max"], defaultEffort: "high" }), model({ value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku 5.5", supportsEffort: false, supportedEffortLevels: [] })]);
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "low" });
-    await h.engine.start({ refinementConfirmed: true });
-    await h.engine.settled();
-    rmSync(h.engine.worktreePath, { recursive: true, force: true });
-    await h.engine.folderGuard({ gather: true });
-    expect([panelOf(h).fields.effort, panelOf(h).effortLevels]).toEqual(["low", ["low", "medium", "high", "xhigh", "max"]]);
-
-    // Fable doesn't take Low: its levels are listed and its default replaces the saved effort, as on Documents found.
-    expect(await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "fable" } })).toMatchObject({ ok: true });
-    expect([panelOf(h).fields.effort, panelOf(h).effortLevels]).toEqual(["high", ["high", "max"]]);
-    expect(await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { effort: "low" } })).toMatchObject({ ok: false, status: 400, reason: "Fable 5.1 doesn’t take that effort. Choose a supported effort." });
-    // Haiku takes no effort setting.
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "haiku" } });
-    expect([panelOf(h).fields.effort, panelOf(h).effortLevels]).toEqual(["", []]);
-    expect(panelOf(h).fieldErrors.model).toBeUndefined();
-
-    // A model that can't run in auto mode gets Model's message, which holds Start.
-    // The page shows a catalogue change at once, without an edit or Check again.
-    list.arrive([model({}), model({ value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku 5.5", supportsEffort: false, supportedEffortLevels: [], supportsAutoMode: false })]);
-    expect((buildSnapshot(h.engine).folderMissing!.panel as SetupPanel).fieldErrors.model).toEqual(expect.stringContaining("Haiku 5.5"));
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: {} });
-    expect(panelOf(h).fieldErrors.model).toEqual(expect.stringContaining("Haiku 5.5"));
-    expect(await start(h)).toMatchObject({ ok: false, status: 409, code: "folder_setup_fields" });
-    // The model list itself failed: its message is Model's.
-    list.arrive(undefined, "Claude Code couldn’t list its models.");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: {} });
-    expect(panelOf(h).fieldErrors.model).toBe("Claude Code couldn’t list its models.");
-    expect(buildSnapshot(h.engine).settings.modelListError).toBe("Claude Code couldn’t list its models.");
-  });
-});
+// The panel's Model and Effort fields, their effort lists and Model's message are gone: models are chosen per
+// activity (Kiln Phase Model Tiers AC-KEEP-01, replacing AC-SETUP-01's model and effort part).
 
 /** develop's plan no longer has Phase 1; the phases that depended on it depend on nothing. */
 function dropPhaseOne(h: Harness): void {
@@ -1083,28 +1142,7 @@ describe("the page's facts and the panel's fields (Phase 5 of missing worktree r
     expect(panel.preview.caution).toBeUndefined();
   });
 
-  it("says when a model change in the panel resets the effort, in Documents found's words, until the next model or effort change", async () => {
-    const list = { account: { email: "fixture@example.test", startedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), limits: [] }, models: undefined as ModelEntry[] | undefined, modelListError: undefined, refreshAccount: () => Promise.resolve(), onChange: () => () => true } satisfies ClaudeInfoSource;
-    const entry = (overrides: Partial<ModelEntry>): ModelEntry => ({ value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", description: "", supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"], supportsAutoMode: true, ...overrides });
-    list.models = [entry({}), entry({ value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1", supportedEffortLevels: ["high", "max"], defaultEffort: "high" }), entry({ value: "sol", resolvedModel: "claude-sol", displayName: "Sol", supportedEffortLevels: ["high", "max"] })];
-    harness = await createHarness({ sessions: [landingSession(), { actions: [{ result: "I need a decision." }] }], engineOptions: { claude: list } });
-    const h = harness;
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, effort: "low" });
-    await h.engine.start({ refinementConfirmed: true });
-    await h.engine.settled();
-    rmSync(h.engine.worktreePath, { recursive: true, force: true });
-    await h.engine.folderGuard({ gather: true });
-    expect(panelOf(h)).not.toHaveProperty("choiceNotice");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "fable" } });
-    expect((buildSnapshot(h.engine).folderMissing!.panel as SetupPanel).choiceNotice).toBe("Effort changed to high for Fable 5.1.");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { keepAwake: false } });
-    expect(panelOf(h).choiceNotice).toBe("Effort changed to high for Fable 5.1.");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { effort: "max" } });
-    expect(panelOf(h)).not.toHaveProperty("choiceNotice");
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "opus", effort: "low" } });
-    await h.engine.changeFolderPanel({ start: panelOf(h).selected, fields: { model: "sol" } });
-    expect(panelOf(h).choiceNotice).toBe("Choose an effort for Sol; no supported default was reported.");
-  });
+  // The panel's effort-reset notice went with its Model and Effort fields (Kiln Phase Model Tiers AC-KEEP-01).
 
   it("tags a repository a session added with the phase that added it, on either start's Repositories list", async () => {
     const h = await twoRepositories();
@@ -1664,7 +1702,7 @@ describe("the limits Start keeps (AC-SAFE-03)", () => {
     const h = await landedThenStopped();
     h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
     await h.engine.refreshBilling();
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending);
     const oldId = h.engine.record.executionId!;
     h.engine.record.billing!.approval = { executionId: oldId, contextFingerprint: h.engine.record.billing!.current!.fingerprint, approvedAt: "2026-10-01T10:00:00Z", contractVersion: BILLING_CONTRACT };
     writePrdRecord(h.stateDirectory, h.engine.record);
@@ -1688,7 +1726,7 @@ describe("the limits Start keeps (AC-SAFE-03)", () => {
     h.engine.record.developmentAuthorization = authorization;
     h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
     await h.engine.refreshBilling();
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending);
     const billing = h.engine.record.billing!;
     billing.approval = { executionId: h.engine.record.executionId!, contextFingerprint: billing.current!.fingerprint, approvedAt: "2026-10-01T10:00:00Z", contractVersion: BILLING_CONTRACT };
     const approval = structuredClone(billing.approval);
@@ -1798,17 +1836,17 @@ describe("the panel's fields start from the run's saved choices, and edits reach
   const non_default = async () => {
     const h = await landedThenStopped();
     Object.assign(h.engine.record.settings, { keepAwake: false, resumeAfterUsageLimit: false });
-    h.engine.record.settings.agentChoices[h.engine.record.settings.agentId] = { model: "sonnet", effort: "low" };
     return h;
   };
 
-  it("fills model, effort, keep-awake and resume from the saved settings on either start", async () => {
+  it("fills keep-awake and resume from the saved settings on either start", async () => {
     const h = await non_default();
     rmSync(h.engine.worktreePath, { recursive: true, force: true });
     await h.engine.folderGuard({ gather: true });
     for (const start of ["base", "branch"] as const) {
       await h.engine.changeFolderPanel({ start, fields: {} });
-      expect(panelOf(h).fields, start).toMatchObject({ model: "sonnet", effort: "low", keepAwake: false, resumeAfterUsageLimit: false });
+      expect(panelOf(h).fields, start).toMatchObject({ keepAwake: false, resumeAfterUsageLimit: false });
+      expect(panelOf(h).fields, start).not.toHaveProperty("model");
     }
   });
 
@@ -1945,7 +1983,7 @@ describe("nothing changes until Start, and Start's own refusals (AC-SAFE-01)", (
       const startTime = await processStartTime(child.pid!);
       // The next Kiln over the same record: its session is one an earlier Kiln left, still running.
       h.reopen();
-      await h.engine.agents.refresh();
+      await h.engine.refreshAgents();
       let session = h.engine.latestSession("2b")!;
       if (leftOver === "a Codex session") session.agentId = "codex";
       else {
@@ -2043,7 +2081,7 @@ describe("the limits Start keeps, on the cases still open (AC-SAFE-03)", () => {
     const h = await landedThenStopped();
     h.env.ANTHROPIC_API_KEY = "synthetic-folder-start-billing-canary";
     await h.engine.refreshBilling();
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending);
     expect(h.engine.record.billing!.approval).toBeUndefined();
     landStoppedPhase(h);
     const saved = h.engine.worktreePath;

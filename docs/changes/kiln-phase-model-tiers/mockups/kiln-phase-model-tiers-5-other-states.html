@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Phase Model Tiers mockup: 5. Other states</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.circle{flex:0 0 auto;width:34px;height:34px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;box-sizing:border-box;border:1px dashed rgba(237,232,221,.24);color:#8c8577}
+.circle.now{border:1px solid #e2694f;background:#e2694f;color:#12110e;font-weight:600}
+.circle.stop{border:1px solid #e6b450;color:#e6b450;font-weight:600}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.info{display:inline-flex;align-items:center;justify-content:center;width:44px;height:28px;margin:-4px -12px;border:0;background:transparent;color:#bdb6a8;cursor:pointer}
+.tag.strong{border-color:rgba(237,232,221,.4);color:#ede8dd;font-weight:500}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;border:1px solid transparent}
+.pill.now{background:#e2694f;color:#12110e;border-color:#e2694f}
+.pill.planned{border-style:dashed;border-color:rgba(237,232,221,.24);color:#8c8577}
+.pill.stop{border-color:#e6b450;color:#e6b450}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.btn.primary{background:#ede8dd;color:#12110e;border-color:#ede8dd}
+.lab{font-size:12.5px;color:#8c8577}
+.model{font-size:13.5px;color:#bdb6a8}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:16px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:2px}
+.title{font-size:16px;font-weight:500}
+.file{font-size:12.5px;color:#8c8577}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.facts{font-size:13px;color:#8c8577;white-space:nowrap}
+.help{font-size:12.5px;color:#8c8577;line-height:1.5}
+.warn{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:12px;border:1px solid rgba(230,180,80,.45);background:rgba(230,180,80,.06)}
+.warn-text{display:flex;flex-direction:column;gap:2px;font-size:13px;color:#bdb6a8;line-height:1.5}
+.warn-text strong{color:#ede8dd;font-weight:500}
+.panel{display:flex;flex-direction:column;gap:12px;min-width:0}
+.panel-h{margin:0;font-size:14px;font-weight:600;color:#ede8dd}
+.panel-n{font-size:12.5px;color:#8c8577;line-height:1.5}
+</style>
+<style>
+.mock-note{margin:0;padding:14px 32px;background:#0d0c0a;border-bottom:1px solid rgba(237,232,221,.18);font-size:14px;color:#bdb6a8;line-height:1.5}
+.mock-note strong{color:#ede8dd;font-weight:600}
+</style>
+</head>
+<body>
+<p class="mock-note"><strong>5. Other states.</strong> Parts of screens in states the other mockups don't reach: the fallback's agent not ready (A), an agent the plan runs on not ready (B), a computer without Claude Code (C), a phase that started on its first choice with the fallback on (D), and a choice that can't be used (E). Covers AC-AGENTS-01, AC-DEFAULT-04, AC-FALLBACK-02, AC-PICK-06 and AC-PICK-07.</p>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1180px; margin: 0 auto; padding: 40px 32px 80px; box-sizing: border-box; display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 40px 32px; align-items: start">
+
+<!-- A: Documents found, fallback on, its agent not ready -->
+<section class="panel">
+<h2 class="panel-h">A. Documents found: the fallback's agent isn't ready</h2>
+<span class="panel-n">Part of the delivery panel. The fallback is on, and Codex is signed out. Start stays available.</span>
+<div class="card" style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 3px">
+<span class="lab">If usage is nearly out</span>
+<span style="font-size: 14.5px">Use the fallback at 95%</span>
+<a href="kiln-phase-model-tiers-4-model-defaults.html" style="font-size: 13px">Model defaults</a>
+</div>
+<div class="warn">
+<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#e6b450" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto; margin-top: 2px"><path d="M8 2.2l6.2 11H1.8z"></path><path d="M8 6.5v3M8 11.3v.2"></path></svg>
+<div class="warn-text"><strong>The fallback's agent, Codex, isn't signed in</strong><span>Run <span class="mono">codex login</span> in a terminal. Until then, this run waits at a usage limit as if the fallback were off.</span></div>
+</div>
+<button type="button" style="min-height: 48px; border-radius: 999px; border: 1px solid #ede8dd; background: #ede8dd; color: #12110e; font: inherit; font-size: 15px; font-weight: 600; cursor: pointer">Start</button>
+</div>
+</section>
+
+<!-- B: Documents found, an agent an activity will run on isn't ready -->
+<section class="panel">
+<h2 class="panel-h">B. Documents found: an agent the plan runs on isn't ready</h2>
+<span class="panel-n">Part of the delivery panel. Claude Code is signed out, and every activity runs on it. Start is unavailable.</span>
+<div class="card" style="display: flex; flex-direction: column; gap: 16px">
+<div class="warn">
+<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#e6b450" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto; margin-top: 2px"><path d="M8 2.2l6.2 11H1.8z"></path><path d="M8 6.5v3M8 11.3v.2"></path></svg>
+<div class="warn-text"><strong>Claude Code isn't signed in</strong><span>Run <span class="mono">claude</span> in a terminal and sign in. Needed by the preflight, phases 1 to 5, the delivery audit, the test audit and the pull request session.</span></div>
+</div>
+<button type="button" disabled style="min-height: 48px; border-radius: 999px; border: 1px solid rgba(237,232,221,.18); background: transparent; color: #8c8577; font: inherit; font-size: 15px; font-weight: 600; cursor: not-allowed">Start</button>
+<span class="help" style="text-align: center">Start is unavailable until Claude Code is signed in.</span>
+</div>
+</section>
+
+<!-- C: the plan on a computer without Claude Code -->
+<section class="panel">
+<h2 class="panel-h">C. Documents found: Claude Code isn't installed</h2>
+<span class="panel-n">Part of the phase plan on a computer with only Codex. Each row shows its Codex choice from Model defaults' Fallback column.</span>
+<div class="card" style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px"><span style="font-weight: 500">Phase plan</span><span style="font-size: 13px; color: #8c8577">Claude Code isn't installed, so each phase runs on its Codex choice</span></div>
+<ol style="list-style: none; margin: 8px 0 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+<li class="row">
+<span class="circle mono">1</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Return intake</span><span class="tag">Standard<button type="button" class="info" aria-label="What standard means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-1-return-intake.md</span></span>
+<span class="right"><span class="model">Codex · GPT-6.2-Sol · high</span><button type="button" class="btn">Change</button></span>
+</li>
+<li class="row" style="border-bottom: 0">
+<span class="circle mono">2</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Card refunds</span><span class="tag strong">Demanding<button type="button" class="info" aria-label="Why this phase is demanding"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-2-card-refunds.md</span></span>
+<span class="right"><span class="model">Codex · GPT-6-Astra · high</span><button type="button" class="btn">Change</button></span>
+</li>
+</ol>
+</div>
+</section>
+
+<!-- D: started on the first choice, fallback not used -->
+<section class="panel">
+<h2 class="panel-h">D. Running: started on the first choice, and why</h2>
+<span class="panel-n">Part of the running plan. The fallback is on at 95%. Claude read 96% when phase 3 began, but Codex was signed out, so the phase started on its first choice.</span>
+<div class="card" style="padding-top: 8px; padding-bottom: 8px">
+<ol style="list-style: none; margin: 0; padding: 0">
+<li class="row" style="border-bottom: 0">
+<span class="circle now mono">3</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Store credit</span><span class="tag">Standard<button type="button" class="info" aria-label="What standard means"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-3-store-credit.md</span><span class="model">Running on Claude Code · Opus 5.5 · medium</span><span style="font-size: 12.5px; color: #8c8577; line-height: 1.5">Claude was at 96% when this phase began, but the fallback wasn't used: Codex wasn't signed in.</span></span>
+<span class="right"><span class="facts">4m</span><span class="pill now">Implementing</span></span>
+</li>
+</ol>
+</div>
+</section>
+
+<!-- E: a choice that can't be used -->
+<section class="panel" style="grid-column: 1 / -1">
+<h2 class="panel-h">E. Needs you: a phase's choice was refused</h2>
+<span class="panel-n">The account refused Fable before the model responded. Claude Code had already begun the conversation, so Kiln Run Restart's page reads as today. Phase 2 hasn't started all the same: its row still offers Change, and nothing else ran in its place.</span>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(440px, 1fr)); gap: 24px; align-items: start">
+<div class="card" style="display: flex; flex-direction: column; gap: 16px">
+<span class="eyebrow">Needs you · phase 2</span>
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 34px; line-height: 1.1">Phase 2 stopped before building anything.</span>
+<span style="font-size: 13.5px; color: #bdb6a8; line-height: 1.5">Claude Code's latest conversation ran for less than a minute. No commits, no uncommitted changes.</span>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(237,232,221,.18)">
+<span style="font-weight: 500">Last message from Claude Code</span>
+<span style="font-size: 13.5px; color: #bdb6a8; line-height: 1.5">Claude Fable 5.2 isn't available on your plan.</span>
+</div>
+<span style="font-size: 13.5px; color: #bdb6a8; line-height: 1.5">Kiln launched Claude Code · Fable 5.2 · high, Model defaults' choice for demanding phases, and the account refused the model. Change it on this phase's row, or for every PRD in <a href="kiln-phase-model-tiers-4-model-defaults.html">Model defaults</a>.</span>
+<span style="font-size: 13px; color: #8c8577">Below this card, today's ways to reply, resume or carry on (Kiln Run Restart), not drawn here. Reply and resume on this page now open a new session on the row's current choice.</span>
+</div>
+<div class="card" style="padding-top: 8px; padding-bottom: 8px">
+<ol style="list-style: none; margin: 0; padding: 0">
+<li class="row" style="border-bottom: 0">
+<span class="circle stop mono">2</span>
+<span class="names"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px"><span class="title">Card refunds</span><span class="tag strong">Demanding<button type="button" class="info" aria-label="Why this phase is demanding"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 7.2v4M8 4.8v.2"></path></svg></button></span></span><span class="file mono">phase-2-card-refunds.md</span><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px"><span class="model">Will run on Claude Code · Fable 5.2 · high</span><button type="button" class="btn">Change</button></span></span>
+<span class="right"><span class="pill stop">Needs you</span></span>
+</li>
+</ol>
+</div>
+</div>
+</section>
+
+</main>
+</div>
+</body>
+</html>

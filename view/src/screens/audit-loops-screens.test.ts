@@ -75,9 +75,10 @@ describe("there is no loop stop (AC-STOP-04)", () => {
   const page = needsYou(storedLoopStopSnapshot());
   const words = text(page);
 
-  it("shows a loop_limit stop saved by Kiln 1.3.0 with its one line and Check again only", () => {
+  it("shows a loop_limit stop saved by Kiln 1.3.0 with its one line, Check again and only the Models card besides", () => {
     expect(words).toContain("Kiln no longer stops at a loop limit. Check again to go on.");
-    expect(buttons(page)).toEqual(["Check again"]);
+    // Beside the stop's own Check again, only the Models card's Change, which every stop offers (Kiln Phase Model Tiers AC-PICK-03).
+    expect(buttons(page)).toEqual(["Check again", "Change"]);
   });
 
   it("offers no Allow, Accept, Reply, Mark complete or loop settings", () => {
@@ -116,14 +117,25 @@ describe("each audit row carries its loop label (AC-STOP-05)", () => {
   const page = running(closingAuditsSnapshot());
   const row = (id: string) => text(page.match(new RegExp(`<li[^>]*data-phase="${id}"[^>]*>[\\s\\S]*?</li>`))?.[0] ?? "");
 
-  it("labels each delivery audit loop N of 4, and phase rows and sessions of test fixes with none", () => {
-    expect([1, 2, 3, 4].map(n => row(`audit-da${n}`))).toEqual([1, 2, 3, 4].map(n => expect.stringContaining(`loop ${n} of 4`)));
-    expect(row("audit-ta1")).toContain("loop 1 of 4");
-    for (const id of ["9", "10", "11", "audit-ta1-2"]) expect(row(id)).not.toContain("loop");
+  it("titles each audit for what it does with Loop N of 4 beneath, a session of test fixes by the loop it works from, and phase rows with none (Kiln After Delivery AC-AUDIT-01)", () => {
+    expect([1, 2, 3, 4].map(n => row(`audit-da${n}`))).toEqual([1, 2, 3, 4].map(n => expect.stringContaining(`Delivery audit Loop ${n} of 4`)));
+    expect(row("audit-ta1")).toContain("Test audit Loop 1 of 4");
+    expect(row("audit-ta1-2")).toContain("Fixing tests From test audit loop 1 · session 1");
+    for (const id of ["9", "10", "11"]) expect(row(id)).not.toMatch(/loop/i);
+    expect(text(page)).not.toMatch(/Round|Continuation/);
     expect(text(page)).not.toMatch(/last loop|carried|your words/i);
   });
 
   it("names the loop on the audit's own page", () => {
-    expect(text(detail(closingAuditsSnapshot(), "audit-da3"))).toContain("loop 3 of 4");
+    expect(text(detail(closingAuditsSnapshot(), "audit-da3"))).toContain("Loop 3 of 4");
+  });
+  it("names a session of test fixes on its own page and an audit at Needs you by what it does, never by round or continuation (Kiln After Delivery AC-AUDIT-01)", () => {
+    const fixing = text(detail(closingAuditsSnapshot(), "audit-ta1-2"));
+    expect(fixing).toContain("Fixing tests");
+    expect(fixing).toContain("From test audit loop 1 · session 1");
+    expect(fixing).not.toMatch(/Round|Continuation/);
+    const stop = text(needsYou(storedLoopStopSnapshot()));
+    expect(stop).toContain("Test audit");
+    expect(stop).not.toMatch(/Round|Continuation/);
   });
 });

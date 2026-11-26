@@ -39,9 +39,8 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'proof', folderNam
 const settings = defaultSettings(paths, { branches: new Map([['develop', baseCommit]]), defaultBranch: 'develop' });
 Object.assign(settings, { featureBranch: 'develop', worktreePath: repository, workspaceFolder: root, keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: 'proof/disposable', featureName: 'Disposable handoff proof', settings });
-record.settings.agentId = agentId;
 const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus';
-record.settings.agentChoices[agentId] = { model, effort: 'high' };
+record.settings.modelChoices.kept = { agentId, model, effort: 'high' };
 const session = { schemaVersion: 4, agentId, sessionId: randomUUID(), phaseId: '1', kind: 'phase', createdAt: new Date().toISOString(), model, modelDisplayName: model, effort: 'high', workingDirectory: repository, runs: [], sleeps: [], steps: [] };
 console.log(JSON.stringify({ root, agentId, sessionId: session.sessionId }));
 writeSessionRecord(stateDirectory, session);
@@ -76,7 +75,7 @@ writeFileSync(join(root, 'terminal-discussion.txt'), terminalOutput, { mode: 0o6
 let server;
 try {
   assert.equal((await engine.prepare()).ok, true);
-  for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+  for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
   for (let port = agentId === "codex" ? 41940 : 41950; port < (agentId === "codex" ? 41950 : 41960); port++) if (await isPortFree(port)) { server = await startLocalServer({ engine, port, folderName: 'handoff-proof', featureName: 'Handoff proof', token: record.token }); server.proofOrigin = `http://127.0.0.1:${port}`; break; }
   assert.ok(server);
   const post = async (path, body) => { const response = await globalThis.fetch(`${server.proofOrigin}/api/${path}`, { method: 'POST', headers: { Origin: server.proofOrigin, 'X-Kiln-Token': record.token, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const result = await response.json(); console.log(JSON.stringify({ path, result })); assert.equal(response.status, 200, JSON.stringify(result)); return result; };

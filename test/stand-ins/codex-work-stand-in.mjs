@@ -136,6 +136,12 @@ createInterface({ input: process.stdin }).on('line', async line => {
         }
         complete(error || fixture.terminalFailure ? 'failed' : 'completed', error);
       };
+      // On the first turn the model issues a reasoning item first, so the activity has started (Kiln Phase Model Tiers, "When an Activity Starts").
+      if (fixture.itemFirst && history().length === 1) {
+        const item = { type: 'reasoning', id: 'reasoning-' + turnId, summary: [], content: [], startedAtMs: Date.now() };
+        send({ method: 'item/started', params: { threadId, turnId, item } });
+        const turns = history(); turns.find(turn => turn.id === turnId)?.items.push(item); writeFileSync(historyFile(), JSON.stringify(turns));
+      }
       if (fixture.request) send({ id: 'human-request', method: fixture.request, params: { threadId, turnId, itemId: 'approval', questions: [{ question: 'Need a person' }] } });
       if (fixture.toolProcess) {
         const program = fixture.doubleFork

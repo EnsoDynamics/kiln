@@ -329,7 +329,7 @@ it.skipIf(process.platform !== "darwin")("keeps an accepted takeover through act
   const optionsPath = join(h.sandbox.root, "controller-options.json");
   writeFileSync(optionsPath, JSON.stringify({ paths: h.engine.paths, tools: h.tools, record: h.engine.record, stateDirectory: h.stateDirectory, prdTree: git(h.sandbox, h.repository, "rev-parse", "HEAD:docs/prds/customer-returns").trim() }), { mode: 0o600 });
   const enginePath = fileURLToPath(new URL("../../dist/engine/engine.js", import.meta.url)); const serverPath = fileURLToPath(new URL("../../dist/server/local-server.js", import.meta.url));
-  const code = `import{readFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};import{startLocalServer}from${JSON.stringify(serverPath)};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.agents.refresh();await startLocalServer({engine,port:${port},folderName:'customer-returns',featureName:'Crash proof',token:engine.record.token});const result=await engine.start({refinementConfirmed:true});if(!result.ok)throw new Error(JSON.stringify(result));`;
+  const code = `import{readFileSync}from'node:fs';import{Engine}from${JSON.stringify(enginePath)};import{startLocalServer}from${JSON.stringify(serverPath)};const options=JSON.parse(readFileSync(process.argv[1],'utf8'));const engine=new Engine({...options,env:process.env,sleepReader:{next:async()=>[]}});await engine.refreshAgents();await startLocalServer({engine,port:${port},folderName:'customer-returns',featureName:'Crash proof',token:engine.record.token});const result=await engine.start({refinementConfirmed:true});if(!result.ok)throw new Error(JSON.stringify(result));`;
   const controller = spawn(process.execPath, ["--input-type=module", "-e", code, optionsPath], { env: h.env, stdio: ["ignore", "pipe", "pipe"] }); const exited = once(controller, "exit");
   let diagnostic = ""; controller.stderr!.on("data", chunk => { diagnostic += String(chunk); });
   try {
@@ -389,7 +389,7 @@ describe.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", h
   let recovery: NonNullable<ReturnType<Harness["engine"]["phaseRecoveryTarget"]>>;
   let releaseLock: (() => void) | undefined;
   // Preparing the prior real audit is a prerequisite, not part of the unchanged
-  // 60-second source-error recovery check. Hook timeout remains unchanged too.
+  // 60-second source-error recovery check. The hook keeps the suite's default timeout.
   beforeEach(async () => {
   const files = {
     "proof-prd.md": "# PRD: Audit value\n\n## Acceptance Criteria\n- [ ] **AC-PROOF-01 — Return value.** The exported function returns 42.\n",

@@ -6,7 +6,15 @@
   // multi-repository PRD (docs/changes/kiln-multi-repo-delivery/mockups/
   // kiln-screen-complete-repositories.html) lists every pull request with its repository, and
   // the workspace folder Kiln keeps with its worktrees (multi-repo AC-PRS-03, AC-SPACE-05).
+  import { onMount } from "svelte";
   import CompletedPlanCheck from "../components/CompletedPlanCheck.svelte";
+  import { awaitingMergeText, checkNowLead } from "../../../src/engine/awaiting-merge.js";
+  import { addedHeading } from "../../../src/engine/new-phases-wording.js";
+  import { checkForNewPhases, merge as pressMerge, start } from "../lib/api.js";
+  import { phasePath, routedClick } from "../lib/router.svelte.js";
+  import { viewContext } from "../lib/view-context.js";
+  import { MERGE_LIVE_REASON, PLAN_PUSH_LIVE_REASON } from "../../../src/engine/merge-wording.js";
+  import { clockTime } from "../lib/time.js";
   import DevelopmentDelivery from "../components/DevelopmentDelivery.svelte";
   import ForYou from "../components/ForYou.svelte";
   import ClosingAudits from "../components/ClosingAudits.svelte";
@@ -15,10 +23,12 @@
   import DisconnectedBanner from "../components/DisconnectedBanner.svelte";
   import Icon from "../components/Icon.svelte";
   import KilnPanel from "../components/KilnPanel.svelte";
+  import ExitKiln from "../components/ExitKiln.svelte";
   import PhasePlan from "../components/PhasePlan.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import { deliveryGroups, deliveryTime } from "../lib/delivery-history.js";
-  import { addedLabel, folderShown, repositoriesLine } from "../lib/progress.js";
+  import { addedLabel, folderShown, repositoriesLine, repositoryLabel } from "../lib/progress.js";
+  import { agentsThatRan, mergeAgent as mergeAgentOf } from "../lib/agents.js";
 
   let { snapshot, connected, now, lastSeenAt, config }: { snapshot: Snapshot; connected: boolean; now: number; lastSeenAt: number | undefined; config?: import("../lib/api.js").PageConfig } = $props();
   const multi = $derived(snapshot.feature.multiRepository);
@@ -32,12 +42,125 @@
   const folder = $derived(folderShown(snapshot.settings.workspaceFolder));
   const number = (value: number) => value.toLocaleString("en-US");
   const commitCount = (pullRequest: PullRequestFacts) => `${pullRequest.commits >= 100 ? "100+" : number(pullRequest.commits)} ${pullRequest.commits === 1 ? "commit" : "commits"}`;
+  const labelOf = (repository: string) => repositoryLabel(snapshot, repository);
+  // While the delivery waits to merge (Kiln After Delivery AC-WAIT-02): no check panel, one line in the pull request card.
+  // The HTTP answer is applied at once; the event stream may bring the same check later (the newer one wins).
+  let answered = $state<import("../../../src/engine/completed-plan-discovery.js").CompletedPlanCheck>();
+  const check = $derived.by(() => {
+    const streamed = snapshot.continuation?.check;
+    if (!answered || !streamed) return streamed ?? answered;
+    const later = Date.parse(answered.attemptedAt) - Date.parse(streamed.attemptedAt);
+    return later > 0 || later === 0 && streamed.status === "checking" ? answered : streamed;
+  });
+  const awaiting = $derived(check?.status === "awaiting_merge" ? check.awaitingMerge : undefined);
+  const panelShown = $derived(!!snapshot.continuation?.acceptance || !!check && !awaiting && !snapshot.afterDelivery?.waiting && !(check.status === "checking" && !snapshot.afterDelivery && pullRequests.length > 0));
+  let checking = $state(false);
+  let checkProblem = $state<string>();
+  async function checkNow(press: boolean) {
+    if (!config || !connected || checking) return;
+    checking = true; checkProblem = undefined;
+    try { const answer = await checkForNewPhases(config, press); if (answer.check) answered = answer.check; else checkProblem = answer.reason ?? "Could not check for new phases. Try again."; }
+    catch (failure) { checkProblem = (failure as Error).message; }
+    finally { checking = false; }
+  }
+  // After delivery (Kiln After Delivery AC-MERGE-01, AC-MERGE-04, AC-MERGE-07): each pull request as GitHub last showed it, the offer and the merge activity.
+  const after = $derived(snapshot.afterDelivery);
+  const mergeActivity = $derived(after?.merge);
+  const mergeOpen = $derived(!!mergeActivity && mergeActivity.state !== "done");
+  const allMerged = $derived(!!after && pullRequests.length > 0 && pullRequests.every(pull => readingOf(pull)?.state === "merged"));
+  // Merged: Exit Kiln is the pull request card's main button (Kiln After Delivery AC-EXIT-01, mockup state 3).
+  const exitInCard = $derived(allMerged && !!snapshot.exit);
+  // Once merged, the check's answer shows in the card beside Exit Kiln, not in a panel of its own (AC-WAIT-03, mockup state 3).
+  // Phases found keep their prominent panel above the earlier delivery (Kiln Continue Added Phases AC-OFFER-01), and the card names them in one line.
+  const phasesFound = $derived((check?.result ?? check?.earlierResult)?.added.length ?? 0);
+  const checkInCard = $derived(allMerged && !mergeOpen && !phasesFound && !snapshot.continuation?.acceptance);
+  const readingOf = (pull: { repository: string; number: number }) => after?.pullRequests.find(row => row.repository === pull.repository && row.number === pull.number);
+  const ordinal = (n: number) => ["first", "second", "third", "fourth", "fifth"][n - 1] ?? `${n}th`;
+  const mergeRow = $derived((snapshot.activities ?? snapshot.phases).find(row => row.kind === "merge"));
+  // The merge session's own agent (Kiln Phase Model Tiers AC-AGENTS-04).
+  const mergeAgent = $derived(mergeAgentOf(snapshot));
+  // Continue's push of the plan (Kiln After Delivery AC-BACK-05, mockup state 5): its session runs on the finished page.
+  const planPush = $derived(after?.planPush && after.planPush.state !== "done" ? after.planPush : undefined);
+  const pushRow = $derived(planPush ? (snapshot.activities ?? snapshot.phases).find(row => row.id === planPush.key) : undefined);
+  const pushLink = $derived(config && planPush ? phasePath(config.base, planPush.key) : undefined);
+  const mergeLink = $derived(config ? phasePath(config.base, "merge") : undefined);
+  const { router } = viewContext();
+  let merging = $state(false);
+  let mergeProblem = $state<string>();
+  async function pressMergeButton() {
+    if (!config || !connected || merging) return;
+    merging = true; mergeProblem = undefined;
+    try { const answer = await pressMerge(config); if (!answer.ok) mergeProblem = answer.reason; }
+    finally { merging = false; }
+  }
+  // Resume for a merge session held at the restart review (Kiln After Delivery, "Ctrl+C and restart"): the review's Resume.
+  let resuming = $state(false);
+  let resumeProblem = $state<string>();
+  async function pressResume() {
+    if (!config || !connected || resuming) return;
+    resuming = true; resumeProblem = undefined;
+    try { const answer = await start(config, false); if (!answer.ok) resumeProblem = answer.reason; }
+    finally { resuming = false; }
+  }
+  // The page's one request when it loads, which reads GitHub first; an event-stream reconnect makes none.
+  onMount(() => { void checkNow(false); });
   const tagFor = (repository: string) => {
     if (repository === snapshot.feature.repositoryName) return "PRD’s repository";
     const added = snapshot.repositories.find((row) => row.name === repository)?.addedInPhase;
     return added === undefined ? undefined : addedLabel(added);
   };
 </script>
+
+{#snippet pullFacts(pullRequest: PullRequestFacts)}
+  {@const reading = readingOf(pullRequest)}
+  {#if reading?.state === "merged"}<span>Merged into {pullRequest.base}{reading.mergedAt ? ` at ${clockTime(reading.mergedAt, new Date(now), { afterWord: true })}` : ""}{reading.mergeCommit ? ` · merge ${reading.mergeCommit.slice(0, 7)}` : ""}</span>
+  {:else if reading?.state === "closed"}<span class="warn">Closed without merging</span>
+  {:else if reading?.conflicts}<span class="warn">Conflicts with {pullRequest.base}</span>{/if}
+{/snippet}
+
+{#snippet mergePart(url?: string)}
+  {#if mergeOpen && mergeActivity}
+    <div class="merge-session">
+      <p class="merge-line"><span class="eyebrow">Merge session</span> {mergeAgent}{mergeRow?.details?.model ? ` · ${mergeRow.details.model}` : ""}</p>
+      {#if mergeActivity.startedAt}<p class="note">Started {clockTime(mergeActivity.startedAt, new Date(now), { afterWord: true })} in <span class="mono">{mergeActivity.folder}</span></p>{/if}
+      {#if mergeActivity.state === "interrupted"}
+        <div class="open"><button class="button solid" type="button" disabled={!connected || !config || resuming} onclick={pressResume}>{resuming ? "Resuming…" : "Resume"}</button></div>
+        <p class="note">{snapshot.restartReview?.action === "wait" ? "Kiln was stopped while the merge session waited for usage. Resume reads GitHub first; if a pull request is still to merge, it waits for usage again, then picks up the same session." : "Kiln was stopped while the merge session ran. Resume reads GitHub first; if a pull request is still to merge, it picks up the same session where it stopped."}</p>
+        {#if resumeProblem}<p class="history-gap" role="alert">{resumeProblem}</p>{/if}
+      {:else}
+      <div class="open">{#if mergeLink && mergeRow?.details}<a class="button solid" href={mergeLink} onclick={(event) => routedClick(event, router, mergeLink)}>Watch the session</a>{/if}</div>
+      {/if}
+      <p class="note">{MERGE_LIVE_REASON} It waits for the required checks before each merge. If it stops before merging, Kiln shows Needs you with its last message. Kiln shows Merged once GitHub shows {pullRequests.length > 1 ? "every pull request" : `#${pullRequests[0]?.number}`} merged.</p>
+    </div>
+  {:else if allMerged}
+    {#each after?.baseBranches ?? [] as said (said.repository)}
+      <p class="note base-branch">{said.line}{#if said.command}{" "}To bring it up to date: <code class="mono">{said.command}</code>{/if}</p>
+    {/each}
+    {#if mergeActivity?.summary}
+      <div class="merge-summary"><h3 class="eyebrow">The merge session’s summary</h3><p class="summary-text">{mergeActivity.summary}</p></div>
+    {/if}
+    <div class="open"><ExitKiln {snapshot} {connected} main line={`Nothing is left for Kiln to do on this PRD. Exiting stops Kiln in its terminal; the ${pullRequests.length > 1 ? "worktrees stay" : "worktree stays"} until you remove ${pullRequests.length > 1 ? "them" : "it"}.`} />{#if url}<a class="button" href={url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>{/if}</div>
+    {#if panelShown && !planPush && phasesFound}<p class="note">{addedHeading(phasesFound)}. Continue is at the top of this page.</p>{/if}
+    {#if panelShown && !planPush && checkInCard}<CompletedPlanCheck inCard {now} loading={checking} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
+  {:else if after?.offer.note}
+    <div class="open">
+      <button class="button solid" type="button" disabled={!connected || !config || merging || !after.offer.available} title={after.offer.available ? undefined : after.offer.reason} onclick={pressMergeButton}>{merging ? "Starting…" : `Merge with ${mergeAgent}`}</button>
+      {#if url}<a class="button" href={url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>{/if}
+    </div>
+    <p class="note">{after.offer.note}</p>
+    {#if !after.offer.available && after.offer.reason}<p class="note">{after.offer.reason}</p>{/if}
+    {#if mergeProblem}<p class="history-gap" role="alert">{mergeProblem}</p>{/if}
+  {:else if after?.offer.line}
+    <p class="history-gap">{after.offer.line}</p>
+  {/if}
+{/snippet}
+
+{#snippet waitingLine()}
+  {#if awaiting && !mergeOpen}
+    <p class="note new-phases">{awaitingMergeText(awaiting)}{checkNowLead(awaiting) ? ` ${checkNowLead(awaiting)}` : ""} <button class="link" type="button" disabled={!connected || !config || checking || check?.status === "checking"} onclick={() => checkNow(true)}>{checking || check?.status === "checking" ? "Checking…" : "Check now"}</button></p>
+    {#if checkProblem}<p class="history-gap" role="alert">{checkProblem}</p>{/if}
+  {/if}
+{/snippet}
 
 {#snippet historyRow(event: DeliveryEvent)}
   {@const time = deliveryTime(event.occurredAt, now)}
@@ -53,7 +176,23 @@
 <main class="page-main roomy">
   <StateHeader {snapshot} {connected} {now} />
   {#if criticalFirst}<ForYou {snapshot} />{/if}
-  <CompletedPlanCheck acceptance={snapshot.continuation?.acceptance} check={snapshot.continuation?.check} {config} {connected} />
+  {#if planPush}
+    <section class="pr" aria-label="Push the plan">
+      <h2>Push the plan</h2>
+      {#if pushRow?.file}<p class="note">{pushRow.file}</p>{/if}
+      {#if planPush.state === "interrupted"}
+        <div class="open"><button class="button solid" type="button" disabled={!connected || !config || resuming} onclick={pressResume}>Resume</button></div>
+        <p class="note">Kiln was stopped while the push session ran. Resume reads origin first; if the plan is still to push, it picks up the same session where it stopped.</p>
+        {#if resumeProblem}<p class="history-gap" role="alert">{resumeProblem}</p>{/if}
+      {:else if planPush.state === "accepting"}
+        <p class="note">The plan is pushed. Kiln is checking for new phases again, and starts the build when the same phases are still ready.</p>
+      {:else}
+        <div class="open">{#if pushLink && pushRow?.details}<a class="button solid" href={pushLink} onclick={(event) => routedClick(event, router, pushLink)}>Watch the session</a>{/if}</div>
+        <p class="note">{PLAN_PUSH_LIVE_REASON} Once {snapshot.settings.baseBranch} holds the documents, the build starts. If the push session stops, Kiln shows Needs you with its last message.</p>
+      {/if}
+    </section>
+  {/if}
+  {#if panelShown && !planPush && !checkInCard}<CompletedPlanCheck loading={checking} acceptance={snapshot.continuation?.acceptance} {check} {config} {connected} prdDirectory={snapshot.feature.prdFolder.replace(/\/$/, "")} />{/if}
   <DevelopmentDelivery {snapshot} {connected} {config} />
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}
   {#if multi && pullRequests.length > 0}
@@ -64,26 +203,33 @@
         {#each pullRequests as pullRequest (pullRequest.repository)}
           {@const tag = tagFor(pullRequest.repository)}
           <li>
-            <div class="repo"><span class="mono repo-name">{pullRequest.repository}</span><span class="repo-sub"><span class="mono repo-number">#{pullRequest.number}</span>{#if tag}<span class="tag">{tag}</span>{/if}</span></div>
+            <div class="repo"><span class="mono repo-name">{pullRequest.label ?? labelOf(pullRequest.repository)}</span><span class="repo-sub"><span class="mono repo-number">#{pullRequest.number}</span>{#if readingOf(pullRequest)?.order}<span class="tag">merges {ordinal(readingOf(pullRequest)!.order!.position)}</span>{/if}{#if tag}<span class="tag">{tag}</span>{/if}</span></div>
             <div class="what">
               <span class="pr-title">{pullRequest.title}</span>
-              <span class="pr-line"><span class="mono pr-branches">{pullRequest.head} → {pullRequest.base}</span><span class="sep" aria-hidden="true">·</span><span>{commitCount(pullRequest)}</span><span class="sep" aria-hidden="true">·</span><span>+{number(pullRequest.additions)} −{number(pullRequest.deletions)}</span></span>
+              <span class="pr-line"><span class="mono pr-branches">{pullRequest.head} → {pullRequest.base}</span><span class="sep" aria-hidden="true">·</span><span>{commitCount(pullRequest)}</span><span class="sep" aria-hidden="true">·</span><span>+{number(pullRequest.additions)} −{number(pullRequest.deletions)}</span>{#if readingOf(pullRequest)?.state === "merged" || readingOf(pullRequest)?.state === "closed" || readingOf(pullRequest)?.conflicts}<span class="sep" aria-hidden="true">·</span>{@render pullFacts(pullRequest)}{/if}</span>
             </div>
             <a class="button small open-one" href={pullRequest.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={13} strokeWidth={1.8} />Open on GitHub</a>
           </li>
         {/each}
       </ul>
-      <p class="note">Human review is next. The pull requests say which to merge first. Kiln stops at “PR ready” and doesn’t merge.</p>
+      {#if after}{@render mergePart()}{:else}<p class="note">Human review is next. The pull requests say which to merge first. Kiln stops at “PR ready” and doesn’t merge.</p>{/if}
+      {@render waitingLine()}
     </section>
   {:else if pr}
     <section class="pr">
       <div class="which"><Icon name="pull-request" size={20} strokeWidth={1.6} /><span class="mono number">Pull request #{pr.number}</span><span class="dot" aria-hidden="true">·</span><span class="mono branches">{pr.head} → {pr.base}</span></div>
       <h2>{pr.title}</h2>
-      <div class="size"><span>{commitCount(pr)}</span><span class="dot" aria-hidden="true">·</span><span>+{number(pr.additions)} −{number(pr.deletions)}</span></div>
-      <div class="open">
-        <a class="button solid" href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>
-        <span class="note">{snapshot.developmentDelivery?.authorization.enabled ? "This remaining work awaits human review. Earlier development deliveries are recorded above." : "Human review is next. Kiln stops at “PR ready” and doesn’t merge."}</span>
-      </div>
+      <div class="size"><span>{commitCount(pr)}</span><span class="dot" aria-hidden="true">·</span><span>+{number(pr.additions)} −{number(pr.deletions)}</span>{#if readingOf(pr)?.state === "merged" || readingOf(pr)?.state === "closed" || readingOf(pr)?.conflicts}<span class="dot" aria-hidden="true">·</span>{@render pullFacts(pr)}{/if}</div>
+      {#if after}
+        {@render mergePart(pr.url)}
+        {#if (!after.offer.note || mergeOpen) && !exitInCard}<div class="open"><a class="button" class:solid={!mergeOpen} href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a></div>{/if}
+      {:else}
+        <div class="open">
+          <a class="button solid" href={pr.url} target="_blank" rel="noopener noreferrer"><Icon name="external" size={15} />Open on GitHub</a>
+          <span class="note">{snapshot.developmentDelivery?.authorization.enabled ? "This remaining work awaits human review. Earlier development deliveries are recorded above." : "Human review is next. Kiln stops at “PR ready” and doesn’t merge."}</span>
+        </div>
+      {/if}
+      {@render waitingLine()}
     </section>
   {/if}
   {#if mergedBranches.length}
@@ -92,7 +238,7 @@
       <ul class="prs">
         {#each mergedBranches as branch (branch.repository)}
           <li>
-            <div class="repo"><span class="mono repo-name">{branch.repository}</span></div>
+            <div class="repo"><span class="mono repo-name">{labelOf(branch.repository)}</span></div>
             <div class="what"><span class="pr-title">Already merged into {branch.base}</span><span class="mono pr-branches">{branch.head}</span></div>
           </li>
         {/each}
@@ -111,7 +257,7 @@
     {#if snapshot.deliveryHistory}
       {#each histories as history (history.repository)}
         <div class="history-repo">
-          <div class="history-heading"><h3 class="mono repo-name">{history.repository}</h3><span class="sub">{history.primary.length} {history.primary.length === 1 ? "delivery" : "deliveries"} · Newest first</span></div>
+          <div class="history-heading"><h3 class="mono repo-name">{labelOf(history.repository)}</h3><span class="sub">{history.primary.length} {history.primary.length === 1 ? "delivery" : "deliveries"} · Newest first</span></div>
           <ul class="prs primary-deliveries" id={`deliveries-${history.repository}`}>
             {#each history.primary.slice(0, expanded[history.repository] ? undefined : 3) as event (`${event.kind}:${event.number ?? event.commit}`)}
               {@render historyRow(event)}
@@ -144,7 +290,7 @@
       <section class="card" aria-labelledby="set-h">
         <div class="intro"><h2 id="set-h" class="eyebrow">Settings for this PRD</h2><span class="sub">Set before the first phase.</span></div>
         <dl>
-          <div><dt>Agent</dt><dd class="value">{snapshot.settings.agent}</dd><dd class="help">Each phase’s Details show the model and effort it ran with.</dd></div>
+          <div><dt>Agent</dt><dd class="value">{agentsThatRan(snapshot)}</dd><dd class="help">Each phase’s Details show the model and effort it ran with.</dd></div>
           {#if multi}
             <div>
               <dt>Workspace folder</dt>
@@ -157,13 +303,23 @@
           {/if}
         </dl>
       </section>
-      <KilnPanel {connected} text={snapshot.developmentDelivery?.authorization.enabled || mergedBranches.length ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the workspace and recorded delivery results stay." : multi ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay." : "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay."} />
+      <KilnPanel {connected} text={snapshot.developmentDelivery?.authorization.enabled || mergedBranches.length ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the workspace and recorded delivery results stay." : multi ? "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull requests and workspace stay." : "Every phase is done. Ctrl+C in the terminal closes Kiln; the pull request and worktree stay."}>
+        <!-- Once Merged, Exit Kiln is the pull request card's main button instead (Kiln After Delivery AC-EXIT-01). -->
+        {#if exitInCard}<p class="note">Exit Kiln is in the merge card. Ctrl+C in the terminal does the same.</p>{:else}<ExitKiln {snapshot} {connected} />{/if}
+      </KilnPanel>
     </div>
   </div>
 </main>
 
 <style>
   .history-repo .pr-title { overflow-wrap: anywhere; }
+  .warn { color: var(--amber); }
+  .merge-session, .merge-summary { display: flex; flex-direction: column; gap: 8px; }
+  .merge-line { margin: 0; font-size: 14px; color: var(--muted); }
+  .summary-text { margin: 0; font-size: 14.5px; color: var(--text); white-space: pre-wrap; }
+  h3.eyebrow { margin: 0; }
+  .link { background: none; border: 0; padding: 0; font: inherit; color: var(--green); text-decoration: underline; cursor: pointer; }
+  .link:disabled { color: var(--dim); cursor: default; }
   .history-repo h3 { margin: 0; }
   .history-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin-bottom: 8px; }
   .event-time { font-size: 12.5px; color: var(--dim); }
@@ -187,6 +343,7 @@
   .open { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
   .note { font-size: 13.5px; color: var(--dim); }
   p.note { margin: 0; }
+  .base-branch code { overflow-wrap: anywhere; color: var(--text); }
   .prs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
   .prs li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 14px 0; border-bottom: 1px solid var(--line); }
   .prs li:last-child { border-bottom: 0; }

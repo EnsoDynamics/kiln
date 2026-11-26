@@ -69,6 +69,8 @@ Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Check Runs and When Mark Complete Is Offered (at a **Nothing holds the run** stop the offer is Continue anyway with effect `continued`, even after a pull request session ran, so waiving it never completes the run).
 
+Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "At the stop" (a merge stop never offers Mark complete).
+
 A stop records the identity of its latest check run:
 
 ```
@@ -228,10 +230,13 @@ The snapshot and the status JSON carry, from the same marked results:
 ## Display Contract
 
 Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Paused Page (the hand-back page bullet does not apply to a Pause now hold's page).
+Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Screens (the hand-back page and the standard Needs you page gain the question below the card for how their session ended)
 
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §A Stopped Phase's Facts, Nothing to check yet (no checks shown for a phase that built nothing until asked; the sentence above Mark complete).
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop and §Display Contract (Mark complete's label, placement and sentence at a preflight stop).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (for a phase that hasn't started, the hand-back page's terminal card is **Start a fresh session in your terminal** also while its current choice isn't the one its saved conversation ran on).
 
 Build arrangement and wording from the approved mockup.
 

@@ -42,9 +42,8 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'proof', folderNam
 const settings = defaultSettings(paths, { branches: new Map([['develop', baseCommit]]), defaultBranch: 'develop' });
 Object.assign(settings, { featureBranch: 'develop', worktreePath: repository, workspaceFolder: root, keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: 'proof/disposable', featureName: 'Disposable handoff proof', settings });
-record.settings.agentId = agentId;
 const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'haiku';
-record.settings.agentChoices[agentId] = { model, effort: 'high' };
+record.settings.modelChoices.kept = { agentId, model, effort: 'high' };
 const session = { schemaVersion: 10, executionId: record.executionId, agentId, sessionId: randomUUID(), phaseId: '1', kind: 'phase', createdAt: new Date().toISOString(), model, modelDisplayName: model, effort: 'high', workingDirectory: repository, runs: [], sleeps: [], steps: [] };
 console.log(JSON.stringify({ root, agentId, sessionId: session.sessionId }));
 writeSessionRecord(stateDirectory, session);
@@ -72,7 +71,7 @@ writePrdRecord(stateDirectory, record);
 const engine = new Engine({ paths, tools: { git: 'git', gh: 'gh', claude: 'claude', codex: 'codex' }, env: process.env, stateDirectory, record, onTerminal: event => events.push(event), sleepReader: { next: async () => [] }, originRetryMs: 0 });
 
 assert.equal((await engine.prepare()).ok, true);
-for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
 const lock = await takeInstanceLock(stateRoot(process.env), stateDirectory, { range: { first: 41960, last: 41979 } });
 assert.ok(lock.taken);
 const server = await startLocalServer({ engine, port: lock.port, folderName: 'handoff-proof', featureName: 'Bot control proof', token: record.token });

@@ -74,7 +74,7 @@ describe("a done-check stop's rows, before and after Check again (AC-STOPCHECK-0
   it("labels the rows as the completion checks after the check Kiln runs when it is started again on the stopped phase", async () => {
     const h = await stoppedOnPush();
     const reopened = h.reopenFromDisk();
-    await reopened.agents.refresh();
+    await reopened.refreshAgents();
     await reopened.prepare();
     expect(await reopened.decide()).toMatchObject({ kind: "needs_you", phaseKey: "1" });
     expect(reopened.record.phases["1"]!.stop).toMatchObject({ run: { origin: "recheck", finished: true }, rowsAreCompletionChecks: true });

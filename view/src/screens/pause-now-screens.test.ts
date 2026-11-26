@@ -58,31 +58,31 @@ describe("the pause panel offers Now and After (AC-PAUSE-01)", () => {
 
   it("names an audit and says the next activity after it", () => {
     const snapshot = idle(one => {
-      const audit: PhaseView = { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Round 2", round: 2, continuationIndex: 1, state: "implementing", finishedByPerson: false };
+      const audit: PhaseView = { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Loop 2 of 4", round: 2, continuationIndex: 1, loops: [{ kind: "delivery", number: 2, limit: 4 }], state: "implementing", finishedByPerson: false };
       one.activities = [...one.phases.map(row => row.id === "2b" ? { ...row, state: "done" as const } : row), audit];
       one.current = { ...one.current!, phaseId: "audit-da2" };
       one.feature.currentPhaseId = "audit-da2";
       one.liveControl!.target = { ...one.liveControl!.target, activityKey: "audit-da2" };
-      one.liveControl!.label = "Delivery audit · Round 2";
+      one.liveControl!.label = "Delivery audit loop 2";
     });
     const words = text(running(snapshot));
-    // An audit is named with its round (AC-PAUSE-01).
-    expect(words).toContain("Delivery audit · round 2 stays open.");
-    expect(words).toContain("After delivery audit · round 2 Lets the audit finish. Kiln commits, pushes and runs the completion checks, then waits before starting the next activity. Pause after delivery audit · round 2");
+    // An audit is named with its loop, never its round (AC-PAUSE-01, Kiln After Delivery AC-AUDIT-01).
+    expect(words).toContain("Delivery audit loop 2 stays open.");
+    expect(words).toContain("After delivery audit loop 2 Lets the audit finish. Kiln commits, pushes and runs the completion checks, then waits before starting the next activity. Pause after delivery audit loop 2");
   });
 
-  it("names an audit's round from its row when there is no live target, as for a Codex audit", () => {
+  it("names an audit's loop from its row when there is no live target, as for a Codex audit", () => {
     const snapshot = idle(one => {
-      const audit: PhaseView = { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Round 2", round: 2, continuationIndex: 1, state: "implementing", finishedByPerson: false };
+      const audit: PhaseView = { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Loop 2 of 4", round: 2, continuationIndex: 1, loops: [{ kind: "delivery", number: 2, limit: 4 }], state: "implementing", finishedByPerson: false };
       one.activities = [...one.phases.map(row => row.id === "2b" ? { ...row, state: "done" as const } : row), audit];
       one.current = { ...one.current!, phaseId: "audit-da2" };
       one.feature.currentPhaseId = "audit-da2";
       delete one.liveControl;
     });
     const words = text(running(snapshot));
-    expect(words).toContain("Delivery audit · round 2 stays open.");
-    expect(words).toContain("After delivery audit · round 2 Lets the audit finish.");
-    expect(words).toContain("Pause after delivery audit · round 2");
+    expect(words).toContain("Delivery audit loop 2 stays open.");
+    expect(words).toContain("After delivery audit loop 2 Lets the audit finish.");
+    expect(words).toContain("Pause after delivery audit loop 2");
   });
 
   it("names the leaf a split phase is working on, not the launched phase", () => {
@@ -149,8 +149,8 @@ describe("the pausing state says what it is waiting for (AC-PAUSE-03)", () => {
   });
 
   it("keeps a pending end-of-audit pause visible below, with its audit cancel (AC-PAUSE-03)", () => {
-    const snapshot = pausingSnapshot({ activityKey: "audit-da2", label: "delivery audit · round 2" });
-    const audit: PhaseView = { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Round 2", round: 2, continuationIndex: 1, state: "implementing", finishedByPerson: false };
+    const snapshot = pausingSnapshot({ activityKey: "audit-da2", label: "delivery audit loop 2" });
+    const audit: PhaseView = { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Loop 2 of 4", round: 2, continuationIndex: 1, loops: [{ kind: "delivery", number: 2, limit: 4 }], state: "implementing", finishedByPerson: false };
     snapshot.activities = [...snapshot.phases.map(row => row.id === "2b" ? { ...row, state: "done" as const } : row), audit];
     snapshot.current = { ...snapshot.current!, phaseId: "audit-da2" };
     snapshot.feature.currentPhaseId = "audit-da2";
@@ -193,7 +193,7 @@ describe("the header and phase plan row (AC-PAUSE-03, AC-PAUSE-05)", () => {
 
   it("names an audit as its running header does", () => {
     const snapshot = pausingSnapshot({ activityKey: "audit-da2" });
-    snapshot.activities = [...snapshot.phases, { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Round 2", round: 2, state: "implementing", finishedByPerson: false }];
+    snapshot.activities = [...snapshot.phases, { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Loop 2 of 4", round: 2, loops: [{ kind: "delivery", number: 2, limit: 4 }], state: "implementing", finishedByPerson: false }];
     expect(headerState(snapshot, true, new Date(RUNNING_NOW)).label).toBe("Pausing delivery audit");
   });
 
@@ -291,11 +291,11 @@ describe("the paused page (AC-PAUSE-05, AC-PAUSE-06)", () => {
     expect(words).not.toMatch(/phase 2 of|Resume phase 2 |finished phase 2 /);
   });
 
-  it("names an audit's round in the eyebrow", () => {
+  it("names an audit's loop in the eyebrow, never its round", () => {
     const snapshot = pausedHoldSnapshot({ activityKey: "audit-da2" });
-    snapshot.activities = [...snapshot.phases, { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Round 2", round: 2, state: "needs_you", finishedByPerson: false }];
+    snapshot.activities = [...snapshot.phases, { id: "audit-da2", activityId: "da2", kind: "delivery_audit", title: "Delivery audit", file: "Loop 2 of 4", round: 2, loops: [{ kind: "delivery", number: 2, limit: 4 }], state: "needs_you", finishedByPerson: false }];
     const words = text(held(snapshot));
-    expect(words).toContain("DA Paused partway · delivery audit · round 2 Delivery audit");
+    expect(words).toContain("DA Paused partway · delivery audit loop 2 Delivery audit");
     expect(words).toContain("Resume delivery audit");
   });
 
@@ -348,6 +348,24 @@ describe("the paused page (AC-PAUSE-05, AC-PAUSE-06)", () => {
     const snapshot = pausedHoldSnapshot();
     snapshot.pause = { pending: true, active: false };
     order(text(held(snapshot)), "Session won’t open?", "Will pause after Phase 2b finishes. Cancel end-of-phase pause", "Full session output");
+  });
+
+  it("names the agent Resume launches on in the note and status when the session never got a response (Kiln Phase Model Tiers AC-AGENTS-04)", () => {
+    const snapshot = pausedHoldSnapshot();
+    snapshot.needsYou!.agent = "Claude Code";
+    snapshot.needsYou!.newSession = true;
+    snapshot.phases = snapshot.phases.map(row => row.id === "2b" ? { ...row, model: { state: "will_run_on", choice: { agentId: "codex", agent: "Codex", model: "gpt-6-astra", modelName: "GPT-6-Astra", effort: "high" } } } : row);
+    const html = held(snapshot, page({ pending: "resume" }));
+    const words = text(html);
+    order(words, "Starts a new Codex session on this activity’s model", "Note for Codex (optional)", "Resume phase 2b", "Checking the work, then starting a new Codex session.");
+    expect(html).toContain('placeholder="Anything to tell Codex before it carries on"');
+    for (const gone of ["Note for Claude", "reopening the"]) expect(words).not.toContain(gone);
+    expect(html).not.toContain("Anything to tell Claude");
+    // A session that did get a response reopens the same Claude conversation, so its labels stay Claude's.
+    delete snapshot.needsYou!.newSession;
+    const reopened = held(snapshot, page({ pending: "resume" }));
+    order(text(reopened), "Note for Claude (optional)", "Checking the work, then reopening the Claude Code conversation.");
+    expect(reopened).toContain('placeholder="Anything to tell Claude before it carries on"');
   });
 
   it("names Pause now on the recovery page Resume's already-complete answer leads to", () => {

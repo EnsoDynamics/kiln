@@ -17,6 +17,9 @@ export function day(iso: string): string {
 
 const failing = (view: FolderMissingSnapshot) => view.repositories.filter(repository => repository.state !== "in_place");
 
+/** A repository as the page names it: its label (find repositories anywhere AC-FOLDER-02). */
+const shown = (repository: { name: string; label?: string }) => repository.label ?? repository.name;
+
 export function heading(view: FolderMissingSnapshot): string {
   const bad = failing(view);
   if (view.repositories.length > 1) return bad.length === 1 ? (bad[0]!.state === "missing" ? "One of this run’s folders is gone." : bad[0]!.state === "holds_something_else" ? "One of this run’s folders now holds something else." : "Kiln couldn’t check one of this run’s folders.") : "Some of this run’s folders aren’t in place.";
@@ -29,7 +32,7 @@ export function intro(view: FolderMissingSnapshot): string {
   const setUp = view.repositories.map(repository => repository.setUpAt).filter((at): at is string => !!at).sort()[0];
   const when = setUp ? ` on ${day(setUp)}` : "";
   if (view.repositories.length > 1) {
-    const names = bad.map(repository => repository.name).join(" and ");
+    const names = bad.map(shown).join(" and ");
     return `Kiln set this run up${when} in one workspace, and ${names}’s folder in it ${bad.every(repository => repository.state === "missing") ? "no longer exists" : "isn’t the run’s worktree"}. Kiln won’t report progress from a folder it can’t read. Below is what it can still find, and a setup to carry on.`;
   }
   const state = bad[0]?.state;
@@ -76,7 +79,7 @@ export function baseCard(view: FolderMissingSnapshot): { title: string; tag: str
   // The next unfinished phase is always named (AC-FACTS-02); phases closed only on the feature branch follow it.
   const next = `${base.next ? `next is Phase ${base.next.id}, ${base.next.title}` : "every phase is closed"}${only?.length ? ` · ${only.length === 1 ? `Phase ${only[0]}’s` : `Phases ${only.slice(0, -1).join(", ")} and ${only.at(-1)}’s`} work is only on the feature branch` : ""}`;
   // The PRD's repository comes first; a multi-repository run's plan is read there.
-  const prd = view.repositories.length > 1 ? `${view.repositories[0]!.name}’s ` : "";
+  const prd = view.repositories.length > 1 ? `${shown(view.repositories[0]!)}’s ` : "";
   return {
     title: `Plan on ${base.branch}`,
     tag: base.source === "origin" ? `origin/${base.branch}` : `Your checkout’s ${base.branch}`,
@@ -95,7 +98,7 @@ export function factRows(view: FolderMissingSnapshot): FactRow[] {
   const rows: FactRow[] = [];
   const ordered = [...failing(view), ...view.repositories.filter(repository => repository.state === "in_place")];
   for (const repository of ordered) {
-    const prefix = multi ? `${repository.name} · ` : "";
+    const prefix = multi ? `${shown(repository)} · ` : "";
     const label = (text: string): Part[] => [{ text: `${prefix}${multi ? text.charAt(0).toLowerCase() + text.slice(1) : text}` }];
     const branch = repository.featureBranch;
     // Each repository's own base branch, and whether it was read in the shared checkout because origin couldn't be reached (AC-FACTS-02).
@@ -173,7 +176,7 @@ export function lostNote(view: FolderMissingSnapshot): string {
   const bad = failing(view);
   const gone = view.repositories.some(repository => repository.featureBranch.gone);
   const where = view.repositories.length > 1
-    ? bad.map(repository => repository.state === "holds_something_else" ? `in the worktree that was at ${repository.name}’s saved path` : `in ${repository.name}’s deleted folder`).join(" or ")
+    ? bad.map(repository => repository.state === "holds_something_else" ? `in the worktree that was at ${shown(repository)}’s saved path` : `in ${shown(repository)}’s deleted folder`).join(" or ")
     : bad[0]?.state === "holds_something_else" ? "in the worktree that was at the saved path" : "in the deleted folder";
   return `Kiln can’t recover changes that were never committed ${where}${gone ? ", nor commits on the deleted branch that were never pushed" : ""}.`;
 }
