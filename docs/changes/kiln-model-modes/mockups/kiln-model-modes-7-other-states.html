@@ -15,7 +15,7 @@ a{color:#ede8dd}a:hover{color:#f0866e}
 </style>
 </head>
 <body>
-<p class="mock-note"><strong>7. Other states.</strong> Four smaller states, each under its own heading: the save bar when the person tries to leave with unsaved changes, the plan while the fallback is used for everything, Documents found for a PRD with its own settings, and the run's settings.</p>
+<p class="mock-note"><strong>7. Other states.</strong> Five smaller states, each under its own heading: the save bar when the person tries to leave with unsaved changes, the plan while the fallback is used for everything, Documents found for a PRD with its own settings, the run's settings, and the card of a phase that started on its fallback because the fallback is used for everything.</p>
 <p class="state"><strong>A. Model defaults, after pressing the way back with unsaved changes.</strong> The person stays on the page and the save bar says what to do. AC-SAVE-02.</p>
 <div style="max-width: 920px; margin: 0 auto; padding: 28px 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
 <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 24px; padding: 12px 14px 12px 22px; border-radius: 16px; background: #1b1a16; border: 1px solid #e2694f">
@@ -72,21 +72,26 @@ a{color:#ede8dd}a:hover{color:#f0866e}
 </div>
 </section>
 </div>
-<p class="state"><strong>C. Documents found, for a PRD that has its own settings.</strong> The recommended choice's line says what this PRD does, says the settings are its own, and the link opens them. AC-PRD-01 and AC-SAVE-04.</p>
+<p class="state"><strong>C. Documents found, for a PRD that has its own settings.</strong> The recommended choice's line says what this PRD does and its link opens the PRD's own settings; the block says the settings are its own and offers a return to the defaults. The Audits line stays and shows the fallback the audits will launch on. AC-PRD-01, AC-SAVE-05 and AC-WHEN-03.</p>
 <div style="max-width: 920px; margin: 0 auto; padding: 28px 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
 <section aria-labelledby="deliver-c" style="background: #1b1a16; border: 1px solid rgba(237,232,221,.12); border-radius: 18px; padding: 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
 <h2 id="deliver-c" style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577">How Kiln will deliver it</h2>
 <div style="display: flex; flex-direction: column; gap: 12px">
 <span id="prd-c-l" style="font-size: 14px; color: #bdb6a8">Models</span>
 <div role="radiogroup" aria-labelledby="prd-c-l" style="display: flex; flex-direction: column; gap: 10px">
-<label style="display: flex; align-items: flex-start; gap: 14px; padding: 15px 18px; border-radius: 14px; border: 2px solid #ede8dd; cursor: pointer"><input type="radio" name="prd-c" checked style="width: 20px; height: 20px; margin: 2px 0 0; accent-color: #e2694f; flex: none"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">Recommended model for each phase</span><span style="font-size: 13.5px; color: #bdb6a8">Every phase runs on its fallback for now. This PRD has its own settings.</span><a href="kiln-model-modes-4-saved-for-this-prd-only.html" style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 44px; color: #ede8dd; font-size: 14px; text-underline-offset: 4px">Models for this PRD</a></span></label>
+<label style="display: flex; align-items: flex-start; gap: 14px; padding: 15px 18px; border-radius: 14px; border: 2px solid #ede8dd; cursor: pointer"><input type="radio" name="prd-c" checked style="width: 20px; height: 20px; margin: 2px 0 0; accent-color: #e2694f; flex: none"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">Recommended model for each phase</span><span style="font-size: 13.5px; color: #bdb6a8">Every phase runs on its fallback for now.</span><a href="kiln-model-modes-4-saved-for-this-prd-only.html" style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 44px; color: #ede8dd; font-size: 14px; text-underline-offset: 4px">Models for this PRD</a></span></label>
 <label style="display: flex; align-items: flex-start; gap: 14px; padding: 16px 19px; border-radius: 14px; border: 1px solid rgba(237,232,221,.18); cursor: pointer"><input type="radio" name="prd-c" style="width: 20px; height: 20px; margin: 2px 0 0; accent-color: #e2694f; flex: none"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">One model for this PRD</span><span style="font-size: 13.5px; color: #bdb6a8">Every phase, both audits, the preflight and the pull request session.</span></span></label>
 </div>
-<span style="font-size: 13.5px; color: #8c8577">Change any phase in the phase plan.</span>
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; padding: 4px 4px 0 2px"><span style="font-size: 13.5px; color: #bdb6a8">This PRD has its own settings.</span><button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid rgba(237,232,221,.3); background: transparent; color: #ede8dd; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap">Use my defaults here</button></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,.12)">
+<span style="font-size: 14px; color: #bdb6a8">Audits</span>
+<span style="display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 2px"><span style="display: inline-flex; align-items: center; min-height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid #ede8dd; font-size: 13px; font-weight: 600; color: #ede8dd">Fallback</span></span>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px"><span>Codex · GPT Sol · extra high</span><button type="button" style="min-height: 44px; padding: 0; border: 0; background: none; color: #ede8dd; font: inherit; font-size: 14px; text-decoration: underline; text-underline-offset: 4px; cursor: pointer">Change</button></div>
 </div>
 </section>
 </div>
-<p class="state"><strong>D. The run's settings, while a run is underway.</strong> The same two choices. A change here reaches only what hasn't started. AC-PRD-01 and AC-PRD-02.</p>
+<p class="state"><strong>D. The run's settings, while a run is underway.</strong> The same two choices, for a PRD that follows the defaults. AC-PRD-01 and AC-PRD-02.</p>
 <div style="max-width: 920px; margin: 0 auto; padding: 28px 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
 <section aria-labelledby="settings-d" style="background: #1b1a16; border: 1px solid rgba(237,232,221,.12); border-radius: 18px; padding: 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
 <h2 id="settings-d" style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577">Settings</h2>
@@ -96,11 +101,23 @@ a{color:#ede8dd}a:hover{color:#f0866e}
 <label style="display: flex; align-items: flex-start; gap: 14px; padding: 15px 18px; border-radius: 14px; border: 2px solid #ede8dd; cursor: pointer"><input type="radio" name="prd-d" checked style="width: 20px; height: 20px; margin: 2px 0 0; accent-color: #e2694f; flex: none"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">Recommended model for each phase</span><span style="font-size: 13.5px; color: #bdb6a8">Each phase moves to its fallback when usage reaches 95%.</span><a href="kiln-model-modes-1-model-defaults.html" style="align-self: flex-start; display: inline-flex; align-items: center; min-height: 44px; color: #ede8dd; font-size: 14px; text-underline-offset: 4px">Model defaults</a></span></label>
 <label style="display: flex; align-items: flex-start; gap: 14px; padding: 16px 19px; border-radius: 14px; border: 1px solid rgba(237,232,221,.18); cursor: pointer"><input type="radio" name="prd-d" style="width: 20px; height: 20px; margin: 2px 0 0; accent-color: #e2694f; flex: none"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 16px; font-weight: 600">One model for this PRD</span><span style="font-size: 13.5px; color: #bdb6a8">Every phase, both audits, the preflight and the pull request session.</span></span></label>
 </div>
-<span style="font-size: 13.5px; color: #8c8577">A change reaches the phases and audits that haven't started.</span>
 </div>
 <div style="display: flex; flex-direction: column; gap: 2px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,.12)">
 <span style="font-size: 14px; color: #bdb6a8">Audits</span>
 <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0 14px"><span>Claude Code · Opus 5.5 · high</span><button type="button" style="min-height: 44px; padding: 0; border: 0; background: none; color: #ede8dd; font: inherit; font-size: 14px; text-decoration: underline; text-underline-offset: 4px; cursor: pointer">Change</button></div>
+</div>
+</section>
+</div>
+<p class="state"><strong>E. The card of a phase that started on its fallback, while the fallback is used for everything.</strong> The reason is the setting, not a limit reading. AC-WHEN-03.</p>
+<div style="max-width: 920px; margin: 0 auto; padding: 28px 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
+<section style="border: 1px solid rgba(226,105,79,.55); border-radius: 18px; background: #0d0c0a; padding: 28px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 16px 24px">
+<div style="display: flex; align-items: center; gap: 16px; min-width: 0"><span style="flex: none; width: 34px; height: 34px; border-radius: 50%; border: 1px solid #e2694f; background: #e2694f; color: #12110e; display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', ui-monospace, Menlo, monospace; font-size: 12.5px; font-weight: 600">2</span><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577">Now implementing · phase 2 of 3</span><span style="font-size: 20px; font-weight: 600">Refund rules and approval</span></div></div>
+<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 14px; color: #bdb6a8"><span>Codex · GPT Astra · high</span><span>Demanding · started 3:41 PM · 12 min</span></div>
+</div>
+<div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(237,232,221,.18)">
+<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="#bdb6a8" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: 0 0 auto; margin-top: 2px"><path d="M2.5 5.5h9l-2.5-2.5M13.5 10.5h-9l2.5 2.5"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 500">This phase started on the fallback</span><span style="font-size: 13.5px; color: #bdb6a8; line-height: 1.5">The fallback is set to be used for everything, so the phase began on it without reading usage. The first choice was Claude Code · Fable 5.2 · high. The phase finishes on Codex.</span></div>
 </div>
 </section>
 </div>
