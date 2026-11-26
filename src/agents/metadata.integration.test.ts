@@ -157,11 +157,9 @@ it('keeps a Claude launch readiness read that ends after a switch to Codex out o
   const codex = codexWorkFixture();
   try {
     const env = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenario }; codex.configureEnvironment(env);
-    info = new AgentInfo({ agentId: 'claude_code', executable: { claude, codex: codex.options.executable }, cwd: codex.root, claudeCwd: sandbox.root, env });
+    // Each agent has its own reader (Kiln Phase Model Tiers, "Agents"): a Claude readiness read never reaches Codex's.
+    info = new AgentInfo({ agentId: 'codex', executable: { claude, codex: codex.options.executable }, cwd: codex.root, claudeCwd: sandbox.root, env });
     await info.refresh();
-    expect(info.state.models!.some(entry => entry.value === 'gpt-6.1-sol')).toBe(false);
-    // The engine's billing inspection reaches Claude readiness only after its own inventory read, by which time a person may have chosen Codex.
-    info.select('codex'); await info.refresh();
     const catalogue = structuredClone(info.state.models); const account = structuredClone(info.state.account); const blockers = structuredClone(info.state.blockers);
     expect(catalogue!.map(entry => entry.value)).toEqual(['gpt-6.1-sol']);
     expect(await info.refreshClaudeForLaunch(sandbox.root, env, AbortSignal.timeout(10000))).toEqual({ error: 'Claude readiness check was cancelled.' });

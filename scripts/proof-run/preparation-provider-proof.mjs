@@ -42,7 +42,7 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'comet', folderNam
 const settings = defaultSettings(paths, { branches: new Map([['develop', baseCommit]]), defaultBranch: 'develop' });
 Object.assign(settings, { featureBranch: 'develop', worktreePath: repository, workspaceFolder: root, keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: 'fictional/comet', settings });
-record.settings.agentId = agentId; const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus'; record.settings.agentChoices[agentId] = { model, effort: 'high' };
+const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus'; record.settings.modelChoices.kept = { agentId, model, effort: 'high' };
 const at = new Date().toISOString(); record.startedAt = record.setupCompletedAt = record.completedAt = at;
 record.repositories = [{ name: 'comet', kind: 'prd', mainCheckoutPath: repository, github: 'fictional/comet', baseBranch: 'develop', worktreePath: repository, baseCommit, setupCompletedAt: at }];
 record.plan = recordedPlan(source.plan); record.planReconciliation = { baselineId: retainBaseline(stateDirectory, { formatVersion: 1, normalizerVersion: 1, prdDirectory: directory, active: source, sources: [], completions: { '1': { kind: 'external', revision: baseCommit, doneAt: at, repositories: { comet: { identity: 'fictional/comet', revision: baseCommit } } } } }).id };
@@ -67,7 +67,7 @@ const lock = await takeInstanceLock(stateRoot(env), stateDirectory, { range: { f
 let server; console.log(JSON.stringify({ root, agentId, stateDirectory }));
 try {
   server = await startLocalServer({ engine, port: lock.port, folderName: paths.folderName, featureName: paths.featureName, token: record.token });
-  await engine.prepare(); for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy || engine.billing.pending); i++) await delay(250);
+  await engine.prepare(); for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy || engine.billing.pending); i++) await delay(250);
   const check = await engine.checkCompletedPlan(); assert.equal(check.status, 'available', JSON.stringify(check));
   const oldExecution = record.executionId;
   const body = { proposalId: check.result.proposal.id, commandId: `preparation-${agentId}`, executionId: oldExecution, statusToken: engine.controlView().token };

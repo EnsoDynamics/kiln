@@ -170,3 +170,19 @@ it.each([undefined, null, []])('keeps absent no-plan usage unavailable and expli
   if (Array.isArray(limits)) { expect(result.limitsObservedAt).toEqual(expect.any(String)); expect(result.limitsUnavailable).toBeUndefined(); }
   else { expect(result.limitsObservedAt).toBeUndefined(); expect(result.limitsUnavailable).toContain("didn't report"); }
 });
+
+// A reading with no plan and no rate limits attributes no windows, so it binds without an email or
+// organization; one with a plan still needs one (Kiln Phase Model Tiers, "The launch decision").
+it.each([
+  [{ loggedIn: true, authMethod: 'api_key' }, true],
+  [{ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' }, false],
+])('binds a reading with no account identity only when it has no plan and no rate limits: %j', async (status, binds) => {
+  sandbox = createSandbox(); const { claude } = installStandIns(join(sandbox.root, 'bin'));
+  const auth = join(sandbox.root, 'auth.json'); const usage = join(sandbox.root, 'usage.jsonl');
+  writeFileSync(auth, JSON.stringify(status));
+  writeFileSync(usage, JSON.stringify({ usage_report: { rate_limits: { limits: null } } }));
+  const result = await readAccount({ claude, cwd: sandbox.root, env: { ...sandbox.env, KILN_STANDIN_ACCOUNT: auth, KILN_STANDIN_USAGE: usage } });
+  if (binds) { expect(result.limitsError).toBeUndefined(); expect(result.limitsUnavailable).toContain("didn't report"); expect(result.plan).toBeUndefined(); }
+  else expect(result.limitsError).toContain('stable authenticated account');
+});
+

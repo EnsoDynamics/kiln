@@ -32,7 +32,7 @@ async function fixture(options: { openPhase?: boolean; companion?: boolean } = {
   const origin = createBareOrigin(sandbox, "proof"); const root = createRepository(sandbox, "proof", origin);
   commitFiles(sandbox, root, directory, { "proof-prd.md": prd, "phase-1-value.md": phaseOne(!options.openPhase) });
   writeFileSync(join(root, "value.mjs"), "export const value = () => 42;\n"); commit(sandbox, root, ["value.mjs"]);
-  const record = newPrdRecord({ mainCheckoutPath: root, repositoryName: "proof", github: "example/proof", prdDirectoryFromRoot: directory, featureName: "Audit proof", settings: { workspaceFolder: sandbox.root, worktreePath: root, featureBranch: "develop", baseBranch: "develop", bases: {}, model: "sonnet", effort: "low", keepAwake: false, resumeAfterUsageLimit: false } });
+  const record = newPrdRecord({ mainCheckoutPath: root, repositoryName: "proof", github: "example/proof", prdDirectoryFromRoot: directory, featureName: "Audit proof", settings: { workspaceFolder: sandbox.root, worktreePath: root, featureBranch: "develop", baseBranch: "develop", bases: {}, modelChoices: { phases: {} }, keepAwake: false, resumeAfterUsageLimit: false } });
   const started = new Date(Date.now() - 60_000).toISOString(); record.startedAt = started; record.setupCompletedAt = started;
   record.repositories = [{ name: "proof", kind: "prd", mainCheckoutPath: root, github: "example/proof", baseBranch: "develop", worktreePath: root, setupCompletedAt: started }];
   let companion: string | undefined;

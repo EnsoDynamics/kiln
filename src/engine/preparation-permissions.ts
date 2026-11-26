@@ -16,7 +16,7 @@ export async function preparationPermissions(context: PreparationContext, establ
   if (process.platform !== "darwin" || !existsSync("/usr/bin/sandbox-exec")) throw new Error("The required native preparation verifier sandbox is unavailable. This verifier is currently supported on macOS; no project command was launched.");
   for (const binding of context.record.preparation!.bindings) {
     const repo = context.record.repositories.find(repo => repo.name === binding.repository)!;
-    if (context.record.settings.agentId === "claude_code") {
+    if (context.agentId === "claude_code") {
       const reading = await boundedRead(process.execPath, [fileURLToPath(new URL("../../dist/engine/preparation-permissions-worker.js", import.meta.url))], { cwd: repo.worktreePath, env: context.env, signal: context.signal, timeoutMs: 30_000 });
       if (!reading.stdout) throw new Error("Claude verification permission inspection is unavailable.");
       const value = JSON.parse(reading.stdout) as { allowed: boolean; requiresNativeEvidence?: boolean; digest?: string; reason?: string };
@@ -75,7 +75,7 @@ export function verificationSandbox(context: PreparationContext, directory: stri
 
 /** Secret-bearing settings cross a bounded private pipe and remain only in process memory. */
 export async function preparationEnvironment(context: PreparationContext, cwd: string): Promise<NodeJS.ProcessEnv> {
-  if (context.record.settings.agentId !== "claude_code") {
+  if (context.agentId !== "claude_code") {
     if (!context.codex) throw new Error("The Codex native environment projector is unavailable.");
     const reading = await boundedRead(context.codex, [...codexVerificationArguments(context), process.execPath, fileURLToPath(new URL("../../prompts/preparation-environment.mjs", import.meta.url))], { cwd, env: context.env, signal: context.signal, timeoutMs: 30_000 });
     if (!reading.stdout) throw new Error("Codex's native validation environment could not be projected safely.");
@@ -95,7 +95,7 @@ export function codexVerificationArguments(context: PreparationContext): string[
   return ["-c", `sandbox_workspace_write.writable_roots=${JSON.stringify(roots)}`, "-c", "sandbox_workspace_write.network_access=true", "sandbox", "--include-managed-config", "--permission-profile", ":workspace", "--"];
 }
 export async function preparationHooks(context: PreparationContext, cwd: string): Promise<Record<string, unknown>> {
-  if (context.record.settings.agentId !== "claude_code") return {};
+  if (context.agentId !== "claude_code") return {};
   const reading = await boundedRead(process.execPath, [fileURLToPath(new URL("../../dist/engine/preparation-permissions-worker.js", import.meta.url))], { cwd, env: context.env, signal: context.signal, timeoutMs: 30_000 });
   if (!reading.stdout) throw new Error("Existing verification hooks could not be read.");
   const value = JSON.parse(reading.stdout) as { allowed: boolean; hooks?: Record<string, unknown>; reason?: string };

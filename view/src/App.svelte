@@ -23,6 +23,7 @@
   import PhaseDetail from "./screens/PhaseDetail.svelte";
   import Running from "./screens/Running.svelte";
   import Waiting from "./screens/Waiting.svelte";
+  import ModelDefaults from "./screens/ModelDefaults.svelte";
 
   let { config }: { config: PageConfig } = $props();
   // The page's config never changes after load.
@@ -51,6 +52,8 @@
     }
   });
   const connected = $derived(connection.connected);
+  // The Model defaults file's revision; the Model defaults page reads the file again when it changes.
+  const modelsKey = $derived(snapshot?.settings.models.revision ?? "");
   const lastSeenAt = $derived(connection.lastEventAt);
 
   /**
@@ -111,7 +114,10 @@
       {@const notice = snapshot.continuation.handback}
       <div class="command-notice" role="status"><div><strong>Added work accepted</strong><p>Phases {notice.addedPhaseIds.join(", ")} added · {notice.remainingCount} unfinished phases remain.</p><p>Plan: {notice.source}</p></div></div>
     {/if}
-    {#if phaseScreen !== undefined}
+    {#if router.route.screen === "model-defaults"}
+      <!-- Model defaults, a page of its own for every PRD on this computer (Kiln Phase Model Tiers AC-DEFAULT-02). -->
+      <ModelDefaults featureName={snapshot.feature.name} {connected} changed={modelsKey} />
+    {:else if phaseScreen !== undefined}
       {#key phaseScreen}<PhaseDetail {snapshot} phaseId={phaseScreen} {connected} {now} {lastSeenAt} />{/key}
     {:else if snapshot.feature.state === "folder_missing" && snapshot.folderMissing}
       <FolderMissing {snapshot} {connected} {now} {lastSeenAt} />

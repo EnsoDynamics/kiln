@@ -16,6 +16,8 @@
   import TerminalOutputRow from "./TerminalOutputRow.svelte";
   import PhaseCircle from "./PhaseCircle.svelte";
   import StepsRow from "./StepsRow.svelte";
+  import { fallbackStory, TIER_LABELS } from "../lib/models.js";
+  import { inUseAgent } from "../lib/agents.js";
 
   let { snapshot, connected, now }: { snapshot: Snapshot; connected: boolean; now: number } = $props();
   const { config, router } = viewContext();
@@ -42,6 +44,8 @@
       ...session,
     ];
   });
+  // An activity that started on the fallback says so on its card (Kiln Phase Model Tiers AC-FALLBACK-03).
+  const story = $derived(fallbackStory(current.fallback, isPreflight ? "preflight" : row?.kind?.endsWith("audit") ? "audit" : isPr ? "session" : "phase", current.choice?.agent));
 </script>
 
 <section class="now" class:lost={!connected} aria-labelledby="now-h">
@@ -50,8 +54,10 @@
       <PhaseCircle id={row?.kind === "delivery_audit" ? "DA" : row?.kind === "test_audit" ? "TA" : isPreflight ? "PF" : current.phaseId} tone={connected ? "implementing" : "amber"} />
       <div class="words"><span class="eyebrow">{connected ? isPreflight ? "Now checking" : row?.kind?.endsWith("audit") ? "Now auditing" : "Now implementing" : "Last seen"}{isPreflight ? "" : ` · ${phaseOfTotal(snapshot, current.phaseId)}`}</span><h2 id="now-h">{isPreflight ? PREFLIGHT_HEADING : row?.title ?? ""}</h2></div>
     </div>
-    <span class="meta">{current.agent ?? snapshot.settings.agent} · {modelAndEffort(current.model, current.effort)}{#if current.startedAt}<br />Started {clockTime(current.startedAt, nowDate, { afterWord: true })} · {row?.timing ? timingText(row.timing, now) : elapsed(now - Date.parse(current.startedAt))}{/if}</span>
+    <!-- The row's choice and, for a phase, its tier (Kiln Phase Model Tiers AC-PICK-02). -->
+    <span class="meta">{current.choice?.agent ?? current.agent ?? inUseAgent(snapshot)?.agent} · {modelAndEffort(current.choice?.modelName ?? current.model, current.choice ? current.choice.effort : current.effort)}{#if current.tier || current.startedAt}<br />{#if current.tier}{TIER_LABELS[current.tier.value]} phase{#if current.startedAt}{" · "}{/if}{/if}{#if current.startedAt}{current.tier ? "started" : "Started"} {clockTime(current.startedAt, nowDate, { afterWord: true })} · {row?.timing ? timingText(row.timing, now) : elapsed(now - Date.parse(current.startedAt))}{/if}{/if}</span>
   </div>
+  {#if story}<div class="fallback" data-fallback-story><strong>{story.heading}</strong><p>{story.body}</p></div>{/if}
   {#if !isPr && !isPreflight}<StepsRow steps={current.steps} live={connected} followUp={current.followUp} />{/if}
   {#if current.seenInSession || connected}
     <div class="seen">
@@ -65,6 +71,9 @@
 </section>
 
 <style>
+  .fallback { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line-strong); }
+  .fallback strong { font-size: 14px; color: var(--text); }
+  .fallback p { margin: 0; font-size: 13.5px; color: var(--muted); line-height: 1.5; }
   .now { padding: 24px 28px; border-radius: 18px; background: var(--deep); border: 1px solid rgba(226, 105, 79, 0.45); display: flex; flex-direction: column; gap: 16px; }
   .now.lost { border-color: var(--line-strong); opacity: 0.6; }
   .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }

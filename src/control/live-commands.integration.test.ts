@@ -34,7 +34,7 @@ async function setup(actions: object[]) {
   h = await createHarness({ sessions: [] }); h.env.KILN_STANDIN_VERSION = "2.1.311";
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
   const ready = join(h.sandbox.root, "ready");
-  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ touch: ready }, ...actions.map(a => Object.fromEntries(Object.entries(a).map(([key, value]) => [key, ["waitForFile", "touch"].includes(key) && typeof value === "string" && !isAbsolute(value) ? join(h.sandbox.root, value) : value])))] }, { actions: [{ result: "Continued." }] }] }));
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ text: "Working on the phase." }, { touch: ready }, ...actions.map(a => Object.fromEntries(Object.entries(a).map(([key, value]) => [key, ["waitForFile", "touch"].includes(key) && typeof value === "string" && !isAbsolute(value) ? join(h.sandbox.root, value) : value])))] }, { actions: [{ result: "Continued." }] }] }));
   await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(ready));
   await waitFor(() => h.engine.liveView()?.input?.available === true); await serve();
   return h.engine.liveTarget()!;

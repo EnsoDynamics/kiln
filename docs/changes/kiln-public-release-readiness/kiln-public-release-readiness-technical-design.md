@@ -25,6 +25,8 @@ Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-des
 
 Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/kiln-run-restart-technical-design.md), §Command line (Text help: a fourth task group, **Start over**; a group's names may take more than one line).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (start checks for versions: an agent below its minimum is shown on Documents found when an activity will run on it or a fallback names it, not when it is selected).
+
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Where minimums live | One module of agent tooling minimums (AC-AGENT-05) with one version-comparison function. `CODEX_MIN_VERSION` moves into it. | AC-AGENT-05 needs start checks, the README and every gate to state the same numbers. One source makes the README test and the standing guard below possible. |

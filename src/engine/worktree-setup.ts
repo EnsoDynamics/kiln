@@ -6,7 +6,7 @@
 import { existsSync, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { defaultWorkspaceFolder, type CreatedBranch, type RepositoryEntry, type RepositoryKind, type AgentSettings, type Settings } from "../state/records.js";
+import { defaultWorkspaceFolder, type CreatedBranch, type RepositoryEntry, type RepositoryKind, type Settings } from "../state/records.js";
 import { defaultLoopSettings } from "../state/audit-loops.js";
 import { gitError, listWorktrees, localBranchCommit, originBranches, runGit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
 
@@ -27,8 +27,8 @@ export interface RepositoryPaths {
  * The settings a PRD starts with (AC-START-07, UI-004): branch `feature/<folder>`, worktree
  * `.worktrees/<folder>/<repository>` in the folder that holds the repository, as the Enso Method
  * places its worktrees, base `develop` when origin has it,
- * otherwise origin's default branch, the latest Opus at medium effort (Kiln Audit Loop Limits
- * AC-EFFORT-01) and the default audit loop settings (AC-LOOP-01).
+ * otherwise origin's default branch, no model choices of its own, so each phase takes its tier's
+ * from Model defaults (Kiln Phase Model Tiers AC-PICK-01), and the default audit loop settings (AC-LOOP-01).
  */
 export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches | undefined): Settings {
   const base = origin === undefined ? "" : defaultBaseBranch(origin);
@@ -38,8 +38,7 @@ export function defaultSettings(paths: RepositoryPaths, origin: OriginBranches |
     featureBranch: `feature/${paths.folderName}`,
     baseBranch: base,
     bases: {},
-    model: "opus",
-    effort: "medium",
+    modelChoices: { phases: {} },
     keepAwake: true,
     resumeAfterUsageLimit: true,
     auditLoops: defaultLoopSettings(),
@@ -86,7 +85,7 @@ export type OriginRead = { ok: true; value: OriginBranches } | { ok: false; erro
 export interface FieldCheckInput {
   git: GitContext;
   paths: RepositoryPaths;
-  settings: AgentSettings | Settings;
+  settings: Settings;
   /** The PRD directory's tree as Kiln read it, `git rev-parse HEAD:<PRD directory>`. */
   prdTree: string;
   /** The PRD's repository first, then the others in list order. */
@@ -112,14 +111,14 @@ export function joinNames(names: string[]): string {
 }
 
 /** The base a repository's branch starts from: its set-up or fixed entry's, else the settings'. */
-export function baseFor(repository: PlannedRepository, settings: AgentSettings | Settings, branchFixed: boolean): string {
+export function baseFor(repository: PlannedRepository, settings: Settings, branchFixed: boolean): string {
   const entry = repository.entry;
   if (entry && (entry.setupCompletedAt !== undefined || entry.kind === "added" || (branchFixed && entry.createdBranch !== undefined))) return entry.baseBranch;
   return repository.kind === "prd" ? settings.baseBranch : (settings.bases[repository.name] ?? "");
 }
 
 /** Where a repository's worktree goes: v1's worktree field for a one-repository PRD, else `<workspace folder>/<name>`. */
-export function worktreePathFor(name: string, kind: RepositoryKind, settings: AgentSettings | Settings, multiRepository: boolean): string {
+export function worktreePathFor(name: string, kind: RepositoryKind, settings: Settings, multiRepository: boolean): string {
   if (kind === "prd" && !multiRepository) return expandHome(settings.worktreePath);
   return join(expandHome(settings.workspaceFolder), name);
 }

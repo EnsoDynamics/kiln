@@ -8,6 +8,7 @@ import { afterEach, expect, it } from "vitest";
 import { Engine } from "../engine/engine.js";
 import { createHarness, type Harness } from "../test-support/engine-harness.js";
 import { installCodexMetadataFixture } from "../test-support/codex-metadata-fixture.js";
+import { CODEX_CHOICE } from "../test-support/model-choices.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { writePrdRecord } from "../state/records.js";
@@ -25,10 +26,10 @@ async function setup(initial: Record<string, unknown>) {
   h = await createHarness({ sessions: [] });
   fixture = installCodexMetadataFixture(h.sandbox); fixture.set(initial);
   h.env.KILN_CODEX_METADATA = fixture.env.KILN_CODEX_METADATA;
-  h.engine.close(); h.engine.record.settings.agentId = "codex";
+  h.engine.close(); h.engine.record.settings.modelChoices.kept = { ...CODEX_CHOICE };
   writePrdRecord(h.stateDirectory, h.engine.record);
   h.engine = new Engine({ paths: h.engine.paths, record: h.engine.record, tools: { ...h.tools, ...(initial.missingExecutable ? {} : { codex: fixture.executable }) }, env: h.env, stateDirectory: h.stateDirectory });
-  await h.engine.agents.refresh();
+  await h.engine.refreshAgents();
   server = await startLocalServer({ engine: h.engine, port: 0, folderName: FOLDER, featureName: "Returns", token: h.engine.record.token });
   const port = boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
@@ -76,7 +77,7 @@ it("keeps independently dated same-account usage stale, rejects cross-account ga
   await setup({ accounts: [first] });
   const original = await facts();
   expect(original.next_attempt).toMatchObject({ value: { email: "first@example.invalid", account_id: "fixture-account" }, state: "current" });
-  expect(original.usage).toMatchObject({ value: expect.arrayContaining([expect.objectContaining({ percent: 82, durationMinutes: 10080 })]), state: "current", observed_at: h.engine.agents.state.account!.limitsObservedAt });
+  expect(original.usage).toMatchObject({ value: expect.arrayContaining([expect.objectContaining({ percent: 82, durationMinutes: 10080 })]), state: "current", observed_at: h.engine.readers.codex.state.account!.limitsObservedAt });
   expect(original.recovery).toMatchObject({ value: { state: "allowed" }, state: "current" });
   fixture.set({ accounts: [first], usageError: true });
   const failed = await cli(["account", "--refresh"]); expect(failed.code).toBe(4);
@@ -117,7 +118,8 @@ it("keeps independently dated same-account usage stale, rejects cross-account ga
   // cannot establish when those facts were observed, even for a known account.
   const cachePath = join(h.stateDirectory, "inspection-view.json");
   const legacy = JSON.parse(readFileSync(cachePath, "utf8"));
-  delete legacy.snapshot.account.limitsObservedAt; delete legacy.snapshot.account.codexUsageObservedAt;
+  const legacyAccount = legacy.snapshot.agents.find((agent: { inUse?: true }) => agent.inUse).account;
+  delete legacyAccount.limitsObservedAt; delete legacyAccount.codexUsageObservedAt;
   writeJsonAtomically(cachePath, legacy); const legacyBefore = savedBytes();
   const undated = await facts();
   expect(undated.usage).toMatchObject({ value: null, observed_at: null, state: "unavailable" });

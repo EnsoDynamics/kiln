@@ -1,3 +1,4 @@
+import { inUse } from "../test-support/sample-snapshots.js";
 // The stopped-phase pages Kiln Run Restart draws (AC-LOOK-01 for Phase 1, with AC-CASE-01 to 04,
 // AC-CARRY-01, 02, 05, 06): each is today's screen with the drawn change, in the built view
 // against a fixture server, at desktop and phone widths.
@@ -35,7 +36,7 @@ function stopped(change: Partial<NonNullable<Snapshot["needsYou"]>>, noTarget = 
   for (const field of without) delete stop[field];
   Object.assign(stop, { agent: "Claude Code", agentId: "claude_code", work: WORK, checks: [{ name: "Phase doc closed", passed: false, facts: ["No Closed line in phase-2b-store-credit.md"] }], checkRun: { id: "run-1", at: stop.stoppedAt, origin: "stop", finished: true }, markComplete: { offered: false, reason: "No check has run since Phase 2b stopped." } }, change);
   if (!noTarget) stop.phaseRecovery = { target: { executionId: "execution", phaseKey: stop.phaseId, sessionId: stop.sessionId!, stoppedAt: stop.stoppedAt }, completion: "incomplete" };
-  snapshot.billing = { executionId: "fixture", selectionGeneration: 0, pending: false, canLaunch: true, lastLaunch: { agentId: "claude_code", route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
+  inUse(snapshot).billing = { executionId: "fixture", pending: false, canLaunch: true, lastLaunch: { agentId: "claude_code", route: "subscription", email: "fixture@example.test", observedAt: stop.stoppedAt, approved: true, sources: [], diagnostics: [] } };
   return snapshot;
 }
 /** The carry-on card's why section as drawn: the card's last section, a top rule and no box, dim small text, a muted heading, the command in its own box (AC-LOOK-01). */

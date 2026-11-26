@@ -124,7 +124,7 @@ async function api(address: string, token: string, method: string, path: string,
   if (method === "POST" && (path === "/api/start" || path === "/api/settings" && body && typeof body === "object" && ("model" in body || "effort" in body))) {
     await waitFor(async () => {
       const current = (await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot;
-      return current.settings.metadataPending === false;
+      return current.agents.every(agent => !agent.pending);
     });
   }
   const origin = new URL(address).origin;

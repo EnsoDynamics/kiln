@@ -77,7 +77,7 @@ async function pressWhileRunning(): Promise<void> {
 /** The next `kiln run`: a new engine over the record on disk, prepared and judged, with the restart review unless `--resume`. */
 async function kilnRun(resume = false): Promise<Awaited<ReturnType<Engine["decide"]>>> {
   h!.engine = h!.reopenFromDisk();
-  await h!.engine.agents.refresh();
+  await h!.engine.refreshAgents();
   expect(await h!.engine.prepare()).toEqual({ ok: true });
   const decision = await h!.engine.decide(resume ? { resume: true } : { review: true });
   await h!.engine.continue();
@@ -283,7 +283,7 @@ describe("waits and holds (AC-MERGE-05)", () => {
     await control("merge");
     expect(h!.engine.record.billing?.hold).toMatchObject({ phaseKey: MERGE_KEY });
     // An approval can be given again while the merge activity is open (technical design, "Gates").
-    await h!.engine.billingCommand("approval", { executionId: h!.engine.record.executionId, selectionGeneration: h!.engine.record.settings.selectionGeneration ?? 0, readingId: h!.engine.billing.view.next!.readingId, approved: true });
+    await h!.engine.billingCommand("approval", { executionId: h!.engine.record.executionId, readingId: h!.engine.billing.view.next!.readingId, approved: true });
     await control("check-again");
     await waitFor(() => !!h!.engine.record.afterDelivery!.merge!.closedAt);
     expect(h!.engine.record.billing?.hold).toBeUndefined();

@@ -46,11 +46,15 @@ describe("Documents found", () => {
     expect(page).toMatch(/<input id="worktree"[^>]*value="~\/devel\/acme-shop-kiln\/customer-returns"/);
     expect(page).toMatch(/<input id="branch"[^>]*value="feature\/customer-returns"/);
     expect(page).toMatch(/<option value="develop"[^>]*>develop<\/option><option value="main"[^>]*>main<\/option>/);
-    expect(page).toMatch(/<option value="opus"[^>]*>Opus 5\.5<\/option><option value="fable"[^>]*>Fable 5\.1<\/option><option value="sonnet"[^>]*>Sonnet 5\.5<\/option>/);
+    // One line says models are chosen for each phase; no Agent, Model or Effort for the PRD (Kiln Phase Model Tiers AC-KEEP-01).
+    expect(page).not.toMatch(/id="agent"|id="model"|aria-pressed=/);
     const words = text(page);
-    expect(words).toContain("Agent Claude Code Codex alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
-    expect(words).toContain("Effort Low Medium High Extra high Max");
-    expect(page).toMatch(/aria-pressed="true"[^>]*>High</);
+    // The delivery panel's model lines: per phase with the Model defaults link, the Audits choice, and the fallback (AC-DEFAULT-02, AC-OTHER-01, AC-FALLBACK-01).
+    expect(words).toContain("Models Chosen for each phase 4 not rated. Change any phase in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults . alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
+    expect(words).not.toContain("Effort");
+    // Model defaults' table appears only on its own page, never here (AC-DEFAULT-02).
+    expect(page).not.toMatch(/data-row=/);
+    expect(words).not.toMatch(/First choice|Fallback Codex|Restore Kiln’s defaults|Restore Kiln's defaults/);
     expect(words).toContain("Keep this computer awake while a session works or Kiln waits Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.");
     expect(words).toContain("Pushes After every phase Ends at One PR, ready for review. Kiln won’t merge.");
   });
@@ -74,16 +78,16 @@ describe("Documents found", () => {
   });
 
   it("shows each field message under its field in amber, and git's error under Start", () => {
-    const page = html(
-      documentsFoundSnapshot({
-        settings: {
-          fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one.", baseBranch: "develop isn’t on origin.", model: "Opus 5.5 can’t run unattended on this account; it needs auto mode." },
-          modelListError: "Couldn’t load Claude Code’s models: timed out",
-          keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available.",
-        },
-        documents: { startError: "Couldn’t set up the worktree: fatal: could not create directory" },
-      }),
-    );
+    const snapshot = documentsFoundSnapshot({
+      settings: {
+        fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one.", baseBranch: "develop isn’t on origin." },
+        models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode.", fallback: { enabled: false, threshold: 95 }, audits: documentsFoundSnapshot().settings.models.audits, revision: "missing" },
+        keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available.",
+      },
+      documents: { startError: "Couldn’t set up the worktree: fatal: could not create directory" },
+    });
+    snapshot.agents[0]!.modelListError = "Couldn’t load Claude Code’s models: timed out";
+    const page = html(snapshot);
     for (const message of [
       "That folder already exists and isn’t empty. Choose a new one.",
       "develop isn’t on origin.",
@@ -96,17 +100,12 @@ describe("Documents found", () => {
     }
   });
 
-  it("shows no effort controls for a model that takes none", () => {
-    const page = html(documentsFoundSnapshot({ settings: { model: { value: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5" }, effortLevels: [] } }));
-    expect(page.match(/aria-pressed="true"/g)).toBeNull();
-    expect(page.match(/<button type="button" aria-pressed=/g)).toBeNull();
-    expect(text(page)).toContain("This model takes no effort setting.");
-  });
-
   it("shows the not-signed-in line in place of the account and usage", () => {
-    const page = html(documentsFoundSnapshot({ account: { startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." } }));
+    const snapshot = documentsFoundSnapshot();
+    snapshot.agents[0]!.account = { startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." };
+    const page = html(snapshot);
     const words = text(page);
-    expect(words).toContain("Agent Claude Code Codex Not signed in to Claude Code. Run claude auth login . Model");
+    expect(words).toContain("Set one up in Model defaults . Not signed in to Claude Code. Run claude auth login . Listed models");
     // The command is drawn as code, not with its backticks (UI-010 item 7).
     expect(page).toMatch(/Run <span class="code-inline">claude auth login<\/span>\./);
   });
@@ -156,7 +155,7 @@ describe("Documents found across repositories (multi-repo AC-REPO-03, AC-SPACE-0
 
   it("adds the sessions-can-add line to a one-repository PRD, without the CLAUDE.md line (multi-repo AC-SPACE-03)", () => {
     const words = text(html());
-    expect(words).toContain(`Branch from, and PR into develop main ${sessionsAdd} Agent`);
+    expect(words).toContain(`Branch from, and PR into develop main ${sessionsAdd} Models`);
     expect(words).not.toContain("CLAUDE.md");
     expect(words).not.toContain("Workspace folder");
   });

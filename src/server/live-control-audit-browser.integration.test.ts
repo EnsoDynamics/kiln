@@ -1,3 +1,4 @@
+import { inUse } from "../test-support/sample-snapshots.js";
 // Whole-PRD test audit: complete visible contracts at the built-browser boundary.
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { runningSnapshot, pausedSnapshot, needsYouMessageSnapshot, PHASE_DETAIL_LINES } from "../test-support/sample-snapshots.js";
@@ -121,11 +122,11 @@ it.each([1200, 390])("lays the paused page's columns out with the kept panels, h
   const { pausedHoldSnapshot } = await import("../test-support/sample-snapshots.js");
   const snapshot = pausedHoldSnapshot();
   const launch = { agentId: "claude_code", route: "subscription", sources: [], email: "alex@acme-shop.dev", observedAt: "2026-10-17T15:40:00Z", diagnostics: [], approved: false } as const;
-  snapshot.billing = { executionId: "e", selectionGeneration: 0, pending: false, lastLaunch: launch, next: { ...launch, readingId: "r", canApprove: false, canClear: false }, canLaunch: true } as unknown as NonNullable<typeof snapshot.billing>;
+  inUse(snapshot).billing = { executionId: "e", selectionGeneration: 0, pending: false, lastLaunch: launch, next: { ...launch, readingId: "r", canApprove: false, canClear: false }, canLaunch: true } as unknown as NonNullable<import("../engine/snapshot.js").AgentView["billing"]>;
   snapshot.reset = { available: true };
   const target = snapshot.needsYou!.phaseRecovery!.target;
   const resume = `Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Resume phase 2b')`;
-  const restricted = { ...snapshot, billing: { ...snapshot.billing!, canLaunch: false } };
+  const restricted = { ...snapshot, agents: snapshot.agents.map(agent => agent.inUse ? { ...agent, billing: { ...agent.billing!, canLaunch: false } } : agent) };
   let server = await serveViewFixture({ port: 0, folder: "customer-returns", snapshot: restricted });
   let page = await chrome.open(server.address, { width, height: 1400 });
   try {

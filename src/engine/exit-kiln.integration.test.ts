@@ -151,7 +151,7 @@ describe("Exit Kiln on the finished page (AC-EXIT-01, AC-EXIT-02)", () => {
     await pressExit();
     // The next kiln run holds the session until Resume (AC-AUTO-03 as replaced by AC-EXIT-01).
     h!.engine = h!.reopenFromDisk();
-    await h!.engine.agents.refresh();
+    await h!.engine.refreshAgents();
     expect(await h!.engine.prepare()).toEqual({ ok: true });
     expect(await h!.engine.decide({ review: true })).toMatchObject({ phaseKey: MERGE_KEY });
     expect(buildSnapshot(h!.engine)).toMatchObject({ restartReview: { activityKey: MERGE_KEY }, exit: { available: true } });

@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { PlannedPhase } from "../plan/phase-plan.js";
-import type { Effort, PrdRecord, RepositoryEntry, RepositoryKind } from "../state/records.js";
+import type { PrdRecord, RepositoryEntry, RepositoryKind } from "../state/records.js";
 import { ensureObjects, listWorktrees, originBranches, runGit, localBranchCommit, type GitContext, type OriginBranches, type WorktreeEntry } from "./git-reads.js";
 import { observeGitPlan } from "./completed-plan-sources.js";
 import { ancestry, inBaseBranch, type FolderMissingView, type RepositoryRead } from "./folder-facts.js";
@@ -29,15 +29,13 @@ export interface PanelFields {
   featureBranch: string;
   baseBranch: string;
   bases: Record<string, string>;
-  model: string;
-  effort: string;
   keepAwake: boolean;
   resumeAfterUsageLimit: boolean;
 }
 /** One posted change, as `POST /api/folder-setup/panel` carries it. */
 export interface PanelChange { start: StartKind; fields: Partial<PanelFields> }
 /** The engine's one draft per PRD: the selected start and each start's own edits. */
-export interface PanelDraft { selected?: StartKind; edits: Record<StartKind, Partial<PanelFields>>; /** Documents found's `choiceNotice`: a model change reset the effort (AC-SETUP-01). */ choiceNotice?: string; /** Rises with each applied change. */ revision?: number }
+export interface PanelDraft { selected?: StartKind; edits: Record<StartKind, Partial<PanelFields>>; /** Rises with each applied change. */ revision?: number }
 /** A new draft's revision starts from the clock, so a page open across a restart or a reset never waits for a lower one. */
 export const emptyDraft = (): PanelDraft => ({ edits: { base: {}, branch: {} }, revision: Date.now() });
 
@@ -59,11 +57,6 @@ export interface SetupPanel {
   repositories: PanelRepository[];
   /** The single repository's base choices. */
   baseChoices: string[];
-  /** The efforts the panel's model takes: `[]` for none, `null` when Kiln has no entry for it (Documents found's `effortLevels`). */
-  effortLevels: Effort[] | null;
-  efforts?: { value: string; label: string; description?: string }[];
-  /** Said when a model change in the panel reset the effort, as Documents found says it. */
-  choiceNotice?: string;
   preview: { done: string; run: { id: string; title: string; note: string }[]; again: string[]; caution?: Part[]; startLabel: string; lets: { parts: Part[]; allowed: boolean }[] };
   /** Start is refused while a session runs (AC-SAFE-01): the line shown under the button. */
   busy?: string;
@@ -98,8 +91,8 @@ export interface PanelContext {
   /** A process left by an earlier Kiln that Start stops before any Git write. */
   stopsLeftOver?: number;
   busy?: string;
-  /** The panel's model and effort, checked as Documents found checks the saved ones: Model's field message, and the efforts that model takes (AC-SETUP-01). */
-  model?: (choice: { model: string; effort?: string }) => { error?: string; effortLevels: Effort[] | null; efforts?: { value: string; label: string; description?: string }[] };
+  /** The merge session's agent, for what Start lets Kiln do (Kiln After Delivery AC-MERGE-08). */
+  mergeAgent?: string;
   /** Repository identity checks for a newly named repository's origin. */
   originIdentity?: (path: string) => Promise<string | undefined>;
   /** The id a launched phase is shown as, after any split. */
@@ -207,19 +200,16 @@ export async function buildPanel(context: PanelContext, draft: PanelDraft): Prom
   if (pauseFor) lets.push({ allowed: true, parts: [{ text: `Kiln will pause after Phase ${pauseFor} is Done` }] });
   for (const path of chosen.clearRecords) lets.push({ allowed: true, parts: [{ text: "Clear git’s record of the missing folder " }, { text: displayPath(path), tone: "code" }] });
   // After delivery, the merge and, in the PRD's repository, the plan push (Kiln After Delivery AC-MERGE-08).
-  lets.push({ allowed: true, parts: [{ text: mergeAllowedLine(AGENT_NAMES[record.settings.agentId]) }] });
+  lets.push({ allowed: true, parts: [{ text: mergeAllowedLine(context.mergeAgent ?? AGENT_NAMES.claude_code) }] });
   const prdBase = chosen.repositories.find(repository => repository.kind === "prd")?.baseBranch ?? chosen.fields.baseBranch;
   lets.push({ allowed: true, parts: [{ text: `${multi ? "In the PRD’s repository, p" : "P"}${pushAllowedLine(prdBase).slice(1)}` }] });
   lets.push({ allowed: false, parts: [{ text: early ? "Early merges only into approved repository branches; no unrelated or destructive actions" : NEVER_LINE }] });
 
   const preview = { ...chosen.preview, lets };
-  // Model and Effort as on Documents found: Model's field message, and the efforts the chosen model takes (AC-SETUP-01).
-  const modelCheck = context.model?.({ model: chosen.fields.model, ...(chosen.fields.effort ? { effort: chosen.fields.effort } : {}) });
-  const fieldErrors = { ...chosen.fieldErrors, ...(modelCheck?.error ? { model: modelCheck.error } : {}) };
+  const fieldErrors = { ...chosen.fieldErrors };
   const panel: Omit<SetupPanel, "previewId" | "draftRevision"> = {
     suggested, selected, choices, multi,
     fields: chosen.fields, fixed: chosen.fixed, fieldErrors, helpLines: chosen.helpLines,
-    effortLevels: modelCheck?.effortLevels ?? null, ...(modelCheck?.efforts ? { efforts: modelCheck.efforts } : {}), ...(draft.choiceNotice ? { choiceNotice: draft.choiceNotice } : {}),
     repositories: multi ? chosen.repositories.map(repository => ({ name: repository.name, label: repository.written && context.labelWritten ? context.labelWritten(repository.name) : shown(context, repository.name), kind: repository.kind, baseBranch: repository.baseBranch, baseChoices: repository.origin ? baseBranchChoices(repository.origin) : [repository.baseBranch], ...(repository.problem ? { problem: repository.problem } : {}), ...(repository.entry?.kind === "added" && repository.entry.addedInPhase !== undefined ? { addedInPhase: context.judgedId?.(repository.entry.addedInPhase) ?? repository.entry.addedInPhase } : {}) })).concat(chosen.leftOut.map(name => ({ name, label: shown(context, name), kind: "added" as const, baseBranch: "", baseChoices: [], leftOut: true as const, problem: "Left out: the plan on the base branch doesn’t name it." }))) : [],
     baseChoices: chosen.repositories[0]?.origin ? baseBranchChoices(chosen.repositories[0].origin) : [chosen.fields.baseBranch],
     preview,
@@ -268,10 +258,9 @@ function blockedReason(reads: RepositoryRead[]): string {
     : "Kiln couldn’t read everything it needs about the branch, so it can’t suggest where to start yet. Check again once it can.";
 }
 
-/** The fields every start shares: the run's saved choices, with the draft's edits. */
-function sharedFields(record: PrdRecord, edits: Partial<PanelFields>): Pick<PanelFields, "model" | "effort" | "keepAwake" | "resumeAfterUsageLimit"> {
-  const choice = record.settings.agentChoices[record.settings.agentId] ?? { model: "" };
-  return { model: edits.model ?? choice.model, effort: edits.effort ?? choice.effort ?? "", keepAwake: edits.keepAwake ?? record.settings.keepAwake, resumeAfterUsageLimit: edits.resumeAfterUsageLimit ?? record.settings.resumeAfterUsageLimit };
+/** The fields every start shares: the run's saved choices, with the draft's edits. Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01). */
+function sharedFields(record: PrdRecord, edits: Partial<PanelFields>): Pick<PanelFields, "keepAwake" | "resumeAfterUsageLimit"> {
+  return { keepAwake: edits.keepAwake ?? record.settings.keepAwake, resumeAfterUsageLimit: edits.resumeAfterUsageLimit ?? record.settings.resumeAfterUsageLimit };
 }
 
 /** The base-branch start (AC-SETUP-02, 04, 07). */

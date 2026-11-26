@@ -28,7 +28,9 @@ import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import type { CommandResult, Engine } from "../engine/engine.js";
 import { buildSnapshot, labelledExecution, type DocumentsFound, type Snapshot } from "../engine/snapshot.js";
 import { readOutputLines } from "../session/claude-session.js";
-import { NewerSchemaError, type Effort, type Settings } from "../state/records.js";
+import { NewerSchemaError, type AgentId, type Settings } from "../state/records.js";
+import { DEFAULTS_ROWS, type DefaultsRow, type FamilyChoice, type ModelChoice } from "../models/model-defaults.js";
+import { editModelDefaults, modelDefaultsView, type DefaultsChange } from "../models/model-defaults-edit.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { RESULT_CHECK } from "../audit/admission.js";
 import { strictJson, REPORT_LIMIT } from "../audit/storage.js";
@@ -483,7 +485,40 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return result.ok ? c.json({ settings: snapshot().settings }) : commandRefused(c, result);
   });
 
-  app.post("/api/metadata/refresh", async (c) => { await engine.agents.refresh(); await engine.refreshBilling(); return c.json({ settings: snapshot().settings, billing: snapshot().billing }); });
+  // Model defaults, for every PRD on this computer (Kiln Phase Model Tiers AC-DEFAULT-02, AC-FALLBACK-01; "HTTP").
+  const defaultsBody = () => modelDefaultsView(engine.modelDefaultsFile, engine.modelContext.lists, engine.modelDefaultsAgents());
+  app.get("/api/model-defaults", (c) => {
+    const view = defaultsBody();
+    return view.ok ? c.json(view.view) : c.json({ reason: view.reason, path: view.path, canRestore: view.canRestore }, 409);
+  });
+  app.post("/api/model-defaults", async (c) => {
+    const body = await jsonBody(c);
+    const change = body === undefined ? undefined : defaultsChange(body);
+    if (change === undefined || typeof change === "string") return refuse(c, 400, change ?? "The body must be a JSON object.");
+    const answer = editModelDefaults(engine.modelDefaultsFile, change, engine.modelContext.lists);
+    if (!answer.ok) return c.json({ ok: false, reason: answer.reason, ...(answer.status === 409 ? { path: answer.path, canRestore: answer.canRestore } : {}) }, answer.status);
+    engine.modelChoicesChanged();
+    const view = defaultsBody();
+    return view.ok ? c.json({ ...view.view, ...(answer.fallbackTurnedOff ? { notice: "Kiln's defaults are restored, and the fallback is now off." } : {}) }) : c.json({ reason: view.reason, path: view.path, canRestore: view.canRestore }, 409);
+  });
+  // One phase's model, or this PRD's Audits choice (AC-PICK-03, AC-OTHER-01): applied directly before Start, through the instruction journal in a run.
+  app.post("/api/model", async (c) => {
+    const body = await jsonBody(c);
+    const change = body === undefined ? undefined : modelChange(body);
+    if (change === undefined || typeof change === "string") return refuse(c, 400, change ?? "The body must be a JSON object.");
+    const checked = engine.checkModelChange(change.target, change.choice);
+    if (!checked.ok) return commandRefused(c, checked);
+    if (engine.record.startedAt === undefined) {
+      if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+      const result = await engine.changeModel(change.target, change.choice);
+      return result.ok ? c.json({ ok: true, settings: snapshot().settings }) : commandRefused(c, result);
+    }
+    if (change.target !== "audits") { const refused = engine.modelChangeRefusal(checked.key, `Phase ${change.target.phase}`); if (refused) return c.json({ ok: false, reason: refused }, 409); }
+    const choice = change.choice;
+    return legacyControl(c, "model", { ...(change.target === "audits" ? { audits: true } : { phase: change.target.phase }), ...(choice === "default" ? { use_default: true } : { agent_id: choice.agentId, model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) }) });
+  });
+
+  app.post("/api/metadata/refresh", async (c) => { await engine.refreshAgents(); await engine.refreshBilling(); return c.json({ settings: snapshot().settings, agents: snapshot().agents }); });
   for (const action of ["approval", "clear"] as const) app.post(`/api/billing/${action}`, async c => {
     try {
       const reader = c.req.raw.body?.getReader();
@@ -866,23 +901,11 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
       }) };
     } catch (error) { return (error as Error).message; }
   }
-  for (const field of ["model", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch"] as const) {
+  for (const field of ["workspaceFolder", "worktreePath", "featureBranch", "baseBranch"] as const) {
     const value = body[field];
     if (value === undefined) continue;
     if (typeof value !== "string") return `${field} must be text.`;
     change[field] = value;
-  }
-  if (body.agentId !== undefined) {
-    if (body.agentId !== "claude_code" && body.agentId !== "codex") return "Unknown agent.";
-    change.agentId = body.agentId;
-  }
-  if (body.selectionGeneration !== undefined) {
-    if (!Number.isSafeInteger(body.selectionGeneration) || (body.selectionGeneration as number) < 0) return "selectionGeneration must be a nonnegative integer.";
-    change.selectionGeneration = body.selectionGeneration as number;
-  }
-  if (body.effort !== undefined) {
-    if (typeof body.effort !== "string" || body.effort.trim() === "") return "effort must be nonempty text.";
-    change.effort = body.effort as Effort;
   }
   if (body.auditLoops !== undefined) {
     const loops = body.auditLoops as Record<string, unknown> | null;
@@ -904,9 +927,60 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     }
     change.bases = bases as Record<string, string>;
   }
-  const unknown = Object.keys(body).filter((key) => !["developmentDeployments", "agentId", "selectionGeneration", "model", "effort", "keepAwake", "resumeAfterUsageLimit", "auditLoops", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
+  // The agent, model and effort for the whole PRD are gone: each activity has its own choice (Kiln Phase Model Tiers AC-KEEP-01).
+  const retired = Object.keys(body).filter((key) => ["agentId", "selectionGeneration", "model", "effort"].includes(key));
+  if (retired.length > 0) return `${retired.join(", ")} ${retired.length === 1 ? "is" : "are"} no longer a setting: Kiln chooses each phase's model from its tier and Model defaults.`;
+  const unknown = Object.keys(body).filter((key) => !["developmentDeployments", "keepAwake", "resumeAfterUsageLimit", "auditLoops", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
   if (unknown.length > 0) return `Unknown setting: ${unknown.join(", ")}.`;
   return change;
+}
+
+/** `POST /api/model`'s body: `{ target: { phase } | "audits", choice: ModelChoice | "default" }`; a string is why it was refused. */
+function modelChange(body: Record<string, unknown>): { target: { phase: string } | "audits"; choice: ModelChoice | "default" } | string {
+  if (Object.keys(body).some(key => key !== "target" && key !== "choice")) return "The body takes target and choice.";
+  const target = body.target as Record<string, unknown> | string | undefined;
+  const parsedTarget = target === "audits" ? "audits" as const : target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).join() === "phase" && typeof target.phase === "string" && target.phase !== "" ? { phase: target.phase } : undefined;
+  if (!parsedTarget) return "target is { phase: \"<id>\" } or \"audits\".";
+  if (body.choice === "default") return { target: parsedTarget, choice: "default" };
+  const choice = modelChoiceOf(body.choice, "model");
+  return typeof choice === "string" ? choice : { target: parsedTarget, choice: { agentId: choice.agentId, model: choice.value, ...(choice.effort === undefined ? {} : { effort: choice.effort }) } };
+}
+
+/** A choice in a body: `{ agentId, model | family, effort? }`, the effort never empty; a string is why it was refused. */
+function modelChoiceOf(raw: unknown, name: "model" | "family"): { agentId: AgentId; value: string; effort?: string } | string {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return `A choice is { agentId, ${name}, effort? }.`;
+  const choice = raw as Record<string, unknown>;
+  if (Object.keys(choice).some(key => !["agentId", name, "effort"].includes(key))) return `A choice takes agentId, ${name} and effort.`;
+  if (choice.agentId !== "claude_code" && choice.agentId !== "codex") return "agentId is claude_code or codex.";
+  if (typeof choice[name] !== "string" || choice[name] === "") return `${name} must be text.`;
+  if (choice.effort !== undefined && (typeof choice.effort !== "string" || choice.effort === "")) return "effort can't be empty; leave it out to use the agent's default.";
+  return { agentId: choice.agentId, value: choice[name] as string, ...(choice.effort === undefined ? {} : { effort: choice.effort as string }) };
+}
+
+/** `POST /api/model-defaults`'s body: one of a row's sides, Restore, or the fallback switch and threshold. */
+function defaultsChange(body: Record<string, unknown>): DefaultsChange | string {
+  const keys = Object.keys(body);
+  if (keys.length !== 1) return "Send one of set, restore or fallback.";
+  if (body.restore !== undefined) return body.restore === true ? { restore: true } : "restore is true.";
+  if (body.fallback !== undefined) {
+    const fallback = body.fallback as Record<string, unknown> | null;
+    if (!fallback || typeof fallback !== "object" || Array.isArray(fallback) || !Object.keys(fallback).length || Object.keys(fallback).some(key => key !== "enabled" && key !== "threshold")) return "fallback takes enabled and threshold.";
+    if (fallback.enabled !== undefined && typeof fallback.enabled !== "boolean") return "enabled is true or false.";
+    if (fallback.threshold !== undefined && typeof fallback.threshold !== "number") return "threshold is a number.";
+    return { fallback: { ...(fallback.enabled === undefined ? {} : { enabled: fallback.enabled as boolean }), ...(fallback.threshold === undefined ? {} : { threshold: fallback.threshold as number }) } };
+  }
+  const set = body.set as Record<string, unknown> | null;
+  if (!set || typeof set !== "object" || Array.isArray(set) || Object.keys(set).some(key => !["row", "first", "fallback"].includes(key))) return "set takes row, first and fallback.";
+  if (!DEFAULTS_ROWS.includes(set.row as DefaultsRow)) return "row is demanding, standard, mechanical or audits.";
+  if (set.first === undefined && set.fallback === undefined) return "set changes first, fallback or both.";
+  const sides: { first?: FamilyChoice; fallback?: FamilyChoice } = {};
+  for (const side of ["first", "fallback"] as const) {
+    if (set[side] === undefined) continue;
+    const choice = modelChoiceOf(set[side], "family");
+    if (typeof choice === "string") return choice;
+    sides[side] = { agentId: choice.agentId, family: choice.value, ...(choice.effort === undefined ? {} : { effort: choice.effort }) };
+  }
+  return { set: { row: set.row as DefaultsRow, ...sides } };
 }
 
 function escapeHtml(text: string): string {

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 
 /** Two minutes: the limit on every git, gh and helper claude call (technical design, "Dependencies"). */
 export const HELPER_TIMEOUT_MS = 2 * 60 * 1000;
@@ -55,6 +55,16 @@ export function findExecutable(name: string, env: NodeJS.ProcessEnv): string | u
     }
   }
   return undefined;
+}
+
+/**
+ * Whether a tool is installed: an absolute path that is an executable file, or a name found on the
+ * PATH (Kiln Phase Model Tiers, "Agents": whether an agent is installed is read at start and refresh).
+ *
+ *   executableAvailable("claude", process.env)  // false when no claude is on the PATH
+ */
+export function executableAvailable(nameOrPath: string, env: NodeJS.ProcessEnv): boolean {
+  return isAbsolute(nameOrPath) ? isExecutableFile(nameOrPath) : findExecutable(nameOrPath, env) !== undefined;
 }
 
 function isExecutableFile(candidate: string): boolean {

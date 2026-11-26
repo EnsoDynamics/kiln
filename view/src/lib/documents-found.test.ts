@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot, findRepositoriesSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { accountLines, assumptionsLine, designLine, effortDisabled, modelOptions, planCountLine, planRows, prdLine, startState } from "./documents-found.js";
+import { accountLines, assumptionsLine, designLine, planCountLine, planRows, prdLine, startState } from "./documents-found.js";
 
 describe("what Documents found says it found (AC-START-04)", () => {
   it("words each document's line as drawn", () => {
@@ -32,25 +32,15 @@ describe("what Documents found says it found (AC-START-04)", () => {
 });
 
 describe("the settings fields", () => {
-  it("dims effort levels the chosen model doesn't take, and none when there's no entry for it (UI-011)", () => {
-    const limited = documentsFoundSnapshot({ settings: { effortLevels: ["low", "medium", "high"] } }).settings;
-    expect((["low", "high", "xhigh", "max"] as const).map((effort) => effortDisabled(limited, effort))).toEqual([false, false, true, true]);
-    expect(effortDisabled(documentsFoundSnapshot({ settings: { effortLevels: null } }).settings, "max")).toBe(false);
-  });
-
-  it("keeps a saved model the list doesn't offer as one more option, named as saved", () => {
-    expect(modelOptions(documentsFoundSnapshot()).map((model) => model.displayName)).toEqual(["Opus 5.5", "Fable 5.1", "Sonnet 5.5"]);
-    const unlisted = documentsFoundSnapshot({ settings: { model: { value: "claude-opus-4-8", displayName: "claude-opus-4-8" } } });
-    expect(modelOptions(unlisted).map((model) => model.value)).toEqual(["opus", "fable", "sonnet", "claude-opus-4-8"]);
-    // Before the list loads, or when it can't be read, the saved alias is the only option.
-    const noList = documentsFoundSnapshot();
-    delete noList.models;
-    expect(modelOptions(noList)).toEqual([{ value: "opus", displayName: "Opus 5.5" }]);
-  });
 
   it("shows the account and its usage as one line each, or the not-signed-in line alone", () => {
-    expect(accountLines(documentsFoundSnapshot().account)).toEqual({ line: "alex@acme-shop.dev · Max plan", usage: "Used: 5-hour 13% · weekly 22% · Fable 0%" });
+    expect(accountLines(documentsFoundSnapshot().agents[0]!.account)).toEqual({ line: "alex@acme-shop.dev · Max plan", usage: "Used: 5-hour 13% · weekly 22% · Fable 0%" });
     expect(accountLines({ startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." })).toEqual({ error: "Not signed in to Claude Code. Run `claude auth login`." });
+    // With the fallback on, a limit at or above the threshold is marked as above it (Kiln Phase Model Tiers AC-AGENTS-03).
+    const account = documentsFoundSnapshot().agents[0]!.account!;
+    const marked = { ...account, limits: account.limits.map((limit, index) => index === 1 ? { ...limit, overThreshold: true as const } : limit) };
+    expect(accountLines(marked, 20).usage).toBe("Used: 5-hour 13% · weekly 22% (above your 20% threshold) · Fable 0%");
+    expect(accountLines(marked, undefined).usage).toBe("Used: 5-hour 13% · weekly 22% · Fable 0%");
     expect(accountLines({ email: "a@b.dev", startedAt: "", updatedAt: "", limits: [], limitsError: "Claude Code didn't report this plan's usage limits." })).toEqual({ line: "a@b.dev", usageError: "Claude Code didn't report this plan's usage limits." });
     expect(accountLines(undefined)).toEqual({});
   });
@@ -74,7 +64,9 @@ describe("Start (AC-START-05)", () => {
   it("is held by a field message, but not by the model-list or keep-awake messages", () => {
     expect(startState(documentsFoundSnapshot({ settings: { fieldErrors: { featureBranch: "That isn’t a valid branch name." } } }), true, true).enabled).toBe(false);
     expect(startState(documentsFoundSnapshot({ settings: { fieldErrors: { model: "Haiku 4.5 can’t run unattended on this account; it needs auto mode." } } }), true, true).enabled).toBe(false);
-    expect(startState(documentsFoundSnapshot({ settings: { modelListError: "Couldn’t load Claude Code’s models: timed out", keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available." } }), true, true).enabled).toBe(true);
+    const listFailed = documentsFoundSnapshot({ settings: { keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available." } });
+    listFailed.agents[0]!.modelListError = "Couldn’t load Claude Code’s models: timed out";
+    expect(startState(listFailed, true, true).enabled).toBe(true);
   });
 
   it("says what Kiln is doing while it checks the base branch or sets up, setting up first (UI-010 item 4)", () => {

@@ -111,6 +111,8 @@ Replaces in part: `docs/prds/kiln-codex-support/kiln-codex-support-technical-des
 
 Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Billing contract identifier (the detection contract names no agent or SDK version, and a Claude Code or SDK version change alone no longer voids approval).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (billing per needed agent, Codex's summary presentation only; `lastLaunch` kept per agent; no invalidation by an agent switch).
+
 A Claude billing context contains the detected route/provider, effective credential-source identity, known payer identity, effective endpoint identity, supported detection-contract version, and detectable credential/configuration changes. Compute a canonical HMAC-SHA-256 fingerprint with a random execution-local key. The key and fingerprints remain private in owner-only PRD state; browser responses receive neither. Raw credentials are used only transiently when already present in the launch environment or passive settings result, then discarded. Never open Claude credential files/keychains or execute a helper independently to extract its output.
 
 For direct environment/settings credentials, include the value in the private HMAC input, detecting replacement without persisting it. For a helper, include the effective helper definition and source, plus a nonsecret payer/source identifier when reported. For external/provider-managed credentials that the CLI does not expose, use only observable configuration and reported identity. The same unchanged helper may rotate its secret without exposing that change: this is an explicit detection limit under AC-RUN-04, not a claim of credential continuity. CLI/SDK version or detection-contract changes invalidate approval conservatively. Fingerprints cover observable configuration and reported identity; they do not certify unobserved helper output or remotely changing policy.
@@ -142,6 +144,8 @@ If automatic usage recovery encounters a billing hold, suspend automatic dispatc
 Replaces in part: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait and §Resume (billing eligibility and explicit continuation after a billing hold); `docs/changes/kiln-completion-audits/kiln-completion-audits-technical-design.md`, §Recovery and Upgrade (AI audit dispatch also checks billing; accepted local evidence stays usable).
 
 ## Local Interfaces
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (billing per needed agent, Codex's summary presentation only; `lastLaunch` kept per agent; no invalidation by an agent switch).
 
 All routes retain the loopback Host, Origin and `X-Kiln-Token` protections. Approval is not accepted from model output, prompt text, settings files or an unauthenticated browser. Request bodies are bounded to 4 KiB, strictly typed and reject unknown fields. Existing successful command conventions remain.
 

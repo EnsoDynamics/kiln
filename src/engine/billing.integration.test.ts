@@ -12,10 +12,11 @@ import { buildSnapshot } from "./snapshot.js";
 import { statusProjection } from "../control/projection.js";
 import { readWork } from "../control/private-state.js";
 import { stateRoot } from "../state/state-files.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 let h: Harness | undefined;
 afterEach(async () => { await h?.cleanup(); h = undefined; });
-const approval = (h: Harness) => ({ executionId: h.engine.record.executionId, selectionGeneration: h.engine.record.settings.selectionGeneration ?? 0, readingId: h.engine.billing.view.next!.readingId, approved: true });
-async function ready() { await h!.engine.refreshBilling(); await waitFor(() => !h!.engine.agents.state.pending); }
+const approval = (h: Harness) => ({ executionId: h.engine.record.executionId, readingId: h.engine.billing.view.next!.readingId, approved: true });
+async function ready() { await h!.engine.refreshBilling(); await waitFor(() => !h!.engine.readers.claude_code.state.pending); }
 describe("Claude billing at the common dispatch boundary", () => {
   it("dispatches nothing before API approval, retains the grant after restart, then gates every phase and finalization", async () => {
     h = await createHarness({ sessions: [landingSession("one"), landingSession("two"), landingSession("three"), pullRequestSession()] });
@@ -27,7 +28,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     h.env.ANTHROPIC_FOUNDRY_RESOURCE = "inactive-foundry";
     h.env.ANTHROPIC_VERTEX_PROJECT_ID = "inactive-vertex";
     h.env.AWS_PROFILE = "inactive-aws-profile";
-    h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
+    h.engine = h.reopenFromDisk(); await h.engine.refreshAgents(); await ready();
     expect(h.engine.record.billing!.approval).toEqual(approved); expect(h.engine.billing.view.canLaunch).toBe(true);
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(4); expect(h.engine.record.completedAt).toBeDefined(); expect(h.engine.record.billing!.approval).toBeUndefined(); expect(h.engine.billing.view.canLaunch).toBe(false);
@@ -46,7 +47,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     const messages = h.events.flatMap(event => event.kind === "message" ? [event.text] : []);
     expect(messages).toContainEqual(expect.stringMatching(/^Billing hold: .*Open Kiln's browser address above to review billing and continue\.$/));
     expect(messages.join("\n")).not.toContain("new-post-setup-canary");
-    h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
+    h.engine = h.reopenFromDisk(); await h.engine.refreshAgents(); await ready();
     expect((await h.engine.decide()).kind).toBe("needs_you"); expect(h.claudeCalls()).toHaveLength(0);
     await h.engine.billingCommand("approval", approval(h)); await h.engine.settled(); expect(h.claudeCalls()).toHaveLength(0);
     expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true }); await h.engine.settled(); expect(h.claudeCalls().length).toBeGreaterThan(0);
@@ -106,7 +107,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true }); await h.engine.settled();
     const first = h.engine.latestSession("1")!;
     expect(first.runs[0]!.billing).toMatchObject({ route: "subscription", approved: false });
-    h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
+    h.engine = h.reopenFromDisk(); await h.engine.refreshAgents(); await ready();
     expect(h.engine.billing.view.canLaunch).toBe(true);
     expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true, outcome: "resume_requested" }); await h.engine.settled();
     expect(h.claudeCalls()[1]!.args).toContain("--resume");
@@ -141,7 +142,8 @@ describe("Claude billing at the common dispatch boundary", () => {
   it("suspends automatic usage recovery at a billing hold, retaining the refusal and requiring explicit Resume after approval", async () => {
     const claude = new ScriptedClaude(() => new Date());
     claude.queue(signedIn([usageRow("session", 40)]), signedIn([usageRow("session", 40)]));
-    h = await createHarness({ sessions: [{ actions: [{ refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3600 } }, { exit: 1 }] }, landingSession()], engineOptions: { claude } }); await ready();
+    // The model responds before the refusal, so the phase has started and its wait resumes its own conversation (Kiln Phase Model Tiers AC-PICK-04).
+    h = await createHarness({ sessions: [{ actions: [{ text: "Working on intake." }, { refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3600 } }, { exit: 1 }] }, landingSession()], engineOptions: { claude } }); await ready();
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(h.engine.waitingPhaseKey()).toBe("1"); const wait = structuredClone(h.engine.record.phases["1"]!.wait);
     const refusal = structuredClone(h.engine.latestSession("1")!.runs[0]!.limitRefusal);
@@ -205,7 +207,8 @@ describe("Claude billing at the common dispatch boundary", () => {
     const claude = new ScriptedClaude(() => new Date());
     claude.queue(signedIn([usageRow("session", 40)]), signedIn([usageRow("session", 40)]));
     h = await createHarness({ sessions: [
-      { actions: [{ refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3600 } }, { exit: 1 }] },
+      // The model responds before the refusal, so the phase has started (Kiln Phase Model Tiers AC-PICK-04).
+      { actions: [{ text: "Working on intake." }, { refuse: { rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3600 } }, { exit: 1 }] },
       { actions: [{ result: "Manual recovery still needs input." }] },
     ], engineOptions: { claude } }); await ready();
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
@@ -232,12 +235,13 @@ describe("Claude billing at the common dispatch boundary", () => {
   it("resumes the saved model when a different next-session choice was retired, while still checking billing", async () => {
     h = await createHarness({ sessions: [{ actions: [{ result: "Need a mapping answer." }] }, landingSession()] }); await ready();
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); const original = h.engine.latestSession("1")!;
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet" })).toEqual({ ok: true });
+    await runPrdOn(h.engine, { agentId: "claude_code", model: "sonnet", effort: "medium" }, false);
     const file = join(h.sandbox.root, "retired-next-model.json");
     const catalogue = JSON.parse(readFileSync(new URL("../../test/fixtures/proof-gate-1/supported-models.json", import.meta.url), "utf8"));
     writeFileSync(file, JSON.stringify({ models: catalogue.models.filter((m: { value: string }) => m.value !== "sonnet") })); h.env.KILN_STANDIN_MODELS = file;
-    await h.engine.agents.refresh(); await h.engine.refreshBilling();
-    expect(h.engine.selectionError).toContain("sonnet"); expect(h.engine.billing.view.canLaunch).toBe(true);
+    await h.engine.refreshAgents(); await h.engine.refreshBilling();
+    // Phase 1 has started, so only the next phase's choice is retired.
+    expect(h.engine.selectionError).toBeUndefined(); expect(h.engine.notStartedChoice("2b").problem).toContain("sonnet"); expect(h.engine.billing.view.canLaunch).toBe(true);
     await h.engine.resume(recoveryRequest(h.engine)); await h.engine.settled();
     expect(h.claudeCalls()[1]!.args).toEqual(expect.arrayContaining(["--resume", original.sessionId, "--model", "claude-opus-5-5"]));
     expect(h.engine.latestSession("1")!.runs).toHaveLength(2); expect(h.engine.record.phases["1"]!.doneAt).toBeDefined();
@@ -280,7 +284,7 @@ describe("Claude billing at the common dispatch boundary", () => {
     await h.engine.refreshBilling();
     expect(h.engine.billing.view.next).toMatchObject({ route: "subscription", approved: false });
     expect(h.engine.billing.view.next?.overflow).toBeUndefined(); expect(h.engine.billing.view.canLaunch).toBe(true);
-    expect(h.engine.agents.state.account?.limits).toMatchObject([{ kind: "session", percent: 42 }]);
+    expect(h.engine.readers.claude_code.state.account?.limits).toMatchObject([{ kind: "session", percent: 42 }]);
     expect(h.engine.record.billing?.hold).toBeUndefined(); expect(h.claudeCalls()).toHaveLength(0);
   });
 
@@ -302,7 +306,7 @@ describe("a billing hold on a phase holding a session's request (find repositori
     expect(h.engine.record.phases["1"]!.stop).toBeUndefined();
     expect(h.engine.record.billing!.hold!.locate).toMatchObject([{ kind: "where", repository: "acme-labs/ledger", checkouts: [] }]);
     // A restarted Kiln shows the hold's saved question from the record.
-    h.engine = h.reopenFromDisk(); await h.engine.agents.refresh(); await ready();
+    h.engine = h.reopenFromDisk(); await h.engine.refreshAgents(); await ready();
     expect((await h.engine.decide()).kind).toBe("needs_you");
     expect(buildSnapshot(h.engine).needsYou!.locate).toMatchObject([{ repository: "acme-labs/ledger", label: "ledger" }]);
     const status = statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine) as unknown as { stop: { locate: { address_path: string; available: boolean }[] } };

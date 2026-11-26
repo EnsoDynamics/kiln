@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, expect, it, vi } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 import { FOLDER } from "../test-support/fixture-documents.js";
 import { Engine } from "../engine/engine.js";
 import { prdTreeAtHead } from "../engine/worktree-setup.js";
@@ -190,18 +191,18 @@ it("keeps Claude launch and resume account/plan/time after a later changed-accou
   await resume("predispatch-failure"); failure.mockRestore();
   expect(h.engine.commands.blocked).toBe(true);
   expect(h.engine.commands.lookup("predispatch-failure").operation).toMatchObject({ state: "failed", outcome: "dispatch_not_started" });
-  expect(h.engine.record.billing!.lastLaunch).toMatchObject({ email: "next@example.invalid", plan: "Team plan" });
-  expect(h.engine.record.billing!.lastLaunch!.observedAt).not.toBe(secondAt);
+  expect(h.engine.record.billing!.lastLaunch?.claude_code).toMatchObject({ email: "next@example.invalid", plan: "Team plan" });
+  expect(h.engine.record.billing!.lastLaunch!.claude_code!.observedAt).not.toBe(secondAt);
   const saved = readSessionRecord(h.stateDirectory, "1", resumed.sessionId)!;
   expect(saved.runs).toHaveLength(2); expect(saved.runs[1]).toEqual(resumed.runs[1]);
   expect(h.claudeCalls()).toHaveLength(2);
   const facts = await account(expected);
-  expect(facts.next_attempt).toMatchObject({ value: { email: "next@example.invalid", plan: "Team plan" }, observed_at: h.engine.agents.state.account!.updatedAt });
+  expect(facts.next_attempt).toMatchObject({ value: { email: "next@example.invalid", plan: "Team plan" }, observed_at: h.engine.readers.claude_code.state.account!.updatedAt });
   // Phase 6: this later auth-only predispatch read did not refresh usage.
-  expect(facts.usage).toMatchObject({ observed_at: h.engine.agents.state.account!.limitsObservedAt, state: "stale" });
-  expect(facts.usage.observed_at).not.toBe(h.engine.agents.state.account!.updatedAt);
-  expect(facts.usage.value).toHaveLength(h.engine.agents.state.account!.limits.length);
-  expect(facts.usage.value).toMatchObject(h.engine.agents.state.account!.limits);
+  expect(facts.usage).toMatchObject({ observed_at: h.engine.readers.claude_code.state.account!.limitsObservedAt, state: "stale" });
+  expect(facts.usage.observed_at).not.toBe(h.engine.readers.claude_code.state.account!.updatedAt);
+  expect(facts.usage.value).toHaveLength(h.engine.readers.claude_code.state.account!.limits.length);
+  expect(facts.usage.value).toMatchObject(h.engine.readers.claude_code.state.account!.limits);
   expect(facts.usage.value).toEqual(expect.arrayContaining([
     expect.objectContaining({ kind: "session", percent: 5, resetsAt: "2026-10-17T18:59:59.628228+00:00" }),
     expect.objectContaining({ kind: "weekly_all", percent: 42 }),
@@ -226,7 +227,7 @@ it("keeps Claude usage dated and account-bound through auth-only readiness, fail
   const auth = join(h.sandbox.root, "auth.json"); h.env.KILN_STANDIN_ACCOUNT = auth;
   const signIn = (email = "first@example.invalid", orgId = "first-org") => writeFileSync(auth, JSON.stringify({ loggedIn: true, authMethod: "claude.ai", apiProvider: "firstParty", email, orgId, subscriptionType: "max" }));
   signIn();
-  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); await h.engine.agents.refresh(); await serve();
+  await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); await h.engine.refreshAgents(); await serve();
   const attempt = h.engine.latestSession("1")!.runs.at(-1)!;
   const expected = { value: { email: "first@example.invalid", plan: "Max plan" }, observed_at: attempt.billing!.observedAt };
   const initial = await account(expected);
@@ -348,7 +349,7 @@ it("retains Codex original and resumed provenance separately from current accoun
   h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-  await h.engine.changeSettings({ agentId: "codex" }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); await serve();
   const first = h.engine.latestSession("1")!;
   const original = structuredClone(first.codex!.originalAccount);
@@ -363,11 +364,11 @@ it("retains Codex original and resumed provenance separately from current accoun
   const refreshed = await cli(["account", target(), "--refresh", "--json"]); expect(refreshed.code, refreshed.stdout).toBe(0);
   const facts = await account({ value: provenance, observed_at: provenance.at });
   expect(facts.original_attempt).toMatchObject({ value: original, observed_at: original.at });
-  expect(facts.next_attempt).toMatchObject({ value: { email: "next-codex@example.invalid", account_id: "next-workspace" }, observed_at: h.engine.agents.state.account!.updatedAt });
-  expect(facts.usage.value).toHaveLength(h.engine.agents.state.account!.limits.length);
-  expect(facts.usage.value).toMatchObject(h.engine.agents.state.account!.limits);
+  expect(facts.next_attempt).toMatchObject({ value: { email: "next-codex@example.invalid", account_id: "next-workspace" }, observed_at: h.engine.readers.codex.state.account!.updatedAt });
+  expect(facts.usage.value).toHaveLength(h.engine.readers.codex.state.account!.limits.length);
+  expect(facts.usage.value).toMatchObject(h.engine.readers.codex.state.account!.limits);
   expect(facts.usage.value).toEqual(expect.arrayContaining([expect.objectContaining({ id: "codex:primary", percent: 23, durationMinutes: 300, resetsAt: new Date(1800000000000).toISOString() }), expect.objectContaining({ id: "codex:secondary", percent: 71, durationMinutes: 10080 })]));
-  expect(facts.recovery).toMatchObject({ value: { state: "allowed" }, observed_at: h.engine.agents.state.account!.updatedAt });
+  expect(facts.recovery).toMatchObject({ value: { state: "allowed" }, observed_at: h.engine.readers.codex.state.account!.updatedAt });
   set({ email: "next-codex@example.invalid", accountId: "next-workspace", usageError: true });
   const failedReadAfter = Date.now();
   const failedRefresh = await cli(["account", target(), "--refresh", "--json"]);
@@ -406,7 +407,7 @@ it("revalidates a Codex handoff after actual controller resumption while provide
   set({}); h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-  await h.engine.changeSettings({ agentId: 'codex' }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled(); await serve();
   const selected = h.engine.latestSession('1')!;
   const gate = join(h.sandbox.root, 'history-release');

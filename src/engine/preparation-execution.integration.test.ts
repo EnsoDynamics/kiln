@@ -9,7 +9,11 @@ import { readPrdRecord, writePrdRecord } from "../state/records.js";
 import { COMET_DIRECTORY, cometPhase, createCometContinuation } from "../test-support/comet-continuation-fixture.js";
 import { git } from "../test-support/git-repositories.js";
 import { landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
+import { CODEX_CHOICE, writeModelDefaults } from "../test-support/model-choices.js";
 import { recordedPullRequest } from "../test-support/recorded-pull-requests.js";
+
+/** Model defaults with every row on Codex · GPT Sol · high, for this test's computer. */
+const codexDefaults = (env: NodeJS.ProcessEnv) => { const row = { first: { agentId: "codex" as const, family: "sol", effort: "high" }, fallback: { agentId: "claude_code" as const, family: "opus", effort: "medium" } }; writeModelDefaults(env, { demanding: row, standard: row, mechanical: row, audits: row }); };
 const nativeIt = it.skipIf(process.platform !== "darwin");
 let h: Harness;
 afterEach(async () => { vi.restoreAllMocks(); if (h) writeFileSync(join(h.sandbox.root, "release-preparation"), "release for cleanup"); await h?.engine.stop("sigint"); await h?.cleanup(); });
@@ -57,7 +61,7 @@ async function fixture(command = "exit 0", destination = "this phase's branch", 
   git(h.sandbox, h.repository, "add", COMET_DIRECTORY); git(h.sandbox, h.repository, "commit", "-qm", "test: assign preparation"); f.publish();
   h.engine.close();
   const make = () => new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
-  h.engine = make(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  h.engine = make(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   const release = join(h.sandbox.root, "release-preparation");
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [{ text: "Preparation only; any claimed checks are not engine receipts." }, { waitForFile: release }, { result: "Prepared source references submitted." }, { exit: 0 }] }, landingSession(), { actions: [{ result: "Next phase remains unfinished." }, { exit: 0 }] }] }));
   const accept = async () => {
@@ -247,7 +251,7 @@ nativeIt.each(["alive", "inventory", "identity", "operation", "takeover"])("hold
     const releaseAgain = join(h.sandbox.root, "release-process-recovery");
     writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [] }, { actions: [{ waitForFile: releaseAgain }, { result: "Preparation recovered." }, { exit: 0 }] }, landingSession(), { actions: [{ result: "Next phase needs work." }, { exit: 0 }] }] }));
     // Explicit Resume retains the conversation and earlier attempt evidence.
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget() })).toMatchObject({ ok: true, outcome: "resume_requested" });
     await waitFor(() => h.engine.latestSession("9")!.runs.length === 2 && !!h.engine.latestSession("9")!.runs.at(-1)?.pid);
     for (const binding of h.engine.record.preparation!.bindings) expect(await h.engine.submitPreparation({ executionId: h.engine.record.executionId, phaseId: "9", bindingId: binding.id, references: [{ kind: "git_revision", repository: binding.repository, commit: binding.sourceRevision }] })).toMatchObject({ ok: true });
@@ -318,10 +322,11 @@ nativeIt("holds Codex preparation before native checks while background inventor
   const configure = (extra: Record<string, unknown>) => codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, ...extra });
   try {
     h.engine.close(); Object.assign(h.tools, { codex: codex.options.executable }); codex.configureEnvironment(h.env); h.env.CODEX_HOME = codex.home;
-    h.engine.record.settings.agentId = "codex"; h.engine.record.settings.agentChoices.codex = { model: "gpt-6.1-sol", effort: "high" };
+    // The PRD ran on Codex; its accepted continuation drops a kept choice equal to a current default (Kiln Phase Model Tiers KEEP-003), so this computer's Model defaults put every row on Codex.
+    h.engine.record.settings.modelChoices.kept = { ...CODEX_CHOICE }; codexDefaults(h.env);
     writePrdRecord(h.stateDirectory, h.engine.record); h.engine = f.make();
     configure({ backgroundListError: true, command: `while ! test -f ${posixShellPath(f.release)}; do sleep 0.05; done` });
-    await h.engine.agents.refresh(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await h.engine.refreshAgents(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     const check = await h.engine.checkCompletedPlan(); expect(check.status, JSON.stringify(check)).toBe("available");
     expect(await h.engine.continuationCommand("accept", { proposalId: check.result!.proposal!.id, executionId: h.engine.record.executionId, commandId: "codex-cleanup-preparation", statusToken: h.engine.controlView().token })).toMatchObject({ ok: true });
     await waitFor(() => !!h.engine.latestSession("9")?.runs.at(-1)?.codex?.dispatch);
@@ -335,7 +340,7 @@ nativeIt("holds Codex preparation before native checks while background inventor
     expect(h.engine.record.preparation?.attempts).toEqual([]); expect(codex.calls().filter(call => call.method === "turn/start")).toHaveLength(1);
     configure({ hang: true });
     await h.engine.checkAgain({ target: h.engine.phaseRecoveryTarget(), intent: "verify" });
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget() })).toMatchObject({ ok: true, outcome: "resume_requested" });
     await waitFor(() => codex.calls().filter(call => call.method === "turn/start").length === 2);
     expect(h.engine.latestSession("9")!.conversation!.threadId).toBe(thread); expect(h.engine.record.preparation?.stage).toBe("preparation"); expect(h.engine.record.preparation?.attempts).toEqual([]);
@@ -347,7 +352,7 @@ nativeIt("retains the verified checkpoint across pause/restart and admits implem
   const f = await fixture(); await f.accept(); expect(h.engine.pause()).toMatchObject({ ok: true }); await f.submit();
   expect(h.engine.record.preparation!.stage).toBe("verification"); expect(h.engine.record.preparation!.verifiedCheckpoint).toBeDefined();
   expect(h.engine.record.pause.activeSince).toBeDefined(); expect(h.claudeCalls()).toHaveLength(1);
-  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   expect(await h.engine.decide()).toMatchObject({ kind: "paused" });
   expect(await h.engine.start()).toMatchObject({ ok: true }); await h.engine.settled();
   expect(h.engine.record.preparation!.attempts).toHaveLength(1); expect(h.engine.latestSession("9")!.runs).toHaveLength(2); expect(h.engine.record.phases["9"]?.doneAt).toBeDefined();
@@ -404,7 +409,7 @@ nativeIt.each([false, true])("retains pending-grant ownership across pointer pub
   const probe = vi.spyOn(durable, "writeDurableMetadata").mockImplementation((path, value) => { if (!injected && path.endsWith("prd.json") && (value as { pendingContinuationAuthority?: string }).pendingContinuationAuthority) { injected = true; if (afterWrite) original(path, value); throw new Error("Lost grant pointer acknowledgement"); } original(path, value); });
   expect(await h.engine.authorizeContinuationTarget(body)).toMatchObject({ ok: false, status: 503, code: "state_write_failed" }); probe.mockRestore();
   expect(injected).toBe(true); const pointer = h.engine.record.pendingContinuationAuthority; expect(readPrdRecord(h.stateDirectory)!.pendingContinuationAuthority).toBe(afterWrite ? pointer : undefined);
-  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.busy && !h.engine.billing.pending);
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.busy && !h.engine.billing.pending);
   expect(h.engine.record.pendingContinuationAuthority, JSON.stringify({ check: h.engine.record.completedPlanCheck, commands: h.engine.commands.all() })).toBe(pointer);
   expect(await h.engine.authorizeContinuationTarget(body)).toMatchObject({ ok: true, grant: { valid: true } });
   expect(h.engine.record.completedPlanCheck?.result?.proposal?.readiness).toBe("ready"); expect(h.claudeCalls()).toHaveLength(0);
@@ -421,7 +426,7 @@ it.skipIf(process.platform !== "darwin").each(["verification-intent", "verificat
     await waitFor(() => { if (child.exitCode !== null || child.signalCode !== null) throw new Error(diagnostic); return existsSync(marker); }, 40_000);
     const saved = readPrdRecord(h.stateDirectory)!; const identity = saved.executionId; const conversation = saved.phases["9"]!.sessionIds[0];
     child.kill("SIGKILL"); await exited;
-    h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.busy && !h.engine.billing.pending);
+    h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.busy && !h.engine.billing.pending);
     await h.engine.decide(); await h.engine.settled();
     expect(h.engine.record.executionId).toBe(identity); expect(h.engine.record.phases["9"]!.sessionIds).toEqual([conversation]);
     expect(h.engine.record.preparation!.attempts).toHaveLength(1);
@@ -441,7 +446,7 @@ nativeIt("holds a changed pinned source after successful verification and pause"
   const f = await fixture(); await f.accept(); h.engine.pause(); await f.submit();
   const attempt = h.engine.record.preparation!.attempts[0]!.id;
   git(h.sandbox, h.repository, "branch", "-f", "wt/catalog-accessibility", "develop");
-  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.busy && !h.engine.billing.pending);
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.busy && !h.engine.billing.pending);
   expect(await h.engine.start()).toMatchObject({ ok: true }); await h.engine.settled();
   expect(h.engine.latestSession("9")!.runs).toHaveLength(1); expect(h.engine.record.preparation!.reason).toContain("moved");
   expect(h.engine.record.preparation!.attempts.map(row => row.id)).toEqual([attempt]); expect(h.engine.record.phases["9"]?.doneAt).toBeUndefined();
@@ -518,7 +523,7 @@ nativeIt("requires successful checks for both prepared repositories at one check
 nativeIt("keeps a damaged successful-check output unresolved rather than reusing or blindly repeating it", async () => {
   const f = await fixture(); await f.accept(); h.engine.pause(); await f.submit();
   writeFileSync(h.engine.record.preparation!.attempts[0]!.output, "tampered output");
-  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.busy && !h.engine.billing.pending);
+  h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.busy && !h.engine.billing.pending);
   expect(await h.engine.start()).toMatchObject({ ok: true }); await h.engine.settled();
   expect(h.engine.record.preparation!.attempts).toHaveLength(1); expect(h.engine.record.preparation!.attempts[0]!.outcome).toBe("unresolved"); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
 });
@@ -700,7 +705,7 @@ async function resumePreparation() {
   const release = join(h.sandbox.root, "release-native-recovery");
   const before = h.engine.latestSession("9")!.runs.length;
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [{ actions: [] }, { actions: [{ waitForFile: release }, { result: "Recovered preparation." }, { exit: 0 }] }, landingSession(), { actions: [{ result: "Later work held." }, { exit: 0 }] }] }));
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   expect(await h.engine.resume({ target: h.engine.phaseRecoveryTarget() })).toMatchObject({ ok: true, outcome: "resume_requested" });
   await waitFor(() => h.engine.latestSession("9")!.runs.length === before + 1 && !!h.engine.latestSession("9")!.runs.at(-1)?.pid);
   for (const binding of h.engine.record.preparation!.bindings) expect(await h.engine.submitPreparation({ executionId: h.engine.record.executionId, phaseId: "9", bindingId: binding.id, references: [{ kind: "git_revision", repository: binding.repository, commit: binding.sourceRevision }] })).toMatchObject({ ok: true });
@@ -737,7 +742,7 @@ nativeIt.each(["environment", "output", "hooks", "spawn", "spawn_throw"])("recov
   expect(h.engine.record.preparation?.attempts).toMatchObject([{ outcome: "failed", launchFailure: "not_launched" }]);
   expect(h.engine.record.preparation!.attempts[0]!.pid).toBeUndefined(); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
   h.engine.close(); h.engine = f.make(); await h.engine.prepare();
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   expect(await h.engine.checkAgain({ target: h.engine.phaseRecoveryTarget(), intent: "verify" })).toMatchObject({ ok: true, outcome: "still_stopped" });
   expect(h.engine.record.preparation?.attempts).toHaveLength(1);
   await resumePreparation();
@@ -791,9 +796,9 @@ nativeIt.each(["inventory", "identity", "checkpoint_read", "checkpoint_changed"]
     expect(h.engine.record.preparation?.attempts).toHaveLength(1); expect(h.engine.record.preparation?.attempts[0]?.outcome).toBe(legacyFailed ? "failed" : "unresolved");
     expect(h.claudeCalls()).toHaveLength(1);
     const { verifyPreparation } = await import("./preparation-verifier.js");
-    await expect(verifyPreparation({ record: h.engine.record, stateDirectory: h.stateDirectory, git: { git: h.tools.git, env: h.env }, env: h.env, signal: new AbortController().signal, save: () => writePrdRecord(h.stateDirectory, h.engine.record), now: () => new Date().toISOString() })).rejects.toThrow(/owns|identity|inventory|unresolved/i);
+    await expect(verifyPreparation({ agentId: "claude_code", record: h.engine.record, stateDirectory: h.stateDirectory, git: { git: h.tools.git, env: h.env }, env: h.env, signal: new AbortController().signal, save: () => writePrdRecord(h.stateDirectory, h.engine.record), now: () => new Date().toISOString() })).rejects.toThrow(/owns|identity|inventory|unresolved/i);
     expect(h.engine.record.preparation?.attempts).toHaveLength(1);
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     await h.engine.resume({ target: h.engine.phaseRecoveryTarget() }); await h.engine.settled();
     expect(h.claudeCalls()).toHaveLength(1); expect(h.engine.record.preparation?.stage).not.toBe("implementation");
     // Supported observations may refresh, but the real surviving owner is never released.
@@ -812,9 +817,10 @@ nativeIt.each([false, true])("evaluates external/carried two-repository split pr
   const { codexWorkFixture } = await import("../test-support/codex-work-fixture.js"); const codex = codexWorkFixture();
   try {
     h.engine.close(); Object.assign(h.tools, { codex: codex.options.executable }); codex.configureEnvironment(h.env); h.env.CODEX_HOME = codex.home;
-    h.engine.record.settings.agentId = "codex"; h.engine.record.settings.agentChoices.codex = { model: "gpt-6.1-sol", effort: "high" };
+    // The PRD ran on Codex; its accepted continuation drops a kept choice equal to a current default (Kiln Phase Model Tiers KEEP-003), so this computer's Model defaults put every row on Codex.
+    h.engine.record.settings.modelChoices.kept = { ...CODEX_CHOICE }; codexDefaults(h.env);
     writePrdRecord(h.stateDirectory, h.engine.record); h.engine = f.make();
-    await h.engine.agents.refresh(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await h.engine.refreshAgents(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     const ready = await h.engine.checkCompletedPlan();
     expect(ready.status, JSON.stringify(ready)).toBe("available");
     expect(ready.result!.proposal!.prerequisites.filter(row => row.phaseId.startsWith("8")).map(row => row.status)).toEqual(["preparation_available", "preparation_available"]);
@@ -850,7 +856,7 @@ nativeIt.each(["legacy_obstacle", "unknown_start"].flatMap(mode => [false, true]
   else await withGate(attempt.gateDirectory, gate => { gate.version = 1; delete gate.processObservations; gate.obstacle = "Legacy inventory cannot reconstruct missing observations"; });
   writePrdRecord(h.stateDirectory, h.engine.record);
   h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await h.engine.decide();
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   await h.engine.checkAgain({ target: h.engine.phaseRecoveryTarget(), intent: "verify" });
   await h.engine.resume({ target: h.engine.phaseRecoveryTarget() }); await h.engine.settled();
   expect(h.engine.record.preparation?.stage).not.toBe("implementation");
@@ -914,7 +920,7 @@ nativeIt.each(["checkpoint_read", "checkpoint_changed"])("discovers a real detac
     expect(h.engine.latestSession("9")!.runs).toHaveLength(1);
     if (mode === "checkpoint_changed") { attempt.outcome = "failed"; writePrdRecord(h.stateDirectory, h.engine.record); }
     h.engine.close(); h.engine = f.make(); await h.engine.prepare(); await h.engine.decide();
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     await h.engine.checkAgain({ target: h.engine.phaseRecoveryTarget(), intent: "verify" });
     await h.engine.resume({ target: h.engine.phaseRecoveryTarget() }); await h.engine.settled();
     expect(h.engine.record.preparation?.attempts).toHaveLength(1); expect(h.engine.latestSession("9")!.runs).toHaveLength(1);

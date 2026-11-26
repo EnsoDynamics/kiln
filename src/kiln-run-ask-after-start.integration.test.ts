@@ -93,7 +93,7 @@ function startKiln(f: Feature) {
 
 async function api(address: string, token: string, method: string, path: string, body?: unknown) {
   if (method === "POST" && path === "/api/start") {
-    await waitFor(async () => ((await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot).settings.metadataPending === false);
+    await waitFor(async () => ((await api(address, token, "GET", "/api/snapshot")).body as unknown as Snapshot).agents.every((agent) => !agent.pending));
   }
   const origin = new URL(address).origin;
   const response = await fetch(`${origin}${path}`, {

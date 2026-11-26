@@ -20,7 +20,31 @@ kiln status <PRD-path> --json     # one run: stop message, failed checks, availa
 and started only in the browser, on the Documents found screen, including whether it starts on a
 new feature branch or on a branch that already exists.
 
-`kiln run <PRD-path> --resume` immediately continues an already-started execution with its saved agent, model, effort and branches. It preserves intentional pauses and all recovery/billing/delivery restrictions. It cannot configure or start a brand-new execution; that still uses Documents found and Start. For an already-running controller at the restart overview, use the status-bound `kiln continue` command.
+`kiln run <PRD-path> --resume` immediately continues an already-started execution with its saved model choices and branches. It preserves intentional pauses and all recovery/billing/delivery restrictions. It cannot configure or start a brand-new execution; that still uses Documents found and Start. For an already-running controller at the restart overview, use the status-bound `kiln continue` command.
+
+## Choosing models
+
+`kiln status <PRD-path> --json` gives each activity its `tier` and `model`, and `plan_models` lists every row of the plan, phases Kiln hasn't allocated and planned audit rows included, with the choice each will run on, runs on or ran on and whether it can change (`model.change`). With the usage fallback on, a row's `model.fallback` records the launch decision it started on, and `model.forecast` is the heads-up on the next activity.
+
+`kiln model` changes one phase that hasn't started, or this PRD's Audits choice, in a run underway. Like the other changing commands it takes a command ID and the status token:
+
+```sh
+kiln model <PRD-path> --phase 3 --agent codex --model gpt-6.2-sol --effort high --only-if-status-matches <token> --command-id <id>
+kiln model <PRD-path> --audits --use-default --only-if-status-matches <token> --command-id <id>
+```
+
+A phase that has started keeps what it started on, so it is refused. An omitted `--effort` takes the default effort the agent reports for that model; Claude Code reports none, so a Claude Code model that takes effort needs one. Before Start, change models on Documents found.
+
+`kiln model-defaults` prints Model defaults, the settings for every PRD on this computer, and its subcommands change them with the same limits as the page. They need no PRD path, running Kiln or safety flags:
+
+```sh
+kiln model-defaults
+kiln model-defaults set --row mechanical --first-agent claude_code --first-model sonnet --first-effort high
+kiln model-defaults restore
+kiln model-defaults fallback --on --threshold 90
+```
+
+`set` takes a model family (`fable`, `opus`, `sonnet`, `sol`, `astra`), resolved when each activity launches to the newest version its agent offers. A row can't have its first choice and fallback on the same agent. `fallback --on` turns on the usage fallback: each time Kiln launches an activity that hasn't started, it reads both accounts and starts the activity on the row's fallback when a limit on the first choice's account reads at or above the threshold and the fallback can take it. It spends the other agent's account.
 
 ## Command IDs and status tokens
 

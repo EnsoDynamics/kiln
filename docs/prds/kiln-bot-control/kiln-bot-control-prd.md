@@ -41,6 +41,7 @@ A single question should find both runs, even when they belong to different repo
 
 - [ ] **AC-SEE-05 — Recovery instructions can be retrieved.** The caller can retrieve the exact provider-specific terminal resume command, working directory and accompanying continuation prompt Kiln offers. If no session can be resumed, the response explains why and returns any fresh-session instructions the browser offers. Reading instructions never executes them.
   - Superseded in part by: AC-GONE-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (while a folder is missing, `kiln handoff` says so and returns no resume command, continuation prompt or fresh-session instructions).
+  - Superseded in part by: AC-PICK-07 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (for an activity that hasn't started, `kiln reply` and `kiln resume` launch a new session on its current choice, and `kiln handoff` returns the command that reopens its saved conversation only while its current choice is the one that session ran on, and when `kiln handoff` returns no reopen command because the choice changed, it says so and returns the fresh-session instructions; the rest remains).
 
 - [ ] **AC-SEE-06 — Logs show a small recent tail, with older output on request.** `kiln logs <PRD-path>` returns the latest **50 saved numbered output entries**, or fewer to keep its entire stdout response at or below **16 KiB (16,384 UTF-8 bytes)**, including JSON escaping or text headers. Output is chronological within the page and comes from the active session, otherwise the most recent saved session. The public word “line” and `--max-lines` each count one saved numbered entry, whose text may contain internal newlines. `--max-lines 1..200` changes that entry ceiling, not the byte cap; `--session-id <session-id>` selects an earlier session. This counting unit and these sizing defaults are proposed in OUTPUT-001.
 
@@ -52,6 +53,7 @@ A single question should find both runs, even when they belong to different repo
   - Superseded in part by: AC-GONE-01 in `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-prd.md` (while a folder is missing, `kiln handoff` says so and returns no resume command, continuation prompt or fresh-session instructions).
 
   The provider conversation ID is usable with that agent's supported session commands: Claude Code's session ID or Codex's thread/conversation ID, which may differ from Kiln's local record ID. `kiln handoff <PRD-path> --session-id <Kiln-session-selector>` retrieves the selected conversation's exact provider-specific resume instructions, working directory and availability, including for an earlier phase. Selection is confined to this execution; no history of other PRDs or previous executions is included. Reading IDs/instructions starts no work and reports when the selected conversation is active under Kiln. Release evidence covers earlier and current phases, multiple conversations in one phase and different Kiln/Codex IDs.
+  - Superseded in part by: AC-PICK-07 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (for an activity that hasn't started, `kiln reply` and `kiln resume` launch a new session on its current choice, and `kiln handoff` returns the command that reopens its saved conversation only while its current choice is the one that session ran on, and when `kiln handoff` returns no reopen command because the choice changed, it says so and returns the fresh-session instructions; the rest remains).
 
 ### Keep the existing run moving
 
@@ -66,6 +68,8 @@ The command interface supports the common controls used after work starts. Each 
   - Superseded in part by: AC-STOP-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (two more commands join the controls for a run already started; the runtime-preferences control also sets the three loop settings).
   - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (two more commands join the controls: checking a finished run for new phases, and continuing it with the phases its page offers).
   - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (two more commands join the controls for a run already started: `kiln merge` and `kiln exit`; `kiln merge` merges work, which this PRD left out of the command line)
+  - Superseded in part by: AC-PICK-05 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (more commands join the controls for a run already started, and run detail lists them).
+  - Superseded in part by: AC-DEFAULT-05 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (commands that print and change Model defaults, which apply to every PRD and not to one run, join the supported commands; the rest remains).
 
 - [ ] **AC-ACT-02 — Reply, resume and verify preserve the person's intention.** The CLI exposes the distinct actions from the prerequisite handoff change, with the same eligibility, completion evidence and remaining-plan behavior. A manual phase reply or resume must never silently become an advance.
   - Superseded in part by: AC-BOT-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (explicit phase/audit takeover hand-back and per-message uncertain-delivery review)
@@ -82,6 +86,7 @@ The command interface supports the common controls used after work starts. Each 
 
   Every outcome distinguishes reply delivery, session resumption and plan advancement. Competing reply/resume/verify/advance actions cannot start duplicate work. Missing conversation history exposes the existing fresh-session path instead of promising same-session resumption. See the prerequisite's AC-REPLY-01, AC-RETURN-01–03, AC-VERIFY-01–04 and AC-COMPAT-01–02.
   - Superseded in part by: AC-CURRENT-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (`kiln reply` and `kiln resume` may first bring the branch up to date).
+  - Superseded in part by: AC-PICK-07 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (for an activity that hasn't started, `kiln reply` and `kiln resume` launch a new session on its current choice, and `kiln handoff` returns the command that reopens its saved conversation only while its current choice is the one that session ran on, and when `kiln handoff` returns no reopen command because the choice changed, it says so and returns the fresh-session instructions; the rest remains).
 
 - [ ] **AC-ACT-03 — The other routine controls match the browser.** The following are available wherever their existing eligibility rules allow them:
   - Superseded in part by: AC-CHECK-03 in `docs/changes/kiln-completion-checks/kiln-completion-checks-prd.md` (workspace auditing and acceptance only; independent completion requirements remain).
@@ -90,6 +95,7 @@ The command interface supports the common controls used after work starts. Each 
   - Superseded in part by: AC-STOP-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (two more commands join the controls for a run already started; the runtime-preferences control also sets the three loop settings).
   - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (two more commands join the controls: checking a finished run for new phases, and continuing it with the phases its page offers).
   - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-after-delivery/kiln-after-delivery-prd.md` (two more commands join the controls for a run already started: `kiln merge` and `kiln exit`; `kiln merge` merges work, which this PRD left out of the command line)
+  - Superseded in part by: AC-PICK-05 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (more commands join the controls for a run already started, and run detail lists them).
 
   | Person's intention | Observable behavior |
   |---|---|

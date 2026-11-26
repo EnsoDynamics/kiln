@@ -38,9 +38,8 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'proof', folderNam
 const settings = defaultSettings(paths, { branches: new Map([['develop', baseCommit]]), defaultBranch: 'develop' });
 Object.assign(settings, { featureBranch: 'develop', worktreePath: repository, workspaceFolder: root, keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: 'proof/disposable', featureName: 'Disposable handoff proof', settings });
-record.settings.agentId = agentId;
 const model = agentId === 'codex' ? 'gpt-6.1-sol' : 'opus';
-record.settings.agentChoices[agentId] = { model, effort: 'high' };
+record.settings.modelChoices.kept = { agentId, model, effort: 'high' };
 const session = { schemaVersion: 4, agentId, sessionId: randomUUID(), phaseId: '1', kind: 'phase', createdAt: new Date().toISOString(), model, modelDisplayName: model, effort: 'high', workingDirectory: repository, runs: [], sleeps: [], steps: [] };
 console.log(JSON.stringify({ root, agentId, sessionId: session.sessionId }));
 writeSessionRecord(stateDirectory, session);
@@ -68,7 +67,7 @@ const engine = new Engine({ paths, tools: { git: 'git', gh: 'gh', claude: 'claud
 let server;
 try {
   assert.equal((await engine.prepare()).ok, true);
-  for (let i = 0; i < 240 && (engine.agents.state.pending || engine.billing.busy); i++) await delay(250);
+  for (let i = 0; i < 240 && (engine.installedAgents().some(id => engine.readers[id].state.pending) || engine.billing.busy); i++) await delay(250);
   // The operating system assigns the port, so this proof can't collide with another listener (AC-CI-01).
   server = await startLocalServer({ engine, port: 0, folderName: 'handoff-proof', featureName: 'Handoff proof', token: record.token });
   server.proofOrigin = new URL(server.address).origin;

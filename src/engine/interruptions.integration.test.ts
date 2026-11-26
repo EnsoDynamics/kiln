@@ -69,7 +69,7 @@ describe("Ctrl+C while a session works", () => {
     // No Claude Code process is left behind (AC-KEEP-02).
     expect(await isProcessLive(run!.pid!, run!.processStartTime)).toBe(false);
     // Nothing was judged: no Needs you, no Done (technical design, "Once a stop begins").
-    expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], finishedByPerson: false, repositories: { "acme-shop": { startCommit: expect.any(String) } } });
+    expect(onDisk(h).phases["1"]).toEqual({ sessionIds: [session.sessionId], startedSessionId: session.sessionId, finishedByPerson: false, repositories: { "acme-shop": { startCommit: expect.any(String) } } });
     // The work in progress stays exactly as it was (AC-KEEP-03), staged and unstaged alike.
     expect(workState()).toEqual(workBefore);
 
@@ -547,9 +547,9 @@ describe("keep-awake", () => {
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => existsSync(working));
     expect(states).toEqual([true]);
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, keepAwake: false });
+    await h.engine.changeSettings({ keepAwake: false });
     expect(states).toEqual([true, false]);
-    await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, keepAwake: true });
+    await h.engine.changeSettings({ keepAwake: true });
     expect(states).toEqual([true, false, true]);
     writeFileSync(gate, "");
     await h.engine.settled();

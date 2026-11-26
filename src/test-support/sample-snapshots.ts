@@ -1,7 +1,7 @@
 // The mockups' sample data as Snapshots (fictional), for the view's tests: Documents found,
 // then the progress screens, then the multi-repo delivery mockups' PRD across repositories.
 
-import type { PhaseView, RepositoryDetails, RepositoryRow, Snapshot, WaiverView } from "../engine/snapshot.js";
+import type { AgentView, PhaseView, RepositoryDetails, RepositoryRow, Snapshot, WaiverView } from "../engine/snapshot.js";
 import type { CheckItem, MarkCompleteOffer, WaiverRef } from "../engine/waivers.js";
 import type { CheckResult } from "../state/records.js";
 import type { OutputLine } from "../session/session-output.js";
@@ -38,10 +38,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       ...documents,
     },
     settings: {
-      agent: "Claude Code",
-      model: { value: "opus", displayName: "Opus 5.5" },
-      effort: "high",
-      effortLevels: ["low", "medium", "high", "xhigh", "max"],
+      models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, fallback: { enabled: false, threshold: 95 }, audits: { choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" }, changedByYou: false, change: { available: true } }, revision: "missing" },
       keepAwake: true,
       resumeAfterUsageLimit: true,
       workspaceFolder: "~/devel/.worktrees/customer-returns",
@@ -57,14 +54,9 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
     repositories: [
       { name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: "~/devel/acme-shop", kind: "prd", baseBranch: "develop", baseBranches: ["develop", "main"], baseCheck: "ok", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: false, fieldErrors: {} },
     ],
-    models: [
-      { value: "opus", displayName: "Opus 5.5" },
-      { value: "fable", displayName: "Fable 5.1" },
-      { value: "sonnet", displayName: "Sonnet 5.5" },
-    ],
     phases: [],
     pause: { pending: false, active: false },
-    account: {
+    agents: [claudeAgent({
       email: "alex@acme-shop.dev",
       plan: "Max plan",
       startedAt: "2026-10-17T13:15:00Z",
@@ -75,9 +67,43 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
         { kind: "weekly_all", label: "Weekly", shortLabel: "weekly", percent: 22, nearLimit: false },
         { kind: "weekly_scoped", scope: { by: "model", name: "Fable" }, label: "Weekly · Fable", shortLabel: "Fable", percent: 0, nearLimit: false },
       ],
-    },
+    })],
     ...rest,
   };
+}
+
+export type AccountView = NonNullable<AgentView["account"]>;
+
+export const CLAUDE_MODELS = [
+  { value: "opus", displayName: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { value: "fable", displayName: "Fable 5.1", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { value: "sonnet", displayName: "Sonnet 5.5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+];
+
+/** Claude Code as the one agent every activity needs, in use, with this account. */
+export function claudeAgent(account: AccountView | undefined, change: Partial<AgentView> = {}): AgentView {
+  return { agentId: "claude_code", agent: "Claude Code", installed: true, pending: false, inUse: true, neededBy: { activities: ["1", "2a", "2b", "3", "4"], fallbackOnly: false }, models: CLAUDE_MODELS, ...(account ? { account: { ...account, inUse: true } } : {}), ...change };
+}
+
+/** The in-use agent's account in a sample snapshot. */
+/** The agent entry the snapshot's current activity runs on. */
+export function inUse(snapshot: Snapshot): AgentView {
+  return snapshot.agents.find((agent) => agent.inUse)!;
+}
+
+/**
+ * Makes one agent the run's only needed, in-use agent, keeping the in-use entry's account and billing:
+ *
+ *   useAgent(runningSnapshot(), "codex")  // a run whose every activity is on Codex
+ */
+export function useAgent(snapshot: Snapshot, agentId: AgentView["agentId"]): Snapshot {
+  const current = snapshot.agents.find((agent) => agent.inUse) ?? snapshot.agents[0];
+  snapshot.agents = [{ ...(current ?? claudeAgent(undefined)), agentId, agent: agentId === "codex" ? "Codex" : "Claude Code", inUse: true }];
+  return snapshot;
+}
+
+export function inUseAccount(snapshot: Snapshot): AccountView | undefined {
+  return snapshot.agents.find((agent) => agent.inUse)?.account;
 }
 
 // ---- The progress mockups' sample data (fictional). Times are the mockups' local times in
@@ -143,7 +169,7 @@ function underwaySettings(): Snapshot["settings"] {
 /** The PRD's one repository once Kiln has set it up. */
 const UNDERWAY_REPOSITORIES: RepositoryRow[] = [{ name: "acme-shop", label: "acme-shop", addressPath: "acme/acme-shop", checkoutFolder: "~/devel/acme-shop", kind: "prd", baseBranch: "develop", worktreePath: "~/devel/acme-shop-kiln/customer-returns", fixed: true, fieldErrors: {} }];
 
-const ACCOUNT: NonNullable<Snapshot["account"]> = {
+const ACCOUNT: AccountView = {
   email: "alex@acme-shop.dev",
   plan: "Max plan",
   startedAt: "2026-10-17T15:45:00Z",
@@ -157,7 +183,7 @@ const ACCOUNT: NonNullable<Snapshot["account"]> = {
 };
 
 function underway(rest: Partial<Snapshot> & Pick<Snapshot, "feature" | "phases">): Snapshot {
-  return { settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, models: documentsFoundSnapshot().models!, pause: { pending: false, active: false }, account: ACCOUNT, ...rest };
+  return { settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, pause: { pending: false, active: false }, agents: [claudeAgent(ACCOUNT)], ...rest };
 }
 
 const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };
@@ -578,8 +604,12 @@ function fiveHourLimit(readAt: string): NonNullable<Snapshot["waiting"]>["limit"
 }
 
 /** The account panel's reading behind the limit card, the 5-hour window at 100%. */
-function accountAtLimit(readAt: string): NonNullable<Snapshot["account"]> {
+function accountAtLimit(readAt: string): AccountView {
   return { ...ACCOUNT, startedAt: readAt, updatedAt: readAt, limitsObservedAt: readAt, limits: [{ ...ACCOUNT.limits[0]!, percent: 100, resetsAt: "2026-10-17T19:39:59.700Z" }, ...ACCOUNT.limits.slice(1)] };
+}
+
+function agentsAtLimit(readAt: string): AgentView[] {
+  return [claudeAgent(accountAtLimit(readAt))];
 }
 
 const LIMIT_STEPS: NonNullable<NonNullable<Snapshot["waiting"]>["steps"]> = [
@@ -596,7 +626,7 @@ export function waitingSnapshot(): Snapshot {
   return underway({
     feature: { ...FEATURE, state: "waiting", currentPhaseId: "2b", phasesDone: 2 },
     phases: [PHASE_1, PHASE_2, PHASE_2A, { ...PHASE_2B, state: "waiting", sessionStartedAt: "2026-10-17T14:58:00Z" }, { ...PHASE_3, state: "planned" }, PHASE_4],
-    account: accountAtLimit("2026-10-17T18:28:00Z"),
+    agents: agentsAtLimit("2026-10-17T18:28:00Z"),
     waiting: {
       phaseId: "2b",
       since: "2026-10-17T18:28:00Z",
@@ -622,7 +652,7 @@ export function needsYouUsageLimitSnapshot(): Snapshot {
   return underway({
     feature: { ...FEATURE, state: "needs_you", currentPhaseId: "2b", phasesDone: 2, stoppedAt: "2026-10-17T18:28:00Z" },
     phases: [PHASE_1, PHASE_2, PHASE_2A, { ...PHASE_2B, state: "needs_you", sessionStartedAt: "2026-10-17T14:58:00Z" }, { ...PHASE_3, state: "planned" }, PHASE_4],
-    account: accountAtLimit("2026-10-17T18:27:00Z"),
+    agents: agentsAtLimit("2026-10-17T18:27:00Z"),
     needsYou: {
       phaseId: "2b",
       kind: "done_check",
@@ -917,7 +947,7 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
   return {
     suggested: pick, selected: pick, multi,
     choices: { base: choice(baseLine), branch: branchChoice },
-    fields: { worktreePath: multi ? SAVED : folder, workspaceFolder: multi ? folder : fromBase ? WT2 : WT, featureBranch: branch, baseBranch: "develop", bases: multi ? { "harbor-portal": "develop" } : {}, model: "opus", effort: "high", keepAwake: true, resumeAfterUsageLimit: true },
+    fields: { worktreePath: multi ? SAVED : folder, workspaceFolder: multi ? folder : fromBase ? WT2 : WT, featureBranch: branch, baseBranch: "develop", bases: multi ? { "harbor-portal": "develop" } : {}, keepAwake: true, resumeAfterUsageLimit: true },
     fixed: fromBase ? ["agentId"] : ["agentId", "featureBranch", "baseBranch", "bases", ...(multi ? ["workspaceFolder"] : [])],
     fieldErrors: {},
     helpLines: {
@@ -926,7 +956,6 @@ function folderMissingPanel(which: FolderMissingCase): import("../engine/folder-
     },
     repositories: multi ? [{ name: "harbor-ledger", kind: "prd", baseBranch: "develop", baseChoices: ["develop", "main"] }, { name: "harbor-portal", kind: "named", baseBranch: "develop", baseChoices: ["develop", "main"] }] : [],
     baseChoices: ["develop", "main"],
-    effortLevels: ["low", "medium", "high", "xhigh", "max"],
     preview: { ...preview, lets },
     previewId: "e".repeat(64), draftRevision: 0,
   };

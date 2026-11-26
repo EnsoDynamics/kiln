@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { launchChrome } from "./test-support/headless-chrome.js";
 import { recoveryRequest } from "./test-support/phase-recovery-request.js";
+import { runPrdOn } from "./test-support/model-choices.js";
 import { buildSnapshot } from "./engine/snapshot.js";
 import { Engine, type UnderwayDecision } from "./engine/engine.js";
 import { runKilnCommand } from "./kiln-command.js";
@@ -124,8 +125,8 @@ describe("kiln run on a feature underway", () => {
       sessions: [{ actions: [{ close: true }, { commit: "feat: intake" }, { result: "Done." }] }, landingSession("src/b.txt"), { actions: [{ result: "I need a decision on the dashboard's columns." }] }],
     });
     const h = harness;
-    // Settings chosen before Start are kept for the PRD: a later kiln run starts its sessions with them (AC-START-06).
-    expect(await h.engine.changeSettings({ agentId: "claude_code", selectionGeneration: 0, model: "sonnet", effort: "max" })).toEqual({ ok: true });
+    // Model choices saved with the PRD before Start are kept: a later kiln run starts its sessions with them.
+    await runPrdOn(h.engine, { agentId: "claude_code", model: "sonnet", effort: "max" });
     await h.engine.start({ refinementConfirmed: true });
     await h.engine.settled();
     expect(h.engine.record.phases["1"]!.stop).toBeDefined();
@@ -485,7 +486,7 @@ describe("restart review before model work", () => {
     await h.engine.start({ refinementConfirmed: true }); await waitFor(() => existsSync(marker));
     await h.engine.stop("sigint"); h.engine.close(); rmSync(marker);
     const saved = readPrdRecord(h.stateDirectory)!;
-    saved.settings.agentChoices.claude_code = { model: "unavailable-next-model", effort: "high" };
+    saved.settings.modelChoices.kept = { agentId: "claude_code", model: "unavailable-next-model", effort: "high" };
     writePrdRecord(h.stateDirectory, saved);
     await kilnRunUntil(h, stdout => stdout.includes("Ready to resume"), async stdout => {
       expect(h.claudeCalls()).toHaveLength(1);
@@ -581,7 +582,7 @@ it.each([false, true])("holds the next final/audit activity before launch (audit
     await again.continue();
     expect(h.claudeCalls()).toHaveLength(1);
     expect(buildSnapshot(again).feature.state).toBe("paused");
-    await again.agents.refresh();
+    await again.refreshAgents();
     expect(await again.start()).toEqual({ ok: true }); await again.settled();
     expect(h.claudeCalls()).toHaveLength(2);
     expect(again.restartReview).toBeUndefined();
@@ -628,7 +629,7 @@ describe("the line a stop prints (AC-START-09)", () => {
 
   it("prints for a stop that used to be silent: a saved model no longer offered", async () => {
     const { h, saved } = await pausedBefore2b([{ result: "unused" }]);
-    saved.settings.agentChoices.claude_code = { model: "retired-sol" };
+    saved.settings.modelChoices.kept = { agentId: "claude_code", model: "retired-sol" };
     writePrdRecord(h.stateDirectory, saved);
     const run = await kilnRunUntil(h, stdout => /Store credit\s+stopped/.test(stdout));
     expect(readPrdRecord(h.stateDirectory)!.phases["2b"]!.stop!.kind).toBe("selection");

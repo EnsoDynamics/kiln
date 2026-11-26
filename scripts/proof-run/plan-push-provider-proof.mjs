@@ -40,7 +40,7 @@ const paths = { mainCheckoutPath: repository, repositoryName: 'kiln-proof-after-
 const settings = defaultSettings(paths, { branches: new Map([[baseBranch, main]]), defaultBranch: baseBranch });
 Object.assign(settings, { featureBranch: `feature/plan-proof-${stamp}`, baseBranch, worktreePath: join(root, 'old-worktree'), workspaceFolder: join(root, 'old-workspace'), keepAwake: false, resumeAfterUsageLimit: false });
 const record = newPrdRecord({ ...paths, github: GITHUB, featureName: 'Merge proof', settings });
-record.settings.agentId = agentId;
+record.settings.modelChoices.kept = { agentId, model: agentId === 'codex' ? 'gpt-6.1-sol' : 'opus', effort: 'high' };
 const at = new Date().toISOString();
 Object.assign(record, { startedAt: at, setupCompletedAt: at, completedAt: at, plan: recordedPlan(observePlan(repository, directory).plan) });
 record.repositories = [{ name: paths.repositoryName, kind: 'prd', mainCheckoutPath: repository, github: GITHUB, baseBranch, worktreePath: join(root, 'old-worktree'), baseCommit: main, setupCompletedAt: at }];

@@ -145,7 +145,9 @@ if (isSession && rejectedArgument && args.includes(rejectedArgument)) {
 }
 const sessionId = flag("--session-id") ?? flag("--resume");
 const model = args[args.indexOf("--model") + 1];
-const emit = (event) => process.stdout.write(`${JSON.stringify({ session_id: sessionId, ...event })}\n`);
+// Whether this run has emitted a model response: Claude Code never reports a successful result without one.
+let responded = false;
+const emit = (event) => { if (event.type === "assistant" && event.message?.model !== "<synthetic>") responded = true; process.stdout.write(`${JSON.stringify({ session_id: sessionId, ...event })}\n`); };
 // The worktree an action works in: the session's folder, or a repository's worktree in or beside it.
 const worktreeOf = (repository) => {
   if (!repository) return process.cwd();
@@ -487,6 +489,8 @@ for (const action of session.actions) {
     else if (!action.uncorrelated) emit({ type: "result", subtype: "success", is_error: false, ...(action.wrongSession ? { session_id: "wrong-conversation" } : {}), user_message_uuids: action.malformedUuids ? uuids.join(",") : uuids, queued_turn_count: 0, result: "Live instructions accounted." });
     if (action.exitAfter) await exitAfterFlush(0);
   } else if (action.result !== undefined) {
+    // The result's text is the model's last message, so a run that responded with nothing else sends it as one first.
+    if (!responded) emit({ type: "assistant", parent_tool_use_id: null, message: { model: "claude-opus-5-5", content: [{ type: "text", text: action.result }] } });
     emit({ type: "result", subtype: "success", is_error: false, result: action.result });
     resultSent = true;
   } else if (action.rawEvent) {

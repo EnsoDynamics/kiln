@@ -77,6 +77,8 @@ A launch check that fails before a preflight session starts stops on the preflig
 
 ## The Preflight Session
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Resolving a Choice (the preflight runs on the Audits choice, not the run's agent, model and effort; skill presence before Start is read for the preflight's own agent; `preflight.planned` gains `model`, and the planned Preflight row shows the Audits choice).
+
 The session uses the run's agent, model and effort, and the same session folder and added directories as an audit session. Its session record has kind `preflight`.
 
 The prompt is a new externalized template, `prompts/preflight-session.txt`. It says to run the installed `build-preflight` skill on the governing PRD (Claude Code invokes the skill; Codex reads the pinned source in full, as the audit prompt has it), to follow the skill exactly, and to end with the skill's report as the final message, its fixed first line first with nothing before it. It lists the assigned worktrees and feature branch and authorizes no change there: the skill changes no file, and the session is to change, stage, commit and push nothing, and to leave any uncommitted changes in the worktrees exactly as they are, never stashing, resetting or cleaning them; the preflight can run ahead of an interrupted phase whose work is uncommitted. Those limits bind the session Kiln runs. The prompt says that a person who later reopens the conversation in a terminal may direct any change there, as the skill provides, so a conversation about an item is never refused on Kiln's account. It gives no pinned CLI and no report path. Every resume of a preflight session by Kiln (a sleep interruption, the end of a usage-limit wait) carries a new kind-specific tail, `prompts/resume-carry-on-preflight.txt`, in the place the phase, audit and pull-request tails take today: carry on with the preflight only and end with the skill's report as the final message, its fixed first line first. Without it a resumed session gets the phase tail and may end on a message Kiln reads as no report. The resumed run's final message is read the same way. Kiln never resumes a preflight session with a person's words (The Preflight Stop).
@@ -148,6 +150,8 @@ A line with no text after it still marks the phase, with empty text. Neither lin
 
 ## Interfaces
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (the preflight runs on the Audits choice, not the run's agent, model and effort; skill presence before Start is read for the preflight's own agent; `preflight.planned` gains `model`, and the planned Preflight row shows the Audits choice).
+
 No new HTTP route or command. The snapshot and the `kiln status` JSON gain:
 
 ```
@@ -182,6 +186,8 @@ Skill presence before Start comes from the enabled-skill read agent metadata alr
 In the `kiln status` JSON a preflight is one more activity kind. A preflight stop is reported as any stop, and a preflight marked complete as a waived audit is (PRD, Out of Scope).
 
 ## Display Contract
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §When an Activity Starts (the preflight runs on the Audits choice, not the run's agent, model and effort; skill presence before Start is read for the preflight's own agent; `preflight.planned` gains `model`, and the planned Preflight row shows the Audits choice).
 
 Superseded in part by: `docs/changes/kiln-find-repositories-anywhere/technical-design.md`, §Screens (a marked phase's Needs you page gains the question below the card for how its session ended, with the planned-as-needing-you card still first)
 

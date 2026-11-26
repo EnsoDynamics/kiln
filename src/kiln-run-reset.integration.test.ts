@@ -93,7 +93,7 @@ it("the open page resets through its confirmation, returns to Documents found wi
   const h = await stoppedPrd();
   // Settings chosen away from their defaults, which the reset forgets (AC-RESET-04).
   const chosen = readPrdRecord(h.stateDirectory)!;
-  const away = { agentChoices: { claude_code: { model: "sonnet", effort: "medium" } }, keepAwake: false, resumeAfterUsageLimit: false, auditLoops: { deliveryLimit: 1, testLimit: 5 } };
+  const away = { modelChoices: { phases: { "1": { agentId: "claude_code" as const, model: "sonnet", effort: "medium" } } }, keepAwake: false, resumeAfterUsageLimit: false, auditLoops: { deliveryLimit: 1, testLimit: 5 } };
   // A loop already counted, which the reset forgets with the settings (Kiln Audit Loop Limits AC-LOOP-04).
   const counted = { ...chosen.auditLoops!, loops: [{ kind: "delivery" as const, number: 1, startedAt: chosen.startedAt!, activityKey: "audit-seeded" }] };
   writePrdRecord(h.stateDirectory, { ...chosen, auditLoops: counted, settings: { ...chosen.settings, ...away } as PrdRecord["settings"] });
@@ -156,7 +156,8 @@ it("the open page resets through its confirmation, returns to Documents found wi
   expect(after.phases).toEqual({});
   expect(after.repositories).toEqual([]);
   // Its settings for the PRD are forgotten: back at their defaults, to be chosen again on Documents found.
-  expect(after.settings).toMatchObject({ agentChoices: { claude_code: { model: "opus", effort: "medium" } }, keepAwake: true, resumeAfterUsageLimit: true, auditLoops: { deliveryLimit: 4, testLimit: 4 }, featureBranch: before.settings.featureBranch });
+  // A reset returns the PRD's model choices to the defaults with its other settings (Kiln Phase Model Tiers, "Data Models").
+  expect(after.settings).toMatchObject({ modelChoices: { phases: {} }, keepAwake: true, resumeAfterUsageLimit: true, auditLoops: { deliveryLimit: 4, testLimit: 4 }, featureBranch: before.settings.featureBranch });
   // Both loop counts are back at zero (Kiln Audit Loop Limits AC-LOOP-04).
   expect(before.auditLoops!.loops).toHaveLength(1);
   expect(after.auditLoops).toBeUndefined();

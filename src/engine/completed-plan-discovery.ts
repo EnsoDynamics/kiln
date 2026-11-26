@@ -64,7 +64,7 @@ export interface DeliveryDecision {
   merged: Record<string, string>;
   closed: { repository: string; number: number }[];
 }
-export interface DiscoveryContext { codex?: string | undefined; record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; delivery: DeliveryDecision; observeInput?: (observation: ContinuationInputObservation) => void; /** What a repository is shown by (find repositories anywhere AC-FOLDER-02). */ label?: (name: string) => string }
+export interface DiscoveryContext { /** The agent a continuation's preparation turn runs on (Kiln Phase Model Tiers AC-AGENTS-04). */ agentId: import("../state/records.js").AgentId; codex?: string | undefined; record: PrdRecord; directory: string; shared: string; git: GitContext; attemptedAt: string; delivery: DeliveryDecision; observeInput?: (observation: ContinuationInputObservation) => void; /** What a repository is shown by (find repositories anywhere AC-FOLDER-02). */ label?: (name: string) => string }
 export class DiscoveryWriteFailure extends Error {}
 function retainDiscoveryBaseline(directory: string, value: Omit<PlanBaseline, "id">): PlanBaseline {
   try { return retainBaseline(directory, value); }
@@ -226,7 +226,7 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     const accounting = await accountCompletedLeaves({ record, baseline: finished, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.observeInput ? { observeInput: context.observeInput } : {}), ...(context.label ? { label: context.label } : {}) });
     // The phases this execution itself completed: a confirmed merge of its pull request proves their work is in the base (step 4).
     const executionFinished = new Set(Object.entries(record.phases).flatMap(([key, facts]) => activityKeyKind(key) === "phase" && facts.doneAt ? [judgedPhase(record.plan ?? [], key)?.id].filter((id): id is string => !!id) : []));
-    const proposal = await evaluateContinuationReadiness({ record, baseline: finished, candidate: selected, accounting, git, shared, directory, problems: [], source, ...(commits ? { commits } : {}), delivery: { merged: delivery.merged, closed: delivery.closed, executionFinished }, codex: context.codex, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
+    const proposal = await evaluateContinuationReadiness({ record, baseline: finished, candidate: selected, accounting, git, shared, directory, problems: [], source, ...(commits ? { commits } : {}), delivery: { merged: delivery.merged, closed: delivery.closed, executionFinished }, agentId: context.agentId, codex: context.codex, ...(context.observeInput ? { observeInput: context.observeInput } : {}) });
     const added = accounting.leaves.filter(p => p.classification === "new_unfinished").map(({ id, title, file }) => ({ id, title, file }));
     // Where the phases came from (AC-BACK-04): the most recent commit that added one of their documents.
     let origin: CompletedPlanResult["origin"];

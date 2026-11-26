@@ -228,7 +228,7 @@ describe("the installed package", () => {
       expect(child.status, child.stderr).toBe(0); expect(child.stderr).toBe(""); return child.stdout;
     };
     const inventory = JSON.parse(help([], true)).commands as { path: string[]; purpose: string; group: string; side_effect: string }[];
-    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "verify-and-advance", "waive-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence", "preparation", "preparation status", "preparation submit", "carry-on", "start-again", "reset", "check-for-new-phases", "continue-with-phases", "merge", "exit"];
+    const expected = ["status", "logs", "handoff", "account", "settings", "command-status", "message", "take-over", "reply", "resume", "locate-repository", "model", "model-defaults", "model-defaults set", "model-defaults fallback", "model-defaults restore", "verify-and-advance", "waive-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "run", "add-repository", "audit", "audit status", "audit snapshot", "audit submit", "delivery", "delivery status", "delivery assess", "delivery prepare", "delivery evidence", "preparation", "preparation status", "preparation submit", "carry-on", "start-again", "reset", "check-for-new-phases", "continue-with-phases", "merge", "exit"];
     expect(inventory.map(c => c.path.join(" ")).sort()).toEqual([...expected].sort());
     // AC-HELP-01/02: root text names each people-facing command and counts the sessions' helpers;
     // the JSON and per-command help keep every command with its purpose.
@@ -242,7 +242,7 @@ describe("the installed package", () => {
     for (const group of ["audit", "delivery", "preparation"]) for (const leaf of expected.filter(name => name.startsWith(`${group} `))) expect(help([group])).toContain(`Subcommand: kiln ${leaf} --help`);
     for (const [name, usage, errors] of [
       ["run", "kiln run <PRD-path> [--resume]", ["invalid_syntax", "invalid_prd_path", "start_checks_failed", "already_running", "port_unavailable", "newer_saved_schema"]],
-      ["add-repository", "kiln add-repository <folder-name>", ["invalid_syntax", "outside_workspace", "ambiguous_workspace", "controller_stopped", "controller_unreachable", "addition_refused"]],
+      ["add-repository", "kiln add-repository <repository>", ["invalid_syntax", "outside_workspace", "ambiguous_workspace", "controller_stopped", "controller_unreachable", "addition_refused"]],
     ] as const) {
       const c = JSON.parse(help([name], true)).command; const text = help([name]);
       expect(c.usage).toBe(usage); expect(c.errors).toEqual(errors);

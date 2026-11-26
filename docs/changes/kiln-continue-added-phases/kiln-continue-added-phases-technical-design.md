@@ -233,6 +233,8 @@ Replaces in part: `docs/changes/kiln-completion-audits/kiln-completion-audits-te
 
 Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §Start (the activation core is shared with a base-branch start from an unfinished execution, which brings panel names and carried state and no acceptance).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §When an Activity Starts (the agent and model choices carry forward except a kept choice equal to Kiln's current default, which the fresh execution drops; the current plan's rows for phases finished in an earlier execution read each retained execution once per process, so the current execution's first read is no longer independent of how many archives it has; a continuation acceptance saved before schema 26 is converted when read, §Data Models).
+
 Private schema 17 adds `continuation` with a current acceptance pointer, retained acceptance summaries and immutable execution archive references. The integrated path implements acceptance/retry, complete multi-repository setup and fresh activation. A preparation-dependent proposal stays read-only and acceptance returns `preparation_unverified`; pending target grants and the preparation runner remain Phase 3b.
 
 `continuation-acceptances/<receipt-id>.json` binds the original command/operation, proposal and candidate, old/new execution UUIDs, frozen settings, canonical workspace and exact repository setup vector. Reads validate that embedded proposal against its immutable sidecar. State is `preparing | blocked | active | superseded`; execution completion is the active record's ordinary `completedAt`, not another acceptance state. Exact owned clean worktrees at the pinned base can be adopted after interruption; occupied, moved or modified artifacts stop setup and remain intact. Settings changes are refused while setup is in progress.
@@ -310,6 +312,8 @@ Render the seven mock-up states with the same titles, order and control emphasis
 ## Data Models and Migration
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §The Loop Ledger (the fresh execution also starts its loop ledger with a `start` epoch per kind; the loop settings carry with the other settings).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Data Models (the agent and model choices carry forward except a kept choice equal to Kiln's current default, which the fresh execution drops; the current plan's rows for phases finished in an earlier execution read each retained execution once per process, so the current execution's first read is no longer independent of how many archives it has; a continuation acceptance saved before schema 26 is converted when read, §Data Models).
 
 Retain the same PRD private directory, token, instance lock and session storage paths. Phase 1 advances the persisted schema from 12 to 13 after integrating the live-session-control track for the retained active-plan baseline and handback/check references. Later phases use the next available version for their additional durable contracts; recheck other Kiln work at implementation time. The schema reader must reject a newer version before any write.
 

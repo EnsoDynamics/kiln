@@ -34,7 +34,7 @@ export interface AgentAccount extends Omit<AccountView, "limits"> {
   routingAccountId?: string;
   stale?: boolean;
   lastSuccessfulAt?: string;
-  limits: { scope?: { by: "model" | "surface"; name: string }; id?: string; kind: string; label: string; shortLabel: string; percent?: number; resetsAt?: string; durationMinutes?: number; nearLimit: boolean }[];
+  limits: { scope?: { by: "model" | "surface"; name: string }; /** A Codex bucket's `normalModelSlug`. */ modelSlug?: string; /** A Codex bucket's `limitName`. */ limitName?: string; id?: string; kind: string; label: string; shortLabel: string; percent?: number; resetsAt?: string; durationMinutes?: number; nearLimit: boolean }[];
 }
 export interface MetadataState {
   agentId: AgentId;
@@ -86,22 +86,24 @@ export class AgentInfo {
     this.claude = options.claude ?? new ClaudeInfo({ claude: options.executable.claude, cwd: options.claudeCwd, env: options.env });
     this.offClaude = this.claude.onChange(() => this.claudeChanged());
   }
-  select(agentId: AgentId): void {
-    if (this.ownClaude && this.claude instanceof ClaudeInfo) {
-      this.offClaude(); this.claude.close();
-      this.claude = new ClaudeInfo({ claude: this.options.executable.claude, cwd: this.options.claudeCwd, env: this.options.env });
-      this.offClaude = this.claude.onChange(() => this.claudeChanged());
-    }
-    this.contexts = [this.options.cwd];
-    this.state = { agentId, generation: this.state.generation + 1, pending: true, blockers: [] };
-    this.reading = undefined;
-    this.changed();
-    void this.refresh();
-  }
-  start(): void {
-    void this.refresh();
-    this.timer = setInterval(() => void this.refresh(), ACCOUNT_REFRESH_MS);
+  /**
+   * Reads now and on the existing schedule (AC-USAGE-02). While `needed` says the run doesn't need
+   * this agent, only its model list is read, and only now (Kiln Phase Model Tiers, "Agents").
+   */
+  start(needed: () => boolean = () => true): void {
+    void (needed() ? this.refresh() : this.refreshModels());
+    this.timer = setInterval(() => { if (needed()) void this.refresh(); }, ACCOUNT_REFRESH_MS);
     this.timer.unref();
+  }
+  /** The model list alone, for an agent the run doesn't need: Claude Code's catalogue, or Codex's one metadata read. */
+  async refreshModels(): Promise<void> {
+    if (this.state.agentId === "codex") return this.refresh();
+    // The optional build-preflight skill is read too: a planned Preflight row on a finished run's Continue offer needs it.
+    const state = this.state;
+    const [, skills] = await Promise.all([this.refreshClaudeModels(), Promise.all(this.contexts.map(cwd => readSkillList({ claude: this.options.executable.claude, cwd, env: this.options.env, signal: this.abort.signal })))]);
+    if (state !== this.state || this.abort.signal.aborted) return;
+    state.optionalSkills = { buildPreflight: skills.length > 0 && skills.every(result => result.ok && listsOneSkill(result.skills, "build-preflight")) };
+    this.changed();
   }
   refresh(directories = this.contexts): Promise<void> {
     const cwds = [...new Set(directories)];
@@ -161,6 +163,8 @@ export class AgentInfo {
     await this.claude.refreshModels?.();
     if (state !== this.state || this.abort.signal.aborted) return;
     state.models = this.claude.models; state.modelListError = this.claude.modelListError;
+    // A models-only read (an agent the run doesn't need) ends the reader's pending state unless a full read is under way.
+    if (!this.reading) state.pending = false;
     this.changed();
   }
   /** Required Claude launch readiness uses the inspected auth inputs; optional usage is independent. */

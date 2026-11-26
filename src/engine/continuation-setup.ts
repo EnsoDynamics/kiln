@@ -1,3 +1,4 @@
+import { continuedModelChoices } from "../models/keep.js";
 /** Fresh execution intentions and strict reconciliation of owned, still-unused worktrees. */
 import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync } from "node:fs";
@@ -17,7 +18,8 @@ export function newAcceptance(record: PrdRecord, directory: string, proposal: Co
   const folder = record.prdDirectory.split("/").at(-1)!;
   const workspaceFolder = realPathOfNearestAncestor(join(dirname(expandHome(record.settings.workspaceFolder)), `${folder}-continue-${uuid}`));
   const featureBranch = `feature/${folder}-continue-${uuid}`;
-  const settings = { ...structuredClone(record.settings), workspaceFolder, featureBranch, worktreePath: join(workspaceFolder, record.repository.name), developmentDeployments: { enabled: false, targets: [] } };
+  // A kept choice equal to Kiln's current default is dropped, so added phases take their tiers (Kiln Phase Model Tiers AC-KEEP-02, KEEP-003).
+  const settings = { ...structuredClone(record.settings), modelChoices: continuedModelChoices(record.settings.modelChoices), workspaceFolder, featureBranch, worktreePath: join(workspaceFolder, record.repository.name), developmentDeployments: { enabled: false, targets: [] } };
   const repositories = proposal.repositories.map(repo => ({ name: repo.name, ...(repo.shortName === undefined ? {} : { shortName: repo.shortName }), kind: repo.name === record.repository.name ? "prd" as const : "named" as const, mainCheckoutPath: repo.path, github: repo.identity, baseBranch: repo.baseBranch, baseCommit: repo.baseRevision, worktreePath: join(workspaceFolder, repo.name) }));
   settings.bases = Object.fromEntries(repositories.filter(repo => repo.kind !== "prd").map(repo => [repo.name, repo.baseBranch]));
   settings.baseBranch = repositories.find(repo => repo.kind === "prd")!.baseBranch;

@@ -34,7 +34,7 @@ describe("PRD-scoped early-merge choices", () => {
     expect(other.record.developmentAuthorization).toMatchObject({ enabled: false, grants: [] });
     expect(buildSnapshot(other)).not.toHaveProperty("savedDevelopmentTargets");
     expect(await other.changeSettings({ developmentDeployments: { enabled: false, targets: [] } })).toEqual({ ok: true });
-    const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
+    const reopened = h.reopenFromDisk(); await reopened.refreshAgents();
     expect(reopened.record.developmentAuthorization).toEqual(authority);
     expect(reopened.record.settings.developmentDeployments).toEqual(accepted);
     expect(existsSync(path)).toBe(false);
@@ -47,7 +47,7 @@ describe("PRD-scoped early-merge choices", () => {
     git(h.sandbox, checkout, "push", "origin", "develop");
     h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
     named.push({ name: "returns-extra", mainCheckoutPath: checkout, github: "acme/returns-extra" });
-    h.engine = h.reopen(); await h.engine.agents.refresh();
+    h.engine = h.reopen(); await h.engine.refreshAgents();
     expect(await h.engine.changeSettings({ bases: { "returns-extra": "develop" } })).toEqual({ ok: true });
     const environments = [target, { ...target, environment: "second-development" }];
     const choices = { enabled: true, targets: environments.map(target => ({ target, confirmedTarget: target, confirmedNonProduction: true })) };
@@ -57,7 +57,7 @@ describe("PRD-scoped early-merge choices", () => {
     expect(h.engine.record.repositories.find(repo => repo.name === "returns-extra")?.setupCompletedAt).toBeDefined();
     expect(h.engine.record.settings.developmentDeployments).toEqual(choices);
     expect(h.engine.record.developmentAuthorization?.grants.map(grant => grant.target)).toEqual(environments);
-    const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
+    const reopened = h.reopenFromDisk(); await reopened.refreshAgents();
     expect(reopened.record.developmentAuthorization?.grants.map(grant => grant.target)).toEqual(environments);
   });
   it("ignores obsolete preference files, including corrupt contents, for every new PRD", async () => {
@@ -87,7 +87,7 @@ describe("PRD-scoped early-merge choices", () => {
     const legacy = structuredClone(before);
     Object.assign(legacy.settings.developmentDeployments!, { rememberForPrdRepository: true, useSavedTargetsForThisPrd: true, preferenceRevision: 7 });
     writeFileSync(join(h.stateDirectory, "prd.json"), JSON.stringify(legacy));
-    const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
+    const reopened = h.reopenFromDisk(); await reopened.refreshAgents();
     expect(reopened.record.settings.developmentDeployments).toEqual(before.settings.developmentDeployments);
     expect(reopened.record.developmentAuthorization).toEqual(before.developmentAuthorization);
     expect(reopened.record.developmentDelivery).toEqual(before.developmentDelivery);
@@ -112,7 +112,7 @@ describe("Needs you execution grants", () => {
     expect(h.claudeCalls()).toHaveLength(callCount); expect(h.engine.record.phases["1"]?.stop).toBeDefined();
     const saved = readPrdRecord(h.stateDirectory)!;
     expect(saved.developmentAuthorization).toMatchObject({ revision: 2, enabled: true, grants: [{ target, source: "needs_you" }], activationRecovery: { phaseIds: ["1"], stoppedPhaseId: "1" } });
-    const reopened = h.reopenFromDisk(); await reopened.agents.refresh();
+    const reopened = h.reopenFromDisk(); await reopened.refreshAgents();
     expect(reopened.authorizeDevelopmentTarget({ executionId: saved.executionId, authorizationRevision: 1, target, confirmedNonProduction: true })).toEqual({ ok: true });
     expect(reopened.record.developmentAuthorization).toEqual(saved.developmentAuthorization);
     expect(await reopened.changeSettings({ developmentDeployments: { enabled: true, targets: candidates } })).toMatchObject({ ok: false, status: 409 });
@@ -144,7 +144,7 @@ describe("Needs you execution grants", () => {
     await h.engine.settled();
     expect(h.engine.record.phases["1"]).toEqual(history);
     expect(h.events.filter(event => event.kind === "phase" && event.event === "done")).toHaveLength(doneEvents);
-    const reopened = h.reopenFromDisk(); await reopened.agents.refresh(); await reopened.decide();
+    const reopened = h.reopenFromDisk(); await reopened.refreshAgents(); await reopened.decide();
     expect(reopened.record.phases["1"]).toEqual(history); expect(reopened.record.phases["2b"]?.stop).toBeDefined();
   });
   it("launches the unstarted stopped leaf after a readiness blocker clears so its session can recover earlier assessments", async () => {
@@ -198,13 +198,13 @@ it("updates the terminal handoff after a first grant without changing restricted
   expect(enabled.resumePrompt).toContain("activationRecovery");
   expect(enabled.resumePrompt).toContain("Never bypass protections");
   expect(session.runs).toEqual(runs);
-  const again = h.reopenFromDisk(); await again.agents.refresh();
+  const again = h.reopenFromDisk(); await again.refreshAgents();
   expect(buildSnapshot(again).needsYou?.resumePrompt).toBe(enabled.resumePrompt);
 });
 
 
 it("replaces a restricted finalization conversation's PR-opening task after its first grant", async () => {
-  h = await createHarness({ sessions: [landingSession("one.txt"), landingSession("two.txt"), landingSession("three.txt"), { actions: [] }, { actions: [] }] });
+  h = await createHarness({ sessions: [landingSession("one.txt"), landingSession("two.txt"), landingSession("three.txt"), { actions: [{ text: "Checking the delivery." }] }, { actions: [] }] });
   await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
   expect(h.engine.stoppedPhaseKey()).toBe("pr");
   const session = h.engine.latestSession("pr")!;
@@ -240,13 +240,13 @@ it("grants a branch without environment or attestation, survives restart, and re
   expect(upgraded.developmentAuthorization).toEqual(original.developmentAuthorization);
   expect(upgraded.developmentDelivery).toEqual(original.developmentDelivery);
   expect(upgraded.phases).toEqual(original.phases);
-  const again = h.reopenFromDisk(); await again.agents.refresh();
+  const again = h.reopenFromDisk(); await again.refreshAgents();
   const request = { executionId: again.record.executionId, authorizationRevision: 1, target: branch };
   expect(again.authorizeDevelopmentTarget(request)).toEqual({ ok: true });
   expect(again.authorizeDevelopmentTarget(request)).toEqual({ ok: true });
   expect(readPrdRecord(h.stateDirectory)!.developmentAuthorization?.grants.map(one => one.target)).toEqual([target, branch]);
   expect(again.record.phases).toEqual(original.phases);
-  const restarted = h.reopenFromDisk(); await restarted.agents.refresh();
+  const restarted = h.reopenFromDisk(); await restarted.refreshAgents();
   expect(restarted.record.developmentAuthorization).toEqual(again.record.developmentAuthorization);
   expect(JSON.parse(restarted.deliveryAuthority()!).grants).toEqual([target, branch]);
 });

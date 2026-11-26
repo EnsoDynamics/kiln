@@ -41,8 +41,8 @@ git(worktree, 'add', manifest.prdDirectory); git(worktree, 'commit', '-m', 'test
 const env = { ...process.env, XDG_STATE_HOME: join(root, 'state'), LOCALAPPDATA: join(root, 'state') };
 const stateDirectory = prdStateDirectory(stateRoot(env), main, 'proof', manifest.prdDirectory);
 const agent = manifest.provider === 'codex' ? 'codex' : 'claude_code'; const at = new Date().toISOString();
-const record = newPrdRecord({ mainCheckoutPath: main, repositoryName: 'proof', github: manifest.repository, prdDirectoryFromRoot: manifest.prdDirectory, featureName: 'Disposable development activation recovery', settings: { workspaceFolder: workspace, worktreePath: worktree, featureBranch: manifest.branch, baseBranch: 'main', bases: {}, model: 'sonnet', effort: 'low', keepAwake: false, resumeAfterUsageLimit: false } });
-record.settings.agentId = agent; record.settings.agentChoices[agent] = { model: agent === 'codex' ? 'gpt-6.1-sol' : 'sonnet', effort: 'low' };
+const record = newPrdRecord({ mainCheckoutPath: main, repositoryName: 'proof', github: manifest.repository, prdDirectoryFromRoot: manifest.prdDirectory, featureName: 'Disposable development activation recovery', settings: { workspaceFolder: workspace, worktreePath: worktree, featureBranch: manifest.branch, baseBranch: 'main', bases: {}, keepAwake: false, resumeAfterUsageLimit: false } });
+record.settings.modelChoices.kept = { agentId: agent, model: agent === 'codex' ? 'gpt-6.1-sol' : 'sonnet', effort: 'low' };
 record.executionId = randomUUID(); record.startedAt = at; record.setupCompletedAt = at;
 record.repositories = [{ name: 'proof', kind: 'prd', mainCheckoutPath: main, github: manifest.repository, baseBranch: 'main', worktreePath: worktree, baseCommit: manifest.base, setupCompletedAt: at }];
 const plan = readPlanAt(worktree, manifest.prdDirectory); assert.ok(plan.ok); record.plan = recordedPlan(plan.plan);
@@ -56,7 +56,7 @@ record.developmentDelivery.checkpoints = [checkpoint];
 record.developmentDelivery.assessments = [{ phaseId: '1', documentsDigest: '0'.repeat(64), required: true, criteria: ['AC-PROOF-01'], reason: 'Historical workflow still requires independently recovered evidence.', checkpointIds: [checkpoint.id] }];
 const history = { sessionIds: [], doneAt: checkpoint.merge.mergedAt, finishedByPerson: false, repositories: { proof: { startCommit: manifest.base, pushedSha: manifest.head, commitCount: 1 } }, outsideConfirmations: [] };
 record.phases['1'] = globalThis.structuredClone(history);
-const session = { schemaVersion: SCHEMA_VERSION, agentId: agent, sessionId: randomUUID(), phaseId: '2', kind: 'phase', createdAt: at, model: record.settings.agentChoices[agent].model, modelDisplayName: agent, effort: 'low', workingDirectory: worktree, runs: [], sleeps: [], steps: [] };
+const session = { schemaVersion: SCHEMA_VERSION, agentId: agent, sessionId: randomUUID(), phaseId: '2', kind: 'phase', createdAt: at, model: record.settings.modelChoices.kept.model, modelDisplayName: agent, effort: 'low', workingDirectory: worktree, runs: [], sleeps: [], steps: [] };
 record.phases['2'] = { sessionIds: [session.sessionId], finishedByPerson: false, repositories: { proof: { startCommit: git(worktree, 'rev-parse', 'HEAD') } }, outsideConfirmations: [] };
 writePrdRecord(stateDirectory, record); writeSessionRecord(stateDirectory, session);
 const options = { paths: { mainCheckoutPath: main, repositoryName: 'proof', folderName: manifest.prdDirectory.split('/').at(-1), prdDirectoryFromRoot: manifest.prdDirectory, featureName: record.featureName }, tools: { git: 'git', gh: 'gh', claude: 'claude', codex: 'codex' }, env, stateDirectory, record, originRetryMs: 0, onTerminal: event => console.log('EVENT', JSON.stringify(event)) };
@@ -128,7 +128,7 @@ try {
   assert.match(result.futureRefusal, /Activation recovery|current judged leaf/);
   assert.ok(engine.record.phases['2'].stop); assert.equal(engine.record.phases['3'], undefined);
   writePrdRecord(stateDirectory, record); engine.close();
-  engine = new Engine({ ...options, record: readPrdRecord(stateDirectory) }); await engine.agents.refresh();
+  engine = new Engine({ ...options, record: readPrdRecord(stateDirectory) }); await engine.refreshAgents();
   assert.deepEqual(engine.record.phases['1'], history); assert.deepEqual(engine.record.developmentAuthorization, result.authorization);
   assert.equal(engine.authorizeDevelopmentTarget(payload).ok, true);
   assert.deepEqual(engine.record.developmentAuthorization, result.authorization);

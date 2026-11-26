@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "executionId": "95065ee9-8f1d-47ab-8a48-dce65dc38742",
+  "activityId": "c7d7b3c6-7ada-4fe9-a1bf-5f4c92e92e28",
+  "kind": "test_audit",
+  "outcome": "passed",
+  "summary": "Test-fix session for batch 3 of 3 of the Kiln Phase Model Tiers test audit. Fresh reviewers now grade all seven rows in the batch Adequate: AC-TIER-02, AC-DEFAULT-02, AC-OTHER-01, AC-FALLBACK-01, AC-FALLBACK-04, AC-AGENTS-03 and AC-AGENTS-04. Every new test was seen to fail with the part it proves broken. Two re-grade rounds found further stated parts, and those were covered in this session too. test-audit.md now reads Done: every one of the PRD's 26 criteria is Adequate or better, none waits and none was accepted. Only tests changed, in 897dcef. npm run verify passed audit, lint, typecheck, unit, release and Codex proof checks. Its integration run passed 2172 tests and failed 7, all outside this PRD's criteria and already known.",
+  "completionPhases": [],
+  "needsYou": [
+    { "id": "item-5", "problem": "Seven integration tests outside this PRD's criteria fail on the feature branch at 897dcef. Six also fail on the base commit 27030fa without this audit's changes: five in src/engine/preparation-execution.integration.test.ts and 'offers seven phases…' in src/engine/continuation-readiness.integration.test.ts. 'Exit Kiln on the finished page…' in src/kiln-run-exit.integration.test.ts fails under the full run and passes alone. The agent-metadata test that failed under load at d612e1e passed this time. The integration run took 86 minutes.", "action": "Look into these failures in the continuation, preparation and run-exit code, which this PRD doesn't own, before the branch merges." }
+  ],
+  "settled": [],
+  "changedImplementation": false
+}

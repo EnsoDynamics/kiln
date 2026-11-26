@@ -219,6 +219,7 @@ Four screens are drawn for this change. The others it touches follow the nearest
   - Superseded in part by: AC-RESUME-01 in `docs/changes/kiln-usage-limit-recovery/kiln-usage-limit-recovery-prd.md` (Needs you after work outside the workspace gains Resume and its note, where that change's mockups put them)
   - Superseded in part by: AC-LOOK-01 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md` (the three stopped-phase pages and the held page AC-CARRY-06 changes, and the reset line on every screen; the rest of each layout remains).
   - Superseded in part by: AC-LEFT-02 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (Complete also shows the loops of each kind used and **For you**; the rest of its layout remains)
+  - Superseded in part by: AC-KEEP-01 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (Documents found drops Agent, Model and Effort for the model lines and links, and phase rows gain the tier tag and model choice, as this change's mockups draw them; the rest of the layout remains).
 
 ### Proven on Real Features
 

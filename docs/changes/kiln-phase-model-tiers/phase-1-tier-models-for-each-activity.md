@@ -1,5 +1,7 @@
 # Phase 1: Tier models for each activity
 
+**Closed:** 2026-11-24
+
 **Parent PRD:** [Kiln Phase Model Tiers](kiln-phase-model-tiers-prd.md)
 **Technical design:** [Kiln Phase Model Tiers technical design](kiln-phase-model-tiers-technical-design.md) — relevant sections: "Existing Code"; "The Tier Line"; "Resolving a Choice"; "When an Activity Starts"; "A choice that can't be used"; "Model defaults file" (reading it); "Snapshot"; "Data Models"; "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-phase-model-tiers-phase-plan.md)
@@ -18,7 +20,7 @@ Readiness, billing and account for both agents in one run, and an activity that 
 None.
 
 ## Phase-specific notes
-- Schema 25 is this PRD's one record change. Build its whole migration here, including the `kept` choice, the continuation's drop of `kept`, the continuation acceptance conversion and `billing.lastLaunch` keyed by agent; later phases add the behavior behind those fields without another schema bump, since nothing is released mid-branch.
+- Schema 26 is this PRD's one record change. Build its whole migration here, including the `kept` choice, the continuation's drop of `kept`, the continuation acceptance conversion and `billing.lastLaunch` keyed by agent; later phases add the behavior behind those fields without another schema bump, since nothing is released mid-branch.
 - Model defaults is read from its file, the fallback switch and threshold included, with the shipped defaults when it is missing and the refusal when it doesn't parse. Tests write the file directly; writing it is Phase 3's.
 - The resolver also gives each activity its fallback (the Fallback column, none on the same agent), which DEF-003 uses here and Phase 2's readiness checks use next.
 - Readiness, account and billing still follow one agent here: the agent the run's activities resolve to. A plan whose activities resolve to two agents, possible only through a written Model defaults file, refuses Start with that reason until Phase 2 replaces the check with §Agents.

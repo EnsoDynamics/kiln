@@ -104,6 +104,7 @@ After an immediate pause, the person comes back to a page that says plainly wher
   - Replaces in part: AC-VERIFY-02 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (on the page an immediate pause lands on, no requirement rows show until Resume finds the work complete).
   - Replaces in part: AC-REPLY-01 in `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-prd.md` (on the page an immediate pause lands on, the reply is an optional note on Resume {activity}, not a separate Send reply & resume; delivery order remains).
   - Replaces in part: AC-STOPCHECK-01 and AC-STOPCHECK-02 in `docs/changes/kiln-checks-at-a-stop/kiln-checks-at-a-stop-prd.md` (the page an immediate pause lands on shows no saved rows and no Check again line until Resume finds the work complete).
+  - Superseded in part by: AC-PICK-07 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (for an activity that hasn't started, **Resume {activity}** launches a new session on its current choice and gives it any note, and the column no longer says it picks up the same conversation; the take-over column offers the command that reopens the saved conversation only while its current choice is the one that session ran on, otherwise the fresh-session command for its current choice's agent; the rest remains).
 
 ## Out of Scope
 

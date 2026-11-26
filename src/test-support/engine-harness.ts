@@ -190,7 +190,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     setPullRequestViews: (views) => writeFileSync(ghStatePath, JSON.stringify({ ...JSON.parse(readFileSync(ghStatePath, "utf8")) as object, views })),
     reopen: () => { harness.engine.close(); return harness.engine = make(); },
     reopenFromDisk: () => { harness.engine.close(); return harness.engine = engineOver(feature, readPrdRecord(feature.stateDirectory)!); },
-    engineFor: async (name) => { const engine = engineOver(await newFeature(name)); await engine.agents.refresh(); return engine; },
+    engineFor: async (name) => { const engine = engineOver(await newFeature(name)); await engine.refreshAgents(); return engine; },
     kilnGitCalls: () => kilnGitCalls(gitLog),
     cleanup: async () => {
       // close() releases watchers; stop() also drains the sessions and Git helpers that
@@ -201,7 +201,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     },
   };
   harness.engine = make();
-  await harness.engine.agents.refresh();
+  await harness.engine.refreshAgents();
   return harness;
 }
 

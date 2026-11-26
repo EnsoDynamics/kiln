@@ -48,7 +48,7 @@ import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt, planPushPrompt, preflightSessionPrompt } from "../session/prompts.js";
-import { isPreflightKey, activityKeyKind, isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
+import { isPhaseKey, isPreflightKey, activityKeyKind, isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
 import { keyOf as preflightKeyOf, latestPreflight, preflightActivity, preflightSettled, readPreflightReport, setPreflightDue, unfinishedPreflight, PREFLIGHT_CHECK, PREFLIGHT_LIVE_REASON, PREFLIGHT_PAUSE_REASON, PREFLIGHT_SKILL, PREFLIGHT_STOP_REASON, PREFLIGHT_TITLE, type PreflightActivity, type PreflightReport, type PreflightTrigger } from "./preflight.js";
 import { appendLoop, closedKinds, closingAudits, limitFloor, LOOP_STOP_LINE, loopSettings, REMOVED_LOOP_COMMAND, startedLedger, validLimit, type AuditLoopSettings } from "../state/audit-loops.js";
 import { nextStepsForecast } from "./next-steps.js";
@@ -76,9 +76,16 @@ import { CODEX_NATIVE_CLEANUP_WARNING } from "../session/codex-background-termin
 import { sleepInterruption } from "../session/run-verdict.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
-import { latestSol } from "../agents/codex-metadata.js";
-import { AGENT_NAMES, assertAgent, type AgentSettings, type Effort } from "../state/records.js";
-import { selectedChoice } from "../state/records.js";
+import { AGENT_IDS, AGENT_NAMES, type AgentId, type CodexUsageRecovery, type RecordedPlanPhase } from "../state/records.js";
+import { modelDefaultsPath, readModelDefaults, type ModelChoice } from "../models/model-defaults.js";
+import { checkModelChoice } from "../models/model-defaults-edit.js";
+import { continuedModelChoices } from "../models/keep.js";
+import { activityFallback, auditsChangePlace, choiceView, launchMarks, launchSource, ranOnView, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
+import { firstResponseInSavedEvents } from "../models/start-line.js";
+import type { ActivityChoice, ModelList, ResolvedChoice } from "../models/resolver.js";
+import { choiceWords, decideLaunch, firstOverThreshold, limitWords, type DecisionChoice, type LaunchFallback, type UsageSide } from "../models/launch-decision.js";
+import { claudeHistoryStart, codexHistoryStart } from "../models/history-start.js";
+import { executableAvailable } from "../platform/helper-process.js";
 // The engine: works out where a feature stands, picks the next phase, runs its session, runs
 // the done check, and owns Kiln's record (technical design, "Workload Type and Starting Point",
 // "Where a Feature Stands", engine loop). The server and view reach it only through its
@@ -86,11 +93,11 @@ import { selectedChoice } from "../state/records.js";
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { delimiter, isAbsolute, join, relative, sep } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
+import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
-import { autoModeError, effortLevelsFor, type ModelEntry } from "../account/model-list.js";
+import type { ModelEntry } from "../account/model-list.js";
 import { isAncestorOf } from "../plan/phase-ids.js";
 import { leavesOf, namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
@@ -100,7 +107,6 @@ import { platformSleepReader, type SleepReader } from "../platform/sleep-reading
 import {
   sessionFiles,
   launchArguments,
-  modelNameFromId,
   eventsOfRun,
   readOutputLines,
   resumeArguments,
@@ -122,7 +128,7 @@ import {
 import { isModelResponse } from "../session/run-verdict.js";
 import type { OutputLine, PartialText, SessionOutputReader } from "../session/session-output.js";
 import { automaticResumeSchedule, judgeReading, limitRow, limitSentence, readingAccount, sameAccount, UNKNOWN_LIMIT_LABEL } from "../session/usage-limit.js";
-import { CodexLaunchCancelled, CodexUsageRecoveryUnavailable, codexUsageRelease } from "../session/codex-usage.js";
+import { activityUsageRelease, CodexLaunchCancelled, CodexUsageRecoveryUnavailable, codexUsageRelease } from "../session/codex-usage.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import {
   PR_PHASE_KEY,
@@ -259,6 +265,16 @@ export type CommandResult =
 /** What `kiln add-repository` gets back (multi-repo AC-ADD-01). */
 /** What Mark complete's rerun and act answer (waivers "Interfaces"). */
 export type WaiveAnswer = { ok: boolean; outcome?: MarkCompleteOutcome | string; reason?: string; code?: string; status?: number; waiver_id?: string; changes?: ItemChange[] };
+/** A launch's decision, saved on the session before its process starts (Kiln Phase Model Tiers, "The launch decision"). */
+interface LaunchDecision {
+  choice: ModelChoice & { modelName: string };
+  launch: NonNullable<SessionRecord["launch"]>;
+  /** Both agents' usage was read for this launch, so the launch checks don't read the decided agent again. */
+  read: boolean;
+  /** The activity's skill, resolved again against the fallback's agent. */
+  skill?: NonNullable<AuditActivity["skill"]>;
+}
+
 interface WaiveRequest { offered: CheckResult[]; offeredRun: { id: string; at: string }; source: WaiverSource; operationId: string; continueInOrder: boolean }
 
 export type AddRepositoryResult =
@@ -298,6 +314,8 @@ export interface EngineOptions {
   exitGraceMs?: number;
   /** The account and the model list, which arrive after startup (technical design, "Startup order"). */
   claude?: ClaudeInfoSource;
+  /** Model defaults' file (Kiln Phase Model Tiers, "Storage"): `<state root>/model-defaults.json` unless a test gives one. */
+  modelDefaultsPath?: string;
   /** The plan the start checks read in the checkout, recorded when Start is pressed (not started only). */
   startPlan?: PhasePlan;
   /** The named repositories the start checks found, beside the PRD's repository or by their origin (not started only). */
@@ -585,19 +603,24 @@ export class Engine {
     const migratingActivities = !this.record.activities;
     activityHistory(this.record, options.stateDirectory);
     if (migratingActivities && this.record.startedAt) writePrdRecord(options.stateDirectory, this.record);
-    this.agents = new AgentInfo({ agentId: this.record.settings.agentId, generation: this.record.settings.selectionGeneration ?? 0, ...(options.claude ? { claude: options.claude } : {}), executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env });
-    this.offClaude = this.agents.onChange(() => this.modelsChanged());
+    this.defaultsPath = options.modelDefaultsPath ?? modelDefaultsPath(options.env);
+    this.claudeCodeInstalled = executableAvailable(options.tools.claude, options.env);
+    this.codexInstalled = !!options.tools.codex && executableAvailable(options.tools.codex, options.env);
+    // One reader per agent (Kiln Phase Model Tiers, "Agents"): each holds its own readiness, model list, account and usage.
+    const claudeReader = new AgentInfo({ agentId: "claude_code", ...(options.claude ? { claude: options.claude } : {}), executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env });
+    this.readers = { claude_code: claudeReader, codex: new AgentInfo({ agentId: "codex", claude: claudeReader.claude, executable: options.tools, cwd: options.paths.mainCheckoutPath, claudeCwd: options.stateDirectory, env: options.env }) };
+    this.offClaude = (() => { const offs = AGENT_IDS.map(id => this.readers[id].onChange(() => this.modelsChanged())); return () => offs.forEach(off => off()); })();
     this.record.executionId ??= randomUUID();
     this.record.billing ??= newBillingState(this.record.executionId);
     this.billing = new BillingAuthority({
-      state: () => this.record.billing!, generation: () => this.record.settings.selectionGeneration ?? 0,
+      state: () => this.record.billing!, generation: () => this.readers.claude_code.state.generation,
       save: () => this.save(), changed: () => this.changed(), busy: () => this.billingBusy(),
-      cancelled: () => this.abort.signal.aborted || this.closed, readiness: () => this.billingResumesConversation ? this.agents.state.blockers.length === 0 : !this.selectionError,
+      cancelled: () => this.abort.signal.aborted || this.closed, readiness: () => this.billingResumesConversation ? this.readers.claude_code.state.blockers.length === 0 : !this.agentProblem("claude_code"),
       completed: () => this.currentlyComplete, now: () => this.now().toISOString(),
       inspect: async (cwd, env, args) => {
         const read = await readInventory({ executable: this.options.tools.claude, cwd, env, args, signal: this.abort.signal });
         this.abort.signal.throwIfAborted();
-        const auth = await this.agents.refreshClaudeForLaunch(cwd, read.projected, this.abort.signal);
+        const auth = await this.readers.claude_code.refreshClaudeForLaunch(cwd, read.projected, this.abort.signal);
         const result = classify({ cwd, env, read, auth, at: this.now().toISOString() });
         const overflow = this.claude?.account?.extraUsage;
         if (result.summary.route === "subscription" && overflow && Date.parse(result.summary.observedAt) - Date.parse(overflow.observedAt) <= 5 * 60_000 && (overflow.email || overflow.orgId) && overflow.email === result.summary.email && overflow.orgId === result.summary.orgId) result.summary.overflow = { enabled: overflow.enabled, observedAt: overflow.observedAt };
@@ -625,7 +648,8 @@ export class Engine {
     this.record.controlEpoch = this.controlEpoch;
     this.save();
     if (this.record.liveControl) this.watchTakeover();
-    this.agents.start();
+    this.startReaders();
+    this.watchModelDefaults();
     void this.refreshBilling().catch(() => this.changed());
   }
 
@@ -698,6 +722,8 @@ export class Engine {
       "locate-repository": !!key && !!this.questionHolder(key)?.locate?.length && !busy,
       merge: this.mergeControl().available,
       exit: this.exitControl().available,
+      // `kiln model` (AC-PICK-05): in a run underway that isn't complete, whatever any activity's state, since --audits is never refused for one; withdrawn only as settings is.
+      model: this.isUnderway && !this.record.completedAt && !this.folderMissing && !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy,
     };
     // At a preflight stop only Check Preflight again and Mark complete are offered (The Preflight Stop).
     const preflightStop = this.preflightStopKey() !== undefined;
@@ -725,13 +751,14 @@ export class Engine {
       "locate-repository": this.record.startedAt === undefined ? `${this.paths.featureName} hasn’t started. Tell Kiln where a repository is on Documents found, in the browser.` : "No stop is asking where a repository is.",
       merge: this.mergeControl().reason ?? "Merge with the agent isn't offered here.",
       exit: this.exitControl().reason ?? "Exit Kiln isn't offered here.",
+      model: !this.isUnderway ? "No run is underway. Change models on Documents found." : this.record.completedAt ? "The run is complete; no activity is left to change." : this.folderMissing ? FOLDER_MISSING_REASON : "Kiln is checking, dispatching or reconciling an instruction.",
       ...(afterDeliveryRunning ? { "take-over": liveReason, message: liveReason, "request-pause": liveReason } : {}),
       ...(preflightStop ? { reply: PREFLIGHT_STOP_REASON, resume: PREFLIGHT_STOP_REASON, "carry-on": PREFLIGHT_STOP_REASON, "start-again": PREFLIGHT_STOP_REASON, "verify-and-advance": PREFLIGHT_STOP_REASON } : {}),
       ...(preflightRunning ? { "request-pause": PREFLIGHT_PAUSE_REASON } : {}),
     };
     // Live controls run beside the phase Kiln is driving, so only a pending instruction makes them busy; otherwise they carry the live view's reasons.
     const liveControl = (name: Action) => name === "message" || name === "take-over" || name === "message-review";
-    const fixedReason = (name: Action) => name === "reset" || name === "locate-repository" && !(key && this.questionHolder(key)?.locate?.length) || name === "merge" || name === "exit" || afterDeliveryRunning && (name === "take-over" || name === "message" || name === "request-pause") || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
+    const fixedReason = (name: Action) => name === "reset" || name === "locate-repository" && !(key && this.questionHolder(key)?.locate?.length) || name === "merge" || name === "exit" || name === "model" || afterDeliveryRunning && (name === "take-over" || name === "message" || name === "request-pause") || preflightStop && ["reply", "resume", "carry-on", "start-again", "verify-and-advance"].includes(name) || preflightRunning && name === "request-pause";
     const controls = ACTIONS.filter(name => name !== "outside-confirmation").map(name => ({ name, available: available[name], reason: available[name] ? null : fixedReason(name) ? unavailable[name]! : (liveControl(name) ? this.commands?.busy : busy) ? "Kiln is checking, dispatching or reconciling an instruction." : unavailable[name] ?? "The current browser recovery rules do not offer this control." }));
     const live = this.liveView();
     // A Pause now's per-reading reasons (the hold's reason, its rows) stay out of the token, so a pause still pausing doesn't change it every second (Kiln Pause Now, "Interfaces").
@@ -895,6 +922,8 @@ export class Engine {
       case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
       case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
       case "take-over": return this.acceptTakeover(inputs.target, receipt);
+      case "model": answer = await this.changeModel(typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits", inputs.use_default === true ? "default" : { agentId: inputs.agent_id as AgentId, model: inputs.model as string, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) });
+        break;
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
       case "settings": {
@@ -1557,7 +1586,11 @@ export class Engine {
   }
 
 
-  readonly agents: AgentInfo;
+  /** One reader per agent (Kiln Phase Model Tiers, "Agents"). */
+  readonly readers: Record<AgentId, AgentInfo>;
+  /** Whether Codex is installed, read when Kiln starts and at each refresh. */
+  codexInstalled: boolean;
+  installedAgents(): AgentId[] { return AGENT_IDS.filter(id => id === "claude_code" ? this.claudeCodeInstalled : this.codexInstalled); }
   readonly billing: BillingAuthority;
   private billingLaunch: BillingSummary | undefined;
   get billingCwd(): string { return this.isUnderway ? this.sessionFolder : this.paths.mainCheckoutPath; }
@@ -1567,49 +1600,693 @@ export class Engine {
   }
   private billingBusy(): boolean { return !!(this.settingUp || this.checking || this.driving || this.current?.processRunning || this.deliveryBusy || this.stopping); }
   refreshBilling(): Promise<unknown> {
-    if (this.record.settings.agentId !== "claude_code" || this.currentlyComplete) return Promise.resolve();
+    // Only Claude Code has a billing reading; while no activity or fallback needs it, it isn't refreshed (AC-AGENTS-02).
+    if (!this.isNeeded("claude_code") || this.currentlyComplete) return Promise.resolve();
     return this.billing.refresh(this.billingCwd, this.sessionEnv());
   }
   async billingCommand(action: "approval" | "clear", body: Record<string, unknown>) {
-    if (this.record.settings.agentId !== "claude_code") throw new BillingError("invalid_request", "Codex has no API billing approval.", 400);
+    if (!this.isNeeded("claude_code")) throw new BillingError("invalid_request", "No activity of this run uses Claude Code, so it has no billing approval to give.", 400);
     try { return await this.billing.command(action, body, this.billingCwd, this.sessionEnv()); }
     finally { this.changed(); }
   }
 
-  choiceNotice: string | undefined;
+  private readonly defaultsPath: string;
+  /** Whether Claude Code is installed, read when Kiln starts and at each refresh (Kiln Phase Model Tiers, "Agents"). */
+  claudeCodeInstalled: boolean;
 
-  get claude(): ClaudeInfoSource | undefined {
-    return this.agents.claude;
+  /** What every activity's choice is resolved against now (Kiln Phase Model Tiers, "Resolving a Choice"). */
+  get modelContext(): ModelContext {
+    const lists: Partial<Record<AgentId, ModelList>> = {};
+    for (const id of AGENT_IDS) {
+      const metadata = this.readers?.[id]?.state;
+      if (!metadata) continue;
+      lists[id] = !this.installed(id) ? { error: `${AGENT_NAMES[id]} isn't installed.` } : { models: metadata.models, error: metadata.modelListError, pending: metadata.pending && !metadata.models };
+    }
+    return {
+      record: this.record, plan: this.shownPlan, defaultsPath: this.defaultsPath, claudeCodeInstalled: this.claudeCodeInstalled,
+      lists,
+      session: (key, id) => this.sessionRecord(key, id),
+      firstResponse: (key, id) => this.sessionFirstResponse(key, id),
+    };
   }
 
-  /** The model list's entry for a model, when the list has loaded and offers it. */
-  modelEntry(value: string): ModelEntry | undefined {
-    return this.agents.state.models?.find((entry) => entry.value === value);
+  /** The plan the rows show: the recorded plan once Start saved it, before that the one Documents found shows. */
+  get shownPlan(): RecordedPlanPhase[] {
+    if (this.record.plan) return this.record.plan;
+    const plan = this.startPreview?.from === "existing" ? this.startPreview.plan : this.options?.startPlan;
+    return plan ? recordedPlan(plan) : [];
+  }
+
+  /** A phase's tag (AC-TIER-02). */
+  tierOf(phaseId: string): TierView { return tierView(this.shownPlan.find(phase => phase.id === phaseId)); }
+
+  /** The choice an activity with no start runs on now (AC-PICK-01, AC-OTHER-01, AC-DEFAULT-04). */
+  notStartedChoice(key: string): ActivityChoice { return notStartedChoice(this.modelContext, key); }
+
+  /** The activity's fallback, when its row has one on the other agent (AC-FALLBACK-02). */
+  fallbackOf(key: string): ReturnType<typeof activityFallback> { return activityFallback(this.modelContext, key, this.notStartedChoice(key)); }
+
+  /** A row's model (AC-PICK-02): what it will run on, runs on or ran on. */
+  activityModel(key: string, state: { finished: boolean; liveSession?: SessionRecord | undefined; current?: boolean }): ModelView {
+    // From the moment a launch saves its decision, the row shows the decided choice (Kiln Phase Model Tiers, "When an Activity Starts", the row table).
+    const decided = this.decisions.get(key);
+    if (decided && !state.finished && !state.liveSession && !this.startedSessionOf(key)) {
+      const saved = decided.launch.fallback;
+      return { state: "will_run_on", choice: choiceView(decided.choice), ...launchMarks(decided.launch, true), ...(saved && (saved.used || state.current) ? { fallback: fallbackView(saved, decided.launch.from) } : {}) };
+    }
+    return modelView(this.modelContext, key, state);
+  }
+
+  /**
+   * The planned Preflight row on a finished run's Continue offer (Kiln Phase Model Tiers, "The
+   * planned Preflight row"): the choice the continuation will resolve, so a kept choice equal to
+   * Kiln's current default is dropped as the continuation drops it (AC-KEEP-02, KEEP-003).
+   */
+  continuationPreflightModel(): ModelView {
+    const context = this.modelContext;
+    const settings = { ...context.record.settings, modelChoices: continuedModelChoices(context.record.settings.modelChoices) };
+    return modelView({ ...context, record: { ...context.record, settings } }, PLANNED_PREFLIGHT_KEY, { finished: false });
+  }
+
+  /**
+   * A phase finished in an earlier execution (Kiln Phase Model Tiers, "A phase finished in an
+   * earlier execution"): Ran on with the latest of its sessions in the retained executions that got
+   * a response, else No model recorded, with the read's reason when an archive can't be read.
+   * Each retained execution is read once per process and kept in memory; archives never change.
+   */
+  earlierExecutionModel(phaseId: string): ModelView {
+    const executions = this.record.continuation?.executions ?? [];
+    const key = executions.map(row => row.executionId).join(",");
+    if (this.earlierModels?.key !== key) {
+      const models = new Map<string, ModelView>();
+      let unreadable = false;
+      for (const summary of executions) {
+        let archived: PrdRecord;
+        try { archived = readExecution(this.stateDirectory, summary).record; } catch { unreadable = true; continue; }
+        const plan = archived.plan ?? [];
+        for (const phase of plan) {
+          if (phase.splitInto !== undefined) continue;
+          const entries = Object.entries(archived.phases).filter(([launched]) => judgedPhase(plan, launched)?.id === phase.id);
+          // An earlier execution's sessions are read from its state directly: inspection's reader admits only this execution's.
+          const sessions = entries.flatMap(([launched, facts]) => facts.sessionIds.map(id => { try { return readSessionRecord(this.stateDirectory, launched, id); } catch { return undefined; } })).filter((one): one is SessionRecord => !!one);
+          for (const one of sessions) { const at = one.firstResponseAt ?? firstResponseInSavedEvents(this.stateDirectory, one); if (at) one.firstResponseAt = at; }
+          const ran = sessions.filter(one => one.firstResponseAt).sort((a, b) => (a.runs.at(-1)?.startedAt ?? a.createdAt).localeCompare(b.runs.at(-1)?.startedAt ?? b.createdAt)).at(-1);
+          // The session that started the activity the latest one belongs to gives its Fallback tag (AC-FALLBACK-03).
+          const ranFacts = ran ? entries.find(([, facts]) => facts.sessionIds.includes(ran.sessionId))?.[1] : undefined;
+          const own = sessions.filter(one => ranFacts?.sessionIds.includes(one.sessionId));
+          const started = own.find(one => one.sessionId === ranFacts?.startedSessionId) ?? own.find(one => one.firstResponseAt);
+          // A later execution's sessions decide over an earlier one's.
+          if (ran) models.set(phase.id, ranOnView(ran, started));
+          else if (!models.has(phase.id)) models.set(phase.id, { state: "none_recorded" });
+        }
+      }
+      this.earlierModels = { key, models, unreadable };
+    }
+    return this.earlierModels.models.get(phaseId) ?? { state: "none_recorded", ...(this.earlierModels.unreadable ? { problem: "Historical execution is unavailable or damaged." } : {}) };
+  }
+  private earlierModels: { key: string; models: Map<string, ModelView>; unreadable: boolean } | undefined;
+
+  /** The session that started the activity, once one got a response (AC-PICK-04). */
+  startedSessionOf(key: string): SessionRecord | undefined { return startedSession(this.modelContext, key); }
+
+  /**
+   * The keys of every activity not yet finished that Kiln will run: each leaf phase not closed,
+   * then the audits' choice, standing for the preflight, the audits and the pull request session
+   * until the run completes.
+   */
+  private unfinishedChoiceKeys(): string[] {
+    const plan = this.shownPlan;
+    const keys = plan.filter(phase => phase.splitInto === undefined && !phaseFinished(this.record, phase, phase.id)).map(phase => phase.id);
+    if (!this.record.completedAt) keys.push(PR_PHASE_KEY);
+    return keys;
+  }
+
+  /** The agent an activity runs on: what it started on, else its current choice's. */
+  agentOf(key: string): AgentId {
+    return this.startedSessionOf(key)?.agentId ?? this.decisions.get(key)?.choice.agentId ?? this.notStartedChoice(key).agentId;
+  }
+
+  /** The agent of the Audits choice, which the preflight, the audits and the pull request session run on (AC-OTHER-01); their skills are looked up for it. */
+  get auditsAgent(): AgentId { return this.notStartedChoice(PR_PHASE_KEY).agentId; }
+
+  /**
+   * What an activity's next session launches on (AC-PICK-01, AC-PICK-04): a started activity's
+   * every later session runs on what it started on, Claude Code's concrete model ID from that
+   * session's init included, so no newer version runs in its place; otherwise its current choice.
+   */
+  launchChoice(key: string): ModelChoice & { modelName: string } {
+    const started = this.startedSessionOf(key);
+    if (started) {
+      const agentId = started.agentId ?? "claude_code";
+      return { agentId, model: agentId === "claude_code" ? started.initModel ?? started.model : started.model, modelName: started.modelDisplayName, ...(started.effort ? { effort: started.effort } : {}) };
+    }
+    const decided = this.decisions.get(key);
+    if (decided) return decided.choice;
+    const choice = this.notStartedChoice(key);
+    if (!choice.model || choice.problem) throw new Error(choiceStopFact(choice, key));
+    return { agentId: choice.agentId, model: choice.model, modelName: choice.modelName, ...(choice.effort ? { effort: choice.effort } : {}) };
+  }
+
+  /** Each activity's launch decision, from its launch checks until its launch ends. */
+  private readonly decisions = new Map<string, LaunchDecision>();
+
+  /**
+   * The launch decision (Kiln Phase Model Tiers AC-FALLBACK-02, "The launch decision"), for an
+   * activity that hasn't started, run immediately before the existing launch checks. Undefined
+   * when the first choice can't be used, known before launch: the `selection` stop that follows
+   * applies, and the fallback never replaces it. With the switch off, or no fallback, the first
+   * choice. Otherwise both agents' usage is read for this launch, and the fallback's launch checks
+   * run only when a counted limit on the first choice's account reads at or above the threshold.
+   * `endsWait`: an automatic launch ending a wait, bounded by the activity's one-attempt record.
+   */
+  private async decideLaunch(key: string, endsWait: boolean): Promise<LaunchDecision | undefined> {
+    const first = this.notStartedChoice(key);
+    if (!first.model || first.problem) return undefined;
+    const firstChoice = toDecisionChoice(first);
+    const base = { from: first.from, ...(first.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}) };
+    const settings = readModelDefaults(this.defaultsPath);
+    const fallback = this.fallbackOf(key);
+    if (!settings.ok || !settings.defaults.fallback.enabled || !fallback) return { choice: firstChoice, launch: base, read: false };
+    const threshold = settings.defaults.fallback.threshold;
+    const [firstAccount, fallbackAccount] = await Promise.all([this.readUsageForLaunch(first.agentId), this.readUsageForLaunch(fallback.agentId)]);
+    const fallbackChoice = toDecisionChoice(fallback);
+    const firstUsage = this.usageSide(key, firstChoice, firstAccount, endsWait);
+    const fallbackUsage = this.usageSide(key, fallbackChoice, fallbackAccount, endsWait);
+    let checks: { problem?: string; skill?: LaunchDecision["skill"] } = {};
+    if (firstOverThreshold(firstUsage, threshold)) checks = await this.fallbackLaunchChecks(key, fallback, fallbackAccount, endsWait);
+    const result = decideLaunch({ threshold, first: firstChoice, fallback: fallbackChoice, firstUsage, fallbackUsage, fallbackProblem: checks.problem });
+    const launch = { ...base, ...(result.fallback ? { fallback: result.fallback } : {}) };
+    if (result.on === "fallback") return { choice: fallbackChoice, launch, read: true, ...(checks.skill ? { skill: checks.skill } : {}) };
+    return { choice: firstChoice, launch, read: true };
+  }
+
+  /**
+   * Runs the launch decision for an activity that hasn't started, unless this launch already has
+   * one: once its histories have been read, so a start found there binds instead ("When an
+   * Activity Starts"), then saves it with the skill for the agent it named. Every launch path
+   * reaches it: the loop's and a wait's launch checks, Start again, a carry-on and Check
+   * Preflight again. False when the activity stopped or Kiln is stopping.
+   */
+  private async ensureDecision(key: string, endsWait: boolean): Promise<boolean> {
+    if (this.decisions.has(key) || !this.choiceActivity(key) || this.startedSessionOf(key)) return !this.stopping;
+    if (this.record.phases[key]?.sessionIds.length) {
+      const start = await this.readStart(key);
+      if (this.stopping) return false;
+      if (start === "unknown") { this.stopOnUnknownStart(key); return false; }
+      if (start === "started") return true;
+    }
+    const decided = await this.decideLaunch(key, endsWait);
+    if (this.stopping) return false;
+    if (!decided) return true;
+    this.decisions.set(key, decided);
+    this.changed();
+    return this.skillForDecision(key, decided);
+  }
+
+  /** One agent's usage, read for this launch and awaited up to the existing reading limit; an earlier reading is never used. */
+  private async readUsageForLaunch(agentId: AgentId): Promise<AgentAccount | undefined> {
+    if (!this.installed(agentId)) return undefined;
+    if (agentId === "codex") {
+      const read = await raceTimeout(this.readers.codex.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]), RESUME_READING_MS);
+      return read && !this.readers.codex.state.pending ? this.readers.codex.state.account : undefined;
+    }
+    const claude = this.claude;
+    if (!claude) return undefined;
+    // The model list is read again too, as every launch's checks read it (AC-WATCH-09).
+    const [read] = await Promise.all([raceTimeout(claude.refreshAccount(), RESUME_READING_MS), this.readers.claude_code.refreshClaudeModels()]);
+    return read && claude.account ? { ...claude.account, agentId: "claude_code" } : undefined;
+  }
+
+  /** One side of the decision; in a wait, a Codex choice whose one automatic attempt is used up counts as blocked. */
+  private usageSide(key: string, choice: DecisionChoice, account: AgentAccount | undefined, endsWait: boolean): UsageSide {
+    return { agentId: choice.agentId, model: choice.model, account, models: this.readers[choice.agentId]?.state.models, ...(endsWait && choice.agentId === "codex" && this.attemptUsed(key, choice, account) ? { attemptUsed: true } : {}) };
+  }
+
+  /** Whether the activity's one-attempt record has used up the automatic attempt for this Codex choice on this reading, read without changing the record. */
+  private attemptUsed(key: string, choice: DecisionChoice, account: AgentAccount | undefined): boolean {
+    const recovery = this.record.phases[key]?.codexUsageRecovery;
+    const refused = this.refusedRun(key);
+    if (!recovery || !refused || !account) return false;
+    const release = activityUsageRelease(structuredClone(recovery), { model: choice.model, effort: choice.effort }, refused.refusal.at, account);
+    return release.state === "blocked" && release.suppressed === true;
+  }
+
+  /**
+   * The fallback's launch checks (technical design, "The fallback's launch checks"), read for
+   * this launch: the agent is ready, its model list offers the model and effort, Claude Code's
+   * billing approval is given, the activity's own skill resolves on that agent, Codex's launch
+   * settings pass, and a prerequisite-preparation turn's permission read passes. The first that
+   * fails is the reason the fallback wasn't used. `forecast`: the heads-up's run, which reads
+   * nothing and leaves out the checks that need a launch.
+   */
+  private async fallbackLaunchChecks(key: string, fallback: ResolvedChoice, account: AgentAccount | undefined, endsWait: boolean): Promise<{ problem?: string; skill?: LaunchDecision["skill"] }> {
+    const quick = this.fallbackReadyProblem(key, fallback, account, endsWait);
+    if (quick !== undefined) return { problem: quick };
+    const choice = toDecisionChoice(fallback);
+    let skill: LaunchDecision["skill"];
+    const skillOptions = { agent: fallback.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal };
+    const audit = this.auditActivity(key);
+    if (audit) {
+      try { skill = await resolveAuditSkill({ ...skillOptions, kind: audit.kind }); }
+      catch (error) { return { problem: (error as Error).message }; }
+    } else if (isPreflightKey(key)) {
+      const resolved = await resolveSkill({ ...skillOptions, name: PREFLIGHT_SKILL });
+      if (resolved.kind !== "found") return { problem: resolved.message };
+      skill = resolved.skill;
+    }
+    if (fallback.agentId === "codex") {
+      try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice }); }
+      catch (error) { return { problem: (error as Error).message }; }
+    }
+    if (this.record.preparation?.phaseId === key) {
+      try { await preparationPermissions({ ...this.preparationContext(), agentId: fallback.agentId }, true); }
+      catch (error) { return { problem: (error as Error).message }; }
+    }
+    return skill ? { skill } : {};
+  }
+
+  /** The fallback's checks that need no launch: readiness, the model list, Claude Code's billing approval, and in a wait a Codex reading naming a stable account. */
+  private fallbackReadyProblem(key: string, fallback: ResolvedChoice, account: AgentAccount | undefined, endsWait: boolean): string | undefined {
+    const agent = this.agentProblem(fallback.agentId);
+    if (agent) return agent;
+    if (fallback.problem) return fallback.problem;
+    const listError = this.readers[fallback.agentId].state.modelListError;
+    if (listError) return listError;
+    if (!fallback.model) return `${AGENT_NAMES[fallback.agentId]}'s model list doesn't offer ${fallback.modelName}.`;
+    if (fallback.agentId === "claude_code") {
+      const view = this.billing?.view;
+      if (!view?.next || view.pending) return "Claude Code's billing setup hasn't been read yet.";
+      const billing = this.billingNotApproved();
+      if (billing) return billing;
+    }
+    // No attempt could be saved for a Codex fallback whose reading names no stable account (Kiln Phase Model Tiers, "A Wait Before the Start").
+    if (endsWait && fallback.agentId === "codex" && !account?.accountId?.trim()) return "Codex's reading names no stable account, so no automatic attempt could be saved for it.";
+    if (isPreflightKey(key) && !this.readers[fallback.agentId].state.optionalSkills?.buildPreflight && this.readers[fallback.agentId].state.optionalSkills) return `Enable exactly one ${PREFLIGHT_SKILL} skill for ${AGENT_NAMES[fallback.agentId]}.`;
+    return undefined;
+  }
+
+  /**
+   * The decision run against the latest scheduled readings, reading nothing, as the heads-up and
+   * a wait's readings use it (AC-FALLBACK-04, "A Wait Before the Start"): the fallback it would
+   * launch on, or undefined. It leaves out Codex's launch-settings check and the
+   * preparation-permissions read, which need a launch.
+   */
+  private forecastDecision(key: string, endsWait: boolean): { choice: DecisionChoice; fallback: LaunchFallback } | undefined {
+    const settings = readModelDefaults(this.defaultsPath);
+    if (!settings.ok || !settings.defaults.fallback.enabled) return undefined;
+    const first = this.notStartedChoice(key);
+    if (!first.model || first.problem) return undefined;
+    const fallback = this.fallbackOf(key);
+    if (!fallback) return undefined;
+    const threshold = settings.defaults.fallback.threshold;
+    const latest = (agentId: AgentId): AgentAccount | undefined => {
+      if (!this.installed(agentId)) return undefined;
+      if (agentId === "codex") return this.readers.codex.state.account;
+      return this.claude?.account ? { ...this.claude.account, agentId: "claude_code" } : undefined;
+    };
+    const firstChoice = toDecisionChoice(first);
+    const fallbackChoice = toDecisionChoice(fallback);
+    const firstUsage = this.usageSide(key, firstChoice, latest(first.agentId), endsWait);
+    const fallbackUsage = this.usageSide(key, fallbackChoice, latest(fallback.agentId), endsWait);
+    if (!firstOverThreshold(firstUsage, threshold)) return undefined;
+    const result = decideLaunch({ threshold, first: firstChoice, fallback: fallbackChoice, firstUsage, fallbackUsage, fallbackProblem: this.fallbackReadyProblem(key, fallback, fallbackUsage.account, endsWait) });
+    return result.on === "fallback" && result.fallback ? { choice: fallbackChoice, fallback: result.fallback } : undefined;
+  }
+
+  /**
+   * The heads-up (AC-FALLBACK-04): the activity Kiln will launch next, when the decision on the
+   * latest readings would launch it on the fallback. That is the current activity when it has no
+   * start and no session of it is launching or running, otherwise the first activity after it with
+   * no start. No row carries it while the start of the one Kiln would launch next is unknown.
+   *
+   *   engine.headsUp()  // { key: "2", forecast: { choice: { agent: "Codex", modelName: "GPT Astra 1", … }, limit: { agent: "Claude Code", label: "Weekly", percent: 97 }, threshold: 95 } }
+   */
+  headsUp(): { key: string; forecast: NonNullable<ModelView["forecast"]> } | undefined {
+    const settings = readModelDefaults(this.defaultsPath);
+    if (!settings.ok || !settings.defaults.fallback.enabled || this.record.completedAt) return undefined;
+    const keys = [...new Set(this.unfinishedActivityKeys().map(row => row.key))].filter(key => this.choiceActivity(key));
+    const currentKey = this.current?.phaseKey ?? this.waitingPhaseKey() ?? this.stoppedPhaseKey();
+    const from = currentKey === undefined ? 0 : Math.max(0, keys.indexOf(currentKey));
+    for (const key of keys.slice(from)) {
+      if (this.unknownStarts.has(key)) return undefined;
+      if (this.startedSessionOf(key) || this.sessionBusy(key)) continue;
+      const forecast = this.forecastDecision(key, this.record.phases[key]?.wait !== undefined);
+      if (!forecast) return undefined;
+      const { agentId, ...limit } = forecast.fallback.limit;
+      return { key, forecast: { choice: choiceView(forecast.choice), limit: { agent: AGENT_NAMES[agentId], ...limit }, threshold: forecast.fallback.threshold } };
+    }
+    return undefined;
+  }
+
+  /** The fallback facts an activity's phase detail keeps (AC-FALLBACK-03): the decision of the session that started it, or of the latest session while none has. */
+  detailsFallback(key: string): FallbackView | undefined {
+    const session = this.startedSessionOf(key) ?? this.latestSession(key);
+    const saved = session?.launch?.fallback;
+    return saved ? fallbackView(saved, session!.launch!.from) : undefined;
+  }
+
+  /**
+   * Every agent the run needs (Kiln Phase Model Tiers AC-AGENTS-01, "Agents"): each one an
+   * unfinished activity runs on, by plan row, and with the fallback switch on each one only an
+   * unfinished activity's fallback names. An agent that isn't installed is needed by the same rule.
+   *
+   *   engine.neededBy()  // { claude_code: { activities: ["Phase 1", "the pull request session"], fallbackOnly: false }, codex: { activities: [], fallbackOnly: true } }
+   */
+  neededBy(): Partial<Record<AgentId, AgentNeed>> {
+    const needs: Partial<Record<AgentId, AgentNeed>> = {};
+    const add = (agentId: AgentId, row?: string) => {
+      const need = needs[agentId] ??= { activities: [], fallbackOnly: true };
+      if (row !== undefined) { need.fallbackOnly = false; if (!need.activities.includes(row)) need.activities.push(row); }
+    };
+    const keys = this.unfinishedActivityKeys();
+    for (const { key, row } of keys) add(this.agentOf(key), row);
+    const read = readModelDefaults(this.defaultsPath);
+    if (read.ok && read.defaults.fallback.enabled) {
+      for (const { key } of keys) {
+        if (this.startedSessionOf(key)) continue;
+        const fallback = this.fallbackOf(key);
+        if (fallback) add(fallback.agentId);
+      }
+    }
+    return needs;
+  }
+  /** Each installed agent with its readiness, for the Model defaults page beside its model list ("Agents"). */
+  modelDefaultsAgents(): { agentId: AgentId; installed: boolean; readinessKnown: boolean; readinessErrors?: string[] }[] {
+    // Claude Code's readiness is read only while the run needs it; Codex's one metadata read always carries it.
+    return this.installedAgents().map(agentId => { const blockers = this.readers[agentId].state.blockers; return { agentId, installed: true, readinessKnown: agentId === "codex" || this.isNeeded(agentId), ...(blockers.length ? { readinessErrors: blockers } : {}) }; });
+  }
+
+  /** Where Model defaults is kept, read on every resolution. */
+  get modelDefaultsFile(): string { return this.defaultsPath; }
+
+  /** The agent the current activity runs on, else the next activity's, which the account panel marks in use (AC-AGENTS-03). */
+  inUseAgent(currentKey: string | undefined): AgentId | undefined {
+    const key = (currentKey === undefined ? undefined : this.factsKeyOf(currentKey)) ?? this.current?.phaseKey ?? this.unfinishedActivityKeys()[0]?.key;
+    return key === undefined ? undefined : this.agentOf(key);
+  }
+
+  /**
+   * Agent information read again (`POST /api/metadata/refresh`, `kiln account --refresh`, which
+   * then read billing): every installed agent's model list, and every needed agent's readiness,
+   * account and usage.
+   */
+  async refreshAgents(): Promise<void> {
+    this.claudeCodeInstalled = executableAvailable(this.options.tools.claude, this.options.env);
+    this.codexInstalled = !!this.options.tools.codex && executableAvailable(this.options.tools.codex, this.options.env);
+    this.startReaders();
+    await Promise.all(this.installedAgents().map(id => this.isNeeded(id) ? this.readers[id].refresh() : this.readers[id].refreshModels()));
+  }
+
+  /** Puts each installed agent's reader on the existing schedule, once, including an agent installed after Kiln started. */
+  private startReaders(): void {
+    for (const id of this.installedAgents()) {
+      if (this.scheduledReaders.has(id)) continue;
+      this.scheduledReaders.add(id);
+      // A needed agent's schedule starts with a full read, so it isn't read again as newly needed.
+      if (this.isNeeded(id)) this.readAgents.add(id);
+      this.readers[id].start(() => this.isNeeded(id));
+    }
+  }
+  private readonly scheduledReaders = new Set<AgentId>();
+
+  /** Stops every reader's schedule. */
+  closeReaders(): void { for (const id of AGENT_IDS) this.readers[id].close(); }
+
+  /** Whether the run needs the agent now: an unfinished activity or, with the switch on, a fallback names it. */
+  isNeeded(agentId: AgentId): boolean { return this.neededBy()[agentId] !== undefined; }
+  /** Whether the agent is installed, read when Kiln starts and at each refresh. */
+  installed(agentId: AgentId): boolean { return agentId === "claude_code" ? this.claudeCodeInstalled : this.codexInstalled; }
+
+  /**
+   * Every activity not yet finished that Kiln will run, with the plan row Start's reason names it
+   * by: the preflight while planned or allocated and unfinished, each leaf phase not finished,
+   * each allocated audit not finished, then the audit kinds still expected and the pull request
+   * session, which stand on the Audits choice until the pull request session finishes.
+   */
+  private unfinishedActivityKeys(): { key: string; row: string }[] {
+    const rows: { key: string; row: string }[] = [];
+    const finished = (key: string) => !!this.record.phases[key]?.doneAt;
+    const preflight = latestPreflight(this.record);
+    if (preflight && !finished(preflightKeyOf(preflight))) rows.push({ key: preflightKeyOf(preflight), row: "the preflight" });
+    else if (!this.record.completedAt && this.readers[this.auditsAgent].state.optionalSkills?.buildPreflight && (!this.isUnderway || this.record.preflight?.due)) rows.push({ key: PLANNED_PREFLIGHT_KEY, row: "the preflight" });
+    for (const phase of this.shownPlan) {
+      if (phase.splitInto !== undefined) continue;
+      const key = this.factsKeyOf(phase.id);
+      if (!phaseFinished(this.record, phase, key)) rows.push({ key, row: `Phase ${phase.id}` });
+    }
+    for (const activity of this.record.completionAudits?.activities ?? []) {
+      const key = auditKey(activity);
+      if (!finished(key)) rows.push({ key, row: `the ${auditLabel(activity.kind).toLowerCase()}` });
+    }
+    if (!this.record.completedAt) {
+      const expected = this.isUnderway ? this.expectedAuditKinds() : ["delivery_audit", "test_audit"];
+      const open = (kind: AuditActivity["kind"]) => (this.record.completionAudits?.activities ?? []).some(a => a.kind === kind && !finished(auditKey(a)));
+      for (const kind of ["delivery_audit", "test_audit"] as const) if (expected.includes(kind) && !open(kind)) rows.push({ key: PLANNED_AUDITS_KEY, row: `the ${auditLabel(kind).toLowerCase()}` });
+      rows.push({ key: PR_PHASE_KEY, row: "the pull request session" });
+    }
+    // An open merge or push after delivery runs its own session, on the agent it names.
+    const afterDelivery = openAfterDeliveryKey(this.record);
+    if (afterDelivery !== undefined) rows.push({ key: afterDelivery, row: afterDelivery === MERGE_KEY ? "the merge session" : "the push session" });
+    return rows;
+  }
+
+  /**
+   * The key that holds a plan row's facts. Kiln keys facts by the leaf it launched, so after a
+   * session splits its phase the launched phase holds the facts its first child is shown with,
+   * as the snapshot's rows read them ("Agents", AC-AGENTS-03).
+   *
+   *   engine.factsKeyOf("2a")  // "2", while Phase 2's session split it into 2a and 2b
+   *   engine.factsKeyOf("3")   // "3"
+   */
+  factsKeyOf(rowId: string): string {
+    if (this.record.phases[rowId]) return rowId;
+    for (const key of Object.keys(this.record.phases)) {
+      if (key !== PR_PHASE_KEY && !isPreflightKey(key) && this.judgedId(key) === rowId) return key;
+    }
+    return rowId;
+  }
+
+  /**
+   * Why the agent keeps an activity on it from launching (AC-AGENTS-01, AC-AGENTS-02): still being
+   * read, not installed, a readiness problem, or a missing Claude Code billing approval.
+   */
+  agentProblem(agentId: AgentId, ignorePending = false): string | undefined {
+    if (!this.installed(agentId)) return installRemedy(agentId);
+    const metadata = this.readers[agentId].state;
+    if (metadata.pending && !ignorePending && !metadata.models) return `Reading ${AGENT_NAMES[agentId]} models and readiness…`;
+    if (metadata.blockers.length) return metadata.blockers.join(" ");
+    return undefined;
+  }
+
+  /** What Start's reason says about an agent an activity needs: the agent, what to do, and the activities that need it. */
+  private neededAgentReason(agentId: AgentId, problem: string, need: AgentNeed): string {
+    return `${AGENT_NAMES[agentId]} isn't ready: ${problem} Needed by ${listWords(need.activities)}.`;
+  }
+
+  /**
+   * The warning for an agent only a fallback names that isn't ready (AC-AGENTS-01): Start stays
+   * available, and the run waits at a usage limit as if the fallback were off.
+   */
+  fallbackWarning(): { agent: string; agentId: AgentId; problem: string; remedy: string } | undefined {
+    for (const [agentId, need] of Object.entries(this.neededBy()) as [AgentId, AgentNeed][]) {
+      if (!need.fallbackOnly) continue;
+      const modelList = this.installed(agentId) ? this.readers[agentId].state.modelListError : undefined;
+      const problem = this.agentProblem(agentId) ?? modelList ?? (agentId === "claude_code" ? this.billingNotApproved() : undefined);
+      if (problem === undefined || problem.startsWith("Reading ")) continue;
+      return { agent: AGENT_NAMES[agentId], agentId, problem, remedy: agentId === "claude_code" && problem === this.billingNotApproved() ? "Review and approve the Claude Code billing setup below." : this.installed(agentId) ? `Fix it in a terminal, then press Refresh agent information.` : `Install ${AGENT_NAMES[agentId]}, then press Refresh agent information.` };
+    }
+    return undefined;
+  }
+
+  /** The billing reason a launch on Claude Code would stop for, when one is due (Kiln Billing Safeguards). */
+  private billingNotApproved(): string | undefined {
+    const view = this.billing?.view;
+    if (!view?.next || view.canLaunch || view.pending) return undefined;
+    return view.next.readinessError ?? "Claude Code's billing setup isn't approved.";
+  }
+
+  /** Reads each needed agent again when the set of needed agents grows, and Claude Code's billing when it becomes needed. */
+  private syncNeededAgents(): void {
+    if (!this.readers || this.syncingAgent) return;
+    this.syncingAgent = true;
+    try {
+      const needed = new Set(Object.keys(this.neededBy()) as AgentId[]);
+      for (const id of this.installedAgents()) {
+        if (needed.has(id) && !this.readAgents.has(id)) {
+          void this.readers[id].refresh();
+          if (id === "claude_code") void this.refreshBilling().catch(() => this.changed());
+        }
+      }
+      this.readAgents = needed;
+    } finally { this.syncingAgent = false; }
+  }
+  private readAgents = new Set<AgentId>();
+  private syncingAgent = false;
+  private defaultsWatch: FSWatcher | undefined;
+
+  /**
+   * Model defaults reach every activity that hasn't started, in runs underway too: each Kiln
+   * watches the state root for the file's name, since an atomic write replaces the file, and
+   * republishes its page (Kiln Phase Model Tiers, "Model defaults across running Kilns").
+   */
+  private watchModelDefaults(): void {
+    try {
+      mkdirSync(dirname(this.defaultsPath), { recursive: true });
+      this.defaultsWatch = watch(dirname(this.defaultsPath), (_event, name) => {
+        if (this.closed || name !== basename(this.defaultsPath)) return;
+        this.modelChoicesChanged();
+      });
+      this.defaultsWatch.on("error", () => { this.defaultsWatch?.close(); this.defaultsWatch = undefined; });
+      this.defaultsWatch.unref();
+    } catch { this.defaultsWatch = undefined; }
+  }
+
+  /**
+   * Saves the activity's start once one of its sessions got its first response (Kiln Phase Model
+   * Tiers, "When an Activity Starts"): the first of its sessions, in the order they were created,
+   * that has one. A saved start is only ever added.
+   */
+  private noteStart(key: string, session: SessionRecord): void {
+    const facts = this.record.phases[key];
+    if (!facts || facts.startedSessionId || !session.firstResponseAt) return;
+    facts.startedSessionId = facts.sessionIds.find(id => id === session.sessionId || this.sessionFirstResponse(key, id)) ?? session.sessionId;
+    // Once the activity starts, on either agent, its one-attempt record goes; a later refusal uses the started session's own.
+    delete facts.codexUsageRecovery;
+    this.save();
+    // The terminal prints one line when an activity starts on the fallback (AC-FALLBACK-03).
+    const started = this.sessionRecord(key, facts.startedSessionId);
+    const fallback = started?.launch?.fallback;
+    if (started && fallback?.used) this.emit({ kind: "message", text: fallbackStartLine(this.activityName(key), started, fallback) });
+  }
+
+  /** Whether a launch of the activity is under way or a process of its session runs, one Kiln launched or adopted. */
+  sessionBusy(key: string): boolean {
+    return this.launching.has(key) || this.decisions.has(key) || this.current?.phaseKey === key && this.current.processRunning;
+  }
+
+  /**
+   * Why an activity's own choice can't be changed now (AC-PICK-03, "Change while a launch of the
+   * activity is under way"): it is finished, has started, its start is unknown, or a launch of it
+   * is under way or its session's process runs. Undefined when Change is available.
+   */
+  modelChangeRefusal(key: string, label: string): string | undefined {
+    const plan = this.shownPlan.find(phase => phase.id === key);
+    // A phase its session split is judged by the launched phase that holds its facts (AC-PICK-05).
+    const facts = this.factsKeyOf(key);
+    if (this.record.phases[facts]?.doneAt || plan && phaseFinished(this.record, plan, facts)) return `${label} is finished; there is nothing to change.`;
+    if (this.startedSessionOf(facts)) return `${label} has started, so it keeps the agent, model and effort it started on.`;
+    const unknown = this.unknownStarts.get(facts);
+    if (unknown !== undefined) return `Kiln can't tell whether ${label.charAt(0).toLowerCase()}${label.slice(1)} has started, so its model can't be changed yet. ${unknown}`.trim();
+    if (this.sessionBusy(facts)) return `${label} is launching or running on its saved choice. Change it once that session ends.`;
+    return undefined;
+  }
+
+  /** What a row offers (AC-PICK-03, AC-OTHER-01): Change, and Use the default while its choice is Changed by you. */
+  modelControls(key: string, label: string, view: ModelView): Pick<ModelView, "change" | "useDefault"> {
+    if (view.state !== "will_run_on") return {};
+    const reason = this.modelChangeRefusal(key, label);
+    return { change: reason === undefined ? { available: true } : { available: false, reason }, ...(reason === undefined && view.from === "changed" ? { useDefault: true as const } : {}) };
+  }
+
+  /**
+   * A change of model for one phase, or for this PRD's Audits activities (AC-PICK-03, AC-OTHER-01,
+   * `POST /api/model`): the choice checked against its agent's list with its effort filled in, then
+   * the phase's state, read after its sessions' histories. "default" returns the row to its tier's
+   * choice, or the Audits row's. The Audits entry is never refused for an activity's state: an
+   * activity launching or running keeps its saved decision and takes the new choice only if it
+   * ends with no response.
+   */
+  checkModelChange(target: { phase: string } | "audits", choice: ModelChoice | "default"): { ok: true; key: string; choice: ModelChoice | "default" } | Extract<CommandResult, { ok: false }> {
+    let key: string = PR_PHASE_KEY;
+    if (target !== "audits") {
+      const leaves = this.shownPlan.filter(phase => phase.splitInto === undefined);
+      if (!leaves.some(phase => phase.id === target.phase)) return { ok: false, status: 422, reason: `${target.phase} isn't a phase Kiln builds in this plan. Phases: ${leaves.map(phase => phase.id).join(", ")}.` };
+      key = target.phase;
+    }
+    if (choice === "default") return { ok: true, key, choice };
+    const checked = checkModelChoice(choice, this.modelContext.lists);
+    return checked.ok ? { ok: true, key, choice: checked.choice } : { ok: false, status: checked.status as 400 | 422, reason: checked.reason };
+  }
+
+  /** Applies a checked change (before Start directly, in a run through the instruction journal). */
+  async changeModel(target: { phase: string } | "audits", choice: ModelChoice | "default"): Promise<CommandResult> {
+    const checked = this.checkModelChange(target, choice);
+    if (!checked.ok) return checked;
+    const choices = this.record.settings.modelChoices;
+    if (target !== "audits") {
+      const label = `Phase ${target.phase}`;
+      // Change reads the phase's histories first: a terminal that already answered has started it.
+      if (!this.startedSessionOf(checked.key) && !this.sessionBusy(checked.key) && this.record.phases[checked.key]?.sessionIds.length) await this.readStart(checked.key);
+      const refused = this.modelChangeRefusal(checked.key, label);
+      if (refused) return { ok: false, status: 409, reason: refused };
+      choices.phases[target.phase] = checked.choice;
+    } else choices.audits = checked.choice;
+    this.save();
+    this.modelChoicesChanged();
+    return { ok: true };
+  }
+
+  /**
+   * Model defaults or this PRD's model choices changed: the run reads the agent its activities
+   * now resolve to, and the page is republished (Kiln Phase Model Tiers AC-PICK-01).
+   */
+  modelChoicesChanged(): void {
+    this.syncNeededAgents();
+    this.changed();
+  }
+
+  /**
+   * Why Start is unavailable for the models (AC-AGENTS-01, AC-PICK-06): an agent an activity will
+   * run on isn't ready, naming the agent, what to do and the activities that need it; or an
+   * activity's choice can't be used. An agent only a fallback names never blocks Start.
+   */
+  get modelsProblem(): string | undefined {
+    for (const [agentId, need] of Object.entries(this.neededBy()) as [AgentId, AgentNeed][]) {
+      if (need.fallbackOnly) continue;
+      const problem = this.agentProblem(agentId);
+      if (problem) return problem.startsWith("Reading ") ? problem : this.neededAgentReason(agentId, problem, need);
+    }
+    for (const { key } of this.unfinishedActivityKeys()) {
+      if (this.startedSessionOf(key)) continue;
+      const choice = this.notStartedChoice(key);
+      if (choice.problem) return choiceStopFact(choice, key);
+    }
+    return undefined;
+  }
+
+  get claude(): ClaudeInfoSource | undefined {
+    return this.readers.claude_code.claude;
+  }
+
+  /** The model list's entry for a model on an agent, when the list has loaded and offers it. */
+  modelEntry(value: string, agentId: AgentId = "claude_code"): ModelEntry | undefined {
+    return this.readers[agentId].state.models?.find((entry) => entry.value === value);
   }
 
   /** Every field message now: the last field check's, and Model's when its model can't run in auto mode. */
   get currentFieldErrors(): FieldErrors {
     const errors = { ...this.fieldErrors };
-    const issue = this.selectionError;
+    const issue = this.isUnderway ? undefined : this.modelsProblem;
     if (issue) errors.model = issue;
     return errors;
   }
 
-  get agentFixed(): boolean { return this.record.startedAt !== undefined || this.settingUp || this.record.repositories.some((entry) => entry.setupCompletedAt !== undefined || entry.createdBranch !== undefined); }
-  get selectionError(): string | undefined { return this.selectionIssue(); }
-  private selectionIssue(ignorePending = false): string | undefined {
-    return this.selectionIssueFor(selectedChoice(this.record.settings), ignorePending);
-  }
-  /** Model's field message for a model and effort: Documents found's for the saved choice, the setup panel's for its own (AC-SETUP-01). */
-  selectionIssueFor(choice: { model: string; effort?: string }, ignorePending = false): string | undefined {
-    const metadata = this.agents.state;
-    if (metadata.pending && !ignorePending) return `Reading ${AGENT_NAMES[metadata.agentId]} models and readiness…`;
-    if (metadata.blockers.length) return metadata.blockers.join(" ");
-    if (!metadata.models) return metadata.modelListError ?? "Model catalogue unavailable. Refresh before starting a new session.";
-    const entry = this.modelEntry(choice.model);
-    if (!entry) return `Choose an available ${AGENT_NAMES[metadata.agentId]} model. Saved choice: ${choice.model || "none"}.`;
-    if (entry.supportsEffort && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) return `Choose a supported effort for ${entry.displayName}. Saved effort: ${choice.effort || "none"}.`;
-    return metadata.agentId === "claude_code" ? autoModeError(entry) : undefined;
+  /** Why nothing can launch now: the next activity's agent isn't ready, or its choice can't be used. */
+  get selectionError(): string | undefined { return this.selectionIssue(undefined); }
+  /**
+   * Why an activity can't launch on its choice (AC-PICK-06, AC-AGENTS-04, "A choice that can't be
+   * used, known before launch"): the agent it launches on isn't ready, or, for an activity with no
+   * start, its choice names a model or effort its agent doesn't offer. A started activity skips the
+   * model-list and effort checks, like a resume (AC-PICK-04). With no key, the activity Kiln launches next.
+   */
+  private selectionIssue(key: string | undefined, ignorePending = false): string | undefined {
+    const target = key ?? this.current?.phaseKey ?? this.unfinishedActivityKeys()[0]?.key;
+    const agentId = target === undefined ? (this.claudeCodeInstalled ? "claude_code" : "codex") : this.agentOf(target);
+    const problem = this.agentProblem(agentId, ignorePending);
+    if (problem) return problem;
+    if (target === undefined || this.startedSessionOf(target)) return undefined;
+    const choice = this.notStartedChoice(target);
+    return choice.problem === undefined ? undefined : choiceStopFact(choice, target);
   }
   private modelsChanged(): void {
     if (this.observedClaude !== this.claude) {
@@ -1619,19 +2296,14 @@ export class Engine {
         this.modelsChanged();
       });
     }
-    const metadata = this.agents.state;
-    if (metadata.agentId === "codex" && !metadata.pending && metadata.models && !this.record.settings.agentChoices.codex) {
-      const model = latestSol(metadata.models);
-      this.record.settings.agentChoices.codex = model ? { model, effort: "high" } : { model: "" };
-      this.choiceNotice = model ? undefined : "Could not establish a unique latest GPT Sol with High effort. Choose model and effort explicitly.";
-      this.save();
+    // Each agent's reading reaches the wait or stop it is about (AC-AGENTS-04).
+    const codex = this.readers.codex.state;
+    if (!codex.pending && codex.account && codex.account !== this.lastCodexReading) {
+      this.lastCodexReading = codex.account;
+      this.codexReadingArrived(codex.account);
     }
     const reading = this.claude?.account;
-    if (metadata.agentId === "codex" && !metadata.pending && metadata.account && metadata.account !== this.lastCodexReading) {
-      this.lastCodexReading = metadata.account;
-      this.codexReadingArrived(metadata.account);
-    }
-    if (this.record.settings.agentId === "claude_code" && reading !== undefined && reading !== this.lastReading) {
+    if (reading !== undefined && reading !== this.lastReading) {
       this.lastReading = reading;
       this.readingArrived(reading);
     }
@@ -1818,8 +2490,9 @@ export class Engine {
     if (this.currentlyComplete) return refuse("The feature is complete.");
     if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (!this.restartReview || this.restartReview.action === "start") {
-      if (this.agents.state.pending) return refuse("Agent metadata is still loading.");
-      if (this.selectionError) return refuse(this.selectionError);
+      // Before Start every needed agent is checked (AC-AGENTS-01); a resume checks the agent its next activity launches on.
+      const problem = this.record.startedAt === undefined ? this.modelsProblem : this.selectionError;
+      if (problem) return refuse(problem);
     }
     if (this.restartReview) {
       // The work may have changed in a terminal while the overview was open.
@@ -1846,8 +2519,9 @@ export class Engine {
     // A page a reset built keeps Start unavailable while a start check fails (run restart AC-RESET-04), as does a row that asks.
     if (this.startBlockedBy) return refuse(this.startBlockedBy);
     if (this.baseCheck === "checking") return refuse(`Kiln is checking ${record.settings.baseBranch || "the base branch"} on origin.`);
-    const modelError = this.currentFieldErrors.model;
-    if (modelError !== undefined) return { ok: false, status: 409, reason: modelError, fieldErrors: { model: modelError } };
+    // Every activity's choice must be usable, on one agent until Kiln checks both (AC-PICK-06; Phase 2 of Kiln Phase Model Tiers).
+    const modelsProblem = this.modelsProblem;
+    if (modelsProblem !== undefined) return refuse(modelsProblem);
 
     this.settingUp = true;
     this.startError = undefined;
@@ -1860,11 +2534,15 @@ export class Engine {
         if (this.startBlockedBy) return refuse(this.startBlockedBy);
         if (this.repositoryProblems.length > 0) return refuse(this.repositoryProblems.join(" "));
       }
-      if (record.settings.agentId === "claude_code") {
+      // Billing is read fresh for Claude Code whenever it is needed (AC-AGENTS-02). A missing approval
+      // stops Start only when an activity runs on Claude Code; one only a fallback needs leaves Start available.
+      const claudeNeed = this.neededBy().claude_code;
+      if (claudeNeed) {
         try { await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true); }
-        catch { return refuse("Start could not be saved: billing state could not be saved. No AI work was authorized."); }
+        catch { if (!claudeNeed.fallbackOnly) return refuse("Start could not be saved: billing state could not be saved. No AI work was authorized."); }
         // A readiness blocker read at launch (an outdated Claude Code, AC-AGENT-05) is the reason, not billing.
-        if (!this.billing.view.canLaunch) return refuse(this.billing.view.next?.readinessError ?? this.selectionIssue(true) ?? "Review and approve the detected billing setup, or change its source and recheck.");
+        // The reason names the agent, what to do and the activities that need it (AC-AGENTS-02 with AC-AGENTS-01's table).
+        if (!claudeNeed.fallbackOnly && !this.billing.view.canLaunch) return refuse(this.neededAgentReason("claude_code", this.billing.view.next?.readinessError ?? this.agentProblem("claude_code", true) ?? "its billing setup isn't approved. Review and approve it, or change its source and recheck.", claudeNeed));
       }
       const fields = await this.runFieldChecks();
       const preview = this.startPreview;
@@ -2039,6 +2717,8 @@ export class Engine {
     const key = target!.phaseKey;
     if (action === "verify" && body.intent === "verify" && this.record.liveControl?.takeover.history) return fail("recovery_unavailable", "Verify stays unavailable until the paused conversation is released; carry on in a new session instead.");
     if (action === "resume" && !this.resumeOffered(key)) return fail("recovery_unavailable", "The saved conversation cannot be resumed. Use the available terminal recovery instructions.");
+    // Resume on an activity that hasn't started launches a new session, under Start again's limits (AC-PICK-07).
+    if (action === "resume" && this.launchesNewSession(key)) { const limit = this.launchRestriction(key); if (limit) return fail("recovery_unavailable", limit); }
     if (action === "carry_on") { const control = this.carryOnControl(true); if (!control.offered || control.reason && !control.reason.startsWith("Kiln is checking")) return fail("recovery_unavailable", control.reason ?? "Carry on isn't offered here."); }
     this.checking = true;
     this.changed();
@@ -2559,6 +3239,8 @@ export class Engine {
     if (key !== undefined && this.preflightStopKey() === key) return refuse(PREFLIGHT_STOP_REASON);
     if (key === undefined || !this.resumeOffered(key)) return refuse("Resume isn't offered here.");
     if (this.billing.busy || this.deliveryBusy || this.checking || this.driving) return refuse("Kiln is already checking.");
+    // Resume on an activity that hasn't started launches a new session, under Start again's limits (AC-PICK-07).
+    if (this.launchesNewSession(key)) { const limit = this.launchBusy() ?? this.launchRestriction(key); if (limit) return refuse(limit); }
     if (body.note !== undefined && typeof body.note !== "string") return { ok: false, status: 400, reason: "The note must be text." };
     const note = (body.note ?? "").trim();
     if (note.length > NOTE_LIMIT) return { ok: false, status: 400, reason: `The note can be at most ${NOTE_LIMIT.toLocaleString("en-US")} characters.` };
@@ -2630,14 +3312,18 @@ export class Engine {
     if (kind !== "done_check" && kind !== "pull_request_check" && kind !== "merge_check" && kind !== "plan_push_check" && kind !== "not_resumable" && this.record.billing?.hold?.phaseKey !== phaseKey) return false;
     const session = this.recoverySession(phaseKey);
     if (!session || !session.runs.some((run) => run.pid !== undefined)) return false;
+    // An activity that hasn't started reopens nothing: Resume launches a new session, under Start again's limits (Kiln Phase Model Tiers AC-PICK-07).
+    // Run restart's "a conversation began" still decides which cards the stopped-phase page offers.
+    if (this.choiceActivity(phaseKey) && !this.startedSessionOf(phaseKey)) return !this.unknownStarts.has(phaseKey) && this.conversationBegan(phaseKey);
     // Resume goes by the reopen check, never by the stop's kind (run restart "Whether the conversation can be reopened").
     if (kind === "not_resumable" && !this.conversationBegan(phaseKey)) return false;
     return this.reopenCheck(phaseKey).state === "available";
   }
 
   /** A billing restriction that would stop a launch, as the launch path's own check reads it (run restart AC-CARRY-03). */
-  private launchRestriction(): string | undefined {
-    if (this.record.settings.agentId === "codex") return undefined;
+  private launchRestriction(key: string | undefined = this.stoppedPhaseKey() ?? this.heldHistoryKey()): string | undefined {
+    // The check uses the agent of the activity about to launch (AC-AGENTS-02).
+    if ((key === undefined ? this.auditsAgent : this.agentOf(key)) === "codex") return undefined;
     const view = this.billing.view;
     if (!view.next || view.canLaunch) return undefined;
     return view.next.readinessError ?? "Billing restrictions would stop a launch. Review and approve this billing setup, or change its source and recheck.";
@@ -2862,6 +3548,8 @@ export class Engine {
     this.resetStart = checks;
     if (checks.prdTree === undefined) delete this.options.prdTree; else this.options.prdTree = checks.prdTree;
     if (checks.report.plan === undefined) delete this.options.startPlan; else this.options.startPlan = checks.report.plan;
+    // A tier line read again can move an activity to the other agent (Kiln Phase Model Tiers AC-TIER-01, AC-PICK-01).
+    this.syncNeededAgents();
     this.options.namedRepositories = checks.report.repositories;
     if (checks.report.plan) this.plan = checks.report.plan;
     this.setNamedRows(checks.report.named);
@@ -2892,10 +3580,6 @@ export class Engine {
   }
 
   /**
-   * Changes settings: model, effort and keep-awake at any time, applying to sessions started
-   * after it (AC-VIEW-08); the worktree and branches only before Start (AC-START-06).
-   */
-  /**
    * The field errors for the two limits (AC-CHOICE-02): a whole number of 1 or more, never below the
    * runs of that audit already made in this execution, the one under way included (the floor).
    */
@@ -2911,6 +3595,11 @@ export class Engine {
     return fieldErrors;
   }
 
+  /**
+   * Changes settings: keep-awake and the loop limits at any time (AC-VIEW-08); the worktree and
+   * branches only before Start (AC-START-06). Models are chosen for each activity, not here
+   * (Kiln Phase Model Tiers AC-KEEP-01).
+   */
   async changeSettings(change: Partial<Settings>, loops?: Partial<AuditLoopSettings>): Promise<CommandResult> {
     let pendingLoops: AuditLoopSettings | undefined;
     if (this.settingUp) return refuse("Kiln is preparing the accepted workspace. Wait before changing settings.");
@@ -2952,51 +3641,12 @@ export class Engine {
     };
     const fixedBases = [...(change.baseBranch !== undefined ? [this.paths.repositoryName] : []), ...Object.keys(change.bases ?? {})].filter(fixedBase);
     if (fixedBases.length > 0) return refuse(`The base of ${fixedBases.join(" and ")} is fixed: Kiln already made its branch.`);
-    if (change.agentId !== undefined) {
-      try { assertAgent(change.agentId); } catch { return { ok: false, status: 400, reason: "Unknown agent." }; }
-    }
-    const hasPair = change.model !== undefined || change.effort !== undefined;
-    if (hasPair && (change.agentId !== this.record.settings.agentId || change.selectionGeneration !== this.agents.state.generation)) return refuse("The selected agent changed. Use the current model editor.");
-    if (change.agentId !== undefined && change.agentId !== this.record.settings.agentId) {
-      if (this.agentFixed) return refuse("The agent is fixed after Start or repository setup.");
-      this.record.settings.agentId = change.agentId;
-      this.record.settings.selectionGeneration = this.agents.state.generation + 1;
-      this.choiceNotice = undefined;
-      this.save();
-      this.agents.select(change.agentId);
-      this.billing.invalidate();
-      void this.refreshBilling().catch(() => this.changed());
-    }
-    if (hasPair) {
-      if (this.agents.state.pending || !this.agents.state.models) return refuse("Wait for a current model catalogue before changing choices.");
-      const saved = selectedChoice(this.record.settings);
-      const choice = { ...saved };
-      if (change.model !== undefined) {
-        if (!change.model.trim()) return { ok: false, status: 400, reason: "Choose a model." };
-        choice.model = change.model;
-      }
-      const entry = this.modelEntry(choice.model);
-      if (!entry) return { ok: false, status: 422, reason: "This model is not selectable.", fieldErrors: { model: "Choose a model from the current catalogue." } };
-      if (change.effort !== undefined) {
-        if (!change.effort.trim()) return { ok: false, status: 400, reason: "Effort must be nonempty." };
-        if (!entry.supportedEffortLevels.includes(change.effort)) return { ok: false, status: 422, reason: "Unsupported effort.", fieldErrors: { model: "Choose a supported effort." } };
-        choice.effort = change.effort;
-      } else if (!entry.supportsEffort) {
-        delete choice.effort;
-      } else if (change.model !== undefined && (!choice.effort || !entry.supportedEffortLevels.includes(choice.effort))) {
-        if (entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort)) {
-          choice.effort = entry.defaultEffort;
-          this.choiceNotice = `Effort changed to ${choice.effort} for ${entry.displayName}.`;
-        } else { delete choice.effort; this.choiceNotice = `Choose an effort for ${entry.displayName}; no supported default was reported.`; }
-      }
-      this.record.settings.agentChoices[this.record.settings.agentId] = choice;
-    }
     // Paths are stored absolute (technical design, "Paths shown"); a leading ~ is expanded.
     if (change.worktreePath !== undefined) change = { ...change, worktreePath: expandHome(change.worktreePath) };
     if (change.workspaceFolder !== undefined) change = { ...change, workspaceFolder: expandHome(change.workspaceFolder) };
     if (change.bases !== undefined) change = { ...change, bases: { ...this.record.settings.bases, ...change.bases } };
     for (const [field, value] of Object.entries(change)) {
-      if (value !== undefined && !["model", "effort", "agentId", "selectionGeneration"].includes(field)) (this.record.settings as unknown as Record<string, unknown>)[field] = value;
+      if (value !== undefined && field !== "modelChoices") (this.record.settings as unknown as Record<string, unknown>)[field] = value;
     }
 
     // A feature branch chosen or typed keeps the starting point it was chosen under (run restart "The starting point").
@@ -3438,11 +4088,12 @@ export class Engine {
   close(): void {
     this.closed = true;
     this.abort.abort();
+    this.defaultsWatch?.close();
     if (this.takeoverTimer) clearInterval(this.takeoverTimer);
     if (this.recoveredTimer) clearInterval(this.recoveredTimer);
     this.offClaude?.();
     this.offUsage?.();
-    this.agents.close();
+    for (const id of AGENT_IDS) this.readers[id].close();
     if (this.sleepTimer) clearInterval(this.sleepTimer);
     this.sleepTimer = undefined;
     this.unwatchWait();
@@ -4146,7 +4797,7 @@ export class Engine {
   /** The merge session's first message, for the pull requests the press opened it for (AC-MERGE-03). */
   mergePrompt(folder: string): string {
     const pulls = this.mergePullRequests(this.record.afterDelivery?.merge?.pullRequests);
-    return mergeSessionPrompt({ featureName: this.paths.featureName, prdFile: this.pathFrom(folder, this.prdFile()), agent: AGENT_NAMES[this.record.settings.agentId], pullRequests: pulls });
+    return mergeSessionPrompt({ featureName: this.paths.featureName, prdFile: this.pathFrom(folder, this.prdFile()), agent: AGENT_NAMES[this.agentOf(MERGE_KEY)], pullRequests: pulls });
   }
 
   /** The merge or push session ended (technical design, "Ending"): its reading decides, never its word. */
@@ -4354,7 +5005,7 @@ export class Engine {
         catch (error) { throw new DiscoveryWriteFailure(`Observed continuation scope changed but authority publication needs restart: ${(error as Error).message}`, { cause: error }); }
       };
       const delivery = await this.deliveryDecision(options.press === true, signal);
-      return discoverCompletedPlan({ codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, delivery, observeInput, label: (name) => this.labelOf(name) });
+      return discoverCompletedPlan({ agentId: this.auditsAgent, codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, delivery, observeInput, label: (name) => this.labelOf(name) });
     }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
@@ -4519,13 +5170,6 @@ export class Engine {
     return await isProcessLive(run.pid, run.processStartTime) ? latest.session : undefined;
   }
 
-  /** The setup panel's model and effort, checked as Documents found checks the saved ones; read at each snapshot too, so a catalogue change shows at once (AC-SETUP-01). */
-  folderModelCheck(choice: { model: string; effort?: string }): { error?: string; effortLevels: Effort[] | null; efforts?: { value: string; label: string; description?: string }[] } {
-    const entry = this.modelEntry(choice.model);
-    const error = this.selectionIssueFor(choice);
-    return { ...(error ? { error } : {}), effortLevels: effortLevelsFor(entry), ...(entry?.efforts ? { efforts: entry.efforts } : {}) };
-  }
-
   /** Why Start is refused as busy right now, for the line under the button; read at each snapshot, so it clears when the session ends (AC-SAFE-01). */
   folderBusy(): string | undefined {
     if (!(this.current?.processRunning || this.driving)) return undefined;
@@ -4565,7 +5209,7 @@ export class Engine {
     return {
       git: this.git, record: this.record, view, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, prdFolder: this.paths.folderName,
       completedByRun, ...(stoppedPhaseId ? { stoppedPhaseId } : {}), ...(stoppedStarts ? { stoppedStarts } : {}),
-      model: choice => this.folderModelCheck(choice), judgedId: id => this.judgedId(id), label: name => this.labelOf(name), labelWritten: name => this.labelOfWritten(name),
+      mergeAgent: AGENT_NAMES[this.agentOf(MERGE_KEY)], judgedId: id => this.judgedId(id), label: name => this.labelOf(name), labelWritten: name => this.labelOfWritten(name),
       ...(pausePhaseId ? { pausePhaseId } : {}), ...(intent ? { intent } : {}),
       ...(leftOver?.runs.at(-1)?.pid !== undefined ? { stopsLeftOver: leftOver.runs.at(-1)!.pid! } : {}), ...(busy ? { busy } : {}),
       originIdentity: async path => { const origin = parseGithubOrigin((await runGit(this.git, path, ["config", "--get", "remote.origin.url"])).stdout); return origin ? `${origin.owner}/${origin.name}` : undefined; },
@@ -4579,10 +5223,10 @@ export class Engine {
     const context = await this.folderPanelContext(view);
     if (!this.folderDraftSeeded && context.intent) {
       // The draft starts from a failed start's kind, names and settings, including after a restart.
-      const intent = context.intent; const choice = intent.settings.agentChoices[intent.settings.agentId];
+      const intent = context.intent;
       const prd = intent.repositories.find(row => row.kind === "prd") ?? intent.repositories[0];
       this.folderDraft.selected = intent.kind;
-      this.folderDraft.edits[intent.kind] = { ...(intent.kind === "base" ? { featureBranch: intent.settings.featureBranch, workspaceFolder: intent.settings.workspaceFolder, baseBranch: intent.settings.baseBranch, bases: intent.settings.bases } : {}), ...(prd && intent.repositories.length === 1 ? { worktreePath: prd.worktreePath } : {}), ...(choice ? { model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) } : {}), keepAwake: intent.settings.keepAwake, resumeAfterUsageLimit: intent.settings.resumeAfterUsageLimit };
+      this.folderDraft.edits[intent.kind] = { ...(intent.kind === "base" ? { featureBranch: intent.settings.featureBranch, workspaceFolder: intent.settings.workspaceFolder, baseBranch: intent.settings.baseBranch, bases: intent.settings.bases } : {}), ...(prd && intent.repositories.length === 1 ? { worktreePath: prd.worktreePath } : {}), keepAwake: intent.settings.keepAwake, resumeAfterUsageLimit: intent.settings.resumeAfterUsageLimit };
     }
     this.folderDraftSeeded = true;
     // A Start that failed, or stopped with Kiln, says what it did and what remains, from its durable intent, including after a restart (AC-SAFE-01).
@@ -4600,48 +5244,29 @@ export class Engine {
     this.changed();
   }
 
-  private applyFolderDraft(start: StartKind, fields: Partial<PanelFields>, notice?: string): void {
+  private applyFolderDraft(start: StartKind, fields: Partial<PanelFields>): void {
     this.folderDraft.selected = start;
     // Rising across restarts too, so the page can tell a panel built from its latest edit (AC-SETUP-01, AC-SETUP-03).
     this.folderDraft.revision = Math.max((this.folderDraft.revision ?? 0) + 1, this.now().getTime());
-    // The notice stays until the next model or effort change in the panel.
-    if (notice) this.folderDraft.choiceNotice = notice;
-    else if (fields.model !== undefined || fields.effort !== undefined) delete this.folderDraft.choiceNotice;
     for (const [key, value] of Object.entries(fields) as [keyof PanelFields, PanelFields[keyof PanelFields]][]) {
-      if (["model", "effort", "keepAwake", "resumeAfterUsageLimit"].includes(key)) { (this.folderDraft.edits.base as Record<string, unknown>)[key] = value; (this.folderDraft.edits.branch as Record<string, unknown>)[key] = value; }
+      if (["keepAwake", "resumeAfterUsageLimit"].includes(key)) { (this.folderDraft.edits.base as Record<string, unknown>)[key] = value; (this.folderDraft.edits.branch as Record<string, unknown>)[key] = value; }
       else if (key === "bases") this.folderDraft.edits[start].bases = { ...this.folderDraft.edits[start].bases, ...(value as Record<string, string>) };
       else (this.folderDraft.edits[start] as Record<string, unknown>)[key] = value;
     }
   }
 
   /** Reads a posted draft change; undefined with the reason when it is malformed or changes a fixed field. */
-  private folderChange(body: Record<string, unknown>): { start: StartKind; fields: Partial<PanelFields>; notice?: string } | { reason: string } {
+  private folderChange(body: Record<string, unknown>): { start: StartKind; fields: Partial<PanelFields> } | { reason: string } {
     const start = body.start;
     if (start !== "base" && start !== "branch") return { reason: "Choose a starting point." };
     const raw = body.fields;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { reason: "Send the panel's fields." };
     const fields: Partial<PanelFields> = {};
     for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-      if (["worktreePath", "workspaceFolder", "featureBranch", "baseBranch", "model", "effort"].includes(key) && typeof value === "string") (fields as Record<string, unknown>)[key] = value;
+      if (["worktreePath", "workspaceFolder", "featureBranch", "baseBranch"].includes(key) && typeof value === "string") (fields as Record<string, unknown>)[key] = value;
       else if (["keepAwake", "resumeAfterUsageLimit"].includes(key) && typeof value === "boolean") (fields as Record<string, unknown>)[key] = value;
       else if (key === "bases" && value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(base => typeof base === "string")) fields.bases = value as Record<string, string>;
       else return { reason: `Unknown or malformed field ${key}.` };
-    }
-    if (fields.model !== undefined && !this.modelEntry(fields.model)) return { reason: "Choose a listed model." };
-    // Effort follows the model chosen in the panel, as on Documents found (AC-SETUP-01).
-    const saved = selectedChoice(this.record.settings);
-    const model = fields.model ?? this.folderDraft.edits[start].model ?? saved.model;
-    const entry = this.modelEntry(model);
-    if (fields.effort !== undefined && fields.effort !== "" && entry && !entry.supportedEffortLevels.includes(fields.effort)) return { reason: `${entry.displayName} doesn’t take that effort. Choose a supported effort.` };
-    // A reset effort is said in Documents found's words (AC-SETUP-01).
-    let notice: string | undefined;
-    if (fields.model !== undefined && fields.effort === undefined && entry) {
-      const effort = this.folderDraft.edits[start].effort ?? saved.effort ?? "";
-      if (!entry.supportsEffort) fields.effort = "";
-      else if (!entry.supportedEffortLevels.includes(effort)) {
-        if (entry.defaultEffort && entry.supportedEffortLevels.includes(entry.defaultEffort)) { fields.effort = entry.defaultEffort; notice = `Effort changed to ${entry.defaultEffort} for ${entry.displayName}.`; }
-        else { fields.effort = ""; notice = `Choose an effort for ${entry.displayName}; no supported default was reported.`; }
-      }
     }
     // Starting from the existing branch fixes the branch, each repository's base and, for several repositories, the workspace folder.
     if (start === "branch") {
@@ -4649,7 +5274,7 @@ export class Engine {
       const changed = (fields.featureBranch !== undefined && fields.featureBranch !== saved.featureBranch) || (fields.baseBranch !== undefined && fields.baseBranch !== this.setUpRepositories[0]?.baseBranch) || (fields.bases !== undefined && Object.entries(fields.bases).some(([name, base]) => this.setUpRepositories.find(entry => entry.name === name)?.baseBranch !== base)) || (this.multiRepository && fields.workspaceFolder !== undefined && expandHome(fields.workspaceFolder) !== expandHome(saved.workspaceFolder));
       if (changed) return { reason: "That field is fixed when starting from the run’s existing branch." };
     }
-    return { start, fields, ...(notice ? { notice } : {}) };
+    return { start, fields };
   }
 
   /** `POST /api/folder-setup/panel`: one draft change, checked and previewed, published by SSE. */
@@ -4657,7 +5282,7 @@ export class Engine {
     if (!this.folderMissing) return { ok: false, status: 409, code: "wrong_activity", reason: "The run’s folders are in place; there is nothing to set up again." };
     const change = this.folderChange(body);
     if ("reason" in change) return { ok: false, status: 400, code: "invalid_input", reason: change.reason };
-    this.applyFolderDraft(change.start, change.fields, change.notice);
+    this.applyFolderDraft(change.start, change.fields);
     await this.refreshFolderPanel();
     return { ok: true, panel: this.folderPanel };
   }
@@ -4687,7 +5312,7 @@ export class Engine {
     const change = this.folderChange({ start: inputs.start, fields: inputs.fields });
     if ("reason" in change) return { ok: false, code: "invalid_input", reason: change.reason, status: 400 };
     // Start acts on the panel the engine last showed: a starting point it names that differs from the draft's is a changed page, not an edit (AC-SETUP-03).
-    if (Object.keys(change.fields).length) this.applyFolderDraft(change.start, change.fields, change.notice);
+    if (Object.keys(change.fields).length) this.applyFolderDraft(change.start, change.fields);
     const kind = change.start;
 
     // Start rechecks the facts and the plan it showed before acting (AC-SAFE-01).
@@ -4768,10 +5393,9 @@ export class Engine {
   }
 
   /** The panel's fields as the run's settings: the editable ones and, for the start's folder and branch, its names. */
-  private folderSettings(fields: PanelFields): AgentSettings {
+  private folderSettings(fields: PanelFields): Settings {
     const settings = structuredClone(this.record.settings);
     Object.assign(settings, { workspaceFolder: fields.workspaceFolder, worktreePath: expandHome(fields.worktreePath), featureBranch: fields.featureBranch, baseBranch: fields.baseBranch, bases: fields.bases, keepAwake: fields.keepAwake, resumeAfterUsageLimit: fields.resumeAfterUsageLimit });
-    settings.agentChoices = { ...settings.agentChoices, [settings.agentId]: { model: fields.model, ...(fields.effort ? { effort: fields.effort } : {}) } };
     return settings;
   }
 
@@ -4861,8 +5485,8 @@ export class Engine {
         entry.worktreePath = after; entry.setupCompletedAt = at;
       }
       const settings = intent.settings;
-      Object.assign(this.record.settings, { model: undefined }, { worktreePath: settings.worktreePath, workspaceFolder: settings.workspaceFolder, keepAwake: settings.keepAwake, resumeAfterUsageLimit: settings.resumeAfterUsageLimit, agentChoices: settings.agentChoices });
-      delete (this.record.settings as unknown as Record<string, unknown>).model;
+      // A start from the panel keeps the PRD's model choices (Kiln Phase Model Tiers, "Changes to Earlier Designs").
+      Object.assign(this.record.settings, { worktreePath: settings.worktreePath, workspaceFolder: settings.workspaceFolder, keepAwake: settings.keepAwake, resumeAfterUsageLimit: settings.resumeAfterUsageLimit });
       // Start is the person's explicit go: it ends an active pause and a released takeover hold (AC-SAFE-03).
       // A Start that ends a pause runs a preflight first, in the same write (RUN-003).
       // The pause's request was consumed when it became active, so it goes with it, as Start's own clear does.
@@ -4931,6 +5555,8 @@ export class Engine {
     // The ● line says what these checks found, so their own terminal lines would repeat it.
     this.quiet = true;
     try {
+      // The history read on load runs in the startup step, before Kiln serves the page or launches anything (Kiln Phase Model Tiers, "When an Activity Starts").
+      await this.readStartsOnLoad();
       const decision = await this.decideQuietly();
       if (decision.kind === "folder_missing") { this.restartReview = undefined; this.reviewingRestart = false; this.changed(); return decision; }
       if (options.review) {
@@ -5205,7 +5831,16 @@ export class Engine {
         this.requestedLaunch = undefined;
         if (!await this.folderGuard({ mayLeave: false })) { this.checking = false; this.changed(); return; }
         const runCount = this.phaseRunCount(request.phaseKey);
+        // Start again, a carry-on and Check Preflight again on an activity that hasn't started run the
+        // launch checks a new session's launch runs, so a choice that can't be used stops it on the
+        // `selection` stop, naming the choice (Kiln Phase Model Tiers AC-PICK-06).
+        if (this.choiceActivity(request.phaseKey) && !this.startedSessionOf(request.phaseKey)) {
+          this.current = { phaseKey: request.phaseKey, commits: [], processRunning: false };
+          if (!await this.launchReadiness(request.phaseKey)) { this.current = undefined; this.checking = false; this.returningTakeover = false; this.changed(); return; }
+        }
         await this.launchAtStop(request);
+        // A launch that ended before its session was launched leaves no decision behind for the next one.
+        this.decisions.delete(request.phaseKey);
         if (this.phaseRunCount(request.phaseKey) === runCount) {
           this.current = undefined; this.checking = false; this.changed();
           // A fresh preflight whose skill no longer resolves finished as no report, and the run goes on.
@@ -5321,31 +5956,96 @@ export class Engine {
    * read, agent selection and readiness, and Codex launch settings. False when one stopped the
    * activity on its key, or Kiln is stopping.
    */
-  private async launchReadiness(nextKey: string): Promise<boolean> {
-    // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09).
-    if (this.record.settings.agentId === "codex") await this.agents.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
-    else { void this.claude?.refreshAccount(); await this.agents.refreshClaudeModels(); }
+  private async launchReadiness(nextKey: string, options: { endsWait?: boolean } = {}): Promise<boolean> {
+    const ready = await this.launchReadinessNow(nextKey, options);
+    if (!ready) { this.decisions.delete(nextKey); this.changed(); }
+    return ready;
+  }
+
+  private async launchReadinessNow(nextKey: string, options: { endsWait?: boolean }): Promise<boolean> {
+    // Every launch of an activity that hasn't started runs the launch decision first (Kiln Phase Model Tiers AC-FALLBACK-02).
+    this.decisions.delete(nextKey);
+    if (!await this.ensureDecision(nextKey, !!options.endsWait)) return false;
+    const decided = this.decisions.get(nextKey);
+    // Each launch checks the agent of the activity about to launch (Kiln Phase Model Tiers AC-AGENTS-04).
+    const agentId = this.agentOf(nextKey);
+    const reader = this.readers[agentId];
+    // Just before each phase starts, so the panel shows the account the next session will use (AC-WATCH-09); the decision may already have read it.
+    if (!decided?.read) {
+      if (agentId === "codex") await reader.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
+      else { void this.claude?.refreshAccount(); await reader.refreshClaudeModels(); }
+    }
     if (this.stopping) return false;
-    const selectionError = this.record.settings.agentId === "claude_code" ? this.selectionIssue(true) : this.selectionError;
+    const selectionError = this.selectionIssue(nextKey, agentId === "claude_code");
     if (selectionError) {
       this.current = undefined;
-      this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [selectionError] }]);
+      this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.launchStopFact(nextKey, selectionError)] }]);
       return false;
     }
-    if (this.record.settings.agentId === "codex") {
+    if (agentId === "codex") {
       if (!openPlanPush(this.record)) mkdirSync(this.workspaceFolder, { recursive: true });
-      try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: selectedChoice(this.record.settings) }); }
+      try { await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: this.launchChoice(nextKey) }); }
       catch (error) {
         if (this.stopping) return false;
         this.current = undefined;
-        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }]);
+        this.recordStop(nextKey, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [this.launchStopFact(nextKey, (error as Error).message)] }]);
         return false;
       }
     }
     return true;
   }
 
+  /**
+   * A launch check that failed after the decision, as its stop names it (AC-PICK-06, "found at
+   * launch"): the check's message, then the choice the decision named, where it came from (the
+   * fallback included) and where to change it. Read before the stop drops the decision.
+   *
+   *   this.launchStopFact("2", "Codex is not signed in.")
+   *   // "Codex is not signed in. This launch was on Codex · GPT Sol · xhigh. Chosen from: The fallback, from Model defaults' Fallback column. Change it in Model defaults."
+   *
+   * A launch the agent refused once its process ran passes that session, whose saved decision names the choice.
+   */
+  private launchStopFact(key: string, message: string, launched?: SessionRecord): string {
+    if (!this.choiceActivity(key)) return message;
+    const named = (choice: { agentId?: AgentId | undefined; modelName?: string | undefined; modelDisplayName?: string | undefined; effort?: string | undefined }) => [AGENT_NAMES[choice.agentId ?? "claude_code"], choice.modelName ?? choice.modelDisplayName, choice.effort].filter(Boolean).join(" · ");
+    // A started activity names what it started on, and no place to change it ("A choice that can't be used").
+    const started = this.startedSessionOf(key);
+    if (started) return `${message} It started on ${named(started)}, which it finishes on.`;
+    if (launched?.launch) return `${message} This launch was on ${named({ agentId: launched.agentId, modelDisplayName: launched.modelDisplayName, effort: launched.effort })}. Chosen from: ${launchSource(key, launched.launch)}`;
+    const decided = this.decisions.get(key);
+    if (decided) return `${message} This launch was on ${named(decided.choice)}. Chosen from: ${launchSource(key, decided.launch)}`;
+    // At Check again no launch has decided yet: its next launch starts from its current choice.
+    const choice = this.notStartedChoice(key);
+    if (!choice.modelName || choice.problem) return message;
+    return `${message} Its next launch runs on ${named(choice)}. Chosen from: ${launchSource(key, { from: choice.from })}`;
+  }
 
+
+
+  /**
+   * The audit or preflight skill for the agent the decision named (technical design, "Skills"):
+   * the fallback's, resolved by its launch checks, replaces one resolved for the other agent; a
+   * launch back on the first choice after a launch on the other agent resolves it again, today's
+   * outcome applying when it doesn't resolve. False when that stopped the activity.
+   */
+  private async skillForDecision(key: string, decided: LaunchDecision): Promise<boolean> {
+    const audit = this.auditActivity(key);
+    const preflight = audit ? undefined : this.preflightActivity(key);
+    const activity = audit ?? preflight;
+    if (!activity) return true;
+    if (decided.skill) { activity.skill = decided.skill; this.save(); return true; }
+    const sessions = (this.record.phases[key]?.sessionIds ?? []).map(id => this.sessionRecord(key, id));
+    if (!activity.skill || !sessions.some(session => session && (session.agentId ?? "claude_code") !== decided.choice.agentId)) return true;
+    if (preflight) { delete preflight.skill; this.save(); return true; }
+    try { audit!.skill = await resolveAuditSkill({ kind: audit!.kind, agent: decided.choice.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal }); this.save(); return true; }
+    catch (error) {
+      if (this.stopping) return false;
+      this.current = undefined;
+      // The decision names the choice the skill didn't resolve on (AC-PICK-06); read before the stop drops it.
+      this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [this.launchStopFact(key, (error as Error).message)] }]);
+      return false;
+    }
+  }
 
   /**
    * The items for a person at a Needs you stop (AC-ITEM-02): on an audit, each entry of its latest
@@ -5391,8 +6091,8 @@ export class Engine {
 
   preflightActivity(key: string): PreflightActivity | undefined { return preflightActivity(this.record, key); }
 
-  private resolvePreflightSkill(): Promise<SkillResolution> {
-    return resolveSkill({ name: PREFLIGHT_SKILL, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+  private resolvePreflightSkill(agent: AgentId = this.auditsAgent): Promise<SkillResolution> {
+    return resolveSkill({ name: PREFLIGHT_SKILL, agent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
   }
 
   /**
@@ -5430,9 +6130,13 @@ export class Engine {
         if (resolved.kind === "unresolvable") {
           // A sign-in or readiness problem can make discovery fail: it stops on the preflight's key as a launch check, never as no report.
           if (!await this.launchReadiness(preflightKeyOf(activity))) return "stopped";
-          this.current = undefined;
-          this.finishPreflight(activity, { outcome: "no_report", reason: resolved.message });
-          return "go_on";
+          // A launch the decision sent to the fallback, whose skill resolves there, goes on to run (Kiln Phase Model Tiers, "Skills").
+          if (!activity.skill) {
+            this.decisions.delete(preflightKeyOf(activity));
+            this.current = undefined;
+            this.finishPreflight(activity, { outcome: "no_report", reason: resolved.message });
+            return "go_on";
+          }
         }
       }
     }
@@ -5523,10 +6227,12 @@ export class Engine {
    * a fresh session under the same activity, its skill resolved again. The stop, and an items
    * result, clear in the write that starts it (The Preflight Stop).
    */
-  private async launchPreflightAtStop(key: string): Promise<void> {
+  private async launchPreflightAtStop(key: string, launch: { started?: () => boolean; relaunchOf?: SessionRecord["relaunchOf"] } = {}): Promise<void> {
     const activity = this.preflightActivity(key)!;
     const facts = this.phaseFacts(key);
-    const resolved = await this.resolvePreflightSkill();
+    // The launch decision comes first, so the skill is resolved for the agent it names (Kiln Phase Model Tiers, "Skills").
+    if (!await this.ensureDecision(key, !!launch.relaunchOf)) { this.checking = false; return; }
+    const resolved = await this.resolvePreflightSkill(this.agentOf(key));
     if (this.stopping) { this.checking = false; return; }
     if (resolved.kind !== "found") {
       this.checking = false;
@@ -5539,13 +6245,14 @@ export class Engine {
     activity.skill = resolved.skill;
     this.save();
     const started = () => {
+      if (launch.started && !launch.started()) return false;
       delete facts.stop;
       if (activity.result?.outcome === "items") delete activity.result;
       this.checking = false;
       return true;
     };
     this.emitPreflight(activity, "started");
-    await this.launchSession(key, "preflight", this.preflightPrompt(activity), { started });
+    await this.launchSession(key, "preflight", this.preflightPrompt(activity), { started, ...(launch.relaunchOf ? { relaunchOf: launch.relaunchOf } : {}) });
   }
 
   /**
@@ -5679,9 +6386,10 @@ export class Engine {
       return { kind: "audit", key: auditKey(activity), activity };
     } catch (error) {
       const key = this.record.completionAudits?.activities.at(-1) ? auditKey(this.record.completionAudits.activities.at(-1)!) : PR_PHASE_KEY;
-      const waiver = !this.stopping && knownProblemWaiver(this.record.waivers, (error as Error).message);
+      const fact = this.readinessFact(error);
+      const waiver = !this.stopping && knownProblemWaiver(this.record.waivers, fact);
       if (!waiver) {
-        this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }]);
+        this.recordStop(key, "selection", [{ name: READINESS_CHECK, passed: false, facts: [fact] }]);
         return { kind: "stopped", key };
       }
       // A waived readiness problem: the step the saved audit record gives, judged without the step that failed (AC-WAIVE-04).
@@ -5754,6 +6462,17 @@ export class Engine {
    * Where the record cannot tell: the next of delivery audit, test audit, final delivery after the
    * last settled audit, with a closed kind's audit skipped as `auditNext` skips it (AC-LAST-03).
    */
+  /**
+   * The audit kinds the routing still expects after the last settled audit, in the order Kiln
+   * allocates them, for the planned rows (Kiln Phase Model Tiers, "Planned rows").
+   */
+  expectedAuditKinds(): ("delivery_audit" | "test_audit")[] {
+    const step = this.auditStepAfterSettled();
+    if (step === "final_delivery") return [];
+    if (step === "delivery_audit") return closedKinds(this.record).test ? ["delivery_audit"] : ["delivery_audit", "test_audit"];
+    return ["test_audit"];
+  }
+
   private auditStepAfterSettled(): "delivery_audit" | "test_audit" | "continue_test" | "final_delivery" {
     const closed = closedKinds(this.record);
     const activities = this.record.completionAudits?.activities ?? [];
@@ -5767,8 +6486,27 @@ export class Engine {
     return afterDelivery();
   }
 
+  /** The audit skill on the Audits choice's agent; one that doesn't resolve throws an `AuditSkillUnresolved`. */
+  private async auditsSkill(kind: AuditKind): Promise<NonNullable<AuditActivity["skill"]>> {
+    try { return await resolveAuditSkill({ kind, agent: this.auditsAgent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal }); }
+    catch (error) { throw new AuditSkillUnresolved((error as Error).message); }
+  }
+
+  /**
+   * A readiness-check failure as its stop names it. An audit skill that doesn't resolve names the
+   * Audits choice as it is now, where it came from and where to change it (AC-PICK-06), since the
+   * stop's key can be an earlier, finished audit; any other failure keeps its own message.
+   *
+   *   this.readinessFact(new AuditSkillUnresolved("Enable exactly one delivery-audit skill in …"))
+   *   // "The audits, preflight and pull request session run on Codex · GPT Sol · high from Model defaults (Audits row): Enable exactly one delivery-audit skill in … Change the Audits row in Model defaults, or …"
+   */
+  private readinessFact(error: unknown): string {
+    const message = (error as Error).message;
+    return error instanceof AuditSkillUnresolved ? choiceStopFact({ ...this.notStartedChoice(PR_PHASE_KEY), problem: message }, PR_PHASE_KEY) : message;
+  }
+
   private async allocateAudit(kind: AuditKind, continuation = false, withoutSkill = false): Promise<AuditActivity> {
-    const skill = withoutSkill ? undefined : await resolveAuditSkill({ kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+    const skill = withoutSkill ? undefined : await this.auditsSkill(kind);
     this.activeCheck = "audit-allocation";
     const before = structuredClone(this.record);
     try {
@@ -5943,7 +6681,7 @@ export class Engine {
    * the prerequisite-preparation phase each is built on the preparation task.
    * The phase's stop clears just before dispatch, after the billing check, as a resumed run's does.
    */
-  private async launchAtStop(request: NonNullable<Engine["requestedLaunch"]>): Promise<void> {
+  private async launchAtStop(request: NonNullable<Engine["requestedLaunch"]>, launch: { started?: () => boolean; relaunchOf?: SessionRecord["relaunchOf"] } = {}): Promise<void> {
     const key = request.phaseKey;
     if (isPreflightKey(key)) return this.launchPreflightAtStop(key);
     const facts = this.record.phases[key]!;
@@ -5968,13 +6706,13 @@ export class Engine {
     }
     if (this.stopping) { this.checking = false; return; }
     this.emit({ kind: "phase", at: this.now(), phaseId: key, title: this.titleOf(key), event: "started" });
-    const started = () => {
+    const started = launch.started ?? (() => {
       delete facts.stop;
       this.checking = false;
       this.stoppedWork = undefined;
       return true;
-    };
-    await this.launchSession(key, "phase", prompt, { started, ...(request.kind === "carry_on" ? { startedAs: "carry_on" as const } : {}) });
+    });
+    await this.launchSession(key, "phase", prompt, { started, ...(request.kind === "carry_on" ? { startedAs: "carry_on" as const } : {}), ...(launch.relaunchOf ? { relaunchOf: launch.relaunchOf } : {}) });
     // A launch that ended before reporting init leaves the hold pending (AC-CARRY-06).
     if (this.record.liveControl) this.returningTakeover = false;
   }
@@ -6075,7 +6813,7 @@ export class Engine {
   }
 
   private preparationContext() {
-    return { record: this.record, stateDirectory: this.stateDirectory, git: this.git, env: this.options.env, signal: this.abort.signal, codex: this.options.tools.codex, sessionId: this.record.preparation && this.latestSession(this.record.preparation.phaseId)?.sessionId, transcriptPath: this.record.preparation ? findTranscripts(claudeConfigFolder(this.options.env), this.latestSession(this.record.preparation.phaseId)?.sessionId ?? "").main : undefined, authorizeCommands: () => this.authorizePreparationCommands(), save: () => { this.writeContinuationMetadata(() => this.save()); this.changed(); }, now: () => this.now().toISOString(), label: (name: string) => this.labelOf(name) };
+    return { agentId: this.record.preparation ? this.agentOf(this.record.preparation.phaseId) : this.auditsAgent, record: this.record, stateDirectory: this.stateDirectory, git: this.git, env: this.options.env, signal: this.abort.signal, codex: this.options.tools.codex, sessionId: this.record.preparation && this.latestSession(this.record.preparation.phaseId)?.sessionId, transcriptPath: this.record.preparation ? findTranscripts(claudeConfigFolder(this.options.env), this.latestSession(this.record.preparation.phaseId)?.sessionId ?? "").main : undefined, authorizeCommands: () => this.authorizePreparationCommands(), save: () => { this.writeContinuationMetadata(() => this.save()); this.changed(); }, now: () => this.now().toISOString(), label: (name: string) => this.labelOf(name) };
   }
 
   /** Adapter shutdown has drained the scanner; every retained owner must also exit. */
@@ -6206,32 +6944,51 @@ export class Engine {
    * Launches one session for a phase. The session record is written before spawning; a session
    * recorded but never started (Kiln stopped in between) is launched as planned, same ID.
    */
-  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on"; deliveryBlock?: string } = {}): Promise<void> {
+  private async launchSession(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on"; deliveryBlock?: string; relaunchOf?: SessionRecord["relaunchOf"] } = {}): Promise<void> {
+    // Change is unavailable from the launch's decision until the launch ends (Kiln Phase Model Tiers, "Change while a launch of the activity is under way").
+    this.launching.add(phaseKey);
+    try { await this.launchSessionNow(phaseKey, kind, prompt, options); }
+    finally { this.launching.delete(phaseKey); this.decisions.delete(phaseKey); this.changed(); }
+  }
+
+  /** The activities a launch is under way for, from its decision until it ends. */
+  private readonly launching = new Set<string>();
+
+  private async launchSessionNow(phaseKey: string, kind: SessionRecord["kind"], prompt: string, options: { started?: () => boolean; startedAs?: "carry_on"; deliveryBlock?: string; relaunchOf?: SessionRecord["relaunchOf"] }): Promise<void> {
     const facts = this.record.phases[phaseKey]!;
     const audit = this.auditActivity(phaseKey) ?? this.preflightActivity(phaseKey);
     const auditRecord = this.auditActivity(phaseKey);
     observeActivity(this.record, this.stateDirectory, phaseKey, auditRecord?.kind ?? (kind === "preflight" ? "preflight" : kind === "pull_request" ? "final_delivery" : kind === "merge" ? "merge" : kind === "plan_push" ? "plan_push" : "implementation"), this.now().toISOString(), audit?.activityId);
     // A session launch waits for an addition under way, so it gets the workspace as it ends.
     await this.additionChain;
+    // The launch decision reads the activity's histories first while it has no saved start; one whose start is unknown launches nothing (Kiln Phase Model Tiers, "When an Activity Starts").
+    if (this.choiceActivity(phaseKey) && !this.startedSessionOf(phaseKey) && facts.sessionIds.length && await this.readStart(phaseKey) === "unknown") { this.stopOnUnknownStart(phaseKey); return; }
+    // A launch that didn't come through the launch checks (Start again, a carry-on) decides here (AC-FALLBACK-02).
+    if (!await this.ensureDecision(phaseKey, !!options.relaunchOf)) return;
     // Only the next launch reads the phase's last record, reusing it when it has no run (run restart "A session record with no run").
     let session = this.lastRecord(phaseKey);
+    // Each launch runs on its activity's own choice: what it started on, else its current one (Kiln Phase Model Tiers AC-PICK-01, AC-PICK-04).
+    const choice = this.launchChoice(phaseKey);
+    const { model, effort } = choice;
+    if (session && session.runs.length === 0 && (session.agentId !== choice.agentId || session.model !== model || session.effort !== effort)) {
+      // A record with no run takes the choice of the launch that reuses it.
+      session.agentId = choice.agentId; session.model = model; session.modelDisplayName = choice.modelName;
+      if (effort === undefined) delete session.effort; else session.effort = effort;
+      writeSessionRecord(this.options.stateDirectory, session);
+    }
     if (!session || session.runs.length > 0) {
-      const { model } = selectedChoice(this.record.settings);
-      const entry = this.modelEntry(model);
-      // A model that takes no effort gets no --effort, and its record says so (UI-011).
-      const effort = entry !== undefined && !entry.supportsEffort ? undefined : selectedChoice(this.record.settings).effort;
       session = {
         schemaVersion: SCHEMA_VERSION,
         executionId: this.record.executionId!,
         outputGeneration: randomUUID(),
-        agentId: this.record.settings.agentId,
+        agentId: choice.agentId,
         sessionId: randomUUID(),
         phaseId: audit ? "" : phaseKey,
         ...(audit ? { activityId: audit.activityId } : {}),
         kind,
         createdAt: this.now().toISOString(),
         model,
-        modelDisplayName: entry?.displayName ?? modelNameFromId(model),
+        modelDisplayName: choice.modelName,
         ...(effort === undefined ? {} : { effort }),
         workingDirectory: this.sessionFolder,
         runs: [],
@@ -6243,15 +7000,173 @@ export class Engine {
       if (auditRecord) auditRecord.sessionIds.push(session.sessionId);
       this.save();
     }
+    // The launch decision is saved on the session before its process starts (Kiln Phase Model Tiers, "The launch decision").
+    const decided = this.decisions.get(phaseKey);
+    if (decided || session.launch) {
+      if (decided) session.launch = decided.launch; else delete session.launch;
+      writeSessionRecord(this.options.stateDirectory, session);
+    }
     // Every launch says how its run started, including a reused record a carry-on left (run restart "A session record with no run").
     if (session.startedAs !== options.startedAs) {
       if (options.startedAs) session.startedAs = options.startedAs; else delete session.startedAs;
+      writeSessionRecord(this.options.stateDirectory, session);
+    }
+    // A launch at the end of a wait records the refused run it follows (Kiln Phase Model Tiers, "A Wait Before the Start").
+    if (options.relaunchOf || session.relaunchOf) {
+      if (options.relaunchOf) session.relaunchOf = options.relaunchOf; else delete session.relaunchOf;
       writeSessionRecord(this.options.stateDirectory, session);
     }
     // A pull request session's block is saved before its process starts, as the block it was given (AC-LEFT-01).
     if (options.deliveryBlock !== undefined) { session.deliveryBlock = { block: options.deliveryBlock, run: session.runs.length }; writeSessionRecord(this.options.stateDirectory, session); }
     const cwd = this.workingDirectoryOf(session);
     await this.runProcess(phaseKey, session, launchArguments(session.sessionId, session.model, session.effort, this.addDirs(cwd)), prompt, "launch", cwd, undefined, options.started);
+  }
+
+  /** An activity whose model choice binds when it starts: anything but a merge or a push after delivery. */
+  choiceActivity(key: string): boolean { return !isAfterDeliveryKey(key); }
+
+  /** Whether the next session of an activity is a new one: it hasn't started, so nothing is reopened (AC-PICK-07). */
+  launchesNewSession(key: string): boolean { return this.choiceActivity(key) && !this.startedSessionOf(key) && (this.record.phases[key]?.sessionIds.length ?? 0) > 0; }
+
+  /** Why an activity's start is unknown: a session's history exists but couldn't be read (Kiln Phase Model Tiers, "When an Activity Starts"). */
+  readonly unknownStarts = new Map<string, string>();
+
+  /**
+   * Reads the agents' own histories for an unfinished activity with no saved start (Kiln Phase
+   * Model Tiers, "When an Activity Starts"), once each session's last process has ended: Claude
+   * Code's saved conversation file, or the Codex thread's turns, by the same test as the saved
+   * events. A start found is saved on its session, and the activity's start with it; only after
+   * every read succeeded does the activity count as not started. A finished activity is never read.
+   */
+  async readStart(key: string): Promise<"started" | "not_started" | "unknown"> {
+    if (this.startedSessionOf(key)) { this.unknownStarts.delete(key); return "started"; }
+    const facts = this.record.phases[key];
+    if (!facts || facts.doneAt || !this.choiceActivity(key)) return "not_started";
+    let unreadable: string | undefined;
+    for (const id of facts.sessionIds) {
+      const session = this.sessionRecord(key, id);
+      // A session no run of which was dispatched has no history to read.
+      if (!session || session.firstResponseAt || !session.runs.some(run => run.pid !== undefined && !codexNotDispatched(run))) continue;
+      if (this.current?.phaseKey === key && this.current.processRunning) continue;
+      const found = session.agentId === "codex"
+        ? await codexHistoryStart({ executable: this.options.tools.codex, cwd: this.workingDirectoryOf(session), env: this.options.env, session, signal: this.abort.signal })
+        : claudeHistoryStart(claudeConfigFolder(this.options.env), session.sessionId);
+      if (found.state === "unreadable") { unreadable ??= found.reason; continue; }
+      if (found.state === "responded") {
+        session.firstResponseAt = found.at;
+        writeSessionRecord(this.options.stateDirectory, session);
+        this.noteStart(key, session);
+        this.unknownStarts.delete(key);
+        this.changed();
+        return "started";
+      }
+    }
+    if (unreadable !== undefined) { this.unknownStarts.set(key, unreadable); this.changed(); return "unknown"; }
+    this.unknownStarts.delete(key);
+    return "not_started";
+  }
+
+  /** The history read at load, for every unfinished activity with sessions and no saved start, before anything launches. */
+  private async readStartsOnLoad(): Promise<void> {
+    for (const [key, facts] of Object.entries(this.record.phases)) {
+      if (facts.doneAt || facts.startedSessionId || !facts.sessionIds.length || !this.choiceActivity(key)) continue;
+      await this.readStart(key);
+    }
+  }
+
+  /** Kiln launches nothing for an activity whose start is unknown; the stop gives the reason, with Check again. */
+  private stopOnUnknownStart(key: string): void {
+    const facts = this.record.phases[key]!;
+    this.checking = false;
+    if (facts.wait) { delete facts.wait; this.unwatchWait(); }
+    this.current = undefined;
+    this.recordStop(key, "selection", [{ name: START_CHECK, passed: false, facts: [`Kiln can't tell whether this activity has started, so it launches nothing for it. ${this.unknownStarts.get(key) ?? ""}`.trim()] }]);
+    this.changed();
+  }
+
+  /**
+   * An activity that hasn't started goes on in a new session on its current choice (AC-PICK-07):
+   * the person's Resume or reply, `kiln resume` or `kiln reply`, Kiln's own resume after an
+   * interruption, or the end of a wait. With a reply, the new session gets the carry-on prompt
+   * carrying it, the last recorded message and the phase's work; without one, the activity's
+   * ordinary prompt. A launch ending a wait records the refused run it follows. The stop or the
+   * wait ends as the run starts.
+   */
+  private async launchFresh(key: string, request: ResumeRequest | undefined): Promise<void> {
+    const facts = this.record.phases[key]!;
+    const note = request?.note;
+    const refused = request?.cause === "limit_resume" ? this.refusedRun(key) : undefined;
+    const relaunchOf = refused ? { sessionId: refused.session.sessionId, run: refused.runIndex } : undefined;
+    const started = () => {
+      if (request?.cause === "limit_resume" && facts.wait !== undefined && !this.record.settings.resumeAfterUsageLimit) {
+        this.waitToStop(key, facts.wait.checks, facts.wait.checkedAt);
+        this.checking = false;
+        this.changed();
+        return false;
+      }
+      delete facts.stop;
+      if (facts.wait !== undefined) { delete facts.wait; this.unwatchWait(); }
+      this.checking = false;
+      this.stoppedWork = undefined;
+      return true;
+    };
+    this.current = { phaseKey: key, commits: [], processRunning: false };
+    this.changed();
+    // A new session runs the launch checks for the agent its current choice names (AC-AGENTS-04).
+    const waiting = facts.wait;
+    if (!await this.launchReadiness(key, { endsWait: request?.cause === "limit_resume" })) {
+      if (waiting && facts.stop) { delete facts.wait; this.unwatchWait(); this.save(); }
+      this.checking = false;
+      this.changed();
+      return;
+    }
+    if (isPreflightKey(key)) { await this.launchPreflightAtStop(key, { started, ...(relaunchOf ? { relaunchOf } : {}) }); return; }
+    const audit = this.auditActivity(key);
+    if (!audit && key !== PR_PHASE_KEY) {
+      await this.launchAtStop({ phaseKey: key, kind: note ? "carry_on" : "start_again", ...(note ? { note } : {}) }, { started, ...(relaunchOf ? { relaunchOf } : {}) });
+      return;
+    }
+    await this.recordStartCommits(key);
+    const carry = async (fresh: string) => {
+      if (!note) return fresh;
+      const earlier = this.recoverySession(key);
+      const lastMessage = earlier && lastRecordedRun(earlier)?.result?.text;
+      return carryOnPrompt({ freshSession: fresh, note, ...(lastMessage ? { lastMessage } : {}), work: [], multiRepository: this.setUpRepositories.length > 1 });
+    };
+    if (audit) {
+      const prompt = await carry(this.auditPrompt(audit));
+      if (this.stopping) { this.checking = false; return; }
+      this.emitAudit(audit, "started");
+      await this.launchSession(key, audit.kind, prompt, { started, ...(relaunchOf ? { relaunchOf } : {}) });
+      return;
+    }
+    const values = await this.pullRequestPromptValues(this.sessionFolder);
+    const prompt = await carry(pullRequestSessionPrompt(values));
+    if (this.stopping) { this.checking = false; return; }
+    this.freezeLimits();
+    this.emit({ kind: "pull_request", at: this.now(), event: "started" });
+    await this.launchSession(PR_PHASE_KEY, "pull_request", prompt, { started, deliveryBlock: values.deliveryBlock, ...(relaunchOf ? { relaunchOf } : {}) });
+  }
+
+  /**
+   * Whether a command that reopens one of the activity's saved conversations may be offered
+   * (AC-PICK-07): always for a started activity; for one that hasn't started, only while its
+   * current choice is the agent, model and effort that session ran on. Otherwise the terminal gets
+   * the command for a fresh session on its current choice's agent.
+   */
+  reopenMatchesChoice(key: string, session: SessionRecord): boolean {
+    if (!this.choiceActivity(key) || this.startedSessionOf(key)) return true;
+    const choice = this.notStartedChoice(key);
+    return choice.agentId === (session.agentId ?? "claude_code") && choice.model === session.model && (choice.effort ?? undefined) === (session.effort ?? undefined);
+  }
+
+  /**
+   * The agent whose account a wait or usage-limit stop watches (AC-AGENTS-04): a started activity's
+   * refused session's; for one that hasn't started, the agent of the choice its next launch runs on.
+   */
+  waitAgent(key: string): AgentId {
+    if (!this.choiceActivity(key) || this.startedSessionOf(key)) return this.refusedRun(key)?.session.agentId ?? "claude_code";
+    return this.agentOf(key);
   }
 
   /**
@@ -6269,6 +7184,19 @@ export class Engine {
     // The person's resume reopens the latest conversation; Kiln's own resumes the attempt that just ended (run restart "Resuming after a failed launch").
     const session = request ? this.recoverySession(phaseKey) : this.latestSession(phaseKey);
     if (!session) return;
+    // The one place the engine dispatches a session: an activity that hasn't started has no
+    // conversation to pick up, so it goes on in a new session on its current choice (AC-PICK-07).
+    if (this.choiceActivity(phaseKey) && !this.startedSessionOf(phaseKey)) {
+      if (this.record.liveControl) {
+        try { await this.requireTakeoverReturn(); }
+        catch (error) { this.checking = false; this.record.liveControl.takeover.reason = (error as Error).message; this.save(); return; }
+      } else await this.stopLiveProcess(session);
+      if (this.stopping) return;
+      const start = await this.readStart(phaseKey);
+      if (this.stopping) return;
+      if (start === "unknown") { this.stopOnUnknownStart(phaseKey); return; }
+      if (start === "not_started") { await this.launchFresh(phaseKey, request); return; }
+    }
     const priorInspectionOwner = this.inspectionResumingSession;
     this.inspectionResumingSession = session.sessionId;
     try {
@@ -6418,10 +7346,11 @@ export class Engine {
         const inspection = await this.billing.refresh(cwd, launchEnv, args, true);
         launchEnv = inspection.launchEnv;
         if (this.stopping) return;
-        const reason = inspection.readinessError ?? (cause === "launch" ? this.selectionIssue(true) : this.agents.state.blockers.length ? this.agents.state.blockers.join(" ") : undefined) ?? (inspection.summary.route === "metered" && !inspection.summary.approved ? "Review and approve this billing setup, or change its source and recheck." : undefined);
+        const reason = inspection.readinessError ?? (cause === "launch" ? this.selectionIssue(phaseKey, true) : this.readers.claude_code.state.blockers.length ? this.readers.claude_code.state.blockers.join(" ") : undefined) ?? (inspection.summary.route === "metered" && !inspection.summary.approved ? "Review and approve this billing setup, or change its source and recheck." : undefined);
         if (reason) { this.holdBilling(phaseKey, session, cause, inspection.summary, reason); return; }
         this.billingLaunch = structuredClone(inspection.summary);
-        this.record.billing!.lastLaunch = this.billingLaunch;
+        // Each agent's billing shows its own latest launch (Kiln Phase Model Tiers, "Billing state").
+        this.record.billing!.lastLaunch = { ...this.record.billing!.lastLaunch, [this.billingLaunch.agentId]: this.billingLaunch };
         delete this.record.billing!.hold;
         this.save();
       } catch (error) {
@@ -6551,7 +7480,11 @@ export class Engine {
         if (await this.takeoverBecameComplete(phaseKey)) throw new TakeoverAlreadyComplete();
         // A carry-on from a hold checks the hold's conversation, and reads no history of either conversation (AC-CARRY-06).
         const carryOn = !!this.record.liveControl?.takeover.history;
-        const conversation = carryOn ? this.record.liveControl!.takeover.target.providerSessionId : session.sessionId;
+        // Only a launch that reopens the conversation reads its history; a fresh session for an
+        // activity that hasn't started has none before its first prompt, so it checks the held
+        // conversation for a terminal instead, as a carry-on does (AC-PICK-07).
+        const reopens = args.includes("--resume");
+        const conversation = carryOn || !reopens ? this.record.liveControl!.takeover.target.providerSessionId : session.sessionId;
         try { await requireNoTerminal(launchEnv, conversation, identity); }
         catch (error) { if (carryOn && error instanceof OwnershipError && error.code !== "terminal_in_use") throw new OwnershipError("ownership_unknown", error.message); throw error; }
         if (local !== this.takeoverLocalMaterial(phaseKey)) {
@@ -6559,7 +7492,7 @@ export class Engine {
           throw new CompletionCheckUnavailable("Activity material changed before the first prompt. Retry hand-back.");
         }
         // Final synchronous admission after the async checks, using this dispatch's profile.
-        if (!carryOn) requireHistory(launchEnv, session.sessionId);
+        if (!carryOn && reopens) requireHistory(launchEnv, session.sessionId);
       } } : {}),
       ...(dispatchedControl ? { control: { operationId: dispatchedControl.id, attemptId: dispatchedControl.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}),
       now: this.now,
@@ -6581,7 +7514,7 @@ export class Engine {
       onPartial: (partial) => {
         for (const listener of this.partialListeners) listener(session.sessionId, partial);
       },
-      onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.changed(); },
+      onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.noteStart(phaseKey, session); this.changed(); },
     });
     } catch (error) {
       if (error instanceof TakeoverAlreadyComplete) { this.controlDispatch = undefined; }
@@ -6658,6 +7591,19 @@ export class Engine {
     };
   }
 
+  /**
+   * An automatic launch on Codex that ends a wait for an activity that hasn't started saves its
+   * attempt on the activity's own record before the process starts (Kiln Phase Model Tiers, "A Wait
+   * Before the Start"). A launch the person asks for records no relaunch and isn't bounded by it.
+   */
+  private automaticAttempt(key: string, session: SessionRecord, cause: SessionRun["cause"]): { automaticAttempt?: { recovery: CodexUsageRecovery; refusalAt: string; save: () => void } } {
+    if (cause !== "launch" || !session.relaunchOf || session.runs.length || this.startedSessionOf(key)) return {};
+    const refused = this.sessionRecord(key, session.relaunchOf.sessionId)?.runs[session.relaunchOf.run]?.limitRefusal;
+    const facts = this.record.phases[key];
+    if (!refused || !facts) return {};
+    return { automaticAttempt: { recovery: facts.codexUsageRecovery ??= { generation: 0 }, refusalAt: refused.at, save: () => this.save() } };
+  }
+
   private async runCodexProcess(current: CurrentPhase, session: SessionRecord, prompt: string, cause: SessionRun["cause"], cwd: string, note?: string, started?: () => boolean): Promise<void> {
     const files = sessionFiles(this.options.stateDirectory, session);
     const previous = readJsonLines<OutputLine>(files.output);
@@ -6675,13 +7621,14 @@ export class Engine {
     try {
       await runCodexSession({
         ...this.codexLaunchOptions(cwd), ...(this.controlDispatch ? { control: { operationId: this.controlDispatch.id, attemptId: this.controlDispatch.attempt_id!, promptDigest: createHash("sha256").update(prompt).digest("hex") } } : {}), record: session, stateDirectory: this.options.stateDirectory, prompt, cause, ...(note ? { note } : {}),
+        ...this.automaticAttempt(current.phaseKey, session, cause),
         beforeStart: async () => {
           await this.recheckPreparationAdmission(current.phaseKey, session);
           if (this.stopping || started?.() === false) throw new CodexLaunchCancelled("Codex launch authorization was withdrawn.");
           if (started) this.save();
         },
         onBilling: summary => {
-          this.record.billing!.lastLaunch = structuredClone(summary);
+          this.record.billing!.lastLaunch = { ...this.record.billing!.lastLaunch, [summary.agentId]: structuredClone(summary) };
           this.save();
         },
         onSpawned: control => { this.control = control; },
@@ -6698,7 +7645,7 @@ export class Engine {
             save(reader.read({ method: "item/completed", params: { threadId, turnId: turn.id, item } }, at, typeof turn.startedAt === "number" ? "turn" : "recovery").lines);
           }
         },
-        onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.changed(); },
+        onRecordChange: () => { this.observeControlDispatch(session); this.markTold(session); this.noteStart(current.phaseKey, session); this.changed(); },
         beforeEnd: () => this.readSleep(false),
       });
     } catch (error) {
@@ -6813,7 +7760,7 @@ export class Engine {
       if (run?.cause === "launch" && session?.runs.length === 1 && run.codex?.verificationFailure && codexNotDispatched(run)) {
         // A rejected first launch has no materialized provider history to audit.
         // This also handles a restart after an older Kiln left it implementing.
-        this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [run.codex.verificationFailure] }]);
+        this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [this.launchStopFact(phaseKey, run.codex.verificationFailure, session)] }]);
         return { kind: "stopped" };
       }
       if (isPreflightKey(phaseKey)) return await this.judgePreflight(phaseKey);
@@ -6986,14 +7933,14 @@ export class Engine {
       try {
         const kind = await auditNext(this.admissionContext());
         if (kind !== "final_delivery") {
-          await resolveAuditSkill({ kind: kind === "continue_test" ? "test_audit" : kind, agent: this.record.settings.agentId, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
+          await this.auditsSkill(kind === "continue_test" ? "test_audit" : kind);
           // What allocation needs beyond the skill: a continuation's predecessor and a work snapshot, read but never saved.
           if (kind === "continue_test" && !continuablePredecessor({ record: this.record, stateDirectory: this.stateDirectory })) throw new Error("A test continuation requires its settled accepted predecessor.");
           await captureSnapshot({ ...this.admissionContext(), activity: { activityId: "readiness-check", sequence: 0, kind: kind === "continue_test" ? "test_audit" : kind, round: 0, continuationIndex: 0, createdAt: this.now().toISOString(), sessionIds: [], reportPath: `${this.record.prdDirectory}/kiln-audit-readiness-check.json`, snapshots: [], attempts: [] }, now: this.now().toISOString() });
         }
       } catch (error) {
         if (this.stopping) return "still_stopped";
-        const checks: CheckResult[] = [{ name: READINESS_CHECK, passed: false, facts: [(error as Error).message] }];
+        const checks: CheckResult[] = [{ name: READINESS_CHECK, passed: false, facts: [this.readinessFact(error)] }];
         if (!await this.markChecks(phaseKey, checks)) { this.updateStop(phaseKey, checks, false); return "still_stopped"; }
       }
       return this.clearStop(phaseKey);
@@ -7011,12 +7958,25 @@ export class Engine {
       return this.clearStop(phaseKey);
     }
     if (stop.kind === "selection") {
-      await this.agents.refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
+      // A start Kiln couldn't tell is settled by Check again's own history read (Kiln Phase Model Tiers, "When an Activity Starts").
+      if (stop.checks.some(check => check.name === START_CHECK)) {
+        const start = await this.readStart(phaseKey);
+        if (this.stopping) return "still_stopped";
+        if (start === "unknown") {
+          const checks = [{ name: START_CHECK, passed: false, facts: [`Kiln can't tell whether this activity has started, so it launches nothing for it. ${this.unknownStarts.get(phaseKey) ?? ""}`.trim()] }];
+          await this.markChecks(phaseKey, checks);
+          this.updateStop(phaseKey, checks, false);
+          return "still_stopped";
+        }
+      }
+      // Check again resolves the stopped activity's choice again (AC-PICK-06), on the agent it now names.
+      this.syncNeededAgents();
+      await this.readers[this.agentOf(phaseKey)].refresh([this.sessionFolder, ...this.sessionRepositories.map((entry) => expandHome(entry.worktreePath))]);
       if (this.stopping) return "still_stopped";
-      const issue = this.selectionError;
-      const probe = !issue && stop.checks.some(check => check.name === "Codex launch settings") ? await this.probeCodexLaunch() : undefined;
+      const issue = this.selectionIssue(phaseKey);
+      const probe = !issue && stop.checks.some(check => check.name === "Codex launch settings") ? await this.probeCodexLaunch(phaseKey) : undefined;
       if (issue || probe) {
-        const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [issue] } : probe!;
+        const launch: CheckResult = issue ? { name: "Agent selection and readiness", passed: false, facts: [this.launchStopFact(phaseKey, issue)] } : { ...probe!, facts: probe!.facts.map(fact => typeof fact === "string" ? this.launchStopFact(phaseKey, fact) : fact) };
         // An activity that has not run: its own completion rows beside the launch check (waivers "Check Runs").
         // An activity that has not run: its own completion rows beside the launch check, still labelled Why Kiln stopped (AC-STOPCHECK-02, 03).
         const checks = [launch, ...(this.activityRan(phaseKey) ? [] : await this.completionRows(phaseKey))];
@@ -7144,10 +8104,10 @@ export class Engine {
   }
 
   /** The Codex launch-settings probe a Codex launch settings stop reruns: its failing row, or undefined when it passes. */
-  private async probeCodexLaunch(): Promise<CheckResult | undefined> {
+  private async probeCodexLaunch(key: string): Promise<CheckResult | undefined> {
     if (!openPlanPush(this.record)) mkdirSync(this.workspaceFolder, { recursive: true });
     let prepared: Awaited<ReturnType<typeof prepareCodexLaunch>>;
-    try { prepared = await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: selectedChoice(this.record.settings) }); }
+    try { prepared = await prepareCodexLaunch({ ...this.codexLaunchOptions(this.sessionFolder), choice: this.launchChoice(key) }); }
     catch (error) { return { name: "Agent selection and readiness", passed: false, facts: [(error as Error).message] }; }
     // A probe that could not finish (Codex did not start, a deadline, an abort) is a check that could not finish.
     try {
@@ -7355,7 +8315,7 @@ export class Engine {
       const before = structuredClone(this.record);
       try {
         const accepted = effectiveAudit(this.stateDirectory, audit)!;
-        if (outcome.plan.ok) { this.record.plan = recordedPlan(outcome.plan.plan); this.record.planReadAt = this.now().toISOString(); }
+        if (outcome.plan.ok) { this.record.plan = recordedPlan(outcome.plan.plan); this.record.planReadAt = this.now().toISOString(); this.syncNeededAgents(); }
         for (const phaseId of accepted.completionPhases()) assignAuditObligations(this.deliveryContext(phaseKey), audit.activityId, { kind: "phase", phaseId });
         for (const entry of this.setUpRepositories) {
           const head = await localBranchCommit(this.git, expandHome(entry.worktreePath), this.record.settings.featureBranch);
@@ -7501,6 +8461,7 @@ export class Engine {
     if (this.restartReview) { this.restartReview = undefined; this.reviewingRestart = false; }
     // A merge or push stop leaves the early-merge ledger's completion result as it was (Kiln After Delivery, "Ending").
     if (deliveryEnabled(this.record) && !isAfterDeliveryKey(phaseKey)) ledger(this.record).currentComplete = false;
+    this.decisions.delete(phaseKey);
     const at = this.now().toISOString();
     const facts = this.phaseFacts(phaseKey);
     const alreadyStopped = facts.stop !== undefined || this.record.billing?.hold?.phaseKey === phaseKey;
@@ -7604,7 +8565,7 @@ export class Engine {
       if (readable.length) return readable;
     } catch { /* Unreadable: the recorded plan is the order source. */ }
     const directory = join(this.worktreePath, ...this.paths.prdDirectoryFromRoot.split("/"));
-    return (this.record.plan ?? []).filter(phase => existsSync(join(directory, phase.file))).map(phase => ({ id: phase.id, fileName: phase.file, title: phase.title, closed: phase.closed, repositories: phase.repositories, ...(phase.attended === undefined ? {} : { attended: phase.attended }), ...(phase.earlyMerge === undefined ? {} : { earlyMerge: phase.earlyMerge }), splitInto: phase.splitInto, citedCriteria: [], dependenciesText: undefined }));
+    return (this.record.plan ?? []).filter(phase => existsSync(join(directory, phase.file))).map(phase => ({ id: phase.id, fileName: phase.file, title: phase.title, closed: phase.closed, repositories: phase.repositories, ...(phase.attended === undefined ? {} : { attended: phase.attended }), ...(phase.earlyMerge === undefined ? {} : { earlyMerge: phase.earlyMerge }), ...(phase.modelTier === undefined ? {} : { modelTier: phase.modelTier }), splitInto: phase.splitInto, citedCriteria: [], dependenciesText: undefined }));
   }
 
   /** The leaves a Closed-line item is judged against: the plan as read, else the order source. */
@@ -7754,19 +8715,21 @@ export class Engine {
     const run = session.runs[runIndex]!;
     const limit = stopLimit(run.limitRefusal!);
     const kind: StopKind = phaseKey === PR_PHASE_KEY ? "pull_request_check" : "done_check";
+    // An activity that hasn't started needs no saved conversation to wait (Kiln Phase Model Tiers, "A Wait Before the Start").
+    const notStarted = this.choiceActivity(phaseKey) && !this.startedSessionOf(phaseKey);
     if (session.agentId === "codex") {
-      if (this.record.settings.resumeAfterUsageLimit && !this.codexSafetyProblems(phaseKey).length && !this.transcriptMissing(session)) {
+      if (this.record.settings.resumeAfterUsageLimit && !this.codexSafetyProblems(phaseKey).length && (notStarted || !this.transcriptMissing(session))) {
         this.recordWait(phaseKey, session, runIndex, checks);
         return { kind: "waiting" };
       }
       this.recordStop(phaseKey, kind, checks, undefined, limit);
       return { kind: "stopped" };
     }
-    if (run.cause === "limit_resume" && this.refusedAgain(session, runIndex)) {
+    if (run.cause === "limit_resume" && this.refusedAgain(session, runIndex) || run.cause === "launch" && this.refusedAgainAcross(phaseKey, session, runIndex)) {
       this.recordStop(phaseKey, kind, checks, undefined, { ...limit, refusedAgainAt: run.startedAt });
       return { kind: "stopped" };
     }
-    if (this.record.settings.resumeAfterUsageLimit && !this.transcriptMissing(session)) {
+    if (this.record.settings.resumeAfterUsageLimit && (notStarted || !this.transcriptMissing(session))) {
       this.recordWait(phaseKey, session, runIndex, checks);
       return { kind: "waiting" };
     }
@@ -7783,6 +8746,21 @@ export class Engine {
     const run = session.runs[runIndex]!;
     const previous = session.runs[runIndex - 1]?.limitRefusal;
     if (previous === undefined || run.limitRefusal === undefined) return false;
+    if (eventsOfRun(this.options.stateDirectory, session, runIndex).some((saved) => isModelResponse(saved.event))) return false;
+    return sameAccount(run.account, previous.account) && run.limitRefusal.rateLimitType === previous.rateLimitType;
+  }
+
+  /**
+   * AC-AUTO-05's rule across two sessions (Kiln Phase Model Tiers, "A Wait Before the Start"): a
+   * launch that ended a wait was refused in turn before any response, by the same limit on the same
+   * account as the refused run it follows.
+   */
+  private refusedAgainAcross(key: string, session: SessionRecord, runIndex: number): boolean {
+    const run = session.runs[runIndex]!;
+    const follows = session.relaunchOf;
+    if (runIndex !== 0 || !follows || run.limitRefusal === undefined) return false;
+    const previous = this.sessionRecord(key, follows.sessionId)?.runs[follows.run]?.limitRefusal;
+    if (previous === undefined || previous.agentId === "codex") return false;
     if (eventsOfRun(this.options.stateDirectory, session, runIndex).some((saved) => isModelResponse(saved.event))) return false;
     return sameAccount(run.account, previous.account) && run.limitRefusal.rateLimitType === previous.rateLimitType;
   }
@@ -7874,7 +8852,8 @@ export class Engine {
     }
     const session = this.latestSession(phaseKey);
     const settingOff = mode !== "person_resume" && !this.record.settings.resumeAfterUsageLimit;
-    if (settingOff || this.codexSafetyProblems(phaseKey).length || (session !== undefined && this.transcriptMissing(session))) {
+    const notStarted = this.choiceActivity(phaseKey) && !this.startedSessionOf(phaseKey);
+    if (settingOff || this.codexSafetyProblems(phaseKey).length || (!notStarted && session !== undefined && this.transcriptMissing(session))) {
       this.waitToStop(phaseKey, checks);
       return "stopped";
     }
@@ -7931,8 +8910,8 @@ export class Engine {
     // reading from this metadata generation must reach the wait once it exists.
     const reading = this.freshReading;
     const refusal = this.refusedRun(key)?.refusal;
-    if (refusal?.agentId === "codex") {
-      const codexReading = this.agents.state.pending ? undefined : this.agents.state.account;
+    if (refusal && this.waitAgent(key) === "codex") {
+      const codexReading = this.readers.codex.state.pending ? undefined : this.readers.codex.state.account;
       if (codexReading && Date.parse(codexReading.startedAt) >= Date.parse(refusal.at)) this.codexReadingArrived(codexReading);
     } else if (reading && refusal && Date.parse(reading.startedAt) >= Date.parse(refusal.at)) this.readingArrived(reading);
     if (!this.checking && this.waitingPhaseKey() === key) this.askReading();
@@ -7970,7 +8949,10 @@ export class Engine {
 
   /** Asks for a reading; one already under way is joined. */
   private askReading(): void {
-    if (this.record.settings.agentId === "codex") void this.agents.refresh();
+    const key = this.waitingPhaseKey() ?? this.limitStopKey();
+    // A wait on an activity that hasn't started reads its sessions' histories at each reading (Kiln Phase Model Tiers, "When an Activity Starts").
+    if (key !== undefined && this.waitsBeforeStart(key)) { if (this.stopWaitOnUnusableChoice(key)) return; void this.readStart(key); }
+    if (key !== undefined && this.waitAgent(key) === "codex") void this.readers.codex.refresh();
     else void this.claude?.refreshAccount();
   }
 
@@ -7980,9 +8962,12 @@ export class Engine {
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
     if (key === undefined) return;
+    if (this.fallbackEndsWait(key, reading.startedAt)) return;
     const found = this.refusedRun(key);
-    if (!found || found.session.agentId !== "codex") return;
+    if (!found || this.waitAgent(key) !== "codex") return;
     if (Date.parse(reading.startedAt) < Date.parse(found.refusal.at)) { this.askReading(); return; }
+    if (this.waitsBeforeStart(key)) { this.codexReadingBeforeStart(key, found.refusal.at, reading); return; }
+    if (found.session.agentId !== "codex") return;
     const release = codexUsageRelease(found.session, found.refusal, reading);
     writeSessionRecord(this.options.stateDirectory, found.session);
     const facts = this.record.phases[key]!;
@@ -8006,13 +8991,17 @@ export class Engine {
     if (this.stopping || this.checking) return;
     const key = this.waitingPhaseKey() ?? this.limitStopKey();
     if (key === undefined) return;
+    if (this.fallbackEndsWait(key, reading.startedAt)) return;
     const found = this.refusedRun(key);
-    if (!found) return;
+    if (!found || this.waitAgent(key) !== "claude_code") return;
     const { session, refusal } = found;
     if (Date.parse(reading.startedAt) < Date.parse(refusal.at)) {
       this.askReading();
       return;
     }
+    // A wait whose activity hasn't started watches the account its current choice runs on; a
+    // different choice than the one refused ends once no counted limit reads 100% (AC-PICK-07).
+    if (this.waitsBeforeStart(key) && !this.sameAsRefused(key, session)) { this.claudeReadingForOtherChoice(key, reading); return; }
     const facts = this.record.phases[key]!;
     let changed = false;
     const account = readingAccount(reading);
@@ -8042,6 +9031,100 @@ export class Engine {
     const resetPassed = schedule.at !== undefined && this.now().getTime() >= Date.parse(schedule.at);
     if (verdict === "usage_left" || resetPassed) void this.resumeWait(key, "limit_resume");
     else if (refusal.resetsAt === undefined && first) this.waitToStop(key, facts.wait.checks, facts.wait.checkedAt);
+  }
+
+  /**
+   * A reading whose decision finds the current choice can't be used, or its agent isn't ready, ends
+   * the wait: the activity stops with the `selection` stop, as at a launch (Kiln Phase Model Tiers, "A Wait Before the Start").
+   */
+  private stopWaitOnUnusableChoice(key: string): boolean {
+    const facts = this.record.phases[key];
+    if (!facts?.wait || !this.waitsBeforeStart(key)) return false;
+    const choice = this.notStartedChoice(key);
+    const problem = !this.installed(choice.agentId) ? choiceStopFact({ ...choice, problem: installRemedy(choice.agentId) }, key) : choice.problem && !choice.problem.startsWith("Reading ") ? choiceStopFact(choice, key) : undefined;
+    if (problem === undefined) return false;
+    delete facts.wait;
+    this.unwatchWait();
+    this.current = undefined;
+    this.recordStop(key, "selection", [{ name: "Agent selection and readiness", passed: false, facts: [problem] }]);
+    this.updateKeepAwake();
+    this.changed();
+    return true;
+  }
+
+  /**
+   * A reading, of either agent, taken after the refusal of an activity that hasn't started runs
+   * the launch decision (Kiln Phase Model Tiers, "A Wait Before the Start", the fallback row): one
+   * naming the fallback ends the wait now, and the launch that ends it decides again on readings
+   * taken for it. True when it ended the wait.
+   */
+  private fallbackEndsWait(key: string, readingStartedAt: string): boolean {
+    if (this.record.phases[key]?.wait === undefined || this.waitWatch?.phaseKey !== key || !this.waitsBeforeStart(key)) return false;
+    const refused = this.refusedRun(key);
+    if (!refused || Date.parse(readingStartedAt) < Date.parse(refused.refusal.at)) return false;
+    if (!this.forecastDecision(key, true)) return false;
+    this.waitWatch.readings++;
+    // The launch-only checks run before the wait ends, so a launch that ends it isn't reversed onto the refused choice.
+    if (this.fallbackWaitCheck === key) return true;
+    this.fallbackWaitCheck = key;
+    void this.decideLaunch(key, true).then(decided => {
+      if (this.fallbackWaitCheck === key) this.fallbackWaitCheck = undefined;
+      if (decided?.launch.fallback?.used && this.waitsBeforeStart(key) && this.waitWatch?.phaseKey === key && !this.stopping) void this.resumeWait(key, "limit_resume");
+    }, () => { if (this.fallbackWaitCheck === key) this.fallbackWaitCheck = undefined; });
+    return true;
+  }
+  private fallbackWaitCheck: string | undefined;
+
+  /** A wait on an activity that hasn't started (Kiln Phase Model Tiers, "A Wait Before the Start"). */
+  private waitsBeforeStart(key: string): boolean {
+    return this.choiceActivity(key) && !this.startedSessionOf(key) && this.record.phases[key]?.wait !== undefined;
+  }
+
+  /** Whether the activity's current choice is the agent, model and effort the refused session ran on. */
+  private sameAsRefused(key: string, session: SessionRecord): boolean {
+    const choice = this.notStartedChoice(key);
+    return choice.agentId === (session.agentId ?? "claude_code") && choice.model === session.model && (choice.effort ?? undefined) === (session.effort ?? undefined);
+  }
+
+  /**
+   * A Claude Code reading for a wait whose choice changed since the refusal (the person changed it,
+   * or Model defaults changed): the refusal says nothing about that choice, so the wait ends once a
+   * reading shows no counted limit at 100%, or can't be read. A limit at 100% keeps the wait, with
+   * a reading at that limit's reset.
+   */
+  private claudeReadingForOtherChoice(key: string, reading: AccountView): void {
+    const watch = this.waitWatch;
+    if (this.record.phases[key]?.wait === undefined || watch?.phaseKey !== key) return;
+    watch.readings++;
+    if (this.stopWaitOnUnusableChoice(key)) return;
+    const model = this.notStartedChoice(key).model ?? "";
+    const full = reading.error || reading.limitsError ? [] : reading.limits.filter(limit => countedFor(limit, model) && limit.percent !== undefined && limit.percent >= 100);
+    if (!full.length) { void this.resumeWait(key, "limit_resume"); return; }
+    const reset = full.map(limit => limit.resetsAt).filter((at): at is string => !!at).sort().at(-1);
+    if (watch.resetTimer) clearTimeout(watch.resetTimer);
+    delete watch.resetTimer;
+    if (!reset) return;
+    const due = Date.parse(reset) + 60_000 - this.now().getTime();
+    if (due <= 0) return;
+    watch.resetTimer = setTimeout(() => { this.changed(); this.askReading(); }, Math.min(due, LONGEST_TIMER_MS));
+    watch.resetTimer.unref();
+  }
+
+  /**
+   * A Codex reading for a wait whose activity hasn't started: today's release rules on that
+   * choice's account, bounded by the activity's own one-attempt record (Kiln Phase Model Tiers, "A
+   * Wait Before the Start"). A reading naming no stable account can't release it.
+   */
+  private codexReadingBeforeStart(key: string, refusalAt: string, reading: AgentAccount): void {
+    const facts = this.record.phases[key]!;
+    if (!facts.wait || this.waitWatch?.phaseKey !== key) return;
+    const choice = this.notStartedChoice(key);
+    if (this.stopWaitOnUnusableChoice(key)) return;
+    if (!choice.model) return;
+    const release = activityUsageRelease(facts.codexUsageRecovery ??= { generation: 0 }, { model: choice.model, effort: choice.effort }, refusalAt, reading);
+    this.save();
+    if (release.state === "allowed") void this.resumeWait(key, "limit_resume");
+    else if (release.state === "unknown" || release.administrative) this.waitToStop(key, facts.wait.checks, facts.wait.checkedAt);
   }
 
   /** The phase stopped at Needs you after a usage limit, if any. */
@@ -9208,7 +10291,7 @@ export class Engine {
    * What session selection needs of one session record, read one record at a time and kept until
    * the record's file changes, so selection never holds every record of a long phase at once.
    */
-  private sessionSummary(phaseKey: string, sessionId: string): { stamp: string; lastStartedAt?: string; runs: number; began: boolean } | undefined {
+  private sessionSummary(phaseKey: string, sessionId: string): { stamp: string; lastStartedAt?: string; runs: number; began: boolean; firstResponseAt?: string } | undefined {
     let stamp: string;
     try { const stat = statSync(join(this.stateDirectory, phaseKey, sessionId, "session.json")); stamp = `${stat.mtimeMs}:${stat.size}`; }
     catch { return undefined; }
@@ -9217,11 +10300,14 @@ export class Engine {
     if (cached?.stamp === stamp) return cached;
     const session = this.sessionRecord(phaseKey, sessionId);
     if (!session) return undefined;
-    const summary = { stamp, ...(session.runs.length ? { lastStartedAt: session.runs.at(-1)!.startedAt } : {}), runs: session.runs.length, began: sessionBegan(this.stateDirectory, session) };
+    const summary = { stamp, ...(session.runs.length ? { lastStartedAt: session.runs.at(-1)!.startedAt } : {}), runs: session.runs.length, began: sessionBegan(this.stateDirectory, session), ...(session.firstResponseAt ? { firstResponseAt: session.firstResponseAt } : {}) };
     this.sessionSummaries.set(key, summary);
     return summary;
   }
-  private readonly sessionSummaries = new Map<string, { stamp: string; lastStartedAt?: string; runs: number; began: boolean }>();
+  private readonly sessionSummaries = new Map<string, { stamp: string; lastStartedAt?: string; runs: number; began: boolean; firstResponseAt?: string }>();
+
+  /** A session's first model response, read once per change to its record (Kiln Phase Model Tiers, "When an Activity Starts"). */
+  sessionFirstResponse(phaseKey: string, sessionId: string): string | undefined { return this.sessionSummary(phaseKey, sessionId)?.firstResponseAt; }
 
   /**
    * The phase's latest launch: the session whose latest run started last. Everything about an
@@ -9480,6 +10566,7 @@ export class Engine {
       ...(added.length ? { handback: { source: baseline.active.path, addedPhaseIds: added, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length, acceptedAt: attemptedAt } } : earlier?.handback ? { handback: { ...earlier.handback, remainingCount: baseline.active.plan.phases.filter(p => !p.splitInto && !p.closed).length } } : {}) };
     this.plan = this.withCarriedFinished(baseline.active.plan);
     this.record.plan = recordedPlan(this.plan);
+    this.syncNeededAgents();
     this.record.planReadAt = attemptedAt;
     try { this.save(); }
     catch (error) { this.commands.fault = "Accepted plan could not be durably saved. Restart Kiln to reconcile before advancing."; throw error; }
@@ -9532,6 +10619,28 @@ export class Engine {
   }
 }
 
+/** Model defaults' row names, as a stop names where a choice came from. */
+const ROW_NAMES = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits" } as const;
+
+/** An audit skill that doesn't resolve on the Audits choice's agent, carrying the resolver's message. */
+class AuditSkillUnresolved extends Error {}
+
+/**
+ * A choice that can't be used, as its stop names it (AC-PICK-06): the choice, where it came from
+ * and where to change it, then why.
+ *
+ *   choiceStopFact(choice, "2")  // "Phase 2 runs on Claude Code · Fable · high from Model defaults (Demanding row): Claude Code doesn't offer Fable on this account. Change the Demanding row in Model defaults."
+ *   choiceStopFact(choice, "pr") // "The audits, preflight and pull request session run on Claude Code · Opus · high from Model defaults (Audits row): …"
+ */
+export function choiceStopFact(choice: ActivityChoice, key: string): string {
+  const who = key === PR_PHASE_KEY || !isPhaseKey(key) ? "The audits, preflight and pull request session" : `Phase ${key}`;
+  const named = [AGENT_NAMES[choice.agentId], choice.modelName, choice.effort].filter(Boolean).join(" · ");
+  const row = choice.row ? ROW_NAMES[choice.row] : undefined;
+  const from = choice.from === "changed" ? "a change for this PRD" : `Model defaults${row ? ` (${row} row)` : ""}`;
+  const where = !who.startsWith("Phase") ? auditsChangePlace(choice.from) : choice.from === "changed" ? "Change it on its row in the phase plan." : `Change ${row ? `the ${row} row` : "it"} in Model defaults.`;
+  return `${who} ${who.startsWith("Phase") ? "runs" : "run"} on ${named || "a choice"} from ${from}: ${choice.problem} ${where}`;
+}
+
 function codexNotDispatched(run: SessionRun): boolean {
   return !!run.endedAt && !!run.codex && !run.codex.dispatch && run.codex.reconciliation !== "ambiguous" && run.codex.cleanup === "tracked_processes_stopped";
 }
@@ -9556,6 +10665,8 @@ class CatchUpFailure extends Error { constructor(readonly code: "branch_changed"
 
 const ACTIVATION_MISSING = "The activation-recovery phase is missing from the current plan.";
 const DELIVERY_CHECK = "Required development delivery verified";
+/** The check a stop names when an activity's start is unknown (Kiln Phase Model Tiers, "When an Activity Starts"). */
+const START_CHECK = "Whether the activity has started";
 
 /** How a waived audit would count (AC-WAIVE-12). */
 function previewAuditWaiver(stateDirectory: string, activity: AuditActivity): { report: "accepted" | "valid" | "none"; countedOutcome: string } {
@@ -9570,6 +10681,23 @@ function runnableSkill(activity: AuditActivity): NonNullable<AuditActivity["skil
 
 function refuse(reason: string): CommandResult {
   return { ok: false, status: 409, reason };
+}
+
+/** A resolved choice as the launch decision takes it. */
+function toDecisionChoice(choice: ResolvedChoice): DecisionChoice {
+  return { agentId: choice.agentId, model: choice.model ?? "", modelName: choice.modelName, ...(choice.effort ? { effort: choice.effort } : {}) };
+}
+
+/**
+ * The terminal's line when an activity starts on the fallback (AC-FALLBACK-03).
+ *
+ *   fallbackStartLine("Phase 2", session, fallback)
+ *   // "Phase 2 started on the fallback, Codex · GPT Astra 1 · high: Claude Code's Weekly read 97%, at or above the 95% threshold, so it didn't start on Claude Code · Fable 5 · high. It finishes on Codex."
+ */
+export function fallbackStartLine(name: string, session: SessionRecord, fallback: LaunchFallback): string {
+  const ran = { agentId: session.agentId ?? "claude_code", modelName: session.modelDisplayName, ...(session.effort ? { effort: session.effort } : {}) };
+  const limit = fallback.limit.percent === undefined ? limitWords(fallback.limit) : `${limitWords(fallback.limit)}, at or above the ${fallback.threshold}% threshold`;
+  return `${name} started on the fallback, ${choiceWords(ran)}: ${limit}${fallback.first ? `, so it didn't start on ${choiceWords(fallback.first)}` : ""}. It finishes on ${AGENT_NAMES[ran.agentId]}.`;
 }
 
 /** True when `promise` settles within `ms`; false on the timeout or when `skip` resolves first. */

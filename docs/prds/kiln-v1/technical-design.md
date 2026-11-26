@@ -231,6 +231,8 @@ Superseded in part by: `docs/changes/kiln-billing-safeguards/kiln-billing-safegu
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Sessions (the workspace in place of the one worktree; no PowerShell tool)
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §The launch decision (each session's model and effort come from its activity's choice, not the settings).
+
 ```
 claude -p --input-format stream-json
   --session-id <UUID Kiln generates and records first>
@@ -257,6 +259,8 @@ Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.m
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (the resume prompt after the person's Resume, with its note)
 
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §Resume (the opening after a usage limit)
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (for an activity that hasn't started, the `claude --resume` command is offered only while its current choice is the one that session ran on).
 
 Each is a template file; `<…>` are filled from the record. Everything in them is something a person could type (AC-RUN-06). `<phase doc>` and `<PRD file>` are paths relative to the worktree root (`docs/prds/customer-returns/phase-2b-store-credit.md`), never main-checkout paths, which would send the session to files outside its worktree. After a session splits its leaf, the fresh-session prompt's `<phase doc>` is its judged leaf's document and the resume prompt's stays the launched leaf's ([Which phase a split session is shown as](#snapshot)).
 
@@ -592,6 +596,8 @@ Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`afterDelivery` with the merge offer and the merge activity's state; audit rows carry the title and line of §Closing-Audit Names).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (settings and each phase's model).
+
 **Running and waiting time (AC-WATCH-01, 02, 06).** Derive timing from saved runs across all sessions belonging to a phase; no schema migration. Count the union of run intervals, capped at interruption or exit, as running. For an unended run not currently executing, use its last recorded output as the known boundary. Everything else from the original start through Done (or now while unfinished) is waiting, including Needs you and usage limits. Feature totals use all runs, from feature start to completion, including pauses between phases. Snapshots carry running/waiting milliseconds, the calculation time and which clock advances; the view ticks only that clock and freezes on disconnect. A running process includes tests and tool waits; this does not claim model compute time.
 
 Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical-design.md, §Local API and snapshot changes (selected agent, catalogue, readiness and selection generation).
@@ -686,6 +692,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 Superseded in part by: `docs/changes/kiln-usage-limit-recovery/technical-design.md`, §The Wait, §Design Decisions (Kiln waits for a reset; rows keep their kind; readings keep `orgId` and their start)
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Settings (Claude Code defaults to `medium` effort).
+
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (one account: account and usage are shown for each needed agent).
 
 - **Account:** `claude auth status --json`; the screens use `email` and `subscriptionType` (the plan, shown with its first letter capitalized and followed by "plan": `max` → "Max plan"). Not signed in means the output's `loggedIn` is false, whatever the exit code. `subscriptionType` can be absent (an API-key login, for example); the plan is then left out and the email shows alone. When the call fails with no JSON Kiln can parse (an error, a timeout, other output), `account.error` carries that error, shown like the not-signed-in line: amber, in place of the email and plan, and Start isn't held.
 - **When Claude Code isn't signed in**, `account.error` carries the amber line UI-010 gives in place of the email, plan and limits. Start isn't held by it, and nothing waits for a sign-in: a session that then fails comes to Needs you like any other stop (UI-005).

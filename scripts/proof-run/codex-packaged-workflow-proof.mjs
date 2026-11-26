@@ -55,6 +55,11 @@ if (mode === 'seed') {
   assert.equal(command('git', ['remote', 'get-url', 'origin'], manifest.repository), `https://github.com/${manifest.github}.git`);
   assert.equal(command('git', ['ls-remote', 'origin', 'refs/heads/main'], manifest.repository).split(/\s/)[0], manifest.seededCommit, 'Publish only the fixture seed to its new GitHub repository before running.');
   const env = { ...process.env, PATH: join(manifest.prefix, 'bin') + delimiter + process.env.PATH, XDG_STATE_HOME: join(root, 'state'), KILN_NO_BROWSER: '1', KILN_PORT_RANGE: '41470-41479' };
+  // Every activity runs on Codex · latest GPT Sol · high: Model defaults for this run's own state root (Kiln Phase Model Tiers AC-DEFAULT-02).
+  const { modelDefaultsPath } = await import(pathToFileURL(join(manifest.installed, 'dist/models/model-defaults.js')));
+  const sol = { first: { agentId: 'codex', family: 'sol', effort: 'high' } };
+  const defaultsFile = modelDefaultsPath(env); mkdirSync(dirname(defaultsFile), { recursive: true, mode: 0o700 });
+  writeFileSync(defaultsFile, JSON.stringify({ schemaVersion: 1, rows: { demanding: sol, standard: sol, mechanical: sol, audits: sol } }), { mode: 0o600 });
   const log = [];
   let output = '', exited = false;
   const child = spawn(manifest.kiln, ['run', `docs/prds/${folderName}`], { cwd: manifest.repository, env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -85,12 +90,16 @@ if (mode === 'seed') {
     };
     latest = await api('/api/snapshot');
     const starting = !latest.feature.startedAt;
-    if (starting) await api('/api/settings', { agentId: 'codex' });
     await api('/api/metadata/refresh', {});
     latest = await api('/api/snapshot');
-    assert.equal(latest.settings.agentId, 'codex');
-    assert.equal(latest.settings.effort, 'high');
-    assert.match(latest.settings.model.value, /^gpt-\d+(?:\.\d+)*-sol$/);
+    assert.equal(latest.agents.find(agent => agent.inUse)?.agentId, 'codex');
+    const rows = [...(latest.phases ?? []), ...(latest.documents?.plan?.phases ?? [])];
+    const solChoice = starting ? rows.find(row => row.model?.choice)?.model.choice : undefined;
+    if (starting) {
+      assert.ok(solChoice, 'Each phase shows the model it will run on.');
+      assert.match(solChoice.model, /^gpt-\d+(?:\.\d+)*-sol$/);
+      for (const row of rows) if (row.model?.choice) assert.deepEqual([row.model.choice.agentId, row.model.choice.model, row.model.choice.effort], ['codex', solChoice.model, 'high']);
+    }
     assert.deepEqual(latest.settings.readinessErrors ?? [], []);
     if (starting) {
       save(join(root, 'documents-found.json'), latest);
@@ -113,6 +122,7 @@ if (mode === 'seed') {
     const { readPrdRecord, readSessionRecord } = await import(pathToFileURL(join(manifest.installed, 'dist/state/records.js')));
     const stateDirectory = prdStateDirectory(stateRoot(env), manifest.repository, manifest.github.split('/')[1], `docs/prds/${folderName}`);
     const record = readPrdRecord(stateDirectory);
+    let sessions0Model;
     const sessions = ['1', '2', 'pr'].map(key => {
       const facts = record.phases[key];
       assert.equal(facts.sessionIds.length, 1, `Phase ${key} must have its own fresh conversation.`);
@@ -120,7 +130,8 @@ if (mode === 'seed') {
       assert.equal(session.agentId, 'codex');
       assert.equal(session.kind, key === 'pr' ? 'pull_request' : 'phase');
       assert.ok(session.conversation?.threadId);
-      assert.equal(session.model, latest.settings.model.value);
+      assert.match(session.model, /^gpt-\d+(?:\.\d+)*-sol$/);
+      assert.equal(session.model, sessions0Model ??= session.model, 'Every activity runs on the same latest GPT Sol.');
       assert.equal(session.effort, 'high');
       const attempt = session.runs.at(-1);
       for (const pair of [attempt.codex.requested, attempt.codex.effective, ...attempt.codex.observed]) {

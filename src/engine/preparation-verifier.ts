@@ -17,10 +17,10 @@ import { mergeTargetKey } from "../state/development-delivery.js";
 import { preparationAttemptNeedsReconciliation, preparationDigest, type PreparationState, type PreparationCheckpoint, type PreparationCheckAttempt } from "./preparation-state.js";
 import { checkArgv } from "./preparation-documents.js";
 
-export interface PreparationContext { record: PrdRecord; stateDirectory: string; git: GitContext; env: NodeJS.ProcessEnv; signal: AbortSignal; codex?: string | undefined; sessionId?: string | undefined; transcriptPath?: string | undefined; authorizeCommands?(): Promise<void>; save(): void; now(): string; /** A repository's label, for messages (find repositories anywhere AC-FOLDER-02). Absent: its name. */ label?(name: string): string }
+export interface PreparationContext { /** The agent the preparation activity runs on (Kiln Phase Model Tiers AC-AGENTS-04). */ agentId: import("../state/records.js").AgentId; record: PrdRecord; stateDirectory: string; git: GitContext; env: NodeJS.ProcessEnv; signal: AbortSignal; codex?: string | undefined; sessionId?: string | undefined; transcriptPath?: string | undefined; authorizeCommands?(): Promise<void>; save(): void; now(): string; /** A repository's label, for messages (find repositories anywhere AC-FOLDER-02). Absent: its name. */ label?(name: string): string }
 function environmentDigest(context: PreparationContext, environment: NodeJS.ProcessEnv): string {
   const values = { ...environment };
-  if (context.record.settings.agentId === "codex" && values.PATH) {
+  if (context.agentId === "codex" && values.PATH) {
     const original = new Set((context.env.PATH ?? "").split(delimiter));
     const aliases = join(context.env.CODEX_HOME ?? join(homedir(), ".codex"), "tmp", "arg0");
     // Qualified Codex creates a new arg0 shim directory for each native invocation.
@@ -116,8 +116,8 @@ async function executeCheck(context: PreparationContext, attempt: PreparationChe
     output = openSync(attempt.output, "wx", 0o600);
     const sandbox = verificationSandbox(context, attempt.gateDirectory);
     hooks = await preparationHooks(context, attempt.directory);
-    nativeCommand = context.record.settings.agentId === "codex" ? { executable: context.codex!, args: [...codexVerificationArguments(context), attempt.executable, ...attempt.argv] } : { executable: sandbox.executable, args: [...sandbox.args, attempt.executable, ...attempt.argv] };
-    child = spawnDetached(process.execPath, [fileURLToPath(new URL("../../prompts/preparation-check-runner.mjs", import.meta.url))], { cwd: attempt.directory, env: context.record.settings.agentId === "codex" ? context.env : environment, stdin: "pipe" });
+    nativeCommand = context.agentId === "codex" ? { executable: context.codex!, args: [...codexVerificationArguments(context), attempt.executable, ...attempt.argv] } : { executable: sandbox.executable, args: [...sandbox.args, attempt.executable, ...attempt.argv] };
+    child = spawnDetached(process.execPath, [fileURLToPath(new URL("../../prompts/preparation-check-runner.mjs", import.meta.url))], { cwd: attempt.directory, env: context.agentId === "codex" ? context.env : environment, stdin: "pipe" });
   } catch (error) {
     // No spawn occurred. A lost launch-intent acknowledgement never reaches here,
     // and remains unknown on restart rather than being inferred safe to repeat.

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "executionId": "95065ee9-8f1d-47ab-8a48-dce65dc38742",
+  "activityId": "69d5fd91-634b-411c-b4c6-c36ac5ed396e",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "Test-fix session for batch 1 of 3 of the Kiln Phase Model Tiers test audit. All seven rows in the batch are now Adequate, confirmed by fresh reviewers and seen to fail under red checks: AC-GUIDE-01 (was Missing), AC-FALLBACK-02, AC-AGENTS-02, AC-PICK-01, AC-TIER-01, and the two outstanding red checks, AC-PICK-05 and AC-DEFAULT-05. The new tests are committed in 05a5c19. Only tests changed. 11 Weak rows remain, none high risk, in batches 2 and 3 of test-audit.md. In the full suite, unit, lint, typecheck and release checks pass, and the integration run passed 2132 tests and failed 7. All 7 are outside this PRD's criteria. Six also fail on the unchanged base commit. One fails only under full-suite load.",
+  "completionPhases": [],
+  "needsYou": [
+    { "kind": "other", "problem": "Seven integration tests outside this PRD's criteria fail on the feature branch. Six fail on the base commit 27030fa without this session's changes: five in src/engine/preparation-execution.integration.test.ts and 'offers seven phases…' in src/engine/continuation-readiness.integration.test.ts. The seventh, 'Exit Kiln on the finished page…' in src/kiln-run-exit.integration.test.ts, fails under the full run and passes alone.", "action": "Look into these failures in the continuation and preparation code, which this PRD doesn't own, before the branch merges." }
+  ],
+  "settled": [
+    { "id": "item-1", "how": "AC-GUIDE-01 now has a content test in src/readme-requirements.test.ts, seen red, graded Adequate (8 of 8)." },
+    { "id": "item-2", "how": "AC-FALLBACK-02 now has tests for a hand-changed phase falling back, the return to the first choice, and fallbacks held back by billing, an unoffered model or a refusal. All were seen red and graded Adequate (20 of 20)." },
+    { "id": "item-3", "how": "AC-AGENTS-02: a fallback on an unapproved metered route stays unused until approved, and the fallback-only billing summary is pinned in the engine and on the page. Seen red, graded Adequate (7 of 7)." },
+    { "id": "item-4", "how": "AC-PICK-01: an open standard phase launches on Opus · medium, the Codex launch's model and effort are pinned with Claude Code missing, and a changed tier line goes through Kiln's own re-read. Seen red, graded Adequate (7 of 7)." }
+  ],
+  "changedImplementation": false,
+  "raised": ["AC-GUIDE-01", "AC-FALLBACK-02", "AC-AGENTS-02", "AC-PICK-01", "AC-TIER-01", "AC-PICK-05", "AC-DEFAULT-05"]
+}

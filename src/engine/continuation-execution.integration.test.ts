@@ -17,7 +17,7 @@ async function fixture(integrate = true) {
   h.engine.close();
   const make = () => new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
   h.engine = make();
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   return { ...f, make };
 }
 function request(proposalId: string, commandId: string) { return { proposalId, commandId, executionId: h.engine.record.executionId!, statusToken: h.engine.controlView().token }; }
@@ -244,7 +244,7 @@ it("prepares every repository from its current base and retains a collision for 
 it("requires fresh billing authority and carries no earlier paid approval into the new execution", async () => {
   await fixture();
   h.env.ANTHROPIC_API_KEY = "synthetic-continuation-billing-canary";
-  await h.engine.refreshBilling(); await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending);
+  await h.engine.refreshBilling(); await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending);
   const { BILLING_CONTRACT } = await import("../billing/contract.js");
   const { writePrdRecord } = await import("../state/records.js");
   const oldId = h.engine.record.executionId!;
@@ -272,7 +272,7 @@ it("keeps a requested pause across fresh-execution restart and resumes only the 
   h.engine.close(); h.engine = f.make(); await h.engine.prepare();
   expect(await h.engine.decide()).toMatchObject({ kind: "paused", beforePhaseKey: "10" });
   expect(h.engine.record.executionId).not.toBe(oldId); expect(h.claudeCalls()).toHaveLength(1);
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   expect(await h.engine.start()).toMatchObject({ ok: true }); await h.engine.settled();
   expect(h.claudeCalls()).toHaveLength(2); expect(h.engine.record.phases["10"]?.sessionIds).toHaveLength(1);
   expect(h.engine.record.phases["9"]?.sessionIds).toHaveLength(1);
@@ -440,7 +440,7 @@ it.skipIf(process.platform === "win32").each(["intent", "acceptance", "workspace
       await waitFor(async () => await processStartTime(session.runs[0]!.pid!) !== session.runs[0]!.processStartTime);
     }
     h.engine = f.make(); await h.engine.prepare();
-    await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+    await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     const work = readWork(dirname(dirname(h.stateDirectory)), h.stateDirectory);
     expect(retainedAliases(work)).toContain(join(h.repository, h.engine.record.prdDirectory));
     expect(h.claudeCalls()).toHaveLength(boundary === "provider" ? 1 : 0);
@@ -479,7 +479,7 @@ it.each(["sidecar", "acceptance", "workspace-progress", "integration-baseline", 
   await h.engine.settled().catch(() => undefined); probe.mockRestore();
   expect(injected).toBe(true); expect(h.engine.commands.fault).toBeDefined(); expect(h.claudeCalls()).toHaveLength(0);
   h.engine.close(); h.engine = f.make(); await h.engine.prepare();
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   const answer = await h.engine.continuationCommand("accept", body);
   expect(answer.ok).toBe(boundary !== "sidecar");
   expect(h.claudeCalls()).toHaveLength(0);
@@ -495,7 +495,7 @@ it("starts both loop counts at zero on Continue with N phases, keeping the two l
   saved.auditLoops = { epochs: [{ kind: "delivery", at: "2026-10-01T10:00:00.000Z", cause: "start", loopsBefore: 0 }, { kind: "test", at: "2026-10-01T10:00:00.000Z", cause: "start", loopsBefore: 0 }], loops: [{ kind: "delivery", number: 1, startedAt: "2026-10-01T11:00:00.000Z", activityKey: "audit-a" }, { kind: "test", number: 1, startedAt: "2026-10-01T12:00:00.000Z", activityKey: "audit-b" }], atPullRequest: { at: "2026-10-01T13:00:00.000Z", deliveryLimit: 1, testLimit: 1 } };
   writePrdRecord(h.stateDirectory, saved);
   h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   // A raise once the pull request session has started is saved for a continuation, below the old counts too (floor 1).
   expect(await h.engine.changeSettings({ auditLoops: { deliveryLimit: 1, testLimit: 2 } })).toEqual({ ok: true });
   const check = await h.engine.checkCompletedPlan();
@@ -521,7 +521,7 @@ it("after Continue with N phases, the phases a delivery audit adds at its last l
   saved.settings.auditLoops = { deliveryLimit: 1, testLimit: 3 };
   writePrdRecord(h.stateDirectory, saved);
   h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
-  await waitFor(() => !h.engine.agents.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
+  await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
   const audit = (behavior = {}) => ({ actions: [{ auditReport: behavior }, { result: "Audit ended." }, { exit: 0 }] });
   const sessions = [...Array.from({ length: 7 }, (_, index) => landingSession(`capability-${index + 9}.txt`, `Capability ${index + 9}.\n`)), landingSession("audit-repair.txt", "Audit completion work.\n"), pullRequestSession(41)];
   writeFileSync(h.scenarioPath, JSON.stringify({ sessions, auditSessions: [audit({ gap: true }), audit()] }));

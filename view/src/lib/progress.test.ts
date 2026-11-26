@@ -5,7 +5,7 @@ process.env.TZ = "America/New_York";
 import { describe, expect, it } from "vitest";
 import type { Snapshot } from "../../../src/engine/snapshot.js";
 import { completeRepositoriesSnapshot, completeSnapshot, needsYouCrashedSnapshot, needsYouMessageSnapshot, pausedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { commitsAcross, detailRows, endingFact, folderShown, headerState, modelAndEffort, needsYouCopy, openedLabel, pausedAfter, phaseOfTotal, repositoriesLine, repositoryCommitsLine, rowFacts, rowPill, rowState, settingsModel } from "./progress.js";
+import { commitsAcross, detailRows, endingFact, folderShown, headerState, modelAndEffort, needsYouCopy, openedLabel, pausedAfter, phaseOfTotal, repositoriesLine, repositoryCommitsLine, rowFacts, rowPill, rowState } from "./progress.js";
 
 const now = new Date(RUNNING_NOW);
 type NeedsYou = NonNullable<Snapshot["needsYou"]>;
@@ -143,8 +143,6 @@ describe("the model and effort", () => {
   it("shows a model that takes no effort on its own (UI-011 item 2)", () => {
     expect(modelAndEffort("Opus 5.5", "xhigh")).toBe("Opus 5.5 · extra high effort");
     expect(modelAndEffort("Haiku 4.5", undefined)).toBe("Haiku 4.5");
-    const settings = { ...runningSnapshot().settings, model: { value: "haiku", displayName: "Haiku 4.5" }, effortLevels: [] };
-    expect(settingsModel(settings)).toBe("Haiku 4.5");
   });
 });
 

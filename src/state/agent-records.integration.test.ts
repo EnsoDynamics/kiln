@@ -18,7 +18,9 @@ describe("agent record compatibility", () => {
     writeJsonAtomically(file, { schemaVersion: version, sessionId: "original-conversation", phaseId: "1", kind: "phase", model: "saved-model", effort: "high", runs: [{ startedAt: "before", account: { email: "original@example.test" } }], steps: [] });
     const before = readFileSync(file, "utf8");
     const record = readPrdRecord(sandbox.root)!;
-    expect(record.settings).toMatchObject({ agentId: "claude_code", agentChoices: { claude_code: { model: "saved-retired-alias", effort: "max" } }, worktreePath: settings.worktreePath, resumeAfterUsageLimit: false });
+    // The saved choice isn't Kiln's current default, so the PRD keeps it on Claude Code (Kiln Phase Model Tiers AC-KEEP-02).
+    expect(record.settings).toMatchObject({ modelChoices: { phases: {}, kept: { agentId: "claude_code", model: "saved-retired-alias", effort: "max" } }, worktreePath: settings.worktreePath, resumeAfterUsageLimit: false });
+    expect(record.settings).not.toHaveProperty("agentChoices");
     expect(record.settings).not.toHaveProperty("model"); expect(record.phases["1"]!.wait).toEqual(phase.wait);
     const session = readSessionRecord(sandbox.root, "1", "original-conversation")!;
     expect(session).toMatchObject({ schemaVersion: SCHEMA_VERSION, agentId: "claude_code", sessionId: "original-conversation", model: "saved-model", effort: "high", runs: [{ account: { email: "original@example.test" } }] });

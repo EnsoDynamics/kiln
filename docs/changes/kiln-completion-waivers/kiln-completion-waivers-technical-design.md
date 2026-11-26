@@ -236,6 +236,8 @@ Superseded in part by: [Kiln Run Restart technical design](../kiln-run-restart/k
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §The Preflight Stop and §Display Contract (Mark complete's label, placement and sentence at a preflight stop).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Snapshot (for a phase that hasn't started, the hand-back page's terminal card is **Start a fresh session in your terminal** also while its current choice isn't the one its saved conversation ran on).
+
 Build arrangement and wording from the approved mockup.
 
 - **Hand-back page (AC-NEXT-01/02).** The card title "Open the conversation in your terminal" becomes **Talk it through in your terminal**, or stays **Start a fresh session in your terminal** when the saved conversation cannot be opened.

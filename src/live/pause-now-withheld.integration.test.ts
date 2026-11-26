@@ -10,6 +10,7 @@ import { Engine } from "../engine/engine.js";
 import { prdTreeAtHead } from "../engine/worktree-setup.js";
 import { startFixtureController } from "../test-support/controller-server.js";
 import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
+import { runPrdOn } from "../test-support/model-choices.js";
 import { createHarness, landingSession, waitFor, type Harness } from "../test-support/engine-harness.js";
 
 const darwin = it.skipIf(process.platform !== "darwin");
@@ -59,7 +60,7 @@ darwin("withholds Pause now from a running Codex phase (AC-PAUSE-02)", async () 
   work.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, version: "0.167.0", delayMs: 4000 }); h.engine.close();
   const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
   h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
-  expect(await h.engine.changeSettings({ agentId: "codex" })).toMatchObject({ ok: true }); await h.engine.agents.refresh();
+  await runPrdOn(h.engine);
   expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
   const engine = h.engine as unknown as { current?: { processRunning?: boolean; session?: { agentId: string; kind: string } } };
   await waitFor(() => !!engine.current?.processRunning && engine.current.session?.agentId === "codex" && !h!.engine.commands?.busy, 15000);

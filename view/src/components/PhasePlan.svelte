@@ -16,13 +16,19 @@
   import type { IconName } from "./Icon.svelte";
   import PhaseCircle, { type CircleTone } from "./PhaseCircle.svelte";
   import Pill, { type PillTone } from "./Pill.svelte";
+  import TierTag from "./TierTag.svelte";
+  import RowModel from "./RowModel.svelte";
 
   let { snapshot, connected, now }: { snapshot: Snapshot; connected: boolean; now: number } = $props();
   const opened = $derived(openedLabel(snapshot));
   // The Preflight row (build preflight AC-PREFLIGHT-08): planned before it is allocated, then an activity row.
   const rows = $derived(withPlannedPreflight(snapshot.activities ?? snapshot.phases, snapshot));
-  const circleId = (row: (typeof rows)[number]) => row.kind === "delivery_audit" ? "DA" : row.kind === "test_audit" ? (row.fixing ? "FT" : "TA") : row.kind === "preflight" ? "PF" : row.kind === "merge" ? "M" : row.kind === "plan_push" ? "P" : row.id;
+  const circleId = (row: (typeof rows)[number]) => row.kind === "delivery_audit" ? "DA" : row.kind === "test_audit" ? (row.fixing ? "FT" : "TA") : row.kind === "preflight" ? "PF" : row.kind === "final_delivery" && row.plannedActivity ? "PR" : row.kind === "merge" ? "M" : row.kind === "plan_push" ? "P" : row.id;
+  // Every row says what it will run on, runs on or ran on (Kiln Phase Model Tiers AC-PICK-02).
+  const underway = $derived(snapshot.feature.state !== "not_started");
   const { config, router } = viewContext();
+  // What a row's Change changes: a phase its own choice, a Delivery audit or Test audit row this PRD's Audits choice (AC-PICK-03, AC-OTHER-01).
+  const modelTarget = (row: (typeof rows)[number]): { phase: string } | "audits" | undefined => row.kind === "delivery_audit" || row.kind === "test_audit" ? "audits" : (row.kind === undefined || row.kind === "implementation") && !row.plannedActivity ? { phase: row.id } : undefined;
 
   const LOOKS: Record<RowState, { circle: CircleTone; pill: PillTone; icon?: IconName }> = {
     done: { circle: "done", pill: "green-tint", icon: "check" },
@@ -53,7 +59,7 @@
         {#snippet title()}{#if accessible}<a class="title phase-link" href={link} onclick={(event) => routedClick(event, router, link)}>{row.title}<span aria-hidden="true"></span></a>{:else}<span class="title" class:quiet={state === "planned"}>{row.title}</span>{/if}{/snippet}
         <div class="row">
           <PhaseCircle id={circleId(row)} tone={look.circle} />
-          <span class="names">{#if row.attended !== undefined}<span class="title-line">{@render title()}<NeedsYouThere text={row.attended} /></span>{:else}{@render title()}{/if}{#if row.file}<span class="file mono">{row.file}</span>{/if}</span>
+          <span class="names">{#if row.attended !== undefined || row.tier}<span class="title-line">{@render title()}{#if row.tier}<TierTag tier={row.tier} />{/if}{#if row.attended !== undefined}<NeedsYouThere text={row.attended} />{/if}</span>{:else}{@render title()}{/if}{#if row.file}<span class="file mono">{row.file}</span>{/if}{#if row.model}<RowModel model={row.model} {underway} target={modelTarget(row)} agents={snapshot.agents} {connected} label={`${row.title} model`} />{/if}</span>
           <span class="state">
             {#if facts}<span class="facts">{facts}</span>{/if}
             <Pill tone={look.pill} icon={look.icon} spin={state === "implementing"}>{rowPill(row, state, opened)}</Pill>

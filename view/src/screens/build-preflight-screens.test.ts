@@ -147,6 +147,20 @@ describe("the preflight stop (AC-PREFLIGHT-03, mockup state 2)", () => {
     expect(headerState(preflightStop(), true, new Date(RUNNING_NOW)).facts[0]).toBe("Preflight · Preflight");
   });
 
+  it("offers Change for each phase that hasn't started and the Audits line, as kiln model does there (Kiln Phase Model Tiers AC-PICK-03)", () => {
+    const snapshot = preflightStop();
+    const phase = snapshot.phases.find(row => row.state === "planned" && !row.splitInto)!;
+    phase.model = { state: "will_run_on", choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" }, from: "model_defaults", change: { available: true } };
+    const page = strip(render(NeedsYou, { props: { snapshot, now: RUNNING_NOW } }).body);
+    const from = page.indexOf('aria-labelledby="model-changes-h"');
+    const card = page.slice(from, page.indexOf("</section>", from));
+    expect(card).toContain(`data-phase="${phase.id}"`);
+    expect(text(card)).toContain("Audits");
+    expect(text(card)).toContain("Change");
+    // The preflight's own controls are unchanged: no reply field, no session controls.
+    expect(page).not.toContain("<textarea");
+  });
+
   it("leaves out the terminal block when the session cannot be reopened", () => {
     const words = text(strip(render(NeedsYou, { props: { snapshot: preflightStop(false), now: RUNNING_NOW } }).body));
     expect(words).not.toContain("Open the preflight session in a terminal");

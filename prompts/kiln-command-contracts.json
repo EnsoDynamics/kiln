@@ -57,7 +57,8 @@
         "live_control": "Exact live target, activity label/audit round, observedAt, input availability/reason, message receipts and reviewRequired IDs, takeover checkpoint/release progress. state current/stale; disconnected actions disabled. pause_status distinguishes takeover from an independent deferred pause.",
         "audit_loops": "Audit loop limits: settings {deliveryLimit, testLimit}, the limits saved in the run's settings; delivery and test {used, limit, closed, floor}, each kind's runs against its limit in force, whether no further audit of that kind runs, and the lowest value kiln settings accepts; frozen {at} once the first pull request session launched or the run completed, after which a change applies only to a continuation; position {audit delivery | test, loop, limit, fixing} naming the audit loop running, the latest test loop while a session of test fixes runs, or the latest loop at a Needs you stop. A loop is one run of an audit; Kiln never stops at a limit.",
         "delivered": "On a finished run, null otherwise: loops {delivery, test} each {used, limit}, the runs of each audit against its limit in force at delivery; forYou {items, afterDelivery}, each item {id, kind, words, line, problem, action, waits_on, criterion, waived, waived_tag} in the order the finished page lists them, line word for word as each pull request's description has it, and the person actions the requirements place after delivery; pullRequests [{repository, number, url}].",
-        "continuation": "On a finished run whose finished page has checked for new phases, null otherwise: check {status, attemptedAt, lastSuccessfulAt, errors} and, when new phases were found, proposal {id, readiness, phases, problems}; proposal.id is what continue-with-phases takes."
+        "continuation": "On a finished run whose finished page has checked for new phases, null otherwise: check {status, attemptedAt, lastSuccessfulAt, errors} and, when new phases were found, proposal {id, readiness, phases, problems}; proposal.id is what continue-with-phases takes.",
+        "plan_models": "Every row of the plan as the browser shows it, rows Kiln hasn't allocated and planned audit and pull request rows included: id, title, kind, planned, tier (value and reason, phases only) and model (state will_run_on | running_on | ran_on | none_recorded, choice with agentId, model, modelName and effort, from model_defaults | changed, problem, and where Change is offered change { available, reason } and use_default as useDefault). null while no snapshot was saved. kiln model takes the phase id and the model values shown here."
       },
       "errors": [
         "invalid_input",
@@ -2055,6 +2056,490 @@
         "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
         "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
         "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
+      }
+    },
+    {
+      "path": [
+        "model"
+      ],
+      "group": "models",
+      "purpose": "Change the agent, model and effort of one phase that hasn't started, or this PRD's Audits choice, in a run underway; or return either to its default.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller with the model feature, in a run underway that isn't complete; status reports current eligibility, and each activity's model.change says whether its phase can change.",
+      "usage": "kiln model <PRD-path> (--phase <id> | --audits) (--agent <claude_code|codex> --model <value> [--effort <value>] | --use-default) --only-if-status-matches <token> --command-id <id> [--json]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "Absolute PRD file/directory from kiln status; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "phase": {
+          "value": "id",
+          "source": "A phase with no child phases in the current plan, as kiln status lists it. Refused once the phase has started, while its start is unknown, while a launch of it is under way or its session's process runs, and once it is finished."
+        },
+        "audits": {
+          "value": null,
+          "source": "This PRD's Audits choice, which the preflight, every delivery and test audit and the pull request session run on. Never refused for an activity's state: it reaches every such activity that hasn't started, and one launching or running takes it only if it ends with no response."
+        },
+        "agent": {
+          "value": "claude_code|codex",
+          "source": "The agent to run on."
+        },
+        "model": {
+          "value": "value",
+          "source": "A model value from that agent's list, as kiln status reports in each activity's model.choice.model."
+        },
+        "effort": {
+          "value": "value",
+          "source": "An effort the model offers. Omitted: none for a model that takes no effort, otherwise the default effort the agent reports for the model, refused when it reports none (Claude Code reports none)."
+        },
+        "use-default": {
+          "value": null,
+          "source": "Return the phase to its tier's choice in Model defaults, or the Audits choice to the Audits row's."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "exactly_one": [
+            "phase",
+            "audits"
+          ]
+        },
+        {
+          "exactly_one": [
+            "model",
+            "use-default"
+          ]
+        },
+        {
+          "at_most_one": [
+            "agent",
+            "use-default"
+          ]
+        },
+        {
+          "at_most_one": [
+            "effort",
+            "use-default"
+          ]
+        }
+      ],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available model control, --only-if-status-matches and --command-id.",
+        "A phase id that isn't a phase with no child phases in the current plan is target_not_found. A model or effort the agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, or a model list that can't be read is invalid_input. A phase that can't change now is control_unavailable, with the reason.",
+        "A phase that has started keeps what it started on; nothing changes it."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.outcome": "completed records the change; the activities that haven't started take it from their next resolution. It starts no session.",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Run phase 4 on Claude Code · Sonnet at high effort.",
+          "argv": [
+            "kiln",
+            "model",
+            "/work/shop/docs/prds/orders",
+            "--phase",
+            "4",
+            "--agent",
+            "claude_code",
+            "--model",
+            "sonnet",
+            "--effort",
+            "high",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        },
+        {
+          "request": "Put the audits back on the Audits row of Model defaults.",
+          "argv": [
+            "kiln",
+            "model",
+            "/work/shop/docs/prds/orders",
+            "--audits",
+            "--use-default",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, invalid command ID or malformed message. No instruction accepted.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path, or --phase names no phase with no child phases in the current plan; the message lists the phases.",
+        "instance_incompatible": "Exit 4: the controller predates kiln model (no model feature). Restart it with updated Kiln."
+      }
+    },
+    {
+      "path": [
+        "model-defaults"
+      ],
+      "group": "models",
+      "purpose": "Print Model defaults: each tier's and the Audits row's first choice and fallback, the fallback switch and its threshold.",
+      "side_effect": "read",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
+      "usage": "kiln model-defaults [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Reads each installed agent's model list and readiness now, as the Model defaults page does.",
+        "Subcommands: kiln model-defaults set, restore and fallback."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The Model defaults file: <state root>/model-defaults.json.",
+        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
+        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Which models does Kiln fill in for each tier?",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
+        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+      }
+    },
+    {
+      "path": [
+        "model-defaults",
+        "set"
+      ],
+      "group": "models",
+      "purpose": "Set a Model defaults row's first choice, fallback or both.",
+      "side_effect": "computer_setting",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
+      "usage": "kiln model-defaults set --row <demanding|standard|mechanical|audits> [--first-agent <agent> --first-model <family> [--first-effort <value>]] [--fallback-agent <agent> --fallback-model <family> [--fallback-effort <value>]] [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "first-agent": {
+          "value": "claude_code|codex",
+          "source": "The first choice's agent; goes with --first-model."
+        },
+        "first-model": {
+          "value": "family",
+          "source": "The first choice's model family: Claude Code's alias (fable, opus, sonnet, haiku) or Codex's family (sol, astra). Kiln uses the newest version of the family each time it launches an activity."
+        },
+        "first-effort": {
+          "value": "value",
+          "source": "The first choice's effort. Omitted: none for a model that takes no effort, otherwise the default the agent reports for the family's newest model, refused when it reports none (Claude Code reports none)."
+        },
+        "fallback-agent": {
+          "value": "claude_code|codex",
+          "source": "The fallback's agent; goes with --fallback-model."
+        },
+        "fallback-model": {
+          "value": "family",
+          "source": "The fallback's model family: Claude Code's alias (fable, opus, sonnet, haiku) or Codex's family (sol, astra). Kiln uses the newest version of the family each time it launches an activity."
+        },
+        "fallback-effort": {
+          "value": "value",
+          "source": "The fallback's effort. Omitted: none for a model that takes no effort, otherwise the default the agent reports for the family's newest model, refused when it reports none (Claude Code reports none)."
+        },
+        "row": {
+          "value": "demanding|standard|mechanical|audits",
+          "source": "The row to change. Standard is also the row of a phase with no Model tier line; Audits covers the preflight, the audits and the pull request session."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "required": [
+            "row"
+          ]
+        }
+      ],
+      "limits": [
+        "Changes a setting for every PRD in every repository on this computer, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started or a phase changed for one PRD.",
+        "Takes neither --command-id nor --only-if-status-matches.",
+        "Refused when the row's first choice and fallback would be on the same agent: to move a row to the other agent, change both sides in one command."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The Model defaults file: <state root>/model-defaults.json.",
+        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
+        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Run mechanical phases on Claude Code · Haiku at medium effort.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "set",
+            "--row",
+            "mechanical",
+            "--first-agent",
+            "claude_code",
+            "--first-model",
+            "haiku",
+            "--first-effort",
+            "medium",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
+        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+      }
+    },
+    {
+      "path": [
+        "model-defaults",
+        "restore"
+      ],
+      "group": "models",
+      "purpose": "Restore Kiln's defaults: clear the four rows, keeping the fallback switch and threshold.",
+      "side_effect": "computer_setting",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
+      "usage": "kiln model-defaults restore [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Changes a setting for every PRD in every repository on this computer, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started or a phase changed for one PRD.",
+        "Takes neither --command-id nor --only-if-status-matches.",
+        "Over a file that doesn't parse, writes every row at its default and the fallback off at 95, and says the fallback is now off. Refused over a file written by a newer Kiln."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The Model defaults file: <state root>/model-defaults.json.",
+        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
+        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Go back to Kiln's own model for each tier.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "restore",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
+        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+      }
+    },
+    {
+      "path": [
+        "model-defaults",
+        "fallback"
+      ],
+      "group": "models",
+      "purpose": "Turn the fallback on or off, or set its threshold, for every PRD on this computer.",
+      "side_effect": "computer_setting",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
+      "usage": "kiln model-defaults fallback [--on | --off] [--threshold <1..100>] [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "on": {
+          "value": null,
+          "source": "Use the fallback when usage is nearly out: an activity about to launch starts on its row's fallback when a limit on its first choice's account reads at or above the threshold."
+        },
+        "off": {
+          "value": null,
+          "source": "Wait for the limit, as Kiln does with the fallback off."
+        },
+        "threshold": {
+          "value": "1..100",
+          "source": "A whole-number percent; 95 until changed."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "at_most_one": [
+            "on",
+            "off"
+          ]
+        }
+      ],
+      "limits": [
+        "Changes a setting for every PRD in every repository on this computer, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started or a phase changed for one PRD.",
+        "Takes neither --command-id nor --only-if-status-matches.",
+        "Give --on or --off, --threshold, or both. Once on, it applies to every PRD on the computer until turned off."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The Model defaults file: <state root>/model-defaults.json.",
+        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
+        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Start on the other agent when a limit reads 90% or more.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "fallback",
+            "--on",
+            "--threshold",
+            "90",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
+        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
       }
     },
     {

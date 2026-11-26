@@ -76,3 +76,52 @@ describe("the 1.0.0 release notes", () => {
     expect(notes).toContain("macOS is validated. Linux and Windows are best effort.");
   });
 });
+
+// AC-GUIDE-01: the README and the command-line guide say where the tier comes from, how to change a
+// phase's model and Model defaults in the browser and from a terminal, and what the usage fallback does.
+describe("the guide to model tiers, Model defaults and the usage fallback", () => {
+  const guide = readFileSync(new URL("../docs/kiln-command-line-and-bot-control.md", import.meta.url), "utf8");
+  /** A `###` subsection of the README, up to the next heading of any level from 2 to 3. */
+  function subsection(heading: string): string {
+    const start = readme.indexOf(`\n### ${heading}\n`);
+    expect(start, heading).toBeGreaterThanOrEqual(0);
+    const end = readme.slice(start + 1).search(/\n##+ /);
+    return readme.slice(start, end < 0 ? undefined : start + 1 + end);
+  }
+  const choosing = subsection("Choosing models");
+  const fallback = subsection("The usage fallback");
+  const terminal = subsection("Driving Kiln from the terminal or a bot");
+  const guideModels = guide.slice(guide.indexOf("\n## Choosing models\n"));
+
+  it("say the tier comes from the phase document's Model tier line, and a phase without one runs as standard", () => {
+    expect(choosing).toContain("phase document's `**Model tier:**` line");
+    expect(choosing).toMatch(/\*\*demanding\*\*, \*\*standard\*\* or \*\*mechanical\*\*/);
+    expect(choosing).toContain("A phase document with no such line is **Not rated** and runs as standard.");
+  });
+
+  it("say how to change a phase's model in the browser and from a terminal", () => {
+    expect(choosing).toMatch(/press \*\*Change\*\* on a phase that hasn't started/);
+    expect(choosing).toContain("until you press **Use the default**");
+    expect(terminal).toContain("`kiln model` changes a phase's model or the Audits choice");
+    expect(guide.indexOf("\n## Choosing models\n")).toBeGreaterThanOrEqual(0);
+    expect(guideModels).toContain("kiln model <PRD-path> --phase 3 --agent codex");
+    expect(guideModels).toContain("kiln model <PRD-path> --audits --use-default");
+  });
+
+  it("say how to change Model defaults in the browser and from a terminal", () => {
+    expect(choosing).toContain("The **Model defaults** link in the delivery panel or the run's settings opens the page");
+    expect(choosing).toContain("**Restore Kiln's defaults**");
+    expect(terminal).toContain("`kiln model-defaults` prints and changes Model defaults, the fallback switch and its threshold");
+    for (const command of ["kiln model-defaults set --row mechanical", "kiln model-defaults restore", "kiln model-defaults fallback --on --threshold 90"]) {
+      expect(guideModels, command).toContain(command);
+    }
+  });
+
+  it("say the fallback is off by default, decided only at launch, and spends the other agent's account", () => {
+    expect(fallback).toContain("**Use the fallback when usage is nearly out**, off until you turn it on");
+    expect(fallback).toContain("It is decided only at launch, never partway through an activity");
+    expect(fallback).toContain("**The fallback spends your other agent's account**");
+    expect(guideModels).toContain("each time Kiln launches an activity that hasn't started, it reads both accounts");
+    expect(guideModels).toContain("It spends the other agent's account.");
+  });
+});

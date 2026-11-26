@@ -35,7 +35,7 @@ async function fixture(kind: "delivery_audit" | "test_audit" = "delivery_audit",
   writeFileSync(join(root, "value.mjs"), "export const value = () => 42;\n");
   writeFileSync(join(root, "value.test.mjs"), "import {value} from './value.mjs'; import assert from 'node:assert/strict'; assert.equal(value(),42);\n");
   commit(sandbox, root, ["value.mjs", "value.test.mjs"]);
-  const record = newPrdRecord({ mainCheckoutPath: root, repositoryName: "proof", github: "example/proof", prdDirectoryFromRoot: directory, featureName: "Audit proof", settings: { workspaceFolder: sandbox.root, worktreePath: root, featureBranch: "develop", baseBranch: "develop", bases: {}, model: "sonnet", effort: "low", keepAwake: false, resumeAfterUsageLimit: false } });
+  const record = newPrdRecord({ mainCheckoutPath: root, repositoryName: "proof", github: "example/proof", prdDirectoryFromRoot: directory, featureName: "Audit proof", settings: { workspaceFolder: sandbox.root, worktreePath: root, featureBranch: "develop", baseBranch: "develop", bases: {}, modelChoices: { phases: {} }, keepAwake: false, resumeAfterUsageLimit: false } });
   const started = new Date(Date.now() - 60_000).toISOString(); record.startedAt = started; record.setupCompletedAt = started;
   record.repositories = [{ name: "proof", kind: "prd", mainCheckoutPath: root, github: "example/proof", baseBranch: "develop", worktreePath: root, setupCompletedAt: started }];
   if (options.companion) {
@@ -398,7 +398,7 @@ describe("version-2 audit admission", () => {
     const f = await fixture(); f.saveReport(); writePrdRecord(f.stateDirectory, f.record);
     const tools = { git: "git", ...installStandIns(join(f.sandbox.root, "bin")) };
     const engine = new Engine({ paths: { mainCheckoutPath: f.root, repositoryName: "proof", folderName: "proof", prdDirectoryFromRoot: directory, featureName: "Audit proof" }, tools, env: f.sandbox.env, stateDirectory: f.stateDirectory, record: f.record });
-    await engine.agents.refresh();
+    await engine.refreshAgents();
     let server: LocalServer | undefined; let release: (() => void) | undefined;
     try {
       const hosted = await startFixtureController({ engine, folderName: "proof", featureName: "Audit proof", token: f.record.token });

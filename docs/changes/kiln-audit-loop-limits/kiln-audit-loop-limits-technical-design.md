@@ -20,6 +20,8 @@ Everything here is Kiln's. The Enso Method's skills are unchanged: the test audi
 
 Superseded in part by: `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-technical-design.md`, §Settings (two limits, default 4, no third setting).
 
+Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Resolving a Choice (Effort: no PRD-wide default effort).
+
 `Settings` (and so `AgentSettings`) gains:
 
 ```

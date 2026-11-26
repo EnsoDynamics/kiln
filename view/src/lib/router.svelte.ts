@@ -1,14 +1,20 @@
 // The view's client-side routes beneath its one address (technical design, "HTTP API"): the
 // progress view at `/<PRD folder name>`, and Phase detail or Full session output at
-// `/<PRD folder name>/phase/<id>`.
+// `/<PRD folder name>/phase/<id>`, and Model defaults at `/<PRD folder name>/model-defaults`.
 
-export type Route = { screen: "progress" } | { screen: "phase"; phaseId: string };
+export type Route = { screen: "progress" } | { screen: "phase"; phaseId: string } | { screen: "model-defaults" };
 
 /** The route for a path under the view's base. */
 export function routeOf(path: string, base: string): Route {
   const rest = path.startsWith(base) ? path.slice(base.length) : "";
+  if (/^\/model-defaults\/?$/.test(rest)) return { screen: "model-defaults" };
   const match = /^\/phase\/([^/]+)\/?$/.exec(rest);
   return match ? { screen: "phase", phaseId: decodeURIComponent(match[1]!) } : { screen: "progress" };
+}
+
+/** Model defaults, a page of its own beneath the PRD's view, so Back returns to the PRD it was opened from (Kiln Phase Model Tiers, "HTTP"). */
+export function modelDefaultsPath(base: string): string {
+  return `${base}/model-defaults`;
 }
 
 export function phasePath(base: string, phaseId: string): string {
