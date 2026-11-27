@@ -6395,13 +6395,10 @@ export class Engine {
    * no hold, for a feedback session (technical design, "Feedback").
    */
   private async deliverFeedback(message: FeedbackMessage): Promise<void> {
-    const key = this.current?.phaseKey;
-    const stage = key && this.record.requirements?.stages.find(one => `req-${one.activityId}` === key);
     const session = this.current?.session;
     const run = session?.runs.at(-1);
     const control = this.control;
-    if (!stage || stage.task === "review" || message.text.length > LIVE_LIMIT_CHARACTERS || !session || session.agentId !== "claude_code" || !run || run.endedAt ||
-        !run.live?.literalInput || run.live.messageContract === "unrecognised" || !control?.sendMessage || !control.inputOpen?.() || this.record.liveControl || !this.current?.processRunning) return;
+    if (message.text.length > LIVE_LIMIT_CHARACTERS || !this.feedbackGoesLive() || !session || !run?.live || !control?.sendMessage) return;
     const uuid = randomUUID();
     let writing: Promise<"written" | "uncertain"> | undefined;
     try {
@@ -6430,7 +6427,7 @@ export class Engine {
     const stage = key && this.record.requirements?.stages.find(one => `req-${one.activityId}` === key);
     const run = this.current?.session?.runs.at(-1);
     return !!stage && stage.task !== "review" && this.current?.session?.agentId === "claude_code" && !!run && !run.endedAt && !!run.live?.literalInput
-      && run.live.messageContract !== "unrecognised" && !!this.control?.inputOpen?.() && !this.record.liveControl && !!this.current?.processRunning;
+      && run.live.messageContract !== "unrecognised" && !!this.control?.sendMessage && !!this.control.inputOpen?.() && !this.record.liveControl && !!this.current?.processRunning;
   }
 
   private unsendFeedback(message: FeedbackMessage): void {
