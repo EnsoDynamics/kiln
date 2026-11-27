@@ -113,3 +113,13 @@ it("keeps a remembered stage choice as its model's family, or the exact model wh
   expect(rememberedForm({ agentId: "codex", model: "gpt-6.2-sol", effort: "xhigh" })).toEqual({ agentId: "codex", family: "sol", effort: "xhigh" });
   expect(rememberedForm({ agentId: "codex", model: "o9-preview" })).toEqual({ agentId: "codex", model: "o9-preview" });
 });
+
+it("from an unknown standing, a PRD started by hand, lists every entry from the first, and the first report says which stage Kiln continues from (AC-BEGIN-04)", () => {
+  const shown = plan([stage("write"), stage("refine", ["prd_refined"]), stage("design"), stage("split", ["requirements_finished"])]);
+  const state = { ...newRequirements(), standing: { unknown: true as const, at: "2026-11-27T00:00:00Z" } };
+  // Before the first report the plan shows every entry from the first, with nothing marked done.
+  expect(plannedRows(shown, state, { next: false, fromStart: true }).map(row => row.key)).toEqual(["write#1", "refine#1", "kiln:early", "design#1", "split#1", "kiln:final"]);
+  // The session found the PRD written and refined it: the rows before the design drop away, and the notice says so, not that the method passed them.
+  expect(advanceCursor(shown, state, "stage", report(["refine"], "design"), false)).toEqual(["Kiln continues from design, where the method found this PRD stands."]);
+  expect(state.cursor).toBe(2);
+});

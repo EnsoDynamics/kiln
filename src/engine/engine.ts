@@ -2721,6 +2721,8 @@ export class Engine {
       }
       record.startedAt = at;
       if (!this.requirementsOpen) record.refinementConfirmedAt = at;
+      // A record naming a PRD directory at Start (a PRD started by hand, or reset after its draft) stands unknown until its first report (technical design, "Rows").
+      else if (record.prdDirectory && record.requirements && !record.requirements.standing) record.requirements.standing = { unknown: true, at };
       // The browser's Start runs a preflight before anything else, a Start with every phase closed included (AC-PREFLIGHT-01).
       setPreflightDue(record, "start", at);
       // The plan as Documents found showed it, until the worktree's own copy is read.
@@ -6877,6 +6879,7 @@ export class Engine {
           if (changes.length) state.notice = { at, changes, ...(state.notice?.added ? { added: state.notice.added } : {}) };
         }
         state.standing = { next: report.next, milestones: report.milestones!, at };
+        delete state.standsAt;
         for (const m of report.milestones!) {
           if (m.name === "design_ready") state.designSpan = false;
           if (m.by === "this_session" && !state.reachedByKiln.includes(m.name)) state.reachedByKiln.push(m.name);
@@ -10302,7 +10305,7 @@ export class Engine {
     let preview: StartPreview;
     if (choice.from === "existing") {
       preview = await existingBranchPreview({
-        git: this.git, gh: this.options.tools.gh, env: this.options.env, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot,
+        git: this.git, gh: this.options.tools.gh, env: this.options.env, prdDirectoryFromRoot: this.paths.prdDirectoryFromRoot, ...(this.requirementsOpen ? { requirements: true } : {}),
         branch: this.record.settings.featureBranch, bringUpToDate: choice.bringUpToDate, repositories, refs, others,
         resolve: (phases) => resolvePlanRepositories({ git: this.git, env: this.options.env, prd: { name: this.paths.repositoryName, mainCheckoutPath: this.paths.mainCheckoutPath, github: this.record.repository.github }, entries: this.record.repositories, phases, say: (line) => this.repositoryLine(line), said: this.repositoryLinesSaid, changing: [...this.changingLocations] }),
         baseOf: name => this.record.settings.bases[name] ?? "",

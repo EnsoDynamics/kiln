@@ -4005,19 +4005,69 @@
     },
     {
       "path": [
-        "run"
+        "new"
       ],
       "group": "start",
-      "purpose": "Open one PRD for review, or immediately continue started work with --resume.",
+      "purpose": "Open the home screen for the repository, or for each repository directly inside a folder that isn't one: source material ready to start, material one step from ready, PRDs under way, and quieter PRDs folded away. kiln with no command does the same.",
       "side_effect": "legacy",
       "implemented": true,
       "availability": "executable",
-      "usage": "kiln run <PRD-path> [--resume]",
+      "usage": "kiln new",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Help only: combine with --help to get versioned command metadata. The home screen has no --json execution option."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        }
+      },
+      "required_exclusive_groups": [],
+      "limits": [
+        "Stays in the foreground until Ctrl+C, which also stops every Kiln it started.",
+        "Lists by file names and Git on every local branch and origin's branches as last fetched; never fetches.",
+        "Starts no session and changes no run, apart from reading the installed method's requirements plan, never on a metered route."
+      ],
+      "result_fields": {
+        "execution_output": "run retains terminal progress; add-repository retains readable text; audit/delivery retain their existing JSON result objects. Inspection schema_version/observed_at/exit meanings do not apply to these executions.",
+        "help_output": "--help --json returns versioned command reference metadata. --json is not an execution flag on this helper."
+      },
+      "errors": [],
+      "exits": {
+        "0": "Legacy successful execution; opening the controller is a long-running foreground command, not a completed bot operation.",
+        "1": "Start/readiness checks, existing controller, port or incompatible saved-schema failure; read the printed diagnostic.",
+        "2": "Invalid invocation or PRD path; no new controller accepted.",
+        "129/130/143": "Stopped by SIGHUP/SIGINT/SIGTERM respectively, after the existing stop/lock-release sequence."
+      },
+      "examples": [
+        {
+          "request": "Show me what Kiln can work on in this repository.",
+          "argv": [
+            "kiln",
+            "new"
+          ],
+          "preparation": "Run it anywhere in the repository, or in a folder that holds several repositories. Keep the terminal open: Ctrl+C stops the home screen and every Kiln it started."
+        }
+      ],
+      "error_meanings": {}
+    },
+    {
+      "path": [
+        "run"
+      ],
+      "group": "start",
+      "purpose": "Open one PRD, source material folder or planned PRD for review, or immediately continue started work with --resume.",
+      "side_effect": "legacy",
+      "implemented": true,
+      "availability": "executable",
+      "usage": "kiln run <PRD-path> [--branch <name>] [--resume]",
       "arguments": [
         {
           "name": "PRD-path",
           "required": true,
-          "source": "One existing PRD directory directly under docs/prds/<name>/ or docs/changes/<name>/, or its <name>-prd.md file. Supply its absolute path from any cwd; relative paths resolve against caller cwd. A worktree path resolves to the same main-checkout PRD. For new work use the actual requirements path; existing work can use the canonical path from kiln status."
+          "source": "One existing PRD directory directly under docs/prds/<name>/ or docs/changes/<name>/, or its <name>-prd.md file. Supply its absolute path from any cwd; relative paths resolve against caller cwd. A worktree path resolves to the same main-checkout PRD. For new work use the actual requirements path; existing work can use the canonical path from kiln status. Also accepted: a source material folder source-material/<name>, a planned PRD as docs/initiatives/<name>/<directory name> or docs/initiatives/<name> --prd <directory name>, and a PRD directory with no phase documents, which continues from where it stands, including one only on a branch that hasn't merged."
         }
       ],
       "flags": {
@@ -4032,6 +4082,14 @@
         "resume": {
           "value": null,
           "source": "Immediately continue an already-started execution with saved settings; skips restart review only. Intentional pauses and recovery, billing and delivery restrictions remain. Never starts a new execution."
+        },
+        "branch": {
+          "value": "<name>",
+          "source": "For a PRD directory held by several unmerged branches, the branch to start from; Kiln lists them when the directory isn't in the checkout."
+        },
+        "no-open": {
+          "value": null,
+          "source": "Used by the home screen, whose page opens the view: serves the view without opening a browser at launch."
         }
       },
       "required_exclusive_groups": [],
@@ -4078,6 +4136,17 @@
             "--resume"
           ],
           "preparation": "Execution must already have been started with saved choices. Use existing status-bound controls if its controller is already running."
+        },
+        {
+          "request": "Continue a PRD started by hand on its own branch.",
+          "argv": [
+            "kiln",
+            "run",
+            "/work/shop/docs/changes/return-labels",
+            "--branch",
+            "prd/return-labels"
+          ],
+          "preparation": "Needed only when several unmerged branches hold the PRD's directory and it isn't in the checkout; otherwise Kiln selects the branch that holds it."
         }
       ],
       "error_meanings": {

@@ -14,6 +14,10 @@ import "@fontsource/jetbrains-mono/latin-ext-500.css";
 import "./theme.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
+import Home from "./screens/Home.svelte";
 import { pageConfig } from "./lib/api.js";
 
-mount(App, { target: document.getElementById("app")!, props: { config: pageConfig(document) } });
+// The home screen's process serves the same view at /home (Kiln Requirements Stages, "The Home Screen").
+const config = pageConfig(document);
+if (config.base === "/home") mount(Home, { target: document.getElementById("app")!, props: { config } });
+else mount(App, { target: document.getElementById("app")!, props: { config } });

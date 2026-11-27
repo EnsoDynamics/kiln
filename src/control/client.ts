@@ -127,7 +127,8 @@ export async function runInspectionCommand(args: string[], context: CommandConte
   };
   const receiptLead = (answer: Result, record: SavedWork["record"] | undefined, waive = false) => receiptLines(answer, record, waive)?.join("\n");
   try {
-    if (!args.length) { context.stdout.write("Kiln runs an Enso Method plan and inspects existing work. Use kiln --help to see commands; kiln <command> --help for complete details.\n"); return 2; }
+    // `kiln` with nothing named opens the home screen (Kiln Requirements Stages AC-HOME-01).
+    if (!args.length) return undefined;
     if (args[0] === "--help" || args[0] === "-h") {
       if (args.some((a, i) => i > 0 && a !== "--json") || args.filter(a => a === "--json").length > 1) throw new ControlFailure("invalid_input", "Unknown or duplicate help flag.", 2);
       context.stdout.write(commandHelp([], json)); return 0;
@@ -135,7 +136,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     // The loop stop controls and the third loop setting were removed (AC-STOP-04): refused before any other flag is read or the controller is looked up.
     if (args[0] === "allow-more-loops" || args[0] === "accept-and-deliver") throw new ControlFailure("removed_command", REMOVED_LOOP_COMMAND, 2);
     if (args[0] === "settings" && args.includes("--after-last-test-audit-loop")) throw new ControlFailure("removed_command", REMOVED_LOOP_SETTING, 2);
-    const legacy = ["run", "audit", "delivery", "add-repository", "preparation"].includes(args[0]!);
+    const legacy = ["run", "new", "audit", "delivery", "add-repository", "preparation"].includes(args[0]!);
     if (legacy && !args.includes("--help") && !args.includes("-h")) return undefined;
     const parsed = parseCommand(args); const name = parsed.contract.path[0]!; const flags = parsed.flags;
     if (flags.help) { context.stdout.write(commandHelp(parsed.contract.path, json)); return 0; }
@@ -274,4 +275,39 @@ interface FolderMissingFacts { repositories: { saved_folder: string; state: stri
 function folderMissingText(heading: string, facts: FolderMissingFacts): string {
   const failing = facts.repositories.filter(r => r.state !== "in_place");
   return [heading, "Folder missing · nothing has run", ...failing.map(r => `  ${r.saved_folder}  ${r.state === "missing" ? "missing" : r.state === "holds_something_else" ? `holds something else${r.holds ? ` (${r.holds})` : ""}` : "couldn’t check"}`), `Set the run up again: ${facts.set_up_again.argv.join(" ")}`].join("\n");
+}
+
+/** A run's Kiln as the home screen shows it (Kiln Requirements Stages AC-HOME-05), read as `kiln status` reads it. */
+export type RunState = "working" | "waiting_for_you" | "paused" | "not_running" | "unreadable";
+
+/**
+ * A live Kiln's state on its home line, from its feature state: a session working or waiting for
+ * usage is working; paused is paused; everything else (Needs you, either review, a run open before
+ * Start, a missing folder, complete) waits for the person.
+ *
+ *   runStateOf("early_review")  // "waiting_for_you"
+ */
+export function runStateOf(feature: string): RunState {
+  return feature === "paused" ? "paused" : feature === "implementing" || feature === "waiting" ? "working" : "waiting_for_you";
+}
+
+/**
+ * Probes a saved run's Kiln: not running when no live holder has its lock; otherwise its state
+ * from the authenticated status route, or unreadable with its address when it doesn't answer.
+ *
+ *   await probeRun(work)  // { state: "waiting_for_you", address: "http://127.0.0.1:4712/return-labels", feature: "early_review" }
+ */
+export async function probeRun(work: SavedWork, deadline = Date.now() + 2000): Promise<{ state: RunState; address?: string; feature?: string }> {
+  let owner: Controller;
+  try { owner = await controller(work, deadline); } catch { return { state: "unreadable" }; }
+  if (owner.state === "stopped") return { state: "not_running" };
+  const lock = privateJson<InstanceLockContent>(work.root, join(work.directory, "instance.lock"));
+  const folder = (work.record.origin?.path ?? work.record.prdDirectory ?? "").split("/").at(-1) ?? "";
+  const address = `http://127.0.0.1:${lock.port}/${folder}`;
+  if (owner.state !== "reachable") return { state: "unreadable", address };
+  try {
+    const answer = await request(work, owner, "status", Math.max(1, deadline - Date.now()));
+    const feature = String(answer.state);
+    return { state: runStateOf(feature), address, feature };
+  } catch { return { state: "unreadable", address }; }
 }

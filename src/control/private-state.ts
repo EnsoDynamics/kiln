@@ -80,6 +80,8 @@ export function enumerateWork(env: NodeJS.ProcessEnv, deadline = Date.now() + 50
     }
     for (const repository of privateNames(root, root)) {
       deadlineCheck(deadline);
+      // The home screens' folders and the plan reads' sessions hold no run (Kiln Requirements Stages, "Data Models").
+      if (repository === "home" || repository === "requirements-plan") continue;
       const repo = join(root, repository);
       if (!lstatSync(repo).isDirectory() && !lstatSync(repo).isSymbolicLink()) continue;
       try {

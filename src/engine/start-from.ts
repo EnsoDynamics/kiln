@@ -235,6 +235,8 @@ export interface PreviewInput {
   label?: (name: string) => string;
   others: OtherPrdBranch[];
   refs?: Map<string, RepositoryRefs>;
+  /** A PRD whose requirements are unfinished: the start commit needs only its PRD file, and no phase plan is read (AC-BEGIN-04). */
+  requirements?: boolean;
 }
 
 const count = async (git: GitContext, cwd: string, range: string): Promise<number | undefined> => {
@@ -351,7 +353,12 @@ export async function existingBranchPreview(input: PreviewInput): Promise<StartP
     planSource = !prdRead.hasBranch ? { kind: "base", branch: prd.baseBranch, sha: prdRead.baseTip }
       : input.bringUpToDate && prdRead.qualifies ? { kind: "base_after_catch_up", branch: prd.baseBranch, sha: prdRead.baseTip }
       : { kind: "branch", branch, sha: prdRead.tip! };
-    if (problems.length === 0) {
+    if (problems.length === 0 && input.requirements) {
+      const directory = input.prdDirectoryFromRoot;
+      const prdFile = `${directory}/${posix.basename(directory)}-prd.md`;
+      const held = await runGit(git, prd.mainCheckoutPath, ["--literal-pathspecs", "ls-tree", planSource.sha, "--", prdFile]);
+      if (held.exitCode !== 0 || !held.stdout.trim()) problems.push({ message: `${planSource.branch} at ${shortSha(planSource.sha)} doesn't have ${prdFile}.` });
+    } else if (problems.length === 0) {
       try {
         const gitRead = await readGitPlan(git, prd.mainCheckoutPath, input.prdDirectoryFromRoot, planSource.sha);
         documents = { names: directoryNames(gitRead.source.documents, input.prdDirectoryFromRoot), contents: gitRead.source.documents, unfollowed: gitRead.unfollowed.map(link => ({ from: link.from, target: link.target, reason: link.reason })) };

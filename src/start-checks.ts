@@ -1,4 +1,5 @@
-import { inspectSource, sourcePath } from "./requirements/source.js";
+import { inspectSource, inspectStartedPrd, sourcePath, type StartedPrd } from "./requirements/source.js";
+import { existsSync } from "node:fs";
 import type { RequirementsOrigin } from "./requirements/stages.js";
 // The start checks `kiln run` runs for a feature not started (PRD AC-START-02): the documents
 // are where the Enso Method skills put them, the plan reads, every leaf cites criteria,
@@ -52,6 +53,8 @@ export interface StartCheckReport {
    * it give way for a selection that adopts this checkout (run restart "A reset run from the adopted worktree").
    */
   uncommitted?: string;
+  /** A PRD directory with no phase documents: the branch that holds it, if one does (AC-BEGIN-04, AC-BEGIN-08). */
+  startedByHand?: Pick<StartedPrd, "branch" | "holding">;
 }
 
 /**
@@ -86,13 +89,23 @@ export function startChecksPassed(report: StartCheckReport): boolean {
  * Runs every start check, in the checkout the path is in, and reports all failures together
  * so the person can fix them in one pass.
  */
-export async function runStartChecks(location: PrdLocation, tools: Tools, env: NodeJS.ProcessEnv, nodeVersion = process.versions.node, repositoryContext: { entries?: RepositoryEntry[]; said?: Set<string>; changing?: string[] } = {}): Promise<StartCheckReport> {
-  const source = sourcePath(location.prdDirectoryFromRoot);
-  const input = source ? await inspectSource({ git: tools.git, env }, location.checkoutRoot, location.prdDirectoryFromRoot) : undefined;
-  const fileNames = source ? [] : readdirSync(location.prdDirectory);
+export async function runStartChecks(location: PrdLocation, tools: Tools, env: NodeJS.ProcessEnv, nodeVersion = process.versions.node, repositoryContext: { entries?: RepositoryEntry[]; said?: Set<string>; changing?: string[]; exclude?: ReadonlySet<string>; branch?: string } = {}): Promise<StartCheckReport> {
+  const fromSource = sourcePath(location.prdDirectoryFromRoot);
+  const fileNames = fromSource || !existsSync(location.prdDirectory) ? [] : readdirSync(location.prdDirectory);
   const phaseFileNames = fileNames.filter(isPhaseFileName);
+  // A PRD directory with no phase documents, in the checkout or only on a branch, takes the requirements start checks (AC-BEGIN-04).
+  const byHand = !fromSource && phaseFileNames.length === 0;
+  // A directory in the checkout without its PRD still names the PRD as missing.
+  const prdMissing = byHand && existsSync(location.prdDirectory) && !fileNames.includes(location.prdFileName);
+  const source = fromSource || byHand;
+  const startedRead = byHand && !prdMissing ? await inspectStartedPrd({ git: tools.git, env }, location.checkoutRoot, location.mainCheckoutPath, location.prdDirectoryFromRoot, { ...(repositoryContext.exclude ? { exclude: repositoryContext.exclude } : {}), ...(repositoryContext.branch !== undefined ? { branch: repositoryContext.branch } : {}) })
+    : undefined;
+  const input = fromSource ? await inspectSource({ git: tools.git, env }, location.checkoutRoot, location.prdDirectoryFromRoot) : startedRead;
 
   const problems: string[] = input && "problem" in input ? [input.problem] : [];
+  const started: StartedPrd | undefined = startedRead && "holding" in startedRead ? startedRead : undefined;
+  const partWay = started?.partWay ?? [];
+  problems.push(...partWay);
   // Either name is the document; both at once leaves Kiln no way to tell which one is meant.
   const presentNames = (bareName: string, description: string): string[] => {
     const present = documentNames(location.folderName, bareName).filter((name) => fileNames.includes(name));
@@ -105,7 +118,7 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   const assumptionsFile = assumptionsNames.length === 1 ? assumptionsNames[0] : undefined;
 
   const missingDocuments: MissingDocument[] = [];
-  if (!source && !fileNames.includes(location.prdFileName)) missingDocuments.push({ name: location.prdFileName, description: "the PRD" });
+  if ((!source || prdMissing) && !fileNames.includes(location.prdFileName)) missingDocuments.push({ name: location.prdFileName, description: "the PRD" });
   if (!source && designNames.length === 0) {
     missingDocuments.push({ name: "technical-design.md", description: `the technical design, or ${location.folderName}-technical-design.md` });
   }
@@ -140,7 +153,9 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     problems.push(`Couldn't read the checkout's status: ${(status.stderr || status.failure || "").trim()}`);
   } else {
     const changed = status.stdout.split(/\r?\n/).filter((line) => line.trim() !== "").map((line) => line.slice(3));
-    if (changed.length > 0) { uncommitted = uncommittedChangesProblem(location.checkoutRoot, changed); problems.push(uncommitted); }
+    // A method run part-way through gives its own line in place of the uncommitted-changes line for its directory.
+    const counted = partWay.length ? changed.filter(file => !file.replace(/^"|"$/g, "").startsWith(`${location.prdDirectoryFromRoot}/`)) : changed;
+    if (counted.length > 0) { uncommitted = uncommittedChangesProblem(location.checkoutRoot, counted); problems.push(uncommitted); }
   }
 
   // Node.js and Git below their minimums are start problems (AC-AGENT-05). A version Kiln can't
@@ -194,5 +209,6 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     named: resolved.named,
     lines,
     ...(uncommitted ? { uncommitted } : {}),
+    ...(started ? { startedByHand: { holding: started.holding, ...(started.branch ? { branch: started.branch } : {}) } } : {}),
   };
 }

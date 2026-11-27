@@ -39,6 +39,7 @@ const TASK_HEADINGS: [CommandGroup, string][] = [["answer", "Answer a stopped ph
  *   Kiln runs an Enso Method phase plan with Claude Code or Codex.
  *
  *   Start:        kiln run <PRD-path>
+ *   Home screen:  kiln new, or kiln alone
  *   See work:     kiln status
  *   …
  */
@@ -49,6 +50,7 @@ function topLevelHelp(): string {
     "Kiln runs an Enso Method phase plan with Claude Code or Codex.",
     "",
     "Start:        kiln run <PRD-path>",
+    "Home screen:  kiln new, or kiln alone",
     "See work:     kiln status",
     "",
     ...TASK_HEADINGS.flatMap(([group, heading]) => [heading, ...wrapNames(names(group))]),

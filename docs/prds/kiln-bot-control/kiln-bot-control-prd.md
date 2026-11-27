@@ -79,6 +79,7 @@ The command interface supports the common controls used after work starts. Each 
   - Superseded in part by: AC-DEFAULT-05 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (commands that print and change Model defaults, which apply to every PRD and not to one run, join the supported commands; the rest remains).
   - Superseded in part by: AC-STAGE-05 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (`kiln feedback` joins the commands, `kiln settings` takes the early review setting, and status shows the feedback).
   - Superseded in part by: AC-MODEL-05 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (the stage model, remember and forget commands join the commands).
+  - Superseded in part by: AC-HOME-01 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (`kiln` with no arguments, or `kiln new`, opens the home screen instead of pointing to `kiln --help`).
 
 - [ ] **AC-ACT-02 — Reply, resume and verify preserve the person's intention.** The CLI exposes the distinct actions from the prerequisite handoff change, with the same eligibility, completion evidence and remaining-plan behavior. A manual phase reply or resume must never silently become an advance.
   - Superseded in part by: AC-BOT-02 in `docs/changes/kiln-live-session-control/kiln-live-session-control-prd.md` (explicit phase/audit takeover hand-back and per-message uncertain-delivery review)

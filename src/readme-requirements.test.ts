@@ -125,3 +125,29 @@ describe("the guide to model tiers, Model defaults and the usage fallback", () =
     expect(guideModels).toContain("It spends the other agent's account.");
   });
 });
+
+describe("the README's guide to the requirements stages (Kiln Requirements Stages AC-GUIDE-01)", () => {
+  it("says Kiln can start from source material, what it is and how to bring it in, where Kiln waits and stops, how to give feedback and how stage models are chosen", () => {
+    const source = section("Starting from source material");
+    expect(source).toContain("**Source material** is what a PRD is written from");
+    for (const kind of ["`source-material/<name>/<name>-brief.md`", "`source-material/<name>/<name>-requirements-intake.md`", "`docs/initiatives/<name>/<name>-initiative-prds.md`"]) expect(source).toContain(kind);
+    expect(source).toContain("**Bringing it in** is a conversation");
+    expect(source).toContain("**The early review**");
+    expect(source).toContain("**The final review**, always");
+    expect(source).toContain("only **Start the build** begins it");
+    expect(source).toContain("**Giving feedback.** Say it whenever it comes to mind");
+    expect(source).toContain("**A PRD started by hand** continues from where it stands.");
+    expect(section("Quick start")).toContain("kiln run source-material/<name>");
+    const models = readme.slice(readme.indexOf("### Choosing models"), readme.indexOf("### The usage fallback"));
+    expect(models).toContain("| Requirements stages, and the sessions that read the plan and apply feedback | Claude Code · Fable · high | Codex · GPT Astra · high |");
+    expect(models).toContain("| Refining the design | Claude Code · Opus · high | Codex · GPT Sol · extra high |");
+    expect(models).toContain("**Change one requirements stage.**");
+  });
+
+  it("no longer says Kiln starts only where planning ends, and the agent instructions no longer say it drives only the implementation half", () => {
+    expect(readme).not.toContain("starts where planning ends");
+    const agents = readFileSync(new URL("../AGENTS.md", import.meta.url), "utf8");
+    expect(agents).not.toContain("drives the implementation half");
+    expect(agents).toContain("the requirements stages, then the implementation");
+  });
+});

@@ -37,9 +37,29 @@
     <details><summary>Use a session of your own</summary><pre>{review.resumeCommand ?? review.freshSessionCommand}</pre><p>Commit your changes, then resume Kiln.</p><button disabled={!connected || busy} onclick={() => act(() => resumeNow(config))}>Resume</button></details>
   {:else}
     <h2>What Kiln found</h2>
-    <ul>{#each requirements.origin.files as file}<li><code>{file}</code></li>{/each}</ul>
-    <p>Committed at <code>{requirements.origin.commit.slice(0, 8)}</code> on {settings.baseBranch}.</p>
-    <label>Feature branch <input value={settings.featureBranch} onchange={e => act(() => changeSettings(config, { featureBranch: e.currentTarget.value }))} /></label>
+    {#if requirements.standsAt}
+      <!-- A PRD started by hand (AC-BEGIN-04): where its documents stand, and Kiln continues from there. -->
+      <p><strong>Started by hand · {requirements.standsAt}.</strong> Kiln continues from there{#if !requirements.standsAt.startsWith("Technical design") && !requirements.standsAt.startsWith("Phase plan")}, with the early review once the PRD is refined{/if}.</p>
+      <p>PRD <code>{requirements.origin.files.find(file => file.endsWith("-prd.md"))?.split("/").at(-1)}</code> · committed <code>{requirements.origin.commit.slice(0, 7)}</code> on {requirements.start?.holds ?? settings.baseBranch}{#if requirements.start?.holds}, not merged yet{/if}.</p>
+    {:else}
+      <ul>{#each requirements.origin.files as file}<li><code>{file}</code></li>{/each}</ul>
+      <p>Committed at <code>{requirements.origin.commit.slice(0, 8)}</code> on {settings.baseBranch}.</p>
+    {/if}
+    {#if requirements.start}
+      <!-- Start from (AC-BEGIN-08): the branch that holds the PRD's documents is selected first. -->
+      <fieldset>
+        <legend>Start from</legend>
+        <label><input type="radio" name="from" checked={requirements.start.from === "new"} disabled={!connected || busy} onchange={() => act(() => changeSettings(config, { start: { from: "new", bringUpToDate: true } }))} /> A new feature branch. Kiln cuts it from the base branch.</label>
+        <label><input type="radio" name="from" checked={requirements.start.from === "existing"} disabled={!connected || busy} onchange={() => act(() => changeSettings(config, { start: { from: "existing", bringUpToDate: true } }))} /> A branch that already exists. Work already begun on this PRD, by you or by Kiln before a reset. Kiln carries on from it.</label>
+      </fieldset>
+    {/if}
+    {#if requirements.start?.from === "existing"}
+      <label>Feature branch <select value={settings.featureBranch} disabled={!connected || busy} onchange={e => act(() => changeSettings(config, { featureBranch: e.currentTarget.value }))}>{#each requirements.start.branches as branch}<option value={branch.name} disabled={!branch.available}>{branch.name}</option>{/each}</select></label>
+      {#if requirements.start.holds === settings.featureBranch}<p>The branch that holds this PRD's documents and hasn't merged. Every stage and phase lands on it, and Kiln adds its commits and pushes them. It never rewrites, resets or force-pushes it.</p>{/if}
+      {#if requirements.start.problem}<p role="alert">{requirements.start.problem}</p>{/if}
+    {:else}
+      <label>Feature branch <input value={settings.featureBranch} onchange={e => act(() => changeSettings(config, { featureBranch: e.currentTarget.value }))} /></label>
+    {/if}
     {#if settings.waitAtEarlyReview}<label><input type="checkbox" checked={settings.waitAtEarlyReview.value} disabled={!connected || busy} onchange={e => act(() => changeSettings(config, { waitAtEarlyReview: e.currentTarget.checked }))} /> Wait for me at the early review. You can change this until the refinement finishes.</label>{/if}
     <BillingPanels {snapshot} {connected} />
   {/if}
@@ -52,7 +72,8 @@
   {#if !review}
     <p>Kiln waits at the early review and stops at the final review. Only Start the build begins implementation.</p>
     {#if blocked}<p>{blocked}</p>{/if}
-    <button disabled={!connected || !!blocked || busy || settings.baseCheck !== "ok"} onclick={() => act(() => start(config, false))}>Start</button>
+    <button disabled={!connected || !!blocked || busy || settings.baseCheck !== "ok"} onclick={() => act(() => start(config, false, requirements.start?.previewId))}>Start</button>
+    {#if requirements.standsAt}<p>Continues from where the PRD stands{#if requirements.start?.from === "existing"}, on {settings.featureBranch}{/if}. Stops at the early review, and at the final review before the build.</p>{/if}
   {:else if final}
     {#if requirements.build?.refinementConfirmation === "needed"}<label><input type="checkbox" bind:checked={confirmed} /> I confirm the documents have been through requirements refinement.</label>{/if}
     {#each requirements.build?.checksFailed ?? [] as failure}<p>{failure}</p>{/each}

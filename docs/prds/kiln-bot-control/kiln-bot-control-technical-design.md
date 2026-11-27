@@ -121,6 +121,8 @@ Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tie
 
 Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Command line (`kiln model`, and `kiln model-defaults`, whose changing commands take a new side effect, `computer_setting`, with no PRD path, controller or safety flags).
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Interfaces, Command line: `kiln new`, and `kiln` with no arguments).
+
 All new commands accept `--json`. Read commands need no safety arguments. Run mutations require both `--only-if-status-matches <status_token>` and `--command-id <id>`. Arguments use an argv array and HTTP JSON, never shell concatenation. Displayed commands use platform-safe quoting and also return `next_argv` arrays to bot clients.
 
 | Command after `kiln` | Inputs and response |

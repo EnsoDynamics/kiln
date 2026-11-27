@@ -379,6 +379,10 @@ export interface FeedbackView { id: string; text: string; at: string; state: Fee
 export type RequirementsPlanView = ReturnType<Engine["planView"]>;
 export interface RequirementsView {
   origin: RequirementsOrigin;
+  /** Where a PRD started by hand stands, until its first report (AC-BEGIN-04). */
+  standsAt?: string;
+  /** Start from, for a PRD whose documents may be on a branch of its own (AC-BEGIN-08). */
+  start?: { from: "new" | "existing"; branches: { name: string; available: boolean }[]; previewId: string; holds?: string; problem?: string };
   plan: RequirementsPlanView;
   /** What a plan change, or a report that moved past the plan, changed (AC-PLAN-06, AC-PLAN-07). */
   notice?: { at: string; methodUpdatedAt?: string; changes: string[] };
@@ -684,8 +688,10 @@ export function requirementsView(engine: Engine): RequirementsView {
   for (const row of rows) if (row.activityId && row.state !== "done" && row.model) Object.assign(row.model, engine.modelControls(`req-${row.activityId}`, row.title, row.model));
   const active = rows.find(row => row.state === "running" || row.state === "waiting" || row.state === "needs_you");
   const plan = engine.requirementsPlan;
+  // Before Start, a record naming a PRD directory will stand unknown: the plan is headed by where it stands, every entry from the first (technical design, "Rows").
+  const willBeUnknown = engine.record.startedAt === undefined && !!engine.record.prdDirectory;
   if (engine.reviewStop !== "final") {
-    const unknown = !!state.standing && "unknown" in state.standing || !!state.cursorLost;
+    const unknown = !!state.standing && "unknown" in state.standing || !!state.cursorLost || willBeUnknown;
     const nextRow = (key: string, title: string, skill: string | undefined, modelKey: string): RequirementsRow => {
       const model = engine.activityModel(modelKey, { finished: false });
       return { key, title, ...(skill ? { skill } : {}), state: "next", model: { ...model, ...engine.modelControls(modelKey, title, model) } };
@@ -702,7 +708,7 @@ export function requirementsView(engine: Engine): RequirementsView {
       }
       const defaults = readModelDefaults(engine.modelDefaultsFile);
       const unmatched = defaults.ok ? Object.keys(defaults.defaults.skills).filter(skill => skill !== plan.reviewSkill.skill && !plan.stages.some(stage => stage.skill === skill)) : [];
-      for (const row of planRows(plan, state, { ...(currentKey ? { currentKey } : {}), next: !active && !unknown })) {
+      for (const row of planRows(plan, state, { ...(currentKey ? { currentKey } : {}), next: !active && !unknown, ...(willBeUnknown ? { fromStart: true } : {}) })) {
         const modelKey = `req-row:${row.key}`;
         const model = engine.activityModel(modelKey, { finished: false });
         rows.push({ key: row.key, title: row.title, skill: row.skill, reaches: row.reaches, state: row.state, ...(row.addedByKiln ? { addedByKiln: row.addedByKiln } : {}), ...(row.stop ? { stop: row.stop } : {}),
@@ -729,6 +735,8 @@ export function requirementsView(engine: Engine): RequirementsView {
   const view: RequirementsView = { origin: engine.record.origin!, plan: engine.planView(), ...(state.notice ? { notice: { at: state.notice.at, ...(state.notice.methodUpdatedAt ? { methodUpdatedAt: state.notice.methodUpdatedAt } : {}), changes: state.notice.changes } } : {}), rows,
     feedback: state.feedback.map(m => ({ id: m.id, text: m.text, at: m.at, state: m.state, ...(m.readAt ? { readAt: m.readAt } : {}), ...(m.appliedAt ? { appliedAt: m.appliedAt } : {}), ...(m.appliedCommit ? { appliedCommit: m.appliedCommit } : {}) })),
     ...(state.draftNote && !state.review ? { draftNote: state.draftNote } : {}),
+    ...(state.standsAt ? { standsAt: state.standsAt } : {}),
+    ...(willBeUnknown && engine.startPreview ? { start: requirementsStart(engine, engine.startPreview) } : {}),
     ...(engine.record.startedAt !== undefined && state.phase === "stages" ? { feedbackTo: engine.feedbackGoesLive() ? "running_session" as const : "next_session" as const } : {}) };
   const last = state.stages.at(-1);
   if (last?.report?.next?.kind === "before_prd" && engine.record.phases[`req-${last.activityId}`]?.stop) view.beforePrd = last.report.next;
@@ -750,6 +758,13 @@ export function requirementsView(engine: Engine): RequirementsView {
     }
   }
   return view;
+}
+
+/** Start from for a PRD started by hand: the branch list, and which branch holds its documents (AC-BEGIN-08). */
+function requirementsStart(engine: Engine, preview: StartPreview): NonNullable<RequirementsView["start"]> {
+  const holds = engine.record.requirements?.holdingBranch;
+  return { from: preview.from, previewId: preview.previewId, branches: (engine.branchChoices ?? []).map(({ name, available }) => ({ name, available })),
+    ...(holds ? { holds } : {}), ...(preview.fieldError ? { problem: preview.fieldError } : {}) };
 }
 
 export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads: SnapshotReads = {}): Snapshot {

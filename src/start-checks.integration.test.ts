@@ -70,11 +70,8 @@ describe("runStartChecks", () => {
     for (const name of ["technical-design.md", "assumptions.md", `${FOLDER}-prd.md`, ...Object.keys(PHASES)]) git(sandbox, repository, "rm", "-q", `${prdDirectory}/${name}`);
     git(sandbox, repository, "commit", "-q", "-m", "remove documents");
     const report = await check();
-    expect(report.missingDocuments).toEqual([
-      { name: "customer-returns-prd.md", description: "the PRD" },
-      { name: "technical-design.md", description: "the technical design, or customer-returns-technical-design.md" },
-      { name: "phase-*.md", description: "phase documents" },
-    ]);
+    // With no phase documents the requirements are unfinished, so only the PRD is required (Kiln Requirements Stages AC-BEGIN-04).
+    expect(report.missingDocuments).toEqual([{ name: "customer-returns-prd.md", description: "the PRD" }]);
     expect(report.problems).toEqual([]);
     expect(report.found.assumptionsFile).toBeUndefined();
   });

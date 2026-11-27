@@ -73,6 +73,10 @@ export interface RequirementsState {
   inserted?: { skill: string; title: string; reaches: MilestoneName[]; key: string };
   /** A session at a stop ran nothing in the plan: the next stage session runs as the Next stage row. */
   cursorLost?: true;
+  /** Where a PRD started by hand stands, from its file names, until the first report (AC-BEGIN-04). */
+  standsAt?: string;
+  /** The unmerged branch that held the PRD's documents when Kiln read it, preselected under Start from (AC-BEGIN-08). */
+  holdingBranch?: string;
   feedback: FeedbackMessage[];
   reachedByKiln: MilestoneName[];
 }

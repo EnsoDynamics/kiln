@@ -182,7 +182,7 @@ export async function checkFields(input: FieldCheckInput): Promise<FieldCheckOut
       else if (isPrd && input.source) {
         const local = await localBranchCommit(input.git, repository.mainCheckoutPath, base);
         if (!local || (await runGit(input.git, repository.mainCheckoutPath, ["merge-base", "--is-ancestor", tip, local])).exitCode !== 0) message = `Bring the local shared branch ${base} up to date before Start.`;
-        else if (local !== input.source.commit) message = "The source material's commit changed. Reopen this run before Start.";
+        else if (input.source.kind === "prd" ? !(await runGit(input.git, repository.mainCheckoutPath, ["--literal-pathspecs", "ls-tree", local, "--", `${input.source.path}/${input.source.path.split("/").at(-1)}-prd.md`])).stdout.trim() : local !== input.source.commit) message = input.source.kind === "prd" ? `${base} no longer holds the PRD. Reopen this run before Start.` : "The source material's commit changed. Reopen this run before Start.";
         else startCommits[repository.name] = local;
       } else {
         const commit = reusable.get(repository.name) ? repository.entry!.createdBranch!.commit : tip;

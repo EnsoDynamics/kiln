@@ -75,11 +75,15 @@ Three structural changes carry the rest.
 
 Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Branch and worktree, starting from committed source on the local shared branch).
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (What `kiln run` accepts: an unmerged branch holding the PRD's documents is selected first).
+
 Until Start, a record with no `start` gets its choice computed at each preview. `from` is `existing` when a branch named `settings.featureBranch` exists in any of the PRD's repositories, local or on origin, and `new` otherwise. `bringUpToDate` is true. `settings.featureBranch` holds the new name or the chosen existing branch, and keeps the name the first `kiln run` or a reset saved until one is typed or chosen. `POST /api/settings` saves `start` whenever it changes `start` or the feature branch, and Start saves the `start` its preview used. Switching to `new` keeps the name, so today's "That branch already exists" message shows until a new name is typed. Switching to `existing` while the name isn't listed selects the list's first available name.
 
 **The start commit** is where the first session starts in the PRD's repository, and **What Kiln found** is read there. With a new feature branch it is the base's tip on origin. With an existing branch it is that branch's tip in the PRD's repository, or the base's tip on origin while the offer is ticked and that repository qualifies. When the PRD's repository doesn't have the chosen branch, its branch is cut from its base (AC-FROM-05), so the start commit is the base's tip on origin. Its entry is then a new-branch entry: it holds only `baseCommit`, today's reads and checks apply, including the checkout-equals-base document check (`checkPrdTreeAt`), `planSource.kind` is `base`, and the offer never moves it.
 
 ### The branch list
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (What `kiln run` accepts: a refinement or feedback round part-way through in any worktree fails the start with its own line in place of the adopted worktree's).
 
 One list for the PRD: every local and origin branch name in each of today's repositories, which are the PRD's repository and the repositories the checkout's plan names, found by the start checks. Each name is classified per repository by the first row of AC-FROM-03's table that fits, and is unavailable for the PRD when any repository makes it so, naming that repository.
 

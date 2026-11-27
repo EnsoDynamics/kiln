@@ -6,7 +6,8 @@ Engineering standards: commercesong-engineering-standards
 
 ## The Enso Method stands alone
 
-Kiln is an optional add-on that drives the implementation half of the Enso Method.
+Kiln is an optional add-on that drives the Enso Method from source material to a finished
+build: the requirements stages, then the implementation.
 Everything Kiln does, a person can do by hand with the same skills in any coding agent.
 Check both rules before proposing or building a change to how Kiln orders, stops, audits
 or hands off work, and before proposing a change to an Enso Method skill because of

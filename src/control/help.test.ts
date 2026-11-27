@@ -15,10 +15,12 @@ describe("top-level text help", () => {
   });
 
   it("opens with how to start and how to see what's running", () => {
-    expect(lines.slice(0, 5)).toEqual([
+    // The home screen joins how to start (Kiln Requirements Stages AC-HOME-01).
+    expect(lines.slice(0, 6)).toEqual([
       "Kiln runs an Enso Method phase plan with Claude Code or Codex.",
       "",
       "Start:        kiln run <PRD-path>",
+      "Home screen:  kiln new, or kiln alone",
       "See work:     kiln status",
       "",
     ]);
@@ -55,7 +57,7 @@ describe("the command contracts", () => {
   // kiln-sessions would vanish from kiln --help behind the helper count.
   it("put each command in the group its task belongs to", () => {
     const expected: Record<string, string> = {
-      run: "start", status: "start",
+      run: "start", new: "start", status: "start",
       reply: "answer", resume: "answer", "carry-on": "answer", "start-again": "answer", "verify-and-advance": "answer", "check-again": "answer", "waive-and-advance": "answer", "locate-repository": "answer", "check-for-new-phases": "answer", "continue-with-phases": "answer", merge: "answer", exit: "answer",
       message: "live", "take-over": "live", "request-pause": "live", "cancel-pause": "live", continue: "live", "start-build": "live", feedback: "live",
       logs: "inspect", handoff: "inspect", account: "inspect", settings: "inspect", "command-status": "inspect",

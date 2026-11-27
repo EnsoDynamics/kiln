@@ -83,6 +83,7 @@
           {#if row.skill}<span class="file mono">{row.skill}</span>{/if}
           {#if row.addedByKiln && row.state !== "done"}<span class="small">Added by Kiln: the method makes this review only when asked</span>{/if}
           {#if row.model}<RowModel model={row.model} {underway} target={row.state === "done" ? undefined : { stage: row.key }} agents={snapshot.agents} {connected} label={`${row.title} model`} rememberSkill={row.key === "kiln:next" ? undefined : row.skill} />{/if}
+          {#if row.key === "kiln:next" && requirements.standsAt}<span class="small">The first session finds where the PRD stands and runs its next stage. When it reports, the rows before that stage drop away and Kiln says which stage it continues from.</span>{/if}
           {#if row.savedChoiceUnmatched}<span class="small">A choice saved for <code>{row.savedChoiceUnmatched.skill}</code> no longer applies, since the plan no longer runs it. This stage runs on its default.</span>{/if}
           {#if row.state === "done" && row.pushedSha}<span class="small">{#if row.startedAt && row.finishedAt && !row.noSession}Took {minutes(row.startedAt, row.finishedAt)} ·{" "}{/if}Pushed <code>{row.pushedSha.slice(0, 7)}</code></span>{/if}
           {#if row.state === "running" && row.startedAt}<span class="small">Started {time(row.startedAt)} · {minutes(row.startedAt, new Date(now).toISOString())}</span>{/if}

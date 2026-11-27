@@ -53,7 +53,9 @@ describe("resolvePrdPath", () => {
   });
 
   it("refuses every other path with one line naming the problem", async () => {
-    expect(problemOf(await resolveFrom(repository, "docs/prds/nope"))).toBe("docs/prds/nope doesn't exist.");
+    // A PRD directory not in the checkout resolves: the start checks look for the branch that holds it (Kiln Requirements Stages AC-BEGIN-08).
+    expect(locationOf(await resolveFrom(repository, "docs/prds/nope")).prdDirectoryFromRoot).toBe("docs/prds/nope");
+    expect(problemOf(await resolveFrom(repository, "notes/nope"))).toBe("notes/nope doesn't exist.");
     expect(problemOf(await resolveFrom(repository, "docs/prds/"))).toMatch(/^docs\/prds\/ isn't a PRD directory/);
     expect(problemOf(await resolveFrom(repository, "docs"))).toMatch(/isn't a PRD directory/);
     expect(problemOf(await resolveFrom(repository, "README.md"))).toMatch(/isn't a PRD directory/);

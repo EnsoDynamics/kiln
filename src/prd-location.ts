@@ -3,7 +3,7 @@ import { sourcePath } from "./requirements/source.js";
 // "Command line").
 
 import { existsSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { runHelper } from "./platform/helper-process.js";
 
 export interface PrdLocation {
@@ -57,17 +57,32 @@ export async function resolvePrdPath(pathArgument: string, cwd: string, git: str
     const parent = dirname(absolute);
     const missingPrdFile = existsSync(parent) && statSync(parent).isDirectory() && basename(absolute) === `${basename(parent)}-prd.md`;
     const virtualPlanned = existsSync(parent) && basename(dirname(parent)) === "initiatives" && basename(dirname(dirname(parent))) === "docs";
-    if (!missingPrdFile && !virtualPlanned) return { problem: `${pathArgument} doesn't exist.` };
-    directory = parent;
-    if (!virtualPlanned) fileName = basename(absolute);
+    // A PRD directory only on a branch that hasn't merged (AC-BEGIN-08): the start checks look for the branch that holds it.
+    const prdOnBranch = /^(?:prds|changes)$/.test(basename(parent)) && basename(dirname(parent)) === "docs";
+    const prdFileOnBranch = absolute.endsWith("-prd.md") && basename(absolute) === `${basename(parent)}-prd.md` && /^(?:prds|changes)$/.test(basename(dirname(parent))) && basename(dirname(dirname(parent))) === "docs";
+    if (!missingPrdFile && !virtualPlanned && !prdOnBranch && !prdFileOnBranch) return { problem: `${pathArgument} doesn't exist.` };
+    if (prdOnBranch || prdFileOnBranch) {
+      const root = prdOnBranch ? dirname(dirname(parent)) : dirname(dirname(dirname(parent)));
+      if (!existsSync(root)) return { problem: `${pathArgument} doesn't exist.` };
+      const realRoot = realpathSync.native(root);
+      directory = prdOnBranch ? join(realRoot, "docs", basename(parent), basename(absolute)) : join(realRoot, "docs", basename(dirname(parent)), basename(parent));
+      if (prdFileOnBranch) fileName = basename(absolute);
+    } else {
+      directory = parent;
+      if (!virtualPlanned) fileName = basename(absolute);
+    }
   }
 
-  const realDirectory = realpathSync.native(directory);
-  const toplevel = await runHelper(git, ["-C", realDirectory, "rev-parse", "--show-toplevel"], { cwd: realDirectory, env, ...options });
+  // A directory only on a branch is resolved through the nearest folder that exists.
+  let existing = directory;
+  while (!existsSync(existing)) existing = dirname(existing);
+  const realExisting = realpathSync.native(existing);
+  const realDirectory = join(realExisting, relative(existing, directory));
+  const toplevel = await runHelper(git, ["-C", realExisting, "rev-parse", "--show-toplevel"], { cwd: realExisting, env, ...options });
   if (toplevel.exitCode !== 0) return { problem: `${pathArgument} isn't in a Git repository.` };
   const checkoutRoot = realpathSync.native(resolve(toplevel.stdout.trim()));
 
-  const virtualPlanned = !existsSync(absolute) && !fileName;
+  const virtualPlanned = !existsSync(absolute) && !fileName && basename(dirname(realDirectory)) === "initiatives";
   const parts = relative(checkoutRoot, virtualPlanned ? resolve(realDirectory, basename(absolute)) : realDirectory).split(sep);
   const [docs, kind] = parts;
   const folderName = parts.at(-1)!;
@@ -84,14 +99,14 @@ export async function resolvePrdPath(pathArgument: string, cwd: string, git: str
     return { problem: `${pathArgument} isn't the PRD: the PRD in ${prdDirectoryFromRoot}/ is ${prdFileName}.` };
   }
 
-  const worktrees = await runHelper(git, ["-C", realDirectory, "worktree", "list", "--porcelain"], { cwd: realDirectory, env, ...options });
+  const worktrees = await runHelper(git, ["-C", realExisting, "worktree", "list", "--porcelain"], { cwd: realExisting, env, ...options });
   const firstWorktree = /^worktree (.+)$/m.exec(worktrees.stdout)?.[1];
   if (worktrees.exitCode !== 0 || firstWorktree === undefined) {
     return { problem: `Couldn't list the repository's worktrees: ${(worktrees.stderr || worktrees.failure || "").trim()}` };
   }
   // In a submodule the first entry is the submodule's git directory (.git/modules/<name>), not
   // its working tree; asking that entry for its top level gives the working tree in both cases.
-  const mainToplevel = await runHelper(git, ["-C", firstWorktree.trim(), "rev-parse", "--show-toplevel"], { cwd: realDirectory, env, ...options });
+  const mainToplevel = await runHelper(git, ["-C", firstWorktree.trim(), "rev-parse", "--show-toplevel"], { cwd: realExisting, env, ...options });
   if (mainToplevel.exitCode !== 0) {
     return { problem: `Couldn't find the repository's main checkout: ${(mainToplevel.stderr || mainToplevel.failure || "").trim()}` };
   }

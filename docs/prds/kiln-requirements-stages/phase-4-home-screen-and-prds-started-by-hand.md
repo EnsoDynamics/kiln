@@ -1,5 +1,7 @@
 # Phase 4: Home screen and PRDs started by hand
 
+**Closed:** 2026-11-27
+
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "What `kiln run` accepts" (a PRD directory with no phase documents, a branch that holds a PRD directory, a method run part-way through); "Rows" (the plan before Start while the standing will be unknown); "The Home Screen"; the "How the home screen opens a PRD", "Keeping the home list current" and "What source material counts as written from" decisions; "Interfaces" (the home server's routes and the home list, `kiln`, `kiln new`); "Data Models" (home state); "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-requirements-stages-phase-plan.md)

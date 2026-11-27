@@ -6,6 +6,8 @@ Kiln builds a PRD you already planned with the [Enso Method](https://github.com/
 
 You come back when it's done, or when a phase genuinely needs you.
 
+Kiln can carry the requirements too. Point it at source material, such as a brief in your own words, and it writes the PRD, refines it, writes and refines the technical design and plans the phases, each stage in a fresh session using the Enso Method skill for that stage. It waits for your review once, before the design, and always stops before the build.
+
 [ensomethod.org/kiln](https://ensomethod.org/kiln/) · [Install](#install) · [Quick start](#quick-start) · [Update](#update) · [How it works](#how-it-works)
 
 ![Kiln's browser view while a phase is being implemented](docs/assets/kiln-running-screen.webp)
@@ -58,18 +60,51 @@ codex plugin add enso-method@enso-method
 
 ## Quick start
 
-Kiln starts where planning ends. You need a PRD that has been written, refined, given a technical design and split into phases with the Enso Method skills ([how that works](https://github.com/EnsoDynamics/enso-method#get-started)). Commit those documents, then from the repository root run:
+From anywhere in a repository, run:
 
 ```sh
-kiln run docs/prds/<name>
+kiln
 ```
 
-The path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) or the PRD file in it.
+Kiln opens its home screen in your browser: source material ready to start, material one step from ready, every PRD under way with the stage it reached, and quieter PRDs folded away at the end. Run from a folder that holds several repositories, it lists them all in one place. Pick a line to open it in a Kiln of its own. `kiln new` does the same.
 
-1. **Review.** Kiln checks the documents and opens its browser view on what it found, with the phase documents, the base branch and the feature branch it will use. Nothing runs yet.
-2. **Start.** Confirm the PRD has been refined, check the model each phase will run on, and press **Start**.
-3. **Walk away.** Kiln runs one session per phase in the feature's own worktree and checks in Git that each phase landed. Keep the terminal open. Ctrl+C interrupts the current session, and `kiln run` again picks up where it stopped.
+To go straight to one piece of work, name it:
+
+```sh
+kiln run source-material/<name>                # a brief or an intake record
+kiln run docs/initiatives/<name> --prd <prd>   # a planned PRD in an initiative
+kiln run docs/prds/<name>                      # a PRD, at whatever stage it reached
+```
+
+A PRD path is the PRD's directory (`docs/prds/<name>/` or `docs/changes/<name>/`) or the PRD file in it.
+
+1. **Review.** Kiln checks what you pointed it at and opens its browser view on what it found: the source material, or the PRD's documents and phase plan, every stage it will run with the model for each, and the feature branch it will use. Nothing runs yet.
+2. **Start.** Check the models and press **Start**. A PRD you already refined, designed and split into phases asks you to confirm it was refined, and starts building.
+3. **Walk away.** Kiln runs one session per stage or phase in the feature's own worktree and checks in Git that each one landed. Keep the terminal open. Ctrl+C interrupts the current session, and `kiln run` again picks up where it stopped.
 4. **Come back to pull requests.** When every phase is done and the whole PRD has passed its delivery and test audits, the feature branch is pushed with its pull request waiting for your review.
+
+## Starting from source material
+
+**Source material** is what a PRD is written from, committed in the repository on its shared branch (`develop`, or the branch origin's HEAD names):
+
+| Kind | Where Kiln looks |
+|---|---|
+| A brief: what you want and why, in your own words, with mockups or a prototype for anything with a screen | `source-material/<name>/<name>-brief.md` |
+| An intake record, made from transcripts, threads and documents | `source-material/<name>/<name>-requirements-intake.md` |
+| A planned PRD in an initiative | A row with status `planned` in `docs/initiatives/<name>/<name>-initiative-prds.md` |
+
+Other folders under `source-material/`, such as a stakeholder's feedback, are not listed. Several paragraphs on what you want and why, with screens wherever there is something to look at, is enough: everything Kiln writes afterwards is only as good as this.
+
+**Bringing it in** is a conversation about what you have and what you meant, so it happens in your own agent session, not in Kiln. Open Claude Code or Codex in the repository and paste the prompt the home screen offers, which asks the session to use the Enso Method, bring your material into `source-material/`, commit it on the shared branch and stop. The home screen picks it up by itself, under **Ready to start**. Sorting raw material and cutting something bigger into an initiative stay with you and your session; each planned PRD then appears on the home screen in its place.
+
+**Where Kiln waits and stops.** The plan before Start lists every requirements stage your installed copy of the method runs, read from it once and again whenever the method changes, then the build. Kiln makes two stops:
+
+- **The early review**, once the PRD is refined and before any design work, where a change costs least. Kiln has a stakeholder review made from the refined PRD, opens it and waits. Send feedback, continue to the technical design, or work in a session of your own and press **Resume**. **Wait for me at the early review** is on by default; turn it off before Start, or until the refinement finishes, for an overnight run, and Kiln still has the review made and carries on.
+- **The final review**, always, when the requirements are finished. One screen holds the refreshed review, the phase plan with each phase's model, and **Start the build**. Feedback here comes back to the same screen. The build never starts by itself: only **Start the build** begins it, on the same feature branch, and it goes ahead on any assumption still unconfirmed.
+
+**Giving feedback.** Say it whenever it comes to mind, and nothing stops to hear it. While a stage runs, feedback goes to its session, which works it in; otherwise, or when it is too long to deliver live, a fresh session applies it to every requirements document already written before the next stage starts. Each message shows as waiting, sent, read or applied, with the commit that applied it. Use the feedback box, **Message Claude** or `kiln feedback`.
+
+**A PRD started by hand** continues from where it stands. `kiln run` on a PRD with no phase plan, or **Review and continue** on the home screen, shows where its documents stand, and the first session finds the next stage with the method, so nothing already done runs again. A PRD whose documents are on a branch of its own that hasn't merged, such as the one the method makes for a PRD started by hand, has that branch selected under **Start from**, and every stage and phase lands on it. If a PRD refinement or a stakeholder feedback round is part-way through with its work not committed, Kiln says where and opens nothing until it finishes or stops. Every stage can still be run by hand.
 
 ## When a phase needs you
 
@@ -176,11 +211,14 @@ Kiln picks the agent, model and effort for each phase from the phase document's 
 | Standard, and Not rated | Claude Code · Opus · medium | Codex · GPT Sol · high |
 | Mechanical | Claude Code · Sonnet · high | Codex · GPT Sol · high |
 | Audits | Claude Code · Opus · high | Codex · GPT Sol · extra high |
+| Requirements stages, and the sessions that read the plan and apply feedback | Claude Code · Fable · high | Codex · GPT Astra · high |
+| Refining the design | Claude Code · Opus · high | Codex · GPT Sol · extra high |
 
 On a computer with only Codex installed, every activity whose first choice is on Claude Code runs on its row's Codex fallback, with no setup.
 
 - **Change one phase.** On Documents found, or in the plan while Kiln works, waits, is paused or is stopped, press **Change** on a phase that hasn't started. It is marked **Changed by you** and keeps that choice, whatever its tier or Model defaults later say, until you press **Use the default**. **Change** on a Delivery audit or Test audit row, or the Audits line in the delivery panel or the run's settings, changes this PRD's Audits choice.
 - **Change the defaults.** The **Model defaults** link in the delivery panel or the run's settings opens the page: **Change** on each row's first choice or fallback, and **Restore Kiln's defaults**. A change reaches every activity that hasn't started, in every PRD, runs underway included.
+- **Change one requirements stage.** Every stage row in the requirements plan shows its model, with **Change** on a stage that hasn't started. Tick **Use this for {skill} on every PRD** to remember the choice against the skill the method names for that stage; a remembered choice that no stage runs any more falls back to its row's default, and the row says so.
 - **A started activity never switches.** Once a phase, audit or session has had its first response from the model, every later session of it, after a usage limit, a Resume or a carry-on, runs on what it started on. A choice the agent doesn't offer, or an account that refuses the model, stops the run at Needs you; Kiln runs nothing else in its place.
 
 ### The usage fallback
@@ -201,7 +239,7 @@ Before every model run, Kiln shows how the next session will be billed, either y
 
 ### Driving Kiln from the terminal or a bot
 
-The browser view is the main interface, but every control for existing work is also a command, so a script or a bot on the same machine can report progress and answer stops. Start with `kiln status --json` and `kiln <command> --help`. `kiln model` changes a phase's model or the Audits choice in a run underway, and `kiln model-defaults` prints and changes Model defaults, the fallback switch and its threshold. [Kiln command line and bot control](docs/kiln-command-line-and-bot-control.md) covers command IDs, status tokens, live messages and takeover.
+The browser view is the main interface, but every control for existing work is also a command, so a script or a bot on the same machine can report progress and answer stops. Start with `kiln status --json` and `kiln <command> --help`. `kiln feedback`, `kiln continue` past the early review and `kiln start-build` do what the review screens' controls do. `kiln model` changes a phase's model or the Audits choice in a run underway, or a requirements stage's with `--stage`, and `kiln model-defaults` prints and changes Model defaults, the fallback switch and its threshold. [Kiln command line and bot control](docs/kiln-command-line-and-bot-control.md) covers command IDs, status tokens, live messages and takeover.
 
 ## Writing requirements for Kiln
 

@@ -40,6 +40,8 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
   const stages = plan.stages;
   const pos = state.cursor;
   const expected = plannedNext(plan, state);
+  // From an unknown standing the files can't say which entries are behind, so the notice names where Kiln goes on from (AC-BEGIN-04).
+  const unknown = !!state.standing && "unknown" in state.standing;
   delete state.inserted;
   delete state.cursorLost;
   const changes: string[] = [];
@@ -59,7 +61,8 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
   const found = indexFrom(stages, pos, next.skill);
   if (found >= 0) {
     const passed = found > from ? stages.slice(from, found).map(stage => stage.title) : [];
-    if (passed.length) changes.push(`Passed ${passed.join(", ")}, which the method didn't run for this PRD.`);
+    if (unknown) changes.push(`Kiln continues from ${stages[found]!.title}, where the method found this PRD stands.`);
+    else if (passed.length) changes.push(`Passed ${passed.join(", ")}, which the method didn't run for this PRD.`);
     state.cursor = found;
     return changes;
   }

@@ -1,4 +1,8 @@
 import { newRequirements } from "./requirements/stages.js";
+import { documentsStand } from "./requirements/branches.js";
+import { runHome } from "./home/home.js";
+import { otherStartedBranches } from "./engine/start-from.js";
+import { expandHome } from "./engine/worktree-setup.js";
 import { startPath, writtenDirectory } from "./requirements/run-path.js";
 import { preflightKey } from "./state/activity-keys.js";
 import { PREFLIGHT_TITLE } from "./engine/preflight.js";
@@ -169,7 +173,9 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     context.stdout.write(`${versionLine(KILN_VERSION, readBuildInfo(new URL("./build-info.json", import.meta.url)))}\n`);
     return 0;
   }
-  // Help, the no-argument answer and unknown commands are answered here from the command contracts.
+  // `kiln` with nothing named, or `kiln new`, opens the home screen (Kiln Requirements Stages AC-HOME-01).
+  if (args.length === 0 || args.length === 1 && args[0] === "new") return runHome(context);
+  // Help and unknown commands are answered here from the command contracts.
   const inspection = await runInspectionCommand(args, context);
   if (inspection !== undefined) return inspection;
   const [command, ...rest] = args;
@@ -177,9 +183,20 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   if (command === "delivery") return runDelivery(rest, context);
   if (command === "audit") return runAudit(rest, context);
   if (command === "add-repository") return runAddRepository(rest, context);
+  if (command === "new") { context.stderr.write("kiln: kiln new takes no arguments.\nUsage: kiln new\nUse kiln new --help for details.\n"); return EXIT_USAGE; }
   if (rest.length === 0) return usageError(context);
   const resumeImmediately = rest.includes("--resume");
-  const paths = rest.filter(arg => arg !== "--resume");
+  let paths = rest.filter(arg => arg !== "--resume");
+  // --branch picks among the branches that hold a PRD directory (Kiln Requirements Stages, "What `kiln run` accepts").
+  const branchAt = paths.indexOf("--branch");
+  const branchName = branchAt >= 0 ? paths[branchAt + 1] : undefined;
+  if (branchAt >= 0) {
+    if (branchName === undefined || branchName.startsWith("-") || paths.lastIndexOf("--branch") !== branchAt) return usageError(context, "kiln: --branch takes one branch name.");
+    paths = paths.filter((_, index) => index !== branchAt && index !== branchAt + 1);
+  }
+  // A Kiln the home screen starts doesn't open its view at launch: the home page opens it (technical design, "Opening an item").
+  const noOpen = paths.includes("--no-open");
+  paths = paths.filter(arg => arg !== "--no-open");
   const planned = paths.length === 3 && paths[1] === "--prd" && /^[^/\\]+$/.test(paths[2]!) && ![".", ".."].includes(paths[2]!);
   if ((!planned && paths.length !== 1) || paths[0]!.startsWith("-") || rest.filter(arg => arg === "--resume").length > 1) return usageError(context, "kiln: kiln run takes one path and an optional --resume.");
 
@@ -219,8 +236,14 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   if (matching.length > 1) return usageError(context, "More than one run matches this path.");
   const stateDirectory = matching[0]?.directory ?? direct;
   if (matching[0]) {
-    location.folderName = basename(startPath(matching[0].record));
-    location.featureName = matching[0].record.featureName;
+    const saved = matching[0].record;
+    // A run from source material reset after its draft starts as the PRD it wrote, on the branch that holds it (AC-BEGIN-08).
+    if (saved.prdDirectory && saved.startedAt === undefined && saved.prdDirectory !== location.prdDirectoryFromRoot) {
+      const written = await resolvePrdPath(join(location.mainCheckoutPath, saved.prdDirectory), context.cwd, git, context.env);
+      if ("location" in written) Object.assign(location, written.location);
+    }
+    location.folderName = basename(startPath(saved));
+    location.featureName = saved.featureName;
   }
   const range = portRange(context.env);
   if ("problem" in range) {
@@ -240,7 +263,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   }
 
   const stop = new StopControl(context);
-  const run: KilnRun = { location, tools, context, stop, stateDirectory, port: lock.port, resumeImmediately, repositoryLinesSaid: new Set() };
+  const run: KilnRun = { location, tools, context, stop, stateDirectory, port: lock.port, resumeImmediately, repositoryLinesSaid: new Set(), ...(branchName !== undefined ? { branch: branchName } : {}), ...(noOpen ? { noOpen } : {}) };
   try {
     let record: PrdRecord | undefined;
     try {
@@ -279,6 +302,31 @@ interface KilnRun {
   port: number;
   /** What the search and the remembered answers said in this `kiln run`, each once (find repositories anywhere). */
   repositoryLinesSaid: Set<string>;
+  /** `--branch`: which of the branches holding the PRD directory is the start. */
+  branch?: string;
+  /** `--no-open`: started by the home screen, whose page opens the view. */
+  noOpen?: boolean;
+}
+
+/** What the start checks need beyond the location: the saved repositories, the lines said, and for a PRD started by hand the branches no candidate (AC-BEGIN-08). */
+function startContext(run: KilnRun, entries: PrdRecord["repositories"]) {
+  const main = run.location.mainCheckoutPath;
+  const exclude = new Set(otherStartedBranches(run.stateDirectory).filter(other => resolve(expandHome(other.mainCheckoutPath)) === resolve(main)).map(other => other.branch));
+  return { entries, said: run.repositoryLinesSaid, exclude, ...(run.branch !== undefined ? { branch: run.branch } : {}) };
+}
+
+/** A PRD started by hand: where its documents stand, and the branch that holds it selected under Start from (AC-BEGIN-04, AC-BEGIN-08). */
+function adoptStartedByHand(record: PrdRecord, report: Awaited<ReturnType<typeof runStartChecks>>): void {
+  if (!report.startedByHand || !record.requirements) return;
+  const files = (report.origin?.files ?? []).map(file => basename(file));
+  record.requirements.standsAt = documentsStand(files, basename(record.prdDirectory!));
+  const branch = report.startedByHand.branch;
+  if (branch) record.requirements.holdingBranch = branch.name;
+  else delete record.requirements.holdingBranch;
+  if (branch && !record.start) {
+    record.start = { from: "existing", bringUpToDate: true };
+    record.settings.featureBranch = branch.name;
+  }
 }
 
 /** An engine over the PRD's record, with keep-awake for the sessions it runs. */
@@ -390,19 +438,21 @@ async function resetEngine(run: KilnRun): Promise<Engine> {
   const git = { git: tools.git, env: context.env };
   const startChecks = async (): Promise<ResetStartChecks> => {
     // gh is looked up on the PATH again, so installing it clears "gh isn't on the PATH." on reload.
-    const report = await runStartChecks(location, { ...tools, gh: findExecutable("gh", context.env) }, context.env, undefined, { entries: readPrdRecord(run.stateDirectory)?.repositories ?? [], said: run.repositoryLinesSaid });
+    const report = await runStartChecks(location, { ...tools, gh: findExecutable("gh", context.env) }, context.env, undefined, startContext(run, readPrdRecord(run.stateDirectory)?.repositories ?? []));
     return { report, prdTree: await prdTreeAtHead(git, location.checkoutRoot, location.prdDirectoryFromRoot) };
   };
   const checks = await startChecks();
   const record = readPrdRecord(run.stateDirectory);
   if (!record) throw new Error("the fresh record is missing");
   if (checks.report.github) record.repository.github = checks.report.github;
-  if (record.origin && !record.prdDirectory) {
-    record.origin = checks.report.origin ?? record.origin;
-    record.featureName = record.origin.title;
+  if (record.origin && (!record.prdDirectory || checks.report.startedByHand)) {
+    // The source material keeps its origin once a PRD was written from it; a PRD started by hand takes the one Kiln read.
+    if (!record.prdDirectory || record.origin.kind === "prd") record.origin = checks.report.origin ?? record.origin;
+    if (!record.prdDirectory) record.featureName = record.origin.title;
     record.requirements = newRequirements();
     record.settings.waitAtEarlyReview = true;
     record.settings.modelChoices.stages = {};
+    adoptStartedByHand(record, checks.report);
   }
   await fillNamedBases(git, record, checks.report.repositories);
   writePrdRecord(run.stateDirectory, record);
@@ -449,7 +499,7 @@ async function serveAndOpen(run: KilnRun, engine: Engine, documents?: Parameters
   });
   run.stop.server = server;
   run.context.onServing?.(server.address);
-  const open = run.context.openBrowser ?? ((address: string): Promise<BrowserOpening> => (run.context.env.KILN_NO_BROWSER === "1" ? Promise.resolve({ kind: "opened" }) : openBrowser(address, run.context.env)));
+  const open = run.noOpen ? async (): Promise<BrowserOpening> => ({ kind: "opened" }) : run.context.openBrowser ?? ((address: string): Promise<BrowserOpening> => (run.context.env.KILN_NO_BROWSER === "1" ? Promise.resolve({ kind: "opened" }) : openBrowser(address, run.context.env)));
   return { address: server.address, opening: await open(server.address) };
 }
 
@@ -462,7 +512,7 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   const { location, tools, context, stop } = run;
   const errColors = terminalColors(context.stderr, context.env);
   stop.status.show(STARTUP_STATUS);
-  const report = await runStartChecks(location, tools, context.env, undefined, { entries: record?.repositories ?? [], said: run.repositoryLinesSaid });
+  const report = await runStartChecks(location, tools, context.env, undefined, startContext(run, record?.repositories ?? []));
   // On Windows a Ctrl+C ends the checks' git and gh calls too, possibly before Kiln's handler
   // runs; a moment's wait lets the stop be seen before a failure is reported.
   if (!startChecksPassed(report) && process.platform === "win32") await new Promise((resolve) => setTimeout(resolve, WINDOWS_CTRL_C_GRACE_MS));
@@ -491,12 +541,17 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
     record.repository.github = report.github!;
   }
   if (report.origin) {
-    record.origin = report.origin;
-    record.featureName = location.featureName = report.origin.title;
+    // Source material keeps its origin once a PRD was written from it (technical design, "Run identity").
+    const written = record.origin && record.origin.kind !== "prd" && record.prdDirectory && report.startedByHand;
+    if (!written) {
+      record.origin = report.origin;
+      record.featureName = location.featureName = report.origin.title;
+    }
     record.requirements ??= newRequirements();
     record.settings.waitAtEarlyReview ??= true;
     record.settings.modelChoices.stages ??= {};
-    if (record.prdDirectory === report.origin.path) delete record.prdDirectory;
+    if (report.origin.kind !== "prd" && record.prdDirectory === report.origin.path) delete record.prdDirectory;
+    adoptStartedByHand(record, report);
   }
   await fillNamedBases(git, record, report.repositories);
   if (stop.stopping) return stop.done;
@@ -510,7 +565,8 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   const outColors = terminalColors(context.stdout, context.env);
   for (const text of report.lines) write(formatRepositoryLine(new Date(), text, outColors));
   const locating = engine.locatingRepositories.map((row) => row.question!.repository);
-  if (report.origin) write(`Found ${report.origin.title} at ${report.origin.commit.slice(0, 7)}. Waiting for Start.`);
+  if (report.startedByHand && record.requirements?.standsAt) write(`Found ${record.featureName}, started by hand: ${record.requirements.standsAt}${report.startedByHand.branch ? `, on ${report.startedByHand.branch.name}` : ""}. Waiting for Start.`);
+  else if (report.origin) write(`Found ${report.origin.title} at ${report.origin.commit.slice(0, 7)}. Waiting for Start.`);
   else write(formatDocumentsFound(location.featureName, report.found, outColors, engine.plannedRepositories.length + locating.length, locating.length));
   const { address, opening } = await serveAndOpen(run, engine, documents);
   write(formatOpenedLine(address, opening, outColors, false, locating));

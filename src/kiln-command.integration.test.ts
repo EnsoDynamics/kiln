@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runKilnCommand } from "./kiln-command.js";
 import { findExecutable } from "./platform/helper-process.js";
 import { waitFor } from "./test-support/engine-harness.js";
-import { FOLDER, prdDirectoryFiles } from "./test-support/fixture-documents.js";
+import { FOLDER, PHASES, prdDirectoryFiles } from "./test-support/fixture-documents.js";
 import { commitFiles, createGithubOrigin, createRepository, createSandbox, git, writeStandIn, type Sandbox } from "./test-support/git-repositories.js";
 import { reservePortRange } from "./test-support/os-ports.js";
 
@@ -82,6 +82,8 @@ describe("kiln run", () => {
   });
 
   it("stops in the terminal with the drawn frame when documents are missing, and starts nothing", () => {
+    // With phase documents, the design is required; with none, the PRD's requirements are unfinished and Kiln continues them (Kiln Requirements Stages AC-BEGIN-04).
+    commitFiles(sandbox, repository, "docs/prds/gift-cards", { "phase-1-return-intake.md": PHASES["phase-1-return-intake.md"]! });
     const result = kiln(["run", "docs/prds/gift-cards/"]);
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toBe("");
@@ -89,7 +91,6 @@ describe("kiln run", () => {
       [
         "✗ Can’t start Gift cards. Missing from docs/prds/gift-cards/:",
         "    technical-design.md   the technical design, or gift-cards-technical-design.md",
-        "    phase-*.md            phase documents",
         "  Kiln needs the PRD, its technical design and its phase documents. Nothing was started.",
         "",
       ].join("\n"),
@@ -117,7 +118,8 @@ describe("kiln run", () => {
 
   it("refuses a path that isn't one PRD with one line naming the problem, then usage", () => {
     expect(kiln(["run", "docs/prds/"]).stderr.split("\n")[0]).toMatch(/^kiln: docs\/prds\/ isn't a PRD directory/);
-    expect(kiln(["run", "docs/prds/nope"]).stderr.split("\n")[0]).toBe("kiln: docs/prds/nope doesn't exist.");
+    // A PRD directory not in the checkout is looked for on the branches that hold it (Kiln Requirements Stages AC-BEGIN-08).
+    expect(kiln(["run", "docs/prds/nope"])).toMatchObject({ exitCode: 1, stderr: expect.stringContaining("docs/prds/nope isn't in this checkout or on any branch that hasn't merged.") });
     expect(kiln(["run", "README.md"])).toMatchObject({ exitCode: 2 });
   });
 
@@ -126,14 +128,12 @@ describe("kiln run", () => {
       const result = kiln(args);
       expect(result.exitCode, args.join(" ")).toBe(2);
       // AC-HELP-04: the usage of kiln run alone, after the one-line reason when there is one.
-      expect(result.stderr, args.join(" ")).toMatch(/(?:^|\n)Usage: kiln run <PRD-path> \[--resume\]\nUse kiln run --help for details\.\n$/);
+      expect(result.stderr, args.join(" ")).toMatch(/(?:^|\n)Usage: kiln run <PRD-path> \[--branch <name>\] \[--resume\]\nUse kiln run --help for details\.\n$/);
       for (const other of ["add-repository", "delivery", "audit", "status"]) expect(result.stderr, args.join(" ")).not.toContain(other);
     }
-    expect(kiln(["run"]).stderr).toBe("Usage: kiln run <PRD-path> [--resume]\nUse kiln run --help for details.\n");
-    expect(kiln(["run", "a", "b"]).stderr).toBe("kiln: kiln run takes one path and an optional --resume.\nUsage: kiln run <PRD-path> [--resume]\nUse kiln run --help for details.\n");
-    // Bot control AC-ACT-01 supersedes the browser-only command restriction.
-    expect(kiln([])).toMatchObject({ exitCode: 2, stderr: "" });
-    expect(kiln([]).stdout).toContain("kiln --help");
+    expect(kiln(["run"]).stderr).toBe("Usage: kiln run <PRD-path> [--branch <name>] [--resume]\nUse kiln run --help for details.\n");
+    expect(kiln(["run", "a", "b"]).stderr).toBe("kiln: kiln run takes one path and an optional --resume.\nUsage: kiln run <PRD-path> [--branch <name>] [--resume]\nUse kiln run --help for details.\n");
+    // `kiln` with nothing named opens the home screen (Kiln Requirements Stages AC-HOME-01), proved in src/home/home.integration.test.ts.
     for (const command of ["pause", "start", "phase"]) {
       const result = kiln([command, "docs/prds/customer-returns", "--json"]);
       expect(result.exitCode, command).toBe(2);
