@@ -49,6 +49,8 @@ describe("the pull request card after delivery", () => {
     expect(words).not.toContain("Merge with Claude Code Open");
     expect(words).not.toContain("New phases: Kiln can check");
     expect(header(snapshot)).toContain("Merging");
+    // The line names the merge session's agent from the snapshot while its row has no details yet, not the agent in use (Kiln Model Modes AC-ROW-01).
+    expect(page({ ...snapshot, mergeAgent: "Codex" })).toContain("Merge session Codex");
   });
   it("shows Merged with each merge time and commit and the session's summary word for word (state 3)", () => {
     const snapshot = finished({ waiting: false, offer: { kind: "all_merged", available: false }, merge: { state: "done", summary: "Brought develop into the branch and resolved conflicts in 6 files. Pushed and merged #218.", pullRequests: [{ repository: "acme-shop", number: 218 }], folder: "~/w" } }, [{ repository: "acme-shop", number: 218, state: "merged", mergedAt: "2026-10-17T19:19:00Z", mergeCommit: "8e41c0d9aa", readAt: "2026-10-17T19:20:00Z" }]);
@@ -295,9 +297,11 @@ describe("a delivery of several pull requests and the merge's other faces (AC-ME
     expect(header(both)).toContain("Merged");
   });
 
-  it("names the merge session's agent on the press: Merge with Codex", () => {
+  it("names the merge session's agent on the press: Merge with Codex, though the phases ran on Claude Code (Kiln Model Modes AC-ROW-01)", () => {
     const snapshot = finished({ offer: { kind: "offered", available: true, note: NOTE.replace("Merge with Claude Code", "Merge with Codex") } });
-    snapshot.agents = [{ agentId: "codex", agent: "Codex", installed: true, pending: false, inUse: true, neededBy: { activities: ["merge"], fallbackOnly: false } }];
+    // Claude Code is the agent in use; the merge session launches on Codex, as the snapshot says.
+    expect(snapshot.agents[0]).toMatchObject({ agent: "Claude Code" });
+    snapshot.mergeAgent = "Codex";
     const markup = render(Complete, { props: { snapshot, connected: true, now: RUNNING_NOW, lastSeenAt: undefined, config: { token: "t", base: "/customer-returns" } } }).body;
     expect(markup).toContain(">Merge with Codex</button>");
     expect(markup).not.toContain("Merge with Claude Code");

@@ -3,7 +3,7 @@
 // read, or over Kiln's choices while Restore is pending.
 
 import { describe, expect, it } from "vitest";
-import { carried, differing, draftState, withEdits, type DraftBase, type SettingsValues } from "./settings-change.js";
+import { carried, differing, draftState, restoreChanges, withEdits, type DraftBase, type SettingsValues } from "./settings-change.js";
 
 const opus = (effort: string) => ({ agentId: "claude_code" as const, family: "opus", effort });
 const sol = (effort: string) => ({ agentId: "codex" as const, family: "sol", effort });
@@ -54,6 +54,18 @@ describe("the page's draft", () => {
     const empty: DraftBase = { loaded: kiln(), kilnChoices: kiln(), holdsSettings: false };
     expect(draftState({ restore: true, edits: {} }, empty)).toEqual({ shown: kiln(), changes: {}, dirty: false });
     expect(draftState({ restore: true, edits: { mode: "one_model" } }, empty)).toMatchObject({ changes: { restore: true, mode: "one_model", oneModel: opus("high") }, dirty: true });
+  });
+
+  it("counts Restore saved for every PRD as a change while this PRD has its own settings, even a copy holding no field (AC-SAVE-03)", () => {
+    // A PRD whose own copy was emptied by Restore for this PRD only, with nothing in Model defaults either.
+    const emptyCopy = { source: "prd" as const, holdsSettings: false };
+    expect(restoreChanges(emptyCopy, "every_prd")).toBe(true);
+    expect(restoreChanges(emptyCopy, "this_prd")).toBe(false);
+    expect(restoreChanges({ source: "defaults", holdsSettings: false }, "every_prd")).toBe(false);
+    expect(restoreChanges({ source: "defaults", holdsSettings: true }, "this_prd")).toBe(true);
+    const page = (target: "every_prd" | "this_prd"): DraftBase => ({ loaded: kiln(), kilnChoices: kiln(), holdsSettings: restoreChanges(emptyCopy, target) });
+    expect(draftState({ restore: true, edits: {} }, page("every_prd"))).toEqual({ shown: kiln(), changes: { restore: true }, dirty: true });
+    expect(draftState({ restore: true, edits: {} }, page("this_prd"))).toMatchObject({ changes: {}, dirty: false });
   });
 });
 

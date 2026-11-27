@@ -60,10 +60,10 @@ export function agentsThatRan(snapshot: Snapshot): string {
   return list.length === 1 ? list[0]! : `${list.slice(0, -1).join(", ")} and ${list.at(-1)}`;
 }
 
-/** The merge session's agent: the one it ran on, else its row's choice, else the in-use agent. */
+/** The merge session's agent: the one it ran on, else the one Kiln launches it on (AC-ROW-01), never the in-use agent. */
 export function mergeAgent(snapshot: Snapshot): string {
   const row = (snapshot.activities ?? snapshot.phases).find((one) => one.kind === "merge");
-  return row?.details?.agent ?? row?.model?.choice?.agent ?? inUseAgent(snapshot)?.agent ?? "Claude Code";
+  return row?.details?.agent ?? snapshot.mergeAgent;
 }
 
 /**

@@ -192,6 +192,21 @@ it("prints and changes Model defaults with no PRD path and no running Kiln, refu
   // Each way of picking models keeps its settings while the other is selected (AC-MODE-01).
   expect((await cli(["model-defaults", "mode", "--recommended", "--json"])).json().data).toMatchObject({ mode: "recommended", oneModel: { agent: "Codex", effort: "low", set: true } });
   expect(saved()).toEqual({ schemaVersion: 2, mode: "recommended", oneModel: { agentId: "codex", family: "sol", effort: "low" }, rows, fallback: { use: "threshold", threshold: 85 } });
+  // The one model alone, leaving how Kiln picks a model as it is, as the page saves a one model edited under Recommended (AC-CLI-01).
+  const kept = await cli(["model-defaults", "one-model", "--agent", "claude_code", "--model", "sonnet", "--effort", "medium", "--json"]);
+  expect(kept.code, kept.stdout).toBe(0);
+  expect(kept.json().data).toMatchObject({ mode: "recommended", oneModel: { agent: "Claude Code", familyName: "Sonnet", effort: "medium", set: true } });
+  expect(saved()).toEqual({ schemaVersion: 2, mode: "recommended", oneModel: { agentId: "claude_code", family: "sonnet", effort: "medium" }, rows, fallback: { use: "threshold", threshold: 85 } });
+  // Under One model it changes what runs, and the mode stays One model.
+  expect((await cli(["model-defaults", "mode", "--one-model", "--json"])).code).toBe(0);
+  const swapped = await cli(["model-defaults", "one-model", "--agent", "codex", "--model", "sol", "--effort", "high", "--json"]);
+  expect(swapped.json().data).toMatchObject({ mode: "one_model", oneModel: { agent: "Codex", familyName: "GPT Sol", effort: "high", set: true } });
+  expect((await cli(["model-defaults", "mode", "--recommended", "--json"])).code).toBe(0);
+  expect((await cli(["model-defaults", "one-model", "--agent", "claude_code", "--model", "sonnet", "--effort", "medium", "--json"])).code).toBe(0);
+  // It needs both the agent and the model, and refuses what the page refuses, changing nothing.
+  const oneModelRefused = await Promise.all([["one-model"], ["one-model", "--agent", "codex"], ["one-model", "--agent", "codex", "--model", "nonesuch"], ["one-model", "--agent", "codex", "--model", "sol", "--effort", "enormous"]].map(args => cli(["model-defaults", ...args, "--json"])));
+  expect(oneModelRefused.map(one => [one.code, (one.json().errors as { code: string }[])[0]!.code])).toEqual([[2, "invalid_input"], [2, "invalid_input"], [2, "invalid_input"], [2, "invalid_input"]]);
+  expect(saved()).toEqual({ schemaVersion: 2, mode: "recommended", oneModel: { agentId: "claude_code", family: "sonnet", effort: "medium" }, rows, fallback: { use: "threshold", threshold: 85 } });
 
   // Restore does what the page's Restore does: the mode, the rows, the one model and the fallback setting go back to Kiln's choices (SAVE-008).
   const restored = await cli(["model-defaults", "restore", "--json"]);
@@ -212,7 +227,7 @@ it("prints and changes Model defaults with no PRD path and no running Kiln, refu
 
   // The help groups both commands under Choose models, after Message, pause or take over.
   const help = await cli(["--help"]);
-  expect(help.stdout).toMatch(/Message, pause or take over\n(?: {2}.*\n)+Choose models\n {2}model, model-defaults, model-defaults set, model-defaults restore,\n {2}model-defaults fallback, model-defaults mode, model-defaults use-defaults\nLook closer/);
+  expect(help.stdout).toMatch(/Message, pause or take over\n(?: {2}.*\n)+Choose models\n {2}model, model-defaults, model-defaults set, model-defaults restore,\n {2}model-defaults fallback, model-defaults mode, model-defaults one-model,\n {2}model-defaults use-defaults\nLook closer/);
   expect((await cli(["model-defaults", "--help"])).stdout).toContain("Subcommand: kiln model-defaults set --help");
 });
 
@@ -265,6 +280,15 @@ it("reads and saves one PRD's own settings with --prd on the same commands, and 
   expect(restored.code, restored.stdout).toBe(0);
   expect(restored.json().data).toMatchObject({ source: "prd", mode: "recommended", fallback: { use: "never", threshold: 95 }, rows: { standard: { first: { familyName: "Opus", set: false } } } });
   expect(json(own)).toEqual({ schemaVersion: 2 });
+  // The one model for this PRD alone, leaving it on the recommended model for each phase (AC-CLI-01).
+  const ownOneModel = await cli(["model-defaults", "one-model", "--agent", "claude_code", "--model", "sonnet", "--effort", "low", "--prd", target(), "--json"]);
+  expect(ownOneModel.code, ownOneModel.stdout).toBe(0);
+  expect(ownOneModel.json().data).toMatchObject({ source: "prd", mode: "recommended", oneModel: { familyName: "Sonnet", effort: "low", set: true } });
+  expect(json(own)).toEqual({ schemaVersion: 2, oneModel: sonnet });
+  expect(json(defaults)).toEqual({ schemaVersion: 2, rows: { standard: { first: sonnet } }, fallback: { use: "threshold", threshold: 95 } });
+  // Phase 3 keeps its Standard row's choice from the PRD's own copy, Kiln's Opus at medium, not the one model.
+  expect(h.engine.notStartedChoice("3")).toMatchObject({ ownSettings: true, model: "opus", effort: "medium" });
+  expect(h.engine.notStartedChoice("3").from).not.toBe("one_model");
 
   // Own settings that can't be read fail every --prd command but use-defaults, which the error names as the next step.
   writeFileSync(own, "{ broken");

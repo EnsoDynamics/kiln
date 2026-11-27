@@ -1,11 +1,12 @@
 // The saved settings as the pages show them in real Chrome against a real engine (Kiln Model
-// Modes AC-WHEN-03, AC-MODE-02, AC-ROW-01; mockup 3 and mockup 7, state B). The Model defaults
+// Modes AC-WHEN-03, AC-MODE-02, AC-ROW-01, AC-SAVE-03; mockup 3 and mockup 7, state B). The Model defaults
 // page loads its settings after it mounts, so a server render never shows its table; real Chrome
 // does. The settings come from a written file, as this phase reads them.
 import { afterEach, expect, it } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { documentsFoundSnapshot } from "../test-support/sample-snapshots.js";
-import { writeSettings } from "../test-support/model-choices.js";
+import { existsSync } from "node:fs";
+import { writePrdSettings, writeSettings } from "../test-support/model-choices.js";
 import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { readPlanAt, recordedPlan } from "../engine/plan-reading.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
@@ -110,5 +111,31 @@ it("changes this PRD's Preflight and pull request choice from the Preflight row'
   await waitFor(() => h.engine.record.settings.modelChoices.preflightPr === "default");
   await page.waitFor(`!document.querySelector(${JSON.stringify(row)}).textContent.includes("Changed by you")`);
   expect(await words()).toContain("Claude Code · Opus 5.5 · medium");
+  expect(page.problems).toEqual([]);
+});
+
+it("saves Restore Kiln's defaults for every PRD from a PRD whose own settings hold no field, and the PRD follows the defaults again (AC-SAVE-03)", async () => {
+  const { h, page } = await opened();
+  // An own copy left holding nothing, as Restore for this PRD only leaves it, and nothing in Model defaults.
+  const own = writePrdSettings(h.stateDirectory, {});
+  await page.evaluate(openModelDefaults);
+  await page.waitFor(`document.querySelectorAll("[data-row]").length === 5 && document.querySelector('input[name="scope"]:checked').value === "this_prd"`);
+  const button = (name: string) => `[...document.querySelectorAll("button")].find(b => b.textContent.trim() === ${JSON.stringify(name)})`;
+  const saveDisabled = () => page.evaluate<boolean>(`${button("Save")}.disabled`);
+  await page.evaluate(`${button("Restore Kiln's defaults")}.click()`);
+  // Restore is pending, yet for this PRD only over a copy holding nothing it changes nothing.
+  await page.waitFor(`${button("Restore Kiln's defaults")}.disabled`);
+  expect(await saveDisabled()).toBe(true);
+  await page.evaluate(`document.querySelector('input[name="scope"][value="every_prd"]').click()`);
+  await page.waitFor(`!${button("Save")}.disabled`);
+  // A re-read while Restore is pending keeps Every PRD selected and Save available.
+  writeSettings(h.env, {});
+  await new Promise(resolve => setTimeout(resolve, 2500));
+  expect(await page.evaluate<string>(`document.querySelector('input[name="scope"]:checked').value`)).toBe("every_prd");
+  expect(await saveDisabled()).toBe(false);
+  await page.evaluate(`${button("Save")}.click()`);
+  await waitFor(() => !existsSync(own));
+  expect(h.engine.notStartedChoice("3")).not.toHaveProperty("ownSettings", true);
+  await page.waitFor(`document.querySelector('[role="status"]')?.textContent.includes("Saved for every PRD on this computer.") === true`);
   expect(page.problems).toEqual([]);
 });

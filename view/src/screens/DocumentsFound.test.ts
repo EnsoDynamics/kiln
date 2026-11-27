@@ -65,6 +65,12 @@ describe("Documents found", () => {
     );
   });
 
+  it("names the agent the merge session will run on in what Kiln may do, not the phases' agent (Kiln Model Modes AC-ROW-01)", () => {
+    const words = text(html(documentsFoundSnapshot({ mergeAgent: "Codex" })));
+    expect(words).toContain("Merge the delivery’s pull requests only when you press Merge with Codex on the finished page");
+    expect(words).not.toContain("Merge with Claude Code");
+  });
+
   it("names the branches the person chose in what Kiln may do", () => {
     const words = text(html(documentsFoundSnapshot({ settings: { featureBranch: "feature/returns-v2", baseBranch: "main" } })));
     expect(words).toContain("Commit and push to feature/returns-v2 Open one pull request into main once every phase closes");

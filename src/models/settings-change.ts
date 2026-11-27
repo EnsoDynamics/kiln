@@ -91,7 +91,20 @@ export function carried<Change extends SettingsEdits>(change: Change, shown: Pic
 /** The page's draft: the person's edits, and whether Restore Kiln's defaults is pending. */
 export interface SettingsDraft { restore: boolean; edits: SettingsEdits }
 
-/** What a draft is read against: the settings as loaded, Kiln's choices, and whether a file holds any field. */
+/**
+ * Whether Restore Kiln's defaults is a change for a save to `target`: while Model defaults or this
+ * PRD's own settings hold any field, and, saved for every PRD, while this PRD has its own settings
+ * at all, even a copy holding no field, since that save removes them so the PRD follows the
+ * defaults again (AC-SAVE-03, SAVE-008).
+ *
+ *   restoreChanges({ source: "prd", holdsSettings: false }, "every_prd")  // true
+ *   restoreChanges({ source: "prd", holdsSettings: false }, "this_prd")   // false
+ */
+export function restoreChanges(view: { source: "defaults" | "prd"; holdsSettings: boolean }, target: SaveTarget): boolean {
+  return view.holdsSettings || (view.source === "prd" && target === "every_prd");
+}
+
+/** What a draft is read against: the settings as loaded, Kiln's choices, and whether Restore is a change for the selected target (`restoreChanges`). */
 export interface DraftBase { loaded: SettingsValues; kilnChoices: SettingsValues; holdsSettings: boolean }
 
 /**

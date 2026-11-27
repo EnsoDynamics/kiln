@@ -1,5 +1,6 @@
 # Phase 4: Complete Restore from an empty own copy, the Merge button's agent and the one-model command
 
+**Closed:** 2026-11-27
 **Added by delivery audit:** 2026-11-27, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Model Modes](kiln-model-modes-prd.md)
 **Technical design:** [Kiln Model Modes technical design](kiln-model-modes-technical-design.md) — relevant sections: "Saving" ("The page holds a draft"), "Snapshot", "Command line"

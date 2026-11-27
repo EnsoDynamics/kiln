@@ -10,7 +10,7 @@
   import { onDestroy } from "svelte";
   import type { DefaultsSideView, ModelDefaultsView, SettingsValuesView } from "../../../src/models/model-defaults-edit.js";
   import type { DefaultsRow, FallbackUse, FamilyChoice, ModelMode } from "../../../src/models/model-defaults.js";
-  import { differing, draftState, sameChoice, type SaveTarget, type SettingsValues } from "../../../src/models/settings-change.js";
+  import { differing, draftState, restoreChanges, sameChoice, type SaveTarget, type SettingsValues } from "../../../src/models/settings-change.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import ModelEditor from "../components/ModelEditor.svelte";
   import { modelDefaults, saveModelDefaults, useModelDefaults, type ModelDefaultsAnswer } from "../lib/api.js";
@@ -57,7 +57,7 @@
     rows: Object.fromEntries(ROWS.map(one => [one.row, { first: choiceOf(settings.rows[one.row].first), fallback: choiceOf(settings.rows[one.row].fallback) }])) as SettingsValues["rows"],
     fallback: { use: settings.fallback.use, threshold: settings.fallback.threshold },
   });
-  const base = $derived(view ? { loaded: valuesOf(view), kilnChoices: valuesOf(view.kilnChoices), holdsSettings: view.holdsSettings } : undefined);
+  const base = $derived(view ? { loaded: valuesOf(view), kilnChoices: valuesOf(view.kilnChoices), holdsSettings: restoreChanges(view, draft.target) } : undefined);
   const drafted = $derived(base ? draftState({ restore: draft.restore, edits: draft.edits }, base) : undefined);
   const shown = $derived(drafted?.shown);
   const dirty = $derived(drafted?.dirty ?? false);
@@ -69,7 +69,7 @@
     // The draft holds only what the person changed: an edit that now equals what was read is no longer one.
     draft.edits = differing(valuesOf(draft.restore ? answer.view.kilnChoices : answer.view), draft.edits);
     // The selected target follows the PRD's settings only while there is no draft; with one it stays as the person last saw it.
-    const pending = draft.restore && answer.view.holdsSettings || Object.keys(draft.edits).length > 0;
+    const pending = draft.restore && restoreChanges(answer.view, draft.target) || Object.keys(draft.edits).length > 0;
     if (!pending) draft.target = answer.view.source === "prd" ? "this_prd" : "every_prd";
   }
   // On opening, and whenever either settings file is written, from this page, a terminal or another Kiln: each running Kiln reads their revision.

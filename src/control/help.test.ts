@@ -29,7 +29,7 @@ describe("top-level text help", () => {
     const names = (group: string) => wrapNames(commandContracts.filter(c => c.group === group).map(c => c.path.join(" "))).join("\n");
     expect(text).toContain(`Answer a stopped phase\n${names("answer")}\nMessage, pause or take over\n${names("live")}\nChoose models\n${names("models")}\nLook closer\n${names("inspect")}\nStart over\n${names("reset")}\n`);
     // Choose models lists each command by its full name (Kiln Phase Model Tiers, "Command line").
-    expect(names("models")).toBe("  model, model-defaults, model-defaults set, model-defaults restore,\n  model-defaults fallback, model-defaults mode, model-defaults use-defaults");
+    expect(names("models")).toBe("  model, model-defaults, model-defaults set, model-defaults restore,\n  model-defaults fallback, model-defaults mode, model-defaults one-model,\n  model-defaults use-defaults");
     // Reset is the only command of the last group (run restart "Command line").
     expect(names("reset")).toBe("  reset");
     for (const c of commandContracts.filter(c => c.group !== "kiln-sessions")) expect(text, c.path.join(" ")).toMatch(new RegExp(`(?<![\\w-])${c.path.join(" ")}(?![\\w-])`));
@@ -60,7 +60,7 @@ describe("the command contracts", () => {
       message: "live", "take-over": "live", "request-pause": "live", "cancel-pause": "live", continue: "live",
       logs: "inspect", handoff: "inspect", account: "inspect", settings: "inspect", "command-status": "inspect",
       reset: "reset",
-      model: "models", "model-defaults": "models", "model-defaults set": "models", "model-defaults restore": "models", "model-defaults fallback": "models", "model-defaults mode": "models", "model-defaults use-defaults": "models",
+      model: "models", "model-defaults": "models", "model-defaults set": "models", "model-defaults restore": "models", "model-defaults fallback": "models", "model-defaults mode": "models", "model-defaults one-model": "models", "model-defaults use-defaults": "models",
     };
     for (const c of commandContracts) {
       const name = c.path.join(" ");
@@ -124,7 +124,7 @@ describe("the commands that start a stopped phase's session (run restart AC-CARR
 
 describe("the Model defaults commands (Kiln Model Modes AC-CLI-01)", () => {
   const contract = (name: string) => commandContracts.find(c => c.path.join(" ") === name)!;
-  const saving = ["model-defaults set", "model-defaults mode", "model-defaults fallback", "model-defaults restore"];
+  const saving = ["model-defaults set", "model-defaults mode", "model-defaults one-model", "model-defaults fallback", "model-defaults restore"];
 
   it("take one PRD as an option on the same commands, not a second set of them", () => {
     for (const name of ["model-defaults", ...saving, "model-defaults use-defaults"]) {
@@ -147,6 +147,10 @@ describe("the Model defaults commands (Kiln Model Modes AC-CLI-01)", () => {
   it("offer the two ways to pick models and the three fallback settings, keeping --on and --off", () => {
     expect(contract("model-defaults mode").required_exclusive_groups).toEqual([{ exactly_one: ["recommended", "one-model"] }]);
     expect(() => parseCommand(["model-defaults", "mode"])).toThrow(/Exactly one of --recommended, --one-model/);
+    // The one model has a command of its own that leaves the mode as it is, so it needs the agent and the model.
+    expect(contract("model-defaults one-model").required_exclusive_groups).toEqual([{ required: ["agent", "model"] }]);
+    expect(() => parseCommand(["model-defaults", "one-model", "--agent", "codex"])).toThrow(/Required flags: --agent, --model/);
+    expect(Object.keys(contract("model-defaults one-model").flags)).not.toEqual(expect.arrayContaining(["recommended", "one-model"]));
     expect(parseCommand(["model-defaults", "mode", "--one-model", "--agent", "codex", "--model", "sol", "--effort", "high"]).flags).toEqual({ "one-model": true, agent: "codex", model: "sol", effort: "high" });
     expect(contract("model-defaults fallback").required_exclusive_groups).toEqual([{ at_most_one: ["never", "at-threshold", "for-everything", "on", "off"] }]);
     expect(() => parseCommand(["model-defaults", "fallback", "--on", "--for-everything"])).toThrow(/At most one of --never, --at-threshold, --for-everything, --on, --off/);

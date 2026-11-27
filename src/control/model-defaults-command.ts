@@ -85,12 +85,13 @@ function rowOfFlag(value: string): DefaultsRow { return (value === "preflight-pr
 const USE_FLAGS = { never: "never", "at-threshold": "threshold", "for-everything": "everything", on: "threshold", off: "never" } as const;
 
 /**
- * The changes a `set`, `mode`, `fallback` or `restore` subcommand asks for, before what the page
+ * The changes a `set`, `mode`, `one-model`, `fallback` or `restore` subcommand asks for, before what the page
  * would send with them is added (`carried`). `--on` is `--at-threshold` and `--off` is `--never`,
  * so the commands that existed before the third setting keep their meaning (AC-CLI-01).
  *
  *   kiln model-defaults fallback --for-everything   // { fallback: { use: "everything" } }
  *   kiln model-defaults mode --one-model            // { mode: "one_model" }
+ *   kiln model-defaults one-model --agent codex --model sol   // { oneModel: { agentId: "codex", family: "sol" } }
  */
 function changeOf(parsed: ParsedCommand): SettingsChange {
   const [, sub] = parsed.contract.path; const flags = parsed.flags;
@@ -100,6 +101,8 @@ function changeOf(parsed: ParsedCommand): SettingsChange {
     if (flags.recommended && oneModel) throw new ControlFailure("invalid_input", "--agent, --model and --effort go with --one-model.", 2);
     return flags.recommended ? { mode: "recommended" } : { mode: "one_model", ...(oneModel ? { oneModel } : {}) };
   }
+  // The one model alone: how Kiln picks a model stays as it is (AC-CLI-01), as the page saves an edited one model under Recommended.
+  if (sub === "one-model") return { oneModel: sideFlags(flags, undefined)! };
   if (sub === "fallback") {
     const given = (Object.keys(USE_FLAGS) as (keyof typeof USE_FLAGS)[]).filter(flag => flags[flag]);
     if (given.length > 1) throw new ControlFailure("invalid_input", "Give one of --never, --at-threshold, --for-everything, --on and --off.", 2);

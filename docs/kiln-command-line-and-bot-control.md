@@ -42,6 +42,7 @@ kiln model-defaults
 kiln model-defaults --prd <PRD-path>
 kiln model-defaults mode --one-model --agent codex --model sol --effort high
 kiln model-defaults mode --recommended --prd <PRD-path>
+kiln model-defaults one-model --agent claude_code --model opus --effort high
 kiln model-defaults set --row mechanical --first-agent claude_code --first-model sonnet --first-effort high
 kiln model-defaults set --row preflight-pr --first-agent claude_code --first-model sonnet --first-effort medium
 kiln model-defaults fallback --at-threshold --threshold 90
@@ -50,7 +51,7 @@ kiln model-defaults restore
 kiln model-defaults use-defaults --prd <PRD-path>
 ```
 
-`mode` chooses the recommended model for each phase or one model for everything; `--one-model` without `--agent` and `--model` saves the one model the command would print. One model has no fallback, so a run on it waits at a usage limit. `set` takes a model family (`fable`, `opus`, `sonnet`, `haiku`, `sol`, `astra`), resolved when each activity launches to the newest version its agent offers, for the `demanding`, `standard`, `mechanical`, `audits` or `preflight-pr` row; `preflight-pr` covers the preflight, the pull request session, and the merge and push sessions after delivery. A row can't have its first choice and fallback on the same agent.
+`mode` chooses the recommended model for each phase or one model for everything; `--one-model` without `--agent` and `--model` saves the one model the command would print. `one-model` saves the one model alone and leaves the mode as it is, so you can pick it while every PRD stays on the recommended model for each phase. One model has no fallback, so a run on it waits at a usage limit. `set` takes a model family (`fable`, `opus`, `sonnet`, `haiku`, `sol`, `astra`), resolved when each activity launches to the newest version its agent offers, for the `demanding`, `standard`, `mechanical`, `audits` or `preflight-pr` row; `preflight-pr` covers the preflight, the pull request session, and the merge and push sessions after delivery. A row can't have its first choice and fallback on the same agent.
 
 `fallback` chooses when an activity launches on its row's fallback: `--never`; `--at-threshold`, when a limit on the first choice's account reads at or above the threshold and the fallback can take it; or `--for-everything`, without reading usage, which keeps a run off the first choices' account until you change it. `--on` and `--off` still work and mean `--at-threshold` and `--never`. The fallback spends the other agent's account. `restore` returns the mode, the five rows, the one model and the fallback setting to Kiln's choices. `use-defaults --prd` removes a PRD's own settings, so it follows Model defaults again.
 

@@ -12,6 +12,7 @@ import type { PauseNowView } from "../live/pause-now.js";
 export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot["settings"]>; documents?: Partial<NonNullable<Snapshot["documents"]>> } & Partial<Omit<Snapshot, "settings" | "documents">> = {}): Snapshot {
   const { settings, documents, ...rest } = overrides;
   return {
+    mergeAgent: "Claude Code",
     feature: { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", state: "not_started", phasesDone: 0, phasesTotal: 5 },
     documents: {
       prd: { file: "customer-returns-prd.md", criteriaCount: 14, firstLabel: "AC-RET-01", lastLabel: "AC-RET-14" },
@@ -183,7 +184,7 @@ const ACCOUNT: AccountView = {
 };
 
 function underway(rest: Partial<Snapshot> & Pick<Snapshot, "feature" | "phases">): Snapshot {
-  return { settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, pause: { pending: false, active: false }, agents: [claudeAgent(ACCOUNT)], ...rest };
+  return { mergeAgent: "Claude Code", settings: underwaySettings(), repositories: UNDERWAY_REPOSITORIES, pause: { pending: false, active: false }, agents: [claudeAgent(ACCOUNT)], ...rest };
 }
 
 const FEATURE = { name: "Customer returns", repositoryName: "acme-shop", repositoryLabel: "acme-shop", multiRepository: false, prdFolder: "docs/prds/customer-returns/", phasesTotal: 5, startedAt: "2026-10-17T13:17:00Z" };

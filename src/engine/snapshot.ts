@@ -366,6 +366,8 @@ export interface Snapshot {
   liveControl?: import("../live/target.js").LiveView;
   /** A finished run's delivery as GitHub last showed it (Kiln After Delivery "Interfaces"). */
   afterDelivery?: AfterDeliveryView;
+  /** The agent the merge session runs on (AC-ROW-01): the one it started on, else the Preflight and pull request row's choice for this PRD, which Merge with {agent} names before the press. */
+  mergeAgent: string;
   /** Exit Kiln on a finished run (Kiln After Delivery AC-EXIT-01): offered, or unavailable with why, and the command that opens the PRD again. */
   exit?: { available: boolean; reason?: string; command: string };
   continuation?: { preparation?: ReturnType<Engine["preparationStatus"]>; acceptance?: ReturnType<Engine["continuationAcceptance"]>; executions?: Omit<import("./continuation-state.js").ExecutionSummary, "archiveId">[]; check?: import("./completed-plan-discovery.js").CompletedPlanCheck; handback?: import("./plan-reconciliation.js").HandbackNotice; planCheck?: { status: "failed"; attemptedAt: string; problem: string } };
@@ -680,6 +682,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       ...(record.planReconciliation?.check?.status === "failed" && !record.completedAt ? { planCheck: { status: "failed" as const, attemptedAt: record.planReconciliation.check.attemptedAt, problem: record.planReconciliation.check.problem! } } : {}),
     } } : {}),
     ...(record.completedAt && record.afterDelivery ? { afterDelivery: afterDeliveryView(engine) } : {}),
+    mergeAgent: AGENT_NAMES[engine.agentOf(MERGE_KEY)],
     ...(engine.finished ? { exit: { ...engine.exitControl(), command: engine.reopenCommand } } : {}),
     activities: withPlannedRows(engine, state, activityViews(engine, state, views, includeTiming, reads.auditStore)),
     ...preflightPlanned(engine, state, documents),
