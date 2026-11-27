@@ -304,3 +304,62 @@ it("a reset run from Kiln's own worktree adopts it: its uncommitted files are co
     } finally { await page.close(); }
   }, worktree);
 }, 120_000);
+
+it("a run from source material reset after its draft continues as its PRD, on the branch that holds it (Kiln Requirements Stages AC-BEGIN-08)", async () => {
+  const folder = "count-boxes";
+  const dir = `docs/prds/${folder}`;
+  const report = { kilnReport: 1, ran: [{ skill: "prd-writing-standards", title: "Write the PRD" }], finished: true, next: { kind: "requirements", skill: "review", title: "Early review", reaches: [] }, milestones: [{ name: "prd_refined", by: "this_session" }], prdDirectory: dir };
+  harness = await createHarness({ sourceBrief: "# Brief: Count boxes\n", folder, sessions: [
+    { actions: [{ write: { path: `${dir}/${folder}-prd.md`, content: "# PRD: Count boxes\n" } }, { commit: "draft" }, { result: "```kiln-report\n" + JSON.stringify(report) + "\n```" }, { exit: 0 }] },
+    { actions: [{ write: { path: `${dir}/${folder}-stakeholder-review.html`, content: "<h1>Count boxes</h1>" } }, { commit: "review" }, { result: "```kiln-report\n" + JSON.stringify({ ...report, milestones: [] }) + "\n```" }, { exit: 0 }] },
+  ] });
+  const h = harness;
+  const { url, bare } = createGithubOrigin(h.sandbox, "acme", "acme-shop");
+  const git = (cwd: string, args: string[]) => expect(spawnSync(h.tools.git, args, { cwd, env: h.sandbox.env, encoding: "utf8" }).status).toBe(0);
+  git(h.origin, ["push", "-q", "--mirror", bare]);
+  git(h.repository, ["remote", "set-url", "origin", url]);
+  h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.engine.record.prdDirectory).toBe(dir);
+  const branch = h.engine.record.settings.featureBranch;
+  h.engine.close();
+  git(h.repository, ["fetch", "-q", "origin"]);
+
+  const source = `source-material/${folder}`;
+  const env = kilnEnv(h);
+  const signals = new EventEmitter();
+  let address: string | undefined; let exit: number | undefined; let log = "";
+  const done = runKilnCommand(["run", source], { cwd: h.repository, env, signals, stdout: { write: (s: string) => (log += s) }, stderr: { write: (s: string) => (log += s) }, openBrowser: async served => { address = served; return { kind: "opened" }; } });
+  void done.then(code => { exit = code; });
+  // Async, so the `kiln run` in this process can answer.
+  const kiln = async (args: string[]) => {
+    const child = spawn(process.execPath, [cliPath, args[0]!, join(h.repository, source), ...args.slice(1), "--json"], { cwd: h.sandbox.root, env, stdio: ["ignore", "pipe", "pipe"] });
+    let output = ""; let error = "";
+    child.stdout.on("data", chunk => { output += String(chunk); }); child.stderr.on("data", chunk => { error += String(chunk); });
+    const code = await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+    return { code, error, body: JSON.parse(output) as Record<string, unknown> };
+  };
+  const status = async () => (await kiln(["status"])).body;
+  try {
+    await waitFor(() => address !== undefined || exit !== undefined, 40_000);
+    expect(address, log).toMatch(/\/count-boxes\/?$/);
+    const token = String((await status()).status_token);
+    const reset = await kiln(["reset", "--only-if-status-matches", token, "--command-id", "reset-after-draft"]);
+    expect(reset.code, reset.error + JSON.stringify(reset.body)).toBe(0);
+    // The run's Reset line comes once the not-started engine is built over the fresh record.
+    await waitFor(() => / Reset {2}· {2}back to Documents found\n/.test(log) || log.includes("couldn't open Documents found"), 30_000);
+    // The reset run starts as the PRD it wrote, with the branch holding it selected under Start from, and its start checks pass.
+    const after = readPrdRecord(h.stateDirectory)!;
+    expect(after).toMatchObject({ prdDirectory: dir, origin: { kind: "brief", path: source }, start: { from: "existing" }, settings: { featureBranch: branch }, requirements: { holdingBranch: branch } });
+    expect(log).not.toContain("couldn't open Documents found");
+    // The page the reset built holds no failed start check: the written PRD's checks ran, not the source material's.
+    const page = await (await fetch(new URL("/api/snapshot", address!), { headers: { "X-Kiln-Token": after.token } })).json() as Record<string, unknown>;
+    expect(JSON.stringify(page)).not.toContain("was written from");
+    expect(JSON.stringify(page)).not.toContain("\"checksFailed\":true");
+    expect(JSON.stringify(page)).toContain(branch);
+  } finally {
+    if (exit === undefined) signals.emit("SIGINT");
+    await done;
+  }
+}, 120_000);

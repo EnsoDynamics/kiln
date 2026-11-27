@@ -39,6 +39,30 @@ it("selects committed intake and planned rows and explains missing, dirty and co
   expect(await inspect(source)).toMatchObject({ problem: expect.stringContaining("docs/prds/boxes was written") });
 });
 
+it("says which PRD was written from a row the method marked written, and matches a row without a directory line only through Kiln's record (AC-BEGIN-02, AC-HOME-02, AC-HOME-13)", async () => {
+  const repo = repository();
+  const initiative = "docs/initiatives/shifts";
+  const inspect = (path: string) => inspectSource({ git: "git", env: sandbox.env }, repo, path);
+  commitFiles(sandbox, repo, initiative, {
+    "shifts-initiative-prds.md": "# Shifts Initiative PRDs\n\n| # | PRD | Depends on | Status |\n|---|---|---|---|\n| 1 | [Count boxes](c.md#count-boxes) | None | PRD written |\n| 2 | [Rotas](c.md#rotas) | None | planned |\n| 3 | [Swaps](c.md#swaps) | None | planned |\n| 4 | [Shifts core](c.md#shifts-core) | None | planned |\n| 5 | [Old rota](c.md#old-rota) | None | PRD written |\n",
+    "c.md": "## Count boxes\n\n**PRD directory, when written:** `docs/changes/box-count`\n\n## Rotas\n\nNo directory yet.\n\n## Swaps\n\n**PRD directory, when written:** `docs/prds/swaps`\n\n## Shifts core\n\n**PRD directory, when written:** `docs/prds/shifts`\n\n## Old rota\n\n**PRD directory, when written:** `docs/prds/old-rota`\n",
+  });
+  commitFiles(sandbox, repo, "docs/changes/box-count", { "box-count-prd.md": "# PRD: Box count\n" });
+  expect(await inspect(initiative + "/box-count")).toEqual({ problem: `docs/changes/box-count was written from ${initiative}/box-count: its row in ${initiative}/shifts-initiative-prds.md is no longer planned.` });
+  // A row marked written whose PRD is on no branch is named by its directory line.
+  expect(await inspect(initiative + "/old-rota")).toEqual({ problem: `docs/prds/old-rota was written from ${initiative}/old-rota: its row in ${initiative}/shifts-initiative-prds.md is no longer planned.` });
+  // Its own initiative's folder, of its directory's name, doesn't make a row written from.
+  expect(await inspect(initiative + "/shifts")).toMatchObject({ origin: { kind: "planned_prd", title: "Shifts: Shifts core" } });
+  // A PRD of the row's derived name, written by hand, doesn't make it written from the row.
+  commitFiles(sandbox, repo, "docs/prds/rotas", { "rotas-prd.md": "# PRD: Rotas\n" });
+  expect(await inspect(initiative + "/rotas")).toMatchObject({ origin: { kind: "planned_prd", title: "Shifts: Rotas" } });
+  // An initiative folder of the row's directory name, on any branch, is written from it.
+  git(sandbox, repo, "switch", "-q", "-c", "split-swaps");
+  commitFiles(sandbox, repo, "docs/initiatives/swaps", { "swaps-initiative-prds.md": "# Swaps Initiative PRDs\n" });
+  git(sandbox, repo, "switch", "-q", "develop");
+  expect(await inspect(initiative + "/swaps")).toEqual({ problem: `docs/initiatives/swaps was written from ${initiative}/swaps.` });
+});
+
 it("opens a committed brief through kiln run and reports its identity through kiln status before Start", async () => {
   const repo = repository();
   const source = "source-material/boxes";

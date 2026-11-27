@@ -1,5 +1,7 @@
 # Phase 5: Complete the home screen's listing and what `kiln run` says was written
 
+**Closed:** 2026-11-27
+
 **Added by delivery audit:** 2026-11-27, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "What `kiln run` accepts"; "Run identity"; "The Home Screen" ("What it lists"); the "What source material counts as written from" decision

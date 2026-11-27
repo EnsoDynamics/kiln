@@ -121,6 +121,8 @@
     {:else if list.plan.status === "failed"}<p class="small">Kiln couldn't read the requirements plan{#if list.plan.failure}: {list.plan.failure}{/if}. Each PRD's stages still run. <button type="button" class="button small" disabled={!connected} onclick={readAgain}>Read again</button></p>
     {:else if list.plan.waitsForBilling}<p class="small">Kiln reads the requirements plan once billing is approved for a PRD.</p>{/if}
     {#if empty}
+      <!-- Each repository is named even when nothing was found in any of them (AC-HOME-09). -->
+      {#if folder && list.scope.nothingFound.length}<p class="small">Nothing found in {list.scope.nothingFound.join(" or ")}</p>{/if}
       {@render bringIn(true)}
     {:else}
       {#if folder}

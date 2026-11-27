@@ -138,7 +138,8 @@ it("lists each item in one place by file names and Git, keeps the list current, 
     const pushed = page.events();
     await waitFor(() => pushed().includes("event: home"));
     writeFileSync(join(repo, "source-material/store-locator/store-locator-requirements-intake.md"), "# Requirements intake: Store locator\n");
-    git(sandbox!, repo, "add", "source-material/store-locator/store-locator-requirements-intake.md");
+    // Its whole folder is committed: a folder with uncommitted changes stays Not ready yet (AC-HOME-03).
+    git(sandbox!, repo, "add", "source-material/store-locator");
     git(sandbox!, repo, "commit", "-qm", "intake record");
     await waitFor(() => pushed().split("event: home").some(event => event.includes("\"title\":\"Store locator\"") && event.split("\"notReady\"")[0]!.includes("\"title\":\"Store locator\"")), 20_000);
     expect((await page.list()).ready.some(item => item.title === "Store locator")).toBe(true);
@@ -146,7 +147,6 @@ it("lists each item in one place by file names and Git, keeps the list current, 
 
     // kiln run needs a clean checkout: the material still uncommitted goes.
     rmSync(join(repo, "source-material/email-digest"), { recursive: true });
-    rmSync(join(repo, "source-material/store-locator/received"), { recursive: true });
     // Review and start opens the item in a Kiln of its own, at its own address, and the home starts nothing itself (AC-HOME-05).
     const gift = (await page.list()).ready.find(item => item.title === "Gift card balance lookup")!;
     const opened = await page.open(gift.id);

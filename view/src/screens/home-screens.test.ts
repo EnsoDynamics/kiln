@@ -75,6 +75,11 @@ it("with nothing found, leads with bringing source material in and what each kin
   expect(shown).not.toContain("Under way");
 });
 
+it("in a folder where every repository is empty, names each of them (AC-HOME-09)", () => {
+  const shown = page(list({ scope: { kind: "folder", name: "acme", repositories: ["acme-docs", "acme-infra"], nothingFound: ["acme-docs", "acme-infra"] }, underWay: [], ready: [], notReady: [], folded: [] }));
+  expect(shown).toContain("Nothing found in acme-docs or acme-infra Start here Bring your source material in");
+});
+
 it("before Start, a PRD started by hand shows where it stands, the branch holding it selected under Start from, and the Next stage first (AC-BEGIN-04, AC-BEGIN-08)", () => {
   const base = runningSnapshot();
   const requirements: RequirementsView = {

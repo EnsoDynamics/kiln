@@ -20,6 +20,8 @@ export interface InitiativeRow {
   directory: string;
   /** Whether `directory` came from that line: only then is the row matched to a PRD written by hand (technical design, "What Kiln Knows"). */
   fromLine: boolean;
+  /** The PRD folder that line names, `docs/prds/<directory>` or `docs/changes/<directory>`. */
+  written?: string;
   contract?: string;
   status: string;
   /** The Depends on column as the list writes it, one name per entry; empty for `None…`. */
@@ -49,6 +51,7 @@ export async function initiativeRows(git: GitContext, cwd: string, ref: string, 
     const depends = dependsAt > 0 ? cells[dependsAt] ?? "" : "";
     const dependsOn = /^none\b/i.test(depends) || !depends ? [] : depends.split(/\s*[,;]\s*/).map(one => one.replace(/^\[([^\]]+)\]\([^)]*\)$/, "$1").trim()).filter(Boolean);
     let directory: string | undefined;
+    let written: string | undefined;
     let contract: string | undefined;
     if (posix.basename(link[2]!) === link[2] && link[2]!.endsWith(".md")) {
       contract = posix.join(folder, link[2]!);
@@ -58,9 +61,11 @@ export async function initiativeRows(git: GitContext, cwd: string, ref: string, 
         contracts.set(contract, await gitText(git, cwd, ["show", `${ref}:${contract}`]));
       }
       const section = contracts.get(contract)!.split(/^#{2,6}\s+/m).find(s => s.split(/\r?\n/, 1)[0]!.toLowerCase().replace(/[^\w -]/g, "").trim().replace(/\s+/g, "-") === link[3]);
-      directory = section?.match(/\*\*PRD directory, when written:\*\*\s*`?(?:docs\/(?:prds|changes)\/)([^/\\`\s]+)/)?.[1];
+      const line = section?.match(/\*\*PRD directory, when written:\*\*\s*`?(docs\/(?:prds|changes)\/([^/\\`\s]+))/);
+      written = line?.[1];
+      directory = line?.[2];
     }
-    rows.push({ name: link[1]!, directory: directory ?? folderOf(link[1]!), fromLine: !!directory, ...(contract ? { contract } : {}), status: status.toLowerCase(), dependsOn });
+    rows.push({ name: link[1]!, directory: directory ?? folderOf(link[1]!), fromLine: !!directory, ...(written ? { written } : {}), ...(contract ? { contract } : {}), status: status.toLowerCase(), dependsOn });
   }
   return rows;
 }
@@ -133,23 +138,39 @@ export async function inspectSource(git: GitContext, cwd: string, path: string):
   const input = await gitText(git, cwd, ["show", `${commit}:${file}`]);
   const title = input.match(/^#\s+(.+?)\s*$/m)?.[1]?.replace(/^(?:brief|requirements intake):\s*/i, "") ?? name.replaceAll("-", " ");
   const committedAt = await gitText(git, cwd, ["show", "-s", "--format=%cI", commit]);
+  const refs = [...new Set((await gitText(git, cwd, ["for-each-ref", "--format=%(objectname)", "refs/heads/", "refs/remotes/origin/"])).split("\n").filter(Boolean))];
+  // The first PRD or initiative folder of these paths on any local or origin branch (AC-HOME-13, first row).
+  const writtenOnAnyBranch = async (paths: string[]) => {
+    for (const ref of refs) {
+      const match = await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", "-d", "--name-only", ref, "--", ...paths]);
+      if (match) return match.split("\n")[0]!;
+    }
+    return undefined;
+  };
   let origin: RequirementsOrigin;
+  let existing: string[];
   if (initiative) {
-    let rows: InitiativeRow[];
-    try { rows = (await initiativeRows(git, cwd, commit, folder, input)).filter(r => r.status === "planned"); }
+    let all: InitiativeRow[];
+    try { all = await initiativeRows(git, cwd, commit, folder, input); }
     catch (error) { return { problem: (error as Error).message }; }
+    const rows = all.filter(r => r.status === "planned");
     const row = rows.find(r => r.directory === parts[3]);
+    // A row the method has marked written says which PRD was written from it (AC-BEGIN-02).
+    const done = row ? undefined : all.find(r => r.directory === parts[3]);
+    if (done) {
+      const found = await writtenOnAnyBranch([`docs/prds/${done.directory}`, `docs/changes/${done.directory}`]);
+      return { problem: `${found ?? done.written ?? `The PRD ${done.name}`} was written from ${path}: its row in ${list} is no longer planned.` };
+    }
     if (!row) return { problem: `Planned PRDs in ${folder}: ${rows.map(r => r.directory).join(", ") || "none"}. Name one with --prd.` };
+    // Only a directory the row's scope entry names is matched to a PRD written by hand; a row without one, only through Kiln's record (technical design, "What Kiln Knows").
+    existing = row.fromLine ? [`docs/prds/${row.directory}`, `docs/changes/${row.directory}`, ...(row.directory === name ? [] : [`docs/initiatives/${row.directory}`])] : [];
     const heading = title.replace(/(?:\s+[—–-]\s+|\s+)Initiative PRDs$/i, "");
     origin = { kind: "planned_prd", path, initiative: { path: folder, row: row.name }, commit, committedAt, title: `${heading}: ${row.name}`, files: [file, ...(row.contract && files.includes(row.contract) ? [row.contract] : [])] };
   } else {
     origin = { kind: file === brief ? "brief" : "intake", path, title, files, commit, committedAt };
+    existing = [`docs/prds/${name}`, `docs/changes/${name}`, `docs/initiatives/${name}`];
   }
-  const existing = [`docs/prds/${basename(path)}`, `docs/changes/${basename(path)}`, ...(initiative ? [] : [`docs/initiatives/${name}`])];
-  const refs = (await gitText(git, cwd, ["for-each-ref", "--format=%(objectname)", "refs/heads/", "refs/remotes/origin/"])).split("\n");
-  for (const ref of new Set(refs)) {
-    const match = await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", "-d", "--name-only", ref, "--", ...existing]);
-    if (match) return { problem: `${match.split("\n")[0]} was written from ${path}.` };
-  }
+  const match = existing.length ? await writtenOnAnyBranch(existing) : undefined;
+  if (match) return { problem: `${match} was written from ${path}.` };
   return { origin, base };
 }

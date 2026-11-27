@@ -235,16 +235,7 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   const matching = enumerateWork(context.env).work.filter(work => work.record.repository.mainCheckoutPath === location.mainCheckoutPath && work.record.origin && (work.record.origin.path === location.prdDirectoryFromRoot || work.record.prdDirectory === location.prdDirectoryFromRoot));
   if (matching.length > 1) return usageError(context, "More than one run matches this path.");
   const stateDirectory = matching[0]?.directory ?? direct;
-  if (matching[0]) {
-    const saved = matching[0].record;
-    // A run from source material reset after its draft starts as the PRD it wrote, on the branch that holds it (AC-BEGIN-08).
-    if (saved.prdDirectory && saved.startedAt === undefined && saved.prdDirectory !== location.prdDirectoryFromRoot) {
-      const written = await resolvePrdPath(join(location.mainCheckoutPath, saved.prdDirectory), context.cwd, git, context.env);
-      if ("location" in written) Object.assign(location, written.location);
-    }
-    location.folderName = basename(startPath(saved));
-    location.featureName = saved.featureName;
-  }
+  if (matching[0]) await followWrittenPrd(location, matching[0].record, context.cwd, git, context.env);
   const range = portRange(context.env);
   if ("problem" in range) {
     context.stderr.write(`${range.problem}\n`);
@@ -290,6 +281,19 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     lock.release();
     stop.finish();
   }
+}
+
+/**
+ * A run from source material reset after its draft starts as the PRD it wrote, on the branch that
+ * holds it (AC-BEGIN-08): the location moves to that PRD, keeping the run's folder name and title.
+ */
+async function followWrittenPrd(location: PrdLocation, saved: PrdRecord, cwd: string, git: string, env: NodeJS.ProcessEnv): Promise<void> {
+  if (saved.prdDirectory && saved.startedAt === undefined && saved.prdDirectory !== location.prdDirectoryFromRoot) {
+    const written = await resolvePrdPath(join(location.mainCheckoutPath, saved.prdDirectory), cwd, git, env);
+    if ("location" in written) Object.assign(location, written.location);
+  }
+  location.folderName = basename(startPath(saved));
+  location.featureName = saved.featureName;
 }
 
 interface KilnRun {
@@ -436,6 +440,8 @@ async function afterReset(run: KilnRun, receipt: Receipt): Promise<ResetOutcome>
 async function resetEngine(run: KilnRun): Promise<Engine> {
   const { location, tools, context } = run;
   const git = { git: tools.git, env: context.env };
+  const fresh = readPrdRecord(run.stateDirectory);
+  if (fresh) await followWrittenPrd(location, fresh, context.cwd, tools.git, context.env);
   const startChecks = async (): Promise<ResetStartChecks> => {
     // gh is looked up on the PATH again, so installing it clears "gh isn't on the PATH." on reload.
     const report = await runStartChecks(location, { ...tools, gh: findExecutable("gh", context.env) }, context.env, undefined, startContext(run, readPrdRecord(run.stateDirectory)?.repositories ?? []));
