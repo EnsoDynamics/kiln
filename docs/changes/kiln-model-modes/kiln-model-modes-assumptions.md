@@ -107,7 +107,7 @@ Against it: at 18:19 UTC you agreed to a list saying choices on Documents found 
 
 ---
 
-### SAVE-006. When a Kiln update changes the model Kiln recommends for a row you never changed, does a PRD with its own settings get the new model too? — ⏳ PENDING (Added 2026-11-27 — new question; 85% confidence)
+### SAVE-006. When a Kiln update changes the model Kiln recommends for a row you never changed, does a PRD with its own settings get the new model too? — ⏳ PENDING (Added 2026-11-27 — new question; 90% confidence)
 
 **Assumption**: Yes, the same as every PRD that follows your defaults. A PRD's own settings keep **only what you set**: what you saved for that PRD, and what you had set in your defaults when it got them. A row **you never changed** takes **Kiln's recommended model as it is now**. **What you saved for this PRD only still never changes.**
 
@@ -119,43 +119,21 @@ The **one model** Kiln suggests works the same way: until you pick one, installi
 
 **Example**: Customer returns has its own settings, with a model you chose for its demanding phases. A Kiln update recommends a newer model for mechanical phases, a row you never changed. Customer returns' mechanical phases start on the new model, as every other PRD's do, and its demanding phases keep the one you chose.
 
-**Evidence**: Kiln Phase Model Tiers keeps **only what you set** in your defaults, so a release can ship a new recommended model **without overwriting anyone's choice**. When you confirmed SAVE-002, the later changes to the defaults that don't reach the PRD were yours, and they still don't.
+**Evidence**: You treated the recommended models as Kiln's to keep current: of the tier table, "part of me wants to just hardcode it to keep it simple… I don't think most people need to override it" (2026-11-22, 20:23 UTC), and of the requirements stages, "it should default to the most capable model of the provider" (2026-11-23, 15:37 UTC). You wanted a PRD's own settings to be temporary: "I kind of don't want that to be permanent" (2026-11-26, 13:38 UTC). Kiln Phase Model Tiers keeps **only what you set** in your defaults, so a release can ship a new recommended model **without overwriting anyone's choice**, and it drops a PRD's saved model that equals Kiln's current one rather than fixing it.
 
-Against it: a release that swaps a row's recommended models between Claude Code and Codex would, under For everything, launch that PRD on the account you meant to spare. Every PRD that follows your defaults has the same exposure, and the changelog announces such a change.
-
-**Confirm or Correct**:
-- [ ] Correct as stated
-- [ ] Wrong — correct answer: _______________
-
-**Confidence**: 85% | **Impact**: 🟢 LOW
-
----
-
-### SAVE-007. Does resetting Kiln for a PRD also forget the settings saved for that PRD only? — ⏳ PENDING (Added 2026-11-27 — new question; 75% confidence)
-
-**Assumption**: Yes. **Reset Kiln for this PRD forgets the PRD's own settings** along with everything else it forgets, and the PRD **follows your defaults again**. Documents found shows this before you press Start, so you can choose again there.
-
-**Depends on**: SAVE-001, SAVE-003
-
-**If they choose otherwise**: A reset would keep the PRD's own settings. The confirmation would list them under what stays, and Documents found would show them after the reset.
-
-**Evidence**: You described reset as "deletes any state that Kiln was holding on to... as if you were running Kiln for the first time" (2026-11-12 04:00 UTC). The released reset already lists "Its settings for the PRD" under what Kiln forgets. You wanted the PRD's own settings to be temporary: "I kind of don't want that to be permanent" (2026-11-26 13:38 UTC).
-
-Against it: SAVE-003 keeps them across a restart because losing them silently sends phases to the account being spared, but after a reset nothing runs until you press Start on Documents found, which shows the choice in force.
-
-**A wrong guess costs little either way.** Forgotten when you wanted them kept: Documents found shows the defaults before Start, and choosing One model again takes one click. Kept when you wanted them gone: one click on Use my defaults here.
+Against it: on 2026-11-26 you agreed ("Everything else sounds good", 18:22 UTC) to a list saying a PRD with its own settings "keeps a copy of the whole page" and "later changes to your defaults don't reach it"; read literally, the copy would fix Kiln's recommended models too. The changes that list kept out were yours, and they stay out. And a release that swaps a row's recommended models between Claude Code and Codex would, under For everything, launch that PRD on the account you meant to spare. Every PRD that follows your defaults has the same exposure, and the changelog announces such a change.
 
 **Confirm or Correct**:
 - [ ] Correct as stated
 - [ ] Wrong — correct answer: _______________
 
-**Confidence**: 75% | **Impact**: 🟡 MEDIUM
+**Confidence**: 90% | **Impact**: 🟢 LOW
 
-**Researched**: 2026-11-27; research reached the answer above on its own (75%); avenues: the stakeholder's words in the reset and model-modes drafting chats, the released reset criteria and code, Kiln Phase Model Tiers' reset rule, one web search; no untried avenue remains (Kiln has no email or meeting archive)
+**Researched**: 2026-11-27; research agreed with the answer above (85% → 90%); avenues: the stakeholder's words in the Model Modes drafting chat, the Kiln Phase Model Tiers drafting chat and the Requirements Stages chats (a keyword search of his messages for recommend, default, new model, newer, latest, upgrade and own settings), Kiln Phase Model Tiers' "Model defaults holds only what the person set" and KEEP-001 decisions, Claude Code's model configuration documentation; untried: how VS Code, JetBrains and Codex treat a shipped default that changes under a project's own setting (Kiln has no email or meeting archive)
 
 ---
 
-### ROW-002. Do the merge session and Continue's push session run on the Preflight and pull request row, not the Audits row? — ⏳ PENDING (Added 2026-11-27 — new question; 85% confidence)
+### ROW-002. Do the session that merges after delivery and the one that pushes the plan when you press Continue run on the Preflight and pull request row, not the Audits row? — ⏳ PENDING (Added 2026-11-27 — new question; 85% confidence)
 
 **Assumption**: Yes. The merge session after delivery and the session that pushes the plan when you press Continue both run on the **Preflight and pull request** row (Claude Code · Opus · medium, with Codex · GPT Sol · medium as its fallback), and the **Audits row runs only the delivery audit and the test audit** (AC-ROW-01). After the upgrade, a merge or push session that hasn't started moves from Opus high to medium, unless the Audits row was changed for every PRD (AC-CARRY-01) or for this PRD.
 
@@ -179,7 +157,7 @@ Against it: a merge can resolve code conflicts and fix failing checks, which is 
 
 ### SAVE-008. Does Restore Kiln's defaults also put the mode and the fallback back to Kiln's choices? — ⏳ PENDING (Added 2026-11-27 — new question; 70% confidence)
 
-**Assumption**: Yes. **Restore Kiln's defaults resets the whole page**: the way models are picked goes back to **Recommended model for each phase**, the five rows and the one model go back to Kiln's choices, and **Use the fallback** goes back to **Never**, with its threshold at 95. Like every other change on the page, it takes effect only **when you press Save**, for every PRD or for this PRD only. Saved for every PRD from a PRD that has its own settings, it resets that PRD's own settings too: the PRD keeps its own settings, now the same as Kiln's choices, and later changes to your defaults don't reach it until you press Use my defaults here.
+**Assumption**: Yes. **Restore Kiln's defaults resets the whole page**: the way models are picked goes back to **Recommended model for each phase**, the five rows and the one model go back to Kiln's choices, and **Use the fallback** goes back to **Never**, with its threshold at 95. Like every other change on the page, it takes effect only **when you press Save**, for every PRD or for this PRD only. Saved for every PRD from a PRD that has its own settings, it **ends that PRD's own settings too**, and the PRD follows your restored defaults again, as if you had pressed Use my defaults here.
 
 **Depends on**: SAVE-004
 
@@ -209,4 +187,5 @@ Against it: Restore today keeps the fallback switch and its threshold, a choice 
 | ROW-001 | The preflight and the pull request session share one row, Opus medium with GPT Sol medium as its fallback | 2026-11-26 | Confirmed in chat. In the PRD: AC-ROW-01 |
 | SAVE-001 | "This session only" means this PRD: the change applies to it until Use my defaults here, and adds nothing to the repository | 2026-11-26 | Confirmed in chat. Whether it survives Kiln stopping and starting again was not confirmed: SAVE-003. In the PRD: AC-SAVE-04, AC-SAVE-05 |
 | SAVE-002 | A PRD with its own settings keeps a copy of the whole page, and later changes to the defaults don't reach it | 2026-11-26 | Confirmed in chat. In the PRD: AC-SAVE-04 |
+| SAVE-007 | Reset Kiln for this PRD forgets the PRD's own settings, and the PRD follows the defaults again | Answered 2026-11-27 | Follows from the stakeholder's rule for reset, which "deletes any state that Kiln was holding on to... as if you were running Kiln for the first time" (2026-11-12 04:00 UTC), and the released reset, which lists "Its settings for the PRD" under what Kiln forgets (AC-RESET-03, AC-RESET-04 in `docs/changes/kiln-run-restart/kiln-run-restart-prd.md`). In the PRD: AC-SAVE-04; in the design: §Settings files |
 | CARRY-001 | If the Audits row was changed for every PRD before the upgrade, the new Preflight and pull request row starts from its first choice and fallback | Answered 2026-11-27 | Kiln Phase Model Tiers AC-DEFAULT-02 keeps what the person sets across upgrades, and the Audits row was where they set the preflight's and the pull request session's model. In the PRD: AC-CARRY-01 |
