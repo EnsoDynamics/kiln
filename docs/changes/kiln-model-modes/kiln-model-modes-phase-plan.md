@@ -14,6 +14,7 @@ Three phases, executed in order. The PRD holds three capabilities, each with its
 | [1 modes in the engine](phase-1-modes-in-the-engine.md) | Kiln runs every activity on one model or on its fallback when the saved settings say so, gives the preflight and the pull request session a row of their own, reads a PRD's own settings when it has them, and keeps what people saved before the upgrade. | None |
 | [2 save on Model defaults](phase-2-save-on-model-defaults.md) | Model defaults offers the two ways to pick models and the three fallback settings, holds every change until Save, saves it for every PRD or for this PRD only with a clear way back, and the commands save the same things. | 1 (the schema 2 settings files, the reader over both files, the fifth row) |
 | [3 models block and guide](phase-3-models-block-and-guide.md) | Documents found and the run's settings offer the two choices for this PRD, applied at once, and the public guide explains the new settings. | 1 (the snapshot's mode, one model and source); 2 (the change module, own settings and Use my defaults here) |
+| [4 restore, merge button and one-model command](phase-4-restore-merge-button-one-model-command.md) | Added by delivery audit: Restore saved for every PRD returns a PRD whose own settings hold nothing to the defaults, Merge with {agent} names the merge session's agent, and a command saves the one model without changing the mode. | 1 (the merge session's choice); 2 (the page's draft and the Model defaults commands) |
 
 ## Acceptance-criterion ownership
 
