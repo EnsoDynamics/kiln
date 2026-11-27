@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "executionId": "d2e263a0-337b-4f25-9a3d-7533ede707f0",
+  "activityId": "4507a139-028e-4e7d-b199-0d319082a0c5",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The delivery audit after phases 5 and 6 re-read all 59 Kiln Requirements Stages criteria in four rounds, and 22 of them are still not fully built. Every gap is partial: an edge case or one variant of a criterion. Phase 7 completes the home screen's placements and the start checks they must agree with. Phase 8 completes the requirements run's controls, plan screen and stage models. The fourth round still found a new gap, so a further reading could find more; the build-and-audit cycle after phases 7 and 8 re-reads them. No criterion was changed outside the requirements, and none needed amending.",
+  "completionPhases": ["7", "8"],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "Kiln's checkpoint hook again reported \"Admission lock is unresolved; retry reconciliation\" (and \"Admission owner-death recovery is unresolved\") throughout this audit. It cut off most fourth-round assessors and some earlier ones, and at times refused the session's own commands. The likely cause: `withGate` in src/live/gate.ts holds `admission.lock` while it reads and fsync-rewrites the attempt's gate.json. That file grows with every operation (about 1 MB in this attempt, 10.9 MB in an earlier one), and every tool call of every parallel sub-agent waits on the lock, which gives up after 5 seconds.",
+      "action": "Look at gate.json growth and the 5-second admission deadline in src/live/gate.ts (live-attempts under the PRD's Kiln state directory). Many parallel sub-agents exceed that deadline, so delivery and test audits keep losing assessors."
+    }
+  ],
+  "settled": []
+}
