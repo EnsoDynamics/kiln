@@ -18,6 +18,7 @@
   import Pill, { type PillTone } from "./Pill.svelte";
   import TierTag from "./TierTag.svelte";
   import RowModel from "./RowModel.svelte";
+  import RequirementsPlan from "./RequirementsPlan.svelte";
 
   let { snapshot, connected, now }: { snapshot: Snapshot; connected: boolean; now: number } = $props();
   const opened = $derived(openedLabel(snapshot));
@@ -45,16 +46,7 @@
 </script>
 
 {#if snapshot.requirements}
-<section class="plan" aria-label="Requirements stages">
-  <h2>Requirements stages</h2>
-  <ol>{#each snapshot.requirements.rows as stage}
-    <li><strong>{stage.title}</strong>{#if stage.otherSkills?.length} · {stage.otherSkills.join(", ")}{/if} · {stage.state.replaceAll("_", " ")}
-      {#if stage.model?.choice} · {stage.model.choice.modelName}{/if}
-      {#if stage.pushedSha} · <code>{stage.pushedSha.slice(0, 8)}</code>{/if}
-      {#each stage.feedback ?? [] as applied}<br /><small>Feedback sent at {new Date(applied.sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Worked in and pushed at {new Date(applied.appliedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}, in <code>{applied.commit.slice(0, 7)}</code>.</small>{/each}
-    </li>
-  {/each}</ol>
-</section>
+<RequirementsPlan {snapshot} {connected} {now} />
 {:else}
 <section class="plan" class:restart-review={!!snapshot.restartReview} aria-labelledby="plan-h">
   <div class="head"><h2 id="plan-h" class="eyebrow">Phase plan</h2><span class="count">{snapshot.feature.phasesDone} of {snapshot.feature.phasesTotal} done</span></div>

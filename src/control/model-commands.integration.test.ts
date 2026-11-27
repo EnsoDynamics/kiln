@@ -152,6 +152,6 @@ it("prints and changes Model defaults with no PRD path and no running Kiln, refu
 
   // The help groups both commands under Choose models, after Message, pause or take over.
   const help = await cli(["--help"]);
-  expect(help.stdout).toMatch(/Message, pause or take over\n(?: {2}.*\n)+Choose models\n {2}model, model-defaults, model-defaults set, model-defaults restore,\n {2}model-defaults fallback\nLook closer/);
+  expect(help.stdout).toMatch(/Message, pause or take over\n(?: {2}.*\n)+Choose models\n {2}model, model-defaults, model-defaults set, model-defaults remember,\n {2}model-defaults forget, model-defaults restore, model-defaults fallback\nLook closer/);
   expect((await cli(["model-defaults", "--help"])).stdout).toContain("Subcommand: kiln model-defaults set --help");
 });

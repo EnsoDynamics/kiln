@@ -402,3 +402,8 @@ export function preparationImplementationPrompt(values: { phaseId: string; check
 export function requirementsPrompt(task: "stage" | "review" | "feedback", values: { skillPath: string; work: string; worktree: string; branch: string; holds: string; messages?: string }): string {
   return fill(template(`requirements-${task}.txt`), { ...values, messages: values.messages ?? "" });
 }
+
+/** The plan read's prompt (Kiln Requirements Stages, "Reading it"): the entry skill's path pinned, the method's folder only. */
+export function planReadPrompt(values: { skillPath: string; methodFolder: string }): string {
+  return fill(template("requirements-plan.txt"), values);
+}

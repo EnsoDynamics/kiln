@@ -145,7 +145,11 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
           const inputs = command.inputs as Record<string, unknown>;
           const target = typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits" as const;
           const choice = inputs.use_default === true ? "default" as const : typeof inputs.agent_id === "string" && typeof inputs.model === "string" ? { agentId: inputs.agent_id as AgentId, model: inputs.model, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) } : undefined;
-          if (choice && (target === "audits" || typeof target.phase === "string")) {
+          if (choice && typeof inputs.stage === "string") {
+            // A requirements stage (Kiln Requirements Stages AC-MODEL-05): checked as `POST /api/model` checks `{ stage }`.
+            const checked = current().checkStageModelChange(inputs.stage, choice, inputs.remember === true);
+            if (!checked.ok) throw new ControlFailure(checked.status === 409 ? "control_unavailable" : /isn't a requirements stage/.test(checked.reason) ? "target_not_found" : "invalid_input", checked.reason, checked.status === 409 ? 3 : 2);
+          } else if (choice && (target === "audits" || typeof target.phase === "string")) {
             const engine = current();
             const checked = engine.checkModelChange(target, choice);
             if (!checked.ok) throw new ControlFailure(target !== "audits" && !engine.shownPlan.some(phase => phase.id === target.phase && phase.splitInto === undefined) ? "target_not_found" : "invalid_input", checked.reason, 2);

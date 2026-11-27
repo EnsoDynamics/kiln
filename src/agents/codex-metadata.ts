@@ -99,7 +99,12 @@ export function codexUsagePermission(before: AccountResult, usage: CodexLimits |
   if (usage!.ordinaryUsageAllowed === true) return { state: "allowed", reason: "Codex permits one original-model attempt using ordinary included usage; model access is not guaranteed." };
   return unknown("Codex ordinary-usage permission is unavailable. This version supplies no applicable structured reset; resume manually when ready.");
 }
-export async function readCodexMetadata(options: { executable: string | undefined; cwd: string; cwds: string[]; env: NodeJS.ProcessEnv; signal?: AbortSignal }): Promise<CodexMetadata> {
+/**
+ * `methodSkillsFor`: the launch directories whose enabled build skills are checked, every one of
+ * `cwds` unless given. A plan read checks none: its entry skill is resolved by its fingerprint in
+ * the repository's checkout instead (Kiln Requirements Stages, "Reading it").
+ */
+export async function readCodexMetadata(options: { executable: string | undefined; cwd: string; cwds: string[]; env: NodeJS.ProcessEnv; signal?: AbortSignal; methodSkillsFor?: string[] }): Promise<CodexMetadata> {
   const startedAt = new Date().toISOString();
   const deadline = Date.now() + 30_000;
   const unavailable = (reason: string): AgentAccount => ({ agentId: "codex", startedAt, updatedAt: new Date().toISOString(), limits: [], error: reason, limitsError: "Codex usage is unavailable because account metadata could not be read." });
@@ -174,6 +179,7 @@ export async function readCodexMetadata(options: { executable: string | undefine
     else for (const cwd of options.cwds) {
       const entries = skills.value.data.find((d) => d.cwd === cwd)?.skills ?? [];
       result.skills.push({ cwd, entries });
+      if (options.methodSkillsFor && !options.methodSkillsFor.includes(cwd)) continue;
       for (const required of METHOD_SKILLS) {
         const matches = entries.filter((s) => s.enabled && (s.name === required || s.name === `enso-method:${required}`));
         if (matches.length !== 1) { result.blockers.push(`Enable one Enso Method ${required} skill for ${cwd}.`); continue; }

@@ -3,6 +3,7 @@
   import FeatureHeader from "../components/FeatureHeader.svelte";
   import BillingPanels from "../components/BillingPanels.svelte";
   import RequirementsFeedback from "../components/RequirementsFeedback.svelte";
+  import RequirementsPlan from "../components/RequirementsPlan.svelte";
   import { changeSettings, continueReview, resumeNow, start, startBuild, type CommandAnswer, type PageConfig } from "../lib/api.js";
 
   let { snapshot, config, connected }: { snapshot: Snapshot; config: PageConfig; connected: boolean } = $props();
@@ -42,14 +43,12 @@
     {#if settings.waitAtEarlyReview}<label><input type="checkbox" checked={settings.waitAtEarlyReview.value} disabled={!connected || busy} onchange={e => act(() => changeSettings(config, { waitAtEarlyReview: e.currentTarget.checked }))} /> Wait for me at the early review. You can change this until the refinement finishes.</label>{/if}
     <BillingPanels {snapshot} {connected} />
   {/if}
-  <h2>{final ? "Phase plan" : "Requirements stages"}</h2>
-  <ol>
-    {#if final}
-      {#each snapshot.phases.filter(p => p.id !== "pr") as phase}<li>Phase {phase.id} · {phase.title} {phase.model?.choice?.modelName ?? ""}</li>{/each}
-    {:else}
-      {#each requirements.rows as row}<li>{row.title}{#if row.otherSkills?.length} · {row.otherSkills.join(", ")}{/if} <small>{row.state} {row.model?.choice?.modelName ?? ""}</small>{#if row.pushedSha} · <code>{row.pushedSha.slice(0, 8)}</code>{/if}{#each row.feedback ?? [] as applied}<br /><small>Feedback sent at {new Date(applied.sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Worked in and pushed at {new Date(applied.appliedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}, in <code>{applied.commit.slice(0, 7)}</code>.</small>{/each}</li>{/each}
-    {/if}
-  </ol>
+  {#if final}
+    <h2>Phase plan</h2>
+    <ol>{#each snapshot.phases.filter(p => p.id !== "pr") as phase}<li>Phase {phase.id} · {phase.title} {phase.model?.choice?.modelName ?? ""}</li>{/each}</ol>
+  {:else}
+    <RequirementsPlan {snapshot} {connected} />
+  {/if}
   {#if !review}
     <p>Kiln waits at the early review and stops at the final review. Only Start the build begins implementation.</p>
     {#if blocked}<p>{blocked}</p>{/if}
@@ -73,5 +72,4 @@
   label { display: block; margin: 1rem 0; }
   button, input { font: inherit; padding: .5rem .8rem; }
   button { cursor: pointer; }
-  small { color: var(--dim); }
 </style>

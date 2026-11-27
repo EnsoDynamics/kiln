@@ -1,4 +1,6 @@
 import { expectedStage, nextStageKey, type FeedbackMessage, type RequirementsOrigin } from "../requirements/stages.js";
+import { plannedRows as planRows } from "../requirements/rows.js";
+import { planKeys } from "../requirements/plan.js";
 import type { PhaseRecoveryView } from "./phase-recovery.js";
 import { auditName, auditNameFacts, recordedAuditName } from "../audit/audit-names.js";
 import type { ReopenCheck } from "./reopen-check.js";
@@ -361,14 +363,25 @@ export interface MergeView {
 export interface RequirementsRow {
   key: string; title: string; skill?: string; otherSkills?: string[]; activityId?: string; state: "done" | "running" | "needs_you" | "waiting" | "next" | "planned";
   startedAt?: string; pushedSha?: string; model?: ModelView;
+  /** When a done row's activity finished, for how long it took (AC-STAGE-03). */
+  finishedAt?: string;
   addedByKiln?: "early" | "final"; noSession?: true; reaches?: string[];
+  /** The stop this row is followed by (AC-PLAN-01). */
+  stop?: "early" | "final";
+  /** A choice saved for every PRD whose skill no stage in the plan runs, on a row the latest plan change brought in (AC-MODEL-04). */
+  savedChoiceUnmatched?: { skill: string };
   /** Feedback applied after this row, with the commit that applied it (AC-TALK-04). */
   feedback?: { sentAt: string; appliedAt: string; commit: string }[];
 }
 /** One message of feedback as the screen shows it: waiting, sent, read or applied (AC-TALK-02). */
 export interface FeedbackView { id: string; text: string; at: string; state: FeedbackMessage["state"]; readAt?: string; appliedAt?: string; appliedCommit?: string }
+/** The plan read's state (AC-PLAN-03 to 05). */
+export type RequirementsPlanView = ReturnType<Engine["planView"]>;
 export interface RequirementsView {
   origin: RequirementsOrigin;
+  plan: RequirementsPlanView;
+  /** What a plan change, or a report that moved past the plan, changed (AC-PLAN-06, AC-PLAN-07). */
+  notice?: { at: string; methodUpdatedAt?: string; changes: string[] };
   beforePrd?: { skill: string; title: string };
   rows: RequirementsRow[];
   feedback: FeedbackView[];
@@ -652,7 +665,7 @@ function auditCheckTitle(key: string, check: CheckResult): CheckResult {
   return key.startsWith("audit-") && REFUSAL_CODES.has(check.name) ? { ...check, name: RESULT_CHECK } : check;
 }
 
-function requirementsView(engine: Engine): RequirementsView {
+export function requirementsView(engine: Engine): RequirementsView {
   const state = engine.record.requirements!;
   // A finished feedback session is no row of its own: what it applied is listed on the row before it (AC-TALK-04).
   const shownStage = (stage: (typeof state.stages)[number]) => !stage.pushedSha || stage.task === "review" || stage.task === "stage" && stage.ran.length > 0;
@@ -665,13 +678,44 @@ function requirementsView(engine: Engine): RequirementsView {
       reaches: stage.reaches, ...(stage.key === "kiln:early" ? { addedByKiln: "early" as const } : stage.key === "kiln:final" ? { addedByKiln: "final" as const } : {}),
       ...(stage.task === "review" && stage.pushedSha && !facts?.sessionIds.length ? { noSession: true as const } : {}),
       state: stage.pushedSha ? "done" : facts?.stop ? "needs_you" : facts?.wait ? "waiting" : "running",
-      startedAt: stage.startedAt, ...(stage.pushedSha ? { pushedSha: stage.pushedSha } : {}),
+      startedAt: stage.startedAt, ...(stage.pushedSha ? { pushedSha: stage.pushedSha } : {}), ...(stage.pushedSha && facts?.doneAt ? { finishedAt: facts.doneAt } : {}),
       model: engine.activityModel(key, { finished: !!stage.pushedSha, liveSession: engine.current?.phaseKey === key ? engine.current.session : undefined }) };
   });
-  if (!rows.some(row => row.state === "running" || row.state === "waiting" || row.state === "needs_you") && engine.reviewStop !== "final") {
-    const next = expectedStage(state);
-    rows.push({ key: next ? nextStageKey(state, next.skill) : "kiln:next", title: next?.title ?? "Next stage", ...(next ? { skill: next.skill } : {}), state: "next", model: engine.activityModel(next?.reaches.includes("design_ready") ? "req-design" : "req-next", { finished: false }) });
+  for (const row of rows) if (row.activityId && row.state !== "done" && row.model) Object.assign(row.model, engine.modelControls(`req-${row.activityId}`, row.title, row.model));
+  const active = rows.find(row => row.state === "running" || row.state === "waiting" || row.state === "needs_you");
+  const plan = engine.requirementsPlan;
+  if (engine.reviewStop !== "final") {
+    const unknown = !!state.standing && "unknown" in state.standing || !!state.cursorLost;
+    const nextRow = (key: string, title: string, skill: string | undefined, modelKey: string): RequirementsRow => {
+      const model = engine.activityModel(modelKey, { finished: false });
+      return { key, title, ...(skill ? { skill } : {}), state: "next", model: { ...model, ...engine.modelControls(modelKey, title, model) } };
+    };
+    if (plan) {
+      // The plan's entries from the cursor, with Kiln's review rows (technical design, "Rows").
+      if (!active && unknown) rows.push(nextRow("kiln:next", "Next stage", undefined, "req-next"));
+      const currentKey = active && state.stages.find(stage => stage.activityId === active.activityId)?.key;
+      // The current row is the one a stop follows when its plan entry is the first to reach it.
+      const entryKeys = planKeys(plan.stages);
+      if (active && currentKey) for (const [kind, milestone] of [["early", "prd_refined"], ["final", "requirements_finished"]] as const) {
+        const first = plan.stages.findIndex(stage => stage.reaches.includes(milestone));
+        if (first >= 0 && entryKeys[first] === currentKey && !(kind === "early" && state.earlyReviewHeld)) active.stop = kind;
+      }
+      const defaults = readModelDefaults(engine.modelDefaultsFile);
+      const unmatched = defaults.ok ? Object.keys(defaults.defaults.skills).filter(skill => skill !== plan.reviewSkill.skill && !plan.stages.some(stage => stage.skill === skill)) : [];
+      for (const row of planRows(plan, state, { ...(currentKey ? { currentKey } : {}), next: !active && !unknown })) {
+        const modelKey = `req-row:${row.key}`;
+        const model = engine.activityModel(modelKey, { finished: false });
+        rows.push({ key: row.key, title: row.title, skill: row.skill, reaches: row.reaches, state: row.state, ...(row.addedByKiln ? { addedByKiln: row.addedByKiln } : {}), ...(row.stop ? { stop: row.stop } : {}),
+          ...(unmatched.length && state.notice?.added?.includes(row.key) && model.from === "model_defaults" ? { savedChoiceUnmatched: { skill: unmatched.join(", ") } } : {}),
+          model: { ...model, ...engine.modelControls(modelKey, row.title, model) } });
+      }
+    } else if (!active) {
+      const next = expectedStage(state);
+      rows.push(nextRow(next ? nextStageKey(state, next.skill) : "kiln:next", next?.title ?? "Next stage", next?.skill, next?.reaches.includes("design_ready") ? "req-design" : "req-next"));
+    }
   }
+  // Each stop is marked on the row it follows.
+  rows.forEach((row, i) => { const kind = row.addedByKiln ?? (row.key === "kiln:early" ? "early" : row.key === "kiln:final" ? "final" : undefined); if (kind && i > 0) rows[i - 1]!.stop ??= kind; });
   // Feedback applied after a row is listed on that row, or on the latest done row when the session that applied it ran nothing (AC-TALK-04).
   const shown = state.stages.filter(shownStage);
   for (const message of state.feedback) {
@@ -682,7 +726,7 @@ function requirementsView(engine: Engine): RequirementsView {
     if (row) (row.feedback ??= []).push({ sentAt: message.at, appliedAt: message.appliedAt, commit: message.appliedCommit });
   }
   rows.push({ key: "build", title: "Build", state: "planned" });
-  const view: RequirementsView = { origin: engine.record.origin!, rows,
+  const view: RequirementsView = { origin: engine.record.origin!, plan: engine.planView(), ...(state.notice ? { notice: { at: state.notice.at, ...(state.notice.methodUpdatedAt ? { methodUpdatedAt: state.notice.methodUpdatedAt } : {}), changes: state.notice.changes } } : {}), rows,
     feedback: state.feedback.map(m => ({ id: m.id, text: m.text, at: m.at, state: m.state, ...(m.readAt ? { readAt: m.readAt } : {}), ...(m.appliedAt ? { appliedAt: m.appliedAt } : {}), ...(m.appliedCommit ? { appliedCommit: m.appliedCommit } : {}) })),
     ...(state.draftNote && !state.review ? { draftNote: state.draftNote } : {}),
     ...(engine.record.startedAt !== undefined && state.phase === "stages" ? { feedbackTo: engine.feedbackGoesLive() ? "running_session" as const : "next_session" as const } : {}) };

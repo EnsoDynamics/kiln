@@ -5,7 +5,7 @@
 // on demand, as the page reads them.
 
 import { AgentInfo } from "../agents/metadata.js";
-import { editModelDefaults, modelDefaultsView, ROW_NAMES, type DefaultsChange, type DefaultsSideView, type ModelDefaultsView } from "../models/model-defaults-edit.js";
+import { editModelDefaults, modelDefaultsView, rememberedForm, ROW_NAMES, type DefaultsChange, type DefaultsSideView, type ModelDefaultsView } from "../models/model-defaults-edit.js";
 import { DEFAULTS_ROWS, modelDefaultsPath, type DefaultsRow, type FamilyChoice } from "../models/model-defaults.js";
 import type { ModelList } from "../models/resolver.js";
 import { executableAvailable, findExecutable } from "../platform/helper-process.js";
@@ -44,7 +44,8 @@ function sideLine(side: DefaultsSideView): string {
 export function modelDefaultsText(view: ModelDefaultsView): string {
   return ["Model defaults, for every PRD on this computer",
     ...DEFAULTS_ROWS.map(row => `${ROW_NAMES[row]}: ${sideLine(view.rows[row].first)}; fallback ${sideLine(view.rows[row].fallback)}`),
-    `Fallback when usage is nearly out: ${view.fallback.enabled ? "on" : "off"} (threshold ${view.fallback.threshold}%)`].join("\n");
+    `Fallback when usage is nearly out: ${view.fallback.enabled ? "on" : "off"} (threshold ${view.fallback.threshold}%)`,
+    ...view.skills.map(one => `Saved for every PRD, ${one.skill}: ${[one.agent, one.name, one.effort].filter(Boolean).join(" · ")}`)].join("\n");
 }
 
 /** A side from `--first-agent`, `--first-model`, `--first-effort` (or the fallback's): agent and model go together. */
@@ -60,6 +61,19 @@ function sideFlags(flags: ParsedCommand["flags"], side: "first" | "fallback"): F
 function changeOf(parsed: ParsedCommand): DefaultsChange {
   const [, sub] = parsed.contract.path; const flags = parsed.flags;
   if (sub === "restore") return { restore: true };
+  if (sub === "forget") {
+    if (typeof flags.skill !== "string" || !flags.skill.trim()) throw new ControlFailure("invalid_input", "--skill names the skill whose saved choice to forget.", 2);
+    return { forget: { skill: flags.skill } };
+  }
+  if (sub === "remember") {
+    // A family is kept as the newest version each launch; anything else is an exact model value (AC-MODEL-03).
+    const { skill, agent, model, effort } = flags;
+    if (typeof skill !== "string" || !skill.trim() || typeof agent !== "string" || typeof model !== "string") throw new ControlFailure("invalid_input", "Give --skill, --agent and --model.", 2);
+    if (agent !== "claude_code" && agent !== "codex") throw new ControlFailure("invalid_input", "--agent takes claude_code or codex.", 2);
+    const family = /^[a-z]+$/.test(model);
+    const extra = typeof effort === "string" ? { effort } : {};
+    return { remember: { skill, choice: family ? { agentId: agent, family: model, ...extra } : rememberedForm({ agentId: agent, model, ...extra }) } };
+  }
   if (sub === "fallback") {
     if (flags.on && flags.off) throw new ControlFailure("invalid_input", "Give --on or --off, not both.", 2);
     const threshold = flags.threshold;

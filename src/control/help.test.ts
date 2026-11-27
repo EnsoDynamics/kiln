@@ -29,7 +29,7 @@ describe("top-level text help", () => {
     const names = (group: string) => wrapNames(commandContracts.filter(c => c.group === group).map(c => c.path.join(" "))).join("\n");
     expect(text).toContain(`Answer a stopped phase\n${names("answer")}\nMessage, pause or take over\n${names("live")}\nChoose models\n${names("models")}\nLook closer\n${names("inspect")}\nStart over\n${names("reset")}\n`);
     // Choose models lists each command by its full name (Kiln Phase Model Tiers, "Command line").
-    expect(names("models")).toBe("  model, model-defaults, model-defaults set, model-defaults restore,\n  model-defaults fallback");
+    expect(names("models")).toBe("  model, model-defaults, model-defaults set, model-defaults remember,\n  model-defaults forget, model-defaults restore, model-defaults fallback");
     // Reset is the only command of the last group (run restart "Command line").
     expect(names("reset")).toBe("  reset");
     for (const c of commandContracts.filter(c => c.group !== "kiln-sessions")) expect(text, c.path.join(" ")).toMatch(new RegExp(`(?<![\\w-])${c.path.join(" ")}(?![\\w-])`));
@@ -60,7 +60,7 @@ describe("the command contracts", () => {
       message: "live", "take-over": "live", "request-pause": "live", "cancel-pause": "live", continue: "live", "start-build": "live", feedback: "live",
       logs: "inspect", handoff: "inspect", account: "inspect", settings: "inspect", "command-status": "inspect",
       reset: "reset",
-      model: "models", "model-defaults": "models", "model-defaults set": "models", "model-defaults restore": "models", "model-defaults fallback": "models",
+      model: "models", "model-defaults": "models", "model-defaults set": "models", "model-defaults remember": "models", "model-defaults forget": "models", "model-defaults restore": "models", "model-defaults fallback": "models",
     };
     for (const c of commandContracts) {
       const name = c.path.join(" ");

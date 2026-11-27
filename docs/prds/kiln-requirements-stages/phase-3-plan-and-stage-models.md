@@ -1,5 +1,7 @@
 # Phase 3: The plan and stage models
 
+**Closed:** 2026-11-27
+
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "The Requirements Plan" ("Reading it", "Rows"); "Models"; "Interfaces" (the `kiln-plan` block, `POST /api/requirements-plan/read`, `POST /api/model`, `/api/model-defaults`, the snapshot's `plan`, `rows[]` and `notice`, PRD totals, `kiln model`, `kiln model-defaults`); "Data Models" (the requirements plan file, stage keys, the Model defaults file's `skills`); "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-requirements-stages-phase-plan.md)

@@ -14,18 +14,20 @@ export interface CodexLaunchOptions {
   executable: string; cwd: string; writableRoots: string[];
   repositories: { path: string; branch: string }[];
   choice: AgentChoice; env: NodeJS.ProcessEnv; signal?: AbortSignal;
+  /** A plan read: its plan directory is its launch directory and only writable root, with no assigned repositories and no build-skill check (Kiln Requirements Stages, "Reading it"). */
+  planRead?: true;
 }
 export const codexServerArguments = (owner?: string): string[] => [...(process.platform === "win32" ? ["-c", "windows.sandbox=mxc"] : []), ...(owner ? ["-c", `shell_environment_policy.set.KILN_CODEX_PROCESS_OWNER='${owner}'`] : []), "app-server", "--listen", "stdio://"];
 
 export async function prepareCodexLaunch(options: CodexLaunchOptions): Promise<PreparedCodexLaunch> {
   const cwd = realpathSync(options.cwd);
   const writableRoots = [...new Set(options.writableRoots.map(path => realpathSync(path)))];
-  if (!writableRoots.length || !options.repositories.length) throw new Error("Codex needs assigned workspace roots and repositories.");
+  if (!writableRoots.length || !options.repositories.length && !options.planRead) throw new Error("Codex needs assigned workspace roots and repositories.");
   const paths = options.repositories.map(repository => realpathSync(repository.path));
   const contains = (root: string, path: string) => comparable(path) === comparable(root) || comparable(path).startsWith(comparable(root) + (process.platform === "win32" ? "\\" : "/"));
   if (paths.some(path => !writableRoots.some(root => contains(root, path))) || !writableRoots.some(root => contains(root, cwd))) throw new Error("Codex launch directory and every assigned worktree must be inside the granted roots.");
   if (options.repositories.some(repository => !repository.branch.trim())) throw new Error("Every Codex worktree needs its assigned branch.");
-  const metadata = await readCodexMetadata({ executable: options.executable, cwd, cwds: [...new Set([cwd, ...paths])], env: options.env, ...(options.signal ? { signal: options.signal } : {}) });
+  const metadata = await readCodexMetadata({ executable: options.executable, cwd, cwds: [...new Set([cwd, ...paths])], env: options.env, ...(options.signal ? { signal: options.signal } : {}), ...(options.planRead ? { methodSkillsFor: [] } : {}) });
   if (metadata.blockers.length) throw new Error(metadata.blockers.join("\n"));
   const model = metadata.models?.find(model => model.value === options.choice.model);
   if (!model || metadata.modelListError) throw new Error("Codex's requested model is unavailable. Refresh and confirm a valid choice.");

@@ -68,7 +68,11 @@ export interface RequirementsState {
   stages: RequirementsStage[];
   draftNote?: StageReport["draft"];
   review?: { kind: "early" | "final"; file: string; commit: string; readySince: string; refreshedAt?: string; whatChanged?: { items: string[]; commit: string }; feedbackSentAt?: string };
-  notice?: { at: string; changes: string[] };
+  notice?: { at: string; methodUpdatedAt?: string; changes: string[]; /** Stage keys the plan change brought in (AC-MODEL-04). */ added?: string[] };
+  /** A row Kiln inserted at the cursor for a stage the method put next that the plan didn't have (technical design, "Rows"). */
+  inserted?: { skill: string; title: string; reaches: MilestoneName[]; key: string };
+  /** A session at a stop ran nothing in the plan: the next stage session runs as the Next stage row. */
+  cursorLost?: true;
   feedback: FeedbackMessage[];
   reachedByKiln: MilestoneName[];
 }

@@ -261,7 +261,7 @@ export function waiveInputs(flags: Record<string, string | true | string[]>): Re
 
 /** `kiln model`'s journal inputs: the phase or the Audits choice, and a choice or a return to the default. */
 function modelInputs(flags: Record<string, string | true | string[]>): Record<string, unknown> {
-  return { ...(typeof flags.phase === "string" ? { phase: flags.phase } : { audits: true }), ...(flags["use-default"] ? { use_default: true } : { agent_id: flags.agent, model: flags.model, ...(typeof flags.effort === "string" ? { effort: flags.effort } : {}) }) };
+  return { ...(typeof flags.phase === "string" ? { phase: flags.phase } : typeof flags.stage === "string" ? { stage: flags.stage, ...(flags.remember ? { remember: true } : {}) } : { audits: true }), ...(flags["use-default"] ? { use_default: true } : { agent_id: flags.agent, model: flags.model, ...(typeof flags.effort === "string" ? { effort: flags.effort } : {}) }) };
 }
 
 /** The saved record as it is now, for naming a waiver's activity and source; the target's snapshot when it cannot be reread. */

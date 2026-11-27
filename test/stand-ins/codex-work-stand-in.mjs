@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawnSync, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const file = process.env.KILN_CODEX_WORK_FIXTURE;
 const read = () => JSON.parse(readFileSync(file, 'utf8'));
@@ -25,6 +25,8 @@ const complete = (status, error) => {
 };
 const saved = () => {
   const fixture = read();
+  // `recordsUnder`: a session whose id the test can't know, such as a plan read; the one record under that folder.
+  if (fixture.recordsUnder) for (const id of readdirSync(fixture.recordsUnder)) { const path = join(fixture.recordsUnder, id, 'session.json'); if (existsSync(path)) return JSON.parse(readFileSync(path, 'utf8')); }
   if (!fixture.dynamicRecord) return JSON.parse(readFileSync(fixture.recordPath, 'utf8'));
   const prd = JSON.parse(readFileSync(join(fixture.stateDirectory, 'prd.json'), 'utf8'));
   for (const [key, facts] of Object.entries(prd.phases).reverse()) {
@@ -131,7 +133,7 @@ createInterface({ input: process.stdin }).on('line', async line => {
         }
         if ((!error || fixture.modelBeforeRefusal) && !(fixture.toolOnlyFirst && history().length === 1)) {
           if (fixture.deltas) send({ method: 'item/agentMessage/delta', params: { threadId, turnId, itemId: 'final-' + turnId, delta: 'Fixture streaming' } });
-          const item = { id: 'final-' + turnId, type: 'agentMessage', phase: 'final_answer', text: 'Fixture final ' + turnId, ...(fixture.asyncQuestions ? { questions: [{ question: 'Need a person' }] } : {}) };
+          const item = { id: 'final-' + turnId, type: 'agentMessage', phase: 'final_answer', text: fixture.finalText ?? 'Fixture final ' + turnId, ...(fixture.asyncQuestions ? { questions: [{ question: 'Need a person' }] } : {}) };
           send({ method: 'item/completed', params: { threadId, turnId, item, completedAtMs: Date.now() } });
         }
         complete(error || fixture.terminalFailure ? 'failed' : 'completed', error);

@@ -133,6 +133,20 @@ function headerStateOnly(snapshot: Snapshot, connected: boolean, now: Date): Hea
     if (!connected) return { kind: "interrupted", label: `Last known: Pausing ${name}`, facts: [done] };
     return { kind: "pausing", label: `Pausing ${name}`, facts: [done] };
   }
+  // A run in its requirements names the stage running, or the review it waits at, and how many stages are done (Kiln Requirements Stages AC-STAGE-03).
+  const requirements = snapshot.requirements;
+  if (requirements && connected && ["implementing", "early_review", "final_review"].includes(feature.state)) {
+    const stages = requirements.rows.filter(row => row.key !== "build");
+    const counted = `${stages.filter(row => row.state === "done").length} of ${stages.length} requirements stages done`;
+    if (feature.state === "early_review" || feature.state === "final_review") {
+      const ready = requirements.review ? [`Ready ${clockTime(requirements.review.readySince, now, { afterWord: true })}`] : [];
+      return { kind: "needs_you", label: feature.state === "early_review" ? "At the early stakeholder review" : "At the final stakeholder review", facts: [counted, ...ready] };
+    }
+    const running = stages.find(row => row.state === "running");
+    const waits = snapshot.settings.waitAtEarlyReview?.value !== false;
+    const stop = stages.find(row => row.state !== "done" && row.stop && (row.stop === "final" || waits))?.stop;
+    return { kind: "implementing", label: running ? `Running ${running.title}` : "Starting the next requirements stage", facts: [counted, ...(stop ? [`Kiln stops next at the ${stop} review`] : [])] };
+  }
   switch (feature.state) {
     case "needs_you": {
       const stopped = snapshot.needsYou!;

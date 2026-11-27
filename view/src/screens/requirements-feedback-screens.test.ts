@@ -16,6 +16,7 @@ import SettingsPanel from "../components/SettingsPanel.svelte";
 const text = (markup: string) => markup.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").replace(/\s+/g, " ").replace(/ ([.,])/g, "$1").trim();
 const requirements = (change: Partial<RequirementsView> = {}): RequirementsView => ({
   origin: { kind: "brief", path: "source-material/count-boxes", title: "Count boxes", files: ["source-material/count-boxes/count-boxes-brief.md"], commit: "a".repeat(40), committedAt: "2026-11-27T13:00:00Z" },
+  plan: { status: "failed", agent: "Claude Code", failure: { reason: "The session reading the plan ended without returning a plan.", at: "2026-11-27T13:01:00Z" }, canReadAgain: true },
   rows: [{ key: "autonomous-prd-refinement#1", title: "Refine the PRD", state: "done", pushedSha: "7c2e4f1aaaaaaaa", feedback: [{ sentAt: "2026-11-27T14:40:00Z", appliedAt: "2026-11-27T14:52:00Z", commit: "5c7d2e0bbbbbbbb" }] }],
   feedback: [
     { id: "m-1", text: "Store staff look up counts too.", at: "2026-11-27T14:40:00Z", state: "applied", appliedAt: "2026-11-27T14:52:00Z", appliedCommit: "5c7d2e0bbbbbbbb" },

@@ -190,6 +190,7 @@ When nothing on the page fixes the situation, the person can make Kiln forget it
   - Superseded in part by: AC-ATTEND-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (in a marked phase, the planned-as-needing-you card comes first on the stopped-phase pages).
   - Superseded in part by: AC-PAUSE-06 in `docs/changes/kiln-pause-now/kiln-pause-now-prd.md` (the held page's header and layout for a Pause now hold).
   - Superseded in part by: AC-SEE-05 in `docs/changes/kiln-find-repositories-anywhere/kiln-find-repositories-anywhere-prd.md` (a stopped phase's page gains the question about a repository a session asked for, below the card for how its session ended)
+  - Superseded in part by: AC-PLAN-01 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (the screens it changes follow its mockups).
 
 ## Out of Scope
 

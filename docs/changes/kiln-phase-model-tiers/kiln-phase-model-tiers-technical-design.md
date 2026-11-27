@@ -74,7 +74,7 @@ The recorded plan keeps the field for each phase (AC-TIER-01). Like the Attended
 
 ## Resolving a Choice (AC-PICK-01, AC-PICK-03, AC-PICK-04, AC-DEFAULT-01, AC-DEFAULT-03, AC-DEFAULT-04, AC-OTHER-01, AC-KEEP-02)
 
-Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, requirements and design-stage choices).
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, requirements and design-stage choices, and the remembered choice for a stage's skill).
 
 ```
 ModelChoice:  { agentId, model, effort? }      model: the agent's model-list value
@@ -244,7 +244,7 @@ Every write re-reads the file, applies one change and replaces it atomically. A 
 
 ### HTTP (same-origin, token, as today)
 
-Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, the two additional default rows).
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, the two additional default rows; Interfaces, `{ stage }` targets with `remember`, and `skills` with remember and forget).
 
 | Route | Contract |
 |---|---|
@@ -310,7 +310,7 @@ Start unknown adds no state: `model.state` is `will_run_on` and `change` is `{ a
 
 ### Command line
 
-Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, selecting the two requirements defaults).
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, selecting the two requirements defaults; Interfaces, `kiln model --stage [--remember]` and `kiln model-defaults remember` and `forget`).
 
 `kiln model` is a changing command: it takes `--command-id` and `--only-if-status-matches`, is listed among `kiln status`'s controls, and for `--phase` is refused with the reason when `POST /api/model` would answer 409, with the same reasons and exit 3. An id that isn't a phase with no child phases in the current plan is refused with `target_not_found` and exit 2, giving the same reason as the 422. `--audits` is never refused for an activity's state. It is announced in the controller's `features` list, like the other changing commands added after the first release, so a newer client refuses it against an older running Kiln.
 

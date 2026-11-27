@@ -20,7 +20,8 @@ export interface ResolvedChoice {
   problem?: string;
 }
 
-export type ChoiceSource = "model_defaults" | "changed";
+/** Where a choice came from: Model defaults, a change for this PRD, or a choice remembered for every PRD against the stage's skill (Kiln Requirements Stages AC-MODEL-03). */
+export type ChoiceSource = "model_defaults" | "changed" | "saved";
 
 /** What an activity runs on before it starts, and where that came from. */
 export interface ActivityChoice extends ResolvedChoice {
@@ -119,6 +120,8 @@ export interface ResolveInputs {
   /** The activity's own entry: a phase's, or the PRD's Audits entry. */
   entry?: ModelChoice | "default" | undefined;
   kept?: ModelChoice | undefined;
+  /** The choice remembered for the skill a requirements stage is expected to run (Kiln Requirements Stages, "Models", step 2). */
+  saved?: FamilyChoice | ModelChoice | undefined;
   row: DefaultsRow;
   claudeCodeInstalled: boolean;
   lists: Partial<Record<AgentId, ModelList>>;
@@ -133,6 +136,10 @@ export function resolveNotStarted(inputs: ResolveInputs): ActivityChoice {
   const list = (agentId: AgentId) => inputs.lists[agentId] ?? { pending: true };
   if (inputs.entry && inputs.entry !== "default") return { ...resolveModel(inputs.entry, list(inputs.entry.agentId)), from: "changed" };
   if (inputs.entry === undefined && inputs.kept) return { ...resolveModel(inputs.kept, list(inputs.kept.agentId)), from: "changed" };
+  if (inputs.entry === undefined && inputs.saved) {
+    const saved = inputs.saved;
+    return { ...("family" in saved ? resolveFamily(saved, list(saved.agentId)) : resolveModel(saved, list(saved.agentId))), from: "saved", row: inputs.row };
+  }
   const row = inputs.defaults.rows[inputs.row];
   if (row.first.agentId === "claude_code" && !inputs.claudeCodeInstalled) {
     return { ...resolveFamily(row.fallback, list(row.fallback.agentId)), from: "model_defaults", row: inputs.row, claudeCodeMissing: true };

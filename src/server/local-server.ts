@@ -506,11 +506,28 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const view = defaultsBody();
     return view.ok ? c.json({ ...view.view, ...(answer.fallbackTurnedOff ? { notice: "Kiln's defaults are restored, and the fallback is now off." } : {}) }) : c.json({ reason: view.reason, path: view.path, canRestore: view.canRestore }, 409);
   });
+  // Read again (Kiln Requirements Stages AC-PLAN-03): starts a plan read; 409 while one runs, or while billing approval is needed and not given.
+  app.post("/api/requirements-plan/read", async (c) => {
+    const result = await engine.readPlanAgain();
+    return result.ok ? c.json({ ok: true }) : commandRefused(c, result);
+  });
   // One phase's model, or this PRD's Audits choice (AC-PICK-03, AC-OTHER-01): applied directly before Start, through the instruction journal in a run.
   app.post("/api/model", async (c) => {
     const body = await jsonBody(c);
     const change = body === undefined ? undefined : modelChange(body);
     if (change === undefined || typeof change === "string") return refuse(c, 400, change ?? "The body must be a JSON object.");
+    if ("stage" in change) {
+      // A requirements stage's row (Kiln Requirements Stages AC-MODEL-01, AC-MODEL-03): applied directly before Start, through the instruction journal in a run.
+      const checked = engine.checkStageModelChange(change.stage, change.choice, change.remember);
+      if (!checked.ok) return commandRefused(c, checked);
+      if (engine.record.startedAt === undefined) {
+        if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
+        const result = await engine.changeStageModel(change.stage, change.choice, change.remember);
+        return result.ok ? c.json({ ok: true, settings: snapshot().settings }) : commandRefused(c, result);
+      }
+      const choice = change.choice;
+      return legacyControl(c, "model", { stage: change.stage, ...(change.remember ? { remember: true } : {}), ...(choice === "default" ? { use_default: true } : { agent_id: choice.agentId, model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) }) });
+    }
     const checked = engine.checkModelChange(change.target, change.choice);
     if (!checked.ok) return commandRefused(c, checked);
     if (engine.record.startedAt === undefined) {
@@ -985,10 +1002,22 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
   return change;
 }
 
-/** `POST /api/model`'s body: `{ target: { phase } | "audits", choice: ModelChoice | "default" }`; a string is why it was refused. */
-function modelChange(body: Record<string, unknown>): { target: { phase: string } | "audits"; choice: ModelChoice | "default" } | string {
-  if (Object.keys(body).some(key => key !== "target" && key !== "choice")) return "The body takes target and choice.";
+/**
+ * `POST /api/model`'s body: `{ target: { phase } | { stage } | "audits", choice: ModelChoice | "default", remember? }`;
+ * `remember` only with a stage (Kiln Requirements Stages AC-MODEL-03). A string is why it was refused.
+ */
+function modelChange(body: Record<string, unknown>): { target: { phase: string } | "audits"; choice: ModelChoice | "default" } | { stage: string; choice: ModelChoice | "default"; remember: boolean } | string {
+  if (Object.keys(body).some(key => key !== "target" && key !== "choice" && key !== "remember")) return "The body takes target, choice and remember.";
   const target = body.target as Record<string, unknown> | string | undefined;
+  if (target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).join() === "stage") {
+    if (typeof target.stage !== "string" || target.stage === "") return "target is { stage: \"<row key or id>\" }.";
+    if (body.remember !== undefined && body.remember !== true) return "remember is true.";
+    const remember = body.remember === true;
+    if (body.choice === "default") return remember ? "Choose a model to save for every PRD." : { stage: target.stage, choice: "default", remember };
+    const choice = modelChoiceOf(body.choice, "model");
+    return typeof choice === "string" ? choice : { stage: target.stage, remember, choice: { agentId: choice.agentId, model: choice.value, ...(choice.effort === undefined ? {} : { effort: choice.effort }) } };
+  }
+  if (body.remember !== undefined) return "remember goes with a stage.";
   const parsedTarget = target === "audits" ? "audits" as const : target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).join() === "phase" && typeof target.phase === "string" && target.phase !== "" ? { phase: target.phase } : undefined;
   if (!parsedTarget) return "target is { phase: \"<id>\" } or \"audits\".";
   if (body.choice === "default") return { target: parsedTarget, choice: "default" };
@@ -1010,8 +1039,22 @@ function modelChoiceOf(raw: unknown, name: "model" | "family"): { agentId: Agent
 /** `POST /api/model-defaults`'s body: one of a row's sides, Restore, or the fallback switch and threshold. */
 function defaultsChange(body: Record<string, unknown>): DefaultsChange | string {
   const keys = Object.keys(body);
-  if (keys.length !== 1) return "Send one of set, restore or fallback.";
+  if (keys.length !== 1) return "Send one of set, restore, fallback, remember or forget.";
   if (body.restore !== undefined) return body.restore === true ? { restore: true } : "restore is true.";
+  if (body.forget !== undefined) {
+    const forget = body.forget as Record<string, unknown> | null;
+    return forget && typeof forget === "object" && !Array.isArray(forget) && Object.keys(forget).join() === "skill" && typeof forget.skill === "string" && forget.skill !== "" ? { forget: { skill: forget.skill } } : "forget is { skill }.";
+  }
+  if (body.remember !== undefined) {
+    const remember = body.remember as Record<string, unknown> | null;
+    if (!remember || typeof remember !== "object" || Array.isArray(remember) || Object.keys(remember).some(key => key !== "skill" && key !== "choice") || typeof remember.skill !== "string" || remember.skill === "") return "remember is { skill, choice }.";
+    const raw = remember.choice as Record<string, unknown> | undefined;
+    const family = !!raw && typeof raw === "object" && "family" in raw;
+    const choice = modelChoiceOf(raw, family ? "family" : "model");
+    if (typeof choice === "string") return choice;
+    const effort = choice.effort === undefined ? {} : { effort: choice.effort };
+    return { remember: { skill: remember.skill, choice: family ? { agentId: choice.agentId, family: choice.value, ...effort } : { agentId: choice.agentId, model: choice.value, ...effort } } };
+  }
   if (body.fallback !== undefined) {
     const fallback = body.fallback as Record<string, unknown> | null;
     if (!fallback || typeof fallback !== "object" || Array.isArray(fallback) || !Object.keys(fallback).length || Object.keys(fallback).some(key => key !== "enabled" && key !== "threshold")) return "fallback takes enabled and threshold.";

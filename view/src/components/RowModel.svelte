@@ -12,9 +12,11 @@
   import { viewContext } from "../lib/view-context.js";
   import ModelEditor from "./ModelEditor.svelte";
 
-  let { model, underway, target, agents = [], connected = true, label = "Model" }: {
-    model: ModelView; underway: boolean; target?: { phase: string } | "audits" | undefined; agents?: Snapshot["agents"]; connected?: boolean; label?: string;
+  // `rememberSkill`: a requirements stage's skill, for Use this for {skill} on every PRD (Kiln Requirements Stages AC-MODEL-03).
+  let { model, underway, target, agents = [], connected = true, label = "Model", rememberSkill }: {
+    model: ModelView; underway: boolean; target?: { phase: string } | { stage: string } | "audits" | undefined; agents?: Snapshot["agents"]; connected?: boolean; label?: string; rememberSkill?: string | undefined;
   } = $props();
+  let remember = $state(false);
   const { config } = viewContext();
   const line = $derived(rowModelLine(model, underway));
   const offered = $derived(target !== undefined && model.change !== undefined);
@@ -36,9 +38,10 @@
     if (!target) return;
     // Done with nothing changed leaves a row that follows Model defaults following them.
     const current = model.choice;
-    if (choice !== "default" && model.from !== "changed" && current && choice.agentId === current.agentId && choice.model === current.model && choice.effort === current.effort) { open = false; reason = undefined; return; }
+    if (!remember && choice !== "default" && model.from !== "changed" && current && choice.agentId === current.agentId && choice.model === current.model && choice.effort === current.effort) { open = false; reason = undefined; return; }
     busy = true;
-    const answer = await changeModel(config, target, choice);
+    const answer = await changeModel(config, target, choice, remember && choice !== "default");
+    remember = false;
     busy = false;
     if (answer.ok) { open = false; reason = undefined; } else reason = answer.reason;
   }
@@ -49,6 +52,7 @@
     {#if line}<span class="model" data-model-state={model.state}>{line}</span>{/if}
     {#if model.fallback?.used}<span class="tag" data-fallback>Fallback</span>{/if}
     {#if model.claudeCodeMissing}<span class="note">{CLAUDE_CODE_MISSING_NOTE}</span>{/if}
+    {#if model.from === "saved"}<span class="changed">Saved for every PRD{#if offered && model.useDefault}{" · "}<button type="button" class="link" disabled={!connected || busy} onclick={() => save("default")}>Use the default</button>{/if}</span>{/if}
     {#if model.from === "changed"}<span class="changed">Changed by you{#if offered && model.useDefault}{" · "}<button type="button" class="link" disabled={!connected || busy} onclick={() => save("default")}>Use the default</button>{/if}</span>{/if}
     {#if offered && !open}<button type="button" class="link" disabled={!connected || busy || !model.change!.available} onclick={start}>Change</button>{/if}
     {#if offered && open}<button type="button" class="link" disabled={!connected || busy} onclick={() => save({ agentId: draft.agentId, model: draft.value, ...(draft.effort ? { effort: draft.effort } : {}) })}>Done</button><button type="button" class="link quiet" disabled={busy} onclick={() => { open = false; reason = undefined; }}>Cancel</button>{/if}
@@ -57,6 +61,7 @@
     {#if notUsed}<span class="full note" data-fallback-not-used>{notUsed}</span>{/if}
     {#if headsUp}<span class="full note" data-forecast>{headsUp}</span>{/if}
     {#if open}<span class="full"><ModelEditor agents={rowEditorAgents(agents)} agentId={draft.agentId} value={draft.value} effort={draft.effort} {label} disabled={!connected || busy} onchange={(choice) => (draft = choice)} /></span>{/if}
+    {#if open && rememberSkill}<label class="full note"><input type="checkbox" bind:checked={remember} disabled={!connected || busy} /> Use this for <code>{rememberSkill}</code> on every PRD</label>{/if}
     {#if reason}<span class="problem">{reason}</span>{/if}
   </span>
 {/if}

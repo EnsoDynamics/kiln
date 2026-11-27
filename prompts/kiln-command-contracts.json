@@ -2343,11 +2343,11 @@
         "model"
       ],
       "group": "models",
-      "purpose": "Change the agent, model and effort of one phase that hasn't started, or this PRD's Audits choice, in a run underway; or return either to its default.",
+      "purpose": "Change the agent, model and effort of one phase or requirements stage that hasn't started, or this PRD's Audits choice, in a run underway; or return any of them to its default. A stage's choice can be saved for its skill on every PRD.",
       "side_effect": "change",
       "implemented": true,
       "availability": "Available on a compatible live controller with the model feature, in a run underway that isn't complete; status reports current eligibility, and each activity's model.change says whether its phase can change.",
-      "usage": "kiln model <PRD-path> (--phase <id> | --audits) (--agent <claude_code|codex> --model <value> [--effort <value>] | --use-default) --only-if-status-matches <token> --command-id <id> [--json]",
+      "usage": "kiln model <PRD-path> (--phase <id> | --stage <row key or id> [--remember] | --audits) (--agent <claude_code|codex> --model <value> [--effort <value>] | --use-default) --only-if-status-matches <token> --command-id <id> [--json]",
       "arguments": [
         {
           "name": "PRD-path",
@@ -2367,6 +2367,14 @@
         "phase": {
           "value": "id",
           "source": "A phase with no child phases in the current plan, as kiln status lists it. Refused once the phase has started, while its start is unknown, while a launch of it is under way or its session's process runs, and once it is finished."
+        },
+        "stage": {
+          "value": "row key or id",
+          "source": "A requirements stage row that hasn't started, by its key (such as technical-design-writing-standards#1, kiln:early or kiln:next) or its activity id, as kiln status lists it under requirements.rows. Refused once the stage has started or finished, and while a launch of it is under way."
+        },
+        "remember": {
+          "value": null,
+          "source": "With --stage: save the choice for the stage's skill in Model defaults, so every stage running that skill on every PRD on this computer uses it, and the row follows it. Kept as the model's family when it has one. Not offered for the Next stage row, which runs no named skill."
         },
         "audits": {
           "value": null,
@@ -2401,6 +2409,7 @@
         {
           "exactly_one": [
             "phase",
+            "stage",
             "audits"
           ]
         },
@@ -2421,12 +2430,19 @@
             "effort",
             "use-default"
           ]
+        },
+        {
+          "at_most_one": [
+            "remember",
+            "use-default"
+          ]
         }
       ],
       "limits": [
         "Changing work requires a matching compatible live controller, an available model control, --only-if-status-matches and --command-id.",
         "A phase id that isn't a phase with no child phases in the current plan is target_not_found. A model or effort the agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, or a model list that can't be read is invalid_input. A phase that can't change now is control_unavailable, with the reason.",
-        "A phase that has started keeps what it started on; nothing changes it."
+        "A phase that has started keeps what it started on; nothing changes it.",
+        "--remember needs --stage and a choice; a stage that runs no named skill can't be remembered."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
@@ -2498,6 +2514,28 @@
             "new-unique-id",
             "--json"
           ]
+        },
+        {
+          "request": "Run the design refinement on Codex · GPT Sol at extra high effort on every PRD.",
+          "argv": [
+            "kiln",
+            "model",
+            "/work/shop/docs/prds/orders",
+            "--stage",
+            "autonomous-design-refinement#1",
+            "--agent",
+            "codex",
+            "--model",
+            "gpt-6.2-sol",
+            "--effort",
+            "xhigh",
+            "--remember",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
         }
       ],
       "error_meanings": {
@@ -2544,7 +2582,7 @@
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
         "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold), skills (each choice saved for a requirements stage's skill: skill, agentId, agent, name, effort, and family or model) and agents (each installed agent's families with their efforts, and its readiness).",
         "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
@@ -2639,7 +2677,7 @@
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
         "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold), skills (each choice saved for a requirements stage's skill: skill, agentId, agent, name, effort, and family or model) and agents (each installed agent's families with their efforts, and its readiness).",
         "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
@@ -2667,6 +2705,181 @@
             "haiku",
             "--first-effort",
             "medium",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
+        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+      }
+    },
+    {
+      "path": [
+        "model-defaults",
+        "remember"
+      ],
+      "group": "models",
+      "purpose": "Save a choice for one requirements stage skill on every PRD on this computer.",
+      "side_effect": "computer_setting",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
+      "usage": "kiln model-defaults remember --skill <name> --agent <claude_code|codex> --model <family or model> [--effort <value>] [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "skill": {
+          "value": "name",
+          "source": "The skill the method names for the stage, as kiln status gives it on a requirements row's skill."
+        },
+        "agent": {
+          "value": "claude_code|codex",
+          "source": "The agent to run on."
+        },
+        "model": {
+          "value": "family or model",
+          "source": "A model family (fable, opus, sonnet, haiku, sol, astra), kept as the newest version each time a stage launches, or an exact model value from the agent's list."
+        },
+        "effort": {
+          "value": "value",
+          "source": "An effort the model offers."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "required": [
+            "skill"
+          ]
+        },
+        {
+          "required": [
+            "agent"
+          ]
+        },
+        {
+          "required": [
+            "model"
+          ]
+        }
+      ],
+      "limits": [
+        "Applies to each stage the plan or the latest report says runs the skill, on every PRD on this computer, unless that PRD changed the stage itself. A stage that has started keeps what it started on.",
+        "When no stage in the plan runs the skill, the choice is not applied and the stage that replaced it runs on its row's default.",
+        "Takes neither --command-id nor --only-if-status-matches."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The Model defaults file: <state root>/model-defaults.json.",
+        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold), skills (each choice saved for a requirements stage's skill: skill, agentId, agent, name, effort, and family or model) and agents (each installed agent's families with their efforts, and its readiness).",
+        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
+        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Run the design refinement on Opus at high effort on every PRD.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "remember",
+            "--skill",
+            "autonomous-design-refinement",
+            "--agent",
+            "claude_code",
+            "--model",
+            "opus",
+            "--effort",
+            "high",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
+        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+      }
+    },
+    {
+      "path": [
+        "model-defaults",
+        "forget"
+      ],
+      "group": "models",
+      "purpose": "Forget the choice saved for one requirements stage skill.",
+      "side_effect": "computer_setting",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
+      "usage": "kiln model-defaults forget --skill <name> [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "skill": {
+          "value": "name",
+          "source": "The skill whose saved choice to forget, as kiln model-defaults lists it."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "required": [
+            "skill"
+          ]
+        }
+      ],
+      "limits": [
+        "Stages that ran on the saved choice go back to their Model defaults row. Restore leaves saved choices; each is forgotten on its own.",
+        "Takes neither --command-id nor --only-if-status-matches."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The Model defaults file: <state root>/model-defaults.json.",
+        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold), skills (each choice saved for a requirements stage's skill: skill, agentId, agent, name, effort, and family or model) and agents (each installed agent's families with their efforts, and its readiness).",
+        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
+        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Stop using the saved choice for the design refinement.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "forget",
+            "--skill",
+            "autonomous-design-refinement",
             "--json"
           ]
         }
@@ -2709,7 +2922,7 @@
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
         "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold), skills (each choice saved for a requirements stage's skill: skill, agentId, agent, name, effort, and family or model) and agents (each installed agent's families with their efforts, and its readiness).",
         "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
@@ -2790,7 +3003,7 @@
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
         "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "data": "rows (demanding, standard, mechanical, audits, requirements, refining_design; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold), skills (each choice saved for a requirements stage's skill: skill, agentId, agent, name, effort, and family or model) and agents (each installed agent's families with their efforts, and its readiness).",
         "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },

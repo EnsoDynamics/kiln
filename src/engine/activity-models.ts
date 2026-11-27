@@ -97,6 +97,8 @@ export interface ModelContext {
   claudeCodeInstalled: boolean;
   lists: Partial<Record<AgentId, ModelList>>;
   session(key: string, id: string): SessionRecord | undefined;
+  /** A requirements stage key's skill and whether its plan entry makes the design ready, from the plan the PRD shows (Kiln Requirements Stages, "Models"). */
+  stageInfo?(stageKey: string): { skill?: string; design?: boolean };
   /** A session's first response without reading the whole record each time; defaults to reading it. */
   firstResponse?(key: string, id: string): string | undefined;
 }
@@ -126,6 +128,8 @@ export function auditsChangePlace(from: ChoiceSource): string {
  */
 export function launchSource(key: string, launch: Pick<NonNullable<SessionRecord["launch"]>, "from" | "fallback">): string {
   if (launch.fallback?.used) return "The fallback, from Model defaults' Fallback column. Change it in Model defaults.";
+  if (activityKeyKind(key) === "requirements") return launch.from === "changed" ? "A change for this PRD. Change it on its row in the requirements plan."
+    : launch.from === "saved" ? "Saved for every PRD for this stage's skill. Change it on its row in the requirements plan." : "Model defaults. Change it in Model defaults, or on its row in the requirements plan.";
   if (!isPhaseActivity(key)) return launch.from === "changed" ? `A change for this PRD. ${auditsChangePlace("changed")}` : `Model defaults. ${auditsChangePlace("model_defaults")}`;
   return launch.from === "changed" ? "A change for this PRD. Change it on its row in the phase plan." : "Model defaults. Change it in Model defaults, or on its row in the phase plan.";
 }
@@ -137,10 +141,12 @@ export function tierView(phase: Pick<RecordedPlanPhase, "modelTier"> | undefined
 }
 
 /** The Model defaults row an activity uses: a phase's tier's, Not rated as Standard; every other activity Audits. */
-export function rowOfActivity(plan: RecordedPlanPhase[], key: string, record?: PrdRecord): DefaultsRow {
+export function rowOfActivity(plan: RecordedPlanPhase[], key: string, record?: PrdRecord, stageInfo?: ModelContext["stageInfo"]): DefaultsRow {
   if (activityKeyKind(key) === "requirements") {
-    // A feedback session always runs on Requirements stages, inside the design span too (Kiln Requirements Stages, "Models").
-    if (record?.requirements?.stages.some(stage => key === `req-${stage.activityId}` && stage.task === "feedback")) return "requirements";
+    // Plan reads and feedback sessions always run on Requirements stages, inside the design span too (Kiln Requirements Stages, "Models").
+    if (key === PLAN_READ_KEY || record?.requirements?.stages.some(stage => key === `req-${stage.activityId}` && stage.task === "feedback")) return "requirements";
+    // A planned row shows Refining the design when its entry makes the design ready.
+    if (key.startsWith(PLANNED_STAGE_PREFIX)) return stageInfo?.(key.slice(PLANNED_STAGE_PREFIX.length)).design ? "refining_design" : "requirements";
     return key === "req-design" || key !== "req-next" && record?.requirements?.designSpan ? "refining_design" : "requirements";
   }
   if (!isPhaseKey(key) || key === PR_PHASE_KEY) return defaultsRowFor("audits");
@@ -151,10 +157,37 @@ export function rowOfActivity(plan: RecordedPlanPhase[], key: string, record?: P
 function entryOf(record: PrdRecord, key: string) {
   const choices = record.settings.modelChoices;
   if (activityKeyKind(key) === "requirements") {
-    const stage = record.requirements?.stages.find(stage => key === `req-${stage.activityId}`);
-    return choices.stages?.[stage?.key ?? "kiln:next"];
+    const stageKey = requirementsStageKey(record, key);
+    return stageKey === undefined ? undefined : choices.stages?.[stageKey];
   }
+
   return isPhaseKey(key) && key !== PR_PHASE_KEY ? choices.phases[key] : choices.audits;
+}
+
+/** The key a plan read resolves its choice under: Requirements stages, with no entry of its own and no remembered choice. */
+export const PLAN_READ_KEY = "req-plan";
+/** A planned requirements row's key, `req-row:<stage key>`, which resolves as that stage would (Kiln Requirements Stages, "Models"). */
+export const PLANNED_STAGE_PREFIX = "req-row:";
+
+/** The stage key a requirements activity or row has its own entry under; none for a plan read or a feedback session's no-row key. */
+export function requirementsStageKey(record: Pick<PrdRecord, "requirements">, key: string): string | undefined {
+  if (key === PLAN_READ_KEY || key === "req-design") return undefined;
+  if (key.startsWith(PLANNED_STAGE_PREFIX)) return key.slice(PLANNED_STAGE_PREFIX.length);
+  const stage = record.requirements?.stages.find(stage => key === `req-${stage.activityId}`);
+  return stage?.key ?? "kiln:next";
+}
+
+/**
+ * The skill a requirements activity or row is expected to run, which a remembered choice is
+ * kept against (AC-MODEL-03): its expected stage's, or for a review row the plan's review skill.
+ * The Next stage row has none, so no remembered choice applies to it.
+ */
+export function requirementsSkill(record: Pick<PrdRecord, "requirements">, key: string, stageInfo?: ModelContext["stageInfo"]): string | undefined {
+  const stageKey = requirementsStageKey(record, key);
+  if (stageKey === undefined || stageKey === "kiln:next") return undefined;
+  const stage = record.requirements?.stages.find(one => key === `req-${one.activityId}`);
+  if (stage?.task === "feedback") return undefined;
+  return stage?.expected?.skill ?? stageInfo?.(stageKey).skill;
 }
 
 /** The session whose first response started the activity, when it has started (AC-PICK-04). */
@@ -183,7 +216,7 @@ export function defaultsNow(context: Pick<ModelContext, "defaultsPath">): { defa
 export function notStartedChoice(context: ModelContext, key: string): ActivityChoice {
   const entry = entryOf(context.record, key);
   const now = defaultsNow(context);
-  const row = rowOfActivity(context.plan, key, context.record);
+  const row = rowOfActivity(context.plan, key, context.record, context.stageInfo);
   if ("problem" in now) {
     // A choice of the PRD's own needs no Model defaults; only a Model defaults choice takes the file's reason.
     const kept = activityKeyKind(key) === "requirements" ? undefined : context.record.settings.modelChoices.kept;
@@ -191,14 +224,17 @@ export function notStartedChoice(context: ModelContext, key: string): ActivityCh
     if (own) return { ...resolveModel(own, context.lists[own.agentId] ?? { pending: true }), from: "changed" };
     return { agentId: context.claudeCodeInstalled ? "claude_code" : "codex", modelName: "", problem: now.problem, from: "model_defaults", row };
   }
-  return resolveNotStarted({ defaults: now.defaults, entry, kept: activityKeyKind(key) === "requirements" ? undefined : context.record.settings.modelChoices.kept, row, claudeCodeInstalled: context.claudeCodeInstalled, lists: context.lists });
+  const requirements = activityKeyKind(key) === "requirements";
+  const skill = requirements ? requirementsSkill(context.record, key, context.stageInfo) : undefined;
+  const saved = skill === undefined ? undefined : now.defaults.skills[skill];
+  return resolveNotStarted({ defaults: now.defaults, entry, kept: requirements ? undefined : context.record.settings.modelChoices.kept, ...(saved ? { saved } : {}), row, claudeCodeInstalled: context.claudeCodeInstalled, lists: context.lists });
 }
 
 /** The activity's fallback (AC-FALLBACK-02), none when it is on the choice's own agent or Model defaults can't be read. */
 export function activityFallback(context: ModelContext, key: string, choice: Pick<ResolvedChoice, "agentId">): ResolvedChoice | undefined {
   const now = defaultsNow(context);
   if ("problem" in now) return undefined;
-  return fallbackFor({ defaults: now.defaults, row: rowOfActivity(context.plan, key, context.record), lists: context.lists }, choice);
+  return fallbackFor({ defaults: now.defaults, row: rowOfActivity(context.plan, key, context.record, context.stageInfo), lists: context.lists }, choice);
 }
 
 /** A session's recorded agent, model and effort, with the model named as its agent reported it. */

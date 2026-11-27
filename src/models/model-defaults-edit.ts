@@ -76,7 +76,25 @@ export function checkFamilyChoice(choice: FamilyChoice, lists: Partial<Record<Ag
 export type DefaultsChange =
   | { set: { row: DefaultsRow; first?: FamilyChoice; fallback?: FamilyChoice } }
   | { restore: true }
-  | { fallback: { enabled?: boolean; threshold?: number } };
+  | { fallback: { enabled?: boolean; threshold?: number } }
+  /** A requirements stage's choice remembered for every PRD against its skill, and forgetting it (Kiln Requirements Stages AC-MODEL-03, AC-MODEL-05). */
+  | { remember: { skill: string; choice: FamilyChoice | ModelChoice } }
+  | { forget: { skill: string } };
+
+/**
+ * The form a remembered choice is kept in (technical design, "Form of a remembered stage
+ * choice"): the model's family when it has one, as a Model defaults row stores it, otherwise the
+ * exact model, so a choice kept for every PRD doesn't pin last year's version.
+ *
+ *   rememberedForm({ agentId: "codex", model: "gpt-6.2-sol", effort: "high" })  // { agentId: "codex", family: "sol", effort: "high" }
+ *   rememberedForm({ agentId: "claude_code", model: "opus", effort: "high" })     // { agentId: "claude_code", family: "opus", effort: "high" }
+ */
+export function rememberedForm(choice: ModelChoice): FamilyChoice | ModelChoice {
+  const effort = choice.effort ? { effort: choice.effort } : {};
+  if (choice.agentId === "codex") { const parsed = codexFamilyOf(choice.model); return parsed ? { agentId: "codex", family: parsed.family, ...effort } : choice; }
+  const family = /^claude-([a-z]+)-\d/.exec(choice.model)?.[1] ?? (/^[a-z]+$/.test(choice.model) ? choice.model : undefined);
+  return family ? { agentId: "claude_code", family, ...effort } : choice;
+}
 
 type RawFile = { schemaVersion: number; skills?: Record<string, FamilyChoice | ModelChoice>; rows?: Partial<Record<DefaultsRow, { first?: FamilyChoice; fallback?: FamilyChoice }>>; fallback?: { enabled?: boolean; threshold?: number } };
 
@@ -100,6 +118,21 @@ export function editModelDefaults(path: string, change: DefaultsChange, lists: P
   raw.schemaVersion = MODEL_DEFAULTS_SCHEMA;
   if ("restore" in change) {
     writeJsonAtomically(path, { schemaVersion: MODEL_DEFAULTS_SCHEMA, ...(raw.skills ? { skills: raw.skills } : {}), ...(raw.fallback ? { fallback: raw.fallback } : {}) });
+    return settled(path);
+  }
+  if ("forget" in change) {
+    if (!raw.skills?.[change.forget.skill]) return { ok: false, status: 422, reason: `No choice is saved for ${change.forget.skill}.` };
+    delete raw.skills[change.forget.skill];
+    writeJsonAtomically(path, raw);
+    return settled(path);
+  }
+  if ("remember" in change) {
+    const { skill, choice } = change.remember;
+    if (!skill.trim()) return { ok: false, status: 400, reason: "Name the skill the choice is saved for." };
+    const checked = "family" in choice ? checkFamilyChoice(choice, lists) : checkModelChoice(choice, lists);
+    if (!checked.ok) return checked;
+    raw.skills = { ...raw.skills, [skill]: checked.choice };
+    writeJsonAtomically(path, raw);
     return settled(path);
   }
   if ("fallback" in change) {
@@ -146,6 +179,8 @@ export interface FamilyOption { family: string; familyName: string; modelName: s
 export interface ModelDefaultsView {
   rows: Record<DefaultsRow, { first: DefaultsSideView; fallback: DefaultsSideView }>;
   fallback: { enabled: boolean; threshold: number };
+  /** Choices remembered for every PRD against a requirements stage's skill (Kiln Requirements Stages AC-MODEL-03). */
+  skills: { skill: string; agent: string; agentId: AgentId; name: string; effort?: string; family?: string; model?: string }[];
   /** `readinessKnown` is false while Kiln hasn't read that agent's readiness; then no readiness is claimed. */
   agents: { agentId: AgentId; agent: string; installed: boolean; readinessKnown: boolean; families: FamilyOption[]; modelListError?: string; readinessErrors?: string[] }[];
 }
@@ -175,5 +210,6 @@ export function modelDefaultsView(path: string, lists: Partial<Record<AgentId, M
     return { agentId: choice.agentId, agent: AGENT_NAMES[choice.agentId], family: choice.family, familyName: familyName(choice), ...(choice.effort ? { effort: choice.effort } : {}), ...(found?.entry ? { modelName: found.entry.displayName } : {}), ...(found?.problem ? { problem: found.problem } : !list?.models ? { problem: listRefusal(choice.agentId, list)! } : {}), set };
   };
   const rows = Object.fromEntries(DEFAULTS_ROWS.map(row => { const one = read.defaults.rows[row]; return [row, { first: side(one.first, one.firstSet), fallback: side(one.fallback, one.fallbackSet) }]; })) as ModelDefaultsView["rows"];
-  return { ok: true, view: { rows, fallback: read.defaults.fallback, agents: agents.map(agent => ({ agentId: agent.agentId, agent: AGENT_NAMES[agent.agentId], installed: agent.installed, readinessKnown: agent.readinessKnown ?? true, families: lists[agent.agentId]?.models ? familyOptions(agent.agentId, lists[agent.agentId]!.models!) : [], ...(lists[agent.agentId]?.error ? { modelListError: lists[agent.agentId]!.error! } : {}), ...(agent.readinessErrors?.length ? { readinessErrors: agent.readinessErrors } : {}) })) } };
+  const skills = Object.entries(read.defaults.skills).map(([skill, choice]) => ({ skill, agentId: choice.agentId, agent: AGENT_NAMES[choice.agentId], name: "family" in choice ? familyName(choice) : choice.model, ...(choice.effort ? { effort: choice.effort } : {}), ...("family" in choice ? { family: choice.family } : { model: choice.model }) }));
+  return { ok: true, view: { rows, fallback: read.defaults.fallback, skills, agents: agents.map(agent => ({ agentId: agent.agentId, agent: AGENT_NAMES[agent.agentId], installed: agent.installed, readinessKnown: agent.readinessKnown ?? true, families: lists[agent.agentId]?.models ? familyOptions(agent.agentId, lists[agent.agentId]!.models!) : [], ...(lists[agent.agentId]?.error ? { modelListError: lists[agent.agentId]!.error! } : {}), ...(agent.readinessErrors?.length ? { readinessErrors: agent.readinessErrors } : {}) })) } };
 }

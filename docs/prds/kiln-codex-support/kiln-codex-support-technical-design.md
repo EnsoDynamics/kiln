@@ -69,6 +69,8 @@ The existing private ownership helper owns the five-second deadline on its OS pr
 
 ### Selection and readiness
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Reading it: a plan read checks the entry skill through the fingerprint's resolution, not the build skills for its launch directory).
+
 Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`, §Agents (readiness for every needed agent; no agent fixed at Start).
 
 `kiln run` performs the common document/Git/GitHub checks before opening Documents found. It discovers agent executables without requiring either one, so a Codex-only installation reaches the chooser. A new PRD initially selects Claude Code; a missing initial Claude installation is a selection-specific readiness message with Start disabled, not a terminal startup failure.
@@ -102,6 +104,8 @@ Replaces in part: `docs/prds/kiln-v1/technical-design.md`, §Account and Usage (
 ## Codex Authority and Conversation Lifecycle
 
 ### Unattended execution profile
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Reading it: a plan read's only writable root is its plan directory, with no assigned repositories).
 
 Superseded in part by: `docs/changes/kiln-development-deployments/kiln-development-deployments-technical-design.md`, §Session Contract and Delivery Interface (saved development authority on the unchanged protected provider). Restricted execution behavior remains in force.
 

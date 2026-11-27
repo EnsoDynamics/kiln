@@ -39,7 +39,10 @@ export interface Harness {
   stateDirectory: string;
   tools: { git: string; gh: string; claude: string };
   /** Every launch of the stand-in `claude`: its arguments, working directory and prompt. */
+  /** Every session launch but requirements plan reads, which take their own scripts and belong to no PRD. */
   claudeCalls(): { args: string[]; cwd: string; prompt: string }[];
+  /** The requirements plan reads launched. */
+  planReadCalls(): { args: string[]; cwd: string; prompt: string }[];
   ghCalls(): string[][];
   setPulls(pulls: unknown[] | { fail: string }): void;
   /** Sets what `gh pr view` answers, keyed "<owner>/<name>#<n>" (see recordedPullRequest), keeping the stand-in's other state. */
@@ -67,6 +70,8 @@ export interface HarnessOptions {
   /** Installs a `build-preflight` skill, so every Start runs the build preflight first (build preflight AC-PREFLIGHT-01). */
   preflight?: boolean;
   sessions: ScenarioSession[];
+  /** Requirements plan reads, each taking the next; with none, a read returns no plan. */
+  planSessions?: ScenarioSession[];
   folder?: string;
   sourceBrief?: string;
   files?: Record<string, string>;
@@ -102,6 +107,8 @@ function kilnGitCalls(gitLog: string): string[] {
     .map((event) => event.argv!.slice(1).join(" "));
 }
 
+const PLAN_READ_PROMPT = /^Read the installed Enso Method's requirements plan/;
+
 export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const auditGate = options.auditCycles ? undefined : vi.spyOn(auditWorkflow, "auditNext").mockResolvedValue("final_delivery");
   const sandbox = createSandbox();
@@ -125,7 +132,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const standIns = installStandIns(join(sandbox.root, "bin"));
   const scenarioPath = join(sandbox.root, "scenario.json");
   const ghStatePath = join(sandbox.root, "gh-state.json");
-  writeFileSync(scenarioPath, JSON.stringify({ sessions: options.sessions }));
+  writeFileSync(scenarioPath, JSON.stringify({ sessions: options.sessions, ...(options.planSessions ? { planSessions: options.planSessions } : {}) }));
   writeFileSync(ghStatePath, JSON.stringify({ pulls: [] }));
   const env: NodeJS.ProcessEnv = { ...sandbox.env, KILN_STANDIN_SCENARIO: scenarioPath, KILN_STANDIN_GH_STATE: ghStatePath };
   const realGit = findExecutable("git", env)!;
@@ -194,7 +201,8 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     ghStatePath,
     stateDirectory,
     tools,
-    claudeCalls: () => readJsonLines(`${scenarioPath}.calls.jsonl`),
+    claudeCalls: () => readJsonLines<{ args: string[]; cwd: string; prompt: string }>(`${scenarioPath}.calls.jsonl`).filter(call => !PLAN_READ_PROMPT.test(call.prompt)),
+    planReadCalls: () => readJsonLines<{ args: string[]; cwd: string; prompt: string }>(`${scenarioPath}.calls.jsonl`).filter(call => PLAN_READ_PROMPT.test(call.prompt)),
     ghCalls: () => readJsonLines(`${ghStatePath}.calls.jsonl`),
     setPulls: (pulls) => writeFileSync(ghStatePath, JSON.stringify(Array.isArray(pulls) ? { pulls } : pulls)),
     useGithubOrigin: () => {

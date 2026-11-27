@@ -21,3 +21,7 @@ Nothing later in the plan. The changelog entry and the release wait for the PRD'
 - The branch-holding test is shared by AC-BEGIN-08 and the home screen's choice of which copy of a PRD to read.
 - HOME-004 is open with the stakeholder; build its proposed answer.
 - Real-session proof from Delivery owned here: a stage session continuing a PRD started by hand.
+
+## What Phase 3 hands Phase 4
+- The plan read lives in the PRD's Kiln: `Engine.refreshRequirementsPlan` decides when to read (fingerprint, saved failure, billing wait) and `startPlanRead` runs it. The parts with no engine in them are `src/requirements/plan.ts` (plan file, `methodOf`, `takePlanLock`) and `src/requirements/plan-read.ts` (`runPlanRead`). The home process has no engine, so it starts its read from those two modules. It never starts the read on a metered route.
+- `plannedRows(plan, state, { fromStart: true })` in `src/requirements/rows.ts` lists every entry from the first, for the plan before Start headed by `standsAt`. It is not yet called anywhere. An unknown standing already shows the `kiln:next` row first (`requirementsView` in `src/engine/snapshot.ts`).

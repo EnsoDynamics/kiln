@@ -34,7 +34,7 @@ import { OwnershipError, requireExited, requireHistory, requireNoTerminal } from
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { runHelper } from "../platform/helper-process.js";
 import { runGit } from "./git-reads.js";
-import { startCheckDocuments, type DocumentsFound } from "./snapshot.js";
+import { requirementsView, startCheckDocuments, type DocumentsFound } from "./snapshot.js";
 import { discardResetState, freshResetRecord, resetFailureReason, resetForgets, type ResetPreview } from "./reset.js";
 import { openPullRequest } from "./start-from.js";
 import { ControlFailure } from "../control/result.js";
@@ -86,9 +86,9 @@ import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
 import { AGENT_IDS, AGENT_NAMES, type AgentId, type CodexUsageRecovery, type RecordedPlanPhase } from "../state/records.js";
 import { modelDefaultsPath, readModelDefaults, type ModelChoice } from "../models/model-defaults.js";
-import { checkModelChoice } from "../models/model-defaults-edit.js";
+import { checkModelChoice, editModelDefaults, rememberedForm } from "../models/model-defaults-edit.js";
 import { continuedModelChoices } from "../models/keep.js";
-import { activityFallback, auditsChangePlace, choiceView, launchMarks, launchSource, ranOnView, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
+import { activityFallback, auditsChangePlace, choiceView, launchMarks, launchSource, ranOnView, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, startedSession, tierView, PLAN_READ_KEY, PLANNED_STAGE_PREFIX, requirementsSkill, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
 import { firstResponseInSavedEvents } from "../models/start-line.js";
 import type { ActivityChoice, ModelList, ResolvedChoice } from "../models/resolver.js";
 import { choiceWords, decideLaunch, firstOverThreshold, limitWords, type DecisionChoice, type LaunchFallback, type UsageSide } from "../models/launch-decision.js";
@@ -110,7 +110,10 @@ import { isAncestorOf } from "../plan/phase-ids.js";
 import { leavesOf, namedRepositories, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
 import { endProcessTree } from "../platform/helper-process.js";
 import type { KeepAwakeHolder } from "../platform/keep-awake.js";
-import { isProcessLive } from "../platform/process-start-time.js";
+import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
+import { findFailure, findPlan, methodOf, planChanges, planKeys, readPlanFile, remapCursor, takePlanLock, updatePlanFile, PLAN_FILE, type PlanFile, type RequirementsPlan } from "../requirements/plan.js";
+import { runPlanRead } from "../requirements/plan-read.js";
+import { advanceCursor, freeKey, plannedNext, plannedRows as plannedRowsOf } from "../requirements/rows.js";
 import { platformSleepReader, type SleepReader } from "../platform/sleep-readings.js";
 import {
   sessionFiles,
@@ -662,6 +665,8 @@ export class Engine {
     this.startReaders();
     this.watchModelDefaults();
     void this.refreshBilling().catch(() => this.changed());
+    // The plan read starts when `kiln run` starts (AC-PLAN-03); Start never waits for it (AC-PLAN-05).
+    if (this.requirementsOpen) { this.watchRequirementsPlan(); queueMicrotask(() => void this.refreshRequirementsPlan().catch(() => this.changed())); }
   }
 
   async refreshCommand(id: string) {
@@ -946,7 +951,7 @@ export class Engine {
       case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
       case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
       case "take-over": return this.acceptTakeover(inputs.target, receipt);
-      case "model": answer = await this.changeModel(typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits", inputs.use_default === true ? "default" : { agentId: inputs.agent_id as AgentId, model: inputs.model as string, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) });
+      case "model": answer = typeof inputs.stage === "string" ? await this.changeStageModel(inputs.stage, inputs.use_default === true ? "default" : { agentId: inputs.agent_id as AgentId, model: inputs.model as string, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) }, inputs.remember === true) : await this.changeModel(typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits", inputs.use_default === true ? "default" : { agentId: inputs.agent_id as AgentId, model: inputs.model as string, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) });
         break;
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
@@ -1639,7 +1644,11 @@ export class Engine {
   async billingCommand(action: "approval" | "clear", body: Record<string, unknown>) {
     if (!this.isNeeded("claude_code")) throw new BillingError("invalid_request", "No activity of this run uses Claude Code, so it has no billing approval to give.", 400);
     try { return await this.billing.command(action, body, this.billingCwd, this.sessionEnv()); }
-    finally { this.changed(); }
+    finally {
+      // A plan read waiting for this PRD's billing approval starts once it is given (AC-PLAN-03).
+      if (action === "approval" && this.planWaitsForBilling) void this.refreshRequirementsPlan({ force: true }).catch(() => this.changed());
+      this.changed();
+    }
   }
 
   private readonly defaultsPath: string;
@@ -1659,6 +1668,7 @@ export class Engine {
       lists,
       session: (key, id) => this.sessionRecord(key, id),
       firstResponse: (key, id) => this.sessionFirstResponse(key, id),
+      stageInfo: stageKey => this.stageInfo(stageKey),
     };
   }
 
@@ -2058,7 +2068,17 @@ export class Engine {
    * session, which stand on the Audits choice until the pull request session finishes.
    */
   private unfinishedActivityKeys(): { key: string; row: string }[] {
-    if (this.requirementsOpen) return this.isUnderway ? [{ key: this.current?.phaseKey ?? "req-next", row: "Requirements stages" }] : [{ key: "req-next", row: "Requirements stages" }, { key: "req-design", row: "Refining the design" }];
+    if (this.requirementsOpen) {
+      // With a plan, every planned stage row counts (Kiln Requirements Stages, "Requirements start checks"); without one, the two rows' first choices.
+      const plan = this.requirementsPlan;
+      const state = this.record.requirements!;
+      const current = this.current && activityKeyKind(this.current.phaseKey) === "requirements" ? this.current.phaseKey : undefined;
+      if (!plan) return this.isUnderway ? [{ key: current ?? "req-next", row: "Requirements stages" }] : [{ key: "req-next", row: "Requirements stages" }, { key: "req-design", row: "Refining the design" }];
+      const currentKey = current && state.stages.find(stage => `req-${stage.activityId}` === current)?.key;
+      const unknown = !!state.standing && "unknown" in state.standing || !!state.cursorLost;
+      return [...(current ? [{ key: current, row: this.titleOf(current) }] : unknown ? [{ key: "req-next", row: "Next stage" }] : []),
+        ...plannedRowsOf(plan, state, { ...(currentKey ? { currentKey } : {}), next: false }).map(row => ({ key: `${PLANNED_STAGE_PREFIX}${row.key}`, row: row.title }))];
+    }
     const rows: { key: string; row: string }[] = [];
     const finished = (key: string) => !!this.record.phases[key]?.doneAt;
     const preflight = latestPreflight(this.record);
@@ -2220,7 +2240,7 @@ export class Engine {
   modelControls(key: string, label: string, view: ModelView): Pick<ModelView, "change" | "useDefault"> {
     if (view.state !== "will_run_on") return {};
     const reason = this.modelChangeRefusal(key, label);
-    return { change: reason === undefined ? { available: true } : { available: false, reason }, ...(reason === undefined && view.from === "changed" ? { useDefault: true as const } : {}) };
+    return { change: reason === undefined ? { available: true } : { available: false, reason }, ...(reason === undefined && (view.from === "changed" || view.from === "saved") ? { useDefault: true as const } : {}) };
   }
 
   /**
@@ -2241,6 +2261,47 @@ export class Engine {
     if (choice === "default") return { ok: true, key, choice };
     const checked = checkModelChoice(choice, this.modelContext.lists);
     return checked.ok ? { ok: true, key, choice: checked.choice } : { ok: false, status: checked.status as 400 | 422, reason: checked.reason };
+  }
+
+  /**
+   * A change of model for one requirements stage row (AC-MODEL-01, AC-MODEL-03, `POST /api/model`
+   * with `{ stage }`): a row by its key or its activity's id, which hasn't started. `remember`
+   * saves the choice for the row's skill in Model defaults, for every PRD on this computer, and
+   * the row follows it.
+   *
+   *   engine.checkStageModelChange("technical-design-writing-standards#1", { agentId: "claude_code", model: "opus", effort: "high" }, false)
+   */
+  checkStageModelChange(stage: string, choice: ModelChoice | "default", remember: boolean): { ok: true; key: string; stageKey: string; skill?: string; choice: ModelChoice | "default" } | Extract<CommandResult, { ok: false }> {
+    if (!this.requirementsOpen) return { ok: false, status: 409, reason: "This run has no requirements stages to change." };
+    const rows = requirementsView(this).rows.filter(row => row.key !== "build");
+    const row = rows.find(one => one.key === stage || one.activityId === stage);
+    if (!row) return { ok: false, status: 422, reason: `${stage} isn't a requirements stage in this plan. Stages: ${rows.map(one => one.key).join(", ")}.` };
+    if (row.state === "done") return { ok: false, status: 409, reason: `${row.title} is finished; there is nothing to change.` };
+    const key = row.activityId ? `req-${row.activityId}` : row.key === "kiln:next" ? "req-next" : `${PLANNED_STAGE_PREFIX}${row.key}`;
+    const refused = row.activityId ? this.modelChangeRefusal(key, row.title) : undefined;
+    if (refused) return { ok: false, status: 409, reason: refused };
+    const skill = row.key === "kiln:next" ? undefined : requirementsSkill(this.record, key, stageKey => this.stageInfo(stageKey)) ?? row.skill;
+    if (remember && (!skill || choice === "default")) return { ok: false, status: 422, reason: !skill ? "The Next stage row runs no named skill, so a choice can't be saved for it." : "Choose a model to save for every PRD." };
+    const stageKey = this.record.requirements!.stages.find(one => one.activityId === row.activityId)?.key ?? row.key;
+    if (choice === "default") return { ok: true, key, stageKey, ...(skill ? { skill } : {}), choice };
+    const checked = checkModelChoice(choice, this.modelContext.lists);
+    return checked.ok ? { ok: true, key, stageKey, ...(skill ? { skill } : {}), choice: checked.choice } : { ok: false, status: checked.status as 400 | 422, reason: checked.reason };
+  }
+
+  /** Applies a checked stage change: this PRD's entry for the row, or, remembered, a Model defaults choice for its skill. */
+  async changeStageModel(stage: string, choice: ModelChoice | "default", remember: boolean): Promise<CommandResult> {
+    const checked = this.checkStageModelChange(stage, choice, remember);
+    if (!checked.ok) return checked;
+    const stages = this.record.settings.modelChoices.stages ??= {};
+    if (remember && checked.skill && checked.choice !== "default") {
+      const saved = editModelDefaults(this.defaultsPath, { remember: { skill: checked.skill, choice: rememberedForm(checked.choice) } }, this.modelContext.lists);
+      if (!saved.ok) return { ok: false, status: saved.status === 400 ? 400 : saved.status === 422 ? 422 : 409, reason: saved.reason };
+      delete stages[checked.stageKey];
+    } else if (checked.choice === "default") stages[checked.stageKey] = "default";
+    else stages[checked.stageKey] = checked.choice;
+    this.save();
+    this.modelChoicesChanged();
+    return { ok: true };
   }
 
   /** Applies a checked change (before Start directly, in a run through the instruction journal). */
@@ -2342,6 +2403,8 @@ export class Engine {
       this.lastReading = reading;
       this.readingArrived(reading);
     }
+    // A plan read that waited for the agent's model list starts once it arrives.
+    if (this.planProblem?.startsWith("Waiting") && !this.planRun && !this.closed) { this.planProblem = undefined; void this.refreshRequirementsPlan().catch(() => this.changed()); }
     this.changed();
   }
 
@@ -4158,6 +4221,7 @@ export class Engine {
     this.closed = true;
     this.abort.abort();
     this.defaultsWatch?.close();
+    this.planWatch?.close();
     if (this.takeoverTimer) clearInterval(this.takeoverTimer);
     if (this.recoveredTimer) clearInterval(this.recoveredTimer);
     this.offClaude?.();
@@ -6269,11 +6333,252 @@ export class Engine {
     return !!dir && ["technical-design.md", `${basename(dir)}-technical-design.md`].some(file => existsSync(join(this.worktreePath, dir, file)));
   }
 
+  // ---- The requirements plan (Kiln Requirements Stages, technical design "The Requirements Plan") ----
+
+  private planWatch: FSWatcher | undefined;
+  private planFileCache: { key: string; file: PlanFile } | undefined;
+  /** This process's plan read, while it runs. */
+  private planRun: Promise<void> | undefined;
+  /** The installed method the Requirements stages agent resolves for this repository, as last fingerprinted. */
+  planMethod: { agentId: AgentId; fingerprint: string; updatedAt: string; folder: string; skillPath: string } | undefined;
+  /** Why the method couldn't be fingerprinted, or the read can't start yet (never saved). */
+  planProblem: string | undefined;
+  /** The read waits for this PRD's billing approval on a metered route (AC-PLAN-03). */
+  planWaitsForBilling = false;
+
+  /** The state root, which holds the plan file beside Model defaults. */
+  get planRoot(): string { return dirname(this.defaultsPath); }
+
+  /** The plan file as it now stands, read again only when it changed. */
+  planFile(): PlanFile {
+    let key = "missing";
+    try { const stat = statSync(join(this.planRoot, PLAN_FILE)); key = `${stat.mtimeMs}:${stat.size}:${stat.ino}`; } catch { /* No plan file yet. */ }
+    if (this.planFileCache?.key !== key) this.planFileCache = { key, file: readPlanFile(this.planRoot) };
+    return this.planFileCache.file;
+  }
+
+  /** The plan this PRD shows: the one its `planFingerprint` names (technical design, "Reading it"). */
+  get requirementsPlan(): RequirementsPlan | undefined {
+    const fingerprint = this.record.requirements?.planFingerprint;
+    if (!fingerprint) return undefined;
+    const file = this.planFile();
+    const agent = this.planMethod?.agentId;
+    return (agent ? findPlan(file, agent, fingerprint) : undefined) ?? Object.values(file.plans).map(plans => plans[fingerprint]).find(Boolean);
+  }
+
+  /** A stage key's skill and whether its plan entry makes the design ready, from the plan this PRD shows. */
+  stageInfo(stageKey: string): { skill?: string; design?: boolean } {
+    const plan = this.requirementsPlan;
+    if (!plan) return {};
+    if (stageKey === "kiln:early" || stageKey === "kiln:final") return { skill: plan.reviewSkill.skill };
+    const inserted = this.record.requirements?.inserted;
+    if (inserted?.key === stageKey) return { skill: inserted.skill, design: inserted.reaches.includes("design_ready") };
+    const index = planKeys(plan.stages).indexOf(stageKey);
+    if (index >= 0) return { skill: plan.stages[index]!.skill, design: plan.stages[index]!.reaches.includes("design_ready") };
+    const hash = stageKey.lastIndexOf("#");
+    return hash > 0 && !stageKey.startsWith("kiln:") ? { skill: stageKey.slice(0, hash) } : {};
+  }
+
+  /** Every Kiln watches the state root for the plan file's name and republishes when it changes. */
+  private watchRequirementsPlan(): void {
+    try {
+      mkdirSync(this.planRoot, { recursive: true });
+      this.planWatch = watch(this.planRoot, (_event, name) => {
+        if (this.closed || name !== PLAN_FILE) return;
+        this.adoptPlan();
+        this.changed();
+      });
+      this.planWatch.on("error", () => { this.planWatch?.close(); this.planWatch = undefined; });
+      this.planWatch.unref();
+    } catch { this.planWatch = undefined; }
+  }
+
+  /**
+   * Fingerprints the installed method and, when no plan exists for the Requirements stages agent
+   * and that fingerprint, starts a plan read (AC-PLAN-03). `wait`: before a launch, which waits
+   * for the read (technical design, "A method update at a stage boundary"). `force`: Read again,
+   * which reads past a saved failure or plan. A failed read isn't retried until the fingerprint
+   * changes, and the driver doesn't wait on it.
+   */
+  async refreshRequirementsPlan(options: { wait?: boolean; force?: boolean } = {}): Promise<void> {
+    if (!this.requirementsOpen || this.closed) return;
+    if (this.planRun) { if (options.wait) await this.planRun; return; }
+    const choice = this.notStartedChoice(PLAN_READ_KEY);
+    const agentId = choice.agentId;
+    const found = await resolveSkill({ name: "using-the-enso-method", agent: agentId, cwd: this.paths.mainCheckoutPath, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), env: this.options.env, signal: this.abort.signal });
+    if (this.closed) return;
+    if (found.kind !== "found") { this.planProblem = found.message; this.planMethod = undefined; this.changed(); return; }
+    let method: ReturnType<typeof methodOf>;
+    try { method = methodOf(found.skill.path, this.options.env); }
+    catch (error) { this.planProblem = `Kiln can't read the installed method: ${(error as Error).message}`; this.changed(); return; }
+    this.planMethod = { agentId, ...method, skillPath: found.skill.path };
+    this.planProblem = undefined;
+    const file = this.planFile();
+    const known = findPlan(file, agentId, method.fingerprint);
+    if (known && !options.force) {
+      // A plan in use stays: it is dropped only after 30 days unused.
+      if (Date.now() - Date.parse(known.usedAt) > 24 * 60 * 60_000) updatePlanFile(this.planRoot, one => { const kept = one.plans[agentId]?.[method.fingerprint]; if (kept) kept.usedAt = this.now().toISOString(); }, this.now());
+      this.adoptPlan(); this.changed(); return;
+    }
+    if (findFailure(file, agentId, method.fingerprint) && !options.force) { this.changed(); return; }
+    if (file.reading?.fingerprint === method.fingerprint && file.reading.agentId === agentId && await isProcessLive(file.reading.pid, file.reading.processStartTime)) {
+      // Another Kiln reads it: the watch republishes when it lands.
+      if (options.wait) await this.waitForOtherRead(agentId, method.fingerprint);
+      return;
+    }
+    // The choice as the model list now stands: the lookup above may have outlasted a list that was loading.
+    const now = this.notStartedChoice(PLAN_READ_KEY);
+    if (now.agentId !== agentId) { void this.refreshRequirementsPlan(options); return; }
+    if (!now.model || now.problem) {
+      // A model list still loading starts the read once it arrives; any other problem is the read's failure.
+      const list = this.modelContext.lists[agentId];
+      if (!list || list.pending) { this.planProblem = "Waiting for the agent's model list before reading the plan."; this.changed(); return; }
+      this.planFailed(agentId, method.fingerprint, now.problem ?? "The Requirements stages choice has no model to read the plan on.");
+      return;
+    }
+    const run = this.startPlanRead(agentId, { model: now.model, modelName: now.modelName, ...(now.effort ? { effort: now.effort } : {}) }, this.planMethod);
+    if (options.wait) await run;
+  }
+
+  private async waitForOtherRead(agentId: AgentId, fingerprint: string): Promise<void> {
+    const deadline = Date.now() + 10 * 60_000;
+    while (!this.closed && Date.now() < deadline) {
+      const file = this.planFile();
+      if (findPlan(file, agentId, fingerprint) || findFailure(file, agentId, fingerprint) || file.reading?.fingerprint !== fingerprint) break;
+      if (!await isProcessLive(file.reading.pid, file.reading.processStartTime)) break;
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    this.adoptPlan();
+  }
+
+  private planFailed(agentId: AgentId, fingerprint: string, reason: string): void {
+    updatePlanFile(this.planRoot, file => { (file.failures[agentId] ??= {})[fingerprint] = { reason, at: this.now().toISOString() }; }, this.now());
+    this.changed();
+  }
+
+  private startPlanRead(agentId: AgentId, choice: { model: string; modelName: string; effort?: string }, method: NonNullable<Engine["planMethod"]>): Promise<void> {
+    this.planRun = (async () => {
+      let env = this.sessionEnv();
+      if (agentId === "claude_code") {
+        // The read's launch runs the billing check; on a metered route it starts once this PRD's billing approval is given (AC-PLAN-03, AC-STAGE-04).
+        try {
+          const inspection = await this.billing.refresh(this.billingCwd, env, launchArguments(randomUUID(), choice.model, choice.effort), true);
+          if (inspection.summary.route === "metered" && !inspection.summary.approved) { this.planWaitsForBilling = true; return; }
+          if (inspection.readinessError) { this.planFailed(agentId, method.fingerprint, inspection.readinessError); return; }
+          env = inspection.launchEnv;
+        } catch (error) {
+          if (this.closed) return;
+          this.planFailed(agentId, method.fingerprint, error instanceof Error ? error.message : "Billing inspection failed.");
+          return;
+        }
+      }
+      this.planWaitsForBilling = false;
+      const startedAt = this.now().toISOString();
+      const release = await takePlanLock(this.planRoot, { agentId, fingerprint: method.fingerprint, startedAt, pid: process.pid, processStartTime: await processStartTime(process.pid) ?? "" });
+      if (!release) { await this.waitForOtherRead(agentId, method.fingerprint); return; }
+      this.planReadingSince = startedAt;
+      this.changed();
+      try {
+        const result = await runPlanRead({ agentId, choice, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), env, root: this.planRoot, skillPath: method.skillPath, methodFolder: method.folder, signal: this.abort.signal });
+        const at = this.now().toISOString();
+        if (result.ok) updatePlanFile(this.planRoot, file => {
+          (file.plans[agentId] ??= {})[method.fingerprint] = { methodUpdatedAt: method.updatedAt, readAt: at, usedAt: at, stages: result.stages, reviewSkill: result.reviewSkill };
+          delete file.failures[agentId]?.[method.fingerprint];
+        }, this.now());
+        else if (!result.stopped) updatePlanFile(this.planRoot, file => { (file.failures[agentId] ??= {})[method.fingerprint] = { reason: result.reason, at }; }, this.now());
+      } finally {
+        release();
+        this.planReadingSince = undefined;
+      }
+    })().finally(() => { this.planRun = undefined; if (!this.closed) { this.adoptPlan(); this.changed(); } });
+    return this.planRun;
+  }
+
+  /** When this process's plan read started, while it runs. */
+  planReadingSince: string | undefined;
+
+  /**
+   * Read again (`POST /api/requirements-plan/read`): reads the plan on request. Refused while a
+   * read runs, or while billing approval is needed and not given (technical design, "HTTP").
+   */
+  async readPlanAgain(): Promise<CommandResult> {
+    if (!this.requirementsOpen) return refuse("This run has no requirements plan to read.");
+    if (this.planRun || this.planReadingSince) return refuse("Kiln is reading the plan now.");
+    if (this.planWaitsForBilling) return refuse("Approve billing for this PRD before Kiln reads the plan.");
+    void this.refreshRequirementsPlan({ force: true }).catch(() => this.changed());
+    await Promise.resolve();
+    return { ok: true };
+  }
+
+  /**
+   * Takes the plan read for the installed method, between sessions only (technical design,
+   * "A method update during a run"): while a requirements session runs, the PRD shows the plan
+   * its `planFingerprint` names. A new plan moves the cursor to the entry of the same key and
+   * leaves a notice of what changed; a PRD that showed no plan takes one at once.
+   */
+  adoptPlan(): void {
+    const state = this.record.requirements;
+    const method = this.planMethod;
+    if (!state || !this.requirementsOpen || !method || state.planFingerprint === method.fingerprint) return;
+    if (this.current && activityKeyKind(this.current.phaseKey) === "requirements") return;
+    const plan = findPlan(this.planFile(), method.agentId, method.fingerprint);
+    if (!plan) return;
+    const at = this.now().toISOString();
+    if (state.planFingerprint) {
+      const before = this.requirementsPlan;
+      const known = new Set(planKeys(before?.stages ?? []));
+      state.notice = { at, methodUpdatedAt: plan.methodUpdatedAt, changes: before ? planChanges(before.stages, plan.stages) : [`The plan now has ${plan.stages.length} stages.`], added: planKeys(plan.stages).filter(key => !known.has(key)) };
+      state.cursor = remapCursor(before?.stages, plan.stages, state.cursor);
+      delete state.inserted;
+    } else {
+      // A plan that arrives after reports starts at the stage the latest report put next.
+      const next = state.standing && "milestones" in state.standing ? state.standing.next : undefined;
+      const index = next?.kind === "requirements" ? plan.stages.findIndex(stage => stage.skill === next.skill) : -1;
+      state.cursor = index >= 0 ? index : 0;
+      if (next?.kind === "requirements" && index < 0 && state.stages.length) state.inserted = { skill: next.skill, title: next.title, reaches: next.reaches, key: freeKey(plan, state, next.skill) };
+    }
+    state.planFingerprint = method.fingerprint;
+    this.save();
+    if (Date.now() - Date.parse(plan.usedAt) > 24 * 60 * 60_000) updatePlanFile(this.planRoot, file => { const one = file.plans[method.agentId]?.[method.fingerprint]; if (one) one.usedAt = at; }, this.now());
+  }
+
+  /** The plan read's state as the screen shows it (AC-PLAN-03 to 05). */
+  planView(): { status: "reading" | "read" | "failed" | "none"; agent: string; methodUpdatedAt?: string; readAt?: string; readingSince?: string; failure?: { reason: string; at: string }; canReadAgain: boolean; waitsForBilling?: true } {
+    const method = this.planMethod;
+    const agent = AGENT_NAMES[method?.agentId ?? this.notStartedChoice(PLAN_READ_KEY).agentId];
+    const file = this.planFile();
+    const reading = this.planReadingSince ?? (method && file.reading?.fingerprint === method.fingerprint && file.reading.agentId === method.agentId ? file.reading.startedAt : undefined);
+    const shown = this.requirementsPlan;
+    const failure = method ? findFailure(file, method.agentId, method.fingerprint) : undefined;
+    const canReadAgain = !reading && !this.planRun && !this.planWaitsForBilling && !!method;
+    const read = shown ? { methodUpdatedAt: shown.methodUpdatedAt, readAt: shown.readAt } : method ? { methodUpdatedAt: method.updatedAt } : {};
+    if (reading) return { status: "reading", agent, readingSince: reading, ...read, canReadAgain: false };
+    if (failure) return { status: "failed", agent, failure, ...read, canReadAgain };
+    if (this.planProblem && !shown && !this.planProblem.startsWith("Waiting")) return { status: "failed", agent, failure: { reason: this.planProblem, at: this.now().toISOString() }, canReadAgain: !this.planRun };
+    if (shown) return { status: "read", agent, ...read, canReadAgain };
+    return { status: "none", agent, ...read, canReadAgain, ...(this.planWaitsForBilling ? { waitsForBilling: true as const } : {}) };
+  }
+
+  /** The stop's review row key: the method's entry right after the one that reaches the stop when it makes a review, otherwise Kiln's (technical design, "Data Models"). */
+  private reviewRowKey(kind: "early" | "final"): string {
+    const plan = this.requirementsPlan;
+    if (!plan) return `kiln:${kind}`;
+    const at = plan.stages.findIndex(stage => stage.reaches.includes(kind === "early" ? "prd_refined" : "requirements_finished"));
+    return at >= 0 && plan.stages[at + 1]?.reaches.includes("review_made") ? planKeys(plan.stages)[at + 1]! : `kiln:${kind}`;
+  }
+
   private async driveRequirements(): Promise<boolean> {
     const state = this.record.requirements!;
     if (this.reviewStop) return false;
     const last = state.stages.at(-1);
     const pending = last && !this.record.phases[`req-${last.activityId}`]?.doneAt ? last : undefined;
+    if (!pending) {
+      // A changed method is read, and waited for, before the next session; a stage already running finished on its copy (AC-PLAN-07).
+      // A PRD that shows no plan yet waits for nothing: its session runs as the Next stage row and the plan fills in (AC-PLAN-05).
+      await this.refreshRequirementsPlan({ wait: !!state.planFingerprint });
+      if (this.stopping || this.closed) return false;
+      this.adoptPlan();
+    }
     const milestones = state.standing && "milestones" in state.standing ? state.standing.milestones : [];
     // Feedback waiting is applied before the next stage and before either stop (technical design, "The driver").
     const waiting = pending ? [] : state.feedback.filter(message => message.state === "waiting");
@@ -6286,8 +6591,9 @@ export class Engine {
       else {
         const at = this.now().toISOString();
         // A stop reached again after feedback keeps its one review row; the feedback session's refresh is listed on it (AC-TALK-04).
-        if (last?.task !== "review" && !state.stages.some(stage => stage.key === `kiln:${due}`)) {
-          const ready: RequirementsStage = { activityId: randomUUID(), key: `kiln:${due}`, task: "review", reaches: ["review_made"], ran: [], startedAt: at, pushedSha: review.commit };
+        const reviewKey = this.reviewRowKey(due);
+        if (last?.task !== "review" && !state.stages.some(stage => stage.key === reviewKey)) {
+          const ready: RequirementsStage = { activityId: randomUUID(), key: reviewKey, task: "review", reaches: ["review_made"], ran: [], startedAt: at, pushedSha: review.commit };
           state.stages.push(ready);
           this.phaseFacts(`req-${ready.activityId}`).doneAt = at;
         }
@@ -6312,10 +6618,13 @@ export class Engine {
       }
     }
     if (this.pauseDue) { this.activatePause(); return false; }
-    const expected = task === "stage" ? expectedStage(state) : undefined;
+    // The expected stage is the plan's entry at the cursor; without a plan, the standing's next (technical design, "What a session is told").
+    const plan = this.requirementsPlan;
+    const planned = task === "stage" ? plannedNext(plan, state) : undefined;
+    const expected = task === "stage" ? planned?.stage ?? (plan ? undefined : expectedStage(state)) : undefined;
     const stage: RequirementsStage = pending ?? {
-      activityId: randomUUID(), task, key: task === "review" ? `kiln:${due}` : task === "feedback" ? nextStageKey(state, "kiln:feedback") : expected ? nextStageKey(state, expected.skill) : "kiln:next",
-      ...(expected ? { expected } : {}), reaches: expected?.reaches ?? [], ran: [], startedAt: this.now().toISOString(),
+      activityId: randomUUID(), task, key: task === "review" ? this.reviewRowKey(due!) : task === "feedback" ? nextStageKey(state, "kiln:feedback") : planned ? planned.key : expected ? nextStageKey(state, expected.skill) : "kiln:next",
+      ...(expected ? { expected: { skill: expected.skill, title: expected.title } } : {}), reaches: expected?.reaches ?? [], ran: [], startedAt: this.now().toISOString(),
       ...(task === "feedback" ? { messageIds: waiting.map(message => message.id) } : {}),
     };
     const key = `req-${stage.activityId}`;
@@ -6558,8 +6867,15 @@ export class Engine {
     }
     const at = this.now().toISOString();
     if (found.directory) this.record.prdDirectory = found.directory;
+    const plan = this.requirementsPlan;
+    const cursorBefore = state.cursor;
     if (stage.task !== "review") {
       if (acceptable && report?.next && !found.missing) {
+        // A stage or feedback report moves the cursor through the plan it launched on (technical design, "Rows").
+        if (plan) {
+          const changes = advanceCursor(plan, state, stage.task, report, !!stopAt);
+          if (changes.length) state.notice = { at, changes, ...(state.notice?.added ? { added: state.notice.added } : {}) };
+        }
         state.standing = { next: report.next, milestones: report.milestones!, at };
         for (const m of report.milestones!) {
           if (m.name === "design_ready") state.designSpan = false;
@@ -6571,7 +6887,12 @@ export class Engine {
     }
     stage.ran = report?.ran ?? [];
     const firstSkill = stage.ran[0]?.skill;
-    if (stage.task === "stage" && firstSkill && stage.expected?.skill !== firstSkill) stage.key = nextStageKey(state, firstSkill);
+    if (stage.task === "stage" && firstSkill && stage.expected?.skill !== firstSkill) {
+      // A session that ran another stage than expected takes that entry's key when the plan has it.
+      const keys = plan ? planKeys(plan.stages) : [];
+      const at = plan ? plan.stages.findIndex((entry, i) => i >= cursorBefore && entry.skill === firstSkill) : -1;
+      stage.key = at >= 0 && !state.stages.some(one => one !== stage && one.key === keys[at]) ? keys[at]! : plan ? freeKey(plan, state, firstSkill) : nextStageKey(state, firstSkill);
+    }
     stage.pushedSha = await gitText(this.git, this.worktreePath, ["rev-parse", "HEAD"]);
     this.settleFeedback(key, stage, report?.next || stage.task === "review" ? report : undefined, true, stage.pushedSha, at);
     const facts = this.phaseFacts(key);

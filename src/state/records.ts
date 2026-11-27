@@ -601,7 +601,7 @@ export interface SessionRecord {
    * fallback on and a limit at or above the threshold, whether the fallback was used.
    */
   launch?: {
-    from: "model_defaults" | "changed";
+    from: "model_defaults" | "changed" | "saved";
     claudeCodeMissing?: true;
     fallback?: { used: boolean; limit: { agentId: AgentId; label: string; percent?: number }; threshold: number; first?: { agentId: AgentId; model: string; modelName: string; effort?: string }; reason?: string };
   };
