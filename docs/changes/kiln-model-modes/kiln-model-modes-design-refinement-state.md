@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Model Modes
 
-Started: 2026-11-27   Current pass: 2   Status: In progress
+Started: 2026-11-27   Current pass: 3   Status: In progress
 Branch: feature/kiln-model-modes (worktree .worktrees/kiln-model-modes/kiln; never push — publish-kiln owns pushes)
 Existing code posture: Preserve (source: user; TD §Existing Code agrees)
 PRD words: at start 3266 · growth baseline 3266, blob 7a18e2d269ab8aadac12e6c468a387e1176a5ec5
@@ -17,6 +17,7 @@ Last updated: 2026-11-27
 ## Passes
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
+| 3 | 4 | 4 | 4 | 0 | 0 | 0 | 0 |
 | 2 | 3 (+Q14 carried) | 4 | 4 | 0 | 0 | 0 | 0 |
 | 1 | 14 (11 discovery, 3 conflict check, 1 noticed list, 1 raised by Q6; 2 overlapped) | 13 | 10 | 3 (+SAVE-006 from Q3) | 1 (Q14) | 0 | 0 |
 
@@ -39,6 +40,10 @@ Last updated: 2026-11-27
 | Q15 | 2 | Where does a merge or plan-push stop say to change its choice? (they run after completion; PR row finished, Models card hidden, per-PRD change unavailable) | Technical | MEDIUM | 75 → 85 | Resolved by decision | TD §Resolving, §Snapshot |
 | Q16 | 2 | With Restore pending in the draft, what does Save compare against (base = Kiln's choices?), when is Save available, and how does a re-read rebase? | Technical | MEDIUM | 75 → 90 | Resolved | TD §Saving, §Interfaces GET |
 | Q17 | 2 | Stop and source wording/change place when the choice comes from the one model or from the fallback under For everything (launchSource, choiceStopFact) | Technical | MEDIUM | 75 → 85 | Resolved by decision | TD §Resolving |
+| Q18 | 3 | Model defaults unreadable while the PRD has or is about to get its own settings: choose, SAVE-005 comparison, creating own settings, row-4 save, --prd commands | Technical | MEDIUM | 75 → 88 | Resolved by decision | TD §Settings in Force, §Saving, §Interfaces, §Command line |
+| Q19 | 3 | Where-to-change copy for one model and For everything when the source is this PRD's own settings ("…in Model defaults, opened from this PRD's page") | Technical | LOW | 80 → 90 | Resolved by decision | TD §Resolving source table |
+| Q20 | 3 | Models block fallback line under Never; account line under One model on Model defaults (mockup 2) — copy and data source | Technical | LOW | 85 → 90 | Resolved by decision | TD §Interfaces |
+| Q21 | 3 | Does `kiln model-defaults mode --one-model` with no --agent/--model also save the one model it prints? | Technical | LOW | 85 → 90 | Resolved by decision | TD §Command line |
 | Q13 | 1 | Does For everything move a Changed by you / kept phase to its fallback, against AC-PICK-03? | Business | MEDIUM | 80 → 95 | Resolved | Already so: AC-WHEN-02 "each activity that hasn't started"; Tiers AC-FALLBACK-02 already moves changed phases at threshold; TD step 5. Conflict check found no PICK-03 conflict |
 
 ## Question notes
@@ -82,6 +87,12 @@ Resolved 93%: ModelEditor.svelte:13-15,18-20 $effect calls onchange on first ren
 ### Q16
 Resolved 90%. Restore makes the draft's base Kiln's choices (what an empty file reads as now), drops the changes made before it; Save sends {restore, fields differing from the base}; server clears each file written before applying fields, so it ends as shown under all four save-table rows. Restore is a change while Model defaults or this PRD's own settings hold any field. Re-read while Restore pending changes only where Kiln's choices change. GET gains `kilnChoices` and `holdsSettings`. Evidence: ModelDefaults.svelte restore() sets drafts = {}; model-defaults-edit.ts:99-102; TD one-model row; AC-DEFAULT-04. Prose given in fold brief. No PRD change.
 
+### Q19–Q21 (pass 3 discovery's proposals, taken as decisions)
+Q19: whenever `<where>` is this PRD's own settings, every new source's where-to-change line ends "in Model defaults, opened from this PRD's page". Q20: (a) Never → reuse today's fallbackLine off value "Wait for the limit. No fallback is switched on." with the Model defaults link (view/src/lib/models.ts:115); (b) the One model account line on Model defaults takes the account from the snapshot's account panel for the agent the draft shows; GET unchanged. Q21: yes — `mode --one-model` without --agent/--model saves the one model it would print (decided-when-read), matching the one-model decision row and AC-CLI-01; `--agent` without `--model` is refused as malformed.
+
+### Q18
+88%, one rule: while Model defaults can't be read only writes that copy or change it are refused (Restore excepted); a PRD with its own settings resolves entirely from its own file; creating own settings (row 2, choose on a PRD with none, --prd on a PRD with none) refused with Model defaults' 409; row 4 refused before either write unless it includes Restore; choose on a PRD with own settings writes and keeps them; Use my defaults here allowed, then the error shows. Evidence: model-defaults-edit.ts:93-98; activity-models.ts:177-183 (and :189-192 activityFallback must read the PRD's own file); local-server.ts:502; model-defaults-command.ts:89-94.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
@@ -98,6 +109,8 @@ Pass 1: 8 fixed (TD existing-code description → §Launching "Skills and checks
 
 Pass 2: §HTTP run-complete refusal for preflight_pr; narration of today's code cut from the Models block paragraph and §Resolving; §Saving Done wording; SAVE-008 Depends on SAVE-004; orchestrator: TD OQ1 SAVE-004 line names the command-line change. Earlier in pass 2: TD own-settings decision row gains the row-4 exception; SAVE-008 states the emptied own-settings file; mockups' one-model line names the push sessions.
 
+Pass 3: 6 consistency fixes in the TD (Settings in Force vs row 4; row 4 Restore only where canRestore allows; holdsSettings reason; 422 scoped to a PRD with own settings, 409 otherwise; --one-model flags; --prd commands over unreadable Model defaults incl. restore --prd). No placement problems.
+
 ## Noticed, out of scope
 - Pre-existing: After Delivery AC-MERGE-05 ("run with the run's agent, model and effort") and its TD §After-Delivery Activities were never given a Replaces/Superseded pointer pair by Kiln Phase Model Tiers AC-OTHER-01, which moved merge and push onto the Audits row.
 - `kiln model-defaults --prd` changes a running PRD's choices with no status token or command ID, unlike `kiln model` (TD settles it: settings file, not a run).
@@ -107,9 +120,16 @@ Pass 2: §HTTP run-complete refusal for preflight_pr; narration of today's code 
 - Inherited from Tiers (Q15 residual): a merge or plan push whose choice is a change for this PRD can't be changed after completion, short of Tiers AC-PICK-06's "where to change it"; closing it means a `preflight_pr` change after completion, new scope.
 - Pre-existing: Tiers' `auditsChangePlace` names the Audits line for merge and push stops after completion, where that line's Change is unavailable.
 
+- Pass 3 discovery: a FolderSetupStart intent saved before the upgrade and activated after gets no `preflightPr` copy (matches Tiers, continuation-state.ts:78; crash mid-setup across an upgrade).
+- Pass 3 discovery: a PRD with a pre-Tiers `kept` choice ignores One model for this PRD (resolver step 3 first; consistent with AC-MODE-02), with no hint in the Models block.
+- Pass 3 discovery: the SAVE-005 comparison counts the threshold while the setting is Never, so a threshold-only difference keeps own settings with no change in behaviour.
+- Pass 3 discovery: the save bar's "where it was saved" copy for a row-4 save (both files) is unstated in the mockups (trivial copy).
+
+- Pass 3 conformance: on a PRD-with-own-settings page while Model defaults can't be read, nothing warns until Save for every PRD is refused (with its reason); a warning or disabling the target would be added UI the PRD doesn't ask for.
+
 ## Blockers
 | Blocker | Questions affected | What unblocks it |
 |---|---|---|
 
 ## Next action
-Pass 2 checkpoint commit, then pass 3 discovery.
+Pass 3 checkpoint commit, then pass 4 discovery (pass 3 surfaced 4 new).
