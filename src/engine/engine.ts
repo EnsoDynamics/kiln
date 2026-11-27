@@ -2493,8 +2493,9 @@ export class Engine {
     if (this.currentlyComplete) return refuse("The feature is complete.");
     // A press never rides on a billing approval saved after it (Kiln Billing Safeguards, Concurrency), so this one doesn't wait.
     if (this.billing.busy) return refuse("Kiln is saving a billing approval. Press Start again once it’s saved.");
-    // A press waits for a field check that is already running (run restart AC-FROM-06).
-    if (record.startedAt === undefined && !this.settingUp) await this.idleWithin(() => this.fieldChecksRunning > 0, 15_000);
+    // A press waits for a field check that is already running (run restart AC-FROM-06). With none running it
+    // doesn't yield, so a base check asked for in the same turn finds Start's setup already under way.
+    if (record.startedAt === undefined && !this.settingUp && this.fieldChecksRunning > 0) await this.idleWithin(() => this.fieldChecksRunning > 0, 15_000);
     if (!this.restartReview || this.restartReview.action === "start") {
       // Before Start every needed agent is checked (AC-AGENTS-01); a resume checks the agent its next activity launches on.
       const problem = this.record.startedAt === undefined ? this.modelsProblem : this.selectionError;
