@@ -115,13 +115,13 @@ The **one model** Kiln suggests works the same way: until you pick one, installi
 
 **Depends on**: SAVE-002
 
-**If they choose otherwise**: A PRD's own settings would fix Kiln's recommended models as they were when the PRD got them, until Use my defaults here.
+**If they choose otherwise**: A PRD's own settings would freeze Kiln's recommended models as they were when the PRD got them, until Use my defaults here.
 
 **Example**: Customer returns has its own settings, with a model you chose for its demanding phases. A Kiln update recommends a newer model for mechanical phases, a row you never changed. Customer returns' mechanical phases start on the new model, as every other PRD's do, and its demanding phases keep the one you chose.
 
-**Evidence**: You treated the recommended models as Kiln's to keep current: of the tier table, "part of me wants to just hardcode it to keep it simple… I don't think most people need to override it" (2026-11-22, 20:23 UTC), and of the requirements stages, "it should default to the most capable model of the provider" (2026-11-23, 15:37 UTC). You wanted a PRD's own settings to be temporary: "I kind of don't want that to be permanent" (2026-11-26, 13:38 UTC). Kiln Phase Model Tiers keeps **only what you set** in your defaults, so a release can ship a new recommended model **without overwriting anyone's choice**, and it drops a PRD's saved model that equals Kiln's current one rather than fixing it.
+**Evidence**: You treated the recommended models as Kiln's to keep current: of the tier table, "part of me wants to just hardcode it to keep it simple… I don't think most people need to override it" (2026-11-22, 20:23 UTC), and of the requirements stages, "it should default to the most capable model of the provider" (2026-11-23, 15:37 UTC). You wanted a PRD's own settings to be temporary: "I kind of don't want that to be permanent" (2026-11-26, 13:38 UTC). Kiln Phase Model Tiers keeps **only what you set** in your defaults, so a release can ship a new recommended model **without overwriting anyone's choice**, and it drops a PRD's saved model that equals Kiln's current one rather than freezing it.
 
-Against it: on 2026-11-26 you agreed ("Everything else sounds good", 18:22 UTC) to a list saying a PRD with its own settings "keeps a copy of the whole page" and "later changes to your defaults don't reach it"; read literally, the copy would fix Kiln's recommended models too. The changes that list kept out were yours, and they stay out. And a release that swaps a row's recommended models between Claude Code and Codex would, under For everything, launch that PRD on the account you meant to spare. Every PRD that follows your defaults has the same exposure, and the changelog announces such a change.
+Against it: on 2026-11-26 you agreed ("Everything else sounds good", 18:22 UTC) to a list saying a PRD with its own settings "keeps a copy of the whole page" and "later changes to your defaults don't reach it"; read literally, the copy would freeze Kiln's recommended models too. The changes that list kept out were yours, and they stay out. And a release that swaps a row's recommended models between Claude Code and Codex would, under For everything, launch that PRD on the account you meant to spare. Every PRD that follows your defaults has the same exposure, and the changelog announces such a change.
 
 **Confirm or Correct**:
 - [ ] Correct as stated
@@ -157,7 +157,7 @@ Against it: a merge can resolve code conflicts and fix failing checks, which is 
 
 ### SAVE-008. Does Restore Kiln's defaults also put the mode and the fallback back to Kiln's choices? — ⏳ PENDING (Added 2026-11-27 — new question; 70% confidence)
 
-**Assumption**: Yes. **Restore Kiln's defaults resets the whole page**: the way models are picked goes back to **Recommended model for each phase**, the five rows and the one model go back to Kiln's choices, and **Use the fallback** goes back to **Never**, with its threshold at 95. Like every other change on the page, it takes effect only **when you press Save**, for every PRD or for this PRD only. Saved for every PRD from a PRD that has its own settings, it **ends that PRD's own settings too**, and the PRD follows your restored defaults again, as if you had pressed Use my defaults here.
+**Assumption**: Yes. **Restore Kiln's defaults resets the whole page**: the way models are picked goes back to **Recommended model for each phase**, the five rows and the one model go back to Kiln's choices, and **Use the fallback** goes back to **Never**, with its threshold at 95% of the limit. Like every other change on the page, it takes effect only **when you press Save**, for every PRD or for this PRD only. Saved for every PRD from a PRD that has its own settings, it **ends that PRD's own settings too**, and the PRD follows your restored defaults again, as if you had pressed Use my defaults here.
 
 **Depends on**: SAVE-004
 
