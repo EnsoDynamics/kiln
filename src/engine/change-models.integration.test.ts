@@ -321,50 +321,55 @@ describe("Change while a launch is under way or the start is unknown (\"Change w
 });
 
 describe("Model defaults for every PRD (AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBACK-01)", () => {
-  it("sets a row, refuses what the commands refuse, switches the fallback, and restores Kiln's defaults keeping the switch", async () => {
+  // The page saves a set of changes for every PRD (Kiln Model Modes AC-SAVE-01, AC-SAVE-03; "HTTP").
+  const save = (changes: Record<string, unknown>) => post("/api/model-defaults", { save: { target: "every_prd", changes } });
+
+  it("sets a row, refuses what the commands refuse, saves the fallback setting, and restores all of Kiln's defaults", async () => {
     const h = await fixture([]);
     const read = await get("/api/model-defaults");
     expect(read.status).toBe(200);
-    expect(read.body).toMatchObject({ rows: { standard: { first: { agent: "Claude Code", familyName: "Opus", modelName: "Opus 5.5", effort: "medium", set: false }, fallback: { agent: "Codex", familyName: "GPT Sol", effort: "high", set: false } } }, fallback: { enabled: false, threshold: 95 } });
+    expect(read.body).toMatchObject({ source: "defaults", rows: { standard: { first: { agent: "Claude Code", familyName: "Opus", modelName: "Opus 5.5", effort: "medium", set: false }, fallback: { agent: "Codex", familyName: "GPT Sol", effort: "high", set: false } } }, fallback: { use: "never", enabled: false, threshold: 95 } });
     expect((read.body.agents as { agentId: string; families: { family: string }[] }[]).find(agent => agent.agentId === "claude_code")!.families.map(one => one.family)).toEqual(["opus", "fable", "sonnet", "haiku"]);
 
-    const set = await post("/api/model-defaults", { set: { row: "standard", first: { agentId: "claude_code", family: "sonnet", effort: "low" } } });
+    const set = await save({ rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
     expect(set).toMatchObject({ status: 200, body: { rows: { standard: { first: { familyName: "Sonnet", effort: "low", set: true } } } } });
     // It reaches every activity that hasn't started, on the next resolution.
     await waitFor(() => shown(row(h.engine, "3"))[0] === "Sonnet 5.5");
     expect(shown(row(h.engine, "3"))).toEqual(["Sonnet 5.5", "low", "model_defaults"]);
 
-    expect(await post("/api/model-defaults", { set: { row: "standard", fallback: { agentId: "claude_code", family: "opus", effort: "high" } } })).toEqual({ status: 422, body: { ok: false, reason: "The Standard row's first choice and fallback would both be on Claude Code. To move the row to Claude Code, change both sides in one save." } });
-    expect(await post("/api/model-defaults", { set: { row: "audits", first: { agentId: "claude_code", family: "opus" } } })).toEqual({ status: 422, body: { ok: false, reason: "Choose an effort for Opus 5.5; no supported default was reported." } });
-    expect(await post("/api/model-defaults", { set: { row: "audits", first: { agentId: "claude_code", family: "gemini", effort: "high" } } })).toEqual({ status: 422, body: { ok: false, reason: "Claude Code doesn't offer Gemini on this account." } });
-    expect(await post("/api/model-defaults", { fallback: { threshold: 0 } })).toEqual({ status: 422, body: { ok: false, reason: "The threshold is a whole-number percent from 1 to 100." } });
-    expect(await post("/api/model-defaults", { fallback: { threshold: 90.5 } })).toEqual({ status: 422, body: { ok: false, reason: "The threshold is a whole-number percent from 1 to 100." } });
-    expect(await post("/api/model-defaults", { set: { row: "tiny", first: { agentId: "claude_code", family: "opus", effort: "high" } } })).toEqual({ status: 400, body: { ok: false, reason: "row is demanding, standard, mechanical, audits or preflight_pr." } });
+    expect(await save({ rows: { standard: { fallback: { agentId: "claude_code", family: "opus", effort: "high" } } } })).toEqual({ status: 422, body: { ok: false, reason: "The Standard row's first choice and fallback would both be on Claude Code. To move the row to Claude Code, change both sides in one save." } });
+    expect(await save({ rows: { audits: { first: { agentId: "claude_code", family: "opus" } } } })).toEqual({ status: 422, body: { ok: false, reason: "Choose an effort for Opus 5.5; no supported default was reported." } });
+    expect(await save({ rows: { audits: { first: { agentId: "claude_code", family: "gemini", effort: "high" } } } })).toEqual({ status: 422, body: { ok: false, reason: "Claude Code doesn't offer Gemini on this account." } });
+    expect(await save({ fallback: { threshold: 0 } })).toEqual({ status: 422, body: { ok: false, reason: "The threshold is a whole-number percent from 1 to 100." } });
+    expect(await save({ fallback: { threshold: 90.5 } })).toEqual({ status: 422, body: { ok: false, reason: "The threshold is a whole-number percent from 1 to 100." } });
+    expect(await save({ rows: { tiny: { first: { agentId: "claude_code", family: "opus", effort: "high" } } } })).toEqual({ status: 400, body: { ok: false, reason: "A row is demanding, standard, mechanical, audits or preflight_pr." } });
     // The fifth row is changed like the others (Kiln Model Modes AC-ROW-01).
     expect(read.body).toMatchObject({ rows: { preflight_pr: { first: { agent: "Claude Code", familyName: "Opus", modelName: "Opus 5.5", effort: "medium", set: false }, fallback: { agent: "Codex", familyName: "GPT Sol", effort: "medium", set: false } } } });
-    expect(await post("/api/model-defaults", { set: { row: "preflight_pr", first: { agentId: "claude_code", family: "sonnet", effort: "low" } } })).toMatchObject({ status: 200, body: { rows: { preflight_pr: { first: { familyName: "Sonnet", effort: "low", set: true } } } } });
+    expect(await save({ rows: { preflight_pr: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } })).toMatchObject({ status: 200, body: { rows: { preflight_pr: { first: { familyName: "Sonnet", effort: "low", set: true } } } } });
     expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "sonnet", effort: "low", from: "model_defaults", row: "preflight_pr" });
     expect(h.engine.notStartedChoice("audit-planned")).toMatchObject({ model: "opus", effort: "high", row: "audits" });
 
-    // Today's switch writes the threshold setting or Never.
-    expect(await post("/api/model-defaults", { fallback: { enabled: true, threshold: 90 } })).toMatchObject({ status: 200, body: { fallback: { use: "threshold", enabled: true, threshold: 90 } } });
+    // The threshold setting and Never behave as the switch's on and off did (AC-WHEN-01).
+    expect(await save({ fallback: { use: "threshold", threshold: 90 } })).toMatchObject({ status: 200, body: { fallback: { use: "threshold", enabled: true, threshold: 90 } } });
     expect(buildSnapshot(h.engine).settings.models.fallback).toMatchObject({ use: "threshold", enabled: true, threshold: 90 });
-    expect(await post("/api/model-defaults", { fallback: { enabled: false } })).toMatchObject({ status: 200, body: { fallback: { use: "never", enabled: false, threshold: 90 } } });
+    expect(await save({ fallback: { use: "never" } })).toMatchObject({ status: 200, body: { fallback: { use: "never", enabled: false, threshold: 90 } } });
     expect(buildSnapshot(h.engine).settings.models.fallback).toMatchObject({ use: "never", enabled: false, threshold: 90 });
-    expect(await post("/api/model-defaults", { fallback: { enabled: true } })).toMatchObject({ status: 200, body: { fallback: { enabled: true, threshold: 90 } } });
+    expect(await save({ fallback: { use: "threshold" } })).toMatchObject({ status: 200, body: { fallback: { use: "threshold", enabled: true, threshold: 90 } } });
 
-    expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 200, body: { rows: { standard: { first: { familyName: "Opus", effort: "medium", set: false } } }, fallback: { enabled: true, threshold: 90 } } });
+    // Restore returns the rows and the fallback setting with its threshold to Kiln's choices (AC-SAVE-03, SAVE-008).
+    expect(await save({ restore: true })).toMatchObject({ status: 200, body: { rows: { standard: { first: { familyName: "Opus", effort: "medium", set: false } } }, fallback: { use: "never", enabled: false, threshold: 95 }, holdsSettings: false } });
     expect(shown(row(h.engine, "3"))).toEqual(["Opus 5.5", "medium", "model_defaults"]);
+    expect(buildSnapshot(h.engine).settings.models.fallback).toMatchObject({ use: "never", enabled: false, threshold: 95 });
   });
 
   it("answers 409 over a file that doesn't parse, refuses saves, and restores it with the fallback off", async () => {
     const h = await fixture([]);
     writeFileSync(modelDefaultsPath(h.env), "{ not json");
-    expect(await get("/api/model-defaults")).toMatchObject({ status: 409, body: { reason: expect.stringContaining("isn't valid JSON"), canRestore: true } });
-    expect(await post("/api/model-defaults", { fallback: { enabled: true } })).toMatchObject({ status: 409, body: { reason: expect.stringContaining("isn't valid JSON") } });
-    expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 200, body: { notice: "Kiln's defaults are restored, and the fallback is now off.", fallback: { enabled: false, threshold: 95 } } });
+    expect(await get("/api/model-defaults")).toMatchObject({ status: 409, body: { source: "defaults", reason: expect.stringContaining("isn't valid JSON"), canRestore: true } });
+    expect(await save({ fallback: { use: "threshold" } })).toMatchObject({ status: 409, body: { source: "defaults", reason: expect.stringContaining("isn't valid JSON") } });
+    expect(await save({ restore: true })).toMatchObject({ status: 200, body: { notice: "Kiln's defaults are restored, and the fallback is now off.", fallback: { use: "never", enabled: false, threshold: 95 } } });
     writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 3 }));
-    expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 409, body: { reason: expect.stringContaining("written by a newer Kiln; update Kiln"), canRestore: false } });
+    expect(await save({ restore: true })).toMatchObject({ status: 409, body: { reason: expect.stringContaining("written by a newer Kiln; update Kiln"), canRestore: false } });
   });
 });
 

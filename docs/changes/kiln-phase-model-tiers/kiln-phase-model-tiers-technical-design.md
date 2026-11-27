@@ -45,6 +45,8 @@ Claude Code and Codex, through their existing adapters. No new call is made to e
 
 Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Snapshot ("Model defaults across running Kilns": each running Kiln reads both settings files' revision once a second, in place of a watch on the state root).
 
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Design Decisions ("Restore Kiln's defaults": it returns the mode, the five rows, the one model and the fallback setting to Kiln's choices, the fallback to Never at 95, and is held in the page's draft until saved; "Commands for Model defaults": two more leaves, `mode` and `use-defaults`, and `--prd` on every command for one PRD's own settings).
+
 | Decision | Choice | Rationale |
 |---|---|---|
 | Where a choice comes from | One resolver, in the order of §Resolving a Choice | AC-PICK-01 to 04 and AC-DEFAULT-03 each name a precedence; one function is the only way the row, the launch and the status command stay equal |
@@ -254,7 +256,7 @@ Every write re-reads the file, applies one change and replaces it atomically. A 
 
 ### HTTP (same-origin, token, as today)
 
-Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §HTTP (`POST /api/model` also takes the `"preflight_pr"` target; the rest of that section's routes are built with its saving phase).
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §HTTP (`POST /api/model` also takes the `"preflight_pr"` target; `GET /api/model-defaults` answers the settings in force for the PRD, its own or Model defaults, with their source; `POST /api/model-defaults` takes a save of the page's changes for every PRD or for this PRD only, or `useDefaults`, in place of `set`, `restore` and `fallback`, because the page saves on Save, not on Done; the Models block's `choose` body is built with its own phase).
 
 | Route | Contract |
 |---|---|
@@ -322,7 +324,7 @@ Start unknown adds no state: `model.state` is `will_run_on` and `change` is `{ a
 
 ### Command line
 
-Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Command line (`kiln model --preflight-pr`, and `preflight-pr` as a `--row`; the rest of that section's commands are built with its saving phase).
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Command line (`kiln model --preflight-pr`, and `preflight-pr` as a `--row`; `kiln model-defaults mode` and `use-defaults`; `--never`, `--at-threshold` and `--for-everything` on `fallback`, with `--on` and `--off` kept; `--prd <PRD-path>` on every command; `restore` also resets the mode and the fallback setting; the printed text says how models are picked and which fallback setting is in force).
 
 `kiln model` is a changing command: it takes `--command-id` and `--only-if-status-matches`, is listed among `kiln status`'s controls, and for `--phase` is refused with the reason when `POST /api/model` would answer 409, with the same reasons and exit 3. An id that isn't a phase with no child phases in the current plan is refused with `target_not_found` and exit 2, giving the same reason as the 422. `--audits` is never refused for an activity's state. It is announced in the controller's `features` list, like the other changing commands added after the first release, so a newer client refuses it against an older running Kiln.
 

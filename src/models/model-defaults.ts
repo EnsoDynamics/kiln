@@ -96,7 +96,7 @@ export function fallbackInForce(settings: Pick<ModelDefaults, "mode" | "fallback
 /** Which file a read is of, for its messages: what it is called, and what a person does about one that can't be read. */
 type FileKind = "defaults" | "prd";
 const NOUN: Record<FileKind, string> = { defaults: "Model defaults", prd: "This PRD's own settings" };
-const REMEDY: Record<FileKind, string> = { defaults: "Restore Kiln's defaults, or fix the file.", prd: "Fix the file, or delete it so this PRD follows Model defaults again." };
+const REMEDY: Record<FileKind, string> = { defaults: "Restore Kiln's defaults, or fix the file.", prd: "Fix the file, or put this PRD back on your defaults: press Use my defaults here on its Model defaults page, or run kiln model-defaults use-defaults with --prd and this PRD's path." };
 
 const cache = new Map<string, { key: string; read: ModelDefaultsRead }>();
 

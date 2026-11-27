@@ -36,18 +36,19 @@ it("marks the First choice column as skipped and the Fallback column as in use w
   await page.evaluate(openModelDefaults);
   await page.waitFor(`document.querySelectorAll("[data-row]").length === 5`);
   expect(await page.evaluate<string[]>(headers)).toEqual(["Tier", "First choice", "Fallback"]);
-  expect(await page.evaluate<string>(`document.querySelector(".switch .state").textContent.trim()`)).toBe("Off");
+  const fallbackSetting = () => page.evaluate<string>(`document.querySelector('input[name="fallback"]:checked').value`);
+  expect(await fallbackSetting()).toBe("never");
 
-  // Saved to the file, as this phase reads it; the running Kiln watches the file and the open page reads it again.
+  // Saved to the file from elsewhere; the running Kiln reads the file's revision and the open page reads it again.
   writeSettings(h.env, { fallback: { use: "everything" } });
   await page.waitFor(`document.querySelector("[data-skipped]") !== null`);
   expect(await page.evaluate<string[]>(headers)).toEqual(["Tier", "First choice Skipped for now", "Fallback Used for everything"]);
-  expect(await page.evaluate<string>(`document.querySelector(".switch .state").textContent.trim()`)).toBe("For everything");
+  expect(await fallbackSetting()).toBe("everything");
   // The fifth row is on the page with the others (AC-ROW-01).
   expect(await page.evaluate<string>(`document.querySelector('[data-row="preflight_pr"]').innerText.replace(/\\s+/g, " ")`)).toContain("Preflight and pull request The check before the first phase, the pull request session at the end, and the merge and push sessions after it. Claude Code · Opus · medium Change Codex · GPT Sol · medium");
 
   // Back on the PRD's page, every row that hasn't started shows its fallback, tagged.
-  await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.textContent.trim().startsWith("Back to"))).click()`);
+  await page.evaluate(`document.querySelector("a.back").click()`);
   await page.waitFor(`document.querySelector('li.phase[data-phase="1"] [data-fallback]') !== null`);
   const phase = await page.evaluate<string>(`document.querySelector('li.phase[data-phase="1"]').innerText.replace(/\\s+/g, " ")`);
   expect(phase).toContain("Codex · GPT Sol · high Fallback");
@@ -71,9 +72,13 @@ it("says one model runs everything, on the plan's rows, the model lines and the 
   expect(await page.evaluate<string>(`document.querySelector(".lines").innerText.replace(/\\s+/g, " ")`)).not.toContain("Audits");
   await page.evaluate(openModelDefaults);
   await page.waitFor(`document.querySelector("[data-one-model]") !== null`);
-  expect(await page.evaluate<string>(`document.querySelector("[data-one-model]").innerText.trim()`)).toBe("One model runs everything for now: Claude Code · Opus · high. The rows and the fallback below apply again once models are picked for each phase.");
-  // The columns aren't marked: the fallback setting isn't in force under one model.
-  expect(await page.evaluate<string[]>(headers)).toEqual(["Tier", "First choice", "Fallback"]);
+  // One model for everything is selected and shows its agent, model and effort; the tier table and the fallback setting show only under the other choice (AC-MODE-01).
+  expect(await page.evaluate<string>(`document.querySelector('input[name="mode"]:checked').value`)).toBe("one_model");
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll("[data-one-model] select")].map(select => select.selectedOptions[0].textContent.trim())`)).toEqual(["Opus, latest (Opus 5.5)", "High"]);
+  expect(await page.evaluate<string>(`document.querySelector('[data-one-model] input[type="radio"]:checked').value`)).toBe("claude_code");
+  expect(await page.evaluate<number>(`document.querySelectorAll('[data-row], input[name="fallback"]').length`)).toBe(0);
+  // One model has no fallback: at a usage limit a run waits (AC-MODE-03).
+  expect(await page.evaluate<string>(`document.querySelector("[data-one-model-account]").textContent`)).toMatch(/^Claude Code.*At a usage limit a run waits and picks up again\.$/);
   expect(page.problems).toEqual([]);
 });
 

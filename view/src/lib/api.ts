@@ -76,16 +76,24 @@ export const startFolderSetup = (config: PageConfig, body: { commandId: string; 
 export const refreshMetadata = (config: PageConfig) => send(config, "POST", "/api/metadata/refresh");
 /** One phase's model, or this PRD's Audits choice; "default" returns it to Model defaults (Kiln Phase Model Tiers AC-PICK-03, AC-OTHER-01). */
 export const changeModel = (config: PageConfig, target: { phase: string } | "audits" | "preflight_pr", choice: { agentId: string; model: string; effort?: string } | "default") => send(config, "POST", "/api/model", { target, choice });
-/** Model defaults as the file says now, or why it can't be read (AC-DEFAULT-02). */
-export async function modelDefaults(config: PageConfig): Promise<{ ok: true; view: import("../../../src/models/model-defaults-edit.js").ModelDefaultsView } | { ok: false; reason: string; canRestore: boolean }> {
+type ModelDefaultsView = import("../../../src/models/model-defaults-edit.js").ModelDefaultsView;
+/** The settings in force for this PRD, or why they can't be read: which file, and whether its one write is allowed (Kiln Model Modes, "HTTP"). */
+export type ModelDefaultsAnswer = { ok: true; view: ModelDefaultsView; notice?: string } | { ok: false; reason: string; source?: "defaults" | "prd"; canRestore: boolean; unreadable: boolean };
+
+async function modelDefaultsRequest(config: PageConfig, body?: unknown): Promise<ModelDefaultsAnswer> {
   try {
-    const response = await fetch("/api/model-defaults", { headers: { "X-Kiln-Token": config.token } });
-    const body = await response.json() as Record<string, unknown>;
-    return response.ok ? { ok: true, view: body as never } : { ok: false, reason: String(body.reason ?? response.statusText), canRestore: body.canRestore === true };
-  } catch (error) { return { ok: false, reason: (error as Error).message, canRestore: false }; }
+    const response = await fetch("/api/model-defaults", { ...(body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }), headers: { "X-Kiln-Token": config.token, ...(body === undefined ? {} : { "Content-Type": "application/json" }) } });
+    const answer = await response.json() as Record<string, unknown>;
+    if (response.ok) return { ok: true, view: answer as never, ...(typeof answer.notice === "string" ? { notice: answer.notice } : {}) };
+    return { ok: false, reason: String(answer.reason ?? response.statusText), ...(answer.source === "defaults" || answer.source === "prd" ? { source: answer.source } : {}), canRestore: answer.canRestore === true, unreadable: response.status === 409 };
+  } catch (error) { return { ok: false, reason: (error as Error).message, canRestore: false, unreadable: false }; }
 }
-/** One change to Model defaults: a row's sides, Restore, or the fallback switch and threshold. */
-export const changeModelDefaults = (config: PageConfig, change: import("../../../src/models/model-defaults-edit.js").DefaultsChange) => send(config, "POST", "/api/model-defaults", change);
+/** The settings in force as the files say now (AC-SAVE-05). */
+export const modelDefaults = (config: PageConfig) => modelDefaultsRequest(config);
+/** Saves the page's changes for every PRD on this computer or for this PRD only (AC-SAVE-01, AC-SAVE-03, AC-SAVE-04). */
+export const saveModelDefaults = (config: PageConfig, target: import("../../../src/models/settings-change.js").SaveTarget, changes: import("../../../src/models/settings-change.js").SettingsChange) => modelDefaultsRequest(config, { save: { target, changes } });
+/** Use my defaults here: removes this PRD's own settings (AC-SAVE-05). */
+export const useModelDefaults = (config: PageConfig) => modelDefaultsRequest(config, { useDefaults: true });
 /** Resume at Needs you, with the person's note when they wrote one (usage-limit recovery AC-RESUME-02, 03). */
 export const resume = (config: PageConfig, note: string, bringUpToDate = false) => send(config, "POST", "/api/resume", { ...(note.trim() === "" ? {} : { note }), bringUpToDate });
 /** Resume now, during a wait; it takes no note (usage-limit recovery AC-LIMIT-02). */

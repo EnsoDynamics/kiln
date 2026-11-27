@@ -26,6 +26,12 @@ export class Router {
 
   constructor(private readonly base: string) {}
 
+  /**
+   * Set by a screen holding unsaved changes: asked before a link Kiln routes itself leaves it, and
+   * true when the screen refuses, having said why on the page (Kiln Model Modes AC-SAVE-02).
+   */
+  refusesLeaving: (() => boolean) | undefined = undefined;
+
   /** Reads the address now, and follows the browser's back and forward buttons. */
   start(location: Location): () => void {
     this.route = routeOf(location.pathname, this.base);
@@ -50,5 +56,6 @@ export class Router {
 export function routedClick(event: MouseEvent, router: Router | undefined, path: string): void {
   if (!router || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
+  if (router.refusesLeaving?.()) return;
   router.go(path);
 }

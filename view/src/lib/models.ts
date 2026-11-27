@@ -183,6 +183,23 @@ export function modelsLine(models: Pick<ModelSettings, "mode" | "oneModel">): st
 }
 
 /**
+ * The line under One model for everything on Model defaults (Kiln Model Modes AC-MODE-03; mockup
+ * 2): the account the one model's agent is signed in to, as the account panel reads it, and that
+ * a run waits at a usage limit, since one model has no fallback. An agent the snapshot holds no
+ * account for is named alone.
+ *
+ *   oneModelAccountLine("Claude Code", { email: "you@example.com", plan: "Max plan", limits: [{ kind: "weekly_all", label: "Weekly", percent: 44 }] })
+ *   // "Claude Code · you@example.com · Max plan · 44% of weekly limit used. At a usage limit a run waits and picks up again."
+ */
+export function oneModelAccountLine(agent: string, account: { email?: string | undefined; plan?: string | undefined; error?: string | undefined; limits: { kind?: string; label: string; percent?: number | undefined }[] } | undefined): string {
+  const read = account && !account.error ? account : undefined;
+  const limit = read?.limits.find(one => one.kind === "weekly_all" && one.percent !== undefined) ?? read?.limits.find(one => one.percent !== undefined);
+  const name = limit?.label.toLowerCase();
+  const used = limit ? `${limit.percent}% of ${/window$/.test(name!) ? name : `${name} limit`} used` : undefined;
+  return `${[agent, read?.email, read?.plan, used].filter(Boolean).join(" · ")}. At a usage limit a run waits and picks up again.`;
+}
+
+/**
  * A decision's recorded limit in a sentence: a window with its percent, or a usage block or used-up attempt.
  *
  *   limitPhrase({ agent: "Claude Code", label: "Weekly", percent: 97 })   // "Claude Code's weekly limit was at 97%"

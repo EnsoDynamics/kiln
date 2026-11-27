@@ -1,5 +1,7 @@
 # Phase 2: Save on Model defaults
 
+**Closed:** 2026-11-27
+
 **Parent PRD:** [Kiln Model Modes](kiln-model-modes-prd.md)
 **Technical design:** [Kiln Model Modes technical design](kiln-model-modes-technical-design.md) — relevant sections: the decisions on what a PRD's own settings hold, the shape of a save, browser Back and Forward with a draft, a save for every PRD from a PRD with its own settings, Restore Kiln's defaults, `kiln model-defaults` for one PRD, and the fallback in command and status output; "Settings in Force" (unreadable own settings); "Saving" except "A choice in the Models block"; `GET` and `POST /api/model-defaults` in "HTTP" (the `save` and `useDefaults` bodies); "Command line"; "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-model-modes-phase-plan.md)

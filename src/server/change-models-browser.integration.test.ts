@@ -2,9 +2,10 @@
 // AC-OTHER-01, AC-DEFAULT-02, AC-FALLBACK-01; mockups 1 and 4), from the built view under Kiln's
 // Content Security Policy: a phase's Change on Documents found opens the agent, model and effort
 // choices and Done saves them; the Audits line's Change does the same for the PRD's Audits choice;
-// the Model defaults link opens the page of its own, where a row's Change and Done save Model
-// defaults for every PRD, the fallback switch turns on, and Back returns to the PRD.
-import { readFileSync } from "node:fs";
+// the Model defaults link opens the page of its own, where a row's Change and Done, Restore and
+// the fallback setting wait for Save (Kiln Model Modes AC-SAVE-01), which saves them for every
+// PRD, and the button back returns to the PRD.
+import { existsSync, readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { documentsFoundSnapshot } from "../test-support/sample-snapshots.js";
@@ -83,23 +84,34 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   await pick(page, '[data-row="standard"]', 0, "sonnet");
   await pick(page, '[data-row="standard"]', 1, "low");
   await press(page, ".table", "Done");
-  await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).rows?.standard?.first?.family === "sonnet"; } catch { return false; } });
-  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 2, rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
+  // Done puts the row on the page; nothing is saved until Save (Kiln Model Modes AC-SAVE-01).
   await page.waitFor(`document.querySelector('[data-row="standard"]').innerText.includes("Claude Code · Sonnet · low")`);
+  expect(existsSync(modelDefaultsPath(h.env))).toBe(false);
+  const saved = () => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")) as { rows?: unknown; fallback?: { use?: string } }; } catch { return undefined; } };
+  await press(page, "[data-save-bar]", "Save");
+  await waitFor(() => saved()?.rows !== undefined);
+  expect(saved()).toEqual({ schemaVersion: 2, rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
+  await page.waitFor(`document.querySelector('[data-save-bar] [role="status"]')?.textContent === "Saved for every PRD on this computer."`);
 
-  // The fallback switch, for every PRD.
-  await page.evaluate(`document.querySelector(".switch input").click()`);
-  await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).fallback?.use === "threshold"; } catch { return false; } });
-  await page.waitFor(`document.querySelector(".switch .state").textContent === "On"`);
-
-  // Restore Kiln's defaults clears the rows and keeps the switch.
+  // Restore Kiln's defaults shows Kiln's choices at once, and clears what was saved on Save.
   await press(page, ".restore", "Restore Kiln's defaults");
-  await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).rows === undefined; } catch { return false; } });
-  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 2, fallback: { use: "threshold" } });
   await page.waitFor(`document.querySelector('[data-row="standard"]').innerText.includes("Claude Code · Opus · medium")`);
+  expect(saved()).toEqual({ schemaVersion: 2, rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
+  await press(page, "[data-save-bar]", "Save");
+  await waitFor(() => saved()?.rows === undefined);
+  expect(saved()).toEqual({ schemaVersion: 2 });
 
-  // Back returns to the PRD, which shows the fallback switched on.
-  await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.textContent.startsWith("Back to"))).click()`);
+  // The threshold setting, for every PRD, saved with the threshold the page shows.
+  await page.evaluate(`document.querySelector('input[name="fallback"][value="threshold"]').click()`);
+  await page.waitFor(hasButton("[data-save-bar]", "Save"));
+  await press(page, "[data-save-bar]", "Save");
+  await waitFor(() => saved()?.fallback?.use === "threshold");
+  expect(saved()).toEqual({ schemaVersion: 2, fallback: { use: "threshold", threshold: 95 } });
+
+  // The button back, named for the PRD, returns to it, which shows the fallback's threshold.
+  await page.waitFor(`document.querySelector('[data-save-bar] [role="status"]') !== null`);
+  expect(await page.evaluate<string>(`document.querySelector("a.back").textContent.trim()`)).toBe("Customer returns");
+  await page.evaluate(`document.querySelector("a.back").click()`);
   await page.waitFor(`location.pathname === "/customer-returns" && document.body.innerText.includes("Use the fallback at 95%")`);
   expect(page.problems).toEqual([]);
 });

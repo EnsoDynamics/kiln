@@ -545,7 +545,7 @@ describe("a PRD's own settings are read in place of Model defaults (\"Settings i
     const own = prdSettingsPath(h.stateDirectory);
     writeFileSync(own, "{ broken");
     h.engine.modelChoicesChanged();
-    const reason = `This PRD's own settings at ${own} isn't valid JSON. Fix the file, or delete it so this PRD follows Model defaults again.`;
+    const reason = `This PRD's own settings at ${own} isn't valid JSON. Fix the file, or put this PRD back on your defaults: press Use my defaults here on its Model defaults page, or run kiln model-defaults use-defaults with --prd and this PRD's path.`;
     expect(h.engine.notStartedChoice("2b")).toMatchObject({ from: "model_defaults", ownSettings: true, problem: reason });
     // The unread file may say the fallback is used for everything, which wins over a changed choice: it can't launch either.
     expect(h.engine.notStartedChoice("1")).toMatchObject({ model: "sonnet", from: "changed", ownSettings: true, problem: `${reason} Until it reads, Kiln can't tell whether the fallback is used for everything, so nothing launches.` });

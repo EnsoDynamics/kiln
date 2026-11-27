@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { FallbackView, ModelView } from "../../../src/engine/activity-models.js";
 import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
 import { documentsFoundSnapshot, needsYouCrashedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { fallbackLine, fallbackStory, modelsLine, noFallbackNote, rowModelTarget, thresholdInForce, tierExplanation } from "../lib/models.js";
+import { fallbackLine, fallbackStory, modelsLine, noFallbackNote, oneModelAccountLine, rowModelTarget, thresholdInForce, tierExplanation } from "../lib/models.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 import NeedsYou from "./NeedsYou.svelte";
 import Running from "./Running.svelte";
@@ -174,5 +174,20 @@ describe("Change on the Preflight and pull request rows (AC-ROW-01)", () => {
     const card = needsYou(snapshot);
     expect(rowText(card, "preflight-planned")).toContain("PF Preflight Will run on Claude Code · Opus 5.5 · medium Change");
     expect(rowText(card, "planned-pull-request")).toContain("PR Pull request Will run on Claude Code · Opus 5.5 · medium Change");
+  });
+});
+
+describe("the line under One model for everything on Model defaults (AC-MODE-03; mockup 2)", () => {
+  const limits = [{ kind: "session", label: "5-hour window", percent: 13 }, { kind: "weekly_all", label: "Weekly", percent: 44 }];
+
+  it("names the account the one model's agent is signed in to, with its weekly usage, and says a run waits at a usage limit", () => {
+    expect(oneModelAccountLine("Claude Code", { email: "you@example.com", plan: "Max plan", limits })).toBe("Claude Code · you@example.com · Max plan · 44% of weekly limit used. At a usage limit a run waits and picks up again.");
+    // An account with no weekly reading shows the first limit that has one.
+    expect(oneModelAccountLine("Codex", { email: "you@example.com", limits: [{ label: "Primary", percent: undefined }, { label: "5-hour window", percent: 13 }] })).toBe("Codex · you@example.com · 13% of 5-hour window used. At a usage limit a run waits and picks up again.");
+  });
+
+  it("names the agent alone when Kiln holds no account for it, or couldn't read one", () => {
+    expect(oneModelAccountLine("Codex", undefined)).toBe("Codex. At a usage limit a run waits and picks up again.");
+    expect(oneModelAccountLine("Claude Code", { email: "you@example.com", error: "Not signed in.", limits })).toBe("Claude Code. At a usage limit a run waits and picks up again.");
   });
 });
