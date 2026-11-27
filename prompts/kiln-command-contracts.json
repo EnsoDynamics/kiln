@@ -2063,11 +2063,11 @@
         "model"
       ],
       "group": "models",
-      "purpose": "Change the agent, model and effort of one phase that hasn't started, or this PRD's Audits choice, in a run underway; or return either to its default.",
+      "purpose": "Change the agent, model and effort of one phase that hasn't started, this PRD's Audits choice, or its Preflight and pull request choice, in a run underway; or return any of them to its default.",
       "side_effect": "change",
       "implemented": true,
       "availability": "Available on a compatible live controller with the model feature, in a run underway that isn't complete; status reports current eligibility, and each activity's model.change says whether its phase can change.",
-      "usage": "kiln model <PRD-path> (--phase <id> | --audits) (--agent <claude_code|codex> --model <value> [--effort <value>] | --use-default) --only-if-status-matches <token> --command-id <id> [--json]",
+      "usage": "kiln model <PRD-path> (--phase <id> | --audits | --preflight-pr) (--agent <claude_code|codex> --model <value> [--effort <value>] | --use-default) --only-if-status-matches <token> --command-id <id> [--json]",
       "arguments": [
         {
           "name": "PRD-path",
@@ -2090,7 +2090,11 @@
         },
         "audits": {
           "value": null,
-          "source": "This PRD's Audits choice, which the preflight, every delivery and test audit and the pull request session run on. Never refused for an activity's state: it reaches every such activity that hasn't started, and one launching or running takes it only if it ends with no response."
+          "source": "This PRD's Audits choice, which every delivery and test audit runs on. Never refused for an activity's state: it reaches every such activity that hasn't started, and one launching or running takes it only if it ends with no response."
+        },
+        "preflight-pr": {
+          "value": null,
+          "source": "This PRD's Preflight and pull request choice, which the preflight, the pull request session, and the merge and push sessions after delivery run on. Never refused for an activity's state: it reaches every such activity that hasn't started, and one launching or running takes it only if it ends with no response. Refused once the run is complete."
         },
         "agent": {
           "value": "claude_code|codex",
@@ -2106,7 +2110,7 @@
         },
         "use-default": {
           "value": null,
-          "source": "Return the phase to its tier's choice in Model defaults, or the Audits choice to the Audits row's."
+          "source": "Return the phase to its tier's choice in Model defaults, the Audits choice to the Audits row's, or the Preflight and pull request choice to the Preflight and pull request row's."
         },
         "only-if-status-matches": {
           "value": "status_token",
@@ -2121,7 +2125,8 @@
         {
           "exactly_one": [
             "phase",
-            "audits"
+            "audits",
+            "preflight-pr"
           ]
         },
         {
@@ -2238,7 +2243,7 @@
         "model-defaults"
       ],
       "group": "models",
-      "purpose": "Print Model defaults: each tier's and the Audits row's first choice and fallback, the fallback switch and its threshold.",
+      "purpose": "Print Model defaults: each tier's, the Audits row's and the Preflight and pull request row's first choice and fallback, the mode, the one model, and the fallback setting with its threshold.",
       "side_effect": "read",
       "implemented": true,
       "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
@@ -2264,7 +2269,7 @@
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
         "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "data": "mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never) and agents (each installed agent's families with their efforts, and its readiness).",
         "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
@@ -2302,7 +2307,7 @@
       "side_effect": "computer_setting",
       "implemented": true,
       "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
-      "usage": "kiln model-defaults set --row <demanding|standard|mechanical|audits> [--first-agent <agent> --first-model <family> [--first-effort <value>]] [--fallback-agent <agent> --fallback-model <family> [--fallback-effort <value>]] [--json]",
+      "usage": "kiln model-defaults set --row <demanding|standard|mechanical|audits|preflight-pr> [--first-agent <agent> --first-model <family> [--first-effort <value>]] [--fallback-agent <agent> --fallback-model <family> [--fallback-effort <value>]] [--json]",
       "arguments": [],
       "flags": {
         "json": {
@@ -2338,8 +2343,8 @@
           "source": "The fallback's effort. Omitted: none for a model that takes no effort, otherwise the default the agent reports for the family's newest model, refused when it reports none (Claude Code reports none)."
         },
         "row": {
-          "value": "demanding|standard|mechanical|audits",
-          "source": "The row to change. Standard is also the row of a phase with no Model tier line; Audits covers the preflight, the audits and the pull request session."
+          "value": "demanding|standard|mechanical|audits|preflight-pr",
+          "source": "The row to change. Standard is also the row of a phase with no Model tier line; Audits covers the delivery audit and the test audit; preflight-pr covers the preflight, the pull request session, and the merge and push sessions after delivery."
         }
       },
       "required_exclusive_groups": [
@@ -2359,7 +2364,7 @@
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
         "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "data": "mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never) and agents (each installed agent's families with their efforts, and its readiness).",
         "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
@@ -2402,7 +2407,7 @@
         "restore"
       ],
       "group": "models",
-      "purpose": "Restore Kiln's defaults: clear the four rows, keeping the fallback switch and threshold.",
+      "purpose": "Restore Kiln's defaults: clear the five rows, keeping the fallback setting and threshold.",
       "side_effect": "computer_setting",
       "implemented": true,
       "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
@@ -2429,7 +2434,7 @@
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
         "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "data": "mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never) and agents (each installed agent's families with their efforts, and its readiness).",
         "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
@@ -2510,7 +2515,7 @@
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
         "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
+        "data": "mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never) and agents (each installed agent's families with their efforts, and its readiness).",
         "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },

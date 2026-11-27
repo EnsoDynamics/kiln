@@ -4,18 +4,16 @@
 // Change and `kiln model`, so every surface applies the same omitted-effort rule and refusals.
 // Every write re-reads the file, applies one change and replaces it atomically.
 
-import { readFileSync } from "node:fs";
 import { autoModeError, type ModelEntry } from "../account/model-list.js";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import { writeJsonAtomically } from "../state/state-files.js";
-import { DEFAULTS_ROWS, MODEL_DEFAULTS_SCHEMA, readModelDefaults, SHIPPED_FALLBACK, type DefaultsRow, type FamilyChoice, type ModelChoice, type ModelDefaults } from "./model-defaults.js";
+import { DEFAULTS_ROWS, MODEL_DEFAULTS_SCHEMA, readModelDefaults, oneModelOf, ROW_NAMES, SHIPPED_FALLBACK, type DefaultsRow, type FallbackUse, type FamilyChoice, type ModelChoice, type ModelDefaults, type ModelMode } from "./model-defaults.js";
 import { codexFamilyOf, familyName, newestOfFamily, type ModelList } from "./resolver.js";
 
 /** A refusal: 400 malformed, 409 the file can't be read, 422 a choice or value Kiln won't save. */
 export interface Refusal { ok: false; status: 400 | 409 | 422; reason: string; path?: string; canRestore?: boolean }
 
-/** The names of the four rows as the page and the refusals say them. */
-export const ROW_NAMES: Record<DefaultsRow, string> = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits" };
+export { ROW_NAMES };
 
 /**
  * The one omitted-effort rule (technical design, "Command line"): a model that takes no effort
@@ -78,33 +76,38 @@ export type DefaultsChange =
   | { restore: true }
   | { fallback: { enabled?: boolean; threshold?: number } };
 
-type RawFile = { schemaVersion: number; rows?: Partial<Record<DefaultsRow, { first?: FamilyChoice; fallback?: FamilyChoice }>>; fallback?: { enabled?: boolean; threshold?: number } };
+/** A settings file as written: schema 2, holding only what the person set. */
+type RawFile = { schemaVersion: number; mode?: ModelMode; oneModel?: FamilyChoice; rows?: Partial<Record<DefaultsRow, { first?: FamilyChoice; fallback?: FamilyChoice }>>; fallback?: { use?: FallbackUse; threshold?: number } };
 
 /**
  * Applies one change to Model defaults and replaces the file (AC-DEFAULT-02, AC-DEFAULT-05,
  * AC-FALLBACK-01). A file that doesn't parse refuses every save; Restore is the one write allowed
  * over it, and is refused too over a newer schema version. The file keeps only what the person
- * set: Restore clears the four rows and keeps the switch and threshold.
+ * set: Restore clears the five rows and keeps the rest. Every write stores schema 2, so a schema 1
+ * file is rewritten as it read: the switch as Never or the threshold setting, and the Preflight
+ * and pull request row carried from a changed Audits row (AC-CARRY-01).
  *
- *   editModelDefaults(path, { fallback: { enabled: true } }, lists)  // { ok: true, defaults: { …, fallback: { enabled: true, threshold: 95 } } }
+ *   editModelDefaults(path, { fallback: { enabled: true } }, lists)  // { ok: true, defaults: { …, fallback: { use: "threshold", threshold: 95, … } } }
  */
 export function editModelDefaults(path: string, change: DefaultsChange, lists: Partial<Record<AgentId, ModelList>>): { ok: true; defaults: ModelDefaults; fallbackTurnedOff?: true } | Refusal {
   const read = readModelDefaults(path);
   if (!read.ok) {
     if (!("restore" in change) || !read.canRestore) return { ok: false, status: 409, reason: read.reason, path: read.path, canRestore: read.canRestore };
     // Over a file that doesn't parse, Restore writes every row at its default and the fallback off at 95.
-    writeJsonAtomically(path, { schemaVersion: MODEL_DEFAULTS_SCHEMA, fallback: { ...SHIPPED_FALLBACK } });
+    writeJsonAtomically(path, { schemaVersion: MODEL_DEFAULTS_SCHEMA, fallback: { ...SHIPPED_FALLBACK } } satisfies RawFile);
     return { ...settled(path), fallbackTurnedOff: true };
   }
-  const raw = rawFile(path);
+  const raw = heldFields(read.defaults);
   if ("restore" in change) {
-    writeJsonAtomically(path, { schemaVersion: MODEL_DEFAULTS_SCHEMA, ...(raw.fallback ? { fallback: raw.fallback } : {}) });
+    delete raw.rows;
+    writeJsonAtomically(path, raw);
     return settled(path);
   }
   if ("fallback" in change) {
     const { enabled, threshold } = change.fallback;
     if (threshold !== undefined && !(Number.isInteger(threshold) && threshold >= 1 && threshold <= 100)) return { ok: false, status: 422, reason: "The threshold is a whole-number percent from 1 to 100." };
-    raw.fallback = { ...raw.fallback, ...(enabled === undefined ? {} : { enabled }), ...(threshold === undefined ? {} : { threshold }) };
+    // The switch selects the threshold setting, or Never (AC-CLI-01's meaning for today's commands).
+    raw.fallback = { ...raw.fallback, ...(enabled === undefined ? {} : { use: enabled ? "threshold" as const : "never" as const }), ...(threshold === undefined ? {} : { threshold }) };
     writeJsonAtomically(path, raw);
     return settled(path);
   }
@@ -124,9 +127,26 @@ export function editModelDefaults(path: string, change: DefaultsChange, lists: P
   return settled(path);
 }
 
-function rawFile(path: string): RawFile {
-  try { return JSON.parse(readFileSync(path, "utf8")) as RawFile; }
-  catch { return { schemaVersion: MODEL_DEFAULTS_SCHEMA }; }
+/**
+ * The fields a settings file holds, as schema 2 writes them, from how it read: only what the
+ * person set, with a schema 1 file's switch and carried Preflight and pull request row included.
+ *
+ *   heldFields(shippedDefaults())  // { schemaVersion: 2 }
+ */
+export function heldFields(settings: ModelDefaults): RawFile {
+  const rows: NonNullable<RawFile["rows"]> = {};
+  for (const row of DEFAULTS_ROWS) {
+    const one = settings.rows[row];
+    if (one.firstSet || one.fallbackSet) rows[row] = { ...(one.firstSet ? { first: one.first } : {}), ...(one.fallbackSet ? { fallback: one.fallback } : {}) };
+  }
+  const { use, threshold, useSet, thresholdSet } = settings.fallback;
+  return {
+    schemaVersion: MODEL_DEFAULTS_SCHEMA,
+    ...(settings.modeSet ? { mode: settings.mode } : {}),
+    ...(settings.oneModel ? { oneModel: settings.oneModel } : {}),
+    ...(Object.keys(rows).length ? { rows } : {}),
+    ...(useSet || thresholdSet ? { fallback: { ...(useSet ? { use } : {}), ...(thresholdSet ? { threshold } : {}) } } : {}),
+  };
 }
 
 function settled(path: string): { ok: true; defaults: ModelDefaults } {
@@ -141,10 +161,14 @@ export interface DefaultsSideView { agentId: AgentId; agent: string; family: str
 /** A family an agent offers, for the page's editor: its newest model and the efforts it takes. */
 export interface FamilyOption { family: string; familyName: string; modelName: string; efforts: string[]; defaultEffort?: string }
 
-/** `GET /api/model-defaults` and `kiln model-defaults`: the rows, the switch, each installed agent's families and readiness. */
+/** `GET /api/model-defaults` and `kiln model-defaults`: the mode, the one model, the rows, the fallback setting, each installed agent's families and readiness. */
 export interface ModelDefaultsView {
+  mode: ModelMode;
+  /** The one model: the one the person picked, else Kiln's for this computer. */
+  oneModel: DefaultsSideView;
   rows: Record<DefaultsRow, { first: DefaultsSideView; fallback: DefaultsSideView }>;
-  fallback: { enabled: boolean; threshold: number };
+  /** `enabled` is true unless the setting is Never, so a reader of the switch keeps its meaning. */
+  fallback: { use: FallbackUse; threshold: number; enabled: boolean };
   /** `readinessKnown` is false while Kiln hasn't read that agent's readiness; then no readiness is claimed. */
   agents: { agentId: AgentId; agent: string; installed: boolean; readinessKnown: boolean; families: FamilyOption[]; modelListError?: string; readinessErrors?: string[] }[];
 }
@@ -165,7 +189,7 @@ export function familyOptions(agentId: AgentId, models: ModelEntry[]): FamilyOpt
  *
  *   modelDefaultsView(path, lists, agents)  // { ok: true, view: { rows: { standard: { first: { agent: "Claude Code", familyName: "Opus", modelName: "Opus 5.5", effort: "medium", set: false }, … } }, … } }
  */
-export function modelDefaultsView(path: string, lists: Partial<Record<AgentId, ModelList>>, agents: { agentId: AgentId; installed: boolean; readinessKnown?: boolean; readinessErrors?: string[] }[]): { ok: true; view: ModelDefaultsView } | Refusal {
+export function modelDefaultsView(path: string, lists: Partial<Record<AgentId, ModelList>>, agents: { agentId: AgentId; installed: boolean; readinessKnown?: boolean; readinessErrors?: string[] }[], claudeCodeInstalled = agents.some(agent => agent.agentId === "claude_code" && agent.installed)): { ok: true; view: ModelDefaultsView } | Refusal {
   const read = readModelDefaults(path);
   if (!read.ok) return { ok: false, status: 409, reason: read.reason, path: read.path, canRestore: read.canRestore };
   const side = (choice: FamilyChoice, set: boolean): DefaultsSideView => {
@@ -174,5 +198,6 @@ export function modelDefaultsView(path: string, lists: Partial<Record<AgentId, M
     return { agentId: choice.agentId, agent: AGENT_NAMES[choice.agentId], family: choice.family, familyName: familyName(choice), ...(choice.effort ? { effort: choice.effort } : {}), ...(found?.entry ? { modelName: found.entry.displayName } : {}), ...(found?.problem ? { problem: found.problem } : !list?.models ? { problem: listRefusal(choice.agentId, list)! } : {}), set };
   };
   const rows = Object.fromEntries(DEFAULTS_ROWS.map(row => { const one = read.defaults.rows[row]; return [row, { first: side(one.first, one.firstSet), fallback: side(one.fallback, one.fallbackSet) }]; })) as ModelDefaultsView["rows"];
-  return { ok: true, view: { rows, fallback: read.defaults.fallback, agents: agents.map(agent => ({ agentId: agent.agentId, agent: AGENT_NAMES[agent.agentId], installed: agent.installed, readinessKnown: agent.readinessKnown ?? true, families: lists[agent.agentId]?.models ? familyOptions(agent.agentId, lists[agent.agentId]!.models!) : [], ...(lists[agent.agentId]?.error ? { modelListError: lists[agent.agentId]!.error! } : {}), ...(agent.readinessErrors?.length ? { readinessErrors: agent.readinessErrors } : {}) })) } };
+  const { use, threshold } = read.defaults.fallback;
+  return { ok: true, view: { mode: read.defaults.mode, oneModel: side(oneModelOf(read.defaults, claudeCodeInstalled), read.defaults.oneModel !== undefined), rows, fallback: { use, threshold, enabled: use !== "never" }, agents: agents.map(agent => ({ agentId: agent.agentId, agent: AGENT_NAMES[agent.agentId], installed: agent.installed, readinessKnown: agent.readinessKnown ?? true, families: lists[agent.agentId]?.models ? familyOptions(agent.agentId, lists[agent.agentId]!.models!) : [], ...(lists[agent.agentId]?.error ? { modelListError: lists[agent.agentId]!.error! } : {}), ...(agent.readinessErrors?.length ? { readinessErrors: agent.readinessErrors } : {}) })) } };
 }

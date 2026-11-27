@@ -257,9 +257,9 @@ export function waiveInputs(flags: Record<string, string | true | string[]>): Re
   return { confirm, ...(typeof flags.by === "string" ? { by: flags.by } : {}), ...(flags["without-sending-reply"] ? { without_sending_reply: true } : {}) };
 }
 
-/** `kiln model`'s journal inputs: the phase or the Audits choice, and a choice or a return to the default. */
+/** `kiln model`'s journal inputs: the phase, the Audits choice or the Preflight and pull request choice, and a choice or a return to the default. */
 function modelInputs(flags: Record<string, string | true | string[]>): Record<string, unknown> {
-  return { ...(typeof flags.phase === "string" ? { phase: flags.phase } : { audits: true }), ...(flags["use-default"] ? { use_default: true } : { agent_id: flags.agent, model: flags.model, ...(typeof flags.effort === "string" ? { effort: flags.effort } : {}) }) };
+  return { ...(typeof flags.phase === "string" ? { phase: flags.phase } : flags["preflight-pr"] ? { preflight_pr: true } : { audits: true }), ...(flags["use-default"] ? { use_default: true } : { agent_id: flags.agent, model: flags.model, ...(typeof flags.effort === "string" ? { effort: flags.effort } : {}) }) };
 }
 
 /** The saved record as it is now, for naming a waiver's activity and source; the target's snapshot when it cannot be reread. */

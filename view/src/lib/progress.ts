@@ -39,7 +39,7 @@ export function phaseName(id: string, snapshot?: Snapshot): string {
 export function withPlannedPreflight(rows: PhaseView[], snapshot: Snapshot): PhaseView[] {
   const planned = snapshot.preflight?.planned;
   if (!planned) return rows;
-  // It shows the Audits choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row").
+  // It shows the Preflight and pull request choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row"; Kiln Model Modes AC-ROW-01).
   const row: PhaseView = { id: "preflight-planned", kind: "preflight", title: "Preflight", file: "", state: "planned", finishedByPerson: false, ...(planned.model ? { model: planned.model } : {}) };
   const at = planned.before === "end" ? -1 : rows.findIndex(one => one.id === planned.before);
   return at === -1 ? [...rows, row] : [...rows.slice(0, at), row, ...rows.slice(at)];

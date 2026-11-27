@@ -56,6 +56,9 @@ function sideFlags(flags: ParsedCommand["flags"], side: "first" | "fallback"): F
   return { agentId: agent, family: model, ...(typeof effort === "string" ? { effort } : {}) };
 }
 
+/** `--row`'s value as a row: the flag spells the fifth row `preflight-pr`. */
+function rowOfFlag(value: string): DefaultsRow { return (value === "preflight-pr" ? "preflight_pr" : value) as DefaultsRow; }
+
 /** The change a `set`, `restore` or `fallback` subcommand asks for. */
 function changeOf(parsed: ParsedCommand): DefaultsChange {
   const [, sub] = parsed.contract.path; const flags = parsed.flags;
@@ -68,10 +71,10 @@ function changeOf(parsed: ParsedCommand): DefaultsChange {
     return { fallback: { ...(flags.on ? { enabled: true } : flags.off ? { enabled: false } : {}), ...(threshold === undefined ? {} : { threshold: Number(threshold) }) } };
   }
   const row = flags.row;
-  if (!DEFAULTS_ROWS.includes(row as DefaultsRow)) throw new ControlFailure("invalid_input", "--row takes demanding, standard, mechanical or audits.", 2);
+  if (typeof row !== "string" || !DEFAULTS_ROWS.includes(rowOfFlag(row))) throw new ControlFailure("invalid_input", "--row takes demanding, standard, mechanical, audits or preflight-pr.", 2);
   const first = sideFlags(flags, "first"); const fallback = sideFlags(flags, "fallback");
   if (!first && !fallback) throw new ControlFailure("invalid_input", "Give the first choice, the fallback or both: --first-agent with --first-model, or --fallback-agent with --fallback-model.", 2);
-  return { set: { row: row as DefaultsRow, ...(first ? { first } : {}), ...(fallback ? { fallback } : {}) } };
+  return { set: { row: rowOfFlag(row), ...(first ? { first } : {}), ...(fallback ? { fallback } : {}) } };
 }
 
 /**

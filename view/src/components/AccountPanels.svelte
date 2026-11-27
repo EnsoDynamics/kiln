@@ -3,13 +3,13 @@
   // in-use agent's first, marked as in use beside another's.
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { accountsShown } from "../lib/agents.js";
+  import { thresholdInForce } from "../lib/models.js";
   import AccountPanel from "./AccountPanel.svelte";
 
   let { snapshot, paused, notStarted = false, pullRequest = false, only, now }: { snapshot: Snapshot; paused: boolean; notStarted?: boolean; pullRequest?: boolean; only?: (agentId: string) => boolean; now: number } = $props();
   const shown = $derived(accountsShown(snapshot).filter(({ agent }) => !only || only(agent.agentId)));
-  const fallback = $derived(snapshot.settings.models.fallback);
 </script>
 
 {#each shown as { agent, account } (agent.agentId)}
-  <AccountPanel {account} agent={agent.agent} {paused} {notStarted} {pullRequest} markInUse={accountsShown(snapshot).length > 1} threshold={fallback.enabled ? fallback.threshold : undefined} {now} />
+  <AccountPanel {account} agent={agent.agent} {paused} {notStarted} {pullRequest} markInUse={accountsShown(snapshot).length > 1} threshold={thresholdInForce(snapshot.settings.models)} {now} />
 {/each}

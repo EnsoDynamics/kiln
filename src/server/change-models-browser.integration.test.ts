@@ -67,31 +67,35 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.textContent.trim() === "Model defaults")).click()`);
   await page.waitFor(`document.querySelector("h1")?.textContent === "Model defaults" && document.querySelector('[data-row="standard"]')`);
   expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/model-defaults");
-  // The four rows, each with its first choice and fallback as AC-DEFAULT-01's table gives them (AC-DEFAULT-02).
+  // The five rows, each with its first choice and fallback as AC-DEFAULT-01's table and Kiln Model Modes AC-ROW-01's give them (AC-DEFAULT-02).
   const sides = (row: string) => page.evaluate<string[]>(`[...document.querySelectorAll('[data-row="${row}"] .side .choice')].map(choice => choice.textContent.trim())`);
-  expect(await page.evaluate<string[]>(`[...document.querySelectorAll("[data-row]")].map(row => row.dataset.row)`)).toEqual(["demanding", "standard", "mechanical", "audits"]);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll("[data-row]")].map(row => row.dataset.row)`)).toEqual(["demanding", "standard", "mechanical", "audits", "preflight_pr"]);
   expect(await sides("demanding")).toEqual(["Claude Code · Fable · high", "Codex · GPT Astra · high"]);
   expect(await sides("standard")).toEqual(["Claude Code · Opus · medium", "Codex · GPT Sol · high"]);
   expect(await sides("mechanical")).toEqual(["Claude Code · Sonnet · high", "Codex · GPT Sol · high"]);
   expect(await sides("audits")).toEqual(["Claude Code · Opus · high", "Codex · GPT Sol · extra high"]);
+  expect(await sides("preflight_pr")).toEqual(["Claude Code · Opus · medium", "Codex · GPT Sol · medium"]);
+  // The Audits row now covers the two audits only; the new row names what moved to it.
+  expect(await page.evaluate<string>(`document.querySelector('[data-row="audits"] .tier').innerText`)).toMatch(/Audits\s+The delivery audit and the test audit\. Not a tier: they check the whole PRD\./);
+  expect(await page.evaluate<string>(`document.querySelector('[data-row="preflight_pr"] .tier').innerText`)).toMatch(/Preflight and pull request\s+The check before the first phase, the pull request session at the end, and the merge and push sessions after it\./);
   await press(page, '[data-row="standard"]', "Change");
   await page.waitFor(`document.querySelectorAll('[data-row="standard"] select').length === 2`);
   await pick(page, '[data-row="standard"]', 0, "sonnet");
   await pick(page, '[data-row="standard"]', 1, "low");
   await press(page, ".table", "Done");
   await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).rows?.standard?.first?.family === "sonnet"; } catch { return false; } });
-  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 1, rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
+  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 2, rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
   await page.waitFor(`document.querySelector('[data-row="standard"]').innerText.includes("Claude Code · Sonnet · low")`);
 
   // The fallback switch, for every PRD.
   await page.evaluate(`document.querySelector(".switch input").click()`);
-  await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).fallback?.enabled === true; } catch { return false; } });
+  await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).fallback?.use === "threshold"; } catch { return false; } });
   await page.waitFor(`document.querySelector(".switch .state").textContent === "On"`);
 
   // Restore Kiln's defaults clears the rows and keeps the switch.
   await press(page, ".restore", "Restore Kiln's defaults");
   await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).rows === undefined; } catch { return false; } });
-  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 1, fallback: { enabled: true } });
+  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 2, fallback: { use: "threshold" } });
   await page.waitFor(`document.querySelector('[data-row="standard"]').innerText.includes("Claude Code · Opus · medium")`);
 
   // Back returns to the PRD, which shows the fallback switched on.

@@ -78,7 +78,8 @@ describe("the engine from Start to the pull request", () => {
       expect(call.cwd).toBe(worktree);
       expect(call.args).toEqual([
         "-p", "--input-format", "stream-json", "--session-id", call.args[4],
-        "--model", "opus", "--effort", call === calls.at(-1) ? "high" : "medium",
+        // Every phase here is standard, and the pull request session runs on its own row: Opus at medium for all (Kiln Model Modes AC-ROW-01).
+        "--model", "opus", "--effort", "medium",
         "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--forward-subagent-text",
         "--permission-mode", "auto", "--permission-prompts", "none",
         // Multi-repo design, "Sessions": no PowerShell tool, so every shell command is one Stayed in the workspace reads.

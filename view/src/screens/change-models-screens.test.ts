@@ -73,7 +73,7 @@ describe("a stopped activity's row (AC-PICK-03; mockup 5, state E)", () => {
     // Every other row that hasn't started is changeable there too, and so is the Audits choice.
     const words = (() => { const copy = structuredClone(snapshot); copy.phases = copy.phases.map(row => row.id === "4" ? { ...row, model: { state: "will_run_on", choice: choice("Sonnet 5.5", "high"), from: "model_defaults", change: { available: true } } } as PhaseView : row); return text(strip(render(NeedsYou, { props: { snapshot: copy, now: RUNNING_NOW } }).body)); })();
     expect(words).toMatch(/Models .*Will run on Claude Code · Sonnet 5\.5 · high Change/);
-    expect(words).toContain("Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too.");
+    expect(words).toContain("Audits Claude Code · Opus 5.5 · high Change The delivery audit and the test audit. Not a tier: they check the whole PRD.");
   });
 });
 
@@ -84,18 +84,18 @@ describe("the waiting page's Models card (AC-PICK-03, AC-OTHER-01)", () => {
     snapshot.phases = snapshot.phases.map(row => row.id === id ? { ...row, model: { state: "will_run_on", choice: choice("Opus 5.5", "medium"), from: "model_defaults", change: { available: true } } } as PhaseView : row);
     const page = (shown: Snapshot) => text(strip(render(Waiting, { props: { snapshot: shown, now: USAGE_LIMIT_NOW } }).body));
     expect(page(snapshot)).toMatch(/Models .*Will run on Claude Code · Opus 5\.5 · medium Change/);
-    expect(page(snapshot)).toContain("Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too.");
+    expect(page(snapshot)).toContain("Audits Claude Code · Opus 5.5 · high Change The delivery audit and the test audit. Not a tier: they check the whole PRD.");
     const done = structuredClone(snapshot); done.feature.completedAt = "2026-10-17T18:00:00Z";
-    expect(page(done)).not.toContain("The preflight and the pull request session use it too.");
+    expect(page(done)).not.toContain("The delivery audit and the test audit. Not a tier: they check the whole PRD.");
   });
 });
 
 describe("the run's settings (AC-DEFAULT-02, AC-OTHER-01, AC-FALLBACK-01)", () => {
   it("say models are chosen for each phase with a Model defaults link, show the Audits choice with Change, and the fallback", () => {
-    const page = running(withModels({}, { audits: { choice: choice("Sonnet 5.5", "low"), changedByYou: true, change: { available: true }, useDefault: true }, fallback: { enabled: true, threshold: 90 } }));
+    const page = running(withModels({}, { audits: { choice: choice("Sonnet 5.5", "low"), changedByYou: true, change: { available: true }, useDefault: true }, fallback: { use: "threshold", enabled: true, threshold: 90 } }));
     const words = text(page);
     expect(words).toContain("Models Chosen for each phase Change any phase that hasn't started, in the phase plan. Model defaults");
-    expect(words).toContain("Audits Claude Code · Sonnet 5.5 · low Changed by you · Use the default Change The preflight and the pull request session use it too.");
+    expect(words).toContain("Audits Claude Code · Sonnet 5.5 · low Changed by you · Use the default Change The delivery audit and the test audit. Not a tier: they check the whole PRD.");
     expect(words).toContain("If usage is nearly out Use the fallback at 90% Model defaults");
     expect(page).toMatch(/<a href="[^"]*\/model-defaults"[^>]*>Model defaults<\/a>/);
     // The table itself appears only on its own page.
@@ -109,7 +109,7 @@ describe("the editor and the page's route", () => {
     expect(startingEffort({ efforts: ["low", "medium"], defaultEffort: "medium" }, undefined)).toBe("medium");
     expect(startingEffort({ efforts: [] }, "high")).toBeUndefined();
     expect(effortWord("xhigh")).toBe("extra high");
-    expect(fallbackLine({ enabled: false, threshold: 95 })).toEqual({ value: "Wait for the limit", help: "No fallback is switched on. Set one up in" });
+    expect(fallbackLine({ mode: "recommended", fallback: { use: "never", threshold: 95 } })).toEqual({ value: "Wait for the limit", help: "No fallback is switched on. Set one up in" });
   });
 
   it("offers no choices on an agent whose model list can't be read", () => {

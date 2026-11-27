@@ -33,6 +33,8 @@ The existing local TypeScript application: the engine, its loopback server, the 
 
 ### Storage
 
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Storage and §Settings files (schema 2; a second file of the same schema for one PRD's own settings; the mode, the one model, a fifth row, and a three-way fallback setting in place of the switch).
+
 Model defaults lives in one owner-only JSON file at the state root, beside the per-PRD state directories, written atomically like every other Kiln record. It is outside every repository, which is what makes it apply to every PRD in every repository on the computer and survive upgrades (AC-DEFAULT-02). Per-PRD changes and each activity's start live in the PRD record and session records, schema 27.
 
 ### Dependencies
@@ -40,6 +42,8 @@ Model defaults lives in one owner-only JSON file at the state root, beside the p
 Claude Code and Codex, through their existing adapters. No new call is made to either (§Integration Points).
 
 ## Design Decisions
+
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Snapshot ("Model defaults across running Kilns": each running Kiln reads both settings files' revision once a second, in place of a watch on the state root).
 
 | Decision | Choice | Rationale |
 |---|---|---|
@@ -74,6 +78,8 @@ The recorded plan keeps the field for each phase (AC-TIER-01). Like the Attended
 
 ## Resolving a Choice (AC-PICK-01, AC-PICK-03, AC-PICK-04, AC-DEFAULT-01, AC-DEFAULT-03, AC-DEFAULT-04, AC-OTHER-01, AC-KEEP-02)
 
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Resolving a Choice (step 4 reads the settings in force and the mode; step 5; every activity that isn't a phase or an audit, the merge and the plan push included, has its own row and entry; no fallback under one model).
+
 ```
 ModelChoice:  { agentId, model, effort? }      model: the agent's model-list value
 FamilyChoice: { agentId, family, effort? }     a Model defaults row side
@@ -97,6 +103,8 @@ Because steps 2 to 4 are evaluated every time, a change to a tier line, a row or
 A phase's entry stays with that phase's id. When a session splits its phase, the child it goes on building keeps what the session started on (step 1), by the existing rule that credits that session's work to the child. Every other child resolves on its own: its own entry, the kept choice, then its own tier line. A change made to the parent before it started doesn't carry over. When a phase is split before it starts, by a person or another chat, the parent is no longer an activity and nothing reads its entry. Each child resolves on its own and offers Change until it starts.
 
 ## When an Activity Starts (AC-PICK-02, AC-PICK-04)
+
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Snapshot ("Planned rows" and "The planned Preflight row": the Preflight and pull request rows show their own row's choice and offer Change).
 
 When a session's first model response arrives, Kiln saves its time on the session. If the activity has no start yet, the same save records the one that started it: the first of its sessions, in the order they were created, that has a `firstResponseAt`. From then on the activity's row reads **Running on**, its choice is that session's, and it offers no Change.
 
@@ -134,6 +142,8 @@ A phase the person completes after its only launch failed before any response th
 ## Launching (AC-PICK-06, AC-PICK-07, AC-FALLBACK-02 to 04)
 
 ### The launch decision
+
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Launching (the decision runs its usage reading only while the threshold setting is in force; a launch on a fallback used for everything records the setting, not a limit; the heads-up is given only while the threshold setting is in force).
 
 Every launch of an activity that hasn't started runs one decision, immediately before the existing launch checks. Its first step stops the activity with the `selection` stop when the first choice has a problem known before launch (§A choice that can't be used), before any usage is read: the fallback never replaces a first choice that can't be used (AC-PICK-06), since AC-FALLBACK-02 lets only a usage reading send a launch to the fallback.
 
@@ -200,6 +210,8 @@ While the activity hasn't started, that rule's record is the activity's own. Eve
 
 ## Agents (AC-AGENTS-01 to 04, AC-KEEP-01)
 
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Launching, "Agents" (an agent is needed for a fallback only while the threshold setting is in force).
+
 Kiln keeps one reader per installed agent, each holding what the single reader holds today: readiness problems, the model list, the account and usage reading. Whether an agent is installed is read when Kiln starts and at each refresh.
 
 An agent is **needed** when the resolver names it for an activity not yet finished, or when the fallback switch is on and an unfinished activity's fallback names it. Activities Kiln hasn't allocated yet count too: every leaf phase not finished, the preflight while `preflight.planned` is present or an allocated preflight hasn't finished, and the audits and the pull request session until the pull request session finishes, all on the Audits choice. Start's reason names the activities by their plan rows: the preflight when planned, the phases, then the audit kinds and pull request session that "Planned rows" lists. Before Start both audit kinds are open, so it names the delivery audit, the test audit and the pull request session.
@@ -222,6 +234,8 @@ Every installed agent's model list is read when Kiln starts and at each refresh,
 
 ### Model defaults file
 
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Settings files (schema 2; a second file of the same schema for one PRD's own settings; the mode, the one model, a fifth row, and a three-way fallback setting in place of the switch).
+
 `<state root>/model-defaults.json`:
 
 ```json
@@ -240,6 +254,8 @@ Every write re-reads the file, applies one change and replaces it atomically. A 
 
 ### HTTP (same-origin, token, as today)
 
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §HTTP (`POST /api/model` also takes the `"preflight_pr"` target; the rest of that section's routes are built with its saving phase).
+
 | Route | Contract |
 |---|---|
 | `GET /api/model-defaults` | The four rows with each side's agent, family, effort, current model name and whether the person set it; the switch and threshold; each installed agent's families and efforts; each agent's readiness. 409 when the file can't be read (§Model defaults file) |
@@ -255,6 +271,8 @@ Every write re-reads the file, applies one change and replaces it atomically. A 
 The Model defaults page is a client route of the PRD's view, `<base>/model-defaults`, so "Back" returns to the PRD it was opened from. The model lines (Models with the Model defaults link, the Audits line, the fallback line) are one component in Documents found's delivery panel, the run's settings and the Folder missing setup panel; the setup panel shows them without Change, since nothing changes until the run is set up again. Needs you, the stopped-phase page and the waiting page show no phase plan, so each carries a Models card: every row that offers Change, the stopped or waiting activity's first (mockup 5, state E), then the model lines; it is left out once the run is complete. The Model defaults page reads the file again whenever `settings.models.revision`, the file's stat, changes. On the page, each side has its own Change. Done saves every open editor in that row in one request, carrying only the sides opened, so moving a row to the other agent means opening both sides and pressing Done once. A refused save keeps the editors open with the reason beside them.
 
 ### Snapshot
+
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Snapshot (the fields in that section: `settings.models`' source, mode, one model and three-way fallback setting, `noFallback`, a fallback used for everything, and `change` on the Preflight and pull request rows).
 
 ```
 phases[], activities[]  each gain:
@@ -304,6 +322,8 @@ Start unknown adds no state: `model.state` is `will_run_on` and `change` is `{ a
 
 ### Command line
 
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Command line (`kiln model --preflight-pr`, and `preflight-pr` as a `--row`; the rest of that section's commands are built with its saving phase).
+
 `kiln model` is a changing command: it takes `--command-id` and `--only-if-status-matches`, is listed among `kiln status`'s controls, and for `--phase` is refused with the reason when `POST /api/model` would answer 409, with the same reasons and exit 3. An id that isn't a phase with no child phases in the current plan is refused with `target_not_found` and exit 2, giving the same reason as the 422. `--audits` is never refused for an activity's state. It is announced in the controller's `features` list, like the other changing commands added after the first release, so a newer client refuses it against an older running Kiln.
 
 Among `kiln status`'s controls, `model` is one entry. It is available in a run underway that isn't complete, whatever any activity's state, because `--audits` is never refused for one. Like `settings`, it isn't withdrawn while Kiln drives an activity, only while setup, a plan read, an instruction or billing is busy, with today's reason "Kiln is checking, dispatching or reconciling an instruction." Before Start its reason is "No run is underway. Change models on Documents found.", and once the run is complete "The run is complete; no activity is left to change." Whether a given phase can be changed is read from that activity's `model.change` in the same reply. With the controller disconnected it is listed unavailable with today's "Controller is disconnected; no executable controls."
@@ -337,6 +357,8 @@ An omitted effort is filled by one rule for `kiln model`, each side of `kiln mod
 All accept `--json` and `--help` under the existing result, exit and help contracts. Each command has an entry in `prompts/kiln-command-contracts.json`, in a new group `models` whose top-level help heading is **Choose models**, printed after **Message, pause or take over**. The heading lists `model`, `model-defaults` and the three `model-defaults` subcommands, each by its full name. `kiln model` is a `change` command, available on a compatible live controller. `kiln model-defaults` is a `read` command that takes no PRD path and needs no controller, and `set`, `restore` and `fallback` take a new side effect, `computer_setting`: they change a setting on this computer, so the client asks for neither safety flag and runs them without a PRD path or a controller. `kiln model-defaults --help` lists its subcommands, as the helper groups' help does.
 
 ## Data Models
+
+Superseded in part by: `docs/changes/kiln-model-modes/kiln-model-modes-technical-design.md`, §Data Models (the Preflight and pull request entry; `launch`; a continuation acceptance's format version).
 
 **PRD record, schema 27.** (Schema 25 is Kiln After Delivery's change and schema 26 is find repositories anywhere's, which reached `develop` first, so this change takes 27.) `settings` loses `agentId`, `selectionGeneration` and `agentChoices`, and gains:
 

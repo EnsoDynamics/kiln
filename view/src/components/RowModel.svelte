@@ -3,17 +3,20 @@
   // on or ran on, with the note that Claude Code isn't installed (AC-DEFAULT-04) and a choice
   // that can't be used (AC-PICK-06). Where the row offers it, Change opens the agent, model and
   // effort choices, and a choice Changed by you offers Use the default (AC-PICK-03); a Delivery
-  // audit or Test audit row's change is this PRD's Audits choice (AC-OTHER-01). Every row whose
-  // choice is the PRD's own is marked Changed by you, Change or not (AC-PICK-03, AC-KEEP-02).
+  // audit or Test audit row's change is this PRD's Audits choice (AC-OTHER-01), and a Preflight or
+  // pull request row's its Preflight and pull request choice (Kiln Model Modes AC-ROW-01). Every
+  // row whose choice is the PRD's own is marked Changed by you, Change or not (AC-PICK-03,
+  // AC-KEEP-02). While the fallback is used for everything, a row that hasn't started shows its
+  // fallback with the Fallback tag, or says why it has none (AC-WHEN-02, AC-WHEN-03).
   import type { ModelView } from "../../../src/engine/activity-models.js";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { changeModel } from "../lib/api.js";
-  import { CLAUDE_CODE_MISSING_NOTE, fallbackNotUsedNote, forecastLine, rowEditorAgents, rowModelLine } from "../lib/models.js";
+  import { CLAUDE_CODE_MISSING_NOTE, fallbackNotUsedNote, forecastLine, noFallbackNote, rowEditorAgents, rowModelLine, type ModelTarget } from "../lib/models.js";
   import { viewContext } from "../lib/view-context.js";
   import ModelEditor from "./ModelEditor.svelte";
 
   let { model, underway, target, agents = [], connected = true, label = "Model" }: {
-    model: ModelView; underway: boolean; target?: { phase: string } | "audits" | undefined; agents?: Snapshot["agents"]; connected?: boolean; label?: string;
+    model: ModelView; underway: boolean; target?: ModelTarget | undefined; agents?: Snapshot["agents"]; connected?: boolean; label?: string;
   } = $props();
   const { config } = viewContext();
   const line = $derived(rowModelLine(model, underway));
@@ -21,6 +24,8 @@
   // The Fallback tag, the "fallback wasn't used" note and the heads-up (AC-FALLBACK-03, AC-FALLBACK-04).
   const notUsed = $derived(fallbackNotUsedNote(model.fallback));
   const headsUp = $derived(forecastLine(model.forecast));
+  // The usual note that the row runs on Codex gives way to the one saying it has no fallback.
+  const noFallback = $derived(noFallbackNote(model));
   let open = $state(false);
   let busy = $state(false);
   let reason = $state<string | undefined>(undefined);
@@ -36,7 +41,8 @@
     if (!target) return;
     // Done with nothing changed leaves a row that follows Model defaults following them.
     const current = model.choice;
-    if (choice !== "default" && model.from !== "changed" && current && choice.agentId === current.agentId && choice.model === current.model && choice.effort === current.effort) { open = false; reason = undefined; return; }
+    // A row showing its fallback, used for everything, saves only a choice that differs from that fallback.
+    if (choice !== "default" && (model.from !== "changed" || model.fallback?.forEverything) && current && choice.agentId === current.agentId && choice.model === current.model && choice.effort === current.effort) { open = false; reason = undefined; return; }
     busy = true;
     const answer = await changeModel(config, target, choice);
     busy = false;
@@ -48,12 +54,13 @@
   <span class="model-line">
     {#if line}<span class="model" data-model-state={model.state}>{line}</span>{/if}
     {#if model.fallback?.used}<span class="tag" data-fallback>Fallback</span>{/if}
-    {#if model.claudeCodeMissing}<span class="note">{CLAUDE_CODE_MISSING_NOTE}</span>{/if}
+    {#if model.claudeCodeMissing && !noFallback}<span class="note">{CLAUDE_CODE_MISSING_NOTE}</span>{/if}
     {#if model.from === "changed"}<span class="changed">Changed by you{#if offered && model.useDefault}{" · "}<button type="button" class="link" disabled={!connected || busy} onclick={() => save("default")}>Use the default</button>{/if}</span>{/if}
     {#if offered && !open}<button type="button" class="link" disabled={!connected || busy || !model.change!.available} onclick={start}>Change</button>{/if}
     {#if offered && open}<button type="button" class="link" disabled={!connected || busy} onclick={() => save({ agentId: draft.agentId, model: draft.value, ...(draft.effort ? { effort: draft.effort } : {}) })}>Done</button><button type="button" class="link quiet" disabled={busy} onclick={() => { open = false; reason = undefined; }}>Cancel</button>{/if}
     {#if offered && model.change && !model.change.available && model.change.reason}<span class="note">{model.change.reason}</span>{/if}
     {#if model.problem}<span class="problem">{model.problem}</span>{/if}
+    {#if noFallback}<span class="full note" data-no-fallback>{noFallback}</span>{/if}
     {#if notUsed}<span class="full note" data-fallback-not-used>{notUsed}</span>{/if}
     {#if headsUp}<span class="full note" data-forecast>{headsUp}</span>{/if}
     {#if open}<span class="full"><ModelEditor agents={rowEditorAgents(agents)} agentId={draft.agentId} value={draft.value} effort={draft.effort} {label} disabled={!connected || busy} onchange={(choice) => (draft = choice)} /></span>{/if}

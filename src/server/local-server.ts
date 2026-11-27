@@ -30,6 +30,7 @@ import { buildSnapshot, labelledExecution, type DocumentsFound, type Snapshot } 
 import { readOutputLines } from "../session/claude-session.js";
 import { NewerSchemaError, type AgentId, type Settings } from "../state/records.js";
 import { DEFAULTS_ROWS, type DefaultsRow, type FamilyChoice, type ModelChoice } from "../models/model-defaults.js";
+import type { ModelTarget } from "../engine/engine.js";
 import { editModelDefaults, modelDefaultsView, type DefaultsChange } from "../models/model-defaults-edit.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { RESULT_CHECK } from "../audit/admission.js";
@@ -486,7 +487,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   });
 
   // Model defaults, for every PRD on this computer (Kiln Phase Model Tiers AC-DEFAULT-02, AC-FALLBACK-01; "HTTP").
-  const defaultsBody = () => modelDefaultsView(engine.modelDefaultsFile, engine.modelContext.lists, engine.modelDefaultsAgents());
+  const defaultsBody = () => modelDefaultsView(engine.modelDefaultsFile, engine.modelContext.lists, engine.modelDefaultsAgents(), engine.claudeCodeInstalled);
   app.get("/api/model-defaults", (c) => {
     const view = defaultsBody();
     return view.ok ? c.json(view.view) : c.json({ reason: view.reason, path: view.path, canRestore: view.canRestore }, 409);
@@ -501,7 +502,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const view = defaultsBody();
     return view.ok ? c.json({ ...view.view, ...(answer.fallbackTurnedOff ? { notice: "Kiln's defaults are restored, and the fallback is now off." } : {}) }) : c.json({ reason: view.reason, path: view.path, canRestore: view.canRestore }, 409);
   });
-  // One phase's model, or this PRD's Audits choice (AC-PICK-03, AC-OTHER-01): applied directly before Start, through the instruction journal in a run.
+  // One phase's model, this PRD's Audits choice, or its Preflight and pull request choice (AC-PICK-03, AC-OTHER-01, AC-ROW-01): applied directly before Start, through the instruction journal in a run.
   app.post("/api/model", async (c) => {
     const body = await jsonBody(c);
     const change = body === undefined ? undefined : modelChange(body);
@@ -513,9 +514,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       const result = await engine.changeModel(change.target, change.choice);
       return result.ok ? c.json({ ok: true, settings: snapshot().settings }) : commandRefused(c, result);
     }
-    if (change.target !== "audits") { const refused = engine.modelChangeRefusal(checked.key, `Phase ${change.target.phase}`); if (refused) return c.json({ ok: false, reason: refused }, 409); }
+    if (typeof change.target !== "string") { const refused = engine.modelChangeRefusal(checked.key, `Phase ${change.target.phase}`); if (refused) return c.json({ ok: false, reason: refused }, 409); }
     const choice = change.choice;
-    return legacyControl(c, "model", { ...(change.target === "audits" ? { audits: true } : { phase: change.target.phase }), ...(choice === "default" ? { use_default: true } : { agent_id: choice.agentId, model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) }) });
+    return legacyControl(c, "model", { ...(change.target === "audits" ? { audits: true } : change.target === "preflight_pr" ? { preflight_pr: true } : { phase: change.target.phase }), ...(choice === "default" ? { use_default: true } : { agent_id: choice.agentId, model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) }) });
   });
 
   app.post("/api/metadata/refresh", async (c) => { await engine.refreshAgents(); await engine.refreshBilling(); return c.json({ settings: snapshot().settings, agents: snapshot().agents }); });
@@ -935,12 +936,12 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
   return change;
 }
 
-/** `POST /api/model`'s body: `{ target: { phase } | "audits", choice: ModelChoice | "default" }`; a string is why it was refused. */
-function modelChange(body: Record<string, unknown>): { target: { phase: string } | "audits"; choice: ModelChoice | "default" } | string {
+/** `POST /api/model`'s body: `{ target: { phase } | "audits" | "preflight_pr", choice: ModelChoice | "default" }`; a string is why it was refused. */
+function modelChange(body: Record<string, unknown>): { target: ModelTarget; choice: ModelChoice | "default" } | string {
   if (Object.keys(body).some(key => key !== "target" && key !== "choice")) return "The body takes target and choice.";
   const target = body.target as Record<string, unknown> | string | undefined;
-  const parsedTarget = target === "audits" ? "audits" as const : target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).join() === "phase" && typeof target.phase === "string" && target.phase !== "" ? { phase: target.phase } : undefined;
-  if (!parsedTarget) return "target is { phase: \"<id>\" } or \"audits\".";
+  const parsedTarget: ModelTarget | undefined = target === "audits" || target === "preflight_pr" ? target : target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).join() === "phase" && typeof target.phase === "string" && target.phase !== "" ? { phase: target.phase } : undefined;
+  if (!parsedTarget) return "target is { phase: \"<id>\" }, \"audits\" or \"preflight_pr\".";
   if (body.choice === "default") return { target: parsedTarget, choice: "default" };
   const choice = modelChoiceOf(body.choice, "model");
   return typeof choice === "string" ? choice : { target: parsedTarget, choice: { agentId: choice.agentId, model: choice.value, ...(choice.effort === undefined ? {} : { effort: choice.effort }) } };
@@ -971,7 +972,7 @@ function defaultsChange(body: Record<string, unknown>): DefaultsChange | string 
   }
   const set = body.set as Record<string, unknown> | null;
   if (!set || typeof set !== "object" || Array.isArray(set) || Object.keys(set).some(key => !["row", "first", "fallback"].includes(key))) return "set takes row, first and fallback.";
-  if (!DEFAULTS_ROWS.includes(set.row as DefaultsRow)) return "row is demanding, standard, mechanical or audits.";
+  if (!DEFAULTS_ROWS.includes(set.row as DefaultsRow)) return "row is demanding, standard, mechanical, audits or preflight_pr.";
   if (set.first === undefined && set.fallback === undefined) return "set changes first, fallback or both.";
   const sides: { first?: FamilyChoice; fallback?: FamilyChoice } = {};
   for (const side of ["first", "fallback"] as const) {

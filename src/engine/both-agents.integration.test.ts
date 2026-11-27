@@ -153,7 +153,7 @@ describe("billing and the account panel for each agent (AC-AGENTS-02, AC-AGENTS-
     try {
       const account = status.account as { agent: string; other_agents: { agent: string; usage: { value: { over_threshold: boolean; percent?: number }[] | null }; billing: unknown }[]; fallback: unknown };
       expect(account.agent).toBe("claude_code");
-      expect(account.fallback).toEqual({ enabled: true, threshold: 80 });
+      expect(account.fallback).toEqual({ enabled: true, use: "threshold", threshold: 80 });
       expect(account.other_agents.map(other => other.agent)).toEqual(["codex"]);
       const usage = account.other_agents[0]!.usage.value!;
       expect(usage.find(row => row.percent === 82)?.over_threshold).toBe(true);
@@ -161,6 +161,29 @@ describe("billing and the account panel for each agent (AC-AGENTS-02, AC-AGENTS-
       expect(account.other_agents[0]!.billing).toMatchObject({ next: { agentId: "codex", canApprove: false, canClear: false } });
       expect(JSON.stringify(account)).not.toContain("selectionGeneration");
     } finally { releaseResult(status); }
+
+    // The fallback setting is in force only while models are picked for each phase, and limits are marked against the
+    // threshold only while the threshold setting is in force (Kiln Model Modes AC-MODE-03, AC-WHEN-02).
+    const { writeSettings } = await import("../test-support/model-choices.js");
+    type Account = { fallback?: unknown; usage: { value: Record<string, unknown>[] | null }; other_agents: { usage: { value: Record<string, unknown>[] | null } }[] };
+    const accountNow = async (): Promise<Account> => {
+      h.engine.modelChoicesChanged();
+      await h.engine.refreshAgents();
+      await waitFor(() => !h.engine.readers.codex.state.pending && !h.engine.readers.claude_code.state.pending);
+      const projected = statusProjection(readWork(stateRoot(h.env), h.stateDirectory), h.engine, true);
+      try { return structuredClone(projected.account) as Account; } finally { releaseResult(projected); }
+    };
+    const marked = (account: Account) => [...(account.usage.value ?? []), ...account.other_agents.flatMap(other => other.usage.value ?? [])].filter(limit => "over_threshold" in limit);
+    // One model: no fallback is reported, though the saved setting is the threshold, and no limit is marked.
+    writeSettings(h.env, { mode: "one_model", oneModel: { agentId: "codex", family: "sol", effort: "high" }, fallback: { use: "threshold", threshold: 80 } });
+    const oneModel = await accountNow();
+    expect(oneModel.fallback).toBeUndefined();
+    expect(marked(oneModel)).toEqual([]);
+    // For everything: the setting is reported as it is, and no limit is marked as above a threshold nothing reads.
+    writeSettings(h.env, { fallback: { use: "everything", threshold: 80 }, rows: { audits: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "opus", effort: "high" } }, preflight_pr: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "opus", effort: "medium" } } } });
+    const everything = await accountNow();
+    expect(everything.fallback).toEqual({ enabled: true, use: "everything", threshold: 80 });
+    expect(marked(everything)).toEqual([]);
   });
 
   it("neither reads nor bills Claude Code while no activity or fallback needs it", async () => {

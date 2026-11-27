@@ -75,7 +75,7 @@ export const changeFolderPanel = (config: PageConfig, change: { start: "base" | 
 export const startFolderSetup = (config: PageConfig, body: { commandId: string; factsId: string; previewId: string; start: "base" | "branch"; fields: Record<string, unknown> }) => folderSetup(config, "/api/folder-setup/start", body);
 export const refreshMetadata = (config: PageConfig) => send(config, "POST", "/api/metadata/refresh");
 /** One phase's model, or this PRD's Audits choice; "default" returns it to Model defaults (Kiln Phase Model Tiers AC-PICK-03, AC-OTHER-01). */
-export const changeModel = (config: PageConfig, target: { phase: string } | "audits", choice: { agentId: string; model: string; effort?: string } | "default") => send(config, "POST", "/api/model", { target, choice });
+export const changeModel = (config: PageConfig, target: { phase: string } | "audits" | "preflight_pr", choice: { agentId: string; model: string; effort?: string } | "default") => send(config, "POST", "/api/model", { target, choice });
 /** Model defaults as the file says now, or why it can't be read (AC-DEFAULT-02). */
 export async function modelDefaults(config: PageConfig): Promise<{ ok: true; view: import("../../../src/models/model-defaults-edit.js").ModelDefaultsView } | { ok: false; reason: string; canRestore: boolean }> {
   try {

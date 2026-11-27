@@ -229,8 +229,10 @@ it("keeps the note that Claude Code isn't installed on a row while its launch is
   // Codex runs the turn and the model issues nothing, so Phase 1's session runs with no response yet.
   await setup({ hang: true });
   // Phase 1 is not changed for this PRD, so the Standard row's Claude Code first choice gives way to its Codex Fallback column choice.
-  // The Audits line names a choice the stand-in's Codex offers, as Start checks it too.
-  delete h.engine.record.settings.modelChoices.kept; h.engine.record.settings.modelChoices.audits = { agentId: "codex", model: "gpt-6.1-sol", effort: "high" }; h.engine.modelChoicesChanged();
+  // The Audits line and the Preflight and pull request row name a choice the stand-in's Codex offers, as Start checks them too
+  // (the row's own Codex choice is GPT Sol · medium, an effort the stand-in's GPT Sol doesn't offer; Kiln Model Modes AC-ROW-01).
+  const offered = { agentId: "codex" as const, model: "gpt-6.1-sol", effort: "high" };
+  delete h.engine.record.settings.modelChoices.kept; h.engine.record.settings.modelChoices.audits = { ...offered }; h.engine.record.settings.modelChoices.preflightPr = { ...offered }; h.engine.modelChoicesChanged();
   // The row as it reads the moment the launch decision is saved, before its session exists.
   const decisions = (h.engine as unknown as { decisions: Map<string, unknown> }).decisions;
   let decided: unknown;

@@ -1,5 +1,7 @@
 # Phase 1: Modes in the engine
 
+**Closed:** 2026-11-27
+
 **Parent PRD:** [Kiln Model Modes](kiln-model-modes-prd.md)
 **Technical design:** [Kiln Model Modes technical design](kiln-model-modes-technical-design.md) — relevant sections: "Existing Code"; "Storage"; the decisions on where a PRD's own settings live, Model defaults' schema, the fifth row for someone who changed Audits, the per-PRD entry for the fifth row, the one model until the person picks, where For everything is applied, and what one model does to the fallback; "Settings in Force"; "Resolving a Choice"; "Launching"; "Settings files"; `POST /api/model` in "HTTP"; "Snapshot"; `kiln model --preflight-pr` in "Command line"; "Data Models"; "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-model-modes-phase-plan.md)

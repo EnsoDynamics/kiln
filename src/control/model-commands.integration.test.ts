@@ -47,7 +47,7 @@ async function token(): Promise<string> {
 it("changes a phase that hasn't started and the Audits choice from a terminal, refusing the started phase and one Kiln doesn't build", async () => {
   await stopped();
   const status = (await cli(["status", target(), "--json"])).json();
-  expect((status.controls as { name: string; available: boolean }[]).find(control => control.name === "model")).toMatchObject({ name: "model", available: true, required_inputs: ["PRD-path", "--phase | --audits", "--agent --model [--effort] | --use-default", "--only-if-status-matches", "--command-id"] });
+  expect((status.controls as { name: string; available: boolean }[]).find(control => control.name === "model")).toMatchObject({ name: "model", available: true, required_inputs: ["PRD-path", "--phase | --audits | --preflight-pr", "--agent --model [--effort] | --use-default", "--only-if-status-matches", "--command-id"] });
   // Each activity carries its tier and model as the snapshot does, so a bot can read whether its phase can change.
   const progress = (key: string) => (status.plan_models as { id: string; model: { state: string; change?: { available: boolean; reason?: string } } | null }[]).find(row => row.id === key);
   expect(progress("2b")?.model).toMatchObject({ state: "will_run_on", change: { available: true } });
@@ -90,6 +90,22 @@ it("changes a phase that hasn't started and the Audits choice from a terminal, r
   await h.engine.commands.settled();
   expect(h.engine.record.settings.modelChoices.audits).toBe("default");
 
+  // `--preflight-pr` follows `--audits` in every respect, for this PRD's Preflight and pull request choice (Kiln Model Modes AC-ROW-01).
+  expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "opus", effort: "medium", from: "model_defaults", row: "preflight_pr" });
+  const preflightPr = await cli(["model", target(), "--preflight-pr", "--agent", "claude_code", "--model", "sonnet", "--effort", "low", "--only-if-status-matches", await token(), "--command-id", "preflight-pr-sonnet", "--json"]);
+  expect(preflightPr.code, preflightPr.stdout).toBe(0);
+  await h.engine.commands.settled();
+  expect(h.engine.record.settings.modelChoices.preflightPr).toEqual({ agentId: "claude_code", model: "sonnet", effort: "low" });
+  // It reaches the pull request session, which hasn't started, and never the audits, which keep their own choice.
+  expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "sonnet", effort: "low", from: "changed" });
+  expect(h.engine.notStartedChoice("audit-planned")).toMatchObject({ model: "opus", effort: "high", from: "model_defaults" });
+  expect((await cli(["model", target(), "--audits", "--preflight-pr", "--use-default", "--only-if-status-matches", "x", "--command-id", "two-targets", "--json"])).code).toBe(2);
+  const preflightPrBack = await cli(["model", target(), "--preflight-pr", "--use-default", "--only-if-status-matches", await token(), "--command-id", "preflight-pr-default", "--json"]);
+  expect(preflightPrBack.code, preflightPrBack.stdout).toBe(0);
+  await h.engine.commands.settled();
+  expect(h.engine.record.settings.modelChoices.preflightPr).toBe("default");
+  expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "opus", effort: "medium", from: "model_defaults" });
+
   // kiln model-defaults reaches this run underway through its watch on the file, with nothing else told (AC-DEFAULT-03).
   const notRated = () => h.engine.notStartedChoice("3");
   expect(notRated().model).toBe("opus");
@@ -113,7 +129,7 @@ it("prints and changes Model defaults with no PRD path and no running Kiln, refu
   const set = await cli(["model-defaults", "set", "--row", "mechanical", "--first-agent", "claude_code", "--first-model", "haiku", "--first-effort", "medium", "--json"]);
   expect(set.code, set.stdout).toBe(0);
   expect(set.json().data).toMatchObject({ rows: { mechanical: { first: { familyName: "Haiku", modelName: "Haiku 5.5", effort: "medium", set: true } } } });
-  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 1, rows: { mechanical: { first: { agentId: "claude_code", family: "haiku", effort: "medium" } } } });
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 2, rows: { mechanical: { first: { agentId: "claude_code", family: "haiku", effort: "medium" } } } });
 
   const sameAgent = await cli(["model-defaults", "set", "--row", "mechanical", "--fallback-agent", "claude_code", "--fallback-model", "sonnet", "--fallback-effort", "high", "--json"]);
   expect(sameAgent.code).toBe(2);
@@ -124,23 +140,33 @@ it("prints and changes Model defaults with no PRD path and no running Kiln, refu
   // Both sides in one command move a row to the other agent.
   const both = await cli(["model-defaults", "set", "--row", "standard", "--first-agent", "codex", "--first-model", "sol", "--first-effort", "high", "--fallback-agent", "claude_code", "--fallback-model", "opus", "--fallback-effort", "medium", "--json"]);
   expect(both.code, both.stdout).toBe(0);
-  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 1, rows: { mechanical: { first: { agentId: "claude_code", family: "haiku", effort: "medium" } }, standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "opus", effort: "medium" } } } });
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 2, rows: { standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "opus", effort: "medium" } }, mechanical: { first: { agentId: "claude_code", family: "haiku", effort: "medium" } } } });
+
+  // The fifth row is set like the others, spelled preflight-pr on the command line (Kiln Model Modes AC-ROW-01).
+  expect(read.stdout).toContain("Preflight and pull request: Claude Code · Opus · medium (Opus 5.5), Kiln's default; fallback Codex · GPT Sol · medium (GPT-6.2-SOL), Kiln's default");
+  const fifth = await cli(["model-defaults", "set", "--row", "preflight-pr", "--first-agent", "claude_code", "--first-model", "sonnet", "--first-effort", "low", "--json"]);
+  expect(fifth.code, fifth.stdout).toBe(0);
+  expect(fifth.json().data).toMatchObject({ rows: { preflight_pr: { first: { familyName: "Sonnet", effort: "low", set: true }, fallback: { familyName: "GPT Sol", effort: "medium", set: false } } } });
+  expect((JSON.parse(readFileSync(path, "utf8")) as { rows: Record<string, unknown> }).rows.preflight_pr).toEqual({ first: { agentId: "claude_code", family: "sonnet", effort: "low" } });
+  const noRow = await cli(["model-defaults", "set", "--row", "tiny", "--first-agent", "claude_code", "--first-model", "sonnet", "--first-effort", "low", "--json"]);
+  expect(noRow.json().errors).toEqual([expect.objectContaining({ code: "invalid_input", message: "--row takes demanding, standard, mechanical, audits or preflight-pr." })]);
 
   const on = await cli(["model-defaults", "fallback", "--on", "--threshold", "90", "--json"]);
   expect(on.code, on.stdout).toBe(0);
-  expect(on.json().data).toMatchObject({ fallback: { enabled: true, threshold: 90 } });
+  // Turning the fallback on selects the threshold setting; turning it off selects Never.
+  expect(on.json().data).toMatchObject({ fallback: { use: "threshold", enabled: true, threshold: 90 } });
   const over = await cli(["model-defaults", "fallback", "--threshold", "101", "--json"]);
   expect(over.code).toBe(2);
   expect(over.json().errors).toEqual([expect.objectContaining({ code: "invalid_input", message: "The threshold is a whole-number percent from 1 to 100." })]);
   const off = await cli(["model-defaults", "fallback", "--off", "--json"]);
   expect(off.code, off.stdout).toBe(0);
-  expect(off.json().data).toMatchObject({ fallback: { enabled: false, threshold: 90 } });
+  expect(off.json().data).toMatchObject({ fallback: { use: "never", enabled: false, threshold: 90 } });
   expect((await cli(["model-defaults", "fallback", "--on", "--json"])).json().data).toMatchObject({ fallback: { enabled: true, threshold: 90 } });
   expect((await cli(["model-defaults", "fallback", "--on", "--off", "--json"])).code).toBe(2);
 
   const restored = await cli(["model-defaults", "restore", "--json"]);
   expect(restored.code, restored.stdout).toBe(0);
-  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 1, fallback: { enabled: true, threshold: 90 } });
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 2, fallback: { use: "threshold", threshold: 90 } });
 
   writeFileSync(path, "{ broken");
   const broken = await cli(["model-defaults", "--json"]);

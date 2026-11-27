@@ -1,12 +1,14 @@
 // Resolving a choice (Kiln Phase Model Tiers, technical design "Resolving a Choice"): the one
 // function every row, readiness check, launch and status reply asks for an activity's model. The
-// order is fixed: what it started on; its own entry; the PRD's kept choice; its Model defaults row,
-// with the Fallback column's choice when Claude Code isn't installed (DEF-003).
+// order is fixed: what it started on; its own entry; the PRD's kept choice; then, from the settings
+// in force, the one model or its row, with the Fallback column's choice when Claude Code isn't
+// installed (DEF-003); and last, while the fallback is used for everything, its fallback in place
+// of that choice (Kiln Model Modes, "Resolving a Choice").
 
 import { autoModeError, type ModelEntry } from "../account/model-list.js";
 import type { Tier } from "../plan/phase-document.js";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
-import type { DefaultsRow, FamilyChoice, ModelChoice, ModelDefaults } from "./model-defaults.js";
+import { fallbackInForce, oneModelOf, type DefaultsRow, type FamilyChoice, type ModelChoice, type ModelDefaults } from "./model-defaults.js";
 
 /** A choice with what the row shows: the model's name as the agent reports it, and why it can't be used. */
 export interface ResolvedChoice {
@@ -20,14 +22,23 @@ export interface ResolvedChoice {
   problem?: string;
 }
 
-export type ChoiceSource = "model_defaults" | "changed";
+/** Where steps 2 to 4 took a choice from: a row of the settings in force, a change for this PRD, or the one model. */
+export type ChoiceSource = "model_defaults" | "changed" | "one_model";
 
 /** What an activity runs on before it starts, and where that came from. */
 export interface ActivityChoice extends ResolvedChoice {
   from: ChoiceSource;
   claudeCodeMissing?: true;
-  /** The row its choice came from, when it came from Model defaults. */
+  /** The row its choice came from, when it came from a row: its first choice, or its fallback used for everything. */
   row?: DefaultsRow;
+  /** The settings in force were the PRD's own, not Model defaults. */
+  ownSettings?: true;
+  /** The fallback is used for everything and this is the activity's fallback: the choice steps 2 to 4 gave is kept as its first choice. */
+  everything?: { first: ResolvedChoice };
+  /** The fallback is used for everything and the activity has none, so it keeps its own choice. */
+  noFallback?: true;
+  /** The settings in force can't be read, so Kiln can't tell whether this choice would give way to its fallback: it can't be used, and changing it isn't the remedy. */
+  settingsUnreadable?: true;
 }
 
 /** What the agent's model list reads now. `pending` while the first read hasn't finished. */
@@ -39,9 +50,9 @@ export function familyName(choice: Pick<FamilyChoice, "agentId" | "family">): st
   return choice.agentId === "codex" ? `GPT ${word}` : word;
 }
 
-/** The Model defaults row a phase's tier uses, Not rated using Standard; every other activity uses Audits. */
-export function defaultsRowFor(tier: Tier | undefined | "audits"): DefaultsRow {
-  return tier === "audits" ? "audits" : tier ?? "standard";
+/** The row a phase's tier uses, Not rated using Standard; an audit uses Audits; every other activity Preflight and pull request (AC-ROW-01). */
+export function defaultsRowFor(tier: Tier | undefined | "audits" | "preflight_pr"): DefaultsRow {
+  return tier ?? "standard";
 }
 
 /** A Codex model's version and family, from `gpt-<version>-<family>`; undefined outside that pattern. */
@@ -115,8 +126,11 @@ export function resolveModel(choice: ModelChoice, list: ModelList): ResolvedChoi
 }
 
 export interface ResolveInputs {
+  /** The settings in force: the PRD's own, or Model defaults. */
   defaults: ModelDefaults;
-  /** The activity's own entry: a phase's, or the PRD's Audits entry. */
+  /** Which of the two they are; Model defaults when left out. */
+  source?: "defaults" | "prd" | undefined;
+  /** The activity's own entry: a phase's, the PRD's Audits entry, or its Preflight and pull request entry. */
   entry?: ModelChoice | "default" | undefined;
   kept?: ModelChoice | undefined;
   row: DefaultsRow;
@@ -125,14 +139,39 @@ export interface ResolveInputs {
 }
 
 /**
- * Steps 2 to 4 of "Resolving a Choice", for an activity with no start: its own entry, the PRD's
- * kept choice, then its Model defaults row's first choice, or that row's Fallback column choice
- * when the first is on Claude Code and Claude Code isn't installed (DEF-003).
+ * Steps 2 to 5 of "Resolving a Choice", for an activity with no start. Steps 2 to 4: its own
+ * entry, the PRD's kept choice, then from the settings in force the one model, or its row's first
+ * choice, or that row's Fallback column choice when the first is on Claude Code and Claude Code
+ * isn't installed (DEF-003). Step 5: while the fallback is used for everything, an activity with a
+ * fallback takes it as its choice, keeping what steps 2 to 4 gave as its first choice, and one
+ * with none is marked as having no fallback (AC-WHEN-02).
+ *
+ *   resolveNotStarted({ defaults: forEverything, row: "demanding", … })
+ *   // { agentId: "codex", modelName: "GPT-6.2-Astra", from: "model_defaults", row: "demanding", everything: { first: { agentId: "claude_code", modelName: "Fable 5.2", … } } }
  */
 export function resolveNotStarted(inputs: ResolveInputs): ActivityChoice {
+  const own = inputs.source === "prd" ? { ownSettings: true as const } : {};
+  const choice: ActivityChoice = { ...ownChoice(inputs), ...own };
+  if (fallbackInForce(inputs.defaults) !== "everything") return choice;
+  const fallback = fallbackFor(inputs, choice);
+  if (!fallback) return { ...choice, noFallback: true };
+  return { ...fallback, from: choice.from, row: inputs.row, ...own, everything: { first: resolvedOnly(choice) } };
+}
+
+/** A choice without where it came from. */
+function resolvedOnly(choice: ResolvedChoice): ResolvedChoice {
+  return { agentId: choice.agentId, ...(choice.model === undefined ? {} : { model: choice.model }), modelName: choice.modelName, ...(choice.effort === undefined ? {} : { effort: choice.effort }), ...(choice.problem === undefined ? {} : { problem: choice.problem }) };
+}
+
+/** Steps 2 to 4. */
+function ownChoice(inputs: ResolveInputs): ActivityChoice {
   const list = (agentId: AgentId) => inputs.lists[agentId] ?? { pending: true };
   if (inputs.entry && inputs.entry !== "default") return { ...resolveModel(inputs.entry, list(inputs.entry.agentId)), from: "changed" };
   if (inputs.entry === undefined && inputs.kept) return { ...resolveModel(inputs.kept, list(inputs.kept.agentId)), from: "changed" };
+  if (inputs.defaults.mode === "one_model") {
+    const one = oneModelOf(inputs.defaults, inputs.claudeCodeInstalled);
+    return { ...resolveFamily(one, list(one.agentId)), from: "one_model" };
+  }
   const row = inputs.defaults.rows[inputs.row];
   if (row.first.agentId === "claude_code" && !inputs.claudeCodeInstalled) {
     return { ...resolveFamily(row.fallback, list(row.fallback.agentId)), from: "model_defaults", row: inputs.row, claudeCodeMissing: true };
@@ -140,8 +179,14 @@ export function resolveNotStarted(inputs: ResolveInputs): ActivityChoice {
   return { ...resolveFamily(row.first, list(row.first.agentId)), from: "model_defaults", row: inputs.row };
 }
 
-/** The activity's fallback (AC-FALLBACK-02): its row's Fallback column choice, none when that is on the choice's own agent. */
-export function fallbackFor(inputs: Pick<ResolveInputs, "defaults" | "row" | "lists">, choice: Pick<ResolvedChoice, "agentId">): ResolvedChoice | undefined {
+/**
+ * The activity's fallback (AC-FALLBACK-02): its row's Fallback column choice in the settings in
+ * force. None when that is on the choice's own agent, while one model runs everything, whatever
+ * step gave its choice (AC-MODE-03), or once the fallback used for everything has become its
+ * choice (step 5).
+ */
+export function fallbackFor(inputs: Pick<ResolveInputs, "defaults" | "row" | "lists">, choice: Pick<ActivityChoice, "agentId" | "everything">): ResolvedChoice | undefined {
+  if (inputs.defaults.mode === "one_model" || choice.everything) return undefined;
   const fallback = inputs.defaults.rows[inputs.row].fallback;
   if (fallback.agentId === choice.agentId) return undefined;
   return resolveFamily(fallback, inputs.lists[fallback.agentId] ?? { pending: true });

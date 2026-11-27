@@ -416,18 +416,19 @@ describe("a readiness stop on an audit skill that doesn't resolve on the Audits 
     await h.engine.settled();
     const key = h.engine.stoppedPhaseKey()!;
     const facts = () => h.engine.record.phases[key]!.stop!.checks.filter(check => check.name === "Completion audit readiness").flatMap(check => check.facts);
-    const audits = h.engine.notStartedChoice("pr");
-    expect(audits).toMatchObject({ agentId: "claude_code", from: "model_defaults" });
+    // The audits' own choice, apart from the pull request session's since Kiln Model Modes AC-ROW-01.
+    const audits = h.engine.notStartedChoice("audit-planned");
+    expect(audits).toMatchObject({ agentId: "claude_code", from: "model_defaults", row: "audits" });
     const where = "Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.";
     expect(audits.modelName).toMatch(/^Opus/);
-    expect(facts()).toEqual([`The audits, preflight and pull request session run on Claude Code · ${audits.modelName} · ${audits.effort} from Model defaults (Audits row): Enable exactly one delivery-audit skill in ${h.engine.sessionFolder}. ${where}`]);
+    expect(facts()).toEqual([`The audits run on Claude Code · ${audits.modelName} · ${audits.effort} from Model defaults (Audits row): Enable exactly one delivery-audit skill in ${h.engine.sessionFolder}. ${where}`]);
     expect(h.engine.record.completionAudits?.activities ?? []).toEqual([]);
     // Model defaults' Audits row changes its effort; Check again names the Audits choice as it is now.
     writeModelDefaults(h.env, { audits: { first: { agentId: "claude_code", family: "opus", effort: "low" } } });
     h.engine.modelChoicesChanged();
     expect(await h.engine.checkAgain()).toMatchObject({ ok: true, outcome: "still_stopped" });
     await h.engine.settled();
-    expect(facts()).toEqual([expect.stringMatching(/^The audits, preflight and pull request session run on Claude Code · Opus[^·]* · low from Model defaults \(Audits row\): Enable exactly one delivery-audit skill in .*\. Change the Audits row in Model defaults, /)]);
+    expect(facts()).toEqual([expect.stringMatching(/^The audits run on Claude Code · Opus[^·]* · low from Model defaults \(Audits row\): Enable exactly one delivery-audit skill in .*\. Change the Audits row in Model defaults, /)]);
     // Mark complete's known problem is the fact the stop shows.
     const offer = h.engine.markCompleteOffer();
     expect(offer).toMatchObject({ offered: true, items: [{ check: "Completion audit readiness", kind: "known_problem", text: facts()[0] }] });

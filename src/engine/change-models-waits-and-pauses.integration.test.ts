@@ -103,7 +103,7 @@ describe("Change during a usage-limit wait (AC-PICK-03)", () => {
     await waitFor(() => h.engine.record.completedAt !== undefined, 30_000);
     await h.engine.settled();
     expect(h.engine.latestSession("1")!.runs[1]!.cause).toBe("limit_resume");
-    expect(launches(h)).toEqual([["fable", "high"], ["haiku", "low"], ["opus", "medium"], ["opus", "high"]]);
+    expect(launches(h)).toEqual([["fable", "high"], ["haiku", "low"], ["opus", "medium"], ["opus", "medium"]]);
     expect(row(h.engine, "2b").model).toMatchObject({ state: "ran_on", choice: { modelName: "Haiku 5.5", effort: "low" }, from: "changed" });
   }, 60_000);
 });
@@ -131,7 +131,7 @@ describe("Change while paused (AC-PICK-03)", () => {
     expect(await h.engine.start()).toEqual({ ok: true });
     await waitFor(() => h.engine.record.completedAt !== undefined, 30_000);
     await h.engine.settled();
-    expect(launches(h)).toEqual([["fable", "high"], ["haiku", "low"], ["opus", "medium"], ["opus", "high"]]);
+    expect(launches(h)).toEqual([["fable", "high"], ["haiku", "low"], ["opus", "medium"], ["opus", "medium"]]);
   }, 60_000);
 
   it.skipIf(process.platform !== "darwin")("changes a later phase under a Pause now hold, refuses the paused phase, and the later phase launches on the change after Resume", async () => {
@@ -165,7 +165,7 @@ describe("Change while paused (AC-PICK-03)", () => {
     expect(resumed.body, JSON.stringify(resumed.body)).toMatchObject({ ok: true });
     await waitFor(() => h.engine.record.completedAt !== undefined, 30_000);
     await h.engine.settled();
-    expect(launches(h)).toEqual([["fable", "high"], ["haiku", "low"], ["opus", "medium"], ["opus", "high"]]);
+    expect(launches(h)).toEqual([["fable", "high"], ["haiku", "low"], ["opus", "medium"], ["opus", "medium"]]);
   }, 120_000);
 });
 
@@ -233,7 +233,7 @@ describe("a changed phase keeps its choice when its tier line changes (AC-PICK-0
     await waitFor(() => h.engine.record.completedAt !== undefined, 30_000);
     await h.engine.settled();
     // 1 demanding; 2b on its change, not demanding's Fable; 3 on mechanical's Sonnet; the pull request on Audits'.
-    expect(launches(h)).toEqual([["fable", "high"], ["haiku", "low"], ["sonnet", "high"], ["opus", "high"]]);
+    expect(launches(h)).toEqual([["fable", "high"], ["haiku", "low"], ["sonnet", "high"], ["opus", "medium"]]);
     expect(row(h.engine, "2b").model).toMatchObject({ state: "ran_on", choice: { modelName: "Haiku 5.5", effort: "low" }, from: "changed" });
   }, 60_000);
 });

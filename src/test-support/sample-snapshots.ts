@@ -38,7 +38,7 @@ export function documentsFoundSnapshot(overrides: { settings?: Partial<Snapshot[
       ...documents,
     },
     settings: {
-      models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, fallback: { enabled: false, threshold: 95 }, audits: { choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" }, changedByYou: false, change: { available: true } }, revision: "missing" },
+      models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, source: "defaults", mode: "recommended", oneModel: { agentId: "claude_code", agent: "Claude Code", family: "opus", familyName: "Opus", modelName: "Opus 5.5", effort: "high" }, fallback: { use: "never", threshold: 95, enabled: false }, audits: { choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" }, changedByYou: false, change: { available: true } }, revision: "missing" },
       keepAwake: true,
       resumeAfterUsageLimit: true,
       workspaceFolder: "~/devel/.worktrees/customer-returns",

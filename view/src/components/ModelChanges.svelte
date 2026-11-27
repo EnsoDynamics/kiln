@@ -2,20 +2,24 @@
   // Changing models on a page that shows no phase plan: Needs you, the stopped-phase page and the
   // waiting page (Kiln Phase Model Tiers AC-PICK-03, AC-OTHER-01, AC-FALLBACK-01; mockup 5, state
   // E). Every row that hasn't started offers its Change here, the stopped or waiting activity's
-  // first, then the model lines with the Audits choice and the Model defaults link.
+  // first, then the model lines with the Audits choice and the Model defaults link. The planned
+  // Preflight row and the planned or allocated pull request row are listed like phases, and their
+  // Change sets this PRD's Preflight and pull request choice (Kiln Model Modes AC-ROW-01).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
+  import { rowModelTarget } from "../lib/models.js";
+  import { withPlannedPreflight } from "../lib/progress.js";
   import ModelLines from "./ModelLines.svelte";
   import RowModel from "./RowModel.svelte";
   import TierTag from "./TierTag.svelte";
 
   let { snapshot, phaseId, connected }: { snapshot: Snapshot; phaseId: string | undefined; connected: boolean } = $props();
   type Row = Snapshot["phases"][number];
-  const targetOf = (row: Row): { phase: string } | "audits" | undefined => row.kind === "delivery_audit" || row.kind === "test_audit" ? "audits" : (row.kind === undefined || row.kind === "implementation") && !row.plannedActivity ? { phase: row.id } : undefined;
+  const targetOf = rowModelTarget;
   const rows = $derived.by(() => {
-    const all = (snapshot.activities ?? snapshot.phases).filter(row => row.model?.change && targetOf(row));
+    const all = withPlannedPreflight(snapshot.activities ?? snapshot.phases, snapshot).filter(row => row.model?.change && targetOf(row));
     return [...all.filter(row => row.id === phaseId), ...all.filter(row => row.id !== phaseId)];
   });
-  const circle = (row: Row) => row.kind === "delivery_audit" ? "DA" : row.kind === "test_audit" ? "TA" : row.id;
+  const circle = (row: Row) => row.kind === "delivery_audit" ? "DA" : row.kind === "test_audit" ? "TA" : row.kind === "preflight" ? "PF" : row.kind === "final_delivery" ? "PR" : row.id;
 </script>
 
 {#if !snapshot.feature.completedAt}
@@ -25,7 +29,7 @@
     <ul>
       {#each rows as row (row.id)}
         <li data-phase={row.id}>
-          <span class="title-line"><span class="circle mono">{circle(row)}</span><span class="title">{row.title}</span>{#if row.tier}<TierTag tier={row.tier} />{/if}</span>
+          <span class="title-line"><span class="circle mono">{circle(row)}</span><span class="title">{row.title}</span>{#if row.tier}<TierTag tier={row.tier} models={snapshot.settings.models} />{/if}</span>
           <RowModel model={row.model!} underway={true} target={targetOf(row)} agents={snapshot.agents} {connected} label={`${row.title} model`} />
         </li>
       {/each}

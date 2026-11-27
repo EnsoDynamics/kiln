@@ -104,15 +104,15 @@ describe("Documents found with two agents (AC-AGENTS-01, AC-AGENTS-02)", () => {
     const snapshot = twoAgents();
     const account = snapshot.agents[0]!.account!;
     snapshot.agents[0]!.account = { ...account, limits: account.limits.map((limit, index) => index === 0 ? { ...limit, overThreshold: true as const } : limit) };
-    snapshot.settings.models.fallback = { enabled: true, threshold: 10 };
+    snapshot.settings.models.fallback = { use: "threshold", enabled: true, threshold: 10 };
     expect(text(documentsFound(snapshot))).toMatch(/Used: 5-hour \d+% \(above your 10% threshold\)/);
-    snapshot.settings.models.fallback = { enabled: false, threshold: 10 };
+    snapshot.settings.models.fallback = { use: "never", enabled: false, threshold: 10 };
     expect(text(documentsFound(snapshot))).not.toContain("above your");
   });
 
   it("keeps Start available with the fallback's warning when only a fallback's agent isn't ready", () => {
     const snapshot = twoAgents({}, { neededBy: { activities: [], fallbackOnly: true }, readinessErrors: ["Codex isn't signed in."], billing: { ...CODEX_BILLING, canLaunch: false } });
-    snapshot.settings.models.fallback = { enabled: true, threshold: 95, warning: { agent: "Codex", agentId: "codex", problem: "Codex isn't signed in.", remedy: "Fix it in a terminal, then press Refresh agent information." } };
+    snapshot.settings.models.fallback = { use: "threshold", enabled: true, threshold: 95, warning: { agent: "Codex", agentId: "codex", problem: "Codex isn't signed in.", remedy: "Fix it in a terminal, then press Refresh agent information." } };
     expect(startState(snapshot, true, true)).toEqual({ enabled: true });
     const words = text(documentsFound(snapshot));
     expect(words).toContain("The fallback’s agent, Codex, isn’t ready Codex isn't signed in. Fix it in a terminal, then press Refresh agent information. Until then, this run waits at a usage limit as if the fallback were off.");
@@ -137,7 +137,7 @@ describe("the account panel (AC-AGENTS-03)", () => {
     const snapshot = runningSnapshot();
     const account = snapshot.agents[0]!.account!;
     snapshot.agents = [claudeAgent(undefined, { account: { ...account, inUse: true, limits: [{ ...account.limits[1]!, percent: 97, overThreshold: true }] } }), codexAgent()];
-    snapshot.settings.models.fallback = { enabled: true, threshold: 95 };
+    snapshot.settings.models.fallback = { use: "threshold", enabled: true, threshold: 95 };
     expect(text(running(snapshot))).toContain("above your 95% threshold");
   });
 

@@ -22,10 +22,10 @@ import { AuditStore } from "../audit/storage.js";
 import { assertPreflightState } from "../engine/preflight.js";
 import { MERGE_KEY, preflightKey } from "./activity-keys.js";
 import type { ModelChoice } from "../models/model-defaults.js";
-import { migrateModelChoices, assertModelChoices } from "../models/keep.js";
+import { migrateModelChoices, migratePreflightPrChoice, assertModelChoices } from "../models/keep.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -56,14 +56,16 @@ export interface Settings {
 }
 
 /**
- * A PRD's model choices (Kiln Phase Model Tiers, "Resolving a Choice"): a phase's own entry, by
- * phase id; the PRD's one Audits entry, for the preflight, every audit and the pull request
- * session; and `kept`, the one choice a PRD saved before schema 27 keeps (AC-KEEP-02), written
- * only by the migration. `"default"` is Use the default over a kept choice.
+ * A PRD's model choices (Kiln Phase Model Tiers, "Resolving a Choice"; Kiln Model Modes, "Data
+ * Models"): a phase's own entry, by phase id; the PRD's Audits entry, for every audit; its
+ * Preflight and pull request entry, for the preflight, the pull request session, the merge and
+ * the plan push (AC-ROW-01); and `kept`, the one choice a PRD saved before schema 27 keeps
+ * (AC-KEEP-02), written only by the migration. `"default"` is Use the default over a kept choice.
  */
 export interface ModelChoices {
   phases: Record<string, ModelChoice | "default">;
   audits?: ModelChoice | "default";
+  preflightPr?: ModelChoice | "default";
   kept?: ModelChoice;
 }
 
@@ -590,13 +592,16 @@ export interface SessionRecord {
   relaunchOf?: { sessionId: string; run: number };
   /**
    * The launch decision this session was launched on (Kiln Phase Model Tiers, "The launch
-   * decision"), saved before its process starts: where the choice came from and, with the usage
-   * fallback on and a limit at or above the threshold, whether the fallback was used.
+   * decision"; Kiln Model Modes, "Data Models"), saved before its process starts: where the choice
+   * came from, whether the settings in force were the PRD's own, and whether the fallback was
+   * used: with the threshold setting, on a limit at or above the threshold; with the fallback used
+   * for everything, because of that setting, with no limit or threshold.
    */
   launch?: {
-    from: "model_defaults" | "changed";
+    from: "model_defaults" | "changed" | "one_model";
     claudeCodeMissing?: true;
-    fallback?: { used: boolean; limit: { agentId: AgentId; label: string; percent?: number }; threshold: number; first?: { agentId: AgentId; model: string; modelName: string; effort?: string }; reason?: string };
+    ownSettings?: true;
+    fallback?: { used: boolean; forEverything?: true; limit?: { agentId: AgentId; label: string; percent?: number }; threshold?: number; first?: { agentId: AgentId; model: string; modelName: string; effort?: string }; reason?: string };
   };
   modelDisplayName: string;
   /** The --effort Kiln passed; absent when it passed none. */
@@ -691,7 +696,7 @@ export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRe
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -720,6 +725,8 @@ export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRe
   if (record.schemaVersion < 8) record.billing = newBillingState(record.executionId ??= randomUUID());
   // Schema 27: one choice for the PRD becomes each activity's (Kiln Phase Model Tiers, "Migration to schema 27").
   if (record.schemaVersion < 27) migrateModelChoices(record, stateDirectory);
+  // Schema 28: the preflight, the pull request session, the merge and the plan push get an entry of their own, filled from the Audits entry (Kiln Model Modes AC-CARRY-01).
+  if (record.schemaVersion < 28) migratePreflightPrChoice(record.settings.modelChoices);
   assertBillingState(record.billing, record.executionId);
   assertModelChoices(record.settings.modelChoices);
   // Retire only the old confinement predicate; keep every independent recovery obligation.

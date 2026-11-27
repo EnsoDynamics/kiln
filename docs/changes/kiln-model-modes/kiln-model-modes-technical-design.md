@@ -17,7 +17,7 @@ No new service, repository, database or dependency.
 
 **Posture: Preserve.** Kiln Phase Model Tiers is built and released, and AC-CARRY-01 keeps what people saved.
 
-- **Reused:** the resolver and its start line; the launch decision with its usage reading, counted limits and fallback launch checks; needed agents, their readiness and billing; the wait before the start; the `selection` stop; the one module behind the page, the routes and `kiln model-defaults`; the atomic write and the watch on the settings file; the omitted-effort rule; `POST /api/model` and `kiln model`; the Model defaults page's row editor.
+- **Reused:** the resolver and its start line; the launch decision with its usage reading, counted limits and fallback launch checks; needed agents, their readiness and billing; the wait before the start; the `selection` stop; the one module behind the page, the routes and `kiln model-defaults`; the atomic write of the settings file (the watch on it becomes a read of both files' revision once a second, §Snapshot); the omitted-effort rule; `POST /api/model` and `kiln model`; the Model defaults page's row editor.
 - **Kept, and not visible from the code alone:**
   - An activity that has started is bound by resolver step 1, before any step this design adds. Nothing here reaches it.
   - A launch keeps the decision it saved. A change of mode, of the fallback setting or of a PRD's own settings made after that reaches the activity only if the launch ends with no response, as a Model defaults change does today.
@@ -71,7 +71,7 @@ A PRD **has its own settings** when `model-settings.json` exists in its state di
 
 Both modes' settings stay in the file whichever is selected, which is how each returns when it is selected again (AC-MODE-01).
 
-A PRD's own settings that can't be read are an error wherever one of that PRD's choices is resolved, with the file's path, as Model defaults is today. Use my defaults here is the one write allowed over them, and is refused over a newer schema version.
+A PRD's own settings that can't be read are an error wherever one of that PRD's choices is resolved, with the file's path, as Model defaults is today. While the settings in force can't be read, whichever file they are, a choice changed for this PRD or kept by it can't be used either, where before this change it launched: the unread file may say the fallback is used for everything, which wins over such a choice (§Resolving a Choice, step 5), so launching it could run on the account the person is sparing. Its row and stop keep the choice and its Changed by you mark, give the file's reason, and name no place to change the choice, since changing it is not the remedy. Use my defaults here is the one write allowed over them, and is refused over a newer schema version.
 
 A PRD with its own settings needs nothing from Model defaults: its choices, fallbacks, page and commands read its own file, and Model defaults that can't be read change none of them; only a save for every PRD from its page is refused (§Saving).
 
@@ -116,7 +116,7 @@ decide(activity):
     …the usage reading and the fallback's launch checks, unchanged, at the threshold of the settings in force
 ```
 
-Under For everything the resolver has already made the fallback the choice, so the decision reads no usage and names it. A fallback that can't be used is then a choice that can't be used: Start is unavailable, or the launch stops, and nothing runs on the first choice. The decision saved on the session records that the fallback was used because of the setting, with the first choice and no limit or threshold. That record is the source for the Fallback tag, the card's reason, the phase detail and the terminal line, which AC-FALLBACK-03 already reads from it.
+Under For everything the resolver has already made the fallback the choice, so the decision reads no usage and names it. A fallback that can't be used is then a choice that can't be used: Start is unavailable, or the launch stops, and nothing runs on the first choice. The decision saved on the session records that the fallback was used because of the setting, with the first choice and no limit or threshold. That record is the source for the Fallback tag, the card's reason, the phase detail and the terminal line, which AC-FALLBACK-03 already reads from it. The merge and a plan push take no launch decision, so a session of theirs that launches on its fallback under For everything saves the same record from the resolver's choice. Its card, its phase detail and the terminal line read it as any activity's do; a merge or push row shows no model line, and so no tag.
 
 **Agents.** An agent is needed when the resolver names it for an unfinished activity, or when the fallback setting is in force as `threshold` and an unfinished activity's fallback names it. Under For everything the first choice's agent is therefore not needed for an activity that moved to its fallback, and under one model only that model's agent is needed. The fallback warning and the over-threshold marks in the account panel show only while `threshold` is in force.
 
@@ -214,7 +214,7 @@ settings.models:
 
 A row or Audits line with `noFallback` says why in one line. While its choice is Changed by you or kept (`from: "changed"`): "No fallback: the model you picked is on the same agent as its fallback." While Claude Code isn't installed and it runs on its row's Codex choice (`claudeCodeMissing`): "No fallback: Claude Code isn't installed, so this already runs on its Codex choice.", in place of the usual note that it runs on Codex. A Model defaults row can't put both sides on one agent, so there is no third case.
 
-`revision` is both files' stat keys, with `missing` for an absent file, so creating or removing the PRD's own settings changes it. The running Kiln watches the PRD's state directory for `model-settings.json`, as it watches the state root for Model defaults.
+`revision` is both files' stat keys, with `missing` for an absent file, so creating or removing the PRD's own settings changes it. The running Kiln reads `revision` once a second and republishes when it changed, which is how it notices Model defaults and the PRD's own `model-settings.json` created, changed or removed. This replaces the folder watch Kiln Phase Model Tiers used for Model defaults. A folder watch loses events while the computer is busy; on macOS it reports events written in the same moment under one name, and the PRD record is saved beside `model-settings.json` constantly; and watching a second folder there made stopping Kiln up to a second slower. A page or command that saves a settings file through the running Kiln still republishes at once.
 
 A row that hasn't started under For everything carries `model.choice` as its fallback and `model.fallback` as `{ used: true, forEverything: true, first }` straight from the resolver, before any launch. The Audits line reads the same way. The view shows the Audits line while `mode` is `recommended`, or `audits.changedByYou`.
 
@@ -271,7 +271,7 @@ The line is added to each earlier section, as `Superseded in part by:`, in the c
 
 - Replaces in part: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-technical-design.md`
   - §Storage and §Model defaults file (schema 2; a second file of the same schema for one PRD's own settings; the mode, the one model, a fifth row, and a three-way fallback setting in place of the switch).
-  - §Design Decisions, "Restore Kiln's defaults" (the mode, five rows, the one model and the fallback setting, which it returns to Never at 95; held in the page's draft until saved) and "Commands for Model defaults" (two more leaves, and `--prd`).
+  - §Design Decisions, "Restore Kiln's defaults" (the mode, five rows, the one model and the fallback setting, which it returns to Never at 95; held in the page's draft until saved), "Commands for Model defaults" (two more leaves, and `--prd`) and "Model defaults across running Kilns" (a read of both files' revision once a second, in place of a watch on the state root).
   - §Resolving a Choice (step 4 reads the settings in force and the mode; step 5; every activity that isn't a phase or an audit, the merge and the plan push included, has its own row and entry; no fallback under one model).
   - §When an Activity Starts, "Planned rows" and "The planned Preflight row" (the Preflight and pull request rows show their own row's choice and offer Change).
   - §The launch decision and "The heads-up" (the decision runs its usage reading only while the threshold setting is in force; a launch on a fallback used for everything records the setting, not a limit).

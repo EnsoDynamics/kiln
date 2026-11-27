@@ -14,7 +14,8 @@ import { simpleCommands } from "../session/bash-command.js";
 import { DELIVERY_CHECK, deliveryEnabled, finishedBy } from "./development-delivery.js";
 import { sameOwner, type DevelopmentSettings } from "../state/development-delivery.js";
 import { AGENT_IDS, AGENT_NAMES, type AgentId } from "../state/records.js";
-import { readModelDefaults } from "../models/model-defaults.js";
+import { oneModelOf, settingsRevision, shippedDefaults, type FallbackUse, type ModelMode } from "../models/model-defaults.js";
+import { familyName, resolveFamily } from "../models/resolver.js";
 import type { AgentAccount } from "../agents/metadata.js";
 import { readSessionRecord } from "../state/records.js";
 import type { ChoiceView, FallbackView, ModelView, TierView } from "./activity-models.js";
@@ -22,7 +23,7 @@ import type { ChoiceView, FallbackView, ModelView, TierView } from "./activity-m
 // engine's record, the plan as last read, what the engine is doing, and the account and model
 // list once they have arrived.
 
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
@@ -53,7 +54,7 @@ import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
-import { fallbackView, launchSource, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
+import { fallbackView, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
 import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
 export const PR_TITLE = "Final pull request";
@@ -422,9 +423,19 @@ export interface Snapshot {
     models: { tiers: { demanding: number; standard: number; mechanical: number; notRated: number };
       /** Why Start is unavailable for the models: an agent an activity needs isn't ready, or a choice can't be used (AC-AGENTS-01, AC-PICK-06). */
       problem?: string;
-      /** The fallback switch, and the warning for an agent only a fallback names that isn't ready (AC-AGENTS-01). */
-      fallback: { enabled: boolean; threshold: number; warning?: { agent: string; agentId: AgentId; problem: string; remedy: string } };
-      /** This PRD's Audits choice, which the preflight, the audits and the pull request session run on (AC-OTHER-01). */
+      /** Whose settings are in force for this PRD: its own, or Model defaults (Kiln Model Modes, "Settings in Force"). */
+      source: "defaults" | "prd";
+      /** Which way of picking models is in force (AC-MODE-01). */
+      mode: ModelMode;
+      /** The one model: the one picked, else Kiln's for this computer; `problem` when it can't be used now. */
+      oneModel: OneModelView;
+      /**
+       * When the fallback is used, as the settings in force say, and the warning for an agent only a
+       * fallback names that isn't ready (AC-AGENTS-01). `enabled` is true unless the setting is
+       * Never. The setting is in force only while `mode` is `recommended`.
+       */
+      fallback: { use: FallbackUse; threshold: number; enabled: boolean; warning?: { agent: string; agentId: AgentId; problem: string; remedy: string } };
+      /** This PRD's Audits choice, which the delivery audit and the test audit run on (AC-OTHER-01, AC-ROW-01). */
       audits: AuditsChoiceView;
       /** Changes whenever the Model defaults file is written, so the Model defaults page reads it again. */
       revision: string };
@@ -699,7 +710,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),
       ...(state === "not_started" ? optional("startBlockedBy", engine.startBlockedBy) : {}),
-      models: { tiers: tierCounts(engine), ...(state === "not_started" ? optional("problem", engine.modelsProblem) : {}), fallback: fallbackSettings(engine), audits: auditsChoice(engine), revision: modelDefaultsRevision(engine.modelDefaultsFile) },
+      models: { tiers: tierCounts(engine), ...(state === "not_started" ? optional("problem", engine.modelsProblem) : {}), ...settingsInForceView(engine), audits: auditsChoice(engine), revision: settingsRevision(engine.settingsPaths) },
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
       resumeAfterUsageLimit: settings.resumeAfterUsageLimit,
@@ -1431,6 +1442,8 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     }
     Object.assign(row, waivedFacts(engine, PR_PHASE_KEY, row.state === "done"));
     row.model = rowModel(engine, PR_PHASE_KEY, row.state === "done");
+    // The pull request row changes this PRD's Preflight and pull request choice while it hasn't started (AC-ROW-01).
+    Object.assign(row.model, engine.preflightPrControls(PR_PHASE_KEY, row.title, row.model));
     rows.push(row);
   }
   const merge = mergeRow(engine, includeTiming);
@@ -1936,6 +1949,8 @@ function preflightRow(engine: Engine, key: string, state: FeatureState, includeT
   }
   Object.assign(row, waivedFacts(engine, key, row.state === "done"));
   row.model = rowModel(engine, key, row.state === "done");
+  // The Preflight row changes this PRD's Preflight and pull request choice while it hasn't started (AC-ROW-01).
+  Object.assign(row.model, engine.preflightPrControls(key, PREFLIGHT_TITLE, row.model));
   return row;
 }
 
@@ -1950,13 +1965,13 @@ function documentsModel(engine: Engine, phase: { id: string; closed: boolean }):
  * Where a stopped session's choice came from (Kiln Phase Model Tiers AC-PICK-06, "A choice that
  * can't be used, found at launch"): from its saved decision while the activity hasn't started.
  *
- *   choiceSource(engine, "2", session)  // "The fallback, from Model defaults' Fallback column. Change it in Model defaults."
+ *   choiceSource(engine, "2", session)  // "The fallback, from the Standard row's Fallback column in Model defaults. Change it in Model defaults."
  */
 function choiceSource(engine: Engine, key: string, session: SessionRecord): string | undefined {
   if (!engine.choiceActivity(key)) return undefined;
   const started = engine.startedSessionOf(key);
   if (started) return `Started on ${[AGENT_NAMES[started.agentId ?? "claude_code"], started.modelDisplayName, started.effort].filter(Boolean).join(" · ")}, which it finishes on.`;
-  return session.launch ? launchSource(key, session.launch) : undefined;
+  return session.launch ? engine.launchSourceOf(key, session.launch) : undefined;
 }
 
 /** A row's model (AC-PICK-02): a launching or running session's recorded choice shows until the activity starts. */
@@ -1970,8 +1985,9 @@ function rowModel(engine: Engine, key: string, finished: boolean): ModelView {
 /**
  * The planned rows (Kiln Phase Model Tiers, "Planned rows"): in a run underway, after the last
  * row, one for each audit kind the routing still expects and has no open activity of, Delivery
- * audit then Test audit, then the pull request session's until it is allocated. Each reads Will
- * run on with the Audits choice; it has no steps, timing or details.
+ * audit then Test audit, then the pull request session's until it is allocated. An audit's reads
+ * Will run on with the Audits choice, the pull request session's with the Preflight and pull
+ * request choice (AC-ROW-01); it has no steps, timing or details.
  */
 function plannedRows(engine: Engine, state: FeatureState, rows: PhaseView[]): PhaseView[] {
   const { record } = engine;
@@ -1979,9 +1995,10 @@ function plannedRows(engine: Engine, state: FeatureState, rows: PhaseView[]): Ph
   const expected = engine.expectedAuditKinds();
   const open = (kind: "delivery_audit" | "test_audit") => (record.completionAudits?.activities ?? []).some(activity => activity.kind === kind && !record.phases[auditKeyOf(activity)]?.doneAt);
   const model = engine.activityModel(PLANNED_AUDITS_KEY, { finished: false });
+  const pullRequest = engine.activityModel(PR_PHASE_KEY, { finished: false });
   const planned: PhaseView[] = [];
-  // A planned Delivery audit or Test audit row offers Change, which changes this PRD's Audits choice; the pull request row doesn't (AC-OTHER-01).
-  const row = (id: string, kind: NonNullable<PhaseView["kind"]>, title: string): PhaseView => ({ id, kind, title, file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: kind === "final_delivery" ? model : { ...model, ...engine.modelControls(PLANNED_AUDITS_KEY, title, model) } });
+  // A planned Delivery audit or Test audit row offers Change, which changes this PRD's Audits choice (AC-OTHER-01); the pull request row's changes its Preflight and pull request choice (AC-ROW-01).
+  const row = (id: string, kind: NonNullable<PhaseView["kind"]>, title: string): PhaseView => ({ id, kind, title, file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: kind === "final_delivery" ? { ...pullRequest, ...engine.preflightPrControls(PR_PHASE_KEY, title, pullRequest) } : { ...model, ...engine.modelControls(PLANNED_AUDITS_KEY, title, model) } });
   if (expected.includes("delivery_audit") && !open("delivery_audit")) planned.push(row("planned-delivery-audit", "delivery_audit", "Delivery audit"));
   if (expected.includes("test_audit") && !open("test_audit")) planned.push(row("planned-test-audit", "test_audit", "Test audit"));
   if (!rows.some(one => one.id === PR_PHASE_KEY)) planned.push(row("planned-pull-request", "final_delivery", deliveryEnabled(record) ? "Finalize delivery" : "Pull request"));
@@ -1995,15 +2012,16 @@ function plannedRows(engine: Engine, state: FeatureState, rows: PhaseView[]): Ph
  */
 function preflightPlanned(engine: Engine, state: FeatureState, documents?: DocumentsFound): Pick<Snapshot, "preflight"> {
   const { record } = engine;
-  if (!engine.readers[engine.auditsAgent].state.optionalSkills?.buildPreflight) return {};
+  if (!engine.readers[engine.preflightPrAgent].state.optionalSkills?.buildPreflight) return {};
   const unallocated = !record.preflight?.activities.some(activity => !record.phases[preflightKeyOf(activity)]?.doneAt);
   const due = !!record.preflight?.due && unallocated;
   const nextStart = state === "not_started"
     || state === "paused" && unallocated && (record.pause.activeSince !== undefined || engine.restartReview !== undefined && !preflightSettled(record))
     || state === "complete" && !!record.completedPlanCheck?.result?.proposal;
   if (!due && !nextStart) return {};
-  // The planned Preflight row shows the Audits choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row").
-  const model = engine.activityModel(PLANNED_PREFLIGHT_KEY, { finished: false });
+  // The planned Preflight row shows the Preflight and pull request choice, as an activity with no start, and offers its Change (Kiln Phase Model Tiers, "The planned Preflight row"; AC-ROW-01).
+  const planned = engine.activityModel(PLANNED_PREFLIGHT_KEY, { finished: false });
+  const model = { ...planned, ...engine.preflightPrControls(PLANNED_PREFLIGHT_KEY, PREFLIGHT_TITLE, planned) };
   if (state === "not_started") {
     const leaf = documents?.start?.startAt?.id ?? documents?.plan?.phases.find(phase => !phase.splitInto && !phase.closed)?.id;
     return { preflight: { planned: { before: leaf ?? "end", model } } };
@@ -2108,12 +2126,16 @@ export interface AgentView {
   billing?: BillingView;
 }
 
-/** `settings.models.audits` (AC-OTHER-01): the Audits choice, whether it is this PRD's own, and Change, never limited by an activity's state. */
-export interface AuditsChoiceView { choice?: ChoiceView; changedByYou: boolean; claudeCodeMissing?: true; problem?: string; change: { available: boolean; reason?: string }; useDefault?: true }
+/**
+ * `settings.models.audits` (AC-OTHER-01): the Audits choice, whether it is this PRD's own, and
+ * Change, never limited by an activity's state. While the fallback is used for everything it
+ * reads as a row that hasn't started does: its fallback as the choice, with `fallback`, or
+ * `noFallback` (AC-WHEN-03).
+ */
+export interface AuditsChoiceView { choice?: ChoiceView; changedByYou: boolean; claudeCodeMissing?: true; problem?: string; change: { available: boolean; reason?: string }; useDefault?: true; fallback?: FallbackView; noFallback?: true }
 
-function modelDefaultsRevision(path: string): string {
-  try { const stat = statSync(path); return `${stat.mtimeMs}:${stat.size}:${stat.ino}`; } catch { return "missing"; }
-}
+/** `settings.models.oneModel` (Kiln Model Modes, "Snapshot"). */
+export interface OneModelView { agentId: AgentId; agent: string; family: string; familyName: string; modelName?: string; effort?: string; problem?: string }
 
 function auditsChoice(engine: Engine): AuditsChoiceView {
   const model = engine.activityModel(PLANNED_AUDITS_KEY, { finished: false });
@@ -2123,15 +2145,24 @@ function auditsChoice(engine: Engine): AuditsChoiceView {
     ...(model.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}), ...optional("problem", model.problem),
     change: complete ? { available: false, reason: "The run is complete; no activity is left to change." } : { available: true },
     ...(!complete && model.from === "changed" ? { useDefault: true as const } : {}),
+    ...optional("fallback", model.fallback), ...(model.noFallback ? { noFallback: true as const } : {}),
   };
 }
 
-/** `settings.models.fallback`: the switch as Model defaults says now, and the fallback-only agent's warning. */
-function fallbackSettings(engine: Engine): Snapshot["settings"]["models"]["fallback"] {
-  const read = readModelDefaults(engine.modelDefaultsFile);
-  const fallback = read.ok ? read.defaults.fallback : { enabled: false, threshold: 95 };
-  const warning = fallback.enabled ? engine.fallbackWarning() : undefined;
-  return { enabled: fallback.enabled, threshold: fallback.threshold, ...(warning ? { warning } : {}) };
+/**
+ * `settings.models`' source, mode, one model and fallback setting: the settings in force as the
+ * files say now. Settings that can't be read show Kiln's choices here, with the fallback never
+ * used; every choice taken from them carries the file's reason on its own row.
+ */
+function settingsInForceView(engine: Engine): Pick<Snapshot["settings"]["models"], "source" | "mode" | "oneModel" | "fallback"> {
+  const inForce = engine.settingsInForce;
+  const settings = inForce.read.ok ? inForce.read.defaults : shippedDefaults();
+  const one = oneModelOf(settings, engine.claudeCodeInstalled);
+  const resolved = resolveFamily(one, engine.modelContext.lists[one.agentId] ?? { pending: true });
+  const oneModel: OneModelView = { agentId: one.agentId, agent: AGENT_NAMES[one.agentId], family: one.family, familyName: familyName(one), ...(resolved.model ? { modelName: resolved.modelName } : {}), ...optional("effort", one.effort), ...optional("problem", resolved.problem) };
+  const warning = engine.fallbackWarning();
+  const { use, threshold } = settings.fallback;
+  return { source: inForce.source, mode: settings.mode, oneModel, fallback: { use, threshold, enabled: use !== "never", ...(warning ? { warning } : {}) } };
 }
 
 /**
@@ -2141,8 +2172,8 @@ function fallbackSettings(engine: Engine): Snapshot["settings"]["models"]["fallb
  */
 function agentViews(engine: Engine, currentKey: string | undefined): AgentView[] {
   const needs = engine.neededBy();
-  const read = readModelDefaults(engine.modelDefaultsFile);
-  const threshold = read.ok && read.defaults.fallback.enabled ? read.defaults.fallback.threshold : undefined;
+  // Limits are marked against the threshold only while the threshold setting is in force (Kiln Model Modes, "Launching").
+  const threshold = engine.fallbackThreshold;
   const inUse = engine.inUseAgent(currentKey);
   const views: AgentView[] = [];
   for (const agentId of AGENT_IDS) {

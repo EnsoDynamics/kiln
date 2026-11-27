@@ -128,8 +128,8 @@ describe("a choice kept from before this change (AC-KEEP-02)", () => {
   });
 });
 
-describe("the Audits choice for one PRD (AC-OTHER-01)", () => {
-  it("changes every activity that isn't a phase from Documents found's line, and the run launches each phase and the pull request on its choice", async () => {
+describe("the Audits choice for one PRD (AC-OTHER-01; Kiln Model Modes AC-ROW-01)", () => {
+  it("changes the audits' choice from Documents found's line, leaves the pull request session on its own row, and the run launches each on its choice", async () => {
     const h = await fixture([landingSession("src/one.txt"), landingSession("src/two-b.txt"), landingSession("src/three.txt"), pullRequestSession()]);
     expect(buildSnapshot(h.engine).settings.models.audits).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "high" }, changedByYou: false, change: { available: true } });
     expect(await post("/api/model", { target: "audits", choice: { agentId: "claude_code", model: "sonnet", effort: "medium" } })).toMatchObject({ status: 200 });
@@ -143,67 +143,88 @@ describe("the Audits choice for one PRD (AC-OTHER-01)", () => {
     expect(await reopened.start({ refinementConfirmed: true })).toEqual({ ok: true });
     await reopened.settled();
     expect(reopened.record.completedAt).toBeDefined();
-    // Phase 1 on demanding's default, 2b on mechanical's, 3 on its change, the pull request on the changed Audits choice.
-    expect(launches(h)).toEqual([["fable", "high"], ["sonnet", "high"], ["haiku", "high"], ["sonnet", "medium"]]);
+    // Phase 1 on demanding's default, 2b on mechanical's, 3 on its change; the pull request on the Preflight and pull request row, which the Audits change no longer reaches (AC-ROW-01).
+    expect(launches(h)).toEqual([["fable", "high"], ["sonnet", "high"], ["haiku", "high"], ["opus", "medium"]]);
     // A finished run has nothing left to change.
     expect(buildSnapshot(reopened).settings.models.audits.change).toEqual({ available: false, reason: "The run is complete; no activity is left to change." });
     expect(reopened.controlView().controls.find(control => control.name === "model")).toEqual({ name: "model", available: false, reason: "The run is complete; no activity is left to change." });
   });
 });
 
-describe("an Audits change before Start reaches the preflight, and Use the default undoes it (AC-OTHER-01, AC-PICK-03)", () => {
+describe("a Preflight and pull request change before Start reaches the preflight, and Use the default undoes it (Kiln Model Modes AC-ROW-01; AC-PICK-03)", () => {
   const ready: ScenarioSession = { actions: [{ skill: "enso-method:build-preflight" }, { result: "Preflight: ready\n\n3 phases. The build runs to the end without stopping." }, { exit: 0 }] };
 
-  it("shows the planned preflight on the changed Audits choice and launches it on that choice", async () => {
+  it("shows the planned preflight on the changed choice, offers its Change on the row, and launches it on that choice", async () => {
     const h = await fixture([ready, { actions: [{ result: "I think this is done." }] }], true);
-    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" });
-    expect(await post("/api/model", { target: "audits", choice: { agentId: "claude_code", model: "sonnet", effort: "low" } })).toMatchObject({ status: 200, body: { ok: true } });
-    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", modelName: "Sonnet 5.5", effort: "low" }, from: "changed" });
+    // The row's own choice, lighter than the audits': Claude Code · Opus · medium, with Change on the Preflight row.
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "medium" }, from: "model_defaults", change: { available: true } });
+    expect(buildSnapshot(h.engine).preflight?.planned?.model?.useDefault).toBeUndefined();
+    // A change to the Audits choice doesn't reach it.
+    expect(await post("/api/model", { target: "audits", choice: { agentId: "claude_code", model: "haiku", effort: "low" } })).toMatchObject({ status: 200, body: { ok: true } });
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { modelName: "Opus 5.5", effort: "medium" }, from: "model_defaults" });
+    expect(await post("/api/model", { target: "preflight_pr", choice: { agentId: "claude_code", model: "sonnet", effort: "low" } })).toMatchObject({ status: 200, body: { ok: true } });
+    expect(h.engine.record.settings.modelChoices).toMatchObject({ audits: { model: "haiku" }, preflightPr: { agentId: "claude_code", model: "sonnet", effort: "low" } });
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", modelName: "Sonnet 5.5", effort: "low" }, from: "changed", change: { available: true }, useDefault: true });
+    // The Audits line still shows the audits' own choice.
+    expect(buildSnapshot(h.engine).settings.models.audits).toMatchObject({ choice: { modelName: "Haiku 5.5", effort: "low" }, changedByYou: true });
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(h.engine.stoppedPhaseKey()).toBe("1");
-    // The preflight session launched on the changed Audits choice; phase 1 on demanding's default.
+    // The preflight session launched on the changed Preflight and pull request choice; phase 1 on demanding's default.
     expect(launches(h)).toEqual([["sonnet", "low"], ["fable", "high"]]);
     expect(rows(h.engine).find(one => one.kind === "preflight")!.model).toMatchObject({ state: "ran_on", choice: { modelName: "Sonnet 5.5", effort: "low" }, from: "changed" });
   });
 
-  it("returns the Audits choice to Model defaults' Audits row with Use the default, and the preflight launches on it", async () => {
+  it("returns each choice to its own row with Use the default, and the preflight launches on the Preflight and pull request row's", async () => {
     const h = await fixture([ready, { actions: [{ result: "I think this is done." }] }], true);
     expect(await post("/api/model", { target: "audits", choice: { agentId: "claude_code", model: "sonnet", effort: "low" } })).toMatchObject({ status: 200 });
+    expect(await post("/api/model", { target: "preflight_pr", choice: { agentId: "claude_code", model: "sonnet", effort: "low" } })).toMatchObject({ status: 200 });
     expect(buildSnapshot(h.engine).settings.models.audits).toMatchObject({ changedByYou: true, useDefault: true });
     expect(await post("/api/model", { target: "audits", choice: "default" })).toMatchObject({ status: 200, body: { ok: true } });
     // Back to the PRD table's Audits first choice: Claude Code · Opus · high, no longer marked.
     const audits = buildSnapshot(h.engine).settings.models.audits;
     expect(audits).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "high" }, changedByYou: false });
     expect(audits.useDefault).toBeFalsy();
-    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" });
+    // Undoing the Audits change leaves the preflight's own change in place, until it is undone on its row.
+    expect(buildSnapshot(h.engine).preflight?.planned?.model).toMatchObject({ choice: { modelName: "Sonnet 5.5", effort: "low" }, from: "changed", useDefault: true });
+    expect(await post("/api/model", { target: "preflight_pr", choice: "default" })).toMatchObject({ status: 200, body: { ok: true } });
+    const planned = buildSnapshot(h.engine).preflight?.planned?.model;
+    expect(planned).toMatchObject({ choice: { agent: "Claude Code", modelName: "Opus 5.5", effort: "medium" }, from: "model_defaults", change: { available: true } });
+    expect(planned?.useDefault).toBeUndefined();
     await h.engine.start({ refinementConfirmed: true }); await h.engine.settled();
     expect(h.engine.stoppedPhaseKey()).toBe("1");
-    expect(launches(h)[0]).toEqual(["opus", "high"]);
-    // A planned row that isn't a phase reads the default too.
-    expect(row(h.engine, "planned-pull-request").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" });
+    expect(launches(h)[0]).toEqual(["opus", "medium"]);
+    // The planned pull request row reads the same row's default, with its Change; the audits' rows read the Audits row's.
+    expect(row(h.engine, "planned-pull-request").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Opus 5.5", effort: "medium" }, from: "model_defaults", change: { available: true } });
+    expect(row(h.engine, "planned-delivery-audit").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" });
   });
 });
 
-describe("an Audits change reaches only Audits activities that haven't started (AC-OTHER-01, AC-PICK-05)", () => {
-  it("keeps the preflight on what it ran on while the not-started Audits activities take the change", async () => {
+describe("a Preflight and pull request change reaches only its activities that haven't started (Kiln Model Modes AC-ROW-01; AC-PICK-05)", () => {
+  it("keeps the preflight on what it ran on while the pull request session, which hasn't started, takes the change", async () => {
     const { mkdtempSync, writeFileSync: touch, rmSync } = await import("node:fs");
     const { join } = await import("node:path");
     const { tmpdir } = await import("node:os");
     const dir = mkdtempSync(join(tmpdir(), "kiln-audits-"));
     const release = join(dir, "release");
     const ready: ScenarioSession = { actions: [{ skill: "enso-method:build-preflight" }, { result: "Preflight: ready\n\n3 phases. The build runs to the end without stopping." }, { exit: 0 }] };
-    // Phase 1 holds after its first response, so the Audits choice changes while it runs.
+    // Phase 1 holds after its first response, so the Preflight and pull request choice changes while it runs.
     const held = landingSession("src/one.txt"); held.actions.unshift({ text: "Working on the intake." }, { waitForFile: release });
     const h = await fixture([ready, held], true);
     const starting = h.engine.start({ refinementConfirmed: true });
     await waitFor(() => row(h.engine, "1").model?.state === "running_on");
-    expect(rows(h.engine).find(one => one.kind === "preflight")!.model).toMatchObject({ state: "ran_on", choice: { modelName: "Opus 5.5", effort: "high" } });
-    expect(await post("/api/model", { target: "audits", choice: { agentId: "claude_code", model: "sonnet", effort: "low" } })).toMatchObject({ status: 200 });
-    // The preflight finished on the Audits choice it started on; the change doesn't reach it.
-    expect(rows(h.engine).find(one => one.kind === "preflight")!.model).toMatchObject({ state: "ran_on", choice: { modelName: "Opus 5.5", effort: "high" } });
-    expect(row(h.engine, "planned-pull-request").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Sonnet 5.5", effort: "low" }, from: "changed" });
-    // The preflight launched on the Audits default it ran on; the pull request session launching on a changed Audits choice is proved above.
-    expect(launches(h)[0]).toEqual(["opus", "high"]);
+    expect(rows(h.engine).find(one => one.kind === "preflight")!.model).toMatchObject({ state: "ran_on", choice: { modelName: "Opus 5.5", effort: "medium" } });
+    // A finished Preflight row offers no Change; the planned pull request row does.
+    expect(rows(h.engine).find(one => one.kind === "preflight")!.model?.change).toBeUndefined();
+    expect(row(h.engine, "planned-pull-request").model?.change).toEqual({ available: true });
+    expect(await post("/api/model", { target: "preflight_pr", choice: { agentId: "claude_code", model: "sonnet", effort: "low" } })).toMatchObject({ status: 200 });
+    expect(h.engine.commands.all().at(-1)?.instruction).toMatchObject({ action: "model", inputs: { preflight_pr: true, agent_id: "claude_code", model: "sonnet", effort: "low" } });
+    // The preflight finished on the choice it started on; the change doesn't reach it.
+    expect(rows(h.engine).find(one => one.kind === "preflight")!.model).toMatchObject({ state: "ran_on", choice: { modelName: "Opus 5.5", effort: "medium" } });
+    expect(row(h.engine, "planned-pull-request").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Sonnet 5.5", effort: "low" }, from: "changed", change: { available: true }, useDefault: true });
+    // The audits, which have their own choice, don't take it.
+    expect(row(h.engine, "planned-test-audit").model).toMatchObject({ choice: { modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" });
+    // The preflight launched on the row's default it ran on.
+    expect(launches(h)[0]).toEqual(["opus", "medium"]);
     touch(release, "");
     await starting; await h.engine.settled();
     rmSync(dir, { recursive: true, force: true });
@@ -241,10 +262,10 @@ describe("changing models in a run underway (AC-PICK-03, AC-PICK-05)", () => {
     expect(row(h.engine, "1").model?.state).toBe("running_on");
     expect(row(h.engine, "1").model?.change).toBeUndefined();
     expect(row(h.engine, "2b").model).toMatchObject({ state: "will_run_on", change: { available: true } });
-    // The planned Delivery audit and Test audit rows offer Change; the pull request row doesn't.
+    // The planned Delivery audit and Test audit rows offer Change, and so does the pull request row, for its own choice (Kiln Model Modes AC-ROW-01).
     expect(row(h.engine, "planned-delivery-audit").model?.change).toEqual({ available: true });
     expect(row(h.engine, "planned-test-audit").model?.change).toEqual({ available: true });
-    expect(row(h.engine, "planned-pull-request").model?.change).toBeUndefined();
+    expect(row(h.engine, "planned-pull-request").model?.change).toEqual({ available: true });
     expect(h.engine.controlView().controls.find(control => control.name === "model")).toEqual({ name: "model", available: true, reason: null });
 
     expect(await post("/api/model", { target: { phase: "1" }, choice: { agentId: "claude_code", model: "haiku", effort: "low" } })).toEqual({ status: 409, body: { ok: false, reason: "Phase 1 has started, so it keeps the agent, model and effort it started on." } });
@@ -318,12 +339,18 @@ describe("Model defaults for every PRD (AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBAC
     expect(await post("/api/model-defaults", { set: { row: "audits", first: { agentId: "claude_code", family: "gemini", effort: "high" } } })).toEqual({ status: 422, body: { ok: false, reason: "Claude Code doesn't offer Gemini on this account." } });
     expect(await post("/api/model-defaults", { fallback: { threshold: 0 } })).toEqual({ status: 422, body: { ok: false, reason: "The threshold is a whole-number percent from 1 to 100." } });
     expect(await post("/api/model-defaults", { fallback: { threshold: 90.5 } })).toEqual({ status: 422, body: { ok: false, reason: "The threshold is a whole-number percent from 1 to 100." } });
-    expect(await post("/api/model-defaults", { set: { row: "tiny", first: { agentId: "claude_code", family: "opus", effort: "high" } } })).toEqual({ status: 400, body: { ok: false, reason: "row is demanding, standard, mechanical or audits." } });
+    expect(await post("/api/model-defaults", { set: { row: "tiny", first: { agentId: "claude_code", family: "opus", effort: "high" } } })).toEqual({ status: 400, body: { ok: false, reason: "row is demanding, standard, mechanical, audits or preflight_pr." } });
+    // The fifth row is changed like the others (Kiln Model Modes AC-ROW-01).
+    expect(read.body).toMatchObject({ rows: { preflight_pr: { first: { agent: "Claude Code", familyName: "Opus", modelName: "Opus 5.5", effort: "medium", set: false }, fallback: { agent: "Codex", familyName: "GPT Sol", effort: "medium", set: false } } } });
+    expect(await post("/api/model-defaults", { set: { row: "preflight_pr", first: { agentId: "claude_code", family: "sonnet", effort: "low" } } })).toMatchObject({ status: 200, body: { rows: { preflight_pr: { first: { familyName: "Sonnet", effort: "low", set: true } } } } });
+    expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "sonnet", effort: "low", from: "model_defaults", row: "preflight_pr" });
+    expect(h.engine.notStartedChoice("audit-planned")).toMatchObject({ model: "opus", effort: "high", row: "audits" });
 
-    expect(await post("/api/model-defaults", { fallback: { enabled: true, threshold: 90 } })).toMatchObject({ status: 200, body: { fallback: { enabled: true, threshold: 90 } } });
-    expect(buildSnapshot(h.engine).settings.models.fallback).toMatchObject({ enabled: true, threshold: 90 });
-    expect(await post("/api/model-defaults", { fallback: { enabled: false } })).toMatchObject({ status: 200, body: { fallback: { enabled: false, threshold: 90 } } });
-    expect(buildSnapshot(h.engine).settings.models.fallback).toMatchObject({ enabled: false, threshold: 90 });
+    // Today's switch writes the threshold setting or Never.
+    expect(await post("/api/model-defaults", { fallback: { enabled: true, threshold: 90 } })).toMatchObject({ status: 200, body: { fallback: { use: "threshold", enabled: true, threshold: 90 } } });
+    expect(buildSnapshot(h.engine).settings.models.fallback).toMatchObject({ use: "threshold", enabled: true, threshold: 90 });
+    expect(await post("/api/model-defaults", { fallback: { enabled: false } })).toMatchObject({ status: 200, body: { fallback: { use: "never", enabled: false, threshold: 90 } } });
+    expect(buildSnapshot(h.engine).settings.models.fallback).toMatchObject({ use: "never", enabled: false, threshold: 90 });
     expect(await post("/api/model-defaults", { fallback: { enabled: true } })).toMatchObject({ status: 200, body: { fallback: { enabled: true, threshold: 90 } } });
 
     expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 200, body: { rows: { standard: { first: { familyName: "Opus", effort: "medium", set: false } } }, fallback: { enabled: true, threshold: 90 } } });
@@ -336,7 +363,7 @@ describe("Model defaults for every PRD (AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBAC
     expect(await get("/api/model-defaults")).toMatchObject({ status: 409, body: { reason: expect.stringContaining("isn't valid JSON"), canRestore: true } });
     expect(await post("/api/model-defaults", { fallback: { enabled: true } })).toMatchObject({ status: 409, body: { reason: expect.stringContaining("isn't valid JSON") } });
     expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 200, body: { notice: "Kiln's defaults are restored, and the fallback is now off.", fallback: { enabled: false, threshold: 95 } } });
-    writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 2 }));
+    writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 3 }));
     expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 409, body: { reason: expect.stringContaining("written by a newer Kiln; update Kiln"), canRestore: false } });
   });
 });
@@ -383,7 +410,8 @@ describe("Changed by you stays on a choice of the PRD's own wherever it runs (AC
     // The Preflight row isn't a phase, so it carries no tier tag (AC-TIER-02).
     expect(rows(h.engine).find(one => one.kind === "preflight")!.tier).toBeUndefined();
     expect(row(h.engine, "planned-pull-request").model).toMatchObject({ state: "will_run_on", choice: { modelName: "Sonnet 5.5", effort: "max" }, from: "changed" });
-    expect(row(h.engine, "planned-pull-request").model?.change).toBeUndefined();
+    // The row offers Change, and Use the default over the kept choice (Kiln Model Modes AC-ROW-01).
+    expect(row(h.engine, "planned-pull-request").model).toMatchObject({ change: { available: true }, useDefault: true });
   });
 
   it("marks the allocated pull request row that ran on a kept choice", async () => {

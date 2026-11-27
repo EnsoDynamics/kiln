@@ -52,7 +52,7 @@ describe("an older method under Codex is not an error (AC-PREFLIGHT-05)", () => 
     expect(h.engine.readers.codex.state.optionalSkills).toEqual({ buildPreflight: true });
     // With no Documents found passed, the planned row has no activity to sit above.
     // It reads Will run on with the PRD's Codex choice (Kiln Phase Model Tiers AC-PICK-02).
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: { state: "will_run_on", from: "changed", choice: { agentId: "codex", agent: "Codex", model: "gpt-6.1-sol", modelName: "GPT-6.1-Sol", effort: "high" } } } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: { state: "will_run_on", from: "changed", choice: { agentId: "codex", agent: "Codex", model: "gpt-6.1-sol", modelName: "GPT-6.1-Sol", effort: "high" }, change: { available: true }, useDefault: true } } });
     h.engine.start({ refinementConfirmed: true }).catch(() => {});
     await waitFor(() => turns(f).length >= 1);
     expect(turns(f)[0]).toContain("Run the Enso Method's build preflight");

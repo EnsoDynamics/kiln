@@ -50,7 +50,7 @@ describe("Documents found", () => {
     expect(page).not.toMatch(/id="agent"|id="model"|aria-pressed=/);
     const words = text(page);
     // The delivery panel's model lines: per phase with the Model defaults link, the Audits choice, and the fallback (AC-DEFAULT-02, AC-OTHER-01, AC-FALLBACK-01).
-    expect(words).toContain("Models Chosen for each phase 4 not rated. Change any phase in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults . alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
+    expect(words).toContain("Models Chosen for each phase 4 not rated. Change any phase in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The delivery audit and the test audit. Not a tier: they check the whole PRD. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults . alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
     expect(words).not.toContain("Effort");
     // Model defaults' table appears only on its own page, never here (AC-DEFAULT-02).
     expect(page).not.toMatch(/data-row=/);
@@ -81,7 +81,7 @@ describe("Documents found", () => {
     const snapshot = documentsFoundSnapshot({
       settings: {
         fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one.", baseBranch: "develop isn’t on origin." },
-        models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode.", fallback: { enabled: false, threshold: 95 }, audits: documentsFoundSnapshot().settings.models.audits, revision: "missing" },
+        models: { ...documentsFoundSnapshot().settings.models, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode." },
         keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available.",
       },
       documents: { startError: "Couldn’t set up the worktree: fatal: could not create directory" },

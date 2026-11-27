@@ -1,10 +1,13 @@
 <script lang="ts">
   // Model defaults, a page of its own for every PRD on this computer (Kiln Phase Model Tiers
-  // AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBACK-01; mockup 4): the four rows with their first choice
+  // AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBACK-01; mockup 4): the five rows with their first choice
   // and fallback, a Change on each side, Done saving every side opened in that row in one request
   // so a row can move to the other agent, Restore Kiln's defaults, and the fallback switch with its
   // threshold. A refused save keeps the editors open with the reason; a file that can't be read
-  // shows its reason in place of the table, with Restore when Kiln can rewrite it.
+  // shows its reason in place of the table, with Restore when Kiln can rewrite it. While the saved
+  // settings use the fallback for everything, the First choice column is marked as skipped and the
+  // Fallback column as in use (Kiln Model Modes AC-WHEN-03; mockup 3), and while they run
+  // everything on one model the page says so (AC-MODE-02).
   import type { DefaultsSideView, ModelDefaultsView } from "../../../src/models/model-defaults-edit.js";
   import type { DefaultsRow } from "../../../src/models/model-defaults.js";
   import ModelEditor from "../components/ModelEditor.svelte";
@@ -23,7 +26,8 @@
     { row: "demanding", name: "Demanding", help: "Hard to get right, and costly if wrong." },
     { row: "standard", name: "Standard", help: "Most phases, and any phase with no tier." },
     { row: "mechanical", name: "Mechanical", help: "Repeats something already built, with nothing left to decide." },
-    { row: "audits", name: "Audits", help: "The delivery audit and the test audit. The preflight and the pull request session use it too. Not a tier: they check the whole PRD." },
+    { row: "audits", name: "Audits", help: "The delivery audit and the test audit. Not a tier: they check the whole PRD." },
+    { row: "preflight_pr", name: "Preflight and pull request", help: "The check before the first phase, the pull request session at the end, and the merge and push sessions after it." },
   ];
 
   let view = $state<ModelDefaultsView | undefined>(undefined);
@@ -46,6 +50,8 @@
 
   const familyAgents = $derived<EditorAgent[]>((view?.agents ?? []).map(agent => ({ agentId: agent.agentId, agent: agent.agent, options: agent.families.map(one => ({ value: one.family, name: `${one.familyName}, latest (${one.modelName})`, efforts: one.efforts, defaultEffort: one.defaultEffort })), ...(agent.families.length ? {} : { problem: agent.modelListError ?? `${agent.agent} offers no model families Kiln can read.` }) })));
   const sideLine = (side: DefaultsSideView) => [side.agent, side.familyName, side.effort ? effortWord(side.effort) : undefined].filter(Boolean).join(" · ");
+  // The saved setting uses the fallback for everything: it is in force only while models are picked for each phase.
+  const forEverything = $derived(view?.mode === "recommended" && view.fallback.use === "everything");
   const fallbackAgent = $derived.by(() => {
     const agents = new Set(ROWS.map(one => view?.rows[one.row].fallback.agentId));
     return agents.size === 1 ? view?.agents.find(agent => agents.has(agent.agentId)) ?? { agent: view?.rows.standard.fallback.agent ?? "", readinessKnown: true, readinessErrors: ["It isn't installed."], families: [] } : undefined;
@@ -108,9 +114,10 @@
       {#if reasons.restore}<p class="message">{reasons.restore}</p>{/if}
     </section>
   {:else if view}
+    {#if view.mode === "one_model"}<p class="notice" role="status" data-one-model>One model runs everything for now: {sideLine(view.oneModel)}. The rows and the fallback below apply again once models are picked for each phase.</p>{/if}
     <section class="card" aria-label="Models for each tier">
       <div class="table" role="table">
-        <div class="head" role="row"><span role="columnheader">Tier</span><span role="columnheader">First choice</span><span role="columnheader">Fallback</span></div>
+        <div class="head" role="row"><span role="columnheader">Tier</span><span role="columnheader" data-column="first">First choice{#if forEverything}<span class="mark" data-skipped>Skipped for now</span>{/if}</span><span role="columnheader" data-column="fallback">Fallback{#if forEverything}<span class="mark used" data-in-use>Used for everything</span>{/if}</span></div>
         {#each ROWS as one (one.row)}
           {@const row = view.rows[one.row]}
           {@const editing = drafts[one.row]}
@@ -142,7 +149,7 @@
 
     <section class="card" aria-labelledby="fallback-h">
       <h2 id="fallback-h">Fallback</h2>
-      <label class="switch"><input type="checkbox" checked={view.fallback.enabled} disabled={!connected || busy} onchange={(event) => setFallback({ enabled: event.currentTarget.checked })} /><span><strong>Use the fallback when usage is nearly out</strong><span class="help">Applies to every PRD on this computer until you turn it off. Checked only when Kiln is about to launch a step of a run. One that has started never switches: if it hits a limit, it waits and picks up again, as it does today.</span></span><span class="state">{view.fallback.enabled ? "On" : "Off"}</span></label>
+      <label class="switch"><input type="checkbox" checked={view.fallback.enabled} disabled={!connected || busy} onchange={(event) => setFallback({ enabled: event.currentTarget.checked })} /><span><strong>Use the fallback when usage is nearly out</strong><span class="help">Applies to every PRD on this computer until you turn it off. Checked only when Kiln is about to launch a step of a run. One that has started never switches: if it hits a limit, it waits and picks up again, as it does today.</span></span><span class="state">{view.fallback.use === "everything" ? "For everything" : view.fallback.enabled ? "On" : "Off"}</span></label>
       <label class="threshold">Start on the fallback when a limit on the first choice's account is at or above
         <span class="number"><input type="number" min="1" max="100" step="1" inputmode="numeric" value={threshold} disabled={!connected || busy} oninput={(event) => (thresholdDraft = event.currentTarget.value)} onchange={committedThreshold} />%</span>
       </label>
@@ -173,6 +180,9 @@
   .table { display: flex; flex-direction: column; }
   .head, .row { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(0, 1.3fr) minmax(0, 1.3fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
   .head { font-size: 12.5px; color: var(--dim); }
+  .head > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+  .mark { font-size: 11.5px; color: var(--dim); }
+  .mark.used { color: var(--amber); font-weight: 600; }
   .tier, .side { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
   .tier strong { font-size: 14px; color: var(--text); font-weight: 600; }
   .choice { font-size: 14px; color: var(--text); }

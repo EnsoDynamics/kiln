@@ -62,7 +62,7 @@ describe("the decision's table (AC-FALLBACK-02)", () => {
   });
 
   it("records one limit: the highest percent, on a tie the one that resets latest (unknown latest), then the first", () => {
-    const limit = (limits: AgentAccount["limits"]) => decide(claude(limits), under).fallback?.limit.label;
+    const limit = (limits: AgentAccount["limits"]) => decide(claude(limits), under).fallback?.limit?.label;
     expect(limit([window("A", 96), window("B", 99), window("C", 97)])).toBe("B");
     expect(limit([window("A", 97, { resetsAt: "2026-11-25T00:00:00Z" }), window("B", 97, { resetsAt: "2026-11-27T00:00:00Z" })])).toBe("B");
     expect(limit([window("A", 97, { resetsAt: "2026-11-27T00:00:00Z" }), window("B", 97)])).toBe("B");
@@ -92,7 +92,7 @@ describe("the decision's table (AC-FALLBACK-02)", () => {
   it("counts a used-up automatic attempt in a wait as blocked for usage, in both tests", () => {
     const firstCodex = decideLaunch({ threshold: 95, first: ASTRA, fallback: FABLE, firstUsage: side(ASTRA, codex([window("codex · primary", 10)]), { attemptUsed: true }), fallbackUsage: side(FABLE, claude([window("Weekly", 10)])) });
     expect(firstCodex).toMatchObject({ on: "fallback", fallback: { limit: { agentId: "codex", label: "one automatic attempt used" } } });
-    expect(firstCodex.fallback?.limit.percent).toBeUndefined();
+    expect(firstCodex.fallback?.limit?.percent).toBeUndefined();
     expect(decide(claude([window("Weekly", 97)]), codex([window("codex · primary", 10)]), { fallbackSide: { attemptUsed: true } }).fallback?.reason).toBe("Codex: one automatic attempt used.");
   });
 

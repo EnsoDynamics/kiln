@@ -1,7 +1,7 @@
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import { judgedPhase, readPlanAt, recordedPlan } from "../engine/plan-reading.js";
 import { notStartedChoice } from "../engine/activity-models.js";
-import { modelDefaultsPath } from "../models/model-defaults.js";
+import { modelDefaultsPath, prdSettingsPath } from "../models/model-defaults.js";
 import type { ActivityChoice, ModelList } from "../models/resolver.js";
 import type { Effort } from "../state/records.js";
 import { activityKeyKind } from "../state/activity-keys.js";
@@ -47,7 +47,7 @@ import { questionLabel, recordLabelSet, repositoryDetails } from "../engine/plan
 
 export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "locate-repository", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff", "model"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
-const requiredInputs = (name: string) => name === "model" ? ["PRD-path", "--phase | --audits", "--agent --model [--effort] | --use-default", "--only-if-status-matches", "--command-id"] : name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "locate-repository" ? ["PRD-path", "address-path", "folder", "--only-if-status-matches", "--command-id"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
+const requiredInputs = (name: string) => name === "model" ? ["PRD-path", "--phase | --audits | --preflight-pr", "--agent --model [--effort] | --use-default", "--only-if-status-matches", "--command-id"] : name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "locate-repository" ? ["PRD-path", "address-path", "folder", "--only-if-status-matches", "--command-id"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
 export interface InspectionCache { version: 1; execution_id: string; observed_at: string; snapshot: Snapshot; last_activity?: ActivityObservation; handoffs?: Record<string, Instructions> }
 function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot): Instructions {
@@ -178,6 +178,10 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
   const attemptAccount = (lastRun?.codex?.account ? publicProvenance(lastRun.codex.account) : null) ?? (lastRun?.billing ? publicBilling(lastRun.billing, !reachable) : null);
   const attemptAt = lastRun?.codex?.account?.at ?? lastRun?.billing?.observedAt ?? null;
   const fallback = view?.settings?.models?.fallback;
+  // The fallback setting is in force only while models are picked for each phase: one model has no fallback (Kiln Model Modes AC-MODE-03).
+  const inForce = !!fallback?.enabled && view?.settings?.models?.mode !== "one_model";
+  // Limits are marked against the threshold only while the threshold setting is in force; a snapshot saved before the setting had three values reads its switch.
+  const thresholdInForce = inForce && (fallback.use === undefined || fallback.use === "threshold");
   const facts = (entry: AgentView | undefined) => {
     if (!entry) {
       const reason = "No activity is current or next.";
@@ -188,7 +192,7 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
     const usageAt = account?.limitsObservedAt ?? null;
     return {
       next_attempt: observed(next, account?.updatedAt ?? null, account?.error ?? entry.readinessErrors?.join(" ") ?? (!next ? "Current provider identity is unavailable." : null), account?.stale || !!account?.error),
-      usage: observed(usageAt ? account?.limits.map(limit => ({ ...(publicUsage(limit) as object), ...(fallback?.enabled ? { over_threshold: (limit as { overThreshold?: true }).overThreshold === true } : {}) })) : null, usageAt, account?.limitsError ?? account?.limitsUnavailable ?? (!usageAt ? "Dated usage for this account is unavailable." : account?.limitsStale ? "Usage was retained without a fresh usage read." : null), account?.limitsStale || account?.stale || !!account?.limitsError),
+      usage: observed(usageAt ? account?.limits.map(limit => ({ ...(publicUsage(limit) as object), ...(thresholdInForce ? { over_threshold: (limit as { overThreshold?: true }).overThreshold === true } : {}) })) : null, usageAt, account?.limitsError ?? account?.limitsUnavailable ?? (!usageAt ? "Dated usage for this account is unavailable." : account?.limitsStale ? "Usage was retained without a fresh usage read." : null), account?.limitsStale || account?.stale || !!account?.limitsError),
       recovery: observed(account?.codexUsageObservedAt ? account.codexUsage : null, account?.codexUsageObservedAt ?? null, account?.error ?? (account?.codexUsage ? null : "No provider recovery permission was observed."), account?.codexUsageStale ?? account?.stale),
       billing: billingFacts(entry.billing, account, reachable),
     };
@@ -199,7 +203,7 @@ export function accountFacts(work: SavedWork, snapshot: Snapshot | undefined, re
     original_attempt: observed(lastSession?.codex?.originalAccount ? publicProvenance(lastSession.codex.originalAccount) : null, lastSession?.codex?.originalAccount?.at ?? null, lastSession?.codex?.originalAccount ? null : "Original account provenance unavailable."),
     ...facts(reported),
     other_agents: needed.filter(entry => entry !== reported).map(entry => ({ agent: entry.agentId, ...facts(entry) })),
-    ...(fallback?.enabled ? { fallback: { enabled: true, threshold: fallback.threshold } } : {}),
+    ...(inForce ? { fallback: { enabled: true, ...(fallback.use === undefined ? {} : { use: fallback.use }), threshold: fallback.threshold } } : {}),
     resume_after_usage_limit: work.record.settings.resumeAfterUsageLimit,
   };
 }
@@ -581,7 +585,7 @@ function offlineChoice(work: SavedWork, view: Snapshot, key: string, env: NodeJS
   const plan = read.ok ? recordedPlan(read.plan) : work.record.plan ?? [];
   // The snapshot lists every installed agent, so an absent Claude Code entry means it isn't installed; one saved before agents were listed ran Claude Code.
   const claudeCodeInstalled = view.agents ? view.agents.some(entry => entry.agentId === "claude_code" && entry.installed) : true;
-  const choice = notStartedChoice({ record: work.record, plan, defaultsPath: modelDefaultsPath(env), claudeCodeInstalled, lists, session: () => undefined }, key);
+  const choice = notStartedChoice({ record: work.record, plan, defaultsPath: modelDefaultsPath(env), settingsPath: prdSettingsPath(work.directory), claudeCodeInstalled, lists, session: () => undefined }, key);
   return { ...choice, listed: !!lists[choice.agentId] };
 }
 

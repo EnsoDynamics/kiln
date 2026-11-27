@@ -80,10 +80,12 @@ describe("the running plan (AC-TIER-02, AC-PICK-02)", () => {
     expect(running(tiered())).toMatch(/>PR<\/span>/);
   });
 
-  it("offers Change on a Delivery audit and a Test audit row that hasn't started, and not on the pull request row (AC-OTHER-01)", () => {
+  it("offers Change on a Delivery audit and a Test audit row that hasn't started, and on the pull request row only where the snapshot gives it one (AC-OTHER-01; Kiln Model Modes AC-ROW-01)", () => {
     const snapshot = tiered();
     const audits: ModelView = { state: "will_run_on", choice: choice("Claude Code", "Opus 5.5", "high"), from: "model_defaults", change: { available: true } };
-    const planned = (id: string, kind: PhaseView["kind"], title: string): PhaseView => ({ id, kind, title, file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: audits });
+    // A finished run's pull request row carries no change: only the merge and a plan push could still take the choice.
+    const noChange: ModelView = { state: "will_run_on", choice: choice("Claude Code", "Opus 5.5", "medium"), from: "model_defaults" };
+    const planned = (id: string, kind: PhaseView["kind"], title: string): PhaseView => ({ id, kind, title, file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: kind === "final_delivery" ? noChange : audits });
     snapshot.activities = [...snapshot.phases, planned("planned-delivery-audit", "delivery_audit", "Delivery audit"), planned("planned-test-audit", "test_audit", "Test audit"), planned("planned-pull-request", "final_delivery", "Pull request")];
     const page = running(snapshot);
     const rowOf = (id: string) => text(page.split(`data-phase="${id}"`)[1]!.split("</li>")[0]!);
@@ -129,7 +131,7 @@ describe("Documents found's plan (AC-PICK-01, AC-PICK-06, AC-KEEP-01)", () => {
 
   it("carries a choice that can't be used on its row, and holds Start with the reason", () => {
     const problem = "Phase 2a runs on Claude Code · Fable · high from Model defaults (Demanding row): Claude Code doesn't offer Fable on this account. Change the Demanding row in Model defaults.";
-    const page = found(phases => { const phase = phases.find(one => one.id === "2a")!; Object.assign(phase, { tier: { value: "demanding" }, model: { state: "will_run_on", choice: choice("Claude Code", "Fable", "high"), problem: "Claude Code doesn't offer Fable on this account." } }); }, { models: { tiers: { demanding: 1, standard: 0, mechanical: 0, notRated: 3 }, problem, fallback: { enabled: false, threshold: 95 }, audits: documentsFoundSnapshot().settings.models.audits, revision: "missing" } });
+    const page = found(phases => { const phase = phases.find(one => one.id === "2a")!; Object.assign(phase, { tier: { value: "demanding" }, model: { state: "will_run_on", choice: choice("Claude Code", "Fable", "high"), problem: "Claude Code doesn't offer Fable on this account." } }); }, { models: { ...documentsFoundSnapshot().settings.models, tiers: { demanding: 1, standard: 0, mechanical: 0, notRated: 3 }, problem } });
     expect(text(page)).toContain("Claude Code · Fable · high Claude Code doesn't offer Fable on this account.");
     expect(text(page)).toContain(problem);
     expect(page).toMatch(/<button type="button" class="start[^"]*"[^>]* disabled/);

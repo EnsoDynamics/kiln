@@ -1,7 +1,7 @@
 // Changing Model defaults and a model choice (Kiln Phase Model Tiers AC-DEFAULT-02, AC-DEFAULT-05,
 // AC-FALLBACK-01; technical design "Model defaults file" and the omitted-effort rule in "Command line").
 
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ describe("the omitted-effort rule", () => {
 describe("editing Model defaults", () => {
   it("saves only what the person set, the family's newest model deciding the default effort", () => {
     expect(editModelDefaults(path, { set: { row: "standard", fallback: { agentId: "codex", family: "sol" } } }, lists)).toMatchObject({ ok: true });
-    expect(file()).toEqual({ schemaVersion: 1, rows: { standard: { fallback: { agentId: "codex", family: "sol", effort: "medium" } } } });
+    expect(file()).toEqual({ schemaVersion: 2, rows: { standard: { fallback: { agentId: "codex", family: "sol", effort: "medium" } } } });
   });
 
   it("refuses a row on one agent unless both sides move in one save", () => {
@@ -45,10 +45,36 @@ describe("editing Model defaults", () => {
     expect(editModelDefaults(path, { fallback: { threshold: 0 } }, lists)).toMatchObject({ ok: false, status: 422 });
     expect(editModelDefaults(path, { fallback: { threshold: 1 } }, lists)).toMatchObject({ ok: true, defaults: { fallback: { threshold: 1 } } });
     expect(editModelDefaults(path, { fallback: { threshold: 100 } }, lists)).toMatchObject({ ok: true, defaults: { fallback: { threshold: 100 } } });
-    expect(editModelDefaults(path, { fallback: { enabled: true, threshold: 80 } }, lists)).toMatchObject({ ok: true, defaults: { fallback: { enabled: true, threshold: 80 } } });
+    // Today's switch writes the threshold setting or Never (Kiln Model Modes, phase 1; AC-CLI-01's meaning for the commands that exist today).
+    expect(editModelDefaults(path, { fallback: { enabled: true, threshold: 80 } }, lists)).toMatchObject({ ok: true, defaults: { fallback: { use: "threshold", threshold: 80 } } });
     editModelDefaults(path, { set: { row: "demanding", first: { agentId: "claude_code", family: "opus", effort: "high" } } }, lists);
-    expect(editModelDefaults(path, { restore: true }, lists)).toMatchObject({ ok: true, defaults: { fallback: { enabled: true, threshold: 80 }, rows: { demanding: { firstSet: false } } } });
-    expect(file()).toEqual({ schemaVersion: 1, fallback: { enabled: true, threshold: 80 } });
+    expect(editModelDefaults(path, { restore: true }, lists)).toMatchObject({ ok: true, defaults: { fallback: { use: "threshold", threshold: 80 }, rows: { demanding: { firstSet: false } } } });
+    expect(file()).toEqual({ schemaVersion: 2, fallback: { use: "threshold", threshold: 80 } });
+    expect(editModelDefaults(path, { fallback: { enabled: false } }, lists)).toMatchObject({ ok: true, defaults: { fallback: { use: "never", threshold: 80 } } });
+    expect(file()).toEqual({ schemaVersion: 2, fallback: { use: "never", threshold: 80 } });
+  });
+
+  it("changes the fifth row like the others, and refuses both of its sides on one agent (AC-ROW-01)", () => {
+    expect(editModelDefaults(path, { set: { row: "preflight_pr", first: { agentId: "claude_code", family: "opus", effort: "low" } } }, lists)).toMatchObject({ ok: true, defaults: { rows: { preflight_pr: { first: { agentId: "claude_code", family: "opus", effort: "low" }, firstSet: true, fallbackSet: false } } } });
+    expect(file()).toEqual({ schemaVersion: 2, rows: { preflight_pr: { first: { agentId: "claude_code", family: "opus", effort: "low" } } } });
+    expect(editModelDefaults(path, { set: { row: "preflight_pr", fallback: { agentId: "claude_code", family: "opus", effort: "high" } } }, lists)).toMatchObject({ ok: false, status: 422, reason: expect.stringContaining("The Preflight and pull request row's first choice and fallback would both be on Claude Code") });
+  });
+
+  it("stores schema 2 on the first write over a schema 1 file, keeping the carried row and the switch as they read (AC-CARRY-01)", () => {
+    const audits = { first: { agentId: "claude_code", family: "opus", effort: "low" } };
+    writeFileSync(path, JSON.stringify({ schemaVersion: 1, rows: { audits }, fallback: { enabled: true, threshold: 90 } }));
+    expect(editModelDefaults(path, { set: { row: "standard", fallback: { agentId: "codex", family: "sol", effort: "high" } } }, lists)).toMatchObject({ ok: true });
+    const carried = { first: audits.first, fallback: { agentId: "codex", family: "sol", effort: "xhigh" } };
+    expect(file()).toEqual({ schemaVersion: 2, rows: { standard: { fallback: { agentId: "codex", family: "sol", effort: "high" } }, audits, preflight_pr: carried }, fallback: { use: "threshold", threshold: 90 } });
+    // A later change to the Audits row no longer reaches the row it was carried into.
+    editModelDefaults(path, { set: { row: "audits", first: { agentId: "claude_code", family: "opus", effort: "high" } } }, lists);
+    expect((file() as { rows: { preflight_pr: unknown } }).rows.preflight_pr).toEqual(carried);
+  });
+
+  it("keeps a mode, a one model and a fallback used for everything that the file holds across a change to a row", () => {
+    writeFileSync(path, JSON.stringify({ schemaVersion: 2, mode: "one_model", oneModel: { agentId: "codex", family: "sol", effort: "low" }, fallback: { use: "everything" } }));
+    expect(editModelDefaults(path, { set: { row: "standard", first: { agentId: "claude_code", family: "opus", effort: "high" } } }, lists)).toMatchObject({ ok: true });
+    expect(file()).toEqual({ schemaVersion: 2, mode: "one_model", oneModel: { agentId: "codex", family: "sol", effort: "low" }, rows: { standard: { first: { agentId: "claude_code", family: "opus", effort: "high" } } }, fallback: { use: "everything" } });
   });
 
   it("refuses a save while the model list can't be read", () => {

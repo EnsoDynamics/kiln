@@ -22,7 +22,10 @@ function accepted(modelChoices: ModelChoices) {
   // Kiln checks the state root, two folders above a PRD's state directory, so it sits inside the private temporary folder, not a shared one.
   const stateDirectory = join(dir, "state", "customer-returns");
   mkdirSync(stateDirectory, { recursive: true, mode: 0o700 });
-  return newAcceptance(record, stateDirectory, proposal, "c".repeat(64), { id: "r1", command_id: "cmd-1" } as Receipt, "2026-11-01T10:00:00.000Z").settings.modelChoices;
+  const acceptance = newAcceptance(record, stateDirectory, proposal, "c".repeat(64), { id: "r1", command_id: "cmd-1" } as Receipt, "2026-11-01T10:00:00.000Z");
+  // An acceptance written from now on says its settings hold the Preflight and pull request entry (Kiln Model Modes, "Data Models").
+  expect(acceptance.formatVersion).toBe(2);
+  return acceptance.settings.modelChoices;
 }
 
 describe("continuing a finished PRD", () => {
@@ -34,5 +37,10 @@ describe("continuing a finished PRD", () => {
   it("keeps any other kept choice, marked Changed by you on each added phase, and every entry as it is", () => {
     expect(accepted({ phases: {}, audits: { agentId: "claude_code", model: "sonnet", effort: "low" }, kept: { agentId: "claude_code", model: "opus", effort: "high" } }))
       .toEqual({ phases: {}, audits: { agentId: "claude_code", model: "sonnet", effort: "low" }, kept: { agentId: "claude_code", model: "opus", effort: "high" } });
+  });
+
+  it("carries the Preflight and pull request entry forward with the others (Kiln Model Modes, \"Data Models\")", () => {
+    const preflightPr = { agentId: "codex" as const, model: "gpt-6.2-sol", effort: "medium" };
+    expect(accepted({ phases: {}, audits: "default", preflightPr })).toEqual({ phases: {}, audits: "default", preflightPr });
   });
 });
