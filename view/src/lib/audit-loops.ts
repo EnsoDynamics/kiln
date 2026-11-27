@@ -1,15 +1,13 @@
 // What the screens say about the audit loops (Kiln Deliver When Audit Loops Run Out technical
-// design, "Settings" and "The Status Line"; mockup docs/changes/kiln-deliver-when-audit-loops-run-out/
-// mockups/kiln-deliver-when-audit-loops-run-out.html): the two limits' help text, worked out from
-// the numbers shown (AC-CHOICE-01, AC-CHOICE-02) and the status line's
-// position (AC-STOP-05). Nothing marks a last loop; the numbers show it.
+// design, "Settings"; Kiln Planned Test Fix Batches, "Settings Help"): the two limits' help text,
+// worked out from the numbers shown (AC-CHOICE-01, AC-CHOICE-02, AC-MAX-02). A loop is one audit
+// plus the work it finds, and each limit is the most loops a run makes, never a number it always
+// makes. The status line's wording lives in the names module (src/audit/audit-names.ts).
 //
 //   loopSettingsHelp({ deliveryLimit: 4, testLimit: 4 }).delivery
-//   // "The delivery audit checks that every acceptance criterion is built, … After the phases from loop 4 are built, Kiln goes on to the test audit."
-//   positionText({ audit: "test", loop: 2, limit: 4, fixing: true })   // "Fixing tests from test audit loop 2 of 4"
+//   // "The delivery audit checks that every acceptance criterion is built, … If a run reaches loop 4, Kiln builds the phases from it and goes on to the test audit."
 
 import type { Snapshot } from "../../../src/engine/snapshot.js";
-import type { LoopPosition } from "../../../src/engine/loop-view.js";
 import { defaultLoopSettings, type AuditLoopSettings } from "../../../src/state/audit-loops.js";
 
 export { LOOP_STOP_LINE } from "../../../src/state/audit-loops.js";
@@ -26,6 +24,9 @@ export function parsedLimit(text: string): number | undefined {
   return Number.isSafeInteger(value) && value >= 1 ? value : undefined;
 }
 
+/** The mockup's two sentences, word for word, on both forms of the help (AC-MAX-02). */
+export const LOOP_SENTENCES = "Each loop is one audit plus the work it finds. A run makes only the loops it needs; these are the most it will make.";
+
 export interface LoopSettingsHelp {
   intro: string;
   delivery: string;
@@ -39,20 +40,20 @@ export interface LoopSettingsHelp {
  */
 export function loopSettingsHelp(settings: AuditLoopSettings, short = false): LoopSettingsHelp {
   const { deliveryLimit: d, testLimit: t } = settings;
-  const afterDelivery = `After the phases from loop ${d} are built, Kiln goes on to the test audit.`;
-  const afterTest = `After the work from loop ${t} is done, Kiln opens the pull request, after a delivery audit if one is left.`;
+  const afterDelivery = `If a run reaches loop ${d}, Kiln builds the phases from it and goes on to the test audit.`;
+  const afterTest = `If a run reaches loop ${t}, Kiln finishes the work from it and opens the pull request, after a delivery audit if one is left.`;
   if (short) {
     return {
-      intro: "Each run of an audit is one loop; Kiln builds or fixes whatever it finds. After the last one, Kiln moves on without auditing again.",
+      intro: LOOP_SENTENCES,
       delivery: afterDelivery,
       test: afterTest,
       changeable: "A change applies from Kiln’s next decision whether to run that audit.",
     };
   }
   return {
-    intro: "After the planned phases close, two audits check the work. Each run of an audit is one loop; Kiln builds or fixes whatever it finds. These set how many loops of each Kiln makes. After the last one, Kiln moves on without auditing again.",
-    delivery: `The delivery audit checks that every acceptance criterion is built, and Kiln builds the phases it adds. Each run of the audit is one loop. ${afterDelivery}`,
-    test: `The test audit checks that the tests would notice if a criterion broke, and Kiln builds or fixes what it finds. Each run of the audit is one loop. ${afterTest}`,
+    intro: `After the planned phases close, two audits check the work. ${LOOP_SENTENCES}`,
+    delivery: `The delivery audit checks that every acceptance criterion is built, and Kiln builds the phases it adds. ${afterDelivery}`,
+    test: `The test audit checks that the tests would notice if a criterion broke, and Kiln builds or fixes what it finds. ${afterTest}`,
     changeable: "Both can be changed while Kiln runs, from the page or the command line.",
   };
 }
@@ -72,9 +73,3 @@ export function refusalShown(answer: { reason: string; fieldErrors?: Record<stri
 
 /** Once the pull request session has started, a change is saved for a continuation only (AC-CHOICE-02). */
 export const FROZEN_LINE = "The pull request session has started, so a change applies only to a continuation of this run.";
-
-/** "Delivery audit loop 2 of 4", "Fixing tests from test audit loop 2 of 4", as `kiln status` says it (AC-STOP-05). */
-export function positionText(position: LoopPosition): string {
-  const name = `${position.audit} audit loop ${position.loop} of ${position.limit}`;
-  return position.fixing ? `Fixing tests from ${name}` : `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
-}

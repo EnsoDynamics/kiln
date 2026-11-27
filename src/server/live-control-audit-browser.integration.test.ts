@@ -21,7 +21,7 @@ it.each(cases)("pins the paused page's header, eyebrow, last command and last me
   const snapshot = needsYouMessageSnapshot(); const stop = snapshot.needsYou!;
   const audit = kind !== "implementation";
   const round = kind === "delivery_audit" ? 3 : 2;
-  // An audit's row carries its title and loop apart, as the plan does: "Delivery audit", Loop 3 of 4 (Kiln After Delivery AC-AUDIT-01).
+  // An audit's row carries its title and loop apart, as the plan does: "Delivery audit", Loop 3 · max 4 (Kiln After Delivery AC-AUDIT-01).
   // Only the held audit is stopped; the fixture's own stopped phase 2b is otherwise unfinished, as it would be.
   if (audit) snapshot.phases = snapshot.phases.map(p => p.id === "2b" ? { ...p, state: "planned" } : p);
   if (audit) snapshot.activities = [...snapshot.phases, { ...snapshot.phases.find(p => p.id === "2b")!, id: key, kind, round, loops: [{ kind: kind === "delivery_audit" ? "delivery" as const : "test" as const, number: round, limit: 4 }], title: kind === "delivery_audit" ? "Delivery audit" : "Test audit", state: "needs_you" }];

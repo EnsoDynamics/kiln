@@ -8,8 +8,7 @@ import type { Effort } from "../../../src/state/records.js";
 import { EFFORT_LABELS, joinAnd, plural } from "./documents-found.js";
 import { ago, clockTime, limitTime, shortDuration, timeSpan, timingAt, timingText } from "./time.js";
 import { activityKeyKind } from "../../../src/state/activity-keys.js";
-import { positionText } from "./audit-loops.js";
-import { auditName, type AuditName } from "../../../src/audit/audit-names.js";
+import { auditName, positionText, type AuditName } from "../../../src/audit/audit-names.js";
 import type { PauseNowView } from "../../../src/live/pause-now.js";
 
 export const PR_ID = "pr";
@@ -41,7 +40,9 @@ export function withPlannedPreflight(rows: PhaseView[], snapshot: Snapshot): Pha
   if (!planned) return rows;
   // It shows the Audits choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row").
   const row: PhaseView = { id: "preflight-planned", kind: "preflight", title: "Preflight", file: "", state: "planned", finishedByPerson: false, ...(planned.model ? { model: planned.model } : {}) };
-  const at = planned.before === "end" ? -1 : rows.findIndex(one => one.id === planned.before);
+  const named = planned.before === "end" ? -1 : rows.findIndex(one => one.id === planned.before);
+  // One that would sit last sits above the first batch of test fixes not yet started (Kiln Planned Test Fix Batches, "Where the rows sit").
+  const at = planned.before === "end" ? rows.findIndex(one => one.plannedActivity && one.fixing?.batch) : named;
   return at === -1 ? [...rows, row] : [...rows.slice(0, at), row, ...rows.slice(at)];
 }
 

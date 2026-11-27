@@ -9,9 +9,9 @@
  *   // { loops: { delivery: { used: 4, limit: 4 }, … }, forYou: { items: [{ id, kind, words, line, … }], afterDelivery: [] }, pullRequests: [{ repository, number, url }] }
  */
 import { repositoryDetails } from "../engine/plan-repositories.js";
-import { recordedAuditName } from "../audit/audit-names.js";
+import { loopsUsedText, recordedAuditName } from "../audit/audit-names.js";
 import { waivedTagText } from "../audit/for-you.js";
-import { closingAuditsText, type ClosingAudits } from "../state/audit-loops.js";
+import type { ClosingAudits } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type PrdRecord } from "../state/records.js";
 import { isPreflightKey, planPushKey } from "../state/activity-keys.js";
 import { PREFLIGHT_TITLE } from "../engine/preflight.js";
@@ -111,7 +111,7 @@ interface DeliveredJson { loops: ClosingAudits; forYou: { items: { kind: string 
 /** `kiln status` text for a finished run: the loop line and each pull request, with **For you** first when it lists a critical finding. */
 export function deliveredText(delivered: DeliveredJson | null | undefined, multiRepository: boolean): string | undefined {
   if (!delivered) return undefined;
-  const loops = `Closing audits: ${closingAuditsText(delivered.loops)}`;
+  const loops = `Closing audits: ${loopsUsedText(delivered.loops)}`;
   const pulls = delivered.pullRequests.map(pull => `Pull request${multiRepository ? ` (${pull.label ?? pull.repository})` : ""}: ${pull.url}`);
   const lines = [...delivered.forYou.items.map(item => `  - ${item.line}${item.waived_tag ? ` (Waived: ${item.waived_tag})` : ""}`), ...delivered.forYou.afterDelivery.map(action => `  - ${action}`)];
   const forYou = lines.length ? ["For you:", ...lines].join("\n") : undefined;

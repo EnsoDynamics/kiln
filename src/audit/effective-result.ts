@@ -85,6 +85,26 @@ export function effectiveAudit(stateDirectory: string, activity: AuditActivity, 
   };
 }
 
+/**
+ * What an activity's effective result says of the test work it left (Kiln Planned Test Fix
+ * Batches, "The Fix Plan on the Record"): its report's batches and its counted implementation
+ * change while the result counts `continue_test`, otherwise nothing. The caller sets or clears
+ * `activity.testWork` in the record write that records the result.
+ *
+ *   testWorkOf({ outcome: "continue_test", fixBatches: [{ criteria: ["AC-1"] }], … }, "continue_test", false)
+ *   // { batches: [{ criteria: ["AC-1"] }], changedImplementation: false }
+ */
+export function testWorkOf(report: AuditReport | undefined, counted: AuditCountedOutcome, changedImplementation: boolean | undefined): AuditActivity["testWork"] {
+  if (counted !== "continue_test" || !report) return undefined;
+  const batches = report.schemaVersion === 2 ? report.fixBatches ?? [] : [];
+  return { batches: batches.map(batch => ({ criteria: [...batch.criteria] })), changedImplementation: changedImplementation ?? false };
+}
+
+/** Sets or clears an activity's `testWork` from the result just recorded for it. */
+export function recordTestWork(activity: AuditActivity, work: AuditActivity["testWork"]): void {
+  if (work) activity.testWork = work; else delete activity.testWork;
+}
+
 /** The snapshot an audit's currentness is measured from (AC-NEUTRAL-06, AC-WAIVE-12). */
 export function effectiveSnapshot(stateDirectory: string, activity: AuditActivity, store: Pick<AuditStore, "read"> = new AuditStore(stateDirectory)): WorkSnapshot {
   const effective = effectiveAudit(stateDirectory, activity, store);
@@ -166,6 +186,8 @@ export function waiveAudit(stateDirectory: string, activity: AuditActivity, inpu
   const store = new AuditStore(stateDirectory);
   const classified = classifyAuditReport(stateDirectory, activity, store);
   const snapshotRef = store.put(input.snapshot);
+  const parsed = classified.reportBytes !== undefined ? JSON.parse(classified.reportBytes) as AuditReport : undefined;
+  recordTestWork(activity, testWorkOf(parsed, classified.countedOutcome, classified.countedChangedImplementation));
   const recorded = recordWaiverResult(activity, store, {
     waiverId: input.waiverId, report: classified.report, countedOutcome: classified.countedOutcome,
     ...(classified.countedChangedImplementation !== undefined ? { countedChangedImplementation: classified.countedChangedImplementation } : {}),
@@ -184,6 +206,7 @@ export function waiveAudit(stateDirectory: string, activity: AuditActivity, inpu
 export function waiveUnstartedAudit(stateDirectory: string, activity: AuditActivity, waiverId: string): AuditWaiverRecorded {
   requireAudit(activity.snapshots[0], `Audit ${activity.reportPath} has no initial snapshot.`, "missing_evidence");
   requireAudit(!activity.acceptedResult && !activity.attempts.length, "Only an audit that has not submitted a report completes with none.", "result_conflict");
+  recordTestWork(activity, undefined);
   return recordWaiverResult(activity, new AuditStore(stateDirectory), {
     waiverId, report: "none", countedOutcome: "passed",
     ...(activity.kind === "test_audit" ? { countedChangedImplementation: false } : {}),

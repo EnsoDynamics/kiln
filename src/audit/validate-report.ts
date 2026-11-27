@@ -14,7 +14,7 @@ import type { Waiver } from "../engine/waivers.js";
 const OUTCOMES = ["passed", "completion_phases", "continue_test", "needs_you"];
 const nonempty = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
 const strings = (value: unknown): value is string[] => Array.isArray(value) && value.every(nonempty);
-export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, kind, problem, action, waitsOn?, criterion?}[]; kind is critical_next_step, critical, blocker, business_question, test or other, and waitsOn is required for critical_next_step, blocker and business_question; a relisting by id may leave out kind and waitsOn to keep them), settled ({id, how}[], optional), changedImplementation (test audits), raised (criteria whose rows a session of test fixes raised, required on its continue_test) and optional afterDeliveryActions";
+export const REPORT_FIELDS = "schemaVersion 2, executionId, activityId, kind, outcome (passed, completion_phases, continue_test or needs_you), summary, completionPhases (appended phase IDs), needsYou ({id?, kind, problem, action, waitsOn?, criterion?}[]; kind is critical_next_step, critical, blocker, business_question, test or other, and waitsOn is required for critical_next_step, blocker and business_question; a relisting by id may leave out kind and waitsOn to keep them), settled ({id, how}[], optional), changedImplementation (test audits), raised (criteria whose rows a session of test fixes raised, required on its continue_test), fixBatches ({criteria}[], test audits' continue_test only: the batches of test work left, one for each later session, in order, each with its criterion IDs; omitted when none were planned) and optional afterDeliveryActions";
 export interface ValidationContext { record: PrdRecord; activity: AuditActivity; initial: WorkSnapshot; current: WorkSnapshot; outstanding: PersonItem[]; waivers?: readonly Waiver[] }
 
 export function validateReport(raw: unknown, context: ValidationContext): { report: AuditReportV2; nextAction: AuditResult["nextAction"] } {
@@ -33,6 +33,7 @@ function validate(report: AuditReportV2, { record, activity, initial, current, o
   requireAudit(report.raised === undefined || strings(report.raised), "raised must be a list of criterion IDs.");
   requireAudit(report.settled === undefined || (Array.isArray(report.settled) && report.settled.every(item => item && nonempty(item.id) && nonempty(item.how))), "settled must be a list of {id, how}.");
   requireAudit(report.afterDeliveryActions === undefined || strings(report.afterDeliveryActions), "afterDeliveryActions must be a list of strings.");
+  validateFixBatches(report, activity);
   if (activity.kind === "test_audit") requireAudit(typeof report.changedImplementation === "boolean", "A test audit report needs changedImplementation: true or false.");
   else requireAudit(report.changedImplementation === undefined, "Only a test audit reports changedImplementation.");
   if (report.outcome === "needs_you") requireAudit(report.needsYou.length > 0, "A needs_you report must say what a person must decide in needsYou.");
@@ -87,6 +88,22 @@ function validate(report: AuditReportV2, { record, activity, initial, current, o
     : report.outcome === "continue_test" ? "continue_test"
     : activity.kind === "delivery_audit" ? "test_audit" : "final_delivery";
   return { report, nextAction };
+}
+
+/**
+ * The fix plan's own shape (Kiln Planned Test Fix Batches, "The Fix Plan in the Report"): never on
+ * a delivery audit's report, [] included; a list of batches each naming at least one criterion,
+ * none named twice anywhere in it; non-empty only on continue_test. It is compared with nothing.
+ */
+function validateFixBatches(report: AuditReportV2, activity: AuditActivity): void {
+  const batches = report.fixBatches;
+  if (batches === undefined) return;
+  requireAudit(activity.kind === "test_audit", "Only a test audit reports fixBatches.");
+  requireAudit(Array.isArray(batches) && batches.every(batch => batch && typeof batch === "object" && !Array.isArray(batch) && strings(batch.criteria) && batch.criteria.length > 0), "fixBatches must be a list of batches, each {criteria} with at least one criterion ID.");
+  const named = batches.flatMap(batch => batch.criteria);
+  const repeated = [...new Set(named.filter((id, index) => named.indexOf(id) !== index))];
+  requireAudit(!repeated.length, `fixBatches names each criterion once, in one batch; repeated: ${repeated.join(", ")}.`);
+  requireAudit(!batches.length || report.outcome === "continue_test", "fixBatches lists batches only on a continue_test report; omit it with any other outcome.");
 }
 
 function changedOtherThan(before: WorkSnapshot, after: WorkSnapshot, excluded: (repository: string, path: string) => boolean): boolean {

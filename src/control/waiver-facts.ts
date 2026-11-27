@@ -4,6 +4,7 @@
 
 import { displayPath } from "../engine/worktree-setup.js";
 import { auditName, auditNameFacts } from "../audit/audit-names.js";
+import { waitingBatches, waitingBatchKey } from "../audit/fix-plan.js";
 import { activityKeyKind } from "../state/activity-keys.js";
 import type { AuditActivity } from "../audit/contracts.js";
 import type { CheckResult, PrdRecord } from "../state/records.js";
@@ -31,9 +32,14 @@ export interface ActivityWaivers {
 /** A row of the activity progress `kiln status` prints (the mockup's terminal blocks). */
 export interface ProgressRow extends ActivityWaivers {
   key: string; kind: string; label: string; title: string;
-  /** A session of test fixes: the test audit loop it works from and its session (Kiln After Delivery AC-AUDIT-01). */
-  fixing?: { loop?: number; session: number };
-  state: "complete" | "running" | "needs_you" | "waiting" | "skipped" | "not_finished";
+  /**
+   * A session of test fixes: the test audit loop it works from and its session (Kiln After Delivery
+   * AC-AUDIT-01), and on a batch its number, the plan's current count and its gaps (Kiln Planned Test
+   * Fix Batches AC-BOT-01).
+   */
+  fixing?: { loop?: number; session: number; batch?: { number: number; of: number; gaps: number } };
+  /** `planned`: a batch of test fixes a test audit planned that has not started. */
+  state: "complete" | "running" | "needs_you" | "waiting" | "skipped" | "not_finished" | "planned";
   status_label: string | null;
 }
 
@@ -131,8 +137,28 @@ function rowLabel(record: PrdRecord, key: string, kind: string): { label: string
   return { label: `Phase ${key}`, title: record.plan?.find(p => p.id === key)?.title ?? "" };
 }
 
-/** Every activity Kiln has reached or skipped, in order, with its waiver facts (AC-WAIVE-10). */
+/**
+ * Every activity Kiln has reached or skipped, in order, with its waiver facts (AC-WAIVE-10), then
+ * each batch of test fixes a test audit planned that has not started, in batch order (Kiln Planned
+ * Test Fix Batches AC-BOT-01). Phases that have not started stay out.
+ */
 export function progressRows(record: PrdRecord, runningKey: string | undefined, readAudit?: AuditWaiverReader): ProgressRow[] {
+  return [...reachedRows(record, runningKey, readAudit), ...plannedBatchRows(record)];
+}
+
+/** The batches that have not started, named as the page names them; a finished run lists none. */
+function plannedBatchRows(record: PrdRecord): ProgressRow[] {
+  const waiting = record.completedAt ? undefined : waitingBatches(record);
+  if (!waiting) return [];
+  const loop = auditNameFacts(record, waiting.audit).loop?.number;
+  return waiting.batches.map(batch => {
+    const fixing = { ...(loop !== undefined ? { loop } : {}), session: batch.number, batch };
+    const name = auditName({ kind: "test_audit", fixing });
+    return { key: waitingBatchKey(waiting.audit, batch.number), kind: "test_audit", label: name.title, title: name.line ?? "", fixing, state: "planned", status_label: null, waived_checks: 0, waiver_id: null, counts: null, checks: null, waivers: [], warnings: [] };
+  });
+}
+
+function reachedRows(record: PrdRecord, runningKey: string | undefined, readAudit?: AuditWaiverReader): ProgressRow[] {
   const activities = (record.activities ?? []).map(a => ({ key: a.key, kind: a.kind as string }));
   for (const [key, facts] of Object.entries(record.phases)) if (!activities.some(a => a.key === key) && (facts.skippedByWaiver || facts.doneAt || facts.stop)) activities.push({ key, kind: activityRowKind(key) });
   return activities.map(({ key, kind }) => {
@@ -198,7 +224,7 @@ export function waiverDetailLines(row: Pick<ActivityWaivers, "warnings" | "count
   return lines;
 }
 
-const STATE_WORDS: Record<ProgressRow["state"], string> = { complete: "complete", running: "running", needs_you: "needs you", waiting: "waiting", skipped: "skipped", not_finished: "not finished" };
+const STATE_WORDS: Record<ProgressRow["state"], string> = { complete: "complete", running: "running", needs_you: "needs you", waiting: "waiting", skipped: "skipped", not_finished: "not finished", planned: "planned" };
 
 /** "Example feature · example-app · docs/prds/example-feature", from a status result. */
 export function progressHeading(answer: Record<string, unknown>): string {

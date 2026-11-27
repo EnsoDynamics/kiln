@@ -147,6 +147,8 @@ The audit prompt names the step each outcome leads to (§Prompts), so an audit w
 
 ## What a Delivered Run Says (AC-LEFT-01, AC-LEFT-02)
 
+Superseded in part by: `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-technical-design.md`, §Names (the **Closing audits** sentence).
+
 **The pull request description.** `pull-request-person-items.txt` is rewritten to open each description with, in order and word for word:
 
 1. `## For you`, when it lists anything (above);
@@ -164,6 +166,8 @@ When the row fails, at the routing decision or in the engine loop the pull reque
 ## The Status Line (AC-STOP-05)
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Closing-Audit Names (a session of test fixes names its loop and session on its row).
+
+Superseded in part by: `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-technical-design.md`, §Names (the wording, and `batch` in `position`).
 
 During the closing audits the status line names what is running, from a `position` the snapshot derives from the current or stopped activity and the ledger:
 
@@ -183,6 +187,8 @@ Kiln never records a loop stop. The loop stop page, **Allow _N_ more loops** and
 ## Interfaces (AC-BOT-01, AC-BOT-02)
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §Interfaces (`check-for-new-phases` reads GitHub first and counts as a person's press; `continue-with-phases` pushes first).
+
+Superseded in part by: `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-technical-design.md`, §Interfaces (`position` gains `batch`; the wording of the position, count and loops-used lines).
 
 **Command line.**
 

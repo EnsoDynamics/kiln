@@ -9,6 +9,8 @@
 import { auditKey } from "../audit/workflow.js";
 import { closedKinds, countedLoops, limitFloor, limitOf, limitsInForce, loopSettings, loopsUsed, type AuditLoopSettings, type LoopKind } from "../state/audit-loops.js";
 import type { Engine } from "./engine.js";
+import type { LoopPosition } from "../audit/audit-names.js";
+import { sessionBatch } from "../audit/fix-plan.js";
 
 export interface ActivityLoopView {
   kind: LoopKind;
@@ -17,13 +19,7 @@ export interface ActivityLoopView {
   limit: number;
 }
 
-export interface LoopPosition {
-  audit: LoopKind;
-  loop: number;
-  limit: number;
-  /** A session of test fixes: the loop is the latest test loop. */
-  fixing?: true;
-}
+export type { LoopPosition };
 
 export interface AuditLoopsView {
   /** The limits saved in the run's settings. */
@@ -49,7 +45,7 @@ export function loopPosition(engine: Engine): LoopPosition | undefined {
   const ledger = record.auditLoops;
   if (!ledger) return undefined;
   const limits = limitsInForce(record);
-  const at = (kind: LoopKind, number: number, fixing = false): LoopPosition => ({ audit: kind, loop: number, limit: limitOf(limits, kind), ...(fixing ? { fixing: true as const } : {}) });
+  const at = (kind: LoopKind, number: number, fixing = false, batch?: LoopPosition["batch"]): LoopPosition => ({ audit: kind, loop: number, limit: limitOf(limits, kind), ...(fixing ? { fixing: true as const } : {}), ...(batch ? { batch } : {}) });
   const latest = (kind?: LoopKind) => {
     const counted = [...countedLoops(ledger, "delivery"), ...countedLoops(ledger, "test")].filter(one => !kind || one.kind === kind);
     return counted.sort((a, b) => a.startedAt.localeCompare(b.startedAt) || ledger.loops.indexOf(a) - ledger.loops.indexOf(b)).at(-1);
@@ -66,7 +62,9 @@ export function loopPosition(engine: Engine): LoopPosition | undefined {
   if (own && countedLoops(ledger, own.kind).includes(own)) return at(own.kind, own.number);
   if (audit.kind === "test_audit" && audit.continuationIndex > 1) {
     const test = latest("test");
-    return test ? at("test", test.number, true) : undefined;
+    // A batch of test fixes is named by its batch (Kiln Planned Test Fix Batches AC-MAX-01).
+    const batch = sessionBatch(record, audit);
+    return test ? at("test", test.number, true, batch && { number: batch.number, of: batch.of }) : undefined;
   }
   return undefined;
 }
@@ -86,10 +84,4 @@ export function auditLoopsView(engine: Engine): AuditLoopsView {
     ...(ledger?.atPullRequest ? { frozen: { at: ledger.atPullRequest.at } } : {}),
     ...(position ? { position } : {}),
   };
-}
-
-/** "Delivery audit loop 2 of 4", "Fixing tests from test audit loop 2 of 4" (AC-STOP-05). */
-export function positionText(position: LoopPosition): string {
-  const name = `${position.audit === "delivery" ? "delivery" : "test"} audit loop ${position.loop} of ${position.limit}`;
-  return position.fixing ? `Fixing tests from ${name}` : `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 }

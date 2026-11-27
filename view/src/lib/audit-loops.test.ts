@@ -1,19 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { LOOP_STOP_LINE, loopSettingsHelp, parsedLimit, positionText, refusalShown } from "./audit-loops.js";
-import { positionText as enginePositionText } from "../../../src/engine/loop-view.js";
+import { LOOP_STOP_LINE, loopSettingsHelp, parsedLimit, refusalShown } from "./audit-loops.js";
 
 describe("the two limits' help text, from the numbers shown (Kiln Deliver When Audit Loops Run Out AC-CHOICE-01)", () => {
-  it("words the defaults as mockup screen 1 draws them", () => {
+  it("says a loop is one audit plus its work and each limit the most a run makes, in both forms (Kiln Planned Test Fix Batches AC-MAX-02)", () => {
     const help = loopSettingsHelp({ deliveryLimit: 4, testLimit: 4 });
-    expect(help.intro).toBe("After the planned phases close, two audits check the work. Each run of an audit is one loop; Kiln builds or fixes whatever it finds. These set how many loops of each Kiln makes. After the last one, Kiln moves on without auditing again.");
-    expect(help.delivery).toBe("The delivery audit checks that every acceptance criterion is built, and Kiln builds the phases it adds. Each run of the audit is one loop. After the phases from loop 4 are built, Kiln goes on to the test audit.");
-    expect(help.test).toBe("The test audit checks that the tests would notice if a criterion broke, and Kiln builds or fixes what it finds. Each run of the audit is one loop. After the work from loop 4 is done, Kiln opens the pull request, after a delivery audit if one is left.");
+    expect(help.intro).toBe("After the planned phases close, two audits check the work. Each loop is one audit plus the work it finds. A run makes only the loops it needs; these are the most it will make.");
+    expect(help.delivery).toBe("The delivery audit checks that every acceptance criterion is built, and Kiln builds the phases it adds. If a run reaches loop 4, Kiln builds the phases from it and goes on to the test audit.");
+    expect(help.test).toBe("The test audit checks that the tests would notice if a criterion broke, and Kiln builds or fixes what it finds. If a run reaches loop 4, Kiln finishes the work from it and opens the pull request, after a delivery audit if one is left.");
     expect(help.changeable).toBe("Both can be changed while Kiln runs, from the page or the command line.");
+    const short = loopSettingsHelp({ deliveryLimit: 4, testLimit: 4 }, true);
+    expect(short.intro).toBe("Each loop is one audit plus the work it finds. A run makes only the loops it needs; these are the most it will make.");
+    for (const form of [help, short]) expect(Object.values(form).join(" ")).not.toMatch(/Each run of (an|the) audit is one loop|These set how many loops|After the last one|After the (phases|work) from loop/);
   });
 
   it("follows other numbers, in the full and the short words", () => {
-    expect(loopSettingsHelp({ deliveryLimit: 2, testLimit: 7 }).delivery).toContain("After the phases from loop 2 are built");
-    expect(loopSettingsHelp({ deliveryLimit: 2, testLimit: 7 }, true).test).toBe("After the work from loop 7 is done, Kiln opens the pull request, after a delivery audit if one is left.");
+    expect(loopSettingsHelp({ deliveryLimit: 2, testLimit: 7 }).delivery).toContain("If a run reaches loop 2, Kiln builds the phases from it");
+    expect(loopSettingsHelp({ deliveryLimit: 2, testLimit: 7 }, true).delivery).toBe("If a run reaches loop 2, Kiln builds the phases from it and goes on to the test audit.");
+    expect(loopSettingsHelp({ deliveryLimit: 2, testLimit: 7 }, true).test).toBe("If a run reaches loop 7, Kiln finishes the work from it and opens the pull request, after a delivery audit if one is left.");
+    expect(loopSettingsHelp({ deliveryLimit: 1, testLimit: 12 }).test).toContain("If a run reaches loop 12, Kiln finishes the work from it");
   });
 
   it("offers no sentence accepting Weak rows", () => {
@@ -26,17 +30,7 @@ describe("the two limits' help text, from the numbers shown (Kiln Deliver When A
   });
 });
 
-describe("the loop an audit row is, and where the run is (AC-STOP-05)", () => {
-  it("words the position as the engine and kiln status do", () => {
-    const positions = [
-      { audit: "delivery", loop: 2, limit: 4 },
-      { audit: "test", loop: 2, limit: 4, fixing: true },
-      { audit: "test", loop: 4, limit: 4 },
-    ] as const;
-    expect(positions.map(positionText)).toEqual(["Delivery audit loop 2 of 4", "Fixing tests from test audit loop 2 of 4", "Test audit loop 4 of 4"]);
-    for (const position of positions) expect(positionText(position)).toBe(enginePositionText(position));
-  });
-
+describe("the stored loop stop (AC-STOP-05)", () => {
   it("gives a stored loop stop the engine's one line", () => {
     expect(LOOP_STOP_LINE).toBe("Kiln no longer stops at a loop limit. Check again to go on.");
   });

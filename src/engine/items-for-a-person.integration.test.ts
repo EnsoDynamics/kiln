@@ -78,7 +78,7 @@ describe("only an item the work cannot go on without stops the run (AC-ITEM-01, 
       { id: null, kind: "other", words: null, problem: "Logging changed outside the requirements.", action: "Record the change.", waits_on: null, criterion: null, effect: "goes_on" },
     ]);
     // The status line names the step that listed the items: the audit and its loop (AC-ITEM-02, AC-STOP-05).
-    expect(headerState(snapshot, true, new Date())).toMatchObject({ label: "Needs you", facts: ["Delivery audit loop 1 of 4", expect.stringMatching(/^Stopped /)] });
+    expect(headerState(snapshot, true, new Date())).toMatchObject({ label: "Needs you", facts: ["Delivery audit loop 1 · max 4", expect.stringMatching(/^Stopped /)] });
     expect(personItemsText(status.items)).toBe(`Kiln needs you for 2 things:\n  Critical finding (stops the run): ${critical.problem} ${critical.action}\n    What waits on it: ${critical.waitsOn}\n  Other (Kiln goes on): Logging changed outside the requirements. Record the change.`);
   });
 
@@ -100,9 +100,9 @@ describe("only an item the work cannot go on without stops the run (AC-ITEM-01, 
     // The status line names the pull request step, which listed the items at the hold stop (AC-ITEM-02).
     const held = buildSnapshot(current.engine);
     expect(headerState(held, true, new Date()).facts[0]).toBe(`PR · ${held.phases.find(row => row.id === "pr")!.title}`);
-    // At this Needs you stop after the audits, the latest audit is test audit loop 1 of 1, and the status line names it (AC-STOP-05).
+    // At this Needs you stop after the audits, the latest audit is test audit loop 1 · max 1, and the status line names it (AC-STOP-05).
     expect(held.auditLoops!.position).toEqual({ audit: "test", loop: 1, limit: 1 });
-    expect(headerState(held, true, new Date()).facts[1]).toBe("Test audit loop 1 of 1");
+    expect(headerState(held, true, new Date()).facts[1]).toBe("Test audit loop 1 · max 1");
     // The relisting kept the kind and what waits on it (AC-ITEM-02).
     expect(buildSnapshot(current.engine).items).toEqual([{ id: "item-1", kind: "blocker", words: "Blocker", problem: expect.stringContaining(blocker.problem), action: "Still open.", waitsOn: blocker.waitsOn, effect: "holds" }]);
     // Continue anyway is offered with its own heading, unusable until a Check again (AC-WAIVE-02 as AC-ITEM-01 replaces it).
@@ -284,7 +284,7 @@ describe("any other item is reported with the delivery (AC-ITEM-03, AC-LAST-05)"
 
   it("after the last test loop's fixes leave a row Weak, marks no criterion built, closes only phases its sessions ran, and reports the row (AC-LAST-05)", { timeout: 240_000 }, async () => {
     const weak = { kind: "test", problem: "AC-PROOF-01 is still Weak.", action: "Strengthen its test.", criterion: "AC-PROOF-01" };
-    // Test audit loop 1 of 1 saves test work; the session of test fixes ends with the row still Weak.
+    // Test audit loop 1 · max 1 saves test work; the session of test fixes ends with the row still Weak.
     const current = await fixture([audit(), audit({ continueTest: true, findingText: "AC-PROOF-01 is Weak." }), audit({ items: [weak], findingText: "AC-PROOF-01 is still Weak." })]);
     expect((await current.engine.changeSettings({ auditLoops: { deliveryLimit: 4, testLimit: 1 } })).ok).toBe(true);
     await current.engine.start({ refinementConfirmed: true }); await current.engine.settled();

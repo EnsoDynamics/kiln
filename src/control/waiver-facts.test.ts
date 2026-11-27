@@ -255,8 +255,8 @@ describe("kiln status names each closing audit for what it does (Kiln After Deli
       waivers: [],
     } as unknown as Partial<PrdRecord>), "audit-t1-2");
     expect(rows.map(row => ({ label: row.label, title: row.title, fixing: row.fixing }))).toEqual([
-      { label: "Delivery audit", title: "Loop 1 of 3", fixing: undefined },
-      { label: "Test audit", title: "Loop 1 of 4", fixing: undefined },
+      { label: "Delivery audit", title: "Loop 1 · max 3", fixing: undefined },
+      { label: "Test audit", title: "Loop 1 · max 4", fixing: undefined },
       { label: "Fixing tests", title: "From test audit loop 1 · session 1", fixing: { loop: 1, session: 1 } },
     ]);
     const text = progressText("Example feature", rows);

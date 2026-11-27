@@ -2,11 +2,11 @@ import { readFileSync, statSync } from "node:fs";
 import type { PrdRecord, CheckResult } from "../state/records.js";
 import type { GitContext } from "../engine/git-reads.js";
 import type { CheckItem } from "../engine/waivers.js";
-import { AuditRefusal, requireAudit, type AuditActivity, type AuditResult, type WorkSnapshot } from "./contracts.js";
+import { AuditRefusal, requireAudit, type AuditActivity, type AuditReportV2, type AuditResult, type WorkSnapshot } from "./contracts.js";
 import { AuditStore, hashBytes, hashValue, REPORT_LIMIT, strictJson } from "./storage.js";
 import { assignedPath, captureSnapshot, compareSnapshots, gitText, repositoryFor } from "./snapshots.js";
 import { REPORT_FIELDS, validateReport } from "./validate-report.js";
-import { effectiveAudit, hasEffectiveResult } from "./effective-result.js";
+import { countedOutcome, effectiveAudit, hasEffectiveResult, recordTestWork, testWorkOf } from "./effective-result.js";
 import { personItems } from "./person-items.js";
 
 export const RESULT_CHECK = "Audit result recorded";
@@ -139,6 +139,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
   if (activity.waivedResult) throw new AuditRefusal("result_conflict", "This audit was marked complete; Kiln no longer accepts a report for it.", 409);
   revision(context, body);
   const checks: CheckResult[] = []; let refusal: AuditResult["refusal"]; let nextAction: AuditResult["nextAction"] = "needs_you"; let snapshotId: string | undefined;
+  let validReport: AuditReportV2 | undefined;
   try {
     const raw = strictJson(bytes);
     // Kiln captures what the audit left behind; the session never declares a snapshot (AC-NEUTRAL-02).
@@ -149,7 +150,7 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
     checks.push({ name: RESULT_CHECK, passed: true, facts: [`Outcome ${validated.report.outcome}: ${validated.report.summary}`.slice(0, 600)] });
     checks.push(...await repositoryChecks(context));
     checks.push(...context.developmentChecks?.() ?? []);
-    nextAction = validated.nextAction;
+    nextAction = validated.nextAction; validReport = validated.report;
     if (nextAction === "needs_you") checks.push({ name: "Audit work resolved", passed: false, facts: validated.report.needsYou.map(item => `${item.problem} ${item.action}`) });
     // Re-read after remote work: changes while admission runs cannot be accepted.
     const final = await captureSnapshot({ ...context, activity, now: new Date().toISOString() });
@@ -165,7 +166,12 @@ export async function submitAudit(context: AdmissionContext, body: Record<string
   const revisionNumber = state.revision + 1;
   const result: AuditResult = { id: "", activityId: activity.activityId, reportDigest, reportBytes: bytes, ...(snapshotId ? { snapshotId } : {}), ...(refusal ? { refusal } : {}), at: new Date().toISOString(), revision: revisionNumber, disposition, checks, nextAction: disposition === "recorded" ? nextAction : "needs_you" };
   result.id = hashValue({ ...result, id: undefined });
-  const reference = store.put(result); activity.attempts.push(reference); if (disposition === "recorded") activity.acceptedResult = reference;
+  const reference = store.put(result); activity.attempts.push(reference);
+  if (disposition === "recorded") {
+    activity.acceptedResult = reference;
+    // The fix plan is copied onto the activity in the write that records its result (Kiln Planned Test Fix Batches).
+    recordTestWork(activity, validReport && testWorkOf(validReport, countedOutcome(validReport.outcome), validReport.changedImplementation));
+  }
   state.revision = revisionNumber; return result;
 }
 

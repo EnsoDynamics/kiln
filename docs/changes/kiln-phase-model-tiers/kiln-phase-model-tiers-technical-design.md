@@ -98,6 +98,8 @@ A phase's entry stays with that phase's id. When a session splits its phase, the
 
 ## When an Activity Starts (AC-PICK-02, AC-PICK-04)
 
+Superseded in part by: `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-technical-design.md`, §Interfaces (while a test audit's chain is open with batches listed, the batch rows take the planned Test audit row's place; the rest remains).
+
 When a session's first model response arrives, Kiln saves its time on the session. If the activity has no start yet, the same save records the one that started it: the first of its sessions, in the order they were created, that has a `firstResponseAt`. From then on the activity's row reads **Running on**, its choice is that session's, and it offers no Change.
 
 **Codex's first response** is the first item the model issued in the run, on the parent or a child thread: `item/started` for `reasoning`, `plan`, `commandExecution` from any source but `userShell`, `fileChange`, `mcpToolCall`, `dynamicToolCall`, `collabAgentToolCall`, `webSearch`, `imageView`, `imageGeneration` or `sleep`, or `item/completed` for an `agentMessage` with text. Kiln saves that time once as the run's `codex.firstResponseAt`, and the session's `firstResponseAt` comes from it. Items Codex or Kiln writes itself don't count: `userMessage`, `hookPrompt`, `functionCallOutput`, `subAgentActivity`, `contextCompaction` and the review-mode markers. The one automatic attempt's record is cleared by the attempt's `firstResponseAt`. The sleep rule and the refusal's check for activity after it keep reading `modelActivityAt`, agent messages only, because a tool that finishes after wake doesn't show the model got through.
