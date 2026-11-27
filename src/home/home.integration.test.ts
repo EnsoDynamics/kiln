@@ -190,6 +190,8 @@ it("covers each repository directly inside a folder in one list, naming its repo
   commitFiles(sandbox, shop, "source-material/gift-card-balance", { "gift-card-balance-brief.md": "# Brief: Gift card balance lookup\n" });
   // A PRD that changes several repositories is listed once, under the one holding its documents.
   commitFiles(sandbox, shop, "docs/prds/customer-returns", { "customer-returns-prd.md": PRD, "technical-design.md": DESIGN, "phase-1-intake.md": "# Phase 1: Intake\n\n**Repositories:** acme-shop, acme-admin\n\n## Acceptance criteria covered\nAC-1\n" });
+  // A linked worktree inside the folder counts as its main checkout's repository, never as a second one.
+  git(sandbox, shop, "worktree", "add", "-q", "-b", "feature/side", join(folder, "acme-shop-side"));
   await home(folder, async (page) => {
     // A second kiln for the same scope opens the first one's address and exits (AC-HOME-01).
     let second = "";

@@ -1,5 +1,7 @@
 # Phase 7: Complete the home screen's placements and the start checks they agree with
 
+**Closed:** 2026-11-27
+
 **Added by delivery audit:** 2026-11-27, after every planned phase closed, in the audit that followed phases 5 and 6. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "What `kiln run` accepts" (its table and the paragraph on branches that hold a PRD directory); "Run identity"; "The Home Screen" ("What it lists", "The shared branch, read without a fetch", Order); the "What source material counts as written from" decision

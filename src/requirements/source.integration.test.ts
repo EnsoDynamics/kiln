@@ -86,3 +86,63 @@ it("opens a committed brief through kiln run and reports its identity through ki
     expect(JSON.parse(output)).toMatchObject({ execution_id: work!.record.executionId, requirements: { origin: { kind: "brief" } } });
   } finally { if (code === undefined) signals.emit("SIGINT"); await run; }
 });
+
+it("names what to commit, or the bring-up-to-date step, for material and PRDs the checkout doesn't have (AC-BEGIN-03, AC-HOME-04)", async () => {
+  const repo = repository();
+  const bin = join(sandbox.root, "bin");
+  installStandIns(bin);
+  const env = { ...sandbox.env, PATH: bin + delimiter + (sandbox.env.PATH ?? ""), KILN_PORT_RANGE: await reservePortRange(), KILN_NO_BROWSER: "1" };
+  const run = async (args: string[]) => {
+    let output = "";
+    const code = await runKilnCommand(["run", ...args], { cwd: repo, env, stdout: { write: (s: string) => output += s }, stderr: { write: (s: string) => output += s }, signals: new EventEmitter() });
+    return { code, output };
+  };
+  // A brief committed only on another branch, so not in the checkout.
+  git(sandbox, repo, "switch", "-q", "-c", "notes");
+  commitFiles(sandbox, repo, "source-material/boxes", { "boxes-brief.md": "# Brief: Boxes\n" });
+  commitFiles(sandbox, repo, "docs/initiatives/shifts", { "shifts-initiative-prds.md": "# Shifts Initiative PRDs\n\n| # | PRD | Depends on | Status |\n|---|---|---|---|\n| 1 | [Rotas](c.md#rotas) | None | planned |\n", "c.md": "## Rotas\n" });
+  git(sandbox, repo, "switch", "-q", "develop");
+  const brief = await run(["source-material/boxes"]);
+  expect(brief.code).toBe(1);
+  expect(brief.output).toContain("source-material/boxes/boxes-brief.md isn't committed on develop, only on notes. Commit it on develop.");
+  expect(brief.output).not.toContain("doesn't exist");
+  const planned = await run(["docs/initiatives/shifts", "--prd", "rotas"]);
+  expect(planned.output).toContain("docs/initiatives/shifts/shifts-initiative-prds.md isn't committed on develop, only on notes. Commit it on develop.");
+  // A brief beside received/ is ready once its intake record is written too.
+  const inspect = (path: string) => inspectSource({ git: "git", env: sandbox.env }, repo, path);
+  commitFiles(sandbox, repo, "source-material/mixed", { "mixed-brief.md": "# Brief: Mixed\n", "mixed-requirements-intake.md": "# Requirements intake: Mixed\n" });
+  commitFiles(sandbox, repo, "source-material/mixed/received", { "notes.txt": "notes\n" });
+  expect(await inspect("source-material/mixed")).toMatchObject({ origin: { kind: "brief" } });
+  // A planned row the local list lacks, held by another branch's copy of the list, or by origin's (AC-BEGIN-03).
+  const inspect2 = inspect;
+  const list = "docs/initiatives/teams/teams-initiative-prds.md";
+  const table = (rows: string) => "# Teams Initiative PRDs\n\n| # | PRD | Depends on | Status |\n|---|---|---|---|\n" + rows;
+  commitFiles(sandbox, repo, "docs/initiatives/teams", { "teams-initiative-prds.md": table("| 1 | [Leads](c.md#leads) | None | planned |\n"), "c.md": "## Leads\n\n## Pairs\n\n## Trios\n" });
+  git(sandbox, repo, "switch", "-q", "-c", "more-teams");
+  commitFiles(sandbox, repo, "docs/initiatives/teams", { "teams-initiative-prds.md": table("| 1 | [Leads](c.md#leads) | None | planned |\n| 2 | [Pairs](c.md#pairs) | None | planned |\n") });
+  git(sandbox, repo, "switch", "-q", "develop");
+  expect(await inspect2("docs/initiatives/teams/pairs")).toEqual({ problem: `${list} has pairs only on more-teams. Commit ${list} on develop.` });
+  commitFiles(sandbox, repo, "docs/initiatives/teams", { "teams-initiative-prds.md": table("| 1 | [Leads](c.md#leads) | None | planned |\n| 3 | [Trios](c.md#trios) | None | planned |\n") });
+  commitFiles(sandbox, repo, "source-material/pushed", { "pushed-brief.md": "# Brief: Pushed\n" });
+  git(sandbox, repo, "push", "-q", "origin", "develop");
+  git(sandbox, repo, "reset", "-q", "--hard", "HEAD~2");
+  expect(await inspect2("docs/initiatives/teams/trios")).toEqual({ problem: `${list} has trios only on origin's develop. Bring the local shared branch develop up to date.` });
+  expect((await run(["source-material/pushed"])).output).toContain("source-material/pushed/pushed-brief.md is committed only on origin's develop. Bring the local shared branch develop up to date.");
+  // A planned row something was written from names it before the commit step its edited list would need (AC-BEGIN-02).
+  git(sandbox, repo, "switch", "-q", "-c", "feature/leads");
+  commitFiles(sandbox, repo, "docs/prds/team-leads", { "team-leads-prd.md": "# PRD: Team leads\n" });
+  git(sandbox, repo, "switch", "-q", "develop");
+  writeFileSync(join(repo, "docs/initiatives/teams/c.md"), "## Leads\n\n**PRD directory, when written:** `docs/prds/team-leads`\n\n## Pairs\n\n## Trios\n");
+  git(sandbox, repo, "commit", "-qam", "name the leads directory");
+  writeFileSync(join(repo, list), table("| 1 | [Leads](c.md#leads) | None | planned |\n| 9 | edited | None | planned |\n"));
+  expect(await inspect2("docs/initiatives/teams/team-leads")).toEqual({ problem: "docs/prds/team-leads was written from docs/initiatives/teams/team-leads." });
+  git(sandbox, repo, "checkout", "--", list);
+  // A PRD merged on origin and not yet pulled.
+  git(sandbox, repo, "merge", "-q", "--no-edit", "origin/develop");
+  commitFiles(sandbox, repo, "docs/prds/merged", { "merged-prd.md": "# PRD: Merged\n" });
+  git(sandbox, repo, "push", "-q", "origin", "develop");
+  git(sandbox, repo, "reset", "-q", "--hard", "HEAD~1");
+  const merged = await run(["docs/prds/merged"]);
+  expect(merged.code).toBe(1);
+  expect(merged.output).toContain("docs/prds/merged is committed only on origin's develop. Bring the local shared branch develop up to date.");
+});

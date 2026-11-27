@@ -333,6 +333,21 @@ function adoptStartedByHand(record: PrdRecord, report: Awaited<ReturnType<typeof
   }
 }
 
+/**
+ * A PRD whose phase plan the start checks found: today's Documents found with no requirements side,
+ * even over a never-started record written before the plan existed, since a record never started
+ * is not a run (AC-BEGIN-05); the unmerged branch that holds the PRD is selected under Start from (AC-BEGIN-08).
+ */
+function adoptBuild(record: PrdRecord, report: Awaited<ReturnType<typeof runStartChecks>>): void {
+  if (report.origin || !report.found.phaseDocCount || record.startedAt !== undefined) return;
+  delete record.requirements;
+  if (record.origin?.kind === "prd") delete record.origin;
+  if (report.holdingBranch && !record.start) {
+    record.start = { from: "existing", bringUpToDate: true };
+    record.settings.featureBranch = report.holdingBranch.name;
+  }
+}
+
 /** An engine over the PRD's record, with keep-awake for the sessions it runs. */
 function makeEngine(
   run: KilnRun,
@@ -460,6 +475,7 @@ async function resetEngine(run: KilnRun): Promise<Engine> {
     record.settings.modelChoices.stages = {};
     adoptStartedByHand(record, checks.report);
   }
+  adoptBuild(record, checks.report);
   await fillNamedBases(git, record, checks.report.repositories);
   writePrdRecord(run.stateDirectory, record);
   const engine = makeEngine(run, record, terminalWriter(run), { prdTree: checks.prdTree, plan: checks.report.plan, repositories: checks.report.repositories, named: checks.report.named }, startChecks);
@@ -559,6 +575,7 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
     if (report.origin.kind !== "prd" && record.prdDirectory === report.origin.path) delete record.prdDirectory;
     adoptStartedByHand(record, report);
   }
+  adoptBuild(record, report);
   await fillNamedBases(git, record, report.repositories);
   if (stop.stopping) return stop.done;
   writePrdRecord(run.stateDirectory, record);
@@ -567,7 +584,8 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   const engine = makeEngine(run, record, write, { prdTree, plan: report.plan, repositories: report.repositories, named: report.named });
   for (const text of run.repositoryLinesSaid) engine.repositoryLinesSaid.add(text);
   if (startError !== undefined) engine.startError = startError;
-  const documents = report.plan && documentsFound(location.prdDirectory, location.folderName, report.plan, { ...report.found, repositories: report.repositories, namedCount: report.named.length }, engine.labelOf(location.repositoryName));
+  const branchDocuments = report.branchDocuments;
+  const documents = report.plan && documentsFound(location.prdDirectory, location.folderName, report.plan, { ...report.found, repositories: report.repositories, namedCount: report.named.length }, engine.labelOf(location.repositoryName), ...(branchDocuments ? [(name: string) => branchDocuments[`${location.prdDirectoryFromRoot}/${name}`] ?? ""] : []));
   const outColors = terminalColors(context.stdout, context.env);
   for (const text of report.lines) write(formatRepositoryLine(new Date(), text, outColors));
   const locating = engine.locatingRepositories.map((row) => row.question!.repository);

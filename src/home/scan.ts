@@ -5,7 +5,7 @@
 // AC-HOME-13's table that fits. Reads are cached by the commit they read.
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, join, posix } from "node:path";
+import { basename, join, posix, resolve } from "node:path";
 import { listWorktrees, runGit, type GitContext } from "../engine/git-reads.js";
 import { expandHome } from "../engine/worktree-setup.js";
 import { featureNameFor } from "../prd-location.js";
@@ -14,6 +14,7 @@ import { isPhaseFileName } from "../plan/phase-ids.js";
 import { documentsStand, holdingByDirectory, readBranchRefs, type HoldingBranch } from "../requirements/branches.js";
 import { briefName, initiativeRows, type InitiativeRow } from "../requirements/source.js";
 import type { SavedWork } from "../control/private-state.js";
+import { startedBranches } from "../engine/start-from.js";
 import type { RunState } from "../control/client.js";
 import type { PrdRecord } from "../state/records.js";
 
@@ -61,7 +62,12 @@ export interface ScanInput {
   works: SavedWork[];
   /** Each recorded run's Kiln, probed as `kiln status` probes it. */
   probe: (work: SavedWork) => Promise<{ state: RunState; address?: string; feature?: string }>;
+  /** Every record under the state root, whichever repository holds its PRD: a started run's branches are no candidate for another PRD here, as `kiln run` reads them. Defaults to `works`. */
+  allWorks?: SavedWork[];
 }
+
+/** Newest first, by the instant: `%cI` strings keep each committer's UTC offset, so they don't sort as text (AC-HOME-12). */
+export const newestFirst = (a: { lastChanged?: string }, b: { lastChanged?: string }) => (b.lastChanged ? Date.parse(b.lastChanged) : 0) - (a.lastChanged ? Date.parse(a.lastChanged) : 0);
 
 const cache = new Map<string, unknown>();
 async function cached<T>(key: string, read: () => Promise<T>): Promise<T> {
@@ -205,7 +211,13 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
     // Any other folder under source-material/ is not listed (AC-HOME-13).
     if (!local && !remote && !checkout && !received) continue;
     const words = featureNameFor(folder);
+    // A folder holding received/ and no intake record is an intake not finished, even beside a brief: the first row that fits is Not ready yet (HOME-004).
+    const intakeAnywhere = [...found.local, ...found.remote, ...found.checkout].includes(intake);
     if (!shared) { scan.notReady.push(item(path, { title: words, where: `${path}/`, line: "Kiln can't tell the shared branch. Run git remote set-head origin --auto, and this is placed." })); continue; }
+    if (received && !intakeAnywhere) {
+      scan.notReady.push(item(path, { title: words, where: `${path}/`, line: `Material brought in under received/${found.local.length || found.remote.length || onDisk.has(folder) || !elsewhere.has(folder) ? "" : `, only on ${elsewhere.get(folder)}`}, and its intake record isn't written yet. When it is, this moves up.` }));
+      continue;
+    }
     if (local && sharedLocal) {
       const kind: HomeKind = local === brief ? "brief" : "intake";
       const step = await uncommitted(path);
@@ -216,8 +228,6 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
     }
     if (remote) scan.notReady.push(item(path, { title: words, where: `${path}/`, kind: remote === brief ? "brief" : "intake", line: `Committed on origin's ${shared} only. Bring your local ${shared} up to date and it moves up.` }));
     else if (checkout) scan.notReady.push(item(path, { title: words, where: `${path}/`, kind: checkout === brief ? "brief" : "intake", line: `${checkout === brief ? kindWords.brief : kindWords.intake} not yet committed on ${shared}${elsewhere.has(folder) && !onDisk.has(folder) ? `, only on ${elsewhere.get(folder)}` : ""}. Commit it there and it moves up.` }));
-    // A folder holding the method's received/ and no intake record is an intake not finished (HOME-004).
-    else if (received) scan.notReady.push(item(path, { title: words, where: `${path}/`, line: `Material brought in under received/${found.local.length || found.remote.length || onDisk.has(folder) || !elsewhere.has(folder) ? "" : `, only on ${elsewhere.get(folder)}`}, and its intake record isn't written yet. When it is, this moves up.` }));
   }
 
   // ---- Planned PRDs, read from the shared branch only -----------------------------------
@@ -268,20 +278,68 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
       }
     }
   }
+  // An initiative list only in the checkout or a worktree, or committed only on another branch: each planned row it adds is one commit from ready (AC-HOME-03, AC-HOME-13 row 2).
+  if (shared) {
+    const copies: { list: string; folder: string; initiative: string; markdown: string; ref: string; on?: string }[] = [];
+    for (const worktree of worktreePathsOf(listedWorktrees, cwd)) {
+      const root = join(worktree, "docs", "initiatives");
+      if (!existsSync(root)) continue;
+      for (const initiative of readdirSync(root)) {
+        const list = `docs/initiatives/${initiative}/${initiative}-initiative-prds.md`;
+        const file = join(worktree, list);
+        if (existsSync(file)) copies.push({ list, folder: posix.dirname(list), initiative, markdown: readFileSync(file, "utf8"), ref: sharedLocal ?? sharedRemote ?? "HEAD" });
+      }
+    }
+    for (const ref of [...refs.local.values(), ...refs.remote.values()]) {
+      if (ref.name === shared || ref.tip === sharedLocal || ref.tip === sharedRemote) continue;
+      for (const file of await filesAt(git, cwd, ref.tip, "docs/initiatives")) {
+        const [, , initiative, fileName] = file.split("/");
+        if (!initiative || fileName !== `${initiative}-initiative-prds.md`) continue;
+        copies.push({ list: file, folder: posix.dirname(file), initiative, markdown: await showAt(git, cwd, ref.tip, file), ref: ref.tip, on: ref.name });
+      }
+    }
+    for (const copy of copies) {
+      const committed = [...readLocal, ...readRemote].find(one => one.folder === copy.folder);
+      if (committed?.problem) continue;
+      const heading = titleOf(copy.markdown, /(?:\s+[—–-]\s+|\s+)Initiative PRDs$/i) ?? featureNameFor(copy.initiative);
+      const step = `Its initiative's PRD list isn't committed on ${shared}${copy.on ? `, only on ${copy.on}` : ""}. Commit ${copy.list} there and it moves up.`;
+      let rows: InitiativeRow[];
+      try { rows = await cached(`rows\0${cwd}\0${copy.ref}\0${copy.list}\0${copy.markdown}`, () => initiativeRows(git, cwd, copy.ref, copy.folder, copy.markdown)); }
+      catch {
+        // Its rows can't be read until what it links is committed too: the list is one line, one step from ready.
+        if (!committed && !listed.has(copy.folder)) { listed.add(copy.folder); scan.notReady.push(item(copy.folder, { title: heading, where: copy.list, line: step })); }
+        continue;
+      }
+      for (const row of rows.filter(entry => entry.status === "planned")) {
+        const path = `${copy.folder}/${row.directory}`;
+        if (listed.has(path) || committed?.rows?.some(other => other.directory === row.directory) || plannedWritten(row, copy.initiative, path)) continue;
+        listed.add(path);
+        scan.notReady.push(item(path, { title: `${heading}: ${row.name}`, where: copy.list, kind: "planned_prd", line: step }));
+      }
+    }
+  }
 
   // ---- PRDs -----------------------------------------------------------------------------
   // A run Kiln started and hasn't finished. A record never started, which `kiln run` writes before Start, or one whose run completed, places nothing: the files do (technical design, "Kiln started a PRD from it").
   const running = (record: PrdRecord) => record.startedAt !== undefined && !record.completedAt;
-  const exclude = new Set(works.filter(work => !work.record.completedAt && (work.record.startedAt !== undefined || work.record.repositories.some(entry => entry.setupCompletedAt !== undefined))).map(work => work.record.settings.featureBranch));
-  const holding = shared ? await holdingByDirectory(git, cwd, shared, exclude, refs) : new Map<string, HoldingBranch[]>();
-  const onShared = new Set(sharedRead ? ((await text(git, cwd, ["ls-tree", "-d", "--name-only", sharedRead, "--", "docs/prds/", "docs/changes/"])) ?? "").split("\n").filter(Boolean) : []);
+  // A started run's branches are no candidate for another PRD, as `kiln run` reads them: completed runs, branch stems and earlier executions included (AC-HOME-13).
+  // Matched as `kiln run` matches them (its startContext), so both exclude the same branches.
+  const here = resolve(cwd);
+  const runBranches = (input.allWorks ?? works).flatMap(work => (work.record.repositories.some(entry => resolve(expandHome(entry.mainCheckoutPath)) === here) ? startedBranches(work.record) : []).map(branch => ({ branch, work })));
+  const heldAll = shared ? await holdingByDirectory(git, cwd, shared, new Set(), refs) : new Map<string, HoldingBranch[]>();
+  const ownWork = (directory: string) => works.find(one => one.record.prdDirectory === directory || one.record.origin?.path === directory);
+  const holding = new Map([...heldAll].map(([directory, list]) => [directory, list.filter(one => !runBranches.some(other => other.branch === one.name && other.work !== ownWork(directory)))] as const));
+  const dirsAt = async (tip: string | undefined) => new Set(tip ? ((await text(git, cwd, ["ls-tree", "-d", "--name-only", tip, "--", "docs/prds/", "docs/changes/"])) ?? "").split("\n").filter(Boolean) : []);
+  const onShared = await dirsAt(sharedRead);
+  // A PRD only origin's copy of the shared branch holds, the local one being behind: placed from origin's copy, with the step `kiln run` needs (AC-HOME-04, AC-HOME-12).
+  const onOrigin = remoteAhead ? await dirsAt(sharedRemote) : new Set<string>();
   // With no shared branch known, every PRD folder on any branch is found, to say why it isn't placed (AC-HOME-04).
   const unplaced = shared ? [] : [...written.keys()].filter(path => /^docs\/(?:prds|changes)\/[^/]+$/.test(path));
-  const directories = new Set<string>([...onShared, ...holding.keys(), ...unplaced, ...works.map(work => work.record.prdDirectory).filter((one): one is string => !!one)]);
-  const worktreePaths = listedWorktrees.ok ? listedWorktrees.worktrees.map(one => one.path) : [cwd];
+  const directories = new Set<string>([...onShared, ...onOrigin, ...holding.keys(), ...unplaced, ...works.map(work => work.record.prdDirectory).filter((one): one is string => !!one)]);
+  const worktreePaths = worktreePathsOf(listedWorktrees, cwd);
   for (const directory of directories) {
     const folder = posix.basename(directory);
-    const work = works.find(one => one.record.prdDirectory === directory || one.record.origin?.path === directory);
+    const work = ownWork(directory);
     const record = work?.record;
     const started = record && running(record) ? record : undefined;
     const branches = holding.get(directory) ?? [];
@@ -290,7 +348,9 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
     const saved = started?.repositories.find(entry => entry.kind === "prd")?.worktreePath ?? started?.settings.worktreePath;
     const worktree = saved ? expandHome(saved) : undefined;
     const fromWorktree = !!started && !!worktree && existsSync(join(worktree, directory));
-    const commit = branch?.tip ?? sharedRead ?? written.get(directory);
+    const behindOnly = !started && !branch && !onShared.has(directory) && onOrigin.has(directory);
+    const commit = branch?.tip ?? (behindOnly ? sharedRemote : sharedRead) ?? written.get(directory);
+    const pull = behindOnly ? ` Committed on origin's ${shared} only. Bring your local ${shared} up to date to open it.` : "";
     const listAt = async (tip: string) => (await filesAt(git, cwd, tip, directory)).filter(file => posix.dirname(file) === directory).map(file => posix.basename(file));
     const names = fromWorktree ? readdirSync(join(worktree!, directory)) : commit ? await listAt(commit) : [];
     if (!names.includes(`${folder}-prd.md`) && !started) continue;
@@ -333,10 +393,10 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
     if (open || inProgress || onlyOnBranch) {
       const on = branch ? `, on the branch ${branch.name}, not merged yet` : "";
       const next = built ? "" : stands.startsWith("PRD written") ? " Kiln continues from there, with the early review once the PRD is refined." : " Kiln continues from there.";
-      scan.underWay.push(item(directory, { title, where: `${directory}/`, line: `${record?.completedAt ? "Kiln's run finished" : "Started by hand"}${on}. ${stands}.${next}${live ? unreadable(live) : ""}`, state: live?.state ?? "not_running", ...(live?.address ? { address: live.address } : {}), ...byHand, ...(branch ? { branch: branch.name } : {}), alsoChanges, ...(lastChanged ? { lastChanged } : {}) }));
+      scan.underWay.push(item(directory, { title, where: `${directory}/`, line: `${record?.completedAt ? "Kiln's run finished" : "Started by hand"}${on}. ${stands}.${next}${pull}${live ? unreadable(live) : ""}`, state: live?.state ?? "not_running", ...(live?.address ? { address: live.address } : {}), ...byHand, ...(branch ? { branch: branch.name } : {}), alsoChanges, ...(lastChanged ? { lastChanged } : {}), ...(live?.state === "waiting_for_you" ? { waitsForYou: true as const } : {}) }));
       continue;
     }
-    scan.folded.push(item(directory, { title, where: `${directory}/`, line: `${stands}.${lastChanged ? ` Last changed ${day(lastChanged)}.` : ""}`, ...byHand, alsoChanges, ...(lastChanged ? { lastChanged } : {}) }));
+    scan.folded.push(item(directory, { title, where: `${directory}/`, line: `${stands}.${lastChanged ? ` Last changed ${day(lastChanged)}.` : ""}${pull}`, ...byHand, alsoChanges, ...(lastChanged ? { lastChanged } : {}) }));
   }
 
   // A run from source material whose PRD isn't written yet is an Under way line of its own.
@@ -346,11 +406,12 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
     const probe = await input.probe(work);
     scan.underWay.push(item(record.origin.path, { title: record.origin.title, where: `${record.origin.path}/`, line: recordLine(record) + unreadable(probe), state: probe.state, ...(probe.address ? { address: probe.address } : {}), ...(probe.state === "waiting_for_you" || Object.values(record.phases).some(facts => !!facts.stop) ? { waitsForYou: true } : {}) }));
   }
-  const newest = (a: HomeItem, b: HomeItem) => (b.lastChanged ?? "").localeCompare(a.lastChanged ?? "");
-  scan.underWay.sort((a, b) => Number(!!b.waitsForYou) - Number(!!a.waitsForYou) || newest(a, b));
-  scan.folded.sort(newest);
+  scan.underWay.sort((a, b) => Number(!!b.waitsForYou) - Number(!!a.waitsForYou) || newestFirst(a, b));
+  scan.folded.sort(newestFirst);
   return scan;
 }
+
+const worktreePathsOf = (listed: Awaited<ReturnType<typeof listWorktrees>>, cwd: string) => listed.ok ? listed.worktrees.map(one => one.path) : [cwd];
 
 /** The repositories a scope covers: the one it was run in, or each repository directly inside a folder that isn't one (AC-HOME-08, AC-HOME-09). */
 export function repositoriesIn(folder: string): { name: string; path: string }[] {

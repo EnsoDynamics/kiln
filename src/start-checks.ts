@@ -1,4 +1,9 @@
 import { inspectSource, inspectStartedPrd, sourcePath, type StartedPrd } from "./requirements/source.js";
+import { branchesHolding, type HoldingBranch } from "./requirements/branches.js";
+import { readGitPlan } from "./engine/completed-plan-sources.js";
+import { directoryNames } from "./engine/start-from.js";
+import { originBranches } from "./engine/git-reads.js";
+import { defaultBaseBranch } from "./engine/worktree-setup.js";
 import { existsSync } from "node:fs";
 import type { RequirementsOrigin } from "./requirements/stages.js";
 // The start checks `kiln run` runs for a feature not started (PRD AC-START-02): the documents
@@ -55,6 +60,10 @@ export interface StartCheckReport {
   uncommitted?: string;
   /** A PRD directory with no phase documents: the branch that holds it, if one does (AC-BEGIN-04, AC-BEGIN-08). */
   startedByHand?: Pick<StartedPrd, "branch" | "holding">;
+  /** A PRD with phase documents that an unmerged branch holds: the newest such branch, selected under Start from (AC-BEGIN-08). */
+  holdingBranch?: HoldingBranch;
+  /** The documents read from `holdingBranch`'s tip, by repository path, when the checkout doesn't have the phase plan (AC-BEGIN-08). */
+  branchDocuments?: Record<string, string>;
 }
 
 /**
@@ -91,19 +100,52 @@ export function startChecksPassed(report: StartCheckReport): boolean {
  */
 export async function runStartChecks(location: PrdLocation, tools: Tools, env: NodeJS.ProcessEnv, nodeVersion = process.versions.node, repositoryContext: { entries?: RepositoryEntry[]; said?: Set<string>; changing?: string[]; exclude?: ReadonlySet<string>; branch?: string } = {}): Promise<StartCheckReport> {
   const fromSource = sourcePath(location.prdDirectoryFromRoot);
-  const fileNames = fromSource || !existsSync(location.prdDirectory) ? [] : readdirSync(location.prdDirectory);
-  const phaseFileNames = fileNames.filter(isPhaseFileName);
+  const gitContext = { git: tools.git, env };
+  const holdingOptions = { ...(repositoryContext.exclude ? { exclude: repositoryContext.exclude } : {}), ...(repositoryContext.branch !== undefined ? { branch: repositoryContext.branch } : {}) };
+  let fileNames = fromSource || !existsSync(location.prdDirectory) ? [] : readdirSync(location.prdDirectory);
+  let phaseFileNames = fileNames.filter(isPhaseFileName);
   // A PRD directory with no phase documents, in the checkout or only on a branch, takes the requirements start checks (AC-BEGIN-04).
-  const byHand = !fromSource && phaseFileNames.length === 0;
+  let byHand = !fromSource && phaseFileNames.length === 0;
   // A directory in the checkout without its PRD still names the PRD as missing.
   const prdMissing = byHand && existsSync(location.prdDirectory) && !fileNames.includes(location.prdFileName);
-  const source = fromSource || byHand;
-  const startedRead = byHand && !prdMissing ? await inspectStartedPrd({ git: tools.git, env }, location.checkoutRoot, location.mainCheckoutPath, location.prdDirectoryFromRoot, { ...(repositoryContext.exclude ? { exclude: repositoryContext.exclude } : {}), ...(repositoryContext.branch !== undefined ? { branch: repositoryContext.branch } : {}) })
+  let startedRead = byHand && !prdMissing ? await inspectStartedPrd(gitContext, location.checkoutRoot, location.mainCheckoutPath, location.prdDirectoryFromRoot, holdingOptions)
     : undefined;
-  const input = fromSource ? await inspectSource({ git: tools.git, env }, location.checkoutRoot, location.prdDirectoryFromRoot) : startedRead;
+  const problems: string[] = [];
+  let holdingBranch: HoldingBranch | undefined;
+  let branchDocuments: Record<string, string> | undefined;
+  let unfollowedOnBranch: UnfollowedLink[] = [];
+  if (startedRead && "planOn" in startedRead) {
+    // The phase plan is on the branch that holds the PRD: today's checks, read from that branch's tip (AC-BEGIN-05, AC-BEGIN-08).
+    holdingBranch = startedRead.planOn;
+    startedRead = undefined;
+    byHand = false;
+    try {
+      const read = await readGitPlan(gitContext, location.checkoutRoot, location.prdDirectoryFromRoot, holdingBranch.tip);
+      branchDocuments = read.source.documents;
+      unfollowedOnBranch = read.unfollowed;
+    } catch (error) {
+      // A missing design or PRD is named by the document checks below, as for a checkout; any other failure is a problem of its own.
+      if (!/^(?:Missing technical design|Expected one governing PRD) at /.test((error as Error).message)) problems.push(`${holdingBranch.name} doesn't have this PRD's documents: ${(error as Error).message}`);
+      branchDocuments = {};
+      const names = await runHelper(tools.git, ["--literal-pathspecs", "ls-tree", "--name-only", "-z", holdingBranch.tip, "--", `${location.prdDirectoryFromRoot}/`], { cwd: location.checkoutRoot, env });
+      for (const path of names.stdout.split("\0").filter(Boolean)) {
+        const shown = await runHelper(tools.git, ["show", `${holdingBranch.tip}:${path}`], { cwd: location.checkoutRoot, env });
+        branchDocuments[path] = shown.exitCode === 0 ? shown.stdout : "";
+      }
+    }
+    fileNames = directoryNames(branchDocuments, location.prdDirectoryFromRoot);
+    phaseFileNames = fileNames.filter(isPhaseFileName);
+  } else if (!fromSource && !byHand) {
+    // Phase documents in the checkout: the newest unmerged branch that holds the PRD is selected under Start from (AC-BEGIN-08).
+    const shared = await originBranches(gitContext, location.checkoutRoot);
+    if (shared.ok) holdingBranch = (await branchesHolding(gitContext, location.checkoutRoot, location.prdDirectoryFromRoot, defaultBaseBranch(shared.value), repositoryContext.exclude))[0];
+  }
+  const source = fromSource || byHand;
+  const input = fromSource ? await inspectSource(gitContext, location.checkoutRoot, location.prdDirectoryFromRoot) : startedRead;
+  const readDocument = (fileName: string) => branchDocuments ? branchDocuments[`${location.prdDirectoryFromRoot}/${fileName}`] ?? "" : readFileSync(join(location.prdDirectory, fileName), "utf8");
 
-  const problems: string[] = input && "problem" in input ? [input.problem] : [];
-  const started: StartedPrd | undefined = startedRead && "holding" in startedRead ? startedRead : undefined;
+  if (input && "problem" in input) problems.push(input.problem);
+  const started: StartedPrd | undefined = !fromSource && input && "origin" in input ? input as StartedPrd : undefined;
   const partWay = started?.partWay ?? [];
   problems.push(...partWay);
   // Either name is the document; both at once leaves Kiln no way to tell which one is meant.
@@ -129,7 +171,7 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     const phaseFiles = [];
     for (const fileName of phaseFileNames) {
       try {
-        phaseFiles.push({ fileName, markdown: readFileSync(join(location.prdDirectory, fileName), "utf8") });
+        phaseFiles.push({ fileName, markdown: readDocument(fileName) });
       } catch (error) {
         problems.push(`Couldn't read ${location.prdDirectoryFromRoot}/${fileName}: ${(error as Error).message}`);
       }
@@ -193,7 +235,8 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   // Only once every other check passed: Documents found lists the links Kiln won't follow, and a
   // required one it can't follow is a problem here as it would be at the first plan read (AC-LINK-02, 04).
   let unfollowedLinks: UnfollowedLink[] = [];
-  if (!source && missingDocuments.length === 0 && problems.length === 0) {
+  if (branchDocuments) unfollowedLinks = unfollowedOnBranch;
+  else if (!source && missingDocuments.length === 0 && problems.length === 0) {
     try { unfollowedLinks = readLinkedDocuments(location.checkoutRoot, location.prdDirectoryFromRoot).unfollowed; }
     catch (error) { problems.push((error as Error).message); }
   }
@@ -210,5 +253,7 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
     lines,
     ...(uncommitted ? { uncommitted } : {}),
     ...(started ? { startedByHand: { holding: started.holding, ...(started.branch ? { branch: started.branch } : {}) } } : {}),
+    ...(holdingBranch ? { holdingBranch } : {}),
+    ...(branchDocuments ? { branchDocuments } : {}),
   };
 }

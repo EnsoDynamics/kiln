@@ -3,13 +3,13 @@
 // holds it, continues there from where it stands, and refuses while a method run is part-way through.
 
 import { EventEmitter } from "node:events";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { runKilnCommand } from "../kiln-command.js";
 import type { Snapshot } from "../engine/snapshot.js";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
-import { PRD } from "../test-support/fixture-documents.js";
+import { DESIGN, PHASES, PRD } from "../test-support/fixture-documents.js";
 import { commitFiles, createGithubOrigin, createRepository, createSandbox, git, type Sandbox } from "../test-support/git-repositories.js";
 import { reservePortRange } from "../test-support/os-ports.js";
 import { branchesHolding, documentsStand, partWayProblems } from "./branches.js";
@@ -155,14 +155,94 @@ it("starts a PRD that is only on a branch from that branch, and asks for --branc
     expect(snapshot.settings.featureBranch).toBe("feature/gift-cards-spike");
   });
   expect(picked.address).toMatch(/\/gift-cards$/);
-  // A branch that holds the PRD with its phase plan is a build: Kiln adds no requirements stage, and says how to build it (AC-BEGIN-05).
+  // A branch that holds the PRD with its phase plan is a build: today's Documents found, read from that branch, with the branch selected and no requirements side (AC-BEGIN-05, AC-BEGIN-08).
   git(h.sandbox, h.repository, "switch", "-q", "feature/gift-cards-spike");
-  commitFiles(h.sandbox, h.repository, "docs/changes/gift-cards", { "phase-1-balance.md": "# Phase 1: Balance\n" });
+  commitFiles(h.sandbox, h.repository, "docs/changes/gift-cards", { "gift-cards-prd.md": PRD.replace("Customer returns", "Gift cards"), "technical-design.md": DESIGN, ...PHASES });
   git(h.sandbox, h.repository, "push", "-q", "origin", "feature/gift-cards-spike");
   git(h.sandbox, h.repository, "switch", "-q", "develop");
-  const planned = await kilnRun(h, ["docs/changes/gift-cards", "--branch", "feature/gift-cards-spike"]);
-  expect(planned.code).toBe(1);
-  expect(planned.out).toContain("docs/changes/gift-cards has its phase plan on feature/gift-cards-spike, which this checkout doesn't hold.");
+  const planned = await kilnRun(h, ["docs/changes/gift-cards", "--branch", "feature/gift-cards-spike"], async (page) => {
+    await waitFor(async () => (await page.snapshot()).documents?.start !== undefined, 20_000);
+    const snapshot = await page.snapshot();
+    expect(snapshot.requirements).toBeUndefined();
+    expect(snapshot.documents).toMatchObject({ design: { file: "technical-design.md" }, plan: { phaseDocCount: Object.keys(PHASES).length }, start: { from: "existing", planSource: { kind: "branch", branch: "feature/gift-cards-spike" } } });
+    expect(snapshot.settings.featureBranch).toBe("feature/gift-cards-spike");
+    // Start builds on that branch: its worktree is the branch, though the checkout never held the PRD.
+    await waitFor(async () => (await page.snapshot()).settings.baseCheck === "ok", 20_000);
+    const started = await page.post("/api/start", { refinementConfirmed: true, previewId: (await page.snapshot()).documents!.start!.previewId });
+    expect(started.status, JSON.stringify(started.body)).toBe(200);
+    await waitFor(async () => (await page.snapshot()).feature.state !== "not_started", 20_000);
+  });
+  expect(planned.address, planned.out).toMatch(/\/gift-cards$/);
+  const built = JSON.parse(readFileSync(join(prdStateDirectory(stateRoot(h.env), h.repository, "acme-shop", "docs/changes/gift-cards"), "prd.json"), "utf8"));
+  expect(built.startedAt).toBeDefined();
+  expect(built.requirements).toBeUndefined();
+  const worktree = (built.repositories as { kind: string; worktreePath: string }[]).find(entry => entry.kind === "prd")!.worktreePath.replace(/^~/, process.env.HOME ?? "");
+  expect(git(h.sandbox, worktree, "branch", "--show-current").trim()).toBe("feature/gift-cards-spike");
+  expect(planned.out).not.toContain("which this checkout doesn't hold");
+});
+
+it("names the missing design for a phase plan on its branch, as for a checkout (AC-BEGIN-08)", async () => {
+  h = await createHarness({ files: { "customer-returns-prd.md": PRD }, sessions: [] });
+  hostOnGithub(h);
+  git(h.sandbox, h.repository, "switch", "-q", "-c", "feature/gift-cards", "develop");
+  commitFiles(h.sandbox, h.repository, "docs/changes/gift-cards", { "gift-cards-prd.md": PRD.replace("Customer returns", "Gift cards"), ...PHASES });
+  git(h.sandbox, h.repository, "switch", "-q", "develop");
+  const bare = await kilnRun(h, ["docs/changes/gift-cards"]);
+  expect(bare.code).toBe(1);
+  expect(bare.out).toContain("technical-design.md   the technical design");
+  expect(bare.out).not.toContain("doesn't have this PRD's documents");
+});
+
+it("selects the unmerged branch that holds a PRD whose phase documents are in the checkout (AC-BEGIN-08)", async () => {
+  h = await createHarness({ sessions: [] });
+  hostOnGithub(h);
+  git(h.sandbox, h.repository, "switch", "-q", "-c", "prd/customer-returns");
+  writeFileSync(join(h.repository, prdFile), PRD + "\nAmended on its branch.\n");
+  git(h.sandbox, h.repository, "commit", "-qam", "amend the PRD");
+  git(h.sandbox, h.repository, "push", "-q", "-u", "origin", "prd/customer-returns");
+  git(h.sandbox, h.repository, "switch", "-q", "develop");
+  const run = await kilnRun(h, [dir], async (page) => {
+    await waitFor(async () => (await page.snapshot()).documents?.start !== undefined, 20_000);
+    const snapshot = await page.snapshot();
+    expect(snapshot.requirements).toBeUndefined();
+    expect(snapshot.documents?.start).toMatchObject({ from: "existing" });
+    expect(snapshot.settings.featureBranch).toBe("prd/customer-returns");
+    await waitFor(async () => (await page.snapshot()).settings.baseCheck === "ok", 20_000);
+    const started = await page.post("/api/start", { refinementConfirmed: true, previewId: (await page.snapshot()).documents!.start!.previewId });
+    expect(started.status, JSON.stringify(started.body)).toBe(200);
+    await waitFor(async () => (await page.snapshot()).feature.state !== "not_started", 20_000);
+  });
+  expect(run.address, run.out).toMatch(/\/customer-returns$/);
+  // Start built on the branch that holds the PRD.
+  const built = JSON.parse(readFileSync(join(prdStateDirectory(stateRoot(h.env), h.repository, "acme-shop", dir), "prd.json"), "utf8"));
+  const worktree = (built.repositories as { kind: string; worktreePath: string }[]).find(entry => entry.kind === "prd")!.worktreePath.replace(/^~/, process.env.HOME ?? "");
+  expect(git(h.sandbox, worktree, "branch", "--show-current").trim()).toBe("prd/customer-returns");
+});
+
+it("opens today's Documents found for a PRD whose phase plan was written after Kiln first opened it (AC-BEGIN-05)", async () => {
+  h = await createHarness({ files: { "customer-returns-prd.md": PRD }, sessions: [] });
+  installMethod(h);
+  hostOnGithub(h);
+  // Opened before its phase plan existed: a never-started record with a requirements side.
+  const first = await kilnRun(h, [dir], async (page) => {
+    await waitFor(async () => (await page.snapshot()).requirements?.start !== undefined);
+  });
+  expect(first.out).toContain("started by hand");
+  const saved = JSON.parse(readFileSync(join(prdStateDirectory(stateRoot(h.env), h.repository, "acme-shop", dir), "prd.json"), "utf8"));
+  expect(saved.requirements).toBeDefined();
+  // The plan written by hand, Start never pressed.
+  commitFiles(h.sandbox, h.repository, dir, { "technical-design.md": DESIGN, ...PHASES });
+  git(h.sandbox, h.repository, "push", "-q", "origin", "develop");
+  const second = await kilnRun(h, [dir], async (page) => {
+    await waitFor(async () => (await page.snapshot()).documents?.plan !== undefined, 20_000);
+    const snapshot = await page.snapshot();
+    expect(snapshot.requirements).toBeUndefined();
+    expect(snapshot.documents?.plan).toMatchObject({ phaseDocCount: Object.keys(PHASES).length });
+  });
+  expect(second.out).not.toContain("started by hand");
+  const after = JSON.parse(readFileSync(join(prdStateDirectory(stateRoot(h.env), h.repository, "acme-shop", dir), "prd.json"), "utf8"));
+  expect(after.requirements).toBeUndefined();
+  expect(after.origin).toBeUndefined();
 });
 
 it("tests which branches hold a PRD directory: unmerged, not squash-merged, never another PRD's prd/ branch (technical design, a branch holds a PRD directory)", async () => {

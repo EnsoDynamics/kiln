@@ -3,7 +3,7 @@
 // reports it. The probe's reading of a live Kiln is `runStateOf`, tested below; its HTTP side is
 // the one `kiln status` uses.
 
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { runStateOf } from "../control/client.js";
@@ -224,4 +224,106 @@ it("reads a live Kiln's feature state as its home line's state (AC-HOME-05)", ()
   expect(["implementing", "waiting"].map(runStateOf)).toEqual(["working", "working"]);
   expect(runStateOf("paused")).toBe("paused");
   expect(["needs_you", "early_review", "final_review", "not_started"].map(runStateOf)).toEqual(Array(4).fill("waiting_for_you"));
+});
+
+it("places origin-only PRDs, uncommitted initiative lists, written PRD-list rows, other runs' branches and received/ beside a brief where kiln run agrees, waiting lines first and by true time (AC-HOME-02 to 04, 12, 13; AC-BEGIN-02, 03)", async () => {
+  sandbox = createSandbox();
+  const origin = createBareOrigin(sandbox, "shop");
+  const repo = createRepository(sandbox, "shop", origin);
+  git(sandbox, repo, "push", "-qu", "origin", "develop");
+  const inspect = (path: string) => inspectSource({ git: "git", env: sandbox!.env }, repo, path);
+  // A PRD merged on origin and not yet pulled: placed from origin's copy, with the step kiln run needs.
+  commitFiles(sandbox, repo, "docs/prds/merged", { "merged-prd.md": "# PRD: Merged\n" });
+  git(sandbox, repo, "push", "-q", "origin", "develop");
+  git(sandbox, repo, "reset", "-q", "--hard", "HEAD~1");
+  // A written row links the PRD file, as the method rewrites it: the row is written from, and its in-production dependency holds nothing back.
+  commitFiles(sandbox, repo, "docs/initiatives/loyalty", {
+    "loyalty-initiative-prds.md": "# Loyalty Initiative PRDs\n\n| # | PRD | Depends on | Status |\n|---|---|---|---|\n| 1 | [Points](../../prds/points/points-prd.md) | None | in production 2026-11-01 |\n| 2 | [Redeem](c.md#redeem) | Points | planned |\n| 3 | [Tiers](../../changes/tiers/tiers-prd.md) | None | PRD written |\n| 4 | [Bonus](c.md#bonus) | Tiers | planned |\n",
+    "c.md": "## Redeem\n\n**PRD directory, when written:** `docs/prds/redeem`\n",
+  });
+  commitFiles(sandbox, repo, "docs/changes/tiers", { "tiers-prd.md": "# PRD: Tiers\n" });
+  // A brief beside received/ with no intake record: an intake not finished.
+  commitFiles(sandbox, repo, "source-material/mixed", { "mixed-brief.md": "# Brief: Mixed\n" });
+  commitFiles(sandbox, repo, "source-material/mixed/received", { "notes.txt": "notes\n" });
+  // A PRD started by hand on its own branch, whose Kiln is open before Start: waiting for the person. Committed first, so only waiting puts it at the top.
+  git(sandbox, repo, "switch", "-q", "-c", "prd/waiting", "develop");
+  sandbox.env.GIT_COMMITTER_DATE = "2026-11-01T00:00:00Z";
+  commitFiles(sandbox, repo, "docs/prds/waiting", { "waiting-prd.md": "# PRD: Waiting\n" });
+  delete sandbox.env.GIT_COMMITTER_DATE;
+  git(sandbox, repo, "switch", "-q", "develop");
+  // A brief committed only on its PRD's branch: written from, so not listed, and kiln run names the PRD.
+  git(sandbox, repo, "switch", "-q", "-c", "feature/gifts");
+  commitFiles(sandbox, repo, "source-material/gifts", { "gifts-brief.md": "# Brief: Gifts\n" });
+  commitFiles(sandbox, repo, "docs/prds/gifts", { "gifts-prd.md": "# PRD: Gifts\n" });
+  // An initiative list committed only on another branch.
+  git(sandbox, repo, "switch", "-q", "-c", "plan/rota", "develop");
+  commitFiles(sandbox, repo, "docs/initiatives/rota", { "rota-initiative-prds.md": "# Rota Initiative PRDs\n\n| # | PRD | Depends on | Status |\n|---|---|---|---|\n| 1 | [Swaps](c.md#swaps) | None | planned |\n", "c.md": "## Swaps\n\nNothing yet.\n" });
+  // A completed Kiln run's branch holds another PRD's documents: no candidate for it, as kiln run reads it.
+  git(sandbox, repo, "switch", "-q", "-c", "feature/done-run", "develop");
+  commitFiles(sandbox, repo, "docs/prds/stray", { "stray-prd.md": "# PRD: Stray\n" });
+  git(sandbox, repo, "switch", "-q", "develop");
+  // Two quiet PRDs committed in different time zones: the later instant comes first, whatever the text says.
+  sandbox.env.GIT_COMMITTER_DATE = "2026-11-20T10:00:00+09:00";
+  commitFiles(sandbox, repo, "docs/prds/east", { "east-prd.md": "# PRD: East\n" });
+  sandbox.env.GIT_COMMITTER_DATE = "2026-11-20T00:30:00-05:00";
+  commitFiles(sandbox, repo, "docs/prds/west", { "west-prd.md": "# PRD: West\n" });
+  delete sandbox.env.GIT_COMMITTER_DATE;
+  // A completed run's branch stem and an earlier execution's branch: no candidate either.
+  for (const [branch, folder] of [["feature/done-stem", "stem-stray"], ["feature/done-earlier", "earlier-stray"]] as const) {
+    git(sandbox, repo, "switch", "-q", "-c", branch, "develop");
+    commitFiles(sandbox, repo, `docs/prds/${folder}`, { [`${folder}-prd.md`]: `# PRD: ${folder}\n` });
+  }
+  git(sandbox, repo, "switch", "-q", "develop");
+  git(sandbox, repo, "fetch", "-q", "origin");
+  // An initiative list only in the checkout.
+  mkdirSync(join(repo, "docs/initiatives/draft"), { recursive: true });
+  writeFileSync(join(repo, "docs/initiatives/draft/draft-initiative-prds.md"), "# Draft Initiative PRDs\n\n| # | PRD | Depends on | Status |\n|---|---|---|---|\n| 1 | [First](c.md#first) | None | planned |\n");
+
+  const opened = record(repo, "docs/prds/waiting", () => undefined);
+  const done = record(repo, "docs/prds/other-done", one => {
+    one.startedAt = "2026-11-01T00:00:00Z";
+    one.completedAt = "2026-11-02T00:00:00Z";
+    one.settings.featureBranch = "feature/done-run";
+    one.branchStem = "feature/done-stem";
+    one.continuation = { executions: [{ branch: "feature/done-earlier" }] } as unknown as NonNullable<PrdRecord["continuation"]>;
+    one.repositories = [{ name: "shop", kind: "prd", mainCheckoutPath: repo }] as unknown as PrdRecord["repositories"];
+  });
+  const scan = await scanRepository({ git: { git: "git", env: sandbox.env }, repository: { name: "shop", path: repo }, works: [opened], allWorks: [opened, done], probe: async work => work === opened ? { state: "waiting_for_you" } : { state: "not_running" } });
+  const all = [...scan.underWay, ...scan.ready, ...scan.notReady, ...scan.folded];
+  const titles = all.map(one => one.title);
+  // Each item once.
+  expect(new Set(all.map(one => one.id)).size).toBe(all.length);
+  const paths = all.map(one => one.path);
+  // The material is hidden by the PRD written from it, which its own branch puts Under way.
+  expect(paths).not.toContain("source-material/gifts");
+  expect(scan.underWay.find(one => one.path === "docs/prds/gifts")).toMatchObject({ branch: "feature/gifts" });
+  expect(titles).not.toContain("Loyalty: Tiers");
+  expect(paths).not.toContain("docs/prds/stray");
+  expect(paths).not.toContain("docs/prds/stem-stray");
+  expect(paths).not.toContain("docs/prds/earlier-stray");
+  // Its dependency's row links the PRD file and reads in production, so its build waits for nothing (AC-HOME-02).
+  const redeem = scan.ready.find(one => one.title === "Loyalty: Redeem");
+  expect(redeem).toMatchObject({ path: "docs/initiatives/loyalty/redeem", line: "" });
+  expect(redeem).not.toHaveProperty("buildWaitsFor");
+  // A dependency whose row links its PRD but isn't in production still holds the build back.
+  expect(scan.ready.find(one => one.title === "Loyalty: Bonus")).toMatchObject({ buildWaitsFor: ["Tiers"], line: "Its build waits for Tiers." });
+  expect(scan.notReady.find(one => one.path === "source-material/mixed")?.line).toContain("intake record isn't written yet");
+  expect(scan.notReady.find(one => one.title === "Rota: Swaps")?.line).toBe("Its initiative's PRD list isn't committed on develop, only on plan/rota. Commit docs/initiatives/rota/rota-initiative-prds.md there and it moves up.");
+  // Its contracts file isn't committed either, so the list is one line.
+  expect(scan.notReady.find(one => one.path === "docs/initiatives/draft")?.line).toBe("Its initiative's PRD list isn't committed on develop. Commit docs/initiatives/draft/draft-initiative-prds.md there and it moves up.");
+  const merged = scan.folded.find(one => one.path === "docs/prds/merged");
+  expect(merged?.line).toContain("Committed on origin's develop only. Bring your local develop up to date to open it.");
+  expect(scan.underWay[0]).toMatchObject({ title: "Waiting", waitsForYou: true, state: "waiting_for_you" });
+  const folded = scan.folded.map(one => one.title);
+  expect(folded.filter(title => title === "West" || title === "East")).toEqual(["West", "East"]);
+
+  // kiln run agrees with each line.
+  expect(await inspect("docs/initiatives/loyalty/tiers")).toEqual({ problem: "docs/changes/tiers was written from docs/initiatives/loyalty/tiers: its row in docs/initiatives/loyalty/loyalty-initiative-prds.md is no longer planned." });
+  expect(await inspect("source-material/gifts")).toEqual({ problem: "docs/prds/gifts was written from source-material/gifts." });
+  // An edited folder something was written from still names what was written, before any commit step (AC-BEGIN-02).
+  mkdirSync(join(repo, "source-material/gifts"), { recursive: true });
+  writeFileSync(join(repo, "source-material/gifts/notes.md"), "x\n");
+  expect(await inspect("source-material/gifts")).toEqual({ problem: "docs/prds/gifts was written from source-material/gifts." });
+  expect(await inspect("source-material/mixed")).toMatchObject({ problem: expect.stringContaining("mixed-requirements-intake.md") });
+  expect(await inspect("docs/initiatives/rota/swaps")).toEqual({ problem: "docs/initiatives/rota/rota-initiative-prds.md isn't committed on develop, only on plan/rota. Commit it on develop." });
 });

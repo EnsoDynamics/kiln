@@ -44,7 +44,8 @@ export async function initiativeRows(git: GitContext, cwd: string, ref: string, 
     if (!line.trim().startsWith("|")) { header = undefined; continue; }
     const cells = line.trim().split("|").map(c => c.trim());
     if (cells.every(c => /^:?-*:?$/.test(c))) continue;
-    const link = cells[2]?.match(/^\[([^\]]+)\]\(([^)#]+)#([^)]+)\)$/);
+    // A planned row links its scope entry in the contracts file; once the PRD is written the method points the link at the PRD file (`initiative-breakdown`).
+    const link = cells[2]?.match(/^\[([^\]]+)\]\(([^)#\s]+)(?:#([^)]+))?\)$/);
     if (!link) { if (!header && cells.some(c => /status/i.test(c))) header = cells.map(c => c.toLowerCase()); continue; }
     const status = cells.at(-2) ?? "";
     const dependsAt = header?.findIndex(c => c.includes("depends")) ?? -1;
@@ -53,7 +54,11 @@ export async function initiativeRows(git: GitContext, cwd: string, ref: string, 
     let directory: string | undefined;
     let written: string | undefined;
     let contract: string | undefined;
-    if (posix.basename(link[2]!) === link[2] && link[2]!.endsWith(".md")) {
+    const prdLink = posix.normalize(posix.join(folder, link[2]!)).match(/^(docs\/(?:prds|changes)\/([^/]+))\/\2-prd\.md$/);
+    if (prdLink) {
+      written = prdLink[1];
+      directory = prdLink[2];
+    } else if (link[3] !== undefined && posix.basename(link[2]!) === link[2] && link[2]!.endsWith(".md")) {
       contract = posix.join(folder, link[2]!);
       if (!contracts.has(contract)) {
         const present = await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", ref, "--", contract]);
@@ -73,13 +78,16 @@ export async function initiativeRows(git: GitContext, cwd: string, ref: string, 
 /** What `kiln run` found for a PRD directory with no phase documents (AC-BEGIN-04, AC-BEGIN-08). */
 export interface StartedPrd { origin: RequirementsOrigin; base: string; branch?: HoldingBranch; holding: HoldingBranch[]; partWay: string[] }
 
+/** A PRD whose phase plan is on the branch that holds it: a build, started on that branch (AC-BEGIN-05, AC-BEGIN-08). */
+export interface PlanOnBranch { planOn: HoldingBranch; holding: HoldingBranch[] }
+
 /**
  * A PRD started by hand (technical design, "What `kiln run` accepts"): the branch that holds it,
  * the newest when several do, or for a directory not in the checkout the one branch that does
  * (`--branch` picks among several); its documents at that start commit, or at the local shared
  * branch's tip; and any method run part-way through in a worktree.
  */
-export async function inspectStartedPrd(git: GitContext, cwd: string, mainCheckout: string, directory: string, options: { exclude?: ReadonlySet<string>; branch?: string } = {}): Promise<StartedPrd | { problem: string }> {
+export async function inspectStartedPrd(git: GitContext, cwd: string, mainCheckout: string, directory: string, options: { exclude?: ReadonlySet<string>; branch?: string } = {}): Promise<StartedPrd | PlanOnBranch | { problem: string }> {
   const remote = await originBranches(git, cwd);
   if (!remote.ok) return { problem: remote.error };
   const base = defaultBaseBranch(remote.value);
@@ -90,13 +98,22 @@ export async function inspectStartedPrd(git: GitContext, cwd: string, mainChecko
     branch = holding.find(one => one.name === options.branch);
     if (!branch) return { problem: `${options.branch} doesn't hold ${directory}.${holding.length ? ` The branches that do: ${holding.map(one => one.name).join(", ")}.` : ""}` };
   } else if (!inCheckout) {
-    if (!holding.length) return { problem: `${directory} isn't in this checkout or on any branch that hasn't merged.` };
+    if (!holding.length) {
+      // Merged on origin and not yet pulled: the step left is the one the home screen names (AC-HOME-04).
+      const behind = remote.value.branches.get(base);
+      const held = behind && (await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", `refs/remotes/origin/${base}`, "--", prdFile(directory)]).catch(() => ""));
+      if (held) return { problem: `${directory} is committed only on origin's ${base}. Bring the local shared branch ${base} up to date.` };
+      return { problem: `${directory} isn't in this checkout or on any branch that hasn't merged.` };
+    }
     if (holding.length > 1) return { problem: `${directory} is on several branches: ${holding.map(one => one.name).join(", ")}. Name one with --branch.` };
     branch = holding[0];
   } else branch = holding[0];
   const commit = branch?.tip ?? await localBranchCommit(git, cwd, base);
   if (!commit) return { problem: `Bring the local shared branch ${base} up to date.` };
   const where = branch?.name ?? base;
+  const files = (await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", "--name-only", "-z", commit, "--", `${directory}/`])).split("\0").filter(Boolean);
+  // A phase plan on the branch that holds the PRD is a build, which starts on that branch (AC-BEGIN-05, AC-BEGIN-08).
+  if (branch && files.some(file => isPhaseFileName(basename(file)))) return { planOn: branch, holding };
   const prd = prdFile(directory);
   if (!(await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", commit, "--", prd])).startsWith("100")) return { problem: `Commit ${prd} on ${where}.` };
   const partWay = await partWayProblems(git, mainCheckout, directory);
@@ -105,40 +122,35 @@ export async function inspectStartedPrd(git: GitContext, cwd: string, mainChecko
     // A method run part-way through replaces the uncommitted-changes line for this directory.
     if (dirty && !partWay.length) return { problem: `Commit the changes under ${directory} on ${where}:\n${dirty}` };
   }
-  const files = (await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", "--name-only", "-z", commit, "--", `${directory}/`])).split("\0").filter(Boolean);
-  // A phase plan on the branch is a build, which Kiln starts only from phase documents in the checkout (AC-BEGIN-05).
-  if (branch && files.some(file => isPhaseFileName(basename(file)))) return { problem: `${directory} has its phase plan on ${branch.name}, which this checkout doesn't hold. Kiln builds from the phase documents in the checkout: merge ${branch.name} into ${base} and pull, then run kiln run again.` };
   const text = await gitText(git, cwd, ["show", `${commit}:${prd}`]);
   const title = text.match(/^#\s+(.+?)\s*$/m)?.[1]?.replace(/^PRD:\s*/i, "") ?? basename(directory).replaceAll("-", " ");
   const committedAt = await gitText(git, cwd, ["show", "-s", "--format=%cI", commit]);
   return { origin: { kind: "prd", path: directory, title, files, commit, committedAt }, base, ...(branch ? { branch } : {}), holding, partWay };
 }
 
+/**
+ * The start checks' read of source material or a planned PRD (technical design, "What `kiln run`
+ * accepts"), in AC-HOME-13's order: material something was written from names what was written
+ * first; then material not committed on the local shared branch names what to commit, or to bring
+ * the local shared branch up to date when only origin's copy holds it (AC-BEGIN-02, AC-BEGIN-03).
+ */
 export async function inspectSource(git: GitContext, cwd: string, path: string): Promise<{ origin: RequirementsOrigin; base: string } | { problem: string }> {
   if (!sourcePath(path)) return { problem: `Unknown source material path: ${path}` };
   const remote = await originBranches(git, cwd);
   if (!remote.ok) return { problem: remote.error };
   const base = defaultBaseBranch(remote.value);
   const commit = await localBranchCommit(git, cwd, base);
-  if (!commit) return { problem: `Bring the local shared branch ${base} up to date.` };
   const parts = path.split("/");
   const initiative = parts[0] === "docs";
   const folder = initiative ? parts.slice(0, 3).join("/") : path;
   const name = basename(folder);
-  const files = (await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", "-r", "--name-only", "-z", commit, "--", folder])).split("\0").filter(Boolean);
   const intake = `${folder}/${name}-requirements-intake.md`;
   const brief = `${folder}/${briefName(name)}`;
   const list = `${folder}/${name}-initiative-prds.md`;
-  const file = initiative ? list : files.includes(brief) ? brief : intake;
-  if (!files.includes(file)) return { problem: initiative ? `Commit ${list} on ${base}.` : `Commit ${brief} or ${intake} on ${base}.` };
-  const dirty = await gitText(git, cwd, ["--literal-pathspecs", "status", "--porcelain", "--untracked-files=all", "--", folder]);
-  if (dirty) return { problem: `Commit the changes under ${folder} on ${base}:\n${dirty}` };
-  const differs = await gitText(git, cwd, ["--literal-pathspecs", "diff", "--name-only", commit, "--", folder]);
-  if (differs) return { problem: `Commit the source material on ${base}:\n${differs}` };
-  const input = await gitText(git, cwd, ["show", `${commit}:${file}`]);
-  const title = input.match(/^#\s+(.+?)\s*$/m)?.[1]?.replace(/^(?:brief|requirements intake):\s*/i, "") ?? name.replaceAll("-", " ");
-  const committedAt = await gitText(git, cwd, ["show", "-s", "--format=%cI", commit]);
-  const refs = [...new Set((await gitText(git, cwd, ["for-each-ref", "--format=%(objectname)", "refs/heads/", "refs/remotes/origin/"])).split("\n").filter(Boolean))];
+  const refList = (await gitText(git, cwd, ["for-each-ref", "--format=%(refname)%00%(objectname)", "refs/heads/", "refs/remotes/origin/"])).split("\n").filter(Boolean).map(line => line.split("\0") as [string, string]).filter(([ref]) => ref !== "refs/remotes/origin/HEAD");
+  const refs = [...new Set(refList.map(([, sha]) => sha))];
+  const originShared = refList.find(([ref]) => ref === `refs/remotes/origin/${base}`)?.[1];
+  const held = async (ref: string, file: string) => (await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", ref, "--", file])).startsWith("100");
   // The first PRD or initiative folder of these paths on any local or origin branch (AC-HOME-13, first row).
   const writtenOnAnyBranch = async (paths: string[]) => {
     for (const ref of refs) {
@@ -147,30 +159,91 @@ export async function inspectSource(git: GitContext, cwd: string, path: string):
     }
     return undefined;
   };
-  let origin: RequirementsOrigin;
-  let existing: string[];
-  if (initiative) {
-    let all: InitiativeRow[];
-    try { all = await initiativeRows(git, cwd, commit, folder, input); }
-    catch (error) { return { problem: (error as Error).message }; }
-    const rows = all.filter(r => r.status === "planned");
-    const row = rows.find(r => r.directory === parts[3]);
+  // Where a file the local shared branch lacks is committed: origin's copy of it, else another branch (AC-BEGIN-03).
+  const elsewhere = async (file: string): Promise<{ origin: true } | { branch: string } | undefined> => {
+    if (originShared && await held(originShared, file)) return { origin: true };
+    for (const [ref, sha] of refList) {
+      if (ref === `refs/heads/${base}` || ref === `refs/remotes/origin/${base}`) continue;
+      if (await held(sha, file)) return { branch: ref.replace(/^refs\/(?:heads|remotes)\//, "") };
+    }
+    return undefined;
+  };
+  const notCommitted = async (file: string, otherwise: string) => {
+    const found = await elsewhere(file);
+    if (found && "origin" in found) return `${file} is committed only on origin's ${base}. Bring the local shared branch ${base} up to date.`;
+    if (found) return `${file} isn't committed on ${base}, only on ${found.branch}. Commit it on ${base}.`;
+    return existsSync(join(cwd, file)) ? `${file} isn't committed on ${base}. Commit it on ${base}.` : otherwise;
+  };
+
+  if (!initiative) {
+    const match = await writtenOnAnyBranch([`docs/prds/${name}`, `docs/changes/${name}`, `docs/initiatives/${name}`]);
+    if (match) return { problem: `${match} was written from ${path}.` };
+    if (!commit) return { problem: `Bring the local shared branch ${base} up to date.` };
+    const files = (await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", "-r", "--name-only", "-z", commit, "--", folder])).split("\0").filter(Boolean);
+    const file = files.includes(brief) ? brief : files.includes(intake) ? intake : undefined;
+    if (!file) {
+      const other = (await elsewhere(brief)) ? brief : (await elsewhere(intake)) ? intake : existsSync(join(cwd, brief)) ? brief : existsSync(join(cwd, intake)) ? intake : undefined;
+      return { problem: other ? await notCommitted(other, "") : `Commit ${brief} or ${intake} on ${base}.` };
+    }
+    // Material brought in under received/ with no intake record is an intake not finished, even beside a brief (HOME-004, AC-HOME-13 row 2).
+    if (file === brief && !files.includes(intake) && (files.some(one => one.startsWith(`${folder}/received/`)) || existsSync(join(cwd, folder, "received")))) return { problem: `Write ${intake}: the material brought in under ${folder}/received/ has no intake record yet.` };
+    const dirty = await gitText(git, cwd, ["--literal-pathspecs", "status", "--porcelain", "--untracked-files=all", "--", folder]);
+    if (dirty) return { problem: `Commit the changes under ${folder} on ${base}:\n${dirty}` };
+    const differs = await gitText(git, cwd, ["--literal-pathspecs", "diff", "--name-only", commit, "--", folder]);
+    if (differs) return { problem: `Commit the source material on ${base}:\n${differs}` };
+    const input = await gitText(git, cwd, ["show", `${commit}:${file}`]);
+    const title = input.match(/^#\s+(.+?)\s*$/m)?.[1]?.replace(/^(?:brief|requirements intake):\s*/i, "") ?? name.replaceAll("-", " ");
+    const committedAt = await gitText(git, cwd, ["show", "-s", "--format=%cI", commit]);
+    return { origin: { kind: file === brief ? "brief" : "intake", path, title, files, commit, committedAt }, base };
+  }
+
+  // A planned PRD's row is read from the shared branch: the local copy, else origin's, to say what was written from it before anything else.
+  const rowsAt = async (ref: string) => {
+    if (!(await held(ref, list))) return undefined;
+    const markdown = await gitText(git, cwd, ["show", `${ref}:${list}`]);
+    try { return { markdown, rows: await initiativeRows(git, cwd, ref, folder, markdown) }; }
+    catch (error) { return { markdown, problem: (error as Error).message }; }
+  };
+  const local = commit ? await rowsAt(commit) : undefined;
+  const fromOrigin = originShared && originShared !== commit ? await rowsAt(originShared) : undefined;
+  const wanted = parts[3];
+  for (const read of [local, fromOrigin]) {
     // A row the method has marked written says which PRD was written from it (AC-BEGIN-02).
-    const done = row ? undefined : all.find(r => r.directory === parts[3]);
+    const done = read?.rows?.find(r => r.directory === wanted && r.status !== "planned");
     if (done) {
       const found = await writtenOnAnyBranch([`docs/prds/${done.directory}`, `docs/changes/${done.directory}`]);
       return { problem: `${found ?? done.written ?? `The PRD ${done.name}`} was written from ${path}: its row in ${list} is no longer planned.` };
     }
-    if (!row) return { problem: `Planned PRDs in ${folder}: ${rows.map(r => r.directory).join(", ") || "none"}. Name one with --prd.` };
-    // Only a directory the row's scope entry names is matched to a PRD written by hand; a row without one, only through Kiln's record (technical design, "What Kiln Knows").
-    existing = row.fromLine ? [`docs/prds/${row.directory}`, `docs/changes/${row.directory}`, ...(row.directory === name ? [] : [`docs/initiatives/${row.directory}`])] : [];
-    const heading = title.replace(/(?:\s+[—–-]\s+|\s+)Initiative PRDs$/i, "");
-    origin = { kind: "planned_prd", path, initiative: { path: folder, row: row.name }, commit, committedAt, title: `${heading}: ${row.name}`, files: [file, ...(row.contract && files.includes(row.contract) ? [row.contract] : [])] };
-  } else {
-    origin = { kind: file === brief ? "brief" : "intake", path, title, files, commit, committedAt };
-    existing = [`docs/prds/${name}`, `docs/changes/${name}`, `docs/initiatives/${name}`];
+    const row = read?.rows?.find(r => r.directory === wanted);
+    if (row?.fromLine) {
+      const match = await writtenOnAnyBranch([`docs/prds/${row.directory}`, `docs/changes/${row.directory}`, ...(row.directory === name ? [] : [`docs/initiatives/${row.directory}`])]);
+      if (match) return { problem: `${match} was written from ${path}.` };
+    }
+    if (row) break;
   }
-  const match = existing.length ? await writtenOnAnyBranch(existing) : undefined;
-  if (match) return { problem: `${match} was written from ${path}.` };
+  if (!commit) return { problem: `Bring the local shared branch ${base} up to date.` };
+  if (!local) return { problem: await notCommitted(list, `Commit ${list} on ${base}.`) };
+  if (local.problem) return { problem: local.problem };
+  const dirty = await gitText(git, cwd, ["--literal-pathspecs", "status", "--porcelain", "--untracked-files=all", "--", folder]);
+  if (dirty) return { problem: `Commit the changes under ${folder} on ${base}:\n${dirty}` };
+  const differs = await gitText(git, cwd, ["--literal-pathspecs", "diff", "--name-only", commit, "--", folder]);
+  if (differs) return { problem: `Commit the source material on ${base}:\n${differs}` };
+  const rows = local.rows!.filter(r => r.status === "planned");
+  const row = rows.find(r => r.directory === wanted);
+  if (!row && wanted !== undefined) {
+    // A planned row the local list lacks: origin's copy has it, or another branch's copy does; the checkout's own copy is an uncommitted change, named above (AC-BEGIN-03).
+    if (fromOrigin?.rows?.some(r => r.directory === wanted && r.status === "planned")) return { problem: `${list} has ${wanted} only on origin's ${base}. Bring the local shared branch ${base} up to date.` };
+    const rowIn = async (markdown: string, ref: string) => (await initiativeRows(git, cwd, ref, folder, markdown).catch(() => [])).some(r => r.directory === wanted && r.status === "planned");
+    for (const [ref, sha] of refList) {
+      if (ref === `refs/heads/${base}` || ref === `refs/remotes/origin/${base}` || !(await held(sha, list))) continue;
+      if (await rowIn(await gitText(git, cwd, ["show", `${sha}:${list}`]), sha)) return { problem: `${list} has ${wanted} only on ${ref.replace(/^refs\/(?:heads|remotes)\//, "")}. Commit ${list} on ${base}.` };
+    }
+  }
+  if (!row) return { problem: `Planned PRDs in ${folder}: ${rows.map(r => r.directory).join(", ") || "none"}. Name one with --prd.` };
+  const files = (await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", "-r", "--name-only", "-z", commit, "--", folder])).split("\0").filter(Boolean);
+  const title = local.markdown.match(/^#\s+(.+?)\s*$/m)?.[1] ?? name.replaceAll("-", " ");
+  const committedAt = await gitText(git, cwd, ["show", "-s", "--format=%cI", commit]);
+  const heading = title.replace(/(?:\s+[—–-]\s+|\s+)Initiative PRDs$/i, "");
+  const origin: RequirementsOrigin = { kind: "planned_prd", path, initiative: { path: folder, row: row.name }, commit, committedAt, title: `${heading}: ${row.name}`, files: [list, ...(row.contract && files.includes(row.contract) ? [row.contract] : [])] };
   return { origin, base };
 }

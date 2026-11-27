@@ -60,8 +60,14 @@ export async function resolvePrdPath(pathArgument: string, cwd: string, git: str
     // A PRD directory only on a branch that hasn't merged (AC-BEGIN-08): the start checks look for the branch that holds it.
     const prdOnBranch = /^(?:prds|changes)$/.test(basename(parent)) && basename(dirname(parent)) === "docs";
     const prdFileOnBranch = absolute.endsWith("-prd.md") && basename(absolute) === `${basename(parent)}-prd.md` && /^(?:prds|changes)$/.test(basename(dirname(parent))) && basename(dirname(dirname(parent))) === "docs";
-    if (!missingPrdFile && !virtualPlanned && !prdOnBranch && !prdFileOnBranch) return { problem: `${pathArgument} doesn't exist.` };
-    if (prdOnBranch || prdFileOnBranch) {
+    // Source material, or an initiative's list, committed only on another branch or origin's copy: the start checks name what to commit (AC-BEGIN-03).
+    const sourceOnBranch = basename(parent) === "source-material" && existsSync(dirname(parent))
+      || basename(parent) === "initiatives" && basename(dirname(parent)) === "docs" && existsSync(dirname(dirname(parent)))
+      || !existsSync(parent) && basename(dirname(parent)) === "initiatives" && basename(dirname(dirname(parent))) === "docs" && existsSync(dirname(dirname(dirname(parent))));
+    if (!missingPrdFile && !virtualPlanned && !prdOnBranch && !prdFileOnBranch && !sourceOnBranch) return { problem: `${pathArgument} doesn't exist.` };
+    if (sourceOnBranch) {
+      directory = absolute;
+    } else if (prdOnBranch || prdFileOnBranch) {
       const root = prdOnBranch ? dirname(dirname(parent)) : dirname(dirname(dirname(parent)));
       if (!existsSync(root)) return { problem: `${pathArgument} doesn't exist.` };
       const realRoot = realpathSync.native(root);
@@ -83,7 +89,7 @@ export async function resolvePrdPath(pathArgument: string, cwd: string, git: str
   const checkoutRoot = realpathSync.native(resolve(toplevel.stdout.trim()));
 
   const virtualPlanned = !existsSync(absolute) && !fileName && basename(dirname(realDirectory)) === "initiatives";
-  const parts = relative(checkoutRoot, virtualPlanned ? resolve(realDirectory, basename(absolute)) : realDirectory).split(sep);
+  const parts = relative(checkoutRoot, virtualPlanned && existsSync(realDirectory) ? resolve(realDirectory, basename(absolute)) : realDirectory).split(sep);
   const [docs, kind] = parts;
   const folderName = parts.at(-1)!;
   const fromSource = sourcePath(parts.join("/"));

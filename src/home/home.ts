@@ -25,7 +25,7 @@ import { SECURITY_HEADERS, TOKEN_HEADER } from "../server/local-server.js";
 import { takeInstanceLock, viewAddress, PORT_RANGE, type InstanceLockContent } from "../state/instance-lock.js";
 import { ensurePrivateDirectory, newToken, prdStateDirectory, stateRoot } from "../state/state-files.js";
 import { readPlanForHome } from "./home-plan.js";
-import { repositoriesIn, scanRepository, type HomeItem, type RepositoryScan } from "./scan.js";
+import { newestFirst, repositoriesIn, scanRepository, type HomeItem, type RepositoryScan } from "./scan.js";
 import type { CommandContext } from "../kiln-command.js";
 
 /** The home list the page shows (technical design, "Snapshot", the home list). */
@@ -57,7 +57,23 @@ export async function homeScope(cwd: string, git: string, env: NodeJS.ProcessEnv
     return { kind: "repository", path: main, name: basename(main), repositories: [{ name: basename(main), path: main }] };
   }
   const folder = realpathSync.native(cwd);
-  return { kind: "folder", path: folder, name: basename(folder), repositories: repositoriesIn(folder).map(one => ({ ...one, path: realpathSync.native(one.path) })) };
+  // A linked worktree counts as its main checkout's repository, never as one of its own (AC-HOME-09, AC-HOME-13).
+  const repositories = new Map<string, { name: string; path: string }>();
+  for (const one of repositoriesIn(folder)) {
+    const main = await mainCheckoutOf(context, realpathSync.native(one.path));
+    if (!repositories.has(main)) repositories.set(main, { name: basename(main), path: main });
+  }
+  return { kind: "folder", path: folder, name: basename(folder), repositories: [...repositories.values()].sort((a, b) => a.name.localeCompare(b.name)) };
+}
+
+/** The main checkout of the repository a checkout or linked worktree belongs to: the first entry `git worktree list` gives. */
+async function mainCheckoutOf(context: { git: string; env: NodeJS.ProcessEnv }, path: string): Promise<string> {
+  if (!statSync(join(path, ".git")).isFile()) return path;
+  const listed = await runGit(context, path, ["worktree", "list", "--porcelain"]);
+  const first = listed.exitCode === 0 ? /^worktree (.+)$/m.exec(listed.stdout)?.[1]?.trim() : undefined;
+  if (!first) return path;
+  const top = await runGit(context, first, ["rev-parse", "--show-toplevel"]);
+  try { return realpathSync.native(resolve(top.exitCode === 0 ? top.stdout.trim() : first)); } catch { return path; }
 }
 
 /** One list across the scope's repositories (AC-HOME-09): each line names its repository, and those with nothing found are named. */
@@ -66,12 +82,12 @@ export async function buildHomeList(scope: HomeScope, env: NodeJS.ProcessEnv, gi
   const scans: RepositoryScan[] = [];
   for (const repository of scope.repositories) {
     const own = works.filter(work => resolve(work.record.repository.mainCheckoutPath) === repository.path);
-    scans.push(await scanRepository({ git: { git, env }, repository, works: own, probe: work => probeRun(work) }));
+    scans.push(await scanRepository({ git: { git, env }, repository, works: own, allWorks: works, probe: work => probeRun(work) }));
   }
   const shared = new Set(scans.map(scan => scan.sharedBranch));
   const all = (key: "underWay" | "ready" | "notReady" | "folded") => scans.flatMap(scan => scan[key]);
-  const underWay = all("underWay").sort((a, b) => Number(!!b.waitsForYou) - Number(!!a.waitsForYou) || (b.lastChanged ?? "").localeCompare(a.lastChanged ?? ""));
-  const folded = all("folded").sort((a, b) => (b.lastChanged ?? "").localeCompare(a.lastChanged ?? ""));
+  const underWay = all("underWay").sort((a, b) => Number(!!b.waitsForYou) - Number(!!a.waitsForYou) || newestFirst(a, b));
+  const folded = all("folded").sort(newestFirst);
   const empty = (scan: RepositoryScan) => !scan.underWay.length && !scan.ready.length && !scan.notReady.length && !scan.folded.length;
   const only = [...shared][0];
   return {

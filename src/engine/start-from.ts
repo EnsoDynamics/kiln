@@ -60,6 +60,13 @@ export async function readRepositoryRefs(git: GitContext, mainCheckoutPath: stri
 /** Another started PRD's feature branches in one main checkout (AC-FROM-03 row 2). */
 export interface OtherPrdBranch { mainCheckoutPath: string; branch: string; featureName: string }
 
+/** A started record's branches, no candidate for another PRD: its feature branch, its branch stem and each earlier execution's branch. Empty for a record never started. */
+export function startedBranches(record: { startedAt?: string; branchStem?: string; settings?: { featureBranch?: string }; continuation?: { executions?: { branch?: unknown }[] } }): string[] {
+  if (!record?.startedAt || typeof record.settings?.featureBranch !== "string") return [];
+  const executionBranches = (record.continuation?.executions ?? []).map(row => row.branch).filter((branch): branch is string => typeof branch === "string");
+  return [...new Set([record.settings.featureBranch, ...(record.branchStem ? [record.branchStem] : []), ...executionBranches])];
+}
+
 /**
  * Every saved record under the state root, other than this PRD's, that is started: each repository
  * entry's main checkout with its feature branch, its branch stem, and each earlier execution's branch.
@@ -77,9 +84,7 @@ export function otherStartedBranches(stateDirectory: string): OtherPrdBranch[] {
       if (comparable(directory) === comparable(stateDirectory)) continue;
       let record: { startedAt?: string; featureName?: string; branchStem?: string; settings?: { featureBranch?: string }; repositories?: { mainCheckoutPath?: string }[]; continuation?: { executions?: { branch?: unknown }[] } };
       try { record = JSON.parse(readFileSync(join(directory, "prd.json"), "utf8")); } catch { continue; }
-      if (!record?.startedAt || typeof record.settings?.featureBranch !== "string") continue;
-      const executionBranches = (record.continuation?.executions ?? []).map(row => row.branch).filter((branch): branch is string => typeof branch === "string");
-      const branches = [...new Set([record.settings.featureBranch, ...(record.branchStem ? [record.branchStem] : []), ...executionBranches])];
+      const branches = startedBranches(record);
       for (const entry of record.repositories ?? []) {
         if (typeof entry.mainCheckoutPath !== "string") continue;
         for (const branch of branches) found.push({ mainCheckoutPath: entry.mainCheckoutPath, branch, featureName: record.featureName ?? prd });
