@@ -6,7 +6,7 @@ import type { Tier } from "../plan/phase-document.js";
 import { defaultsRowFor, resolveModel, resolveNotStarted, fallbackFor, type ActivityChoice, type ChoiceSource, type ModelList, type ResolvedChoice } from "../models/resolver.js";
 import { readModelDefaults, type DefaultsRow, type ModelDefaults } from "../models/model-defaults.js";
 import { AGENT_NAMES, PR_PHASE_KEY, type AgentId, type PrdRecord, type RecordedPlanPhase, type SessionRecord } from "../state/records.js";
-import { isPhaseKey } from "../state/activity-keys.js";
+import { activityKeyKind, isPhaseKey } from "../state/activity-keys.js";
 import { startingSession } from "../models/start-line.js";
 import { effectiveRecordedClosed } from "./waivers.js";
 import { requirement } from "../agents/tooling-minimums.js";
@@ -137,7 +137,8 @@ export function tierView(phase: Pick<RecordedPlanPhase, "modelTier"> | undefined
 }
 
 /** The Model defaults row an activity uses: a phase's tier's, Not rated as Standard; every other activity Audits. */
-export function rowOfActivity(plan: RecordedPlanPhase[], key: string): DefaultsRow {
+export function rowOfActivity(plan: RecordedPlanPhase[], key: string, record?: PrdRecord): DefaultsRow {
+  if (activityKeyKind(key) === "requirements") return key === "req-design" || key !== "req-next" && record?.requirements?.designSpan ? "refining_design" : "requirements";
   if (!isPhaseKey(key) || key === PR_PHASE_KEY) return defaultsRowFor("audits");
   return defaultsRowFor(plan.find(phase => phase.id === key)?.modelTier?.tier);
 }
@@ -145,6 +146,10 @@ export function rowOfActivity(plan: RecordedPlanPhase[], key: string): DefaultsR
 /** The activity's own entry: a phase's, by its id, or the PRD's one Audits entry. */
 function entryOf(record: PrdRecord, key: string) {
   const choices = record.settings.modelChoices;
+  if (activityKeyKind(key) === "requirements") {
+    const stage = record.requirements?.stages.find(stage => key === `req-${stage.activityId}`);
+    return choices.stages?.[stage?.key ?? "kiln:next"];
+  }
   return isPhaseKey(key) && key !== PR_PHASE_KEY ? choices.phases[key] : choices.audits;
 }
 
@@ -174,22 +179,22 @@ export function defaultsNow(context: Pick<ModelContext, "defaultsPath">): { defa
 export function notStartedChoice(context: ModelContext, key: string): ActivityChoice {
   const entry = entryOf(context.record, key);
   const now = defaultsNow(context);
-  const row = rowOfActivity(context.plan, key);
+  const row = rowOfActivity(context.plan, key, context.record);
   if ("problem" in now) {
     // A choice of the PRD's own needs no Model defaults; only a Model defaults choice takes the file's reason.
-    const kept = context.record.settings.modelChoices.kept;
+    const kept = activityKeyKind(key) === "requirements" ? undefined : context.record.settings.modelChoices.kept;
     const own = entry && entry !== "default" ? entry : entry === undefined ? kept : undefined;
     if (own) return { ...resolveModel(own, context.lists[own.agentId] ?? { pending: true }), from: "changed" };
     return { agentId: context.claudeCodeInstalled ? "claude_code" : "codex", modelName: "", problem: now.problem, from: "model_defaults", row };
   }
-  return resolveNotStarted({ defaults: now.defaults, entry, kept: context.record.settings.modelChoices.kept, row, claudeCodeInstalled: context.claudeCodeInstalled, lists: context.lists });
+  return resolveNotStarted({ defaults: now.defaults, entry, kept: activityKeyKind(key) === "requirements" ? undefined : context.record.settings.modelChoices.kept, row, claudeCodeInstalled: context.claudeCodeInstalled, lists: context.lists });
 }
 
 /** The activity's fallback (AC-FALLBACK-02), none when it is on the choice's own agent or Model defaults can't be read. */
 export function activityFallback(context: ModelContext, key: string, choice: Pick<ResolvedChoice, "agentId">): ResolvedChoice | undefined {
   const now = defaultsNow(context);
   if ("problem" in now) return undefined;
-  return fallbackFor({ defaults: now.defaults, row: rowOfActivity(context.plan, key), lists: context.lists }, choice);
+  return fallbackFor({ defaults: now.defaults, row: rowOfActivity(context.plan, key, context.record), lists: context.lists }, choice);
 }
 
 /** A session's recorded agent, model and effort, with the model named as its agent reported it. */

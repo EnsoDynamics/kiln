@@ -559,7 +559,7 @@ it("keeps Needs you resumable when automatic usage recovery is switched off duri
 
 /** Finish only the selected disposable fixture phases as a person would in a terminal. */
 function finishFixturePhases(h: Harness, ids: string[]) {
-  const files = ids.map(id => join(h.engine.record.prdDirectory, h.engine.record.plan!.find(row => row.id === id)!.file));
+  const files = ids.map(id => join(h.engine.record.prdDirectory!, h.engine.record.plan!.find(row => row.id === id)!.file));
   for (const file of files) {
     const path = join(h.engine.worktreePath, file);
     writeFileSync(path, readFileSync(path, "utf8").replace("\n", "\n\n**Closed:** 2026-10-29\n"));

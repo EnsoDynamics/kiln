@@ -1,3 +1,4 @@
+import { expectedStage, nextStageKey, type RequirementsOrigin } from "../requirements/stages.js";
 import type { PhaseRecoveryView } from "./phase-recovery.js";
 import { auditName, auditNameFacts, recordedAuditName } from "../audit/audit-names.js";
 import type { ReopenCheck } from "./reopen-check.js";
@@ -22,7 +23,7 @@ import type { ChoiceView, FallbackView, ModelView, TierView } from "./activity-m
 // engine's record, the plan as last read, what the engine is doing, and the account and model
 // list once they have arrived.
 
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { countAssumptions, countDesignCitations, countPrdCriteria } from "../plan/document-counts.js";
 import { leavesOf, type PhasePlan, type PlannedPhase } from "../plan/phase-plan.js";
@@ -58,7 +59,7 @@ import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TI
 
 export const PR_TITLE = "Final pull request";
 
-export type FeatureState = "not_started" | "implementing" | "paused" | "needs_you" | "waiting" | "complete" | "folder_missing";
+export type FeatureState = "early_review" | "final_review" | "not_started" | "implementing" | "paused" | "needs_you" | "waiting" | "complete" | "folder_missing";
 
 /** The Folder missing page's facts (missing worktree recovery, "Interfaces"); the setup panel joins it in Phase 2. */
 export type FolderMissingSnapshot = Omit<import("./folder-facts.js").FolderMissingView, "existingBranch" | "reads"> & {
@@ -357,7 +358,20 @@ export interface MergeView {
   folder: string;
 }
 
+export interface RequirementsRow {
+  key: string; title: string; skill?: string; otherSkills?: string[]; activityId?: string; state: "done" | "running" | "needs_you" | "waiting" | "next" | "planned";
+  startedAt?: string; pushedSha?: string; model?: ModelView;
+  addedByKiln?: "early" | "final"; noSession?: true; reaches?: string[];
+}
+export interface RequirementsView {
+  origin: RequirementsOrigin;
+  beforePrd?: { skill: string; title: string };
+  rows: RequirementsRow[];
+  review?: { kind: "early" | "final"; file: string; readySince: string; openAssumptions: number; resumeCommand?: string; freshSessionCommand: string };
+  build?: { noPhasePlan?: true; checksFailed?: string[]; refinementConfirmation: "needed" | "not_needed" };
+}
 export interface Snapshot {
+  requirements?: RequirementsView;
   /** Set exactly when `feature.state` is `folder_missing` (AC-GONE-02). */
   folderMissing?: FolderMissingSnapshot;
   /** The record's compatibility notices, one line each, shown on every screen (AC-AGENT-04). */
@@ -627,10 +641,52 @@ function auditCheckTitle(key: string, check: CheckResult): CheckResult {
   return key.startsWith("audit-") && REFUSAL_CODES.has(check.name) ? { ...check, name: RESULT_CHECK } : check;
 }
 
+function requirementsView(engine: Engine): RequirementsView {
+  const state = engine.record.requirements!;
+  const rows: RequirementsRow[] = state.stages.filter(stage => !stage.pushedSha || stage.ran.length || stage.task === "review").map(stage => {
+    const key = `req-${stage.activityId}`;
+    const facts = engine.record.phases[key];
+    const skill = stage.ran[0] ?? stage.expected;
+    const title = skill?.title ?? (stage.key === "kiln:early" ? "Early stakeholder review" : stage.key === "kiln:final" ? "Final stakeholder review" : "Next stage");
+    return { key: stage.key, activityId: stage.activityId, title, ...(stage.ran.length > 1 ? { otherSkills: stage.ran.slice(1).map(skill => skill.title) } : {}), ...(skill ? { skill: skill.skill } : {}),
+      reaches: stage.reaches, ...(stage.key === "kiln:early" ? { addedByKiln: "early" as const } : stage.key === "kiln:final" ? { addedByKiln: "final" as const } : {}),
+      ...(stage.task === "review" && stage.pushedSha && !facts?.sessionIds.length ? { noSession: true as const } : {}),
+      state: stage.pushedSha ? "done" : facts?.stop ? "needs_you" : facts?.wait ? "waiting" : "running",
+      startedAt: stage.startedAt, ...(stage.pushedSha ? { pushedSha: stage.pushedSha } : {}),
+      model: engine.activityModel(key, { finished: !!stage.pushedSha, liveSession: engine.current?.phaseKey === key ? engine.current.session : undefined }) };
+  });
+  if (!rows.some(row => row.state === "running" || row.state === "waiting" || row.state === "needs_you") && engine.reviewStop !== "final") {
+    const next = expectedStage(state);
+    rows.push({ key: next ? nextStageKey(state, next.skill) : "kiln:next", title: next?.title ?? "Next stage", ...(next ? { skill: next.skill } : {}), state: "next", model: engine.activityModel(next?.reaches.includes("design_ready") ? "req-design" : "req-next", { finished: false }) });
+  }
+  rows.push({ key: "build", title: "Build", state: "planned" });
+  const view: RequirementsView = { origin: engine.record.origin!, rows };
+  const last = state.stages.at(-1);
+  if (last?.report?.next?.kind === "before_prd" && engine.record.phases[`req-${last.activityId}`]?.stop) view.beforePrd = last.report.next;
+  const review = state.review;
+  if (review && engine.reviewStop) {
+    const dir = engine.record.prdDirectory!;
+    const file = ["assumptions.md", `${dir.split("/").at(-1)}-assumptions.md`].map(name => join(engine.worktreePath, dir, name)).find(file => existsSync(file));
+    const latest = state.stages.map(s => `req-${s.activityId}`).findLast(k => !!engine.latestSession(k)?.runs.length);
+    const session = latest && engine.latestSession(latest);
+    const codex = !!session && session.agentId === "codex";
+    const cwd = session && session.workingDirectory || engine.worktreePath;
+    view.review = { kind: review.kind, file: review.file, readySince: review.readySince, openAssumptions: file ? countAssumptions(readFileSync(file, "utf8")).notYetConfirmed : 0,
+      freshSessionCommand: codex ? codexCommand(cwd) : claudeCommand(cwd),
+      ...(latest && session && engine.reopenCheck(latest).state === "available" ? { resumeCommand: codex ? codexResumeCommand(cwd, session) : resumeCommand(cwd, session.sessionId) } : {}) };
+    if (review.kind === "final") {
+      const plan = engine.requirementsBuildPlan;
+      const failures = [...new Set([...(plan && !plan.ok ? [plan.problem] : []), ...engine.finalStartProblems])];
+      view.build = { ...(failures.length ? { checksFailed: failures } : {}), refinementConfirmation: engine.needsRefinementConfirmation ? "needed" : "not_needed", ...(plan && !plan.ok ? { ...(plan.problem.startsWith("No phase documents") ? { noPhasePlan: true } : {}) } : {}) };
+    }
+  }
+  return view;
+}
+
 export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads: SnapshotReads = {}): Snapshot {
   const includeTiming = reads.includeTiming !== false;
   const { record } = engine;
-  const plan = record.plan ?? [];
+  const plan = engine.reviewStop === "final" ? engine.shownPlan : record.plan ?? [];
   const leaves = recordedLeaves(plan);
   const stoppedKey = engine.stoppedPhaseKey();
   const waitingKey = engine.waitingPhaseKey();
@@ -650,7 +706,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
           ? "waiting"
           : record.pause.activeSince !== undefined
           ? "paused"
-          : "implementing";
+          : engine.reviewStop === "early" ? "early_review" : engine.reviewStop === "final" ? "final_review" : "implementing";
 
   // While a folder is missing no phase state is current: earlier results are history only (AC-GONE-02).
   const needsYou = stoppedKey === undefined || folderMissing ? undefined : needsYouView(engine, stoppedKey);
@@ -658,7 +714,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
   const current = state === "implementing" ? currentView(engine, reads) : undefined;
   const settings = record.settings;
 
-  const views = phaseViews(engine, state, includeTiming);
+  const views = state === "final_review" && !plan.length ? [] : phaseViews(engine, state, includeTiming);
   const snapshot: Snapshot = {
     ...(record.continuation || record.completedPlanCheck || record.planReconciliation?.handback || record.planReconciliation?.check?.status === "failed" ? { continuation: {
       ...(record.preparation ? { preparation: engine.preparationStatus(record.executionId, record.preparation.phaseId) } : {}),
@@ -671,7 +727,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...(record.completedAt && record.afterDelivery ? { afterDelivery: afterDeliveryView(engine) } : {}),
     ...(engine.finished ? { exit: { ...engine.exitControl(), command: engine.reopenCommand } } : {}),
     activities: withPlannedRows(engine, state, activityViews(engine, state, views, includeTiming, reads.auditStore)),
-    ...preflightPlanned(engine, state, documents),
+    ...(engine.requirementsOpen ? { requirements: requirementsView(engine) } : preflightPlanned(engine, state, documents)),
     auditLoops: auditLoopsView(engine),
     ...personItemFields(engine, reads.auditStore),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
@@ -733,6 +789,10 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     // Every screen of a started PRD ends with the reset line (run restart AC-RESET-01).
     ...(record.startedAt !== undefined ? { reset: engine.resetControl() } : {}),
   };
+  if (state === "final_review" && engine.finalStartReport && record.prdDirectory) {
+    snapshot.documents = startCheckDocuments(join(engine.worktreePath, record.prdDirectory), engine.paths.folderName,
+      engine.finalStartReport, engine.labelOf(engine.paths.repositoryName), record.prdDirectory, false);
+  }
   if (state === "not_started" && documents) {
     const preview = engine.startPreview;
     // With an existing branch, What Kiln found is read from Git at the start commit (run restart AC-FROM-02).
@@ -1348,7 +1408,7 @@ function prdTimingFields(total: ReturnType<typeof prdTiming>, startedAt?: string
 
 function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean): PhaseView[] {
   const { record } = engine;
-  const plan = record.plan ?? [];
+  const plan = engine.reviewStop === "final" ? engine.shownPlan : record.plan ?? [];
   // Kiln's facts are keyed by the leaf it launched; rows follow the plan as last read.
   const factsByRow = new Map<string, string>();
   for (const key of Object.keys(record.phases)) {
@@ -1831,6 +1891,7 @@ function activityViews(engine: Engine, state: FeatureState, phases: PhaseView[],
   let ledger: ReturnType<typeof personItems> | undefined;
   try { ledger = personItems(engine.stateDirectory, record, Infinity, inspectionStore); } catch (error) { if (inspectionStore) throw error; }
   for (const activity of activityHistory(record, engine.stateDirectory)) {
+    if (activity.kind === "requirements") continue; // Presented in the requirements rows, including after a restart.
     if (activity.kind === "implementation" || activity.kind === "final_delivery" || activity.kind === "merge" || activity.kind === "plan_push") {
       const parent = phases.find(r => r.id === activity.key && r.state === "split");
       if (parent && !started.has(parent.id)) { rows.push(parent); started.add(parent.id); }

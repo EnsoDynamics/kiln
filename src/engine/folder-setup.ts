@@ -1,3 +1,4 @@
+import { writtenDirectory } from "../requirements/run-path.js";
 // The Folder missing page's setup panel (missing worktree recovery technical design, "The Setup
 // Panel"): the two starting points with AC-SETUP-02's availability and defaults, Documents found's
 // fields filled in from the run, the preview of what will run (AC-SETUP-03, AC-SAFE-02), the
@@ -292,7 +293,7 @@ async function baseStart(context: PanelContext, draft: PanelDraft, prdRead: Repo
   const names: string[] = [];
   const set: SetRepository[] = [];
   // A repository Kiln would ask about is left out and asked about at the stop before its phase, unless the first phase's preparation reads it (find repositories anywhere AC-ASK-07).
-  const prepared = preparationReads(plan, record.prdDirectory, leavesOf(plan.plan.phases).find(phase => !phase.closed), prdRead.name);
+  const prepared = preparationReads(plan, writtenDirectory(record), leavesOf(plan.plan.phases).find(phase => !phase.closed), prdRead.name);
   for (const one of written) {
     const reached = reachedName(one, prdRead.name, reach.get(one));
     if ("question" in reached && !prepared.has(one.toLowerCase())) continue;

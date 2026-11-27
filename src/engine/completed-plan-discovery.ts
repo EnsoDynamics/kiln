@@ -1,3 +1,4 @@
+import { writtenDirectory } from "../requirements/run-path.js";
 /**
  * The check for new phases on a finished run (Kiln After Delivery technical design, "The Plan Check
  * on a Finished Run"): is the delivery still waiting to merge, which one copy of the plan to read,
@@ -78,14 +79,14 @@ const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(valu
 /** Today's source is never used as yesterday's baseline. */
 async function completedBaseline(context: DiscoveryContext): Promise<PlanBaseline> {
   const { record, directory, shared, git } = context;
-  if (record.planReconciliation?.baselineId) return comparisonBaseline(directory, record.planReconciliation.baselineId, { repositoryName: record.repository.name, read: revision => observeGitPlan(git, shared, record.prdDirectory, revision) });
+  if (record.planReconciliation?.baselineId) return comparisonBaseline(directory, record.planReconciliation.baselineId, { repositoryName: record.repository.name, read: revision => observeGitPlan(git, shared, writtenDirectory(record), revision) });
   const revision = record.phases.pr?.repositories[record.repository.name]?.pushedSha
     ?? record.mergedBranches?.find(r => r.repository === record.repository.name)?.featureCommit
     // Final delivery completed on waived work: the plan at its waived head, from the local repository (waivers "Continuation executions").
     ?? record.phases.pr?.repositories[record.repository.name]?.waivedHead;
   if (!revision || !record.plan?.length) throw new Error("baseline_unavailable: No retained accepted plan or recorded completion revision. Restore the original completion record and its Git revision, then check again; today's checkout cannot prove the earlier scope.");
   let source: PlanSource;
-  try { source = await observeGitPlan(git, shared, record.prdDirectory, revision); }
+  try { source = await observeGitPlan(git, shared, writtenDirectory(record), revision); }
   catch (error) { if (error instanceof PlanCapacityError) throw error; throw new Error(`baseline_unavailable: Restore the recorded completion revision ${revision} and required documents, then check again. ${(error as Error).message}`, { cause: error }); }
   if (JSON.stringify(planStructure(recordedPlan(source.plan))) !== JSON.stringify(planStructure(record.plan))) throw new Error(`baseline_unavailable: Plan at recorded completion revision ${revision} does not match saved phase identities, closure and structure. Restore the matching completion record/revision and check again.`);
   const completions: PlanBaseline["completions"] = {};
@@ -98,11 +99,11 @@ async function completedBaseline(context: DiscoveryContext): Promise<PlanBaselin
   }
   for (const [id, completion] of Object.entries(completions)) {
     const workRevision = completion.repositories?.[record.repository.name]?.revision ?? completion.revision!;
-    const historical = workRevision === revision ? source : await observeGitPlan(git, shared, record.prdDirectory, workRevision);
+    const historical = workRevision === revision ? source : await observeGitPlan(git, shared, writtenDirectory(record), workRevision);
     if (!historical.plan.phases.some(phase => phase.id === id && (phase.closed || completion.waiverId) && !phase.splitInto) || !completedPhaseScopeUnchanged(historical, source, id)) throw new Error(`baseline_unavailable: Phase ${id} differs from its original completion revision ${workRevision}. Restore its matching receipt and check again.`);
     completion.scopeRepositories = phaseRepositories(historical, id);
   }
-  return retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: source, sources: [], completions });
+  return retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: writtenDirectory(record), active: source, sources: [], completions });
 }
 
 
@@ -202,7 +203,7 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
   const branch = repo?.baseBranch ?? record.settings.baseBranch;
   try {
     const revision = await remoteBase(git, shared, branch, true, observed => context.observeInput?.({ kind: "base", repository: record.repository.name, branch, revision: observed }));
-    const remote = await observeGitPlan(git, shared, record.prdDirectory, revision);
+    const remote = await observeGitPlan(git, shared, writtenDirectory(record), revision);
     const baseline = await completedBaseline(context);
     // 3. What is finished: the run's completion record, whatever a finished phase's document now says (AC-BACK-01).
     const completions = completionRecord(record, baseline);
@@ -214,14 +215,14 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
       const tip = (await gitRead(git, shared, ["rev-parse", "HEAD"])).trim();
       const ahead = tip === revision ? 0 : Number((await gitRead(git, shared, ["rev-list", "--count", `${revision}..${tip}`])).trim());
       if (ahead > 0) {
-        const local = await observeGitPlan(git, shared, record.prdDirectory, tip);
+        const local = await observeGitPlan(git, shared, writtenDirectory(record), tip);
         const remoteIds = new Set(remote.plan.phases.map(phase => phase.id));
         if (leavesOf(local.plan).some(leaf => !leaf.closed && !completions[leaf.id] && !remoteIds.has(leaf.id))) { selected = local; source = { kind: "main_checkout", branch, revision: tip }; }
       }
     } else notRead = { reason: "other_branch", branch: checkout ?? "a detached HEAD" };
     context.observeInput?.({ kind: "candidate", digest: selected.digest });
-    const uncommitted = await uncommittedDocuments(git, shared, record.prdDirectory, Object.keys(selected.documents));
-    const commits = source.kind === "main_checkout" ? await unpushedCommits(git, shared, revision, source.revision, record.prdDirectory, Object.keys(selected.documents)) : undefined;
+    const uncommitted = await uncommittedDocuments(git, shared, writtenDirectory(record), Object.keys(selected.documents));
+    const commits = source.kind === "main_checkout" ? await unpushedCommits(git, shared, revision, source.revision, writtenDirectory(record), Object.keys(selected.documents)) : undefined;
     const finished: PlanBaseline = { ...baseline, completions };
     const accounting = await accountCompletedLeaves({ record, baseline: finished, candidate: selected, git, shared, verifiedAt: attemptedAt, ...(context.observeInput ? { observeInput: context.observeInput } : {}), ...(context.label ? { label: context.label } : {}) });
     // The phases this execution itself completed: a confirmed merge of its pull request proves their work is in the base (step 4).
@@ -242,7 +243,7 @@ export async function discoverCompletedPlan(context: DiscoveryContext): Promise<
     if (currentRevision !== revision) throw new Error("source_changed: The delivery base changed during this check. Check for new phases again.");
     if (source.kind === "main_checkout" && (await currentBranch(git, shared) !== branch || (await gitRead(git, shared, ["rev-parse", "HEAD"])).trim() !== source.revision)) throw new Error("source_changed: The main checkout's base branch moved during this check. Check for new phases again.");
     git.signal?.throwIfAborted();
-    const candidate = retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: record.prdDirectory, active: selected, sources: [], completions });
+    const candidate = retainDiscoveryBaseline(directory, { formatVersion: 1, normalizerVersion: PLAN_NORMALIZER_VERSION, prdDirectory: writtenDirectory(record), active: selected, sources: [], completions });
     let retained;
     try { retained = retainCompletionAccounting(directory, accounting); retainContinuationProposal(directory, proposal); }
     catch (error) { if (error instanceof PlanCapacityError) throw error; throw new DiscoveryWriteFailure(`Completion evidence could not be durably retained. Restart Kiln before changing work: ${(error as Error).message}`, { cause: error }); }

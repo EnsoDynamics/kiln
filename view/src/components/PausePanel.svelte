@@ -16,6 +16,7 @@
   const pauseNow = $derived(snapshot.liveControl?.pauseNow);
   // The leaf the running header names, not the launched key a split phase started as (AC-PAUSE-01, AC-PAUSE-03).
   const id = $derived(pauseNow?.activityKey ?? snapshot.current?.phaseId ?? snapshot.liveControl?.target.activityKey ?? snapshot.needsYou?.phaseId ?? "");
+  const stage = $derived(activityKeyKind(id) === "requirements");
   const audit = $derived(activityKeyKind(id) === "audit");
   // The panel names a phase by its number and an audit by its name and loop (AC-PAUSE-01, Kiln After Delivery AC-AUDIT-01):
   // "delivery audit loop 2", from the audit row when there is no live target (a Codex audit, or a Claude audit between sessions).
@@ -26,7 +27,7 @@
   const submitting = $derived(snapshot.liveControl && (liveDraft(snapshot.liveControl.target).submitting || !!liveDraft(snapshot.liveControl.target).instructionId || snapshot.liveControl.messages?.some(m => m.delivery === "submitting")));
   const held = $derived(snapshot.liveControl?.takeover);
   const row = $derived(pauseNow?.phase === "pausing" ? pausingRow(pauseNow) : undefined);
-  const cancelLabel = $derived(audit ? "Cancel end-of-audit pause" : "Cancel end-of-phase pause");
+  const cancelLabel = $derived(stage ? "Cancel end-of-stage pause" : audit ? "Cancel end-of-audit pause" : "Cancel end-of-phase pause");
   let pressing = $state(false);
   let reason = $state<string | undefined>();
   async function press(action: "now" | "after" | "cancel") {
@@ -82,10 +83,10 @@
       </section>
       <section>
         <h3>After {name}</h3>
-        <p><strong>Lets the {audit ? "audit" : "phase"} finish.</strong> Kiln commits, pushes and runs the completion checks, then waits before starting {nextActivity(snapshot, id)}.</p>
+        <p><strong>Lets the {stage ? "stage" : audit ? "audit" : "phase"} finish.</strong> {#if stage}Kiln checks and pushes its work, then waits before the next session.{:else}Kiln commits, pushes and runs the completion checks, then waits before starting {nextActivity(snapshot, id)}.{/if}</p>
         {#if snapshot.pause.pending}<p>Will pause after {activity} finishes. Current work continues.</p>{/if}
         <button type="button" class="button wide" disabled={!connected || pressing || held?.state === "released" && !snapshot.pause.pending} onclick={() => press("after")}>{snapshot.pause.pending ? cancelLabel : `Pause after ${name}`}</button>
-        {#if held?.state === "released" && !snapshot.pause.pending}<p>This session is already stopped. Hand it back to Kiln before requesting an end-of-{audit ? "audit" : "phase"} pause.</p>{/if}
+        {#if held?.state === "released" && !snapshot.pause.pending}<p>This session is already stopped. Hand it back to Kiln before requesting an end-of-{stage ? "stage" : audit ? "audit" : "phase"} pause.</p>{/if}
       </section>
     </div>
   {/if}

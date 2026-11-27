@@ -1,3 +1,4 @@
+import { sourcePath } from "./requirements/source.js";
 // Resolves the path given to `kiln run` to one PRD (PRD AC-START-01; technical design,
 // "Command line").
 
@@ -55,9 +56,10 @@ export async function resolvePrdPath(pathArgument: string, cwd: string, git: str
   } else {
     const parent = dirname(absolute);
     const missingPrdFile = existsSync(parent) && statSync(parent).isDirectory() && basename(absolute) === `${basename(parent)}-prd.md`;
-    if (!missingPrdFile) return { problem: `${pathArgument} doesn't exist.` };
+    const virtualPlanned = existsSync(parent) && basename(dirname(parent)) === "initiatives" && basename(dirname(dirname(parent))) === "docs";
+    if (!missingPrdFile && !virtualPlanned) return { problem: `${pathArgument} doesn't exist.` };
     directory = parent;
-    fileName = basename(absolute);
+    if (!virtualPlanned) fileName = basename(absolute);
   }
 
   const realDirectory = realpathSync.native(directory);
@@ -65,14 +67,18 @@ export async function resolvePrdPath(pathArgument: string, cwd: string, git: str
   if (toplevel.exitCode !== 0) return { problem: `${pathArgument} isn't in a Git repository.` };
   const checkoutRoot = realpathSync.native(resolve(toplevel.stdout.trim()));
 
-  const parts = relative(checkoutRoot, realDirectory).split(sep);
-  const [docs, kind, folderName] = parts;
-  if (parts.length !== 3 || docs !== "docs" || (kind !== "prds" && kind !== "changes") || !folderName) {
+  const virtualPlanned = !existsSync(absolute) && !fileName;
+  const parts = relative(checkoutRoot, virtualPlanned ? resolve(realDirectory, basename(absolute)) : realDirectory).split(sep);
+  const [docs, kind] = parts;
+  const folderName = parts.at(-1)!;
+  const fromSource = sourcePath(parts.join("/"));
+
+  if (!fromSource && (parts.length !== 3 || docs !== "docs" || (kind !== "prds" && kind !== "changes") || !folderName)) {
     return {
       problem: `${pathArgument} isn't a PRD directory: kiln run takes one PRD's directory, docs/prds/<name>/ or docs/changes/<name>/, or the PRD file in it.`,
     };
   }
-  const prdDirectoryFromRoot = `docs/${kind}/${folderName}`;
+  const prdDirectoryFromRoot = parts.join("/");
   const prdFileName = `${folderName}-prd.md`;
   if (fileName !== undefined && fileName !== prdFileName) {
     return { problem: `${pathArgument} isn't the PRD: the PRD in ${prdDirectoryFromRoot}/ is ${prdFileName}.` };

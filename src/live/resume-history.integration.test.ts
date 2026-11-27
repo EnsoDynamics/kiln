@@ -33,7 +33,7 @@ async function post(route: string, body: unknown) {
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 async function cli(args: string[]) {
-  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), ...args, join(h.repository, h.engine.record.prdDirectory), "--json"], { cwd: h.sandbox.root, env: h.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), ...args, join(h.repository, h.engine.record.prdDirectory!), "--json"], { cwd: h.sandbox.root, env: h.env, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = ""; let stderr = "";
   child.stdout.on("data", b => { stdout += String(b); }); child.stderr.on("data", b => { stderr += String(b); });
   const code = await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });

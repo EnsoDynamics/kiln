@@ -1,3 +1,4 @@
+import { reviewFile } from "../requirements/git.js";
 import { type AuditLoopSettings } from "../state/audit-loops.js";
 import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageProblem } from "../live/target.js";
 import { readBaseline } from "../engine/plan-reconciliation.js";
@@ -143,6 +144,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     }
     await next();
     for (const [name, value] of Object.entries(SECURITY_HEADERS)) c.res.headers.set(name, value);
+    if (c.req.path === `/${folderName}/stakeholder-review`) c.res.headers.set("Content-Security-Policy", "sandbox allow-scripts allow-downloads allow-modals allow-popups allow-popups-to-escape-sandbox; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
   });
 
   // While a folder is missing, only Check again and reads act (missing worktree recovery, "Interfaces").
@@ -537,6 +539,19 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     }
   });
 
+  app.post("/api/review/continue", c => engine.reviewStop === "early" ? legacyControl(c, "continue") : refuse(c, 409, "Continue is available only at the early review."));
+  app.post("/api/build/start", async c => {
+    const body = await jsonBody(c);
+    if (!body || Object.keys(body).some(key => key !== "refinementConfirmed") || body.refinementConfirmed !== undefined && typeof body.refinementConfirmed !== "boolean") return refuse(c, 400, "Use the refinement confirmation shown on the final review.");
+    if (!engine.commands.has(c.req.header("X-Kiln-Command-Id") ?? "")) {
+      if (engine.reviewStop !== "final") return refuse(c, 409, "Start the build is available only at the final review.");
+      const plan = engine.requirementsBuildPlan;
+      if (!plan?.ok) return refuse(c, 409, plan && !plan.ok ? plan.problem : "No phase documents. Kiln builds from phase documents.");
+      if (engine.needsRefinementConfirmation && !body.refinementConfirmed) return refuse(c, 400, "Confirm the documents have been through requirements refinement first.");
+    }
+    if (!c.req.header("X-Kiln-Status") || !c.req.header("X-Kiln-Command-Id")) return refuse(c, 400, "Use the final review's status token and command ID.");
+    return legacyControl(c, "start-build", body.refinementConfirmed ? { refinement_confirmed: true } : {});
+  });
   app.post("/api/start", async (c) => {
     const body = (await jsonBody(c)) ?? {};
     if (engine.record.pause.activeSince || engine.restartReview) return legacyControl(c, "continue");
@@ -786,6 +801,13 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
   // name is compared as text, never read as a route pattern.
   const root = `/${folderName}`;
   app.get("*", (c) => {
+    if (c.req.path === `${root}/stakeholder-review`) {
+      const dir = engine.record.prdDirectory;
+      if (!dir || !engine.record.requirements?.review) return c.notFound();
+      const file = join(engine.worktreePath, reviewFile(dir));
+      if (!existsSync(file) || realpathSync(file) !== join(realpathSync(engine.worktreePath), reviewFile(dir)) || !statSync(file).isFile()) return c.notFound();
+      return c.html(readFileSync(file, "utf8"));
+    }
     if (c.req.path === `${root}/`) return c.redirect(root, 308);
     if (c.req.path !== root && !c.req.path.startsWith(`${root}/`)) return c.text("Not found", 404);
     const index = join(viewRoot, "index.html");
@@ -971,7 +993,7 @@ function defaultsChange(body: Record<string, unknown>): DefaultsChange | string 
   }
   const set = body.set as Record<string, unknown> | null;
   if (!set || typeof set !== "object" || Array.isArray(set) || Object.keys(set).some(key => !["row", "first", "fallback"].includes(key))) return "set takes row, first and fallback.";
-  if (!DEFAULTS_ROWS.includes(set.row as DefaultsRow)) return "row is demanding, standard, mechanical or audits.";
+  if (!DEFAULTS_ROWS.includes(set.row as DefaultsRow)) return "row is demanding, standard, mechanical, audits, requirements or refining_design.";
   if (set.first === undefined && set.fallback === undefined) return "set changes first, fallback or both.";
   const sides: { first?: FamilyChoice; fallback?: FamilyChoice } = {};
   for (const side of ["first", "fallback"] as const) {

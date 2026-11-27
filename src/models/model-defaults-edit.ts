@@ -15,7 +15,7 @@ import { codexFamilyOf, familyName, newestOfFamily, type ModelList } from "./res
 export interface Refusal { ok: false; status: 400 | 409 | 422; reason: string; path?: string; canRestore?: boolean }
 
 /** The names of the four rows as the page and the refusals say them. */
-export const ROW_NAMES: Record<DefaultsRow, string> = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits" };
+export const ROW_NAMES: Record<DefaultsRow, string> = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits", requirements: "Requirements stages", refining_design: "Refining the design" };
 
 /**
  * The one omitted-effort rule (technical design, "Command line"): a model that takes no effort
@@ -78,7 +78,7 @@ export type DefaultsChange =
   | { restore: true }
   | { fallback: { enabled?: boolean; threshold?: number } };
 
-type RawFile = { schemaVersion: number; rows?: Partial<Record<DefaultsRow, { first?: FamilyChoice; fallback?: FamilyChoice }>>; fallback?: { enabled?: boolean; threshold?: number } };
+type RawFile = { schemaVersion: number; skills?: Record<string, FamilyChoice | ModelChoice>; rows?: Partial<Record<DefaultsRow, { first?: FamilyChoice; fallback?: FamilyChoice }>>; fallback?: { enabled?: boolean; threshold?: number } };
 
 /**
  * Applies one change to Model defaults and replaces the file (AC-DEFAULT-02, AC-DEFAULT-05,
@@ -97,8 +97,9 @@ export function editModelDefaults(path: string, change: DefaultsChange, lists: P
     return { ...settled(path), fallbackTurnedOff: true };
   }
   const raw = rawFile(path);
+  raw.schemaVersion = MODEL_DEFAULTS_SCHEMA;
   if ("restore" in change) {
-    writeJsonAtomically(path, { schemaVersion: MODEL_DEFAULTS_SCHEMA, ...(raw.fallback ? { fallback: raw.fallback } : {}) });
+    writeJsonAtomically(path, { schemaVersion: MODEL_DEFAULTS_SCHEMA, ...(raw.skills ? { skills: raw.skills } : {}), ...(raw.fallback ? { fallback: raw.fallback } : {}) });
     return settled(path);
   }
   if ("fallback" in change) {

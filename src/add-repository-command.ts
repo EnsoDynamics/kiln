@@ -1,3 +1,4 @@
+import { startPath } from "./requirements/run-path.js";
 // `kiln add-repository <name>`: a session (or a person) in a PRD's workspace asks the Kiln
 // running for that PRD to add a repository (multi-repo PRD AC-ADD-01, CLI-001; technical design,
 // "The command"). It is a client of the running Kiln's HTTP API, like the browser view.
@@ -94,7 +95,7 @@ export async function findPrd(root: string, directory: string): Promise<PrdLooku
     } catch {
       continue;
     }
-    if (!record || basename(stateDirectory) !== prdKey(record.prdDirectory)) continue;
+    if (!record || basename(stateDirectory) !== prdKey(startPath(record))) continue;
     const worktrees = record.repositories.length > 0 ? record.repositories.map((entry) => entry.worktreePath) : [record.settings.worktreePath];
     if (worktrees.some((path) => contains(path, directory))) inWorktree.push({ record, stateDirectory });
     else if (contains(record.settings.workspaceFolder, directory)) inWorkspace.push({ record, stateDirectory });

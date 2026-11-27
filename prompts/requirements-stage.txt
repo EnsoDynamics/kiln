@@ -1,0 +1,10 @@
+Use the installed using-the-enso-method skill at {{skillPath}}. Determine where this work stands and run exactly its next requirements stage. Stop after that stage even if its skill normally hands off. If the next step precedes PRD drafting, is the build, or the work already stands at one of these holds, run nothing and report where it stands.
+
+Work: {{work}}
+Worktree: {{worktree}}
+Feature branch: {{branch}}
+Holds: {{holds}}
+
+Work only here. You may commit the documents the stage produces on the named branch. Do not push, open a pull request, merge, build, open a browser, or change branches. Nobody can answer questions. Work any feedback received during the session into the documents as the installed method directs.
+
+End your final message with a fenced kiln-report block containing JSON. Include kilnReport (1), ran (an array of objects with skill and title), finished (true when this session completed its assigned stage, even when further requirements stages remain; false when this stage still needs work), next (kind, skill, title, reaches), milestones (an array of objects with name and by) and prdDirectory (the repository-relative path once a PRD exists). Use next.kind requirements, before_prd or build. Name each skill and title as the method names it. The four milestones are prd_refined, design_ready, review_made and requirements_finished. List the milestones the work now stands at, including ones already reached, with by this_session or earlier. Use reaches for the milestones the next stage is expected to reach. If you ran nothing, ran is empty. When this session first writes the PRD, also give draft with statements (three to six one-sentence outcomes from the PRD that would change it most if wrong) and leftOut (up to five short items from Out of Scope).

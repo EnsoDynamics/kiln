@@ -1,3 +1,4 @@
+import { startPath } from "../requirements/run-path.js";
 // Reset Kiln for a PRD (run restart AC-RESET-01 to 06; technical design "Reset"): what a reset
 // forgets, the fresh not-started record it writes, the discard of the rest of the PRD's state
 // directory, and the finishing of a reset a stop or a failing step left behind.
@@ -50,8 +51,13 @@ export function resetForgets(record: PrdRecord): ResetForgets {
  * new execution ID. It reads nothing from Git or GitHub, so finishing a reset can repeat it.
  */
 export function freshResetRecord(old: PrdRecord, executionId: string): PrdRecord {
-  const paths = { mainCheckoutPath: old.repository.mainCheckoutPath, repositoryName: old.repository.name, folderName: basename(old.prdDirectory), prdDirectoryFromRoot: old.prdDirectory };
+  const paths = { mainCheckoutPath: old.repository.mainCheckoutPath, repositoryName: old.repository.name, folderName: basename(startPath(old)), prdDirectoryFromRoot: startPath(old) };
   const record = newPrdRecord({ mainCheckoutPath: paths.mainCheckoutPath, repositoryName: paths.repositoryName, github: old.repository.github, prdDirectoryFromRoot: paths.prdDirectoryFromRoot, featureName: old.featureName, settings: defaultSettings(paths, undefined) });
+  if (old.origin) {
+    record.origin = old.origin;
+    if (old.prdDirectory) record.prdDirectory = old.prdDirectory;
+    else delete record.prdDirectory;
+  }
   return { ...record, executionId, billing: newBillingState(executionId), token: old.token };
 }
 

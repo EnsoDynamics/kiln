@@ -1,3 +1,4 @@
+import { writtenDirectory } from "../requirements/run-path.js";
 import { continuedModelChoices } from "../models/keep.js";
 /** Fresh execution intentions and strict reconciliation of owned, still-unused worktrees. */
 import { randomUUID } from "node:crypto";
@@ -15,7 +16,7 @@ import { addEntryWorktree, checkWorkspaceFolder, checkWorkspaceFolderPlacement, 
 export function newAcceptance(record: PrdRecord, directory: string, proposal: ContinuationProposal, candidateId: string, receipt: Receipt, at: string): ContinuationAcceptance {
   const pending = pendingForProposal(readPendingAuthority(directory, record), proposal);
   const uuid = pending?.executionId ?? randomUUID();
-  const folder = record.prdDirectory.split("/").at(-1)!;
+  const folder = writtenDirectory(record).split("/").at(-1)!;
   const workspaceFolder = realPathOfNearestAncestor(join(dirname(expandHome(record.settings.workspaceFolder)), `${folder}-continue-${uuid}`));
   const featureBranch = `feature/${folder}-continue-${uuid}`;
   // A kept choice equal to Kiln's current default is dropped, so added phases take their tiers (Kiln Phase Model Tiers AC-KEEP-02, KEEP-003).

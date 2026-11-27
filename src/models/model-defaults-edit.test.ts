@@ -32,7 +32,7 @@ describe("the omitted-effort rule", () => {
 describe("editing Model defaults", () => {
   it("saves only what the person set, the family's newest model deciding the default effort", () => {
     expect(editModelDefaults(path, { set: { row: "standard", fallback: { agentId: "codex", family: "sol" } } }, lists)).toMatchObject({ ok: true });
-    expect(file()).toEqual({ schemaVersion: 1, rows: { standard: { fallback: { agentId: "codex", family: "sol", effort: "medium" } } } });
+    expect(file()).toEqual({ schemaVersion: 2, rows: { standard: { fallback: { agentId: "codex", family: "sol", effort: "medium" } } } });
   });
 
   it("refuses a row on one agent unless both sides move in one save", () => {
@@ -48,7 +48,7 @@ describe("editing Model defaults", () => {
     expect(editModelDefaults(path, { fallback: { enabled: true, threshold: 80 } }, lists)).toMatchObject({ ok: true, defaults: { fallback: { enabled: true, threshold: 80 } } });
     editModelDefaults(path, { set: { row: "demanding", first: { agentId: "claude_code", family: "opus", effort: "high" } } }, lists);
     expect(editModelDefaults(path, { restore: true }, lists)).toMatchObject({ ok: true, defaults: { fallback: { enabled: true, threshold: 80 }, rows: { demanding: { firstSet: false } } } });
-    expect(file()).toEqual({ schemaVersion: 1, fallback: { enabled: true, threshold: 80 } });
+    expect(file()).toEqual({ schemaVersion: 2, fallback: { enabled: true, threshold: 80 } });
   });
 
   it("refuses a save while the model list can't be read", () => {

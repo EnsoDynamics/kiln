@@ -1,3 +1,4 @@
+import { writtenDirectory } from "../requirements/run-path.js";
 /** Classify observed leaves without accepting a plan or manufacturing completion receipts. */
 import MarkdownIt from "markdown-it";
 import { createHash } from "node:crypto";
@@ -75,7 +76,7 @@ async function ancestor(git: GitContext, path: string, from: string, to: string)
 export async function accountCompletedLeaves(input: { record: PrdRecord; baseline: PlanBaseline; candidate: PlanSource; git: GitContext; shared: string; verifiedAt: string; observeInput?: (observation: ContinuationInputObservation) => void; /** What a repository is shown by (find repositories anywhere AC-FOLDER-02). */ label?: (name: string) => string }): Promise<Omit<CompletionAccounting, "id">> {
   const { record, baseline, candidate, git, shared, verifiedAt } = input;
   const label = input.label ?? ((name: string) => name);
-  const extracted = externalCompletionReferences(candidate, record.prdDirectory);
+  const extracted = externalCompletionReferences(candidate, writtenDirectory(record));
   const prdName = record.repository.name;
   const leaves: AccountedLeaf[] = [];
   const bases = new Map<string, { path: string; branch: string; revision: string }>();
@@ -90,7 +91,7 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
     return result;
   };
   for (const phase of leavesOf(candidate.plan)) {
-    const row: AccountedLeaf = { id: phase.id, title: phase.title, file: posix.join(record.prdDirectory, phase.fileName), classification: "new_unfinished", problems: [], repositories: [] };
+    const row: AccountedLeaf = { id: phase.id, title: phase.title, file: posix.join(writtenDirectory(record), phase.fileName), classification: "new_unfinished", problems: [], repositories: [] };
     leaves.push(row);
     // A phase in the run's completion record stays finished whatever its document now says, and is
     // never compared (Kiln After Delivery AC-BACK-01). Every other leaf not Closed is unfinished,
@@ -152,7 +153,7 @@ export async function accountCompletedLeaves(input: { record: PrdRecord; baselin
       const exists = await runGit(git, path, ["cat-file", "-t", revision]);
       if (exists.exitCode !== 0 || exists.stdout.trim() !== "commit") { row.problems.push(`Phase ${phase.id}: restore immutable commit ${revision} in ${label(name)}, then check again.`); continue; }
       if (name === prdName) {
-        const original = await observeGitPlan(git, path, record.prdDirectory, revision);
+        const original = await observeGitPlan(git, path, writtenDirectory(record), revision);
         const originalPhase = leavesOf(original.plan).find(p => p.id === phase.id);
         if (!originalPhase?.closed || !completedPhaseScopeUnchanged(original, candidate, phase.id) || JSON.stringify(original.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories).sort()) !== JSON.stringify(candidate.plan.phases.filter(p => p.id === phase.id || isAncestorOf(p.id, phase.id)).flatMap(p => p.repositories).sort())) {
           row.problems.push(`Phase ${phase.id}: ${revision} does not contain its unchanged Closed scope at ${row.file}. Restore the matching source reference.`); continue;
@@ -193,15 +194,15 @@ function checkDevelopment(record: PrdRecord, candidate: PlanSource, phase: Plann
   const digest = (phaseId: string) => {
     const scopedPhase = candidate.plan.phases.find(one => one.id === phaseId);
     if (!scopedPhase) throw new Error(`Phase ${phaseId} is missing.`);
-    const files = Object.keys(candidate.documents).filter(file => posix.dirname(file) === record.prdDirectory && (file.endsWith("-prd.md") || /(?:^|-)technical-design\.md$/.test(file) || posix.basename(file) === scopedPhase.fileName)).sort();
+    const files = Object.keys(candidate.documents).filter(file => posix.dirname(file) === writtenDirectory(record) && (file.endsWith("-prd.md") || /(?:^|-)technical-design\.md$/.test(file) || posix.basename(file) === scopedPhase.fileName)).sort();
     return hash(files.map(file => [posix.basename(file), mechanical(candidate.documents[file]!)]));
   };
   try {
     // A finished phase stays bound to the documents its check passed against while its own phase document is unchanged.
-    const accepted = state?.accepted?.find(one => one.phaseId === phase.id); const own = candidate.documents[posix.join(record.prdDirectory, phase.fileName)];
+    const accepted = state?.accepted?.find(one => one.phaseId === phase.id); const own = candidate.documents[posix.join(writtenDirectory(record), phase.fileName)];
     const bound = accepted && own !== undefined && accepted.phaseDocumentDigest === phaseFileDigest(phase.fileName, own) ? accepted.documentsDigest : digest(phase.id);
     if (!state || !assessment || assessment.documentsDigest !== bound || assessment.requirementManifestDigest || state.sourceUnavailable) throw new Error("Restore a current scope-bound development-delivery assessment and its required verification evidence.");
-    validateDeliverySplits(state, candidate.plan, digest, id => { const file = candidate.plan.phases.find(one => one.id === id)?.fileName; const text = file === undefined ? undefined : candidate.documents[posix.join(record.prdDirectory, file)]; return text === undefined ? undefined : phaseFileDigest(file!, text); });
+    validateDeliverySplits(state, candidate.plan, digest, id => { const file = candidate.plan.phases.find(one => one.id === id)?.fileName; const text = file === undefined ? undefined : candidate.documents[posix.join(writtenDirectory(record), file)]; return text === undefined ? undefined : phaseFileDigest(file!, text); });
     requireOwnerDeliveryEvidence(state, { kind: "phase", phaseId: phase.id });
   } catch (error) { problems.push(`Phase ${phase.id}: ${(error as Error).message}`); }
 }

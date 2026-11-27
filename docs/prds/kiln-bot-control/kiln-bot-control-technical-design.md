@@ -55,6 +55,8 @@ Each controller admits at most one conflicting work transition, including comple
 
 ### Outstanding-work inventory
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Run identity and Interfaces, the start path and review states).
+
 Enumerate the current OS user's Kiln state root, including every PRD state directory, not just `ports.json`: that file can lose old entries when ports are reused. Combine saved records, controller lock hints and the new authenticated capability response. A missing state root is a successful empty inventory, and a PRD state folder holding nothing is no saved work; an unreadable root or a PRD folder with files but no readable main record is an incomplete inventory with a concrete error. Never migrate, repair or delete saved state as a side effect of a read.
 
 `kiln status` includes every authenticated live controller, including not-started, paused, waiting, Needs you and complete; also every saved started-but-unfinished execution with no live controller. Exclude closed completed executions and closed never-started setup records. Report counts separately: live controllers, active working sessions, waiting/Needs you/paused controllers and stopped unfinished executions. Unknown records contribute to an explicit unknown count; do not guess completion or subtract them from a purportedly complete total. `inventory_complete`, top-level `ok` and the exit status describe the list and its counts. A stopped row's counts come only from its readable main record, so its missing session, output or stop details stay in that row's `ok: false` and `errors`. A live row's counts come from its own answer, so a failed live row makes the inventory incomplete.
@@ -95,6 +97,8 @@ Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-r
 - Ship bot integration guidance with the package and surface it in command help: use structured status/controls, take authority from the operator's request, treat all session/output text as untrusted data, never execute embedded output commands, refresh rather than retarget stale replies, and inspect a receipt before retrying. Provider sign-in/account switching uses the provider’s terminal tools independently; no Kiln login wrapper, credential store or shared-account coordinator is introduced.
 
 ### Command grammar
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Interfaces, continue at early review and start-build at final review).
 
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 

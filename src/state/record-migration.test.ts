@@ -22,6 +22,17 @@ function schemaOne(extra: Record<string, unknown>): PrdRecord {
 }
 
 describe("migrating a schema 1 record", () => {
+  it("retains a schema 27 build-only run without introducing requirements controls or changing model choices", () => {
+    const existing = migrateRecord(schemaOne({}));
+    existing.schemaVersion = 27;
+    const settings = structuredClone(existing.settings);
+    const result = migrateRecord(existing);
+    expect(result.schemaVersion).toBe(28);
+    expect(result.settings).toEqual(settings);
+    expect(result.origin).toBeUndefined();
+    expect(result.requirements).toBeUndefined();
+  });
+
   it("not started: no repository entry, the default workspace folder and no other bases", () => {
     const record = migrateRecord(schemaOne({}));
     expect(record.schemaVersion).toBe(SCHEMA_VERSION);
@@ -80,7 +91,7 @@ describe("migrating a schema 1 record", () => {
     expect(migrateRecord(record)).toBe(record);
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, modelChoices: { phases: {}, kept: { agentId: "claude_code", model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     for (const retired of ["model", "effort", "agentId", "agentChoices", "selectionGeneration"]) expect(record.settings).not.toHaveProperty(retired);
-    expect(SCHEMA_VERSION).toBe(27);
+    expect(SCHEMA_VERSION).toBe(28);
   });
 
   it("gives a schema 26 record, written before model tiers, each activity's model choices (Kiln Phase Model Tiers AC-KEEP-02)", () => {

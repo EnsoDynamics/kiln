@@ -1,7 +1,7 @@
 import { ResponseSpool, spoolResult, releaseResult } from "./spool.js";
 import { readMessage } from "./input.js";
 import { lookupReceipt, receiptResult, validateInstruction, validBy, type Action } from "./commands.js";
-import { locateText, personItemsText, progressHeading, progressText, receiptLines, statusLabels, statusPause, type ProgressRow } from "./waiver-facts.js";
+import { requirementsStatus, locateText, personItemsText, progressHeading, progressText, receiptLines, statusLabels, statusPause, type ProgressRow } from "./waiver-facts.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { processStartTime } from "../platform/process-start-time.js";
@@ -64,7 +64,7 @@ async function inventory(env: NodeJS.ProcessEnv): Promise<Result> {
           const answer = await request(work, owner, "status", Math.max(1, Math.min(2000, deadline - Date.now())));
           runs.push(answer); counts.live_controllers++;
           counts.working += typeof answer.working_sessions === "number" ? answer.working_sessions : 0;
-          if (answer.state === "waiting") counts.waiting++;
+          if (["waiting", "early_review", "final_review"].includes(String(answer.state))) counts.waiting++;
           if (answer.state === "paused") counts.paused++;
           if (answer.state === "needs_you") counts.needs_you++;
           if (!answer.ok) errors.push(...answer.errors);
@@ -122,7 +122,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     const items = personItemsText(answer.items as Record<string, unknown>[] | null | undefined);
     const offer = current ? continuationText(answer.continuation as Parameters<typeof continuationText>[0]) : undefined;
     const merge = current ? afterDeliveryText(answer.after_delivery as Parameters<typeof afterDeliveryText>[0], (answer.repositories as unknown[] | undefined ?? []).length > 1) : undefined;
-    const lead = [rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control), locateText(answer.stop as Record<string, unknown> | null | undefined, terminalColors(context.stdout, context.env)), statusLabels(answer)).trimEnd() : undefined, loops, items, delivered, merge, offer].filter(Boolean).join("\n");
+    const lead = [requirementsStatus(answer), rows?.length ? progressText(progressHeading(answer), rows, statusPause(answer.live_control), locateText(answer.stop as Record<string, unknown> | null | undefined, terminalColors(context.stdout, context.env)), statusLabels(answer)).trimEnd() : undefined, loops, items, delivered, merge, offer].filter(Boolean).join("\n");
     return lead ? `${lead}\n` : undefined;
   };
   const receiptLead = (answer: Result, record: SavedWork["record"] | undefined, waive = false) => receiptLines(answer, record, waive)?.join("\n");
@@ -189,7 +189,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
       if ((name === "continue-with-phases" || Object.keys(loopInputs).length) && !owner.features?.includes("loop_limits_move_on")) throw new ControlFailure("instance_incompatible", INCOMPATIBLE_LOOPS);
       const token = String(flags["only-if-status-matches"]);
       const instruction = { command_id: String(flags["command-id"]), execution_id: token.split(":")[0], status_token: token, action: name as Action,
-        inputs: name === "merge" || name === "exit" ? { via: "command_line" } : name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}), ...loopInputs } : name === "continue-with-phases" ? { proposal_id: flags.proposal } : name === "model" ? modelInputs(flags) : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : name === "locate-repository" ? { repository: parsed.positionals[1], folder: parsed.positionals[2] } : {} };
+        inputs: name === "merge" || name === "exit" ? { via: "command_line" } : name === "message" ? { text: message } : name === "reply" || name === "carry-on" && message !== undefined ? { message } : name === "start-build" ? (flags["refinement-confirmed"] ? { refinement_confirmed: true } : {}) : name === "settings" ? { ...(flags["keep-awake"] ? { keep_awake: flags["keep-awake"] === "on" } : {}), ...(flags["resume-after-usage-limit"] ? { resume_after_usage_limit: flags["resume-after-usage-limit"] === "on" } : {}), ...loopInputs } : name === "continue-with-phases" ? { proposal_id: flags.proposal } : name === "model" ? modelInputs(flags) : name === "verify-and-advance" && flags["without-sending-reply"] ? { without_sending_reply: true } : name === "locate-repository" ? { repository: parsed.positionals[1], folder: parsed.positionals[2] } : {} };
       if (flags["message-reviewed"]) Object.assign(instruction.inputs, { reviewed_receipt_ids: flags["message-reviewed"] });
       // Run restart AC-CURRENT-01: the session-starting commands catch an untouched branch up unless told not to.
       if (flags["leave-branch-as-is"]) Object.assign(instruction.inputs, { leave_branch: true });

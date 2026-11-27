@@ -1,3 +1,5 @@
+import { inspectSource, sourcePath } from "./requirements/source.js";
+import type { RequirementsOrigin } from "./requirements/stages.js";
 // The start checks `kiln run` runs for a feature not started (PRD AC-START-02): the documents
 // are where the Enso Method skills put them, the plan reads, every leaf cites criteria,
 // dependencies point backward, the checkout is clean, and the tools Kiln needs are there; and
@@ -30,6 +32,7 @@ export interface MissingDocument {
 }
 
 export interface StartCheckReport {
+  origin?: RequirementsOrigin;
   missingDocuments: MissingDocument[];
   /** Every other failed check, one line each, in the wording of assumptions UI-010 item 10. */
   problems: string[];
@@ -84,10 +87,12 @@ export function startChecksPassed(report: StartCheckReport): boolean {
  * so the person can fix them in one pass.
  */
 export async function runStartChecks(location: PrdLocation, tools: Tools, env: NodeJS.ProcessEnv, nodeVersion = process.versions.node, repositoryContext: { entries?: RepositoryEntry[]; said?: Set<string>; changing?: string[] } = {}): Promise<StartCheckReport> {
-  const fileNames = readdirSync(location.prdDirectory);
+  const source = sourcePath(location.prdDirectoryFromRoot);
+  const input = source ? await inspectSource({ git: tools.git, env }, location.checkoutRoot, location.prdDirectoryFromRoot) : undefined;
+  const fileNames = source ? [] : readdirSync(location.prdDirectory);
   const phaseFileNames = fileNames.filter(isPhaseFileName);
 
-  const problems: string[] = [];
+  const problems: string[] = input && "problem" in input ? [input.problem] : [];
   // Either name is the document; both at once leaves Kiln no way to tell which one is meant.
   const presentNames = (bareName: string, description: string): string[] => {
     const present = documentNames(location.folderName, bareName).filter((name) => fileNames.includes(name));
@@ -100,11 +105,11 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   const assumptionsFile = assumptionsNames.length === 1 ? assumptionsNames[0] : undefined;
 
   const missingDocuments: MissingDocument[] = [];
-  if (!fileNames.includes(location.prdFileName)) missingDocuments.push({ name: location.prdFileName, description: "the PRD" });
-  if (designNames.length === 0) {
+  if (!source && !fileNames.includes(location.prdFileName)) missingDocuments.push({ name: location.prdFileName, description: "the PRD" });
+  if (!source && designNames.length === 0) {
     missingDocuments.push({ name: "technical-design.md", description: `the technical design, or ${location.folderName}-technical-design.md` });
   }
-  if (phaseFileNames.length === 0) missingDocuments.push({ name: "phase-*.md", description: "phase documents" });
+  if (!source && phaseFileNames.length === 0) missingDocuments.push({ name: "phase-*.md", description: "phase documents" });
 
   let plan: PhasePlan | undefined;
   if (phaseFileNames.length > 0) {
@@ -173,12 +178,13 @@ export async function runStartChecks(location: PrdLocation, tools: Tools, env: N
   // Only once every other check passed: Documents found lists the links Kiln won't follow, and a
   // required one it can't follow is a problem here as it would be at the first plan read (AC-LINK-02, 04).
   let unfollowedLinks: UnfollowedLink[] = [];
-  if (missingDocuments.length === 0 && problems.length === 0) {
+  if (!source && missingDocuments.length === 0 && problems.length === 0) {
     try { unfollowedLinks = readLinkedDocuments(location.checkoutRoot, location.prdDirectoryFromRoot).unfollowed; }
     catch (error) { problems.push((error as Error).message); }
   }
 
   return {
+    ...(input && "origin" in input ? { origin: input.origin } : {}),
     missingDocuments,
     problems,
     found: { ...(designFile ? { designFile } : {}), ...(assumptionsFile ? { assumptionsFile } : {}), phaseDocCount: phaseFileNames.length, ...(unfollowedLinks.length ? { unfollowedLinks } : {}) },

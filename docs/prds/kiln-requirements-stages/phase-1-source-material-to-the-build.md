@@ -1,5 +1,7 @@
 # Phase 1: Source material to the build
 
+**Closed:** 2026-11-27
+
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "Existing Code"; "Design Decisions"; "What Kiln Knows About the Method"; "Starting" (what `kiln run` accepts for source material and planned PRDs, "Requirements start checks", "Run identity", "Branch and worktree"); "Rows" (the no-plan form and the unknown standing); "Stage Sessions"; "The Two Reviews" (ready, the review route, Continue and a session of their own); "Starting the Build"; "Models"; "Interfaces"; "Data Models"; "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-requirements-stages-phase-plan.md)

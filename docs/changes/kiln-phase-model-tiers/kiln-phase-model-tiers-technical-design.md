@@ -74,6 +74,8 @@ The recorded plan keeps the field for each phase (AC-TIER-01). Like the Attended
 
 ## Resolving a Choice (AC-PICK-01, AC-PICK-03, AC-PICK-04, AC-DEFAULT-01, AC-DEFAULT-03, AC-DEFAULT-04, AC-OTHER-01, AC-KEEP-02)
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, requirements and design-stage choices).
+
 ```
 ModelChoice:  { agentId, model, effort? }      model: the agent's model-list value
 FamilyChoice: { agentId, family, effort? }     a Model defaults row side
@@ -222,6 +224,8 @@ Every installed agent's model list is read when Kiln starts and at each refresh,
 
 ### Model defaults file
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Data Models, the requirements rows and skill choices).
+
 `<state root>/model-defaults.json`:
 
 ```json
@@ -239,6 +243,8 @@ Every installed agent's model list is read when Kiln starts and at each refresh,
 Every write re-reads the file, applies one change and replaces it atomically. A save sets one or both sides of one row. It is refused when, with the saved sides in place, the row's first choice and fallback would be on the same agent; the reason names the agent and says to change both sides in one save. It is also refused when a given side's family or effort isn't in that agent's current model list (an omitted effort: §Command line) or its model can't run in auto mode, when that list can't be read, or when the threshold isn't a whole number from 1 to 100. A file that doesn't parse, including one whose rows, agents or threshold don't fit schema 1, or that has a newer schema version, is an error wherever a choice is resolved, with the file's path. Kiln never falls back to its shipped defaults over it. `GET /api/model-defaults` answers 409 with `{ reason, path, canRestore }`. The page shows that reason in place of the table. `kiln model-defaults` prints it and exits 4 with `state_unavailable`. Every save is refused. Restore is the one write allowed over a file that doesn't parse: it writes a new file with every row at its default and the fallback off at 95, and the page and command say the fallback is now off. Over a newer schema version, Restore is refused too, with "written by a newer Kiln; update Kiln", and `canRestore` is false.
 
 ### HTTP (same-origin, token, as today)
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, the two additional default rows).
 
 | Route | Contract |
 |---|---|
@@ -303,6 +309,8 @@ Start unknown adds no state: `model.state` is `will_run_on` and `change` is `{ a
 `settings.models.audits.change` isn't limited by any activity's state. A Delivery audit or Test audit row's `model.change` follows that row's own state, as a phase's does; the change it makes is the PRD's Audits entry.
 
 ### Command line
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Models, selecting the two requirements defaults).
 
 `kiln model` is a changing command: it takes `--command-id` and `--only-if-status-matches`, is listed among `kiln status`'s controls, and for `--phase` is refused with the reason when `POST /api/model` would answer 409, with the same reasons and exit 3. An id that isn't a phase with no child phases in the current plan is refused with `target_not_found` and exit 2, giving the same reason as the 422. `--audits` is never refused for an activity's state. It is announced in the controller's `features` list, like the other changing commands added after the first release, so a newer client refuses it against an older running Kiln.
 

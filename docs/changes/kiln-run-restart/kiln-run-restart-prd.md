@@ -31,10 +31,12 @@ The same day Doug raised a second case: someone builds part of a PRD by hand, sa
 The first screen, Documents found, gains one choice: where Kiln starts from. A new feature branch is what Kiln does today. An existing branch is for work already begun, by the person or by Kiln before a reset.
 
 - [ ] **AC-FROM-01 — The first screen asks where to start from.** Documents found offers **Start from** with two choices: **A new feature branch**, cut from the base branch, and **A branch that already exists**. When a branch with the name Kiln would give a new one exists, **A branch that already exists** is selected, with that branch; otherwise **A new feature branch** is. With an existing branch selected, **Feature branch** becomes a list of the repository's branches and **Branch from, and PR into** reads **PR into**.
+  - Superseded in part by: AC-BEGIN-06 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (a start from source material always cuts a new branch).
   - Replaces in part: AC-START-06 and AC-START-07 in `docs/prds/kiln-v1/kiln-v1-prd.md` (the first Start can use an existing branch, chosen from a list).
   - Replaces in part: validated assumption UI-003 in `docs/prds/kiln-v1/assumptions.md` (a feature branch name already taken can be chosen as the branch to start from).
 - [ ] **AC-FROM-02 — The screen shows what will run from there.** **What Kiln found** reads the phase plan from where the first session will start, as the table says, says which, and keeps today's closed marks. Phases closed there count as closed before the run (AC-DEV-03). When some phases are closed there, the count line says how many and that Kiln starts at the first open phase, which is marked, and Start reads **Start at Phase N** with a line saying the closed phases won't run. When every phase is closed there, the count line and Start are today's: Start goes on to the audits and final delivery.
   - Superseded in part by: AC-PREFLIGHT-01 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md` (Start runs a preflight first, a Start with every phase closed included).
+  - Superseded in part by: AC-BEGIN-07 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (for source material, the screen before Start shows what Kiln found in place of the phase plan).
 
   | Start from | The plan is read from |
   |---|---|

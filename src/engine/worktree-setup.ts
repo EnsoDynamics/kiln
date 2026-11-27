@@ -88,6 +88,7 @@ export interface FieldCheckInput {
   settings: Settings;
   /** The PRD directory's tree as Kiln read it, `git rev-parse HEAD:<PRD directory>`. */
   prdTree: string;
+  source?: import("../requirements/stages.js").RequirementsOrigin;
   /** The PRD's repository first, then the others in list order. */
   repositories: PlannedRepository[];
   /** Each repository's origin, read once for the check; an error is its base field's message. */
@@ -178,7 +179,12 @@ export async function checkFields(input: FieldCheckInput): Promise<FieldCheckOut
     else {
       const tip = origin.value.branches.get(base);
       if (tip === undefined) message = `${base} isn’t on origin.`;
-      else {
+      else if (isPrd && input.source) {
+        const local = await localBranchCommit(input.git, repository.mainCheckoutPath, base);
+        if (!local || (await runGit(input.git, repository.mainCheckoutPath, ["merge-base", "--is-ancestor", tip, local])).exitCode !== 0) message = `Bring the local shared branch ${base} up to date before Start.`;
+        else if (local !== input.source.commit) message = "The source material's commit changed. Reopen this run before Start.";
+        else startCommits[repository.name] = local;
+      } else {
         const commit = reusable.get(repository.name) ? repository.entry!.createdBranch!.commit : tip;
         message = isPrd ? await checkPrdTreeAt(input, repository, base, commit) : await fetchIfMissing(input.git, repository.mainCheckoutPath, base, commit);
         if (message === undefined) startCommits[repository.name] = commit;

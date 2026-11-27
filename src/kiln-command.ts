@@ -1,8 +1,10 @@
+import { newRequirements } from "./requirements/stages.js";
+import { startPath, writtenDirectory } from "./requirements/run-path.js";
 import { preflightKey } from "./state/activity-keys.js";
 import { PREFLIGHT_TITLE } from "./engine/preflight.js";
 import { runPreparation } from "./preparation-command.js";
 import { writeDurableMetadata } from "./control/durable-file.js";
-import { readWork, retainedAliases } from "./control/private-state.js";
+import { enumerateWork, readWork, retainedAliases } from "./control/private-state.js";
 import { runInspectionCommand } from "./control/client.js";
 import { runDelivery } from "./delivery-command.js";
 import { runAudit } from "./audit-command.js";
@@ -178,9 +180,10 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
   if (rest.length === 0) return usageError(context);
   const resumeImmediately = rest.includes("--resume");
   const paths = rest.filter(arg => arg !== "--resume");
-  if (paths.length !== 1 || paths[0]!.startsWith("-") || rest.filter(arg => arg === "--resume").length > 1) return usageError(context, "kiln: kiln run takes one path and an optional --resume.");
+  const planned = paths.length === 3 && paths[1] === "--prd" && /^[^/\\]+$/.test(paths[2]!) && ![".", ".."].includes(paths[2]!);
+  if ((!planned && paths.length !== 1) || paths[0]!.startsWith("-") || rest.filter(arg => arg === "--resume").length > 1) return usageError(context, "kiln: kiln run takes one path and an optional --resume.");
 
-  const pathArgument = paths[0]!;
+  const pathArgument = planned ? join(paths[0]!, paths[2]!) : paths[0]!;
   const errColors = terminalColors(context.stderr, context.env);
   const git = findExecutable("git", context.env);
   if (!git) {
@@ -194,14 +197,31 @@ export async function runKilnCommand(args: string[], context: CommandContext): P
     return EXIT_START_CHECKS_FAILED;
   }
 
-  const resolution = await resolvePrdPath(pathArgument, context.cwd, git, context.env);
+  let resolution = await resolvePrdPath(pathArgument, context.cwd, git, context.env);
+  if ("problem" in resolution) {
+    const target = resolve(context.cwd, pathArgument);
+    const matches = enumerateWork(context.env).work.filter(({ record }) => {
+      if (!record.origin || !record.prdDirectory) return false;
+      const dir = resolve(record.repository.mainCheckoutPath, record.prdDirectory);
+      return target === dir || target === join(dir, basename(dir) + "-prd.md");
+    });
+    if (matches.length > 1) return usageError(context, "More than one run matches this path.");
+    if (matches[0]) resolution = await resolvePrdPath(matches[0].canonical, context.cwd, git, context.env);
+  }
   if ("problem" in resolution) return usageError(context, `kiln: ${resolution.problem}`);
   const { location } = resolution;
   const tools = { git, gh: findExecutable("gh", context.env), claude: findExecutable("claude", context.env), codex: findExecutable("codex", context.env) };
 
   // The first step after resolving the PRD: its instance lock, which settles its port (AC-MULTI-04).
   const root = stateRoot(context.env);
-  const stateDirectory = prdStateDirectory(root, location.mainCheckoutPath, location.repositoryName, location.prdDirectoryFromRoot);
+  const direct = prdStateDirectory(root, location.mainCheckoutPath, location.repositoryName, location.prdDirectoryFromRoot);
+  const matching = enumerateWork(context.env).work.filter(work => work.record.repository.mainCheckoutPath === location.mainCheckoutPath && work.record.origin && (work.record.origin.path === location.prdDirectoryFromRoot || work.record.prdDirectory === location.prdDirectoryFromRoot));
+  if (matching.length > 1) return usageError(context, "More than one run matches this path.");
+  const stateDirectory = matching[0]?.directory ?? direct;
+  if (matching[0]) {
+    location.folderName = basename(startPath(matching[0].record));
+    location.featureName = matching[0].record.featureName;
+  }
   const range = portRange(context.env);
   if ("problem" in range) {
     context.stderr.write(`${range.problem}\n`);
@@ -275,6 +295,11 @@ function makeEngine(
   const address = viewAddress(run.port, location.folderName);
   const keepAwake = new KeepAwake({ featureName: location.featureName, env: context.env, onError: (message) => write(`${colors.amber("✗")} ${message}`) });
   const engine: Engine = new Engine({
+    openStakeholderReview: async () => {
+      const url = `${address}/stakeholder-review`;
+      if (context.openBrowser) await context.openBrowser(url);
+      else if (context.env.KILN_NO_BROWSER !== "1") await openBrowser(url, context.env);
+    },
     paths: {
       mainCheckoutPath: location.mainCheckoutPath,
       suppliedCheckoutPath: location.checkoutRoot,
@@ -372,6 +397,13 @@ async function resetEngine(run: KilnRun): Promise<Engine> {
   const record = readPrdRecord(run.stateDirectory);
   if (!record) throw new Error("the fresh record is missing");
   if (checks.report.github) record.repository.github = checks.report.github;
+  if (record.origin && !record.prdDirectory) {
+    record.origin = checks.report.origin ?? record.origin;
+    record.featureName = record.origin.title;
+    record.requirements = newRequirements();
+    record.settings.waitAtEarlyReview = true;
+    record.settings.modelChoices.stages = {};
+  }
   await fillNamedBases(git, record, checks.report.repositories);
   writePrdRecord(run.stateDirectory, record);
   const engine = makeEngine(run, record, terminalWriter(run), { prdTree: checks.prdTree, plan: checks.report.plan, repositories: checks.report.repositories, named: checks.report.named }, startChecks);
@@ -458,6 +490,14 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   } else {
     record.repository.github = report.github!;
   }
+  if (report.origin) {
+    record.origin = report.origin;
+    record.featureName = location.featureName = report.origin.title;
+    record.requirements ??= newRequirements();
+    record.settings.waitAtEarlyReview ??= true;
+    record.settings.modelChoices.stages ??= {};
+    if (record.prdDirectory === report.origin.path) delete record.prdDirectory;
+  }
   await fillNamedBases(git, record, report.repositories);
   if (stop.stopping) return stop.done;
   writePrdRecord(run.stateDirectory, record);
@@ -466,11 +506,12 @@ async function notStarted(run: KilnRun, record: PrdRecord | undefined, startErro
   const engine = makeEngine(run, record, write, { prdTree, plan: report.plan, repositories: report.repositories, named: report.named });
   for (const text of run.repositoryLinesSaid) engine.repositoryLinesSaid.add(text);
   if (startError !== undefined) engine.startError = startError;
-  const documents = documentsFound(location.prdDirectory, location.folderName, report.plan!, { ...report.found, repositories: report.repositories, namedCount: report.named.length }, engine.labelOf(location.repositoryName));
+  const documents = report.plan && documentsFound(location.prdDirectory, location.folderName, report.plan, { ...report.found, repositories: report.repositories, namedCount: report.named.length }, engine.labelOf(location.repositoryName));
   const outColors = terminalColors(context.stdout, context.env);
   for (const text of report.lines) write(formatRepositoryLine(new Date(), text, outColors));
   const locating = engine.locatingRepositories.map((row) => row.question!.repository);
-  write(formatDocumentsFound(location.featureName, report.found, outColors, engine.plannedRepositories.length + locating.length, locating.length));
+  if (report.origin) write(`Found ${report.origin.title} at ${report.origin.commit.slice(0, 7)}. Waiting for Start.`);
+  else write(formatDocumentsFound(location.featureName, report.found, outColors, engine.plannedRepositories.length + locating.length, locating.length));
   const { address, opening } = await serveAndOpen(run, engine, documents);
   write(formatOpenedLine(address, opening, outColors, false, locating));
   // Kiln lives in its terminal until Ctrl+C or a closed terminal (AC-KEEP-01); Start comes from the view.
@@ -573,7 +614,7 @@ function formatEventLine(event: TerminalEvent, record: PrdRecord, colors: Termin
   const columns = planColumns(record.plan ?? []);
   const where = viewAddress === undefined ? {} : { viewAddress };
   switch (event.kind) {
-    case "completed_plan_checked": return formatCompletedPlanCheck(event.check, record.prdDirectory);
+    case "completed_plan_checked": return formatCompletedPlanCheck(event.check, writtenDirectory(record));
     case "folder_missing": return formatFolderMissing(event.view, event.address, colors);
     case "plan_updated": return `${event.at.toLocaleTimeString()}  Added phases ${event.addedPhaseIds.join(", ")} · ${event.remainingCount} unfinished phases remain. Plan: ${event.source}`;
     case "audit":

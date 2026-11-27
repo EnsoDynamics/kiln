@@ -1,3 +1,4 @@
+import { writtenDirectory } from "../requirements/run-path.js";
 import { newPreparationState, preparesPhase } from "./preparation-state.js";
 import { preparationPermissions } from "./preparation-permissions.js";
 /** Read-only proposal evaluation. Acceptance and setup remain owned by the continuation command. */
@@ -82,7 +83,7 @@ export async function evaluateContinuationReadiness(input: ReadinessInput): Prom
     return one ? labelAmong(one, labels) : name;
   };
   // A repository Kiln would ask about is left out: the stop before the phase that names it asks (find repositories anywhere AC-ASK-07), unless the first phase's preparation reads it.
-  const prepared = names.length ? preparationReads(candidate, record.prdDirectory, first, record.repository.name) : new Set<string>();
+  const prepared = names.length ? preparationReads(candidate, writtenDirectory(record), first, record.repository.name) : new Set<string>();
   for (const written of names) {
     const reached = reachedName(written, record.repository.name, reach.get(written));
     if ("question" in reached && !prepared.has(written.toLowerCase())) continue;
@@ -216,7 +217,7 @@ export async function bindPreparation(input: { git: GitContext; record: PrdRecor
   const label = input.label ?? ((name: string) => name);
   const labelWritten = input.labelWritten ?? label;
   const preparation: PreparationBinding[] = [];
-  const extracted = first ? extractPreparation(candidate, record.prdDirectory, first, [...new Set([record.repository.name, ...candidate.plan.phases.filter(phase => phase.id === first.id || isAncestorOf(phase.id, first.id)).flatMap(phase => phase.repositories)])]) : { instructions: [], problems: [] };
+  const extracted = first ? extractPreparation(candidate, writtenDirectory(record), first, [...new Set([record.repository.name, ...candidate.plan.phases.filter(phase => phase.id === first.id || isAncestorOf(phase.id, first.id)).flatMap(phase => phase.repositories)])]) : { instructions: [], problems: [] };
   problems.push(...extracted.problems);
   for (const instruction of extracted.instructions) {
     const problemCount = problems.length;
@@ -229,7 +230,7 @@ export async function bindPreparation(input: { git: GitContext; record: PrdRecor
     const binding: PreparationBinding = { ...instruction, sourceRevision: pinned.stdout.trim(), repositoryIdentity: repository.identity, baseBranch: repository.baseBranch, baseRevision: repository.baseRevision, authorization: instruction.destination === "assigned_feature" ? "phase_preparation" : "delivery_target", valid: false };
     preparation.push(binding);
     if (repository.name === record.repository.name) {
-    const sourcePlan = await observeGitPlan(git, repository.path, record.prdDirectory, binding.sourceRevision);
+    const sourcePlan = await observeGitPlan(git, repository.path, writtenDirectory(record), binding.sourceRevision);
     for (const prerequisite of instruction.prerequisites) {
       const descendants = leavesOf(candidate.plan).filter(phase => preparesPhase({ prerequisites: [prerequisite] }, phase.id));
       if (!descendants.length || descendants.some(phase => !phase.closed || !sourcePlan.plan.phases.some(original => original.id === phase.id && original.closed && !original.splitInto) || !completedPhaseScopeUnchanged(sourcePlan, candidate, phase.id))) problems.push(`Phase ${instruction.phaseId}: source ${binding.sourceRevision} does not contain the unchanged Closed scope for prerequisite ${prerequisite} and every applicable leaf. Restore the matching source before preparation.`);

@@ -437,7 +437,7 @@ describe.skipIf(process.platform !== "darwin").each([{ kind: "delivery_audit", h
     for (const [index, fault] of faults.entries()) {
       let restore: () => void;
       if (fault === "plan") {
-        const directory = join(h.engine.worktreePath, h.engine.record.prdDirectory);
+        const directory = join(h.engine.worktreePath, h.engine.record.prdDirectory!);
         renameSync(directory, `${directory}.unavailable`); restore = () => renameSync(`${directory}.unavailable`, directory);
       } else if (fault === "report") {
         if (hadReport) chmodSync(reportFile, 0);

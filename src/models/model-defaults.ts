@@ -9,10 +9,10 @@ import type { AgentId } from "../state/records.js";
 import { stateRoot } from "../state/state-files.js";
 
 export const MODEL_DEFAULTS_FILE = "model-defaults.json";
-export const MODEL_DEFAULTS_SCHEMA = 1;
+export const MODEL_DEFAULTS_SCHEMA = 2;
 
-export type DefaultsRow = "demanding" | "standard" | "mechanical" | "audits";
-export const DEFAULTS_ROWS: DefaultsRow[] = ["demanding", "standard", "mechanical", "audits"];
+export type DefaultsRow = "demanding" | "standard" | "mechanical" | "audits" | "requirements" | "refining_design";
+export const DEFAULTS_ROWS: DefaultsRow[] = ["demanding", "standard", "mechanical", "audits", "requirements", "refining_design"];
 
 /** A Model defaults side: a model family, resolved to the newest version its agent offers at launch. */
 export interface FamilyChoice { agentId: AgentId; family: string; effort?: string }
@@ -24,12 +24,14 @@ export const SHIPPED_DEFAULTS: Record<DefaultsRow, { first: FamilyChoice; fallba
   demanding: { first: { agentId: "claude_code", family: "fable", effort: "high" }, fallback: { agentId: "codex", family: "astra", effort: "high" } },
   standard: { first: { agentId: "claude_code", family: "opus", effort: "medium" }, fallback: { agentId: "codex", family: "sol", effort: "high" } },
   mechanical: { first: { agentId: "claude_code", family: "sonnet", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "high" } },
+  requirements: { first: { agentId: "claude_code", family: "fable", effort: "high" }, fallback: { agentId: "codex", family: "astra", effort: "high" } },
+  refining_design: { first: { agentId: "claude_code", family: "opus", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "xhigh" } },
   audits: { first: { agentId: "claude_code", family: "opus", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "xhigh" } },
 };
 export const SHIPPED_FALLBACK = { enabled: false, threshold: 95 };
 
 export interface DefaultsRowView { first: FamilyChoice; fallback: FamilyChoice; firstSet: boolean; fallbackSet: boolean }
-export interface ModelDefaults { rows: Record<DefaultsRow, DefaultsRowView>; fallback: { enabled: boolean; threshold: number } }
+export interface ModelDefaults { skills: Record<string, FamilyChoice | ModelChoice>; rows: Record<DefaultsRow, DefaultsRowView>; fallback: { enabled: boolean; threshold: number } }
 export type ModelDefaultsRead = { ok: true; defaults: ModelDefaults } | { ok: false; reason: string; path: string; canRestore: boolean };
 
 /** `<state root>/model-defaults.json`. */
@@ -40,7 +42,7 @@ export function modelDefaultsPath(env: NodeJS.ProcessEnv): string {
 /** Kiln's shipped defaults, as a missing file reads. */
 export function shippedDefaults(): ModelDefaults {
   const rows = Object.fromEntries(DEFAULTS_ROWS.map(row => [row, { first: { ...SHIPPED_DEFAULTS[row].first }, fallback: { ...SHIPPED_DEFAULTS[row].fallback }, firstSet: false, fallbackSet: false }])) as Record<DefaultsRow, DefaultsRowView>;
-  return { rows, fallback: { ...SHIPPED_FALLBACK } };
+  return { rows, skills: Object.create(null), fallback: { ...SHIPPED_FALLBACK } };
 }
 
 const cache = new Map<string, { key: string; read: ModelDefaultsRead }>();
@@ -75,10 +77,18 @@ function parse(path: string): ModelDefaultsRead {
   }
   if (!isObject(raw)) return refuse(`Model defaults at ${path} isn't a settings object. Restore Kiln's defaults, or fix the file.`);
   if (typeof raw.schemaVersion === "number" && raw.schemaVersion > MODEL_DEFAULTS_SCHEMA) return refuse(`Model defaults at ${path} was written by a newer Kiln; update Kiln.`, false);
-  if (raw.schemaVersion !== MODEL_DEFAULTS_SCHEMA) return refuse(`Model defaults at ${path} has no schema version Kiln reads. Restore Kiln's defaults, or fix the file.`);
-  const unknownKey = Object.keys(raw).find(one => !["schemaVersion", "rows", "fallback"].includes(one));
+  if (raw.schemaVersion !== 1 && raw.schemaVersion !== MODEL_DEFAULTS_SCHEMA) return refuse(`Model defaults at ${path} has no schema version Kiln reads. Restore Kiln's defaults, or fix the file.`);
+  const unknownKey = Object.keys(raw).find(one => !["schemaVersion", "rows", "fallback", "skills"].includes(one));
   if (unknownKey) return refuse(`Model defaults at ${path} has a field Kiln doesn't read: ${unknownKey}. Restore Kiln's defaults, or fix the file.`);
   const defaults = shippedDefaults();
+  if (raw.skills !== undefined) {
+    if (!isObject(raw.skills)) return refuse(`Model defaults at ${path} has skill choices Kiln can't read.`);
+    for (const [name, value] of Object.entries(raw.skills)) {
+      const choice = familyChoice(value) ?? exactChoice(value);
+      if (!name.trim() || !choice) return refuse(`Model defaults at ${path} has a skill choice Kiln can't read: ${name}.`);
+      defaults.skills[name] = choice;
+    }
+  }
   if (raw.rows !== undefined) {
     if (!isObject(raw.rows)) return refuse(`Model defaults at ${path} has rows Kiln can't read. Restore Kiln's defaults, or fix the file.`);
     for (const [name, value] of Object.entries(raw.rows)) {
@@ -114,6 +124,13 @@ function familyChoice(value: unknown): FamilyChoice | undefined {
   if (typeof value.family !== "string" || value.family.trim() === "") return undefined;
   if (value.effort !== undefined && (typeof value.effort !== "string" || value.effort === "")) return undefined;
   return { agentId: value.agentId, family: value.family, ...(value.effort === undefined ? {} : { effort: value.effort as string }) };
+}
+
+function exactChoice(value: unknown): ModelChoice | undefined {
+  if (!isObject(value) || "family" in value || !("model" in value)) return undefined;
+  const { model, ...rest } = value;
+  const parsed = familyChoice({ ...rest, family: model });
+  return parsed && { agentId: parsed.agentId, model: parsed.family, ...(parsed.effort ? { effort: parsed.effort } : {}) };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

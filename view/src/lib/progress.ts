@@ -29,6 +29,7 @@ export function namedActivity(id: string): boolean {
 
 /** "phase 2b", "the pull request" (AC-PR-05), an audit's title or "preflight". */
 export function phaseName(id: string, snapshot?: Snapshot): string {
+  if (activityKeyKind(id) === "requirements") return snapshot?.requirements?.rows.find(row => id === `req-${row.activityId}`)?.title ?? "requirements stage";
   return namedActivity(id) ? ((snapshot?.activities?.find(r => r.id === id)?.title ?? (activityKeyKind(id) === "preflight" ? "Preflight" : "This audit")).toLowerCase()) : id === PR_ID ? "the pull request" : `phase ${id}`;
 }
 

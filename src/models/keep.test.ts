@@ -72,7 +72,7 @@ describe("migrating to schema 27 (AC-KEEP-02's table)", () => {
     const record = migrateRecord(schema25("codex", { model: "" }), dir);
     expect(record.settings.modelChoices).toEqual({ phases: {} });
     for (const retired of ["agentId", "selectionGeneration", "agentChoices", "model", "effort"]) expect(record.settings).not.toHaveProperty(retired);
-    expect(record.schemaVersion).toBe(27);
+    expect(record.schemaVersion).toBe(28);
   });
 
   it("starts the activity on the first of its sessions, in creation order, that got a response", () => {

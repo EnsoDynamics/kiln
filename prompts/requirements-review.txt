@@ -1,0 +1,7 @@
+Use the installed using-the-enso-method skill at {{skillPath}} to find the method's stakeholder review skill. Make or refresh the stakeholder review from the requirements as they stand, and stop. Commit the review in your last commit, with or after every other change to the PRD directory.
+
+Work: {{work}}
+Worktree: {{worktree}}
+Feature branch: {{branch}}
+
+Work only here. You may commit the review on the named branch. Do not push, open a pull request, merge, build, open a browser, or change branches. Nobody can answer questions. End the final message with a fenced kiln-report block containing JSON with kilnReport (1), ran (an array of objects with the method's skill and title) and finished (true when this session completed its assigned stage, even when further requirements stages remain; false when this stage still needs work).

@@ -52,6 +52,7 @@ Kiln sets up everything the sessions need before the first phase starts, so ever
 
 - [ ] **AC-SPACE-01 — One workspace, one feature branch in each repository.** At Start, Kiln creates the feature branch in each of the PRD's repositories from that repository's base branch, and a worktree of each in the workspace folder, in a folder named for the repository. Unless the person changes them before Start:
   - Superseded in part by: AC-CONTINUE-06 and AC-CONTINUE-08 in `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-prd.md` (an explicitly accepted continuation uses fresh current-base workspaces and existing controls; earlier execution settings and history remain historical), implemented in Phase 3a.
+  - Superseded in part by: AC-BEGIN-06 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (a start from source material is named from the source folder or the planned PRD's directory).
   - the workspace folder is `.worktrees/<PRD folder name>/` in the folder that holds the PRD's repository, outside every repository's own checkout;
   - the feature branch is the same name in every repository (BRANCH-001);
   - each repository's base branch is chosen by v1's rule: `develop`, or that repository's default branch when it has no `develop`.

@@ -94,6 +94,7 @@ export function preflightSettled(record: PrdRecord): boolean {
 
 /** Sets the due mark; the caller saves it in the write that records the person's action. */
 export function setPreflightDue(record: PrdRecord, trigger: PreflightTrigger, at: string): void {
+  if (record.requirements && record.requirements.phase !== "closed") return;
   record.preflight ??= { activities: [] };
   record.preflight.due = { trigger, at };
 }

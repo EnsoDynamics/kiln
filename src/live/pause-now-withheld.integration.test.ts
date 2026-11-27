@@ -31,7 +31,7 @@ async function post(origin: string, path: string, body: unknown) {
   return { status: response.status, body: await response.json() as Record<string, unknown> };
 }
 async function status(json: boolean) {
-  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), "status", join(h!.repository, h!.engine.record.prdDirectory), ...(json ? ["--json"] : [])], { cwd: h!.sandbox.root, env: h!.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), "status", join(h!.repository, h!.engine.record.prdDirectory!), ...(json ? ["--json"] : [])], { cwd: h!.sandbox.root, env: h!.env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   child.stdout.on("data", b => { output += String(b); });
   await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });

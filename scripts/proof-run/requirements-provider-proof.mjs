@@ -1,0 +1,58 @@
+// Opt-in authenticated proof. Both sessions work only in one disposable repository with a local origin.
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { resolveSkill } from "../../dist/audit/workflow.js";
+import { requirementsPrompt } from "../../dist/session/prompts.js";
+import { launchArguments, runSessionProcess } from "../../dist/session/claude-session.js";
+import { readStageReport } from "../../dist/requirements/stages.js";
+import { locateWrittenPrd, reviewState } from "../../dist/requirements/git.js";
+import { SCHEMA_VERSION, writeSessionRecord } from "../../dist/state/records.js";
+
+const root = realpathSync(mkdtempSync(join(tmpdir(), "kiln-requirements-proof-")));
+const repository = join(root, "proof");
+const stateDirectory = join(root, "state");
+const branch = "feature/kiln-requirements-stages";
+mkdirSync(repository);
+mkdirSync(stateDirectory);
+const git = (...args) => execFileSync("git", args, { cwd: repository, encoding: "utf8" }).trim();
+git("init", "-q", "-b", branch);
+git("config", "user.name", "Kiln requirements proof");
+git("config", "user.email", "proof@example.invalid");
+git("init", "--bare", "-q", join(root, "origin.git"));
+git("remote", "add", "origin", join(root, "origin.git"));
+const source = "source-material/count-cards";
+const brief = source + "/count-cards-brief.md";
+mkdirSync(join(repository, source), { recursive: true });
+writeFileSync(join(repository, brief), "# Brief: Count cards\n\nA volunteer needs to record the number of cards in each box during a shift. On a single local page, they enter a box label and a positive whole count. Show the entries and their total. Keep them after a reload on this computer. No accounts, sharing, editing, or export.\n");
+git("add", brief);
+git("commit", "-qm", "docs(brief): describe the card counter");
+git("push", "-qu", "origin", branch);
+const base = git("rev-parse", "HEAD");
+const cli = process.env.KILN_LIVE_PROOF_CLAUDE ?? "claude";
+const entry = await resolveSkill({ name: "using-the-enso-method", agent: "claude_code", cwd: repository, claude: cli, env: process.env });
+assert.equal(entry.kind, "found", entry.message);
+const gitContext = { git: "git", env: process.env };
+async function run(task, work) {
+  const sessionId = randomUUID();
+  const record = { schemaVersion: SCHEMA_VERSION, sessionId, phaseId: "req-" + sessionId, kind: "requirements", agentId: "claude_code", createdAt: new Date().toISOString(), model: "fable", modelDisplayName: "Fable", effort: "high", workingDirectory: repository, runs: [], sleeps: [], steps: [] };
+  writeSessionRecord(stateDirectory, record);
+  const prompt = requirementsPrompt(task, { skillPath: entry.skill.path, work, worktree: repository, branch, holds: "prd_refined without a technical design, and requirements_finished" });
+  console.log(JSON.stringify({ task, root, sessionId }));
+  const result = await runSessionProcess({ claude: cli, args: launchArguments(sessionId, record.model, record.effort), cwd: repository, env: process.env, prompt, cause: "launch", stateDirectory, record });
+  assert.equal(result.exitCode, 0, result.result?.text || result.spawnError);
+  const report = readStageReport(result.result?.text ?? "", task);
+  assert.ok(report?.finished && report.ran.length, result.result?.text);
+  assert.equal(git("status", "--porcelain"), "");
+  assert.equal(git("branch", "--show-current"), branch);
+  return report;
+}
+const drafted = await run("stage", brief + " at " + base);
+const { directory } = await locateWrittenPrd(gitContext, repository, base, undefined, drafted.prdDirectory);
+assert.ok(directory);
+await run("review", directory);
+assert.ok((await reviewState(gitContext, repository, directory)).current);
+console.log(JSON.stringify({ passed: true, directory, commit: git("rev-parse", "HEAD") }));

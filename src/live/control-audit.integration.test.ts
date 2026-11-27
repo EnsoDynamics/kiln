@@ -63,7 +63,7 @@ it.skipIf(process.platform !== "darwin")("names the finished phase in text and J
   expect(h.engine.record.pause.activeSince).toBeDefined();
   const expected = "Phase 1 finished. Paused before the next activity.";
   for (const json of [true, false]) {
-    const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), "status", join(h.repository, h.engine.record.prdDirectory), ...(json ? ["--json"] : [])], { env: h.env, cwd: h.sandbox.root, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), "status", join(h.repository, h.engine.record.prdDirectory!), ...(json ? ["--json"] : [])], { env: h.env, cwd: h.sandbox.root, stdio: ["ignore", "pipe", "pipe"] });
     let output = ""; child.stdout!.on("data", chunk => { output += String(chunk); });
     expect(await new Promise(resolve => child.once("close", resolve)), output).toBe(0);
     if (json) expect(JSON.parse(output).pause_status).toBe(expected); else expect(output).toContain(expected);
@@ -99,7 +99,7 @@ it.skipIf(process.platform !== "darwin")("rejects each missing mandatory live-co
   const cli = fileURLToPath(new URL("../../dist/cli.js", import.meta.url));
   const receipts = h.engine.commands.all().map(r => r.id);
   for (const action of ["message", "take-over"]) for (const missing of ["--command-id", "--only-if-status-matches"]) {
-    const args = [cli, action, join(h.repository, h.engine.record.prdDirectory), "--json", ...(action === "message" ? ["--message-from-stdin"] : []), ...(missing === "--command-id" ? ["--only-if-status-matches", "unused-token"] : ["--command-id", "unused-id"])];
+    const args = [cli, action, join(h.repository, h.engine.record.prdDirectory!), "--json", ...(action === "message" ? ["--message-from-stdin"] : []), ...(missing === "--command-id" ? ["--only-if-status-matches", "unused-token"] : ["--command-id", "unused-id"])];
     const child = spawn(process.execPath, args, { env: h.env, cwd: h.sandbox.root, stdio: ["pipe", "pipe", "pipe"] });
     let output = ""; child.stdout!.on("data", chunk => { output += String(chunk); }); child.stdin!.on("error", () => {});
     const exit = once(child, "exit"); child.stdin!.end("must never be sent");

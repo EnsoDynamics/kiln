@@ -42,7 +42,7 @@ const hookCalls = () => existsSync(`${h.scenarioPath}.hooks.jsonl`) ? readFileSy
 const deniedCommands = () => hookCalls().filter(call => call.event === "PreToolUse" && (call.status === 2 || call.stdout.includes("\"deny\""))).map(call => call.input.tool_input?.command);
 const pauseNow = () => h.engine.liveView()?.pauseNow;
 async function cli(args: string[], json = true) {
-  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), ...args, join(h.repository, h.engine.record.prdDirectory), ...(json ? ["--json"] : [])], { cwd: h.sandbox.root, env: h.env, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), ...args, join(h.repository, h.engine.record.prdDirectory!), ...(json ? ["--json"] : [])], { cwd: h.sandbox.root, env: h.env, stdio: ["ignore", "pipe", "pipe"] });
   let output = "";
   child.stdout.on("data", b => { output += String(b); });
   await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });

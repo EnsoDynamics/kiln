@@ -219,6 +219,7 @@ export function preflightRecoveryPrompt(task: PreflightRecoveryTask): string {
 }
 
 export interface ResumePromptValues {
+  requirementsStage?: boolean;
   auditTask?: AuditRecoveryTask;
   preflightTask?: PreflightRecoveryTask;
   deliveryAuthority?: string | undefined;
@@ -278,7 +279,8 @@ export function resumePrompt(values: ResumePromptValues): string {
       ? fill(template("resume-opening-unrecorded.txt"), { time: values.time })
       : fill(template("resume-opening-interrupted.txt"), { time: values.time, cause: INTERRUPT_CAUSES[values.cause] });
   const carryOn =
-    values.mergeTask ? fill(template("resume-carry-on-merge.txt"), { pullRequestList: mergeList(values.mergeTask.pullRequests, true), checkWaitMinutes: String(MERGE_CHECK_WAIT_MINUTES) })
+    values.requirementsStage ? "Continue your assigned requirements stage from where you stopped. End with the kiln-report requested in your original instructions."
+    : values.mergeTask ? fill(template("resume-carry-on-merge.txt"), { pullRequestList: mergeList(values.mergeTask.pullRequests, true), checkWaitMinutes: String(MERGE_CHECK_WAIT_MINUTES) })
     : values.planPushTask ? fill(template("resume-carry-on-plan-push.txt"), values.planPushTask)
     : values.preflightTask ? preflightRecoveryPrompt(values.preflightTask) : values.auditTask ? auditRecoveryPrompt(values.auditTask) : values.phaseDoc === undefined
       ? values.deliveryAuthority
@@ -396,3 +398,7 @@ export function preflightSessionPrompt(values: { skillName: string; skillPath: s
 export function preparationPrompt(values: { phaseId: string; featureName: string; branch: string; bindings: string; cli: string; executionId: string; recovery: string }): string { return fill(template("preparation-session.txt"), values); }
 export function preparationImplementationPrompt(values: { phaseId: string; checkpoint: string; phasePrompt: string }): string { return fill(template("preparation-implementation.txt"), values); }
 
+
+export function requirementsPrompt(task: "stage" | "review", values: { skillPath: string; work: string; worktree: string; branch: string; holds: string }): string {
+  return fill(template(task === "review" ? "requirements-review.txt" : "requirements-stage.txt"), values);
+}

@@ -67,8 +67,8 @@ function changeOf(parsed: ParsedCommand): DefaultsChange {
     if (!flags.on && !flags.off && threshold === undefined) throw new ControlFailure("invalid_input", "Give --on, --off or --threshold.", 2);
     return { fallback: { ...(flags.on ? { enabled: true } : flags.off ? { enabled: false } : {}), ...(threshold === undefined ? {} : { threshold: Number(threshold) }) } };
   }
-  const row = flags.row;
-  if (!DEFAULTS_ROWS.includes(row as DefaultsRow)) throw new ControlFailure("invalid_input", "--row takes demanding, standard, mechanical or audits.", 2);
+  const row = flags.row === "refining-design" ? "refining_design" : flags.row;
+  if (!DEFAULTS_ROWS.includes(row as DefaultsRow)) throw new ControlFailure("invalid_input", "--row takes demanding, standard, mechanical, audits, requirements or refining-design.", 2);
   const first = sideFlags(flags, "first"); const fallback = sideFlags(flags, "fallback");
   if (!first && !fallback) throw new ControlFailure("invalid_input", "Give the first choice, the fallback or both: --first-agent with --first-model, or --fallback-agent with --fallback-model.", 2);
   return { set: { row: row as DefaultsRow, ...(first ? { first } : {}), ...(fallback ? { fallback } : {}) } };

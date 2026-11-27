@@ -1,6 +1,6 @@
 <script lang="ts">
   // Model defaults, a page of its own for every PRD on this computer (Kiln Phase Model Tiers
-  // AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBACK-01; mockup 4): the four rows with their first choice
+  // AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBACK-01; mockup 4): the six rows with their first choice
   // and fallback, a Change on each side, Done saving every side opened in that row in one request
   // so a row can move to the other agent, Restore Kiln's defaults, and the fallback switch with its
   // threshold. A refused save keeps the editors open with the reason; a file that can't be read
@@ -24,6 +24,8 @@
     { row: "standard", name: "Standard", help: "Most phases, and any phase with no tier." },
     { row: "mechanical", name: "Mechanical", help: "Repeats something already built, with nothing left to decide." },
     { row: "audits", name: "Audits", help: "The delivery audit and the test audit. The preflight and the pull request session use it too. Not a tier: they check the whole PRD." },
+    { row: "requirements", name: "Requirements stages", help: "Requirements sessions, including stakeholder reviews." },
+    { row: "refining_design", name: "Refining the design", help: "From the stage expected to make the design ready until it is ready." },
   ];
 
   let view = $state<ModelDefaultsView | undefined>(undefined);

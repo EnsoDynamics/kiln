@@ -201,6 +201,13 @@ export function waiverDetailLines(row: Pick<ActivityWaivers, "warnings" | "count
 const STATE_WORDS: Record<ProgressRow["state"], string> = { complete: "complete", running: "running", needs_you: "needs you", waiting: "waiting", skipped: "skipped", not_finished: "not finished" };
 
 /** "Example feature · example-app · docs/prds/example-feature", from a status result. */
+export function requirementsStatus(answer: Record<string, unknown>): string | undefined {
+  const requirements = answer.requirements as import("../engine/snapshot.js").RequirementsView | undefined;
+  if (!requirements) return undefined;
+  const heading = requirements.review ? `Waiting at the ${requirements.review.kind} stakeholder review.` : "Requirements stages";
+  return [heading, ...requirements.rows.map(row => `${row.title} · ${row.state.replaceAll("_", " ")}`)].join("\n");
+}
+
 export function progressHeading(answer: Record<string, unknown>): string {
   const prd = answer.prd as { name?: string; directory?: string } | undefined;
   const label = statusLabels(answer);

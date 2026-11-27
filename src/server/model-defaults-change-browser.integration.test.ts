@@ -1,6 +1,6 @@
 // Model defaults' Change on every row in real Chrome against a real engine with Claude Code and
 // the Codex work stand-in both installed (Kiln Phase Model Tiers AC-DEFAULT-02: "a Change on each
-// that opens the agent, model family and effort choices"). Each of the four rows' first choice and
+// that opens the agent, model family and effort choices"). Each of the six rows' first choice and
 // fallback opens an editor offering both agents, a model family and an effort, and picking Codex
 // in a first-choice editor switches its families to Codex's. The page loads its settings after it
 // mounts, so a server render never shows the rows; real Chrome does.
@@ -36,7 +36,7 @@ const editorsIn = (row: string) => `[...document.querySelectorAll('[data-row="${
 /** Presses the first Change still showing in the row: the first choice, then the fallback. */
 const pressChange = (row: string) => `(() => { const button = [...document.querySelectorAll('[data-row="${row}"] button')].find(b => b.textContent.trim() === "Change"); button.click(); return true; })()`;
 
-it("opens, on each of the four rows' Change, the agent (Claude Code or Codex), model family and effort choices for the first choice and the fallback (AC-DEFAULT-02)", async () => {
+it("opens, on each of the six rows' Change, the agent (Claude Code or Codex), model family and effort choices for the first choice and the fallback (AC-DEFAULT-02)", async () => {
   h = await createHarness({ sessions: [] });
   codex = codexWorkFixture();
   Object.assign(h.tools, { codex: codex.options.executable });
@@ -53,12 +53,12 @@ it("opens, on each of the four rows' Change, the agent (Claude Code or Codex), m
   const page = await chrome.open(server.address, { width: 1200 });
   await page.waitFor(`[...document.querySelectorAll("a")].some(a => a.textContent.trim() === "Model defaults")`);
   await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.textContent.trim() === "Model defaults")).click()`);
-  await page.waitFor(`document.querySelectorAll("[data-row]").length === 4`);
-  expect(await page.evaluate<string[]>(`[...document.querySelectorAll("[data-row]")].map(row => row.dataset.row)`)).toEqual(["demanding", "standard", "mechanical", "audits"]);
+  await page.waitFor(`document.querySelectorAll("[data-row]").length === 6`);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll("[data-row]")].map(row => row.dataset.row)`)).toEqual(["demanding", "standard", "mechanical", "audits", "requirements", "refining_design"]);
 
-  const names: Record<string, string> = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits" };
+  const names: Record<string, string> = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits", requirements: "Requirements stages", refining_design: "Refining the design" };
   let switched = false;
-  for (const row of ["demanding", "standard", "mechanical", "audits"]) {
+  for (const row of ["demanding", "standard", "mechanical", "audits", "requirements", "refining_design"]) {
     // Both sides start closed, each with its own Change.
     expect(await page.evaluate<number>(`document.querySelectorAll('[data-row="${row}"] .editor').length`)).toBe(0);
     expect(await page.evaluate<number>(`[...document.querySelectorAll('[data-row="${row}"] button')].filter(b => b.textContent.trim() === "Change").length`)).toBe(2);

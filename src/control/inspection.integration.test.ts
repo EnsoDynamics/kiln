@@ -34,9 +34,9 @@ function fixture(name = 'shop with spaces') {
   const repository = createRepository(sandbox, name); commitFiles(sandbox, repository, `docs/prds/${FOLDER}`, prdDirectoryFiles());
   const record = newPrdRecord({ mainCheckoutPath: repository, repositoryName: name, github: `test/${name}`, prdDirectoryFromRoot: `docs/prds/${FOLDER}`, featureName: 'Customer returns', settings: { workspaceFolder: sandbox.root, worktreePath: repository, featureBranch: 'kiln/returns', baseBranch: 'develop', bases: {}, modelChoices: { phases: {} }, keepAwake: false, resumeAfterUsageLimit: true } });
   record.startedAt = '2026-01-01T00:00:00.000Z'; record.plan = [{ id: '1a', title: 'Nested intake', file: 'phase-1a-intake.md', closed: false, repositories: [] }, { id: '2', title: 'Later phase', file: 'phase-2-later.md', closed: false, repositories: [] }];
-  const directory = prdStateDirectory(stateRoot(sandbox.env), repository, name, record.prdDirectory);
+  const directory = prdStateDirectory(stateRoot(sandbox.env), repository, name, record.prdDirectory!);
   writePrdRecord(directory, record);
-  return { repository, directory, record, path: join(repository, record.prdDirectory), work: () => readWork(stateRoot(sandbox.env), directory) };
+  return { repository, directory, record, path: join(repository, record.prdDirectory!), work: () => readWork(stateRoot(sandbox.env), directory) };
 }
 function session(f: ReturnType<typeof fixture>, id='local-codex', phase='1a', agent: 'codex'|'claude_code'='codex') {
   const record: SessionRecord = { schemaVersion: SCHEMA_VERSION, executionId: f.record.executionId!, sessionId: id, phaseId: phase, kind: 'phase', agentId: agent, createdAt: '2026-01-02T00:00:00.000Z', model: 'gpt-model', modelDisplayName: 'Saved model', workingDirectory: f.repository, ...(agent === 'codex' ? { conversation: { threadId: `provider-${id}` } } : {}), runs: [{ startedAt: '2026-01-02T00:00:00.000Z', endedAt: '2026-01-02T01:00:00.000Z', cause:'launch' }, { startedAt: '2026-01-02T02:00:00.000Z', endedAt: '2026-01-02T03:00:00.000Z', cause:'person_resume' }], sleeps: [], steps: [] };
@@ -197,7 +197,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   it('independently inventories every supported command and legacy helper without confusing execution contracts',async()=>{
     sandbox=createSandbox();const root=(await command(['--help','--json'])).json();
     const actual=(root.commands as {path:string[]}[]).map(c=>c.path.join(' ')).sort();
-    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','locate-repository','check-for-new-phases','continue-with-phases','merge','exit','model','model-defaults','model-defaults set','model-defaults restore','model-defaults fallback','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
+    expect(actual).toEqual(['status','logs','handoff','account','settings','command-status','message','take-over','reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','start-build','check-again','waive-and-advance','locate-repository','check-for-new-phases','continue-with-phases','merge','exit','model','model-defaults','model-defaults set','model-defaults restore','model-defaults fallback','run','add-repository','audit','audit status','audit snapshot','audit submit','delivery','delivery status','delivery assess','delivery prepare','delivery evidence','preparation','preparation status','preparation submit'].sort());
     const reply=JSON.parse((await command(['reply','--help','--json'])).stdout).command;
     expect(Object.keys(reply.flags)).toEqual(expect.arrayContaining(['message-file','message-from-stdin','command-id','only-if-status-matches','help','json']));
     expect(reply.examples).toHaveLength(2);expect(reply.required_exclusive_groups).toContainEqual({exactly_one:['message-file','message-from-stdin']});
@@ -219,7 +219,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
   });
   it('resolves real main/worktree/file aliases including spaces, and exact retained paths after removal',async()=>{
     sandbox=createSandbox();const f=fixture();const alias=join(sandbox.root,'alias');git(sandbox,f.repository,'worktree','add','--detach',alias);
-    for(const path of [f.path,join(alias,f.record.prdDirectory),join(f.path,`${FOLDER}-prd.md`)])expect((await command(['status',path,'--json'])).json().prd_path).toBe(f.path);
+    for(const path of [f.path,join(alias,f.record.prdDirectory!),join(f.path,`${FOLDER}-prd.md`)])expect((await command(['status',path,'--json'])).json().prd_path).toBe(f.path);
     expect((await command(['status',f.path,'--json'],sandbox.env,sandbox.root)).code).toBe(0);
     rmSync(f.path,{recursive:true});expect((await command(['status',f.path,'--json'])).json().document_state).toBe('document_unavailable');
     expect((await command(['status',join(sandbox.root,'other',FOLDER),'--json'])).code).toBe(2);
@@ -286,7 +286,7 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     const detail=(await command(['status',path,'--detail','full','--json'],h.env,h.sandbox.root)).json();
     expect(detail.agent).toBe('claude_code');expect(detail.stop).toMatchObject({reason:'done_check',final_message:'Literal final question: "UPS?"\nDo not run $(anything).',message_complete:true,session_id:h.engine.latestSession('1')!.sessionId,phaseId:'1',checked_at:h.engine.record.phases['1']!.stop!.checkedAt,checks:browser.checks,failed_checks:browser.checks.filter(c=>!c.passed),resumeOffered:true,resumeCommand:browser.resumeCommand,freshSessionCommand:browser.freshSessionCommand,freshSessionPrompt:browser.freshSessionPrompt});
     // AC-ACT-01: pin the complete inventory, not an every() over a possibly empty list.
-    const controlNames=['reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','check-again','waive-and-advance','locate-repository','check-for-new-phases','continue-with-phases','merge','exit','handoff','settings','message','take-over','model'].sort();
+    const controlNames=['reply','resume','carry-on','start-again','reset','verify-and-advance','request-pause','cancel-pause','continue','start-build','check-again','waive-and-advance','locate-repository','check-for-new-phases','continue-with-phases','merge','exit','handoff','settings','message','take-over','model'].sort();
     const controls=detail.controls as {name:string;available:boolean;reason:string|null}[];
     expect(controls.map(c=>c.name).sort()).toEqual(controlNames);
     for(const c of controls){expect(typeof c.available).toBe('boolean');if(!c.available)expect(c.reason?.trim().length).toBeGreaterThan(0);expect(c).toMatchObject({required_inputs:c.name==='check-for-new-phases'||c.name==='handoff'?['PRD-path']:c.name==='locate-repository'?['PRD-path','address-path','folder','--only-if-status-matches','--command-id']:c.name==='continue-with-phases'?['PRD-path','--proposal','--only-if-status-matches','--command-id']:c.name==='model'?['PRD-path','--phase | --audits','--agent --model [--effort] | --use-default','--only-if-status-matches','--command-id']:['PRD-path','--only-if-status-matches','--command-id'],invocation:['kiln',c.name,path]});}
@@ -424,9 +424,9 @@ describe('inspection at real filesystem / Git / HTTP / stdout boundaries',()=>{
     writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
     const origin=`http://127.0.0.1:${port}`;const headers={'X-Kiln-Token':h.engine.record.token};
     const f=fixture('second-real-repository');
-    const secondDirectory=prdStateDirectory(stateRoot(h.env),f.repository,'second-real-repository',f.record.prdDirectory);
+    const secondDirectory=prdStateDirectory(stateRoot(h.env),f.repository,'second-real-repository',f.record.prdDirectory!);
     writePrdRecord(secondDirectory,f.record);
-    secondEngine=new Engine({paths:{mainCheckoutPath:f.repository,repositoryName:'second-real-repository',folderName:FOLDER,prdDirectoryFromRoot:f.record.prdDirectory,featureName:'Second PRD'},tools:h.tools,env:h.env,stateDirectory:secondDirectory,record:f.record});
+    secondEngine=new Engine({paths:{mainCheckoutPath:f.repository,repositoryName:'second-real-repository',folderName:FOLDER,prdDirectoryFromRoot:f.record.prdDirectory!,featureName:'Second PRD'},tools:h.tools,env:h.env,stateDirectory:secondDirectory,record:f.record});
     secondServer=await startLocalServer({engine:secondEngine,port:0,folderName:FOLDER,featureName:'Second PRD',token:f.record.token});const secondPort=boundPort(secondServer.address);
     writeJsonAtomically(join(secondDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port:secondPort});
     const inventory=await command(['status','--json'],h.env,h.sandbox.root);expect(inventory.code).toBe(0);expect(inventory.json().counts).toMatchObject({live_controllers:2});
@@ -1123,7 +1123,7 @@ it('publishes exact plan, start, pause and completion facts live and retained',a
   record.completedAt=completed;record.pullRequests=[{repository:'acme-shop',url:'https://github.com/example/disposable/pull/7',number:7,title:'Disposable work',head:'kiln/returns',base:'develop',commits:1,additions:1,deletions:0}];record.mergedBranches=[{repository:'acme-shop',head:'kiln/returns',base:'develop',featureCommit:'feature',baseCommit:'base',url:'https://github.com/example/disposable'}];record.nextActivityKey='pr';writePrdRecord(h.stateDirectory,record);
   server=await startLocalServer({engine:h.engine,port:0,folderName:FOLDER,featureName:'Returns',token:record.token});const port=boundPort(server.address);
   writeJsonAtomically(join(h.stateDirectory,'instance.lock'),{pid:process.pid,processStartTime:await processStartTime(process.pid),port});
-  const path=join(h.repository,record.prdDirectory);
+  const path=join(h.repository,record.prdDirectory!);
   const expected={agent:'claude_code',started_at:started,phases:{completed:1,total:2},pause:{requestedAt:'2026-01-01T03:00:00.000Z',activeSince:'2026-01-01T04:00:00.000Z'},completion:{completed_at:completed,pull_requests:[{repository:'acme-shop',url:'https://github.com/example/disposable/pull/7',number:7}],merged_branches:[{repository:'acme-shop',head:'kiln/returns',base:'develop',featureCommit:'feature',baseCommit:'base',url:'https://github.com/example/disposable'}]}};
   for(const full of [false,true]){const answer=await command(['status',path,...(full?['--detail','full']:[]),'--json'],h.env);expect(answer.code,answer.stdout).toBe(0);expect(answer.json()).toMatchObject(expected);if(full)expect(answer.json().plan).toEqual(plan);}
   cacheSnapshot(h.engine,inspectionSnapshot(h.engine));await server.close();server=undefined;rmSync(join(h.stateDirectory,'instance.lock'));
@@ -1144,7 +1144,7 @@ it('reports an owned no-message stop explicitly without inventing text',async()=
 // AC-SEE-07/CLI-02: duplicate canonical identities refuse before selecting a controller or writing.
 it.each([false,true])('refuses ambiguous canonical paths before read or mutation effects in json=%s',async json=>{
   sandbox=createSandbox();const first=fixture();const second=fixture('duplicate-record');
-  second.record.repository=structuredClone(first.record.repository);second.record.prdDirectory=first.record.prdDirectory;writePrdRecord(second.directory,second.record);
+  second.record.repository=structuredClone(first.record.repository);second.record.prdDirectory=first.record.prdDirectory!;writePrdRecord(second.directory,second.record);
   const before=tree(stateRoot(sandbox.env));
   for(const args of [['status',first.path],['settings',first.path,'--keep-awake','off','--command-id','ambiguous','--only-if-status-matches','untrusted-token']]){
     const answer=await command([...args,...(json?['--json']:[])]);expect(answer.code).toBe(2);expect(answer.stderr).toBe('');

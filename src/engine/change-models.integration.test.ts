@@ -318,7 +318,7 @@ describe("Model defaults for every PRD (AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBAC
     expect(await post("/api/model-defaults", { set: { row: "audits", first: { agentId: "claude_code", family: "gemini", effort: "high" } } })).toEqual({ status: 422, body: { ok: false, reason: "Claude Code doesn't offer Gemini on this account." } });
     expect(await post("/api/model-defaults", { fallback: { threshold: 0 } })).toEqual({ status: 422, body: { ok: false, reason: "The threshold is a whole-number percent from 1 to 100." } });
     expect(await post("/api/model-defaults", { fallback: { threshold: 90.5 } })).toEqual({ status: 422, body: { ok: false, reason: "The threshold is a whole-number percent from 1 to 100." } });
-    expect(await post("/api/model-defaults", { set: { row: "tiny", first: { agentId: "claude_code", family: "opus", effort: "high" } } })).toEqual({ status: 400, body: { ok: false, reason: "row is demanding, standard, mechanical or audits." } });
+    expect(await post("/api/model-defaults", { set: { row: "tiny", first: { agentId: "claude_code", family: "opus", effort: "high" } } })).toEqual({ status: 400, body: { ok: false, reason: "row is demanding, standard, mechanical, audits, requirements or refining_design." } });
 
     expect(await post("/api/model-defaults", { fallback: { enabled: true, threshold: 90 } })).toMatchObject({ status: 200, body: { fallback: { enabled: true, threshold: 90 } } });
     expect(buildSnapshot(h.engine).settings.models.fallback).toMatchObject({ enabled: true, threshold: 90 });
@@ -336,7 +336,7 @@ describe("Model defaults for every PRD (AC-DEFAULT-02, AC-DEFAULT-03, AC-FALLBAC
     expect(await get("/api/model-defaults")).toMatchObject({ status: 409, body: { reason: expect.stringContaining("isn't valid JSON"), canRestore: true } });
     expect(await post("/api/model-defaults", { fallback: { enabled: true } })).toMatchObject({ status: 409, body: { reason: expect.stringContaining("isn't valid JSON") } });
     expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 200, body: { notice: "Kiln's defaults are restored, and the fallback is now off.", fallback: { enabled: false, threshold: 95 } } });
-    writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 2 }));
+    writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 3 }));
     expect(await post("/api/model-defaults", { restore: true })).toMatchObject({ status: 409, body: { reason: expect.stringContaining("written by a newer Kiln; update Kiln"), canRestore: false } });
   });
 });

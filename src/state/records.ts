@@ -1,3 +1,4 @@
+import { writtenDirectory } from "../requirements/run-path.js";
 import { assertPreparationState } from "../engine/preparation-state.js";
 import { assertContinuationState } from "../engine/continuation-state.js";
 import { validLiveTarget } from "../live/target.js";
@@ -25,7 +26,9 @@ import type { ModelChoice } from "../models/model-defaults.js";
 import { migrateModelChoices, assertModelChoices } from "../models/keep.js";
 import { assertAuditLoopSettings, assertLedger, defaultLoopSettings, rebuiltLedger, type AuditLoopLedger, type AuditLoopSettings } from "./audit-loops.js";
 
-export const SCHEMA_VERSION = 27;
+import type { RequirementsOrigin, RequirementsState } from "../requirements/stages.js";
+
+export const SCHEMA_VERSION = 28;
 
 export type Effort = string;
 export type AgentId = "claude_code" | "codex";
@@ -48,6 +51,7 @@ export interface Settings {
   bases: Record<string, string>;
   /** Each activity's model choice where the person set one, and a choice kept from before schema 27 (Kiln Phase Model Tiers, "Data Models"). */
   modelChoices: ModelChoices;
+  waitAtEarlyReview?: boolean;
   keepAwake: boolean;
   /** Wait out a usage limit and resume by itself (usage-limit recovery AC-AUTO-04). */
   resumeAfterUsageLimit: boolean;
@@ -62,6 +66,7 @@ export interface Settings {
  * only by the migration. `"default"` is Use the default over a kept choice.
  */
 export interface ModelChoices {
+  stages?: Record<string, ModelChoice | "default">;
   phases: Record<string, ModelChoice | "default">;
   audits?: ModelChoice | "default";
   kept?: ModelChoice;
@@ -407,7 +412,9 @@ export interface PrdRecord {
   developmentDelivery?: DevelopmentLedger;
   schemaVersion: number;
   repository: { mainCheckoutPath: string; name: string; github: string };
-  prdDirectory: string;
+  origin?: RequirementsOrigin;
+  requirements?: RequirementsState;
+  prdDirectory?: string;
   featureName: string;
   token: string;
   settings: Settings;
@@ -578,7 +585,7 @@ export interface SessionRecord {
   schemaVersion: number;
   sessionId: string;
   phaseId: string;
-  kind: "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight" | "merge" | "plan_push";
+  kind: "requirements" | "phase" | "pull_request" | "delivery_audit" | "test_audit" | "preflight" | "merge" | "plan_push";
   createdAt: string;
   /** The chosen alias, as passed to --model. */
   model: string;
@@ -691,7 +698,7 @@ export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRe
     if (reconciliation.check && (!["accepted", "failed"].includes(reconciliation.check.status) || !Number.isFinite(Date.parse(reconciliation.check.attemptedAt)) || reconciliation.check.status === "failed" && typeof reconciliation.check.problem !== "string")) throw new Error("Malformed plan reconciliation check.");
   }
   if (record.schemaVersion > SCHEMA_VERSION) throw new NewerSchemaError("Update Kiln to read this newer record.");
-  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
+  if (![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28].includes(record.schemaVersion)) throw new NewerSchemaError("Unrecognized Kiln record schema.");
   if (record.schemaVersion >= 5 && record.schemaVersion < 9) {
     // A missing legacy environment is corruption, never a new branch-wide grant.
     for (const grant of record.developmentAuthorization?.grants ?? []) normalizeTarget(grant.target);
@@ -769,7 +776,7 @@ export function migrateRecord(record: PrdRecord, stateDirectory?: string): PrdRe
   }
   const old = record as PrdRecord & { baseCommit?: string; createdBranch?: CreatedBranch; pullRequest?: Omit<PullRequestFacts, "repository"> };
   const name = record.repository.name;
-  record.settings.workspaceFolder ??= defaultWorkspaceFolder(record.repository.mainCheckoutPath, record.prdDirectory);
+  record.settings.workspaceFolder ??= defaultWorkspaceFolder(record.repository.mainCheckoutPath, writtenDirectory(record));
   record.settings.bases ??= {};
   record.repositories = [];
   if (record.startedAt !== undefined || old.createdBranch !== undefined) {

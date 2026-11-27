@@ -21,7 +21,7 @@ import { readReceipts, type Receipt } from "./commands.js";
 import type { Result } from "./result.js";
 let h: Harness; let server: LocalServer | undefined; let origin: string;
 afterEach(async () => { await server?.close(); server = undefined; await h?.cleanup(); });
-const path = () => join(h.repository, h.engine.record.prdDirectory);
+const path = () => join(h.repository, h.engine.record.prdDirectory!);
 const receipt = (id: string) => h.engine.commands.lookup(id).operation as Receipt;
 const input = () => existsSync(`${h.scenarioPath}.live-inputs.jsonl`) ? readFileSync(`${h.scenarioPath}.live-inputs.jsonl`, "utf8").trim().split("\n").map(s => JSON.parse(s) as { message: { content: string } }) : [];
 async function serve() {
@@ -77,7 +77,7 @@ it.skipIf(process.platform !== "darwin")("sends exact file/stdin bytes once, pre
   expect((await cli([...command, "--message-file", file])).body.operation).toMatchObject({ id: savedId });
   await server!.close(); server = undefined; h.engine.close();
   const old = h.engine.record;
-  writePrdRecord(h.stateDirectory, newPrdRecord({ mainCheckoutPath: h.repository, repositoryName: old.repository.name, github: old.repository.github, prdDirectoryFromRoot: old.prdDirectory, featureName: old.featureName, settings: old.settings }));
+  writePrdRecord(h.stateDirectory, newPrdRecord({ mainCheckoutPath: h.repository, repositoryName: old.repository.name, github: old.repository.github, prdDirectoryFromRoot: old.prdDirectory!, featureName: old.featureName, settings: old.settings }));
   h.engine = h.reopenFromDisk(); await h.engine.prepare(); await serve();
   const replacementRetry = await cli([...command, "--message-from-stdin"], Buffer.from(text));
   expect(replacementRetry.code, replacementRetry.text).toBe(0); expect(replacementRetry.body.operation).toMatchObject({ id: savedId });
@@ -162,7 +162,7 @@ it.skipIf(process.platform !== "darwin").each(["resume", "verify-and-advance"])(
   expect(h.engine.liveView()?.reviewRequired).toEqual([ids[1]]);
   h.engine.record.pause.requestedAt = new Date().toISOString();
   if (action === "verify-and-advance") {
-    const file = join(h.engine.worktreePath, h.engine.record.prdDirectory, "phase-1-return-intake.md"); writeFileSync(file, readFileSync(file, "utf8").replace("\n", "\n\n**Closed:** 2026-10-27\n"));
+    const file = join(h.engine.worktreePath, h.engine.record.prdDirectory!, "phase-1-return-intake.md"); writeFileSync(file, readFileSync(file, "utf8").replace("\n", "\n\n**Closed:** 2026-10-27\n"));
     git(h.sandbox, h.engine.worktreePath, "add", `${h.engine.record.prdDirectory}/phase-1-return-intake.md`); git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "test: finish disposable phase"); git(h.sandbox, h.engine.worktreePath, "push", "-qu", "origin", h.engine.record.settings.featureBranch);
   }
   await h.engine.reconcileTakeover();

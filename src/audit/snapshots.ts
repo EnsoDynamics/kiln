@@ -1,3 +1,4 @@
+import { writtenDirectory } from "../requirements/run-path.js";
 import type { PlannedPhase } from "../plan/phase-plan.js";
 import { readFileSync, realpathSync, lstatSync, readdirSync } from "node:fs";
 import { isAbsolute, posix, relative, resolve, sep } from "node:path";
@@ -105,14 +106,14 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
   const { record, activity, git } = context;
   requireAudit(record.executionId, "Execution identity is missing.");
   const prdRepo = repositoryFor(record, record.repository.name);
-  const folder = assignedPathDirectory(prdRepo, record.prdDirectory);
+  const folder = assignedPathDirectory(prdRepo, writtenDirectory(record));
   const prds = readdirSync(folder).filter(name => name.endsWith("-prd.md"));
-  requireAudit(prds.length === 1, `Expected exactly one governing PRD in ${record.prdDirectory}.`);
-  const prdPath = `${record.prdDirectory}/${prds[0]!}`;
-  const read = readPlanAt(prdRepo.worktreePath, record.prdDirectory);
+  requireAudit(prds.length === 1, `Expected exactly one governing PRD in ${writtenDirectory(record)}.`);
+  const prdPath = `${writtenDirectory(record)}/${prds[0]!}`;
+  const read = readPlanAt(prdRepo.worktreePath, writtenDirectory(record));
   const plan = !read.ok && !read.unavailable && context.planPhases ? { ok: true as const, plan: { phases: context.planPhases, problems: [] } } : read;
   requireAudit(plan.ok, plan.ok ? "" : plan.problem, "inconsistent_plan");
-  const normalizedPlan = plan.plan.phases.map(p => ({ id: p.id, file: `${record.prdDirectory}/${p.fileName}`, closed: p.closed, content: phaseScope(readFileSync(assignedPath(prdRepo, `${record.prdDirectory}/${p.fileName}`, context.label?.(prdRepo.name)), "utf8")), ...(p.splitInto ? { splitInto: p.splitInto } : {}) }));
+  const normalizedPlan = plan.plan.phases.map(p => ({ id: p.id, file: `${writtenDirectory(record)}/${p.fileName}`, closed: p.closed, content: phaseScope(readFileSync(assignedPath(prdRepo, `${writtenDirectory(record)}/${p.fileName}`, context.label?.(prdRepo.name)), "utf8")), ...(p.splitInto ? { splitInto: p.splitInto } : {}) }));
   const repositories: WorkSnapshot["repositories"] = [];
   for (const repo of record.repositories) {
     const label = context.label?.(repo.name) ?? repo.name;
@@ -149,7 +150,7 @@ export async function captureSnapshot(context: SnapshotContext, testPaths: TestP
   const snapshot: WorkSnapshot = { id: "", executionId: record.executionId, activityId: activity.activityId, createdAt: context.now, requirements, documents: [], plan: normalizedPlan, repositories, testPaths, evidencePaths: [], deliveryFingerprint: "", testFingerprint: "" };
   // The governing documents Kiln itself reads; method documents are neither required nor traversed (AC-NEUTRAL-02).
   const required = new Set([prdPath, ...normalizedPlan.map(p => p.file)]);
-  for (const name of readdirSync(folder)) if (/assumptions|technical-design/.test(name) && name.endsWith(".md")) required.add(`${record.prdDirectory}/${name}`);
+  for (const name of readdirSync(folder)) if (/assumptions|technical-design/.test(name) && name.endsWith(".md")) required.add(`${writtenDirectory(record)}/${name}`);
   for (const path of required) {
     const file = repositories.find(r => r.repository === prdRepo.name)!.files[path]; requireAudit(file, `Missing required document ${path}`, "missing_evidence");
     snapshot.documents.push({ repository: prdRepo.name, path, blob: file.blob });

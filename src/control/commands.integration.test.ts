@@ -167,7 +167,7 @@ it("the built CLI transports file/stdin literally, replays through HTTP, and ref
   const port = boundPort(server.address);
   try {
     writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port });
-    const path = join(h.repository, h.engine.record.prdDirectory);
+    const path = join(h.repository, h.engine.record.prdDirectory!);
     const message = 'Literal "quotes"\n$(touch forbidden) `pwd` 🐦';
     const file = join(h.sandbox.root, "reply with spaces.txt"); writeFileSync(file, `  ${message}\n`);
     const status = await cli(["status", path, "--json"]); const token = status.body.status_token;
@@ -342,9 +342,9 @@ it('rechecks Claude history after awaited launch metadata before recording or st
 async function stopOnInvalidPlan() {
   await setup();
   // Real invalid plan and persisted stop, as an audit/plan Check again presents.
-  const file = join(h.engine.worktreePath, h.engine.record.prdDirectory, "phase-1-return-intake.md");
-  writeFileSync(join(h.engine.worktreePath, h.engine.record.prdDirectory, "phase-1-duplicate.md"), readFileSync(file, "utf8"));
-  expect(readPlanAt(h.engine.worktreePath, h.engine.record.prdDirectory).ok).toBe(false);
+  const file = join(h.engine.worktreePath, h.engine.record.prdDirectory!, "phase-1-return-intake.md");
+  writeFileSync(join(h.engine.worktreePath, h.engine.record.prdDirectory!, "phase-1-duplicate.md"), readFileSync(file, "utf8"));
+  expect(readPlanAt(h.engine.worktreePath, h.engine.record.prdDirectory!).ok).toBe(false);
   h.engine.record.phases["1"]!.stop!.kind = "plan";
   records.writePrdRecord(h.stateDirectory, h.engine.record);
 }

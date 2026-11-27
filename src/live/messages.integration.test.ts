@@ -342,7 +342,7 @@ it.skipIf(process.platform !== "darwin")("retains late correlated uncertainty th
   h.engine = h.reopenFromDisk(); await h.engine.prepare();
   expect(receipt("late-evidence").message).toEqual(resolved); expect(h.engine.record.liveControl).toBeUndefined();
   h.engine.close(); const old = h.engine.record;
-  writePrdRecord(h.stateDirectory, newPrdRecord({ mainCheckoutPath: h.repository, repositoryName: old.repository.name, github: old.repository.github, prdDirectoryFromRoot: old.prdDirectory, featureName: old.featureName, settings: old.settings }));
+  writePrdRecord(h.stateDirectory, newPrdRecord({ mainCheckoutPath: h.repository, repositoryName: old.repository.name, github: old.repository.github, prdDirectoryFromRoot: old.prdDirectory!, featureName: old.featureName, settings: old.settings }));
   h.engine = h.reopenFromDisk(); await h.engine.prepare();
   expect(receipt("late-evidence").message).toEqual(resolved); expect(h.engine.record.liveControl).toBeUndefined();
   expect(inputs()).toHaveLength(1); expect(h.claudeCalls()).toHaveLength(2);
@@ -359,7 +359,7 @@ it.skipIf(process.platform !== "darwin")("retains unresolved late-evidence recei
   await server!.close(); server = undefined; h.engine.close();
   const { newPrdRecord } = await import("../state/new-record.js"); const { writePrdRecord } = await import("../state/records.js");
   const old = h.engine.record;
-  writePrdRecord(h.stateDirectory, newPrdRecord({ mainCheckoutPath: h.repository, repositoryName: old.repository.name, github: old.repository.github, prdDirectoryFromRoot: old.prdDirectory, featureName: old.featureName, settings: old.settings }));
+  writePrdRecord(h.stateDirectory, newPrdRecord({ mainCheckoutPath: h.repository, repositoryName: old.repository.name, github: old.repository.github, prdDirectoryFromRoot: old.prdDirectory!, featureName: old.featureName, settings: old.settings }));
   for (let i = 0; i < 2; i++) {
     h.engine = h.reopenFromDisk(); await h.engine.prepare();
     expect(receipt("prior-uncertain").message).toEqual(prior); expect(h.engine.record.liveControl).toBeUndefined();

@@ -81,6 +81,8 @@ Superseded in part by: docs/prds/kiln-codex-support/kiln-codex-support-technical
 
 ## Where a Feature Stands: what `kiln run` does
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Starting and Starting the Build, requirements before phase execution).
+
 Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §The Folder Check and §Folder Missing (an unfinished run checks its folders before reading the plan and reports Folder missing, not progress).
 
 Superseded in part by: `docs/changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md`, §Implemented integrated-prerequisite continuation (Phase 3a), for explicitly accepted fresh executions, immutable prior history and restart recovery. Existing evidence and authority protections remain.
@@ -427,6 +429,8 @@ Kiln has no watchdog for a session that stops producing output without exiting; 
 
 ## The Done Check
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (How a stage ends, validating the stage report and pushing the feature branch).
+
 Superseded in part by: `docs/changes/kiln-needs-you-handoff/kiln-needs-you-handoff-technical-design.md`, §Completion Evidence and Errors (manual phase evaluation/acceptance and unavailable-check display).
 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §The Done Check (Committed and Pushed per repository; a fourth check, Stayed in the workspace), §The Pull Requests (the pull-request check per repository, with Stayed in the workspace)
@@ -448,6 +452,8 @@ A check Kiln can't run at all (the worktree is gone, `git` or `gh` fails) fails 
 Superseded in part by: `docs/changes/kiln-multi-repo-delivery/technical-design.md`, §Delivery-history evidence (the no-further-GitHub-queries rule only for auxiliary delivery history; original completion facts remain historical).
 
 ## Worktree and Branch Setup
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Branch and worktree, cutting the feature branch from the local shared tip).
 
 Superseded in part by: `docs/changes/kiln-missing-worktree-recovery/kiln-missing-worktree-recovery-technical-design.md`, §Start (a later `kiln run` may create a second branch and worktree, or a new worktree on the run's existing branch and its local branch from origin).
 
@@ -500,6 +506,8 @@ If the tool for the session is missing (`gnome-session-inhibit` in a GNOME sessi
 
 ### Ports and one Kiln per PRD
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Run identity and The Two Reviews, the stable start address and review opener).
+
 - **Port.** Each PRD gets a port from 4700 to 4799 (or the range below) the first time `kiln run` takes its instance lock: the lowest port neither assigned to another PRD nor in use. The assignment is kept only in the shared port registry, `ports.json`, updated under a lock and keyed by the PRD's state directory (repository directory and PRD key together, since two repositories can both have `docs/prds/customer-returns/`), with the time each PRD was last served. From then on the PRD keeps its address (AC-MULTI-02), unless the range fills (below). If its port is held by something other than Kiln, `kiln run` says what port and exits rather than move the address. When every port in the range is assigned, the PRD served least recently that isn't running gives up its port; a tab still open on that PRD from long ago no longer reconnects.
 - **Port range.** `KILN_PORT_RANGE=<first>-<last>` replaces 4700–4799 with another block, both ends included. It is for people who run Kiln on several machines and tunnel each machine's ports to one computer: each machine gets its own block, such as 4700-4799 on one and 4800-4899 on another, so no two views need the same local port. Tests use it to give each sandbox its own ports. A value that isn't two whole numbers from 1024 to 65535 joined by a hyphen, the first no greater than the last, stops `kiln run` before it takes the instance lock: it prints "kiln: KILN_PORT_RANGE is <value>; it must be <first>-<last>, two ports from 1024 to 65535 with the first no greater than the last, such as 4800-4899." and exits 1, rather than falling back to the default range and serving on a port the person didn't expect. An empty value counts as unset. A PRD already assigned a port outside a newly set block keeps it while the port is free, as the registry keeps any assignment.
 - **Opening the view.** Once the view is served, Kiln opens it with the platform's opener ([Dependencies](#dependencies)), unless `kiln run` is in an SSH login (`SSH_CONNECTION` or `SSH_TTY` set): a browser opened there, even if the remote machine has one, isn't on the person's screen. Over SSH, the line that would say "Opened" says where the view is and how to reach it, and an example follows in grey: "● Kiln’s view is at <address> on this remote machine. Open it from your own computer through an SSH tunnel to port <port>, then press Start." and "  For example: ssh -N -L <port>:127.0.0.1:<port> <this host>". The tunnel must forward the same port number on both ends, because the view accepts only a `Host` of its own port ([Local security](#local-security)). On a machine with no opener (Linux without `xdg-open`) the line reads "● Kiln’s view is at <address>. Open it in your browser and press Start." Neither is an error. Only an opener that runs and fails is an error: "● Kiln’s view is at <address>. Review it there and press Start." then an amber "✗ Couldn’t open the browser: <reason>. Open <address> yourself." For a feature underway, whenever the view wasn't opened, the decision's ● line drops "Opened <address>" and is followed by the SSH or no-opener lines without "press Start", or by the ✗ line alone (UI-012).
@@ -508,6 +516,8 @@ If the tool for the session is missing (`gnome-session-inhibit` in a GNOME sessi
 - **Process start time.** On Linux, field 22 of `/proc/<pid>/stat`, counted after the last `)` (the command name can contain spaces and parentheses); on Windows, `(Get-Process -Id <pid>).StartTime.ToUniversalTime().Ticks` through PowerShell; on macOS, the trimmed output of `ps -o lstart= -p <pid>` run with `TZ=UTC LC_ALL=C`, since that output otherwise follows the time zone and locale. A missing file, or `ps` exiting 1, means the process is gone. Kiln records its own value and its children's through the same reader, so values compare like for like.
 
 ### Local security
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (The Two Reviews, the separate sandbox policy for stakeholder HTML).
 
 - The server binds `127.0.0.1` only (AC-VIEW-01).
 - Every request must carry a `Host` of `127.0.0.1:<port>` or `localhost:<port>`, which defeats DNS rebinding.
@@ -519,6 +529,8 @@ If the tool for the session is missing (`gnome-session-inhibit` in a GNOME sessi
 ## Interfaces
 
 ### Command line (AC-CLI-01, AC-CLI-02, AC-START-09)
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Starting, source material and planned PRD paths).
 
 Superseded in part by: `docs/prds/kiln-bot-control/kiln-bot-control-technical-design.md`, §Durable Controls and Retries and §Durable Data and Evolution (existing-run CLI mutations, shared admission, schema-10 operation references and private durable receipts).
 
@@ -583,6 +595,8 @@ While disconnected, every screen renders from that last snapshot by the rules th
 - **Dimmed.** Only the current-phase panel, relabelled "Last seen · phase <n> of <total>".
 
 ### Snapshot
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Interfaces, the source identity before a PRD exists).
 
 Superseded in part by: `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-technical-design.md`, §Interfaces (the snapshot gains `auditLoops`).
 
@@ -707,6 +721,8 @@ Superseded in part by: `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tie
 - **Effort (AC-START-06):** defaults to `high`. Claude Code never refuses an `--effort` the model can't honor: max or xhigh on a model without them quietly runs at high, and a model whose `supportsEffort` is false gets no effort at all. Kiln matches the setting to the chosen model so its records say what actually ran. Effort always shows all five buttons, as drawn; levels missing from the chosen entry's `supportedEffortLevels` are disabled (UI-011). For a model that takes effort, when the model list loads or the model changes and the saved effort isn't supported, Kiln saves the highest supported level below it, or the lowest supported level when none is below. If `supportsEffort` is false, all five are disabled, Kiln passes no `--effort`, and the model is shown without an effort wherever model and effort appear (UI-011); the saved effort is kept for the next model that takes one. A session records the effort Kiln passed, none when it passed none.
 
 ## Kiln's State on Disk
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Run identity, the start path and optional written PRD directory).
 
 Superseded in part by: [Kiln Continue Added Phases — preparation verification](../../changes/kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#verification-of-the-prepared-work), Phase 3b (private schema 18 adds pending continuation authority, prepared checkpoints and engine-owned check attempts).
 

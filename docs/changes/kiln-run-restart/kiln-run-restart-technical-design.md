@@ -73,6 +73,8 @@ Three structural changes carry the rest.
 
 ### The starting point
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Branch and worktree, starting from committed source on the local shared branch).
+
 Until Start, a record with no `start` gets its choice computed at each preview. `from` is `existing` when a branch named `settings.featureBranch` exists in any of the PRD's repositories, local or on origin, and `new` otherwise. `bringUpToDate` is true. `settings.featureBranch` holds the new name or the chosen existing branch, and keeps the name the first `kiln run` or a reset saved until one is typed or chosen. `POST /api/settings` saves `start` whenever it changes `start` or the feature branch, and Start saves the `start` its preview used. Switching to `new` keeps the name, so today's "That branch already exists" message shows until a new name is typed. Switching to `existing` while the name isn't listed selects the list's first available name.
 
 **The start commit** is where the first session starts in the PRD's repository, and **What Kiln found** is read there. With a new feature branch it is the base's tip on origin. With an existing branch it is that branch's tip in the PRD's repository, or the base's tip on origin while the offer is ticked and that repository qualifies. When the PRD's repository doesn't have the chosen branch, its branch is cut from its base (AC-FROM-05), so the start commit is the base's tip on origin. Its entry is then a new-branch entry: it holds only `baseCommit`, today's reads and checks apply, including the checkout-equals-base document check (`checkPrdTreeAt`), `planSource.kind` is `base`, and the offer never moves it.
@@ -139,6 +141,8 @@ The entry is then marked set up. A new-branch entry is set up exactly as today, 
 The record's plan at Start is the plan the preview showed.
 
 ### After Start
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (How a stage ends, the push after a requirements session).
 
 Superseded in part by: [Kiln Build Preflight technical design](../kiln-build-preflight/kiln-build-preflight-technical-design.md), §When the Preflight Is Due (a preflight precedes the first activity, a start with every phase closed included).
 
@@ -357,6 +361,8 @@ ResetPreview:
 Each line shows by what it names (AC-RESET-03). **Kiln forgets:** "Which phase it was on, and each phase's result" and "Its settings for this PRD, which you choose again on the first screen" always show, since every started PRD has both. "Its N session(s) and their output" shows when `forgets.sessions` > 0 ("Its 1 session and its output"). "Stops, completion waivers and audit results" shows when `stops + waivers + audits` > 0, with no count. "Its record of earlier deliveries" shows when `deliveries` > 0. **Stays exactly as it is:** each `stays` entry gives a branch line, "`<branch>`, which has N commits of its own", and, when `worktree` is set, "The worktree folder, with N uncommitted files". Both are named even at zero, written "no commits of its own" and "no uncommitted files". With several repositories each line names its repository. A repository's pull requests show when `pullRequests` is non-empty, each by number. "The phases closed in the plan on the feature branch" shows when `closedOnBranch` > 0. An absent count means the read failed: it is listed in `unknown` (for `closedOnBranch`, the `unknown` of the PRD repository's `stays` entry), its line says Kiln couldn't count it, and the reset is still offered, because it touches none of those things.
 
 ### Doing it
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Run identity, preserving the source and PRD directory at reset).
 
 Reset is admitted through the command journal like every changing command, as action `reset`; its receipt is saved `in_progress` before any effect. The journal's apply then:
 

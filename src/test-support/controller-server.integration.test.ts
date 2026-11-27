@@ -26,7 +26,7 @@ it("atomically binds distinct fixture ports and publishes only their authenticat
       const response = await fetch(`${origin}/api/control/v1/capabilities`, { headers: { "X-Kiln-Token": h.engine.record.token } });
       expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ execution_id: h.engine.record.executionId, instance: { pid: process.pid } });
       let stdout = ""; let stderr = "";
-      const code = await runKilnCommand(["status", join(h.repository, h.engine.record.prdDirectory), "--json"], { cwd: h.sandbox.root, env: h.env, stdout: { write: s => stdout += s }, stderr: { write: s => stderr += s } });
+      const code = await runKilnCommand(["status", join(h.repository, h.engine.record.prdDirectory!), "--json"], { cwd: h.sandbox.root, env: h.env, stdout: { write: s => stdout += s }, stderr: { write: s => stderr += s } });
       expect(code, stdout).toBe(0); expect(stderr).toBe(""); expect(JSON.parse(stdout)).toMatchObject({ controller: "reachable", execution_id: h.engine.record.executionId });
       const wrongHost = await new Promise<number>((resolve, reject) => {
         const req = request({ hostname: "127.0.0.1", port: hosted.port, path: "/api/control/v1/capabilities", headers: { Host: "127.0.0.1:0", "X-Kiln-Token": h.engine.record.token } }, res => { res.resume(); res.once("end", () => resolve(res.statusCode!)); });

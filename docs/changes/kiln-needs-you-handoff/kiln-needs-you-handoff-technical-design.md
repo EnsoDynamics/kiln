@@ -47,6 +47,8 @@ All recovery submissions share the engine’s existing exclusive checking/dispat
 
 ### Evaluate, then act
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (How a stage ends, checking committed work and review freshness before advancing).
+
 Superseded in part by: [Kiln Continue Added Phases — active handback](../kiln-continue-added-phases/kiln-continue-added-phases-technical-design.md#active-execution-handback), Phase 1 (active-plan reconciliation before handback advancement).
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Mark Complete (a third intent, Mark complete, after a failed Verify).

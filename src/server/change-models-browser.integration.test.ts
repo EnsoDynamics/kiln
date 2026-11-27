@@ -67,9 +67,9 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.textContent.trim() === "Model defaults")).click()`);
   await page.waitFor(`document.querySelector("h1")?.textContent === "Model defaults" && document.querySelector('[data-row="standard"]')`);
   expect(await page.evaluate<string>("location.pathname")).toBe("/customer-returns/model-defaults");
-  // The four rows, each with its first choice and fallback as AC-DEFAULT-01's table gives them (AC-DEFAULT-02).
+  // The six rows, each with its first choice and fallback as AC-DEFAULT-01's table gives them (AC-DEFAULT-02).
   const sides = (row: string) => page.evaluate<string[]>(`[...document.querySelectorAll('[data-row="${row}"] .side .choice')].map(choice => choice.textContent.trim())`);
-  expect(await page.evaluate<string[]>(`[...document.querySelectorAll("[data-row]")].map(row => row.dataset.row)`)).toEqual(["demanding", "standard", "mechanical", "audits"]);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll("[data-row]")].map(row => row.dataset.row)`)).toEqual(["demanding", "standard", "mechanical", "audits", "requirements", "refining_design"]);
   expect(await sides("demanding")).toEqual(["Claude Code · Fable · high", "Codex · GPT Astra · high"]);
   expect(await sides("standard")).toEqual(["Claude Code · Opus · medium", "Codex · GPT Sol · high"]);
   expect(await sides("mechanical")).toEqual(["Claude Code · Sonnet · high", "Codex · GPT Sol · high"]);
@@ -80,7 +80,7 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   await pick(page, '[data-row="standard"]', 1, "low");
   await press(page, ".table", "Done");
   await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).rows?.standard?.first?.family === "sonnet"; } catch { return false; } });
-  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 1, rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
+  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 2, rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
   await page.waitFor(`document.querySelector('[data-row="standard"]').innerText.includes("Claude Code · Sonnet · low")`);
 
   // The fallback switch, for every PRD.
@@ -91,7 +91,7 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   // Restore Kiln's defaults clears the rows and keeps the switch.
   await press(page, ".restore", "Restore Kiln's defaults");
   await waitFor(() => { try { return JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).rows === undefined; } catch { return false; } });
-  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 1, fallback: { enabled: true } });
+  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8"))).toEqual({ schemaVersion: 2, fallback: { enabled: true } });
   await page.waitFor(`document.querySelector('[data-row="standard"]').innerText.includes("Claude Code · Opus · medium")`);
 
   // Back returns to the PRD, which shows the fallback switched on.

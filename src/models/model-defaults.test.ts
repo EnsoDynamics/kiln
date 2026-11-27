@@ -19,6 +19,8 @@ describe("Model defaults", () => {
       demanding: { first: { agentId: "claude_code", family: "fable", effort: "high" }, fallback: { agentId: "codex", family: "astra", effort: "high" } },
       standard: { first: { agentId: "claude_code", family: "opus", effort: "medium" }, fallback: { agentId: "codex", family: "sol", effort: "high" } },
       mechanical: { first: { agentId: "claude_code", family: "sonnet", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "high" } },
+      requirements: { first: { agentId: "claude_code", family: "fable", effort: "high" }, fallback: { agentId: "codex", family: "astra", effort: "high" } },
+      refining_design: { first: { agentId: "claude_code", family: "opus", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "xhigh" } },
       audits: { first: { agentId: "claude_code", family: "opus", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "xhigh" } },
     });
     expect(shippedDefaults().fallback).toEqual({ enabled: false, threshold: 95 });
@@ -63,8 +65,16 @@ describe("Model defaults", () => {
     expect(!read.ok && read.reason).toContain("same agent");
   });
 
+  it("reads named skill choices by family or exact model and refuses malformed entries", () => {
+    const skills = { refine: { agentId: "claude_code", family: "opus", effort: "high" }, draft: { agentId: "codex", model: "specialized-model" } };
+    write({ schemaVersion: 2, skills });
+    expect(readModelDefaults(path)).toMatchObject({ ok: true, defaults: { skills } });
+    write({ schemaVersion: 2, skills: { broken: { agentId: "codex", model: "" } } });
+    expect(readModelDefaults(path)).toMatchObject({ ok: false, reason: expect.stringContaining("broken") });
+  });
+
   it("says a file a newer Kiln wrote needs a newer Kiln, and can't be restored over", () => {
-    write({ schemaVersion: 2, rows: {} });
+    write({ schemaVersion: 3, rows: {} });
     expect(readModelDefaults(path)).toEqual({ ok: false, reason: `Model defaults at ${path} was written by a newer Kiln; update Kiln.`, path, canRestore: false });
   });
 

@@ -16,7 +16,7 @@ import { preflightKey } from "../state/activity-keys.js";
 export { acceptedAudit, classifyAuditReport, countedOutcome, effectiveAudit, effectiveSnapshot, hasEffectiveResult, phasesBeyondInitial, waiveAudit, waiveUnstartedAudit, type AuditReportClass, type AuditWaiverRecorded, type EffectiveAudit } from "./effective-result.js";
 
 export interface ExecutionActivity {
-  activityId: string; sequence: number; kind: "implementation" | AuditKind | "final_delivery" | "preflight" | "merge" | "plan_push";
+  activityId: string; sequence: number; kind: "requirements" | "implementation" | AuditKind | "final_delivery" | "preflight" | "merge" | "plan_push";
   key: string; phaseId?: string; createdAt: string;
 }
 export const auditKey = (activity: Pick<AuditActivity, "activityId">) => `audit-${activity.activityId}`;

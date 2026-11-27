@@ -44,6 +44,17 @@
   };
 </script>
 
+{#if snapshot.requirements}
+<section class="plan" aria-label="Requirements stages">
+  <h2>Requirements stages</h2>
+  <ol>{#each snapshot.requirements.rows as stage}
+    <li><strong>{stage.title}</strong>{#if stage.otherSkills?.length} · {stage.otherSkills.join(", ")}{/if} · {stage.state.replaceAll("_", " ")}
+      {#if stage.model?.choice} · {stage.model.choice.modelName}{/if}
+      {#if stage.pushedSha} · <code>{stage.pushedSha.slice(0, 8)}</code>{/if}
+    </li>
+  {/each}</ol>
+</section>
+{:else}
 <section class="plan" class:restart-review={!!snapshot.restartReview} aria-labelledby="plan-h">
   <div class="head"><h2 id="plan-h" class="eyebrow">Phase plan</h2><span class="count">{snapshot.feature.phasesDone} of {snapshot.feature.phasesTotal} done</span></div>
   <ol>
@@ -73,6 +84,7 @@
     {/each}
   </ol>
 </section>
+{/if}
 
 <style>
   .plan { display: flex; flex-direction: column; gap: 6px; }

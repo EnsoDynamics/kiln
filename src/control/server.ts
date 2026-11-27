@@ -1,3 +1,4 @@
+import { startPath } from "../requirements/run-path.js";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import { spoolResult, releaseResult } from "./spool.js";
 import { strictJson } from "../audit/storage.js";
@@ -13,7 +14,7 @@ import { ControlFailure, failed, exitFor, result, errorFact, type Result } from 
 import { NO_CHECK_RUN } from "./commands.js";
 import { markCompletePreview } from "./waiver-facts.js";
 import { ResponseSpool } from "./spool.js";
-import { progressHeading, progressText, statusLabels, statusPause, type ProgressRow } from "./waiver-facts.js";
+import { requirementsStatus, progressHeading, progressText, statusLabels, statusPause, type ProgressRow } from "./waiver-facts.js";
 import type { Engine } from "../engine/engine.js";
 import { processStartTime } from "../platform/process-start-time.js";
 import { REMOVED_LOOP_COMMAND, REMOVED_LOOP_SETTING } from "../state/audit-loops.js";
@@ -36,10 +37,10 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     for (const key of params.keys()) if (!allowed.includes(key) || params.getAll(key).length !== 1) throw new ControlFailure("invalid_input", "Unknown or duplicate query parameter.", 2);
   };
   const route = (path: string, allowed: string[], handler: (c: Context) => Promise<Result> | Result) => {
-    app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); } });
+    app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, startPath(current().record)), execution_id: current().record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 3, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "locate_repository", "after_delivery", "model"] }));
+    prd_path: resolve(current().record.repository.mainCheckoutPath, startPath(current().record)), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["start-build", "status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "locate_repository", "after_delivery", "model"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -86,12 +87,12 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
       const errors = (Object.keys(engine.neededBy()) as import("../state/records.js").AgentId[]).filter(id => { const account = engine.readers[id].state.account; return !engine.installed(id) || !account || !!account.error || !!account.limitsError || !account.limitsObservedAt; })
         .map(id => ({ code: "provider_unavailable", message: `${AGENT_NAMES[id]} account refresh is unavailable.`, retryable: false, next_command: null, next_argv: null }));
       return send(c, result({ prd_path: saved.canonical, execution_id: saved.record.executionId!, data: facts }, [...status.errors, ...errors]));
-    } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId! }); }
+    } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, startPath(current().record)), execution_id: current().record.executionId! }); }
   });
   route("commands/:command_id", [], c => current().refreshCommand(c.req.param("command_id")!));
   // `kiln check-for-new-phases`: the finished page's check, with no inputs and no receipt (AC-BOT-01).
   app.post("/api/control/v1/continuation/check", async c => {
-    const engine = current(); const canonical = resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory);
+    const engine = current(); const canonical = resolve(engine.record.repository.mainCheckoutPath, startPath(engine.record));
     try {
       if (c.req.header("content-length") && Number(c.req.header("content-length")) !== 0) throw new ControlFailure("invalid_input", "check-for-new-phases accepts no inputs.", 2);
       const control = engine.newPhaseControls().find(one => one.name === "check-for-new-phases")!;
@@ -99,7 +100,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
       // Does what the card's Check now does, and counts as a person's press (Kiln After Delivery AC-BOT-01).
       const check = await engine.checkCompletedPlan({ press: true });
       const errors = check.status === "failed" ? [errorFact("check_unavailable", check.errors.join(" ") || "The check for new phases could not read the plan.")] : [];
-      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check, engine.record.prdDirectory) }, errors));
+      return send(c, result({ prd_path: canonical, execution_id: engine.record.executionId!, data: continuationFacts(check, startPath(engine.record)) }, errors));
     } catch (e) { return send(c, { ...failed(e), prd_path: canonical, execution_id: engine.record.executionId! }); }
   });
   app.post("/api/control/v1/commands", async c => {
@@ -121,7 +122,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
         if (command.action === "message-review") throw new ControlFailure("invalid_input", "Use resume, verify-and-advance or carry-on with reviewed receipt IDs.", 2);
         if (command.action === "waive-and-advance" && waiveAndAdvance(current(), command) === "offer_only") {
           // At a preflight stop Mark complete is offered at once, so without --confirm it returns the offer and runs nothing (The Preflight Stop).
-          const engine = current(); const canonical = resolve(engine.record.repository.mainCheckoutPath, engine.record.prdDirectory);
+          const engine = current(); const canonical = resolve(engine.record.repository.mainCheckoutPath, startPath(engine.record));
           return c.json(result({ prd_path: canonical, execution_id: engine.record.executionId!, command_id: command.command_id, mark_complete: markCompletePreview(engine.markCompleteOffer(), canonical, engine.controlView().token), run_state: engine.controlRunState() }), 200);
         }
         // The removed loop stop controls and third loop setting, from an older script (AC-STOP-04).
@@ -171,7 +172,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
       // before exact-target admission; valid refusals are durable receipts too.
       const answer = current().commands.submit(body, "caller", true);
       return c.json(answer, answer.ok ? 202 : exitFor(answer) === 4 ? 503 : exitFor(answer) === 3 ? 409 : 400);
-    } catch (error) { return send(c, { ...failed(error), prd_path: resolve(current().record.repository.mainCheckoutPath, current().record.prdDirectory), execution_id: current().record.executionId!, command_id: commandId }); }
+    } catch (error) { return send(c, { ...failed(error), prd_path: resolve(current().record.repository.mainCheckoutPath, startPath(current().record)), execution_id: current().record.executionId!, command_id: commandId }); }
   });
   app.all("/api/control/*", c => send(c, result({}, [{ code: "control_unavailable", message: "Unknown command API route or unsupported protocol.", retryable: false, next_command: null, next_argv: null }])));
 }
@@ -223,10 +224,12 @@ function withProgress(answer: Result): ResponseSpool {
   const rows = answer.progress as ProgressRow[] | undefined;
   const heading = progressHeading(answer);
   const body = spoolResult(answer, false);
-  if (!rows?.length) return body;
+  const requirements = requirementsStatus(answer);
+  if (!requirements && !rows?.length) return body;
   const output = new ResponseSpool();
   try {
-    output.append(Buffer.from(`${progressText(heading, rows, statusPause(answer.live_control), [], statusLabels(answer))}\n`));
+    if (requirements) output.append(Buffer.from(requirements + "\n"));
+    if (rows?.length) output.append(Buffer.from(`${progressText(heading, rows, statusPause(answer.live_control), [], statusLabels(answer))}\n`));
     for (const chunk of body.chunks()) output.append(chunk);
     return output;
   } catch (error) { output.close(); throw error; }

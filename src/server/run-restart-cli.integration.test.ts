@@ -26,7 +26,7 @@ const exitsBeforeInit: ScenarioSession = { noInit: true, actions: [] };
 const blocked: ScenarioSession = { noTranscript: true, actions: [{ result: "Blocked before any code." }] };
 
 async function cli(args: string[], stdin?: string) {
-  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), args[0]!, join(h!.repository, h!.engine.record.prdDirectory), ...args.slice(1), "--json"], { cwd: h!.sandbox.root, env: h!.env, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), args[0]!, join(h!.repository, h!.engine.record.prdDirectory!), ...args.slice(1), "--json"], { cwd: h!.sandbox.root, env: h!.env, stdio: ["pipe", "pipe", "pipe"] });
   let output = ""; let error = "";
   child.stdout.on("data", b => { output += String(b); }); child.stderr.on("data", b => { error += String(b); });
   child.stdin.end(stdin ?? "");
@@ -136,7 +136,7 @@ it("kiln carry-on --leave-branch-as-is leaves the branch as it is (run restart A
 
 /** The built CLI in text mode: no --json. */
 async function cliText(args: string[]) {
-  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), args[0]!, join(h!.repository, h!.engine.record.prdDirectory), ...args.slice(1)], { cwd: h!.sandbox.root, env: h!.env, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), args[0]!, join(h!.repository, h!.engine.record.prdDirectory!), ...args.slice(1)], { cwd: h!.sandbox.root, env: h!.env, stdio: ["pipe", "pipe", "pipe"] });
   let output = ""; let error = "";
   child.stdout.on("data", b => { output += String(b); }); child.stderr.on("data", b => { error += String(b); });
   child.stdin.end("");

@@ -6,6 +6,8 @@ import * as auditWorkflow from "../audit/workflow.js";
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { inspectSource } from "../requirements/source.js";
+import { newRequirements } from "../requirements/stages.js";
 import { Engine, type EngineOptions, type TerminalEvent } from "../engine/engine.js";
 import { originBranches } from "../engine/git-reads.js";
 import { defaultSettings, prdTreeAtHead } from "../engine/worktree-setup.js";
@@ -66,6 +68,7 @@ export interface HarnessOptions {
   preflight?: boolean;
   sessions: ScenarioSession[];
   folder?: string;
+  sourceBrief?: string;
   files?: Record<string, string>;
   /** Overrides the stand-in claude path, such as a missing executable. */
   claude?: string;
@@ -105,7 +108,8 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const origin = createBareOrigin(sandbox, "acme-shop");
   const repository = createRepository(sandbox, "acme-shop", origin);
   const folder = options.folder ?? FOLDER;
-  commitFiles(sandbox, repository, `docs/prds/${folder}`, options.files ?? prdDirectoryFiles());
+  if (options.sourceBrief) commitFiles(sandbox, repository, `source-material/${folder}`, { [`${folder}-brief.md`]: options.sourceBrief });
+  else commitFiles(sandbox, repository, `docs/prds/${folder}`, options.files ?? prdDirectoryFiles());
   for (const extra of options.extraFolders ?? []) {
     const files = Object.fromEntries(Object.entries(prdDirectoryFiles()).map(([name, text]) => [name === `${FOLDER}-prd.md` ? `${extra}-prd.md` : name, text]));
     commitFiles(sandbox, repository, `docs/prds/${extra}`, files);
@@ -133,7 +137,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const events: TerminalEvent[] = [];
 
   const newFeature = async (name: string) => {
-    const paths = { mainCheckoutPath: repository, repositoryName: "acme-shop", folderName: name, prdDirectoryFromRoot: `docs/prds/${name}`, featureName: featureNameFor(name) };
+    const paths = { mainCheckoutPath: repository, repositoryName: "acme-shop", folderName: name, prdDirectoryFromRoot: options.sourceBrief ? `source-material/${name}` : `docs/prds/${name}`, featureName: featureNameFor(name) };
     const branches = await originBranches(gitContext, repository);
     const record = newPrdRecord({
       mainCheckoutPath: repository,
@@ -143,6 +147,16 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       featureName: paths.featureName,
       settings: defaultSettings(paths, branches.ok ? branches.value : undefined),
     });
+    if (options.sourceBrief) {
+      const source = await inspectSource(gitContext, repository, paths.prdDirectoryFromRoot);
+      if ("problem" in source) throw new Error(source.problem);
+      delete record.prdDirectory;
+      record.origin = source.origin;
+      record.requirements = newRequirements();
+      const skill = join(sandbox.root, "claude-config", "skills", "using-the-enso-method");
+      mkdirSync(skill, { recursive: true });
+      writeFileSync(join(skill, "SKILL.md"), "---\nname: using-the-enso-method\n---\n# Test method\n");
+    }
     const stateDirectory = prdStateDirectory(stateRoot(env), repository, "acme-shop", paths.prdDirectoryFromRoot);
     const prdTree = await prdTreeAtHead(gitContext, repository, paths.prdDirectoryFromRoot);
     return { paths, record, stateDirectory, prdTree };

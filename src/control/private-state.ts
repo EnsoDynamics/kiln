@@ -1,3 +1,6 @@
+import { validPrdDirectory } from "../requirements/git.js";
+import { sourcePath } from "../requirements/source.js";
+import { startPath } from "../requirements/run-path.js";
 /** Read-only owner-controlled state access. Never invokes migration-writing readers. */
 import { lstatSync, openSync, closeSync, readSync, fstatSync, readdirSync, opendirSync, realpathSync, existsSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep, basename } from "node:path";
@@ -61,10 +64,10 @@ export function readWork(root: string, directory: string): SavedWork {
     if (!evidence.executionId) throw new ControlFailure("state_unavailable", "Saved execution identity is unavailable; run kiln run to upgrade under its exclusive lock.");
     raw.executionId = evidence.executionId;
   }
-  if (!raw.repository || typeof raw.repository.mainCheckoutPath !== "string" || !/^docs\/(prds|changes)\/[^/\\]+$/.test(raw.prdDirectory) || typeof raw.token !== "string" || !/^[a-f0-9]{64}$/.test(raw.token)) throw new ControlFailure("state_unavailable", "Invalid saved PRD identity.");
+  if (!raw.repository || typeof raw.repository.mainCheckoutPath !== "string" || (!raw.origin && !validPrdDirectory(raw.prdDirectory) || raw.origin && !sourcePath(raw.origin.path) && !validPrdDirectory(raw.origin.path) || raw.prdDirectory !== undefined && !validPrdDirectory(raw.prdDirectory)) || typeof raw.token !== "string" || !/^[a-f0-9]{64}$/.test(raw.token)) throw new ControlFailure("state_unavailable", "Invalid saved PRD identity.");
   const record = migrateRecord(structuredClone(raw));
   if (!record.phases || !record.pause || !Array.isArray(record.repositories) || !Object.values(record.phases).every(f => Array.isArray(f.sessionIds))) throw new ControlFailure("state_unavailable", "Invalid saved phase inventory.");
-  return { root, directory, record, canonical: resolve(record.repository.mainCheckoutPath, record.prdDirectory), observedAt: statSync(join(directory, "prd.json")).mtime.toISOString() };
+  return { root, directory, record, canonical: resolve(record.repository.mainCheckoutPath, startPath(record)), observedAt: statSync(join(directory, "prd.json")).mtime.toISOString() };
 }
 /** `unreadableKeys` names saved folders that could not be read; `scanPartial` means some folders were never listed at all. */
 export interface WorkScan { work: SavedWork[]; errors: ControlError[]; unreadableKeys: string[]; scanPartial: boolean }
@@ -130,6 +133,8 @@ export async function targetWork(input: string, cwd: string, env: NodeJS.Process
   const found = enumerateWork(env, deadline);
   const unresolvedKeys = [...found.unreadableKeys];
   const matching = found.work.filter(w => {
+    const written = w.record.prdDirectory && resolve(w.record.repository.mainCheckoutPath, w.record.prdDirectory);
+    if (written && (target === written || target === join(written, `${basename(written)}-prd.md`))) return true;
     if (target === w.canonical || target === join(w.canonical, `${basename(w.canonical)}-prd.md`)) return true;
     try { return retainedAliases(w).includes(target); }
     catch { unresolvedKeys.push(basename(w.directory)); return false; }

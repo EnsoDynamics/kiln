@@ -195,6 +195,8 @@ Errors use `{ ok: false, code, reason, instructionId?, observedAt, remedy }`: `4
 
 ### Snapshot and browser
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Stage Sessions, the end-of-stage pause and review stops).
+
 Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Pause Now State (the pause panel's heading, choices and narrow-screen order, and the requested and completed takeover wording, for a hold that is not delivery recovery).
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "No live controls" (the merge session, like final delivery, offers no message, pause or takeover and says why), and §Closing-Audit Names (an audit's label in the live-control and pause labels).

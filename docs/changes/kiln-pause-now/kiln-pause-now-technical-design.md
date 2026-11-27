@@ -59,6 +59,8 @@ The take-over receipt stays `takeover_requested`; the cancel receipt records `ta
 
 ## The Pause Now State
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Stage Sessions, pausing a requirements stage).
+
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "No live controls" (Pause now is withheld while the merge session runs, with the reason the page prints), and §Closing-Audit Names (an audit's label in the pause panel and the paused page's eyebrow).
 
 Replaces in part: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Snapshot and browser (the pause panel's heading, choices and narrow-screen order, and the requested and completed takeover wording, for a hold that is not delivery recovery).

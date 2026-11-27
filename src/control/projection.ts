@@ -1,3 +1,4 @@
+import { startPath, writtenDirectory } from "../requirements/run-path.js";
 import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import { judgedPhase, readPlanAt, recordedPlan } from "../engine/plan-reading.js";
 import { notStartedChoice } from "../engine/activity-models.js";
@@ -45,7 +46,7 @@ import type { AuditLoopsView } from "../engine/loop-view.js";
 import { afterDeliveryFacts, continuationFacts, deliveredFacts } from "./delivered-facts.js";
 import { questionLabel, recordLabelSet, repositoryDetails } from "../engine/plan-repositories.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "locate-repository", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff", "model"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "start-build", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "locate-repository", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff", "model"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
 const requiredInputs = (name: string) => name === "model" ? ["PRD-path", "--phase | --audits", "--agent --model [--effort] | --use-default", "--only-if-status-matches", "--command-id"] : name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "locate-repository" ? ["PRD-path", "address-path", "folder", "--only-if-status-matches", "--command-id"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
@@ -62,7 +63,7 @@ function instructionsFor(engine: Engine, selected: Conversation, view: Snapshot)
     : plan ? freshSessionPrompt(engine.phasePromptValues(plan.file, cwd), true) : null;
   const providerFresh = fresh && session.agentId === "codex" && session.kind === "phase" && session.codex ? codexSessionPrompt(fresh, session.codex.launchIntent.skills) : fresh;
   return {
-    continuation_prompt: resumePrompt({ agentId: session.agentId ?? "claude_code", endedOnItsOwn: !!run?.endedAt, ...(run?.interruptedBy ? { cause: run.interruptedBy } : {}), time: run?.endedAt ?? run?.startedAt ?? session.createdAt, deliveryAuthority: engine.deliveryAuthority(), ...(task ? { auditTask: task } : plan ? { phaseDoc: engine.pathFrom(cwd, `${engine.record.prdDirectory}/${plan.file}`) } : {}) }),
+    continuation_prompt: resumePrompt({ agentId: session.agentId ?? "claude_code", endedOnItsOwn: !!run?.endedAt, ...(run?.interruptedBy ? { cause: run.interruptedBy } : {}), time: run?.endedAt ?? run?.startedAt ?? session.createdAt, deliveryAuthority: engine.deliveryAuthority(), ...(session.kind === "requirements" ? { requirementsStage: true } : task ? { auditTask: task } : plan ? { phaseDoc: engine.pathFrom(cwd, `${writtenDirectory(engine.record)}/${plan.file}`) } : {}) }),
     fresh_session_instructions: providerFresh ? { command: session.agentId === "codex" ? codexCommand(cwd) : claudeCommand(cwd), prompt: providerFresh } : null,
   };
 }
@@ -128,7 +129,7 @@ export function cacheSnapshot(engine: Engine, snapshot: Snapshot): void {
 /** Called only during controller startup, while kiln run owns its exclusive PRD lock. */
 export function bindExecutionAliases(engine: Engine): void {
   const work = readWork(dirname(dirname(engine.stateDirectory)), engine.stateDirectory);
-  const aliases = [...new Set([...retainedAliases(work).filter(path => !path.endsWith("-prd.md")), work.canonical, join(expandHome(engine.record.settings.worktreePath), engine.record.prdDirectory)])];
+  const aliases = [...new Set([...retainedAliases(work).filter(path => !path.endsWith("-prd.md")), work.canonical, join(expandHome(engine.record.settings.worktreePath), startPath(engine.record))])];
   writeDurableMetadata(join(engine.stateDirectory, "inspection-aliases.json"), { version: 1, execution_id: engine.record.executionId, canonical: work.canonical, aliases: aliases.map(path => ({ path, provenance: "git_resolved_at_controller_start" })) });
 }
 
@@ -286,7 +287,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
     try { modelSession = readInspectionSession(work, sessionKey, sessionId, deadline); }
     catch { statusErrors.push(errorFact("state_unavailable", "The current session model observation is unavailable.")); }
   }
-  const state = view?.feature.state ?? (!record.startedAt ? "not_started" : record.completedAt ? "complete" : savedStop ? "needs_you" : wait ? "waiting" : record.pause.activeSince ? "paused" : "implementing");
+  const state = view?.feature.state ?? (!record.startedAt ? "not_started" : record.completedAt ? "complete" : savedStop ? "needs_you" : wait ? "waiting" : record.pause.activeSince ? "paused" : record.requirements?.phase === "early_review" || record.requirements?.phase === "final_review" ? record.requirements.phase : "implementing");
   const leaves = (record.plan ?? []).filter(p => !p.splitInto?.length);
   let control: ReturnType<Engine["controlView"]> | undefined;
   try { control = engine ? inspectionReader(engine, deadline).controlView() : undefined; }
@@ -301,7 +302,8 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   const savedMessage = savedStop && savedStop[1].stop?.kind !== "not_resumable" && !savedStop[1].stop?.interrupted ? modelSession?.runs.at(-1)?.result?.text : undefined;
   const audit = record.completionAudits?.activities.find(a => `audit-${a.activityId}` === phase);
   const preflight = phase !== null && activityKeyKind(phase) === "preflight";
-  const savedActivity = { phase_id: audit || preflight ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === null ? null : activityKeyKind(phase) === "phase" ? "implementation" : activityKeyKind(phase)), title: audit ? recordedAuditName(record, audit).title : preflight ? "Preflight" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
+  const stage = record.requirements?.stages.find(s => `req-${s.activityId}` === phase);
+  const savedActivity = { phase_id: audit || preflight ? null : phase, kind: audit?.kind ?? record.activities?.find(a => a.key === phase)?.kind ?? (phase === null ? null : activityKeyKind(phase) === "phase" ? "implementation" : activityKeyKind(phase)), title: stage ? stage.ran[0]?.title ?? stage.expected?.title ?? (stage.task === "review" ? "Stakeholder review" : "Next requirements stage") : audit ? recordedAuditName(record, audit).title : preflight ? "Preflight" : record.plan?.find(p => p.id === phase)?.title ?? (phase === "pr" ? "Final delivery" : null), round: audit?.round ?? null, continuation_index: audit?.continuationIndex ?? null, activity_id: audit?.activityId ?? null };
   const completedKey = record.activities?.findLast(a => record.phases[a.key]?.doneAt)?.key;
   // A pending request carried through a Folder missing base-branch start names its phase (missing worktree recovery, "The Folder Check").
   const pauseKey = record.pause.activeSince ? completedKey : record.pause.requestedFor ?? view?.liveControl?.target.activityKey ?? phase;
@@ -349,7 +351,7 @@ export function statusProjection(work: SavedWork, engine?: Engine, full = false,
   // The activity status reports: the current one, else the next (Kiln Phase Model Tiers, "Command line").
   const reportedRow = view?.activities?.find(a => a.state === "implementing" || a.state === "needs_you" || a.state === "waiting") ?? view?.activities?.find(a => a.state === "next" || a.state === "planned");
   const reportedChoice = reportedRow?.model?.choice;
-  const answer = result({ prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
+  const answer = result({ ...(view?.requirements ? { requirements: view.requirements } : {}), prd_path: work.canonical, execution_id: record.executionId!, prd: { name: record.featureName, path: work.canonical, directory: record.prdDirectory }, document_state: existsSync(work.canonical) ? "available" : "document_unavailable",
     repositories: record.repositories.length ? record.repositories.map(r => r.name) : [record.repository.name],
     repository_details: repositoryDetails(record),
     controller: reachable ? "reachable" : "stopped", working_sessions: active ? 1 : 0, facts: { state: reachable ? "current" : "stale", observed_at: reachable ? new Date().toISOString() : cache?.observed_at ?? work.observedAt, reason: reachable ? null : "Controller disconnected; only last-known facts are available." },
@@ -577,8 +579,8 @@ function offlineChoice(work: SavedWork, view: Snapshot, key: string, env: NodeJS
     if (agent.models) lists[agent.agentId] = { models: agent.models.map(entry => ({ value: entry.value, resolvedModel: entry.value, displayName: entry.displayName, description: "", supportsEffort: entry.efforts.length > 0, supportedEffortLevels: entry.efforts as Effort[], supportsAutoMode: !entry.needsAutoMode, ...(entry.defaultEffort ? { defaultEffort: entry.defaultEffort } : {}) })) };
   }
   const prd = work.record.repositories.find(entry => entry.kind === "prd");
-  const read = readPlanAt(expandHome(prd?.worktreePath ?? work.record.settings.worktreePath), work.record.prdDirectory);
-  const plan = read.ok ? recordedPlan(read.plan) : work.record.plan ?? [];
+  const read = work.record.prdDirectory && readPlanAt(expandHome(prd?.worktreePath ?? work.record.settings.worktreePath), work.record.prdDirectory);
+  const plan = read && read.ok ? recordedPlan(read.plan) : work.record.plan ?? [];
   // The snapshot lists every installed agent, so an absent Claude Code entry means it isn't installed; one saved before agents were listed ran Claude Code.
   const claudeCodeInstalled = view.agents ? view.agents.some(entry => entry.agentId === "claude_code" && entry.installed) : true;
   const choice = notStartedChoice({ record: work.record, plan, defaultsPath: modelDefaultsPath(env), claudeCodeInstalled, lists, session: () => undefined }, key);

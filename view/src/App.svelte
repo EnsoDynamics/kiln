@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Requirements from "./screens/Requirements.svelte";
   // The browser view: the shared frame, and the screen for where the feature stands, rendered
   // from the snapshot the event stream carries (technical design, "Snapshot"), at the route the
   // address names ("HTTP API", the phase route). Once the view loses Kiln, every screen keeps
@@ -121,8 +122,13 @@
       {#key phaseScreen}<PhaseDetail {snapshot} phaseId={phaseScreen} {connected} {now} {lastSeenAt} />{/key}
     {:else if snapshot.feature.state === "folder_missing" && snapshot.folderMissing}
       <FolderMissing {snapshot} {connected} {now} {lastSeenAt} />
+    {:else if snapshot.requirements && ["not_started", "early_review", "final_review"].includes(snapshot.feature.state)}
+      <Requirements {snapshot} {config} {connected} />
     {:else if snapshot.feature.state === "not_started" && snapshot.documents}
       <DocumentsFound {snapshot} {config} {connected} {lastSeenAt} {now} />
+    {:else if snapshot.requirements?.beforePrd}
+      <main class="page-main"><h1>{snapshot.feature.name}</h1><h2>{snapshot.requirements.beforePrd.title}</h2>
+        <p>Run <code>{snapshot.requirements.beforePrd.skill}</code> in your own session, then reset Kiln for this PRD.</p></main>
     {:else if snapshot.feature.state === "needs_you" && connected}
       <!-- A held Pause now gets its own screen until Resume finds the work complete, when the recovery page's advance flow takes over (Kiln Pause Now, "The Paused Page"). -->
       {#if snapshot.needsYou?.phaseRecovery && snapshot.liveControl?.pauseNow && !recoveryPage.choice && !recoveryPage.rechecked}<PausedHold {snapshot} {now} page={recoveryPage} />

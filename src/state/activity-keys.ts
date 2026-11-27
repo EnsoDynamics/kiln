@@ -10,7 +10,7 @@
  *   activityKeyKind("merge")          // "merge"
  *   activityKeyKind("plan-push-<id>") // "plan_push"
  */
-export type ActivityKeyKind = "phase" | "audit" | "preflight" | "final_delivery" | "merge" | "plan_push";
+export type ActivityKeyKind = "requirements" | "phase" | "audit" | "preflight" | "final_delivery" | "merge" | "plan_push";
 
 export const FINAL_DELIVERY_KEY = "pr";
 /** The merge activity of a finished execution (Kiln After Delivery, "After-Delivery Activities"). */
@@ -21,6 +21,7 @@ export const PREFLIGHT_KEY_PREFIX = "preflight-";
 export const AUDIT_KEY_PREFIX = "audit-";
 
 export function activityKeyKind(key: string): ActivityKeyKind {
+  if (key.startsWith("req-")) return "requirements";
   if (key === FINAL_DELIVERY_KEY) return "final_delivery";
   if (key === MERGE_KEY) return "merge";
   if (key.startsWith(PLAN_PUSH_KEY_PREFIX)) return "plan_push";

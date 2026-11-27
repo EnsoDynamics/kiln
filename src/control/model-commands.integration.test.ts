@@ -113,7 +113,7 @@ it("prints and changes Model defaults with no PRD path and no running Kiln, refu
   const set = await cli(["model-defaults", "set", "--row", "mechanical", "--first-agent", "claude_code", "--first-model", "haiku", "--first-effort", "medium", "--json"]);
   expect(set.code, set.stdout).toBe(0);
   expect(set.json().data).toMatchObject({ rows: { mechanical: { first: { familyName: "Haiku", modelName: "Haiku 5.5", effort: "medium", set: true } } } });
-  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 1, rows: { mechanical: { first: { agentId: "claude_code", family: "haiku", effort: "medium" } } } });
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 2, rows: { mechanical: { first: { agentId: "claude_code", family: "haiku", effort: "medium" } } } });
 
   const sameAgent = await cli(["model-defaults", "set", "--row", "mechanical", "--fallback-agent", "claude_code", "--fallback-model", "sonnet", "--fallback-effort", "high", "--json"]);
   expect(sameAgent.code).toBe(2);
@@ -124,7 +124,7 @@ it("prints and changes Model defaults with no PRD path and no running Kiln, refu
   // Both sides in one command move a row to the other agent.
   const both = await cli(["model-defaults", "set", "--row", "standard", "--first-agent", "codex", "--first-model", "sol", "--first-effort", "high", "--fallback-agent", "claude_code", "--fallback-model", "opus", "--fallback-effort", "medium", "--json"]);
   expect(both.code, both.stdout).toBe(0);
-  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 1, rows: { mechanical: { first: { agentId: "claude_code", family: "haiku", effort: "medium" } }, standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "opus", effort: "medium" } } } });
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 2, rows: { mechanical: { first: { agentId: "claude_code", family: "haiku", effort: "medium" } }, standard: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "opus", effort: "medium" } } } });
 
   const on = await cli(["model-defaults", "fallback", "--on", "--threshold", "90", "--json"]);
   expect(on.code, on.stdout).toBe(0);
@@ -140,7 +140,7 @@ it("prints and changes Model defaults with no PRD path and no running Kiln, refu
 
   const restored = await cli(["model-defaults", "restore", "--json"]);
   expect(restored.code, restored.stdout).toBe(0);
-  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 1, fallback: { enabled: true, threshold: 90 } });
+  expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ schemaVersion: 2, fallback: { enabled: true, threshold: 90 } });
 
   writeFileSync(path, "{ broken");
   const broken = await cli(["model-defaults", "--json"]);

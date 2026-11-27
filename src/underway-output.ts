@@ -1,3 +1,4 @@
+import { writtenDirectory } from "./requirements/run-path.js";
 import { activityKeyKind, MERGE_KEY } from "./state/activity-keys.js";
 import { developmentDeliverySummary } from "./state/development-delivery.js";
 // What `kiln run` prints for a feature already underway (PRD AC-START-09; assumptions UI-010
@@ -73,6 +74,8 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
   let text: string;
   switch (decision.kind) {
     case "start_audit": text = `Starting ${decision.name}.`; break;
+    case "start_stage": return "Ready to run the next requirements stage.";
+    case "requirements_review": return `Waiting at the ${decision.review} stakeholder review.`;
     case "start_phase":
       text = `Starting ${titled(decision.phaseId)}.`;
       break;
@@ -107,7 +110,7 @@ export function formatDecisionLine(decision: UnderwayDecision, engine: Engine, c
     }
     case "complete":
       if (engine.record.completedPlanCheck) {
-        text = formatCompletedPlanCheck(engine.record.completedPlanCheck, engine.record.prdDirectory);
+        text = formatCompletedPlanCheck(engine.record.completedPlanCheck, writtenDirectory(engine.record));
         break;
       }
     {

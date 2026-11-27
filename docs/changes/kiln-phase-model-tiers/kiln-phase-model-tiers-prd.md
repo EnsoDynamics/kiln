@@ -106,6 +106,7 @@ Nothing about the model is hidden or decided silently. Every row says what it ra
 Most people never need to touch this. It sits on a page of its own, reached by a link, and holds the model behind each tier.
 
 - [ ] **AC-DEFAULT-01 — Kiln comes with a choice for each tier.** Until the person changes them, Model defaults holds the choices in the table. Each names a model family, and Kiln uses the newest version of that family its agent offers when Kiln launches the activity (DEF-001, DEF-002).
+  - Superseded in part by: AC-MODEL-02 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (the Requirements stages and Refining the design rows select models for requirements sessions).
 
   | Row | First choice | Fallback |
   |---|---|---|
@@ -115,6 +116,7 @@ Most people never need to touch this. It sits on a page of its own, reached by a
   | Audits (AC-OTHER-01) | Claude Code · Opus · high | Codex · GPT Sol · extra high |
 
 - [ ] **AC-DEFAULT-02 — Model defaults is a page of its own, out of the way.** Documents found's delivery panel and the run's settings each show one line saying the models are chosen for each phase, with a **Model defaults** link; the table itself appears only on that page. The page shows the four rows with their first choice and fallback, a **Change** on each that opens the agent, model family and effort choices, and **Restore Kiln's defaults**. A row can't be saved with its first choice and fallback on the same agent. What the person sets is kept for every PRD in every repository on the computer, across restarts and upgrades.
+  - Superseded in part by: AC-MODEL-02 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (the Requirements stages and Refining the design rows select models for requirements sessions).
   - Replaces in part: AC-MODEL-01 in `docs/prds/kiln-codex-support/kiln-codex-support-prd.md` (Model defaults offers model families, each resolved at launch to the newest version its agent offers, rather than the agent's reported model names; the rest remains).
 
 - [ ] **AC-DEFAULT-03 — A changed default reaches everything that hasn't started.** A change on the page applies from then on to every activity that hasn't started, in every PRD, including runs underway. It never changes an activity that has started (AC-PICK-04) or a phase the person changed (AC-PICK-03).
@@ -131,6 +133,7 @@ Most people never need to touch this. It sits on a page of its own, reached by a
 Audits check the whole PRD, so they have no tier. They and the run's other sessions share one choice.
 
 - [ ] **AC-OTHER-01 — Every activity that isn't a phase runs on the Audits choice.** The preflight, each delivery audit round, each test audit session and the final pull request session are each an activity of their own and run on Model defaults' **Audits** first choice (DEF-002). A person can change that choice for one PRD in Documents found's delivery panel, in the run's settings, or with **Change** on a Delivery audit or Test audit row that hasn't started. The change reaches all of this PRD's such activities that haven't started, and is marked and undone as AC-PICK-03 says.
+  - Superseded in part by: AC-MODEL-02 in `docs/prds/kiln-requirements-stages/kiln-requirements-stages-prd.md` (the Requirements stages and Refining the design rows select models for requirements sessions).
   - Replaces in part: AC-RUN-04 in `docs/changes/kiln-completion-audits/kiln-completion-audits-prd.md` (audit sessions run on the Audits choice, not on one setting chosen for the execution).
 
 ### Start on the other agent when usage is nearly out

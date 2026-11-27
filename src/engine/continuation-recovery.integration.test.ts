@@ -116,7 +116,7 @@ it.skipIf(process.platform === "win32").each(["intent", "acceptance", "workspace
     h.engine = f.make(); await h.engine.prepare();
     await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     const work = readWork(dirname(dirname(h.stateDirectory)), h.stateDirectory);
-    expect(retainedAliases(work)).toContain(join(h.repository, h.engine.record.prdDirectory));
+    expect(retainedAliases(work)).toContain(join(h.repository, h.engine.record.prdDirectory!));
     expect(h.claudeCalls()).toHaveLength(boundary === "provider" ? 1 : 0);
     const replay = await h.engine.continuationCommand("accept", body);
     if (boundary === "intent") {

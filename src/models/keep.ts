@@ -98,6 +98,10 @@ function validChoice(value: unknown): value is ModelChoice {
 export function assertModelChoices(value: ModelChoices | undefined): void {
   if (!value || typeof value !== "object" || typeof value.phases !== "object" || value.phases === null) throw new Error("Malformed model choices.");
   for (const entry of Object.values(value.phases)) if (entry !== "default" && !validChoice(entry)) throw new Error("Malformed model choice for a phase.");
+  if (value.stages !== undefined) {
+    if (!value.stages || typeof value.stages !== "object" || Array.isArray(value.stages)) throw new Error("Malformed stage model choices.");
+    for (const choice of Object.values(value.stages)) if (choice !== "default" && !validChoice(choice)) throw new Error("Malformed model choice for a stage.");
+  }
   if (value.audits !== undefined && value.audits !== "default" && !validChoice(value.audits)) throw new Error("Malformed Audits model choice.");
   if (value.kept !== undefined && !validChoice(value.kept)) throw new Error("Malformed kept model choice.");
 }
