@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "executionId": "d2e263a0-337b-4f25-9a3d-7533ede707f0",
+  "activityId": "ab0c2ffc-7a12-485c-a980-11279a36c478",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The delivery audit of the whole Kiln Requirements Stages PRD found 23 of its 59 acceptance criteria not fully built. Every gap is partial: an edge case, one of several entry points or variants, or a screen detail the criterion names. Phase 5 completes the home screen's listing and what `kiln run` and a reset do for PRDs written from source material. Phase 6 completes the requirements run's screens, controls and stage models. No criterion was changed outside the requirements, and none needed amending.",
+  "completionPhases": ["5", "6"],
+  "needsYou": [
+    {
+      "kind": "other",
+      "problem": "Kiln's checkpoint hook kept reporting \"Admission lock is unresolved; retry reconciliation\" during this audit. It cut off most of the second round's assessors before they reported and twice stopped this session. The second round ran only in part, and no third round ran. Its partial results still confirmed six new gaps, so a full round could have found more.",
+      "action": "Look into why this run's admission lock stays unresolved (live-attempts under the PRD's Kiln state directory). The delivery audit after phases 5 and 6 re-reads the criteria those phases touch, and the test audit is the second net for anything this audit missed."
+    }
+  ],
+  "settled": []
+}
