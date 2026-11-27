@@ -1,5 +1,7 @@
 # Phase 3: Models block and guide
 
+**Closed:** 2026-11-27
+
 **Parent PRD:** [Kiln Model Modes](kiln-model-modes-prd.md)
 **Technical design:** [Kiln Model Modes technical design](kiln-model-modes-technical-design.md) — relevant sections: "Saving", "A choice in the Models block" and "Use my defaults here"; the `choose` body and the Models block paragraph in "HTTP"; `settings.models` in "Snapshot"; the AC-GUIDE-01 row of "Criteria Coverage"
 **Phase plan:** [Execution order](kiln-model-modes-phase-plan.md)

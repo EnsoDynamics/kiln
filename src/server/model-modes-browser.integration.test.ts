@@ -53,7 +53,7 @@ it("marks the First choice column as skipped and the Fallback column as in use w
   const phase = await page.evaluate<string>(`document.querySelector('li.phase[data-phase="1"]').innerText.replace(/\\s+/g, " ")`);
   expect(phase).toContain("Codex · GPT Sol · high Fallback");
   expect(phase).not.toContain("Claude Code");
-  expect(await page.evaluate<string>(`document.querySelector(".lines").innerText.replace(/\\s+/g, " ")`)).toContain("The fallback is used for everything Every phase runs on its fallback for now.");
+  expect(await page.evaluate<string>(`document.querySelector(".lines").innerText.replace(/\\s+/g, " ")`)).toContain("Recommended model for each phase Every phase runs on its fallback for now.");
   expect(page.problems).toEqual([]);
 });
 
@@ -61,7 +61,10 @@ it("says one model runs everything, on the plan's rows, the model lines and the 
   const { h, page } = await opened();
   writeSettings(h.env, { mode: "one_model", fallback: { use: "everything" } });
   await page.waitFor(`document.querySelector('[data-models-mode="one_model"]') !== null`);
-  expect(await page.evaluate<string>(`document.querySelector("[data-models-mode]").innerText.trim()`)).toBe("One model for everything: Claude Code · Opus 5.5 · high");
+  // The Models block selects One model for this PRD and shows its agent, model and effort (Kiln Model Modes AC-PRD-01).
+  expect(await page.evaluate<string>(`document.querySelector('input[name="prd-mode"]:checked').value`)).toBe("one_model");
+  await page.waitFor(`document.querySelector('[role="group"][aria-label="One model for this PRD"] select') !== null`);
+  expect(await page.evaluate<string[]>(`[...document.querySelectorAll('[role="group"][aria-label="One model for this PRD"] select')].map(select => select.selectedOptions[0].textContent.trim())`)).toEqual(["Opus, latest (Opus 5.5)", "High"]);
   // Every phase shows the one model, with no Fallback tag: one model has no fallback (AC-MODE-03).
   for (const id of ["1", "2b", "3"]) {
     const row = await page.evaluate<string>(`document.querySelector('li.phase[data-phase="${id}"]').innerText.replace(/\\s+/g, " ")`);

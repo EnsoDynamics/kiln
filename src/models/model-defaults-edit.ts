@@ -11,7 +11,7 @@ import { AGENT_NAMES, type AgentId } from "../state/records.js";
 import { writeJsonAtomically } from "../state/state-files.js";
 import { DEFAULTS_ROWS, MODEL_DEFAULTS_SCHEMA, readModelDefaults, oneModelOf, ROW_NAMES, settingsInForce, shippedDefaults, type DefaultsRow, type FallbackUse, type FamilyChoice, type ModelChoice, type ModelDefaults, type ModelDefaultsRead, type ModelMode, type SettingsPaths } from "./model-defaults.js";
 import { codexFamilyOf, familyName, newestOfFamily, type ModelList } from "./resolver.js";
-import type { SaveTarget, SettingsChange } from "./settings-change.js";
+import { carried, sameChoice, type SaveTarget, type SettingsChange } from "./settings-change.js";
 
 /**
  * A refusal: 400 malformed, 409 the settings in force can't be read (`source` says which file,
@@ -209,6 +209,45 @@ export function useDefaults(paths: SettingsPaths): { ok: true } | Refusal {
   if (!inForce.read.ok && !inForce.read.canRestore) return unreadable("prd", inForce.read);
   rmSync(paths.settingsPath, { force: true });
   return { ok: true };
+}
+
+/** A choice in the Models block (`choose`): the mode, the one model, or both. */
+export type ModelsBlockChoice = Pick<SettingsChange, "mode" | "oneModel">;
+
+/**
+ * A choice made in the Models block (AC-PRD-02; Kiln Model Modes, "A choice in the Models
+ * block"): applied at once to this PRD's own settings, created from Model defaults when there are
+ * none, with the checks a save has. A mode changed to one model carries the one model the block
+ * shows. Afterwards, when the PRD's own settings read the same as Model defaults, they are removed
+ * and the PRD follows the defaults again (SAVE-005). Only this does that comparison; a save from
+ * the page or a `--prd` command always leaves the PRD with its own settings.
+ *
+ *   chooseForPrd(paths, { mode: "one_model" }, lists, true)   // { ok: true }: own settings with Claude Code · Opus · high
+ *   chooseForPrd(paths, { mode: "recommended" }, lists, true) // { ok: true }: equal to the defaults again, so removed
+ */
+export function chooseForPrd(paths: SettingsPaths, choice: ModelsBlockChoice, lists: Lists, claudeCodeInstalled: boolean): { ok: true } | Refusal {
+  if (paths.settingsPath === undefined) throw new Error("A choice for one PRD needs that PRD's state directory.");
+  const inForce = settingsInForce(paths);
+  const shown = inForce.read.ok ? { oneModel: oneModelOf(inForce.read.defaults, claudeCodeInstalled), fallback: inForce.read.defaults.fallback } : undefined;
+  const saved = saveSettings(paths, "this_prd", shown ? carried(choice, shown) : choice, lists);
+  if (!saved.ok) return saved;
+  const own = readModelDefaults(paths.settingsPath);
+  const defaults = readModelDefaults(paths.defaultsPath);
+  if (own.ok && defaults.ok && sameSettings(own.defaults, defaults.defaults, claudeCodeInstalled)) rmSync(paths.settingsPath, { force: true });
+  return { ok: true };
+}
+
+/**
+ * Whether two settings files read the same, filled in with Kiln's choices where they hold
+ * nothing (SAVE-005): the mode, every row's two sides, the fallback setting and threshold, and the
+ * one model unless the mode is the recommended model for each phase. Only values count, not
+ * whether a file holds a field.
+ */
+function sameSettings(one: ModelDefaults, other: ModelDefaults, claudeCodeInstalled: boolean): boolean {
+  if (one.mode !== other.mode) return false;
+  if (one.fallback.use !== other.fallback.use || one.fallback.threshold !== other.fallback.threshold) return false;
+  if (DEFAULTS_ROWS.some(row => !sameChoice(one.rows[row].first, other.rows[row].first) || !sameChoice(one.rows[row].fallback, other.rows[row].fallback))) return false;
+  return one.mode === "recommended" || sameChoice(oneModelOf(one, claudeCodeInstalled), oneModelOf(other, claudeCodeInstalled));
 }
 
 /**

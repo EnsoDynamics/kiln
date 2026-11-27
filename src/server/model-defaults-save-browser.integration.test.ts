@@ -31,8 +31,10 @@ async function opened(before: (h: Harness) => void = () => {}) {
   server = await startLocalServer({ engine: h.engine, documents: documentsFoundSnapshot().documents!, port: 0, folderName: "customer-returns", featureName: "Customer returns", token: h.engine.record.token });
   chrome = await launchChrome();
   const page = await chrome.open(server.address, { width: 1200 });
-  await page.waitFor(`[...document.querySelectorAll("a")].some(a => a.textContent.trim() === "Model defaults")`);
-  await page.evaluate(`([...document.querySelectorAll("a")].find(a => a.textContent.trim() === "Model defaults")).click()`);
+  // The Models block's link is named Models for this PRD while the PRD has its own settings (Kiln Model Modes mockup 7, state C).
+  const link = `[...document.querySelectorAll("a")].find(a => ["Model defaults", "Models for this PRD"].includes(a.textContent.trim()))`;
+  await page.waitFor(`${link} !== undefined`);
+  await page.evaluate(`${link}.click()`);
   await page.waitFor(`document.querySelector('input[name="mode"]') !== null`);
   const json = (path: string) => JSON.parse(readFileSync(path, "utf8")) as unknown;
   return { h, page, defaults: modelDefaultsPath(h.env), own: prdSettingsPath(h.stateDirectory), json };

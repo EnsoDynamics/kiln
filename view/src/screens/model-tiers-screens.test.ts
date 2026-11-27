@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelView } from "../../../src/engine/activity-models.js";
 import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
 import { documentsFoundSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { choiceLine, rowModelLine, tierCountsLine, tierExplanation } from "../lib/models.js";
+import { choiceLine, rowModelLine, tierExplanation } from "../lib/models.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 import Running from "./Running.svelte";
 
@@ -38,11 +38,6 @@ describe("what a row says", () => {
     expect(tierExplanation({ value: "mechanical" })).toEqual({ heading: "Why this phase is mechanical", body: "The phase document's Model tier line gives no reason.", source: "From the phase document's Model tier line." });
     expect(tierExplanation({ value: "standard", reason: "ignored" }).body).toBe("Each phase document rates how capable a model its build needs. Standard is the usual rating, and the model for it is set in Model defaults.");
     expect(tierExplanation({ value: "not_rated" }).body).toBe("This phase document has no Model tier line, so Kiln treats the phase as standard.");
-  });
-
-  it("counts the tiers in Documents found's delivery panel, leaving out a tier with none", () => {
-    expect(tierCountsLine({ demanding: 1, standard: 2, mechanical: 1, notRated: 1 })).toBe("1 demanding, 2 standard, 1 mechanical, 1 not rated.");
-    expect(tierCountsLine({ demanding: 0, standard: 3, mechanical: 0, notRated: 0 })).toBe("3 standard.");
   });
 });
 
@@ -109,7 +104,7 @@ describe("the running plan (AC-TIER-02, AC-PICK-02)", () => {
 
   it("drops the run's settings' Model and effort for one line saying models are chosen for each phase (AC-KEEP-01)", () => {
     const words = text(running(tiered()));
-    expect(words).toContain("Settings for this PRD A phase that has started keeps the model it started with. Models Chosen for each phase");
+    expect(words).toContain("Settings for this PRD A phase that has started keeps the model it started with. Models Recommended model for each phase");
     expect(words).not.toMatch(/Agent fixed for this PRD|Model and effort Opus/);
   });
 });

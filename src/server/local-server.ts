@@ -31,7 +31,7 @@ import { readOutputLines } from "../session/claude-session.js";
 import { NewerSchemaError, type AgentId, type Settings } from "../state/records.js";
 import { DEFAULTS_ROWS, type DefaultsRow, type FamilyChoice, type ModelChoice } from "../models/model-defaults.js";
 import type { ModelTarget } from "../engine/engine.js";
-import { saveSettings, settingsView, useDefaults, type Refusal } from "../models/model-defaults-edit.js";
+import { chooseForPrd, saveSettings, settingsView, useDefaults, type ModelsBlockChoice, type Refusal } from "../models/model-defaults-edit.js";
 import type { SaveTarget, SettingsChange } from "../models/settings-change.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { RESULT_CHECK } from "../audit/admission.js";
@@ -498,7 +498,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const body = await jsonBody(c);
     const request = body === undefined ? undefined : settingsRequest(body);
     if (request === undefined || typeof request === "string") return refuse(c, 400, request ?? "The body must be a JSON object.");
-    const answer = "save" in request ? saveSettings(engine.settingsPaths, request.save.target, request.save.changes, engine.modelContext.lists) : useDefaults(engine.settingsPaths);
+    const answer = "save" in request ? saveSettings(engine.settingsPaths, request.save.target, request.save.changes, engine.modelContext.lists)
+      : "choose" in request ? chooseForPrd(engine.settingsPaths, request.choose, engine.modelContext.lists, engine.claudeCodeInstalled)
+      : useDefaults(engine.settingsPaths);
     if (!answer.ok) return c.json({ ok: false, ...(answer.status === 409 ? unread(answer) : { reason: answer.reason }) }, answer.status);
     engine.modelChoicesChanged();
     const view = defaultsBody();
@@ -962,16 +964,23 @@ function modelChoiceOf(raw: unknown, name: "model" | "family"): { agentId: Agent
 
 /**
  * `POST /api/model-defaults`'s body (Kiln Model Modes, "HTTP"): a save of the page's changes for
- * every PRD or for this one, or Use my defaults here.
+ * every PRD or for this one, a choice made in the Models block, or Use my defaults here.
  *
  *   settingsRequest({ save: { target: "this_prd", changes: { fallback: { use: "everything" } } } })
+ *   settingsRequest({ choose: { mode: "one_model" } })
  *   settingsRequest({ useDefaults: true })
  */
-function settingsRequest(body: Record<string, unknown>): { save: { target: SaveTarget; changes: SettingsChange } } | { useDefaults: true } | string {
-  if (Object.keys(body).length !== 1) return "Send one of save or useDefaults.";
+function settingsRequest(body: Record<string, unknown>): { save: { target: SaveTarget; changes: SettingsChange } } | { choose: ModelsBlockChoice } | { useDefaults: true } | string {
+  if (Object.keys(body).length !== 1) return "Send one of save, choose or useDefaults.";
   if (body.useDefaults !== undefined) return body.useDefaults === true ? { useDefaults: true } : "useDefaults is true.";
+  if (body.choose !== undefined) {
+    const choose = body.choose;
+    if (!isRecord(choose) || !Object.keys(choose).length || Object.keys(choose).some(key => key !== "mode" && key !== "oneModel")) return "choose takes mode, oneModel or both.";
+    const changes = settingsChangeOf(choose);
+    return typeof changes === "string" ? changes : { choose: changes as ModelsBlockChoice };
+  }
   const save = body.save;
-  if (!isRecord(save) || Object.keys(save).some(key => key !== "target" && key !== "changes")) return "Send one of save or useDefaults; save takes target and changes.";
+  if (!isRecord(save) || Object.keys(save).some(key => key !== "target" && key !== "changes")) return "Send one of save, choose or useDefaults; save takes target and changes.";
   if (save.target !== "every_prd" && save.target !== "this_prd") return "target is every_prd or this_prd.";
   const changes = settingsChangeOf(save.changes);
   return typeof changes === "string" ? changes : { save: { target: save.target, changes } };

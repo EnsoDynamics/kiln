@@ -92,6 +92,8 @@ async function modelDefaultsRequest(config: PageConfig, body?: unknown): Promise
 export const modelDefaults = (config: PageConfig) => modelDefaultsRequest(config);
 /** Saves the page's changes for every PRD on this computer or for this PRD only (AC-SAVE-01, AC-SAVE-03, AC-SAVE-04). */
 export const saveModelDefaults = (config: PageConfig, target: import("../../../src/models/settings-change.js").SaveTarget, changes: import("../../../src/models/settings-change.js").SettingsChange) => modelDefaultsRequest(config, { save: { target, changes } });
+/** A choice in the Models block, applied to this PRD alone at once (AC-PRD-02): the mode, the one model, or both. */
+export const chooseModels = (config: PageConfig, choose: import("../../../src/models/model-defaults-edit.js").ModelsBlockChoice) => modelDefaultsRequest(config, { choose });
 /** Use my defaults here: removes this PRD's own settings (AC-SAVE-05). */
 export const useModelDefaults = (config: PageConfig) => modelDefaultsRequest(config, { useDefaults: true });
 /** Resume at Needs you, with the person's note when they wrote one (usage-limit recovery AC-RESUME-02, 03). */

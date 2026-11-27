@@ -15,7 +15,7 @@
   import ModelEditor from "../components/ModelEditor.svelte";
   import { modelDefaults, saveModelDefaults, useModelDefaults, type ModelDefaultsAnswer } from "../lib/api.js";
   import { modelDefaultsDraft as draft } from "../lib/model-defaults-draft.svelte.js";
-  import { effortWord, oneModelAccountLine, type EditorAgent } from "../lib/models.js";
+  import { effortWord, familyEditorAgents, oneModelAccountLine, type EditorAgent } from "../lib/models.js";
   import { routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
 
@@ -81,7 +81,7 @@
 
   const own = $derived(view ? view.source === "prd" : unreadable?.source === "prd");
   const prd = $derived(view?.prd ?? featureName);
-  const familyAgents = $derived<EditorAgent[]>((view?.agents ?? []).map(agent => ({ agentId: agent.agentId, agent: agent.agent, options: agent.families.map(one => ({ value: one.family, name: `${one.familyName}, latest (${one.modelName})`, efforts: one.efforts, defaultEffort: one.defaultEffort })), ...(agent.families.length ? {} : { problem: agent.modelListError ?? `${agent.agent} offers no model families Kiln can read.` }) })));
+  const familyAgents = $derived<EditorAgent[]>(familyEditorAgents(view?.agents ?? []));
   // Every choice the page can name: the sides as read, Kiln's own, and each family an agent offers.
   const named = $derived.by(() => {
     const sides: DefaultsSideView[] = view ? [view, view.kilnChoices].flatMap(one => [one.oneModel, ...ROWS.flatMap(row => [one.rows[row.row].first, one.rows[row.row].fallback])]) : [];

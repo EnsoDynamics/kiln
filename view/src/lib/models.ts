@@ -110,17 +110,6 @@ export function tierExplanation(tier: TierView, models?: Pick<ModelSettings, "mo
   }
 }
 
-/**
- * Documents found's "Chosen for each phase" counts, in tier order, leaving out a tier with none.
- *
- *   tierCountsLine({ demanding: 1, standard: 2, mechanical: 1, notRated: 1 })  // "1 demanding, 2 standard, 1 mechanical, 1 not rated."
- */
-export function tierCountsLine(tiers: Snapshot["settings"]["models"]["tiers"]): string | undefined {
-  const parts = [[tiers.demanding, "demanding"], [tiers.standard, "standard"], [tiers.mechanical, "mechanical"], [tiers.notRated, "not rated"]] as const;
-  const shown = parts.filter(([count]) => count > 0).map(([count, word]) => `${count} ${word}`);
-  return shown.length ? `${shown.join(", ")}.` : undefined;
-}
-
 /** One choice an editor offers: a model (a row's Change) or a family (Model defaults). */
 export interface EditorOption { value: string; name: string; efforts: string[]; defaultEffort?: string | undefined }
 /** An agent's choices in an editor; none while its list can't be read, with the reason. */
@@ -144,6 +133,17 @@ export function rowEditorAgents(agents: Snapshot["agents"]): EditorAgent[] {
 }
 
 /**
+ * The agents a model family editor offers, from `GET /api/model-defaults`: each agent's families
+ * at their newest version, none for one whose list can't be read, with the reason.
+ *
+ *   familyEditorAgents([{ agentId: "claude_code", agent: "Claude Code", families: [{ family: "opus", familyName: "Opus", modelName: "Opus 5.5", efforts: ["high"] }] }])
+ *   // [{ agentId: "claude_code", agent: "Claude Code", options: [{ value: "opus", name: "Opus, latest (Opus 5.5)", efforts: ["high"] }] }]
+ */
+export function familyEditorAgents(agents: { agentId: AgentId; agent: string; families: { family: string; familyName: string; modelName: string; efforts: string[]; defaultEffort?: string | undefined }[]; modelListError?: string | undefined }[]): EditorAgent[] {
+  return agents.map(agent => ({ agentId: agent.agentId, agent: agent.agent, options: agent.families.map(one => ({ value: one.family, name: `${one.familyName}, latest (${one.modelName})`, efforts: one.efforts, defaultEffort: one.defaultEffort })), ...(agent.families.length ? {} : { problem: agent.modelListError ?? `${agent.agent} offers no model families Kiln can read.` }) }));
+}
+
+/**
  * The effort an editor starts on for a choice: the current one when the choice offers it, else
  * the agent's default for it, else high, else the first it offers; none for a choice that takes none.
  *
@@ -157,29 +157,25 @@ export function startingEffort(option: Pick<EditorOption, "efforts" | "defaultEf
 }
 
 /**
- * The delivery panel's and the run's settings' fallback line (AC-FALLBACK-01; Kiln Model Modes
- * AC-MODE-03, AC-WHEN-02): what the settings in force do when usage is nearly out.
+ * The line under Recommended model for each phase in the Models block (Kiln Model Modes AC-PRD-01;
+ * mockups 5 and 7, state C): when the fallback is used, with its threshold when it has one.
  *
- *   fallbackLine({ mode: "recommended", fallback: { use: "threshold", threshold: 95 } })   // { value: "Use the fallback at 95%" }
- *   fallbackLine({ mode: "recommended", fallback: { use: "never", threshold: 95 } })       // { value: "Wait for the limit", help: "No fallback is switched on. Set one up in" }
- *   fallbackLine({ mode: "recommended", fallback: { use: "everything", threshold: 95 } })  // { value: "The fallback is used for everything", help: "Every phase runs on its fallback for now. Change it in" }
- *   fallbackLine({ mode: "one_model", … })                                                  // { value: "Wait for the limit", help: "One model runs everything, and it has no fallback. Change it in" }
+ *   recommendedLine({ use: "threshold", threshold: 95 })   // "Each phase moves to its fallback when usage reaches 95%."
+ *   recommendedLine({ use: "everything", threshold: 95 })  // "Every phase runs on its fallback for now."
+ *   recommendedLine({ use: "never", threshold: 95 })       // "Wait for the limit. No fallback is switched on."
  */
-export function fallbackLine(models: { mode: ModelSettings["mode"]; fallback: Pick<ModelSettings["fallback"], "use" | "threshold"> }): { value: string; help?: string } {
-  if (models.mode === "one_model") return { value: "Wait for the limit", help: "One model runs everything, and it has no fallback. Change it in" };
-  if (models.fallback.use === "everything") return { value: "The fallback is used for everything", help: "Every phase runs on its fallback for now. Change it in" };
-  return models.fallback.use === "threshold" ? { value: `Use the fallback at ${models.fallback.threshold}%` } : { value: "Wait for the limit", help: "No fallback is switched on. Set one up in" };
+export function recommendedLine(fallback: Pick<ModelSettings["fallback"], "use" | "threshold">): string {
+  if (fallback.use === "everything") return "Every phase runs on its fallback for now.";
+  return fallback.use === "threshold" ? `Each phase moves to its fallback when usage reaches ${fallback.threshold}%.` : "Wait for the limit. No fallback is switched on.";
 }
 
 /**
- * The Models line of the delivery panel and the run's settings: how models are picked now.
+ * The one model as the Models block names it where it shows the choice without its controls.
  *
- *   modelsLine({ mode: "one_model", oneModel: { agent: "Claude Code", modelName: "Opus 5.5", effort: "high", … } })  // "One model for everything: Claude Code · Opus 5.5 · high"
+ *   oneModelLine({ agent: "Claude Code", familyName: "Opus", modelName: "Opus 5.5", effort: "xhigh", … })  // "Claude Code · Opus 5.5 · extra high"
  */
-export function modelsLine(models: Pick<ModelSettings, "mode" | "oneModel">): string {
-  if (models.mode !== "one_model") return "Chosen for each phase";
-  const one = models.oneModel;
-  return `One model for everything: ${[one.agent, one.modelName ?? one.familyName, one.effort ? effortWord(one.effort) : undefined].filter(Boolean).join(" · ")}`;
+export function oneModelLine(one: Pick<ModelSettings["oneModel"], "agent" | "familyName" | "modelName" | "effort">): string {
+  return [one.agent, one.modelName ?? one.familyName, one.effort ? effortWord(one.effort) : undefined].filter(Boolean).join(" · ");
 }
 
 /**

@@ -862,7 +862,7 @@ function documentsPhase(phase: PlannedPhase): NonNullable<DocumentsFound["plan"]
 
 /**
  * The phases with no child phases carrying each tier, closed or not, as their tags show them
- * (Kiln Phase Model Tiers, "Snapshot": Documents found's "Chosen for each phase" line).
+ * (Kiln Phase Model Tiers, "Snapshot").
  */
 function tierCounts(engine: Engine): Snapshot["settings"]["models"]["tiers"] {
   const counts = { demanding: 0, standard: 0, mechanical: 0, notRated: 0 };

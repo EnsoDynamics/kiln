@@ -25,9 +25,9 @@
   import type { Settings } from "../../../src/state/records.js";
   import TierTag from "../components/TierTag.svelte";
   import RowModel from "../components/RowModel.svelte";
-  import ModelLines from "../components/ModelLines.svelte";
+  import ModelsBlock from "../components/ModelsBlock.svelte";
   import type { ModelView, TierView } from "../../../src/engine/activity-models.js";
-  import { rowModelLine, thresholdInForce, tierCountsLine, type ModelTarget } from "../lib/models.js";
+  import { rowModelLine, thresholdInForce, type ModelTarget } from "../lib/models.js";
   import AccountPanel from "../components/AccountPanel.svelte";
   import { inUseAgent, mergeAgent, neededAgents } from "../lib/agents.js";
   import CodeText from "../components/CodeText.svelte";
@@ -70,8 +70,6 @@
   const fallbackWarning = $derived(settings.models.fallback.warning);
   // A fallback-only agent's problem is told by the warning instead.
   const readiness = $derived(agents.filter((agent) => agent.readinessErrors?.length && agent.agentId !== fallbackWarning?.agentId));
-  // Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01): the tier counts, under "Chosen for each phase".
-  const tierLine = $derived(tierCountsLine(settings.models.tiers));
   const preflightModel = $derived(snapshot.preflight?.planned?.model);
   const baseChoices = $derived(settings.baseBranches && settings.baseBranches.length > 0 ? settings.baseBranches : settings.baseBranch ? [settings.baseBranch] : []);
   const fixedLocked = $derived(!connected || documents.starting === true);
@@ -380,7 +378,7 @@
       {/if}
 
       <div class="field models">
-        <ModelLines {snapshot} {connected} counts={tierLine} />
+        <ModelsBlock {snapshot} {connected} controls />
         {#each agents as agent (agent.agentId)}
           {@const account = accountLines(agent.account, thresholdInForce(settings.models))}
           <span class="agent">{#if agents.length > 1}<span class="sub">{accountHeading(agent)}</span>{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>

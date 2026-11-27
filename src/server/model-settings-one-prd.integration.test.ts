@@ -140,3 +140,83 @@ describe("a change saved for this PRD only (AC-SAVE-04)", () => {
     expect(existsSync(own)).toBe(false);
   });
 });
+
+describe("a choice in the Models block (AC-PRD-02)", () => {
+  it("applies to this PRD alone at once, gives it its own settings while they differ from the defaults, and returns it to the defaults when they match", async () => {
+    const { h, post, json, defaults, own } = await opened();
+    const other = await withPlan(h, await h.engineFor("gift-cards"), "gift-cards");
+    try {
+      const sonnet = { agentId: "claude_code", family: "sonnet", effort: "low" };
+      expect((await post({ save: { target: "every_prd", changes: { fallback: { use: "threshold", threshold: 80 } } } })).status).toBe(200);
+      const defaultsBefore = readFileSync(defaults, "utf8");
+
+      // One model for this PRD, with no Save: own settings created from Model defaults, carrying the one model the block showed.
+      expect(await post({ choose: { mode: "one_model" } })).toMatchObject({ status: 200, body: { source: "prd", mode: "one_model", oneModel: { agentId: "claude_code", family: "opus", effort: "high" }, fallback: { use: "threshold", threshold: 80 } } });
+      expect(json(own)).toEqual({ schemaVersion: 2, mode: "one_model", oneModel: { agentId: "claude_code", family: "opus", effort: "high" }, fallback: { use: "threshold", threshold: 80 } });
+      expect(h.engine.notStartedChoice("3")).toMatchObject({ agentId: "claude_code", model: "opus", effort: "high", from: "one_model", ownSettings: true });
+      // Nothing changes for another PRD or the defaults.
+      expect(readFileSync(defaults, "utf8")).toBe(defaultsBefore);
+      expect(other.notStartedChoice("3")).toMatchObject({ from: "model_defaults" });
+
+      // Picking the one model's agent, model or effort applies at once too.
+      expect(await post({ choose: { oneModel: sonnet } })).toMatchObject({ status: 200, body: { source: "prd", mode: "one_model", oneModel: { family: "sonnet", effort: "low" } } });
+      expect(h.engine.notStartedChoice("3")).toMatchObject({ model: "sonnet", effort: "low", from: "one_model" });
+
+      // Back to the recommended choice: equal to the defaults, leaving out the one model, so the PRD follows them again.
+      expect(await post({ choose: { mode: "recommended" } })).toMatchObject({ status: 200, body: { source: "defaults", mode: "recommended" } });
+      expect(existsSync(own)).toBe(false);
+      expect(h.engine.notStartedChoice("3")).toMatchObject({ from: "model_defaults" });
+      expect(h.engine.notStartedChoice("3")).not.toHaveProperty("ownSettings");
+
+      // A PRD whose own settings still differ in another field keeps them after the same choice.
+      expect((await post({ save: { target: "this_prd", changes: { mode: "one_model", oneModel: sonnet, fallback: { use: "everything" } } } })).status).toBe(200);
+      expect(await post({ choose: { mode: "recommended" } })).toMatchObject({ status: 200, body: { source: "prd", mode: "recommended", fallback: { use: "everything" } } });
+      expect(json(own)).toMatchObject({ mode: "recommended", fallback: { use: "everything" } });
+      // And the defaults saying one model, a choice of the same one model returns the PRD to them.
+      expect((await post({ useDefaults: true })).status).toBe(200);
+      writeFileSync(defaults, JSON.stringify({ schemaVersion: 2, mode: "one_model", oneModel: sonnet }));
+      expect(await post({ choose: { mode: "recommended" } })).toMatchObject({ status: 200, body: { source: "prd", mode: "recommended" } });
+      expect(await post({ choose: { mode: "one_model" } })).toMatchObject({ status: 200, body: { source: "defaults", mode: "one_model", oneModel: { family: "sonnet" } } });
+      expect(existsSync(own)).toBe(false);
+
+      writeFileSync(defaults, defaultsBefore);
+
+      // Each difference the comparison covers keeps the PRD's own settings after a choice: a row's side, the threshold alone, and the one model under one model.
+      expect((await post({ save: { target: "this_prd", changes: { rows: { standard: { first: sonnet } } } } })).status).toBe(200);
+      expect(await post({ choose: { mode: "recommended" } })).toMatchObject({ status: 200, body: { source: "prd", rows: { standard: { first: { family: "sonnet" } } } } });
+      expect((await post({ useDefaults: true })).status).toBe(200);
+      expect((await post({ save: { target: "this_prd", changes: { fallback: { threshold: 70 } } } })).status).toBe(200);
+      expect(await post({ choose: { mode: "recommended" } })).toMatchObject({ status: 200, body: { source: "prd", fallback: { use: "threshold", threshold: 70 } } });
+      expect((await post({ useDefaults: true })).status).toBe(200);
+      writeFileSync(defaults, JSON.stringify({ schemaVersion: 2, mode: "one_model", oneModel: sonnet }));
+      expect(await post({ choose: { oneModel: { agentId: "claude_code", family: "opus", effort: "high" } } })).toMatchObject({ status: 200, body: { source: "prd", mode: "one_model", oneModel: { family: "opus" } } });
+      expect((await post({ useDefaults: true })).status).toBe(200);
+
+      // Own settings over Model defaults that can't be read: the choice is written as usual, and the PRD keeps them, never moving onto a file Kiln can't read.
+      writeFileSync(defaults, defaultsBefore);
+      expect((await post({ choose: { mode: "one_model" } })).body).toMatchObject({ source: "prd" });
+      writeFileSync(defaults, "{ broken");
+      expect(await post({ choose: { mode: "recommended" } })).toMatchObject({ status: 200, body: { source: "prd", mode: "recommended" } });
+      expect(existsSync(own)).toBe(true);
+      expect((await post({ useDefaults: true })).status).toBe(409);
+      writeFileSync(defaults, defaultsBefore);
+
+      // Refusals change nothing: a malformed choice is 400, a model Kiln won't save 422, and Model defaults that can't be read 409.
+      for (const body of [{ choose: {} }, { choose: { mode: "fastest" } }, { choose: { fallback: { use: "never" } } }, { choose: { mode: "one_model" }, useDefaults: true }]) {
+        expect((await post(body)).status, JSON.stringify(body)).toBe(400);
+      }
+      expect(await post({ choose: { oneModel: { agentId: "claude_code", family: "nonesuch", effort: "high" } } })).toMatchObject({ status: 422 });
+      expect(existsSync(own)).toBe(false);
+      writeFileSync(defaults, "{ broken");
+      expect(await post({ choose: { mode: "recommended" } })).toMatchObject({ status: 409, body: { source: "defaults", path: defaults } });
+      expect(existsSync(own)).toBe(false);
+    } finally { other.close(); }
+  });
+
+  it("reaches the activities that haven't started in a run underway", async () => {
+    const { h, post } = await opened();
+    h.engine.record.startedAt = new Date().toISOString();
+    expect(await post({ choose: { mode: "one_model" } })).toMatchObject({ status: 200, body: { source: "prd", mode: "one_model" } });
+    expect(h.engine.notStartedChoice("3")).toMatchObject({ agentId: "claude_code", model: "opus", effort: "high", from: "one_model" });
+  });
+});

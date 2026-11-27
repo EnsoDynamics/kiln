@@ -112,7 +112,7 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   await page.waitFor(`document.querySelector('[data-save-bar] [role="status"]') !== null`);
   expect(await page.evaluate<string>(`document.querySelector("a.back").textContent.trim()`)).toBe("Customer returns");
   await page.evaluate(`document.querySelector("a.back").click()`);
-  await page.waitFor(`location.pathname === "/customer-returns" && document.body.innerText.includes("Use the fallback at 95%")`);
+  await page.waitFor(`location.pathname === "/customer-returns" && document.body.innerText.includes("Each phase moves to its fallback when usage reaches 95%.")`);
   expect(page.problems).toEqual([]);
 });
 

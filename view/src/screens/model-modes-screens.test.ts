@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import type { FallbackView, ModelView } from "../../../src/engine/activity-models.js";
 import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
 import { documentsFoundSnapshot, needsYouCrashedSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { fallbackLine, fallbackStory, modelsLine, noFallbackNote, oneModelAccountLine, rowModelTarget, thresholdInForce, tierExplanation } from "../lib/models.js";
+import { fallbackStory, noFallbackNote, oneModelLine, recommendedLine, oneModelAccountLine, rowModelTarget, thresholdInForce, tierExplanation } from "../lib/models.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 import NeedsYou from "./NeedsYou.svelte";
 import Running from "./Running.svelte";
@@ -89,7 +89,7 @@ describe("the plan before Start while the fallback is used for everything (AC-WH
     const words = text(documentsFound(snapshot));
     expect(words).not.toContain("above your");
     expect(words).not.toMatch(/Or on .* if .* when it launches/);
-    expect(words).toContain("If usage is nearly out The fallback is used for everything Every phase runs on its fallback for now. Change it in Model defaults .");
+    expect(words).toContain("Models Recommended model for each phase Every phase runs on its fallback for now. Model defaults");
   });
 
   it("explains a row with no fallback because Claude Code isn't installed, in place of the usual note that it runs on Codex", () => {
@@ -106,10 +106,9 @@ describe("the plan before Start while the fallback is used for everything (AC-WH
 
 describe("the model lines (AC-MODE-02, AC-MODE-03, AC-WHEN-03, AC-ROW-01)", () => {
   it("say one model runs everything, name it, and leave out the Audits line unless the audits' choice was changed for this PRD", () => {
-    expect(modelsLine({ mode: "one_model", oneModel: ONE_MODEL.oneModel! })).toBe("One model for everything: Claude Code · Opus 5.5 · high");
-    expect(modelsLine({ mode: "recommended", oneModel: ONE_MODEL.oneModel! })).toBe("Chosen for each phase");
+    expect(oneModelLine(ONE_MODEL.oneModel!)).toBe("Claude Code · Opus 5.5 · high");
     const words = text(documentsFound(settings(documentsFoundSnapshot(), ONE_MODEL)));
-    expect(words).toContain("Models One model for everything: Claude Code · Opus 5.5 · high Every phase, both audits, the preflight, and the pull request, merge and push sessions.");
+    expect(words).toContain("One model for this PRD Every phase, both audits, the preflight, and the pull request, merge and push sessions. Claude Code · Opus 5.5 · high At a usage limit this PRD waits and picks up again.");
     expect(words).not.toContain("Audits Claude Code");
     expect(words).not.toContain("Not a tier: they check the whole PRD.");
     const changed = settings(documentsFoundSnapshot(), { ...ONE_MODEL, audits: { choice: choice("Claude Code", "Sonnet 5.5", "low"), changedByYou: true, change: { available: true }, useDefault: true } });
@@ -117,7 +116,6 @@ describe("the model lines (AC-MODE-02, AC-MODE-03, AC-WHEN-03, AC-ROW-01)", () =
   });
 
   it("say one model has no fallback, whatever the fallback setting says, and mark no limit as above a threshold", () => {
-    expect(fallbackLine({ mode: "one_model", fallback: { use: "threshold", threshold: 90 } })).toEqual({ value: "Wait for the limit", help: "One model runs everything, and it has no fallback. Change it in" });
     expect(thresholdInForce({ mode: "one_model", fallback: { use: "threshold", threshold: 90, enabled: true } })).toBeUndefined();
     expect(thresholdInForce({ mode: "recommended", fallback: { use: "everything", threshold: 90, enabled: true } })).toBeUndefined();
     expect(thresholdInForce({ mode: "recommended", fallback: { use: "never", threshold: 90, enabled: false } })).toBeUndefined();
@@ -127,7 +125,7 @@ describe("the model lines (AC-MODE-02, AC-MODE-03, AC-WHEN-03, AC-ROW-01)", () =
     snapshot.agents[0]!.account = { ...account, limits: account.limits.map(limit => ({ ...limit, overThreshold: true as const })) };
     const words = text(documentsFound(snapshot));
     expect(words).not.toContain("above your");
-    expect(words).toContain("If usage is nearly out Wait for the limit One model runs everything, and it has no fallback. Change it in Model defaults .");
+    expect(words).toContain("At a usage limit this PRD waits and picks up again.");
   });
 
   it("show the audits' fallback on the Audits line while the fallback is used for everything, and say when a PRD has its own settings", () => {
@@ -189,5 +187,37 @@ describe("the line under One model for everything on Model defaults (AC-MODE-03;
   it("names the agent alone when Kiln holds no account for it, or couldn't read one", () => {
     expect(oneModelAccountLine("Codex", undefined)).toBe("Codex. At a usage limit a run waits and picks up again.");
     expect(oneModelAccountLine("Claude Code", { email: "you@example.com", error: "Not signed in.", limits })).toBe("Claude Code. At a usage limit a run waits and picks up again.");
+  });
+});
+
+describe("the Models block (Kiln Model Modes AC-PRD-01; mockups 5 and 6, mockup 7 states C and D)", () => {
+  it("offers the two choices where the PRD starts, the one in force selected, and while the PRD has its own settings says so and offers Use my defaults here", () => {
+    expect(recommendedLine({ use: "threshold", threshold: 90 })).toBe("Each phase moves to its fallback when usage reaches 90%.");
+    expect(recommendedLine({ use: "everything", threshold: 90 })).toBe("Every phase runs on its fallback for now.");
+    expect(recommendedLine({ use: "never", threshold: 90 })).toBe("Wait for the limit. No fallback is switched on.");
+    const recommended = documentsFound(settings(documentsFoundSnapshot(), { fallback: { use: "threshold", threshold: 95, enabled: true } }));
+    expect(recommended).toMatch(/<input type="radio" name="prd-mode" value="recommended" checked/);
+    expect(recommended).not.toMatch(/value="one_model" checked/);
+    expect(text(recommended)).toContain("Models Recommended model for each phase Each phase moves to its fallback when usage reaches 95%. Model defaults One model for this PRD");
+    expect(text(recommended)).not.toContain("Use my defaults here");
+    const own = documentsFound(settings(documentsFoundSnapshot(), { ...ONE_MODEL, source: "prd" }));
+    expect(own).toMatch(/value="one_model" checked/);
+    expect(text(own)).toContain("Models for this PRD One model for this PRD Every phase, both audits, the preflight, and the pull request, merge and push sessions. Claude Code · Opus 5.5 · high At a usage limit this PRD waits and picks up again. This PRD has its own settings. Use my defaults here");
+  });
+
+  it("offers the same choices in the run's settings, the one in force selected, with Use my defaults here for a PRD with its own settings (mockup 7, state D)", () => {
+    const page = running(settings(runningSnapshot(), { ...ONE_MODEL, source: "prd" }));
+    const block = page.split("data-models-block")[1]!;
+    expect(block).toMatch(/value="one_model" checked/);
+    expect(text(block)).toContain("One model for this PRD Every phase, both audits, the preflight, and the pull request, merge and push sessions. Claude Code · Opus 5.5 · high At a usage limit this PRD waits and picks up again. This PRD has its own settings. Use my defaults here");
+  });
+
+  it("shows the choice in force without its controls on the Models card, with Model defaults or this PRD's own settings as where to change it", () => {
+    const one = needsYou(settings(needsYouCrashedSnapshot(), { ...ONE_MODEL, source: "prd" }));
+    const card = one.split('id="model-changes-h"')[1]!;
+    expect(card).not.toMatch(/name="prd-mode"|Use my defaults here/);
+    expect(text(card)).toContain("Models One model for this PRD Claude Code · Opus 5.5 · high. At a usage limit this PRD waits and picks up again. This PRD has its own settings. Models for this PRD");
+    const recommended = needsYou(settings(needsYouCrashedSnapshot(), EVERYTHING)).split('id="model-changes-h"')[1]!;
+    expect(text(recommended)).toContain("Models Recommended model for each phase Every phase runs on its fallback for now. Model defaults");
   });
 });

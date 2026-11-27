@@ -2,13 +2,13 @@
   // Changing models on a page that shows no phase plan: Needs you, the stopped-phase page and the
   // waiting page (Kiln Phase Model Tiers AC-PICK-03, AC-OTHER-01, AC-FALLBACK-01; mockup 5, state
   // E). Every row that hasn't started offers its Change here, the stopped or waiting activity's
-  // first, then the model lines with the Audits choice and the Model defaults link. The planned
+  // first, then the Models block's choice in force, without its controls, with the Audits choice and the Model defaults link (Kiln Model Modes AC-PRD-01). The planned
   // Preflight row and the planned or allocated pull request row are listed like phases, and their
   // Change sets this PRD's Preflight and pull request choice (Kiln Model Modes AC-ROW-01).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { rowModelTarget } from "../lib/models.js";
   import { withPlannedPreflight } from "../lib/progress.js";
-  import ModelLines from "./ModelLines.svelte";
+  import ModelsBlock from "./ModelsBlock.svelte";
   import RowModel from "./RowModel.svelte";
   import TierTag from "./TierTag.svelte";
 
@@ -35,7 +35,7 @@
       {/each}
     </ul>
   {/if}
-  <ModelLines {snapshot} {connected} />
+  <ModelsBlock {snapshot} {connected} />
 </section>
 {/if}
 

@@ -43,8 +43,8 @@ describe("the Folder missing page, against its mockup (AC-LOOK-01)", () => {
       }
       if (blocked) expect(flat(await page.evaluate<string>(read(".setup")))).toBe(flat(await drawn.evaluate<string>(read("#setup"))));
       else {
-        // The mockup's Agent, Model and Effort give way to Documents found's model line (Kiln Phase Model Tiers AC-KEEP-01).
-        expect(await page.evaluate<string>(LABELS.view), `${which}: settings labels`).toBe((await drawn.evaluate<string>(LABELS.mockup)).replace("Agent|Model|Effort", "Models|Audits|If usage is nearly out"));
+        // The mockup's Agent, Model and Effort give way to the Models block's choice in force and the Audits line (Kiln Phase Model Tiers AC-KEEP-01; Kiln Model Modes AC-PRD-01).
+        expect(await page.evaluate<string>(LABELS.view), `${which}: settings labels`).toBe((await drawn.evaluate<string>(LABELS.mockup)).replace("Agent|Model|Effort", "Models|Audits"));
         const help = (await page.evaluate<string>(HELP.view)).split("|");
         // Model and effort are no longer set here, so the help lines name keep-awake alone and drop the fixed agent (AC-KEEP-01).
         const kept = (await drawn.evaluate<string>(HELP.mockup)).split("|").filter(line => !line.includes("@") && !line.includes("Agent fixed for this PRD") && !line.includes("effort setting")).map(line => line.replace("model, effort and keep-awake can be changed later", "keep-awake can be changed later"));

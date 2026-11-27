@@ -4,7 +4,7 @@
   // with recovery's extra help lines and fixed fields, and Before you start with the Starting lets
   // Kiln list and Start. Edits go to the engine's draft and nothing is saved before Start (AC-SAFE-01).
   import BusyStatus from "./BusyStatus.svelte";
-  import ModelLines from "./ModelLines.svelte";
+  import ModelsBlock from "./ModelsBlock.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Part, PanelFields, SetupPanel, StartKind } from "../../../src/engine/folder-setup.js";
   import AccountPanel from "./AccountPanel.svelte";
@@ -173,9 +173,9 @@
         <span class="help">{SESSIONS_ADD}</span>
       {/if}
 
-      <!-- Documents found's model line in place of Agent, Model and Effort (Kiln Phase Model Tiers AC-KEEP-01). -->
+      <!-- The Models block's choice in force, without its controls, in place of Agent, Model and Effort (Kiln Phase Model Tiers AC-KEEP-01; Kiln Model Modes AC-PRD-01). -->
       <div class="field">
-        <ModelLines {snapshot} {connected} readOnly />
+        <ModelsBlock {snapshot} {connected} readOnly />
         {#each agents as agent (agent.agentId)}
           {@const account = accountLines(agent.account, thresholdInForce(snapshot.settings.models))}
           <span class="help">{#if agents.length > 1}{accountHeading(agent)}<br />{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
