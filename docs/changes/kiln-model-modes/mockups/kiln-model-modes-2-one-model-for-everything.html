@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln Model Modes mockup: 2. One model for everything, not saved yet</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#ede8dd}a:hover{color:#f0866e}
+.mock-note{margin:0;padding:14px 32px;background:#0d0c0a;border-bottom:1px solid rgba(237,232,221,.18);font-size:14px;color:#bdb6a8;line-height:1.5}
+.mock-note strong{color:#ede8dd;font-weight:600}
+.state{margin:0;padding:10px 32px;background:#0d0c0a;border-top:1px solid rgba(237,232,221,.18);border-bottom:1px solid rgba(237,232,221,.18);font-size:13px;color:#bdb6a8}
+.state strong{color:#ede8dd;font-weight:600}
+</style>
+</head>
+<body>
+<p class="mock-note"><strong>2. One model for everything, not saved yet.</strong> The person picked One model for everything. Its agent, model and effort show in place of the tier table and the fallback, and the save bar offers Discard and Save. Covers AC-MODE-01, AC-MODE-02, AC-MODE-03 and AC-SAVE-01.</p>
+<div style="min-height: 100vh; background: #12110e; color: #ede8dd; font-family: Inter, -apple-system, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.55">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 50%; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 920px; margin: 0 auto; padding: 32px 32px 64px; box-sizing: border-box; display: flex; flex-direction: column; gap: 28px">
+
+<a href="kiln-model-modes-5-documents-found.html" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 18px 0 14px; border-radius: 999px; border: 1px solid rgba(237,232,221,.24); color: #ede8dd; font-size: 14px; font-weight: 600; text-decoration: none"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 3.5L5 8l4.5 4.5"></path></svg>Customer returns</a>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577">Kiln settings · every PRD on this computer</span>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 52px; line-height: 1.05">Model defaults</h1>
+</div>
+
+<section aria-labelledby="pick-h" style="background: #1b1a16; border: 1px solid rgba(237,232,221,.12); border-radius: 18px; padding: 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
+<h2 id="pick-h" style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: #8c8577">How Kiln picks a model</h2>
+<div role="radiogroup" aria-labelledby="pick-h" style="display: flex; flex-direction: column; gap: 14px">
+
+<label style="display: flex; align-items: flex-start; gap: 14px; padding: 19px 21px; border-radius: 14px; border: 1px solid rgba(237,232,221,.18); cursor: pointer"><input type="radio" name="mode" style="width: 20px; height: 20px; margin: 2px 0 0; accent-color: #e2694f; flex: none"><span style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 17px; font-weight: 600">Recommended model for each phase</span><span style="font-size: 13.5px; color: #bdb6a8">Each phase document says how capable a model its build needs. Kiln fills in the model for that tier.</span></span></label>
+
+<div style="display: flex; flex-direction: column; gap: 18px; padding: 18px 20px 22px; border-radius: 14px; border: 2px solid #ede8dd">
+<label style="display: flex; align-items: flex-start; gap: 14px; cursor: pointer"><input type="radio" name="mode" checked style="width: 20px; height: 20px; margin: 2px 0 0; accent-color: #e2694f; flex: none"><span style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 17px; font-weight: 600">One model for everything</span><span style="font-size: 13.5px; color: #bdb6a8">Every phase, both audits, the preflight, and the pull request, merge and push sessions.</span></span></label>
+<div style="display: flex; flex-wrap: wrap; gap: 14px">
+<label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12.5px; color: #8c8577">Agent</span><select style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,.24); background: #12110e; color: #ede8dd; font: inherit; font-size: 15px; box-sizing: border-box; width: 100%"><option selected>Claude Code</option><option>Codex</option></select></label>
+<label style="flex: 1 1 180px; display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12.5px; color: #8c8577">Model</span><select style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,.24); background: #12110e; color: #ede8dd; font: inherit; font-size: 15px; box-sizing: border-box; width: 100%"><option>Fable, latest (5.2)</option><option selected>Opus, latest (5.5)</option><option>Sonnet, latest (5.5)</option><option>Haiku, latest (5.5)</option></select></label>
+<label style="flex: 1 1 140px; display: flex; flex-direction: column; gap: 6px"><span style="font-size: 12.5px; color: #8c8577">Effort</span><select style="height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid rgba(237,232,221,.24); background: #12110e; color: #ede8dd; font: inherit; font-size: 15px; box-sizing: border-box; width: 100%"><option>Low</option><option>Medium</option><option selected>High</option><option>Extra high</option><option>Max</option></select></label>
+</div>
+<span style="font-size: 13px; color: #8c8577; line-height: 1.5">Claude Code · you@example.com · Max plan · 44% of weekly limit used. At a usage limit a run waits and picks up again.</span>
+</div>
+
+</div>
+</section>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding: 14px 14px 14px 22px; border-radius: 16px; background: #1b1a16; border: 1px solid rgba(237,232,221,.24)">
+<div role="radiogroup" aria-labelledby="scope-l" style="display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px">
+<span id="scope-l" style="font-weight: 600">Save changes for</span>
+<label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer"><input type="radio" name="scope" checked style="width: 18px; height: 18px; margin: 0; accent-color: #e2694f">Every PRD on this computer</label>
+<label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer"><input type="radio" name="scope" style="width: 18px; height: 18px; margin: 0; accent-color: #e2694f">This PRD only</label>
+</div>
+<span style="display: inline-flex; align-items: center; gap: 18px; margin-left: auto">
+<a href="kiln-model-modes-5-documents-found.html" style="display: inline-flex; align-items: center; min-height: 44px; color: #bdb6a8; font-size: 14px; text-underline-offset: 4px">Discard</a>
+<a href="kiln-model-modes-5-documents-found.html" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 30px; border-radius: 999px; background: #e2694f; color: #12110e; font-size: 15px; font-weight: 600; text-decoration: none">Save</a>
+</span>
+</div>
+<button type="button" style="align-self: flex-start; min-height: 44px; padding: 0 22px; border: 0; background: none; color: #bdb6a8; font: inherit; font-size: 13.5px; text-decoration: underline; text-underline-offset: 4px; cursor: pointer">Restore Kiln's defaults</button>
+</div>
+
+</main>
+</div>
+</body>
+</html>
