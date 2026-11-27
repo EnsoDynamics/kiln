@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln home</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.tag{display:inline-flex;align-items:center;gap:6px;padding:1px 9px;border-radius:999px;border:1px solid rgba(237,232,221,.18);font-size:12px;color:#bdb6a8;white-space:nowrap}
+.tag.dash{border-style:dashed}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;border:1px solid transparent}
+.pill.now{background:#e2694f;color:#12110e;border-color:#e2694f}
+.pill.next{border-color:rgba(237,232,221,.4);color:#ede8dd}
+.pill.planned{border-style:dashed;border-color:rgba(237,232,221,.24);color:#8c8577}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap;box-sizing:border-box}
+.btn.primary{border-color:#ede8dd;background:#ede8dd;color:#12110e}
+.item{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;padding:18px 0;border-bottom:1px solid rgba(237,232,221,.12)}
+.names{flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:3px}
+.line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.title{font-size:16px;font-weight:500}
+.file{font-size:12.5px;color:#8c8577}
+.detail{font-size:13.5px;color:#bdb6a8}
+.right{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px 12px}
+.help{margin:0;font-size:13.5px;color:#bdb6a8;line-height:1.55}
+.step{display:flex;gap:14px;align-items:flex-start}
+.num{flex:0 0 auto;width:26px;height:26px;border-radius:999px;border:1px solid rgba(237,232,221,.4);display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600}
+</style>
+</head>
+<body>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 36px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>Shared branch <span class="mono" style="color: #ede8dd">develop</span></span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">What are we building?</h1>
+<p style="margin: 0; max-width: 640px; color: #bdb6a8">Everything Kiln found in this repository, wherever in it you ran <span class="mono" style="font-size: 13.5px">kiln</span>, from source material waiting for a PRD to builds in progress. Pick one to see what Kiln will do before anything runs.</p>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start">
+
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 36px">
+
+<section aria-labelledby="under-h" style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="under-h" class="eyebrow">Under way</h2><span style="font-size: 13px; color: #8c8577">Anything waiting for you comes first</span></div>
+<ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li class="item">
+<span class="names"><span class="title">Purchase approvals</span><span class="file mono">docs/prds/purchase-approvals/</span><span class="detail">Requirements. The early stakeholder review has been ready since 12:47 PM.</span></span>
+<span class="right"><span class="pill now">Waiting for your review</span><a href="kiln-requirements-stages-8-early-review.html" class="btn" style="text-decoration: none">Open</a></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="title">Data audit viewer</span><span class="file mono">docs/prds/data-audit-viewer/</span><span class="detail">Requirements done, with a phase plan of 4. The final stakeholder review has been ready since 6:32 PM.</span></span>
+<span class="right"><span class="pill now">Waiting for your review</span><a href="kiln-requirements-stages-9-final-review-and-start.html" class="btn" style="text-decoration: none">Open</a></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="title">Customer returns</span><span class="file mono">docs/prds/customer-returns/</span><span class="detail">Build. 2 of 5 phases done. Also changes <span class="mono" style="font-size: 12.5px">acme-admin</span>.</span></span>
+<span class="right"><span class="pill next">Implementing phase 3</span><button type="button" class="btn">Open</button></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="title">Order history export</span><span class="file mono">docs/changes/order-history-export/</span><span class="detail">Build. 1 of 2 phases done.</span></span>
+<span class="right"><span class="pill next">Implementing phase 2</span><button type="button" class="btn">Open</button></span>
+</li>
+
+<li class="item" style="border-bottom: 0">
+<span class="names"><span class="title">Return labels</span><span class="file mono">docs/changes/return-labels/</span><span class="detail">Started by hand, on the branch <span class="mono" style="font-size: 12.5px">prd/return-labels</span>, not merged yet. PRD written, no technical design yet. Kiln continues from there, with the early review once the PRD is refined.</span></span>
+<span class="right"><span class="pill planned">Not running</span><button type="button" class="btn">Review and continue</button></span>
+</li>
+</ul>
+</section>
+
+<section aria-labelledby="ready-h" style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="ready-h" class="eyebrow">Ready to start</h2><span style="font-size: 13px; color: #8c8577">Source material on <span class="mono">develop</span> with no PRD or initiative yet</span></div>
+<ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+
+<li class="item">
+<span class="names"><span class="line"><span class="title">Gift card balance lookup</span><span class="tag">Brief</span></span><span class="file mono">source-material/gift-card-balance/gift-card-balance-brief.md</span></span>
+<span class="right"><a href="kiln-requirements-stages-4-before-start.html" class="btn primary" style="text-decoration: none">Review and start</a></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="line"><span class="title">Wholesale price lists</span><span class="tag">Intake record</span></span><span class="file mono">source-material/wholesale-price-lists/wholesale-price-lists-requirements-intake.md</span></span>
+<span class="right"><button type="button" class="btn primary">Review and start</button></span>
+</li>
+
+<li class="item">
+<span class="names"><span class="line"><span class="title">Loyalty program: Points earning</span><span class="tag">Planned PRD</span></span><span class="file mono">docs/initiatives/loyalty-program/loyalty-program-initiative-prds.md</span></span>
+<span class="right"><button type="button" class="btn primary">Review and start</button></span>
+</li>
+
+<li class="item" style="border-bottom: 0">
+<span class="names"><span class="line"><span class="title">Loyalty program: Redemption</span><span class="tag">Planned PRD</span></span><span class="file mono">docs/initiatives/loyalty-program/loyalty-program-initiative-prds.md</span><span class="detail">Its build waits for Points earning.</span></span>
+<span class="right"><button type="button" class="btn primary">Review and start</button></span>
+</li>
+</ul>
+</section>
+
+<section aria-labelledby="notyet-h" style="display: flex; flex-direction: column; gap: 6px">
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 4px 12px"><h2 id="notyet-h" class="eyebrow">Not ready yet</h2><span style="font-size: 13px; color: #8c8577">One step from ready to start</span></div>
+<ul style="list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+<li class="item">
+<span class="names"><span class="line"><span class="title">Store locator</span><span class="tag dash">Intake not finished</span></span><span class="file mono">source-material/store-locator/</span><span class="detail">Material brought in under <span class="mono" style="font-size: 12.5px">received/</span>, and its intake record isn't written yet. When it is, this moves up.</span></span>
+</li>
+<li class="item" style="border-bottom: 0">
+<span class="names"><span class="line"><span class="title">Email digest</span><span class="tag dash">Not committed</span></span><span class="file mono">source-material/email-digest/</span><span class="detail">A brief not yet committed on <span class="mono" style="font-size: 12.5px">develop</span>. Commit it there and it moves up.</span></span>
+</li>
+</ul>
+</section>
+
+<details style="font-size: 13.5px; color: #bdb6a8"><summary style="cursor: pointer">3 PRDs with requirements but no phase plan</summary>
+<span style="display: block; padding-top: 6px; font-size: 12.5px; color: #8c8577">Kiln can't tell from the files whether these were built by hand or left unfinished. Newest change first.</span>
+<ul style="list-style: none; margin: 6px 0 0; padding: 0; border-top: 1px solid rgba(237,232,221,.12)">
+<li class="item"><span class="names"><span class="title">Saved addresses</span><span class="file mono">docs/changes/saved-addresses/</span><span class="detail">PRD written, no technical design. Last changed 18 Nov.</span></span><span class="right"><button type="button" class="btn">Open</button></span></li>
+<li class="item"><span class="names"><span class="title">Coupon expiry emails</span><span class="file mono">docs/changes/coupon-expiry-emails/</span><span class="detail">Technical design written, no phase plan. Last changed 2 Nov.</span></span><span class="right"><button type="button" class="btn">Open</button></span></li>
+<li class="item" style="border-bottom: 0"><span class="names"><span class="title">Stock level badges</span><span class="file mono">docs/changes/stock-level-badges/</span><span class="detail">Technical design written, no phase plan. Last changed 14 Sep.</span></span><span class="right"><button type="button" class="btn">Open</button></span></li>
+</ul>
+</details>
+
+
+</div>
+
+<section class="card" aria-labelledby="bring-h" style="flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 id="bring-h" class="eyebrow">Not listed?</h2>
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 30px; line-height: 1.15">Bring your source material in</span>
+<p class="help">Kiln starts from source material committed in this repository. That is a brief in your own words, with mockups or a prototype for anything that has a screen, an intake record made from transcripts and documents, or a planned PRD in an initiative. Other folders in <span class="mono" style="font-size: 12.5px">source-material/</span>, such as a stakeholder's feedback, are not listed.</p>
+<p class="help">Getting it there is a conversation about what you have and what you meant, so it happens in your own agent session and not in Kiln.</p>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,.12)">
+<div class="step"><span class="num">1</span><span style="font-size: 14.5px">Open Claude Code or Codex in this repository.</span></div>
+<div class="step"><span class="num">2</span><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<span style="font-size: 14.5px">Paste this, and say what you have and where it is.</span>
+<div style="padding: 14px 16px; border-radius: 12px; background: #12110e; border: 1px solid rgba(237,232,221,.18); display: flex; flex-direction: column; gap: 12px">
+<span class="mono" style="font-size: 12.5px; line-height: 1.6; color: #ede8dd">Use the Enso Method. I have source material for something new to build in this repository. Help me bring it into source-material/ the way the method describes, commit it on develop, and stop there. Kiln will take it from the PRD on.</span>
+<button type="button" class="btn" style="align-self: flex-start">Copy prompt</button>
+</div>
+</div></div>
+<div class="step"><span class="num">3</span><span style="font-size: 14.5px">When the session commits it, it appears under Ready to start. This page updates by itself.</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 20px; border-top: 1px solid rgba(237,232,221,.12)">
+<span class="eyebrow">How much is enough</span>
+<p class="help">Several paragraphs on what you want and why, and screens wherever there is something to look at. Everything Kiln writes afterwards is only as good as this.</p>
+</div>
+
+<p class="help" style="font-size: 12.5px; color: #8c8577">Already know the folder? <span class="mono">kiln run source-material/&lt;name&gt;</span> opens it directly.</p>
+</section>
+
+</div>
+</main>
+</div>
+</body>
+</html>
