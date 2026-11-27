@@ -1,4 +1,4 @@
-import { expectedStage, nextStageKey, type RequirementsOrigin } from "../requirements/stages.js";
+import { expectedStage, nextStageKey, type FeedbackMessage, type RequirementsOrigin } from "../requirements/stages.js";
 import type { PhaseRecoveryView } from "./phase-recovery.js";
 import { auditName, auditNameFacts, recordedAuditName } from "../audit/audit-names.js";
 import type { ReopenCheck } from "./reopen-check.js";
@@ -362,12 +362,21 @@ export interface RequirementsRow {
   key: string; title: string; skill?: string; otherSkills?: string[]; activityId?: string; state: "done" | "running" | "needs_you" | "waiting" | "next" | "planned";
   startedAt?: string; pushedSha?: string; model?: ModelView;
   addedByKiln?: "early" | "final"; noSession?: true; reaches?: string[];
+  /** Feedback applied after this row, with the commit that applied it (AC-TALK-04). */
+  feedback?: { sentAt: string; appliedAt: string; commit: string }[];
 }
+/** One message of feedback as the screen shows it: waiting, sent, read or applied (AC-TALK-02). */
+export interface FeedbackView { id: string; text: string; at: string; state: FeedbackMessage["state"]; readAt?: string; appliedAt?: string; appliedCommit?: string }
 export interface RequirementsView {
   origin: RequirementsOrigin;
   beforePrd?: { skill: string; title: string };
   rows: RequirementsRow[];
-  review?: { kind: "early" | "final"; file: string; readySince: string; openAssumptions: number; resumeCommand?: string; freshSessionCommand: string };
+  feedback: FeedbackView[];
+  /** The draft's key statements, shown until the early review is ready (AC-NOTE-01, AC-NOTE-02). */
+  draftNote?: { statements: string[]; leftOut: string[] };
+  /** Whether Send feedback goes to a session as it runs, or waits for a fresh one. */
+  feedbackTo?: "running_session" | "next_session";
+  review?: { kind: "early" | "final"; file: string; readySince: string; refreshedAt?: string; whatChanged?: { items: string[]; commit: string }; openAssumptions: number; resumeCommand?: string; freshSessionCommand: string };
   build?: { noPhasePlan?: true; checksFailed?: string[]; refinementConfirmation: "needed" | "not_needed" };
 }
 export interface Snapshot {
@@ -446,6 +455,8 @@ export interface Snapshot {
     keepAwakeError?: string;
     /** Usage-limit recovery AC-AUTO-04. */
     resumeAfterUsageLimit: boolean;
+    /** Wait for me at the early review (AC-EARLY-05), for a run with a requirements side. */
+    waitAtEarlyReview?: { value: boolean; canChange: boolean };
     /** Shown under `~/`; only a multi-repository PRD's screens show it. */
     workspaceFolder: string;
     worktreePath: string;
@@ -643,11 +654,13 @@ function auditCheckTitle(key: string, check: CheckResult): CheckResult {
 
 function requirementsView(engine: Engine): RequirementsView {
   const state = engine.record.requirements!;
-  const rows: RequirementsRow[] = state.stages.filter(stage => !stage.pushedSha || stage.ran.length || stage.task === "review").map(stage => {
+  // A finished feedback session is no row of its own: what it applied is listed on the row before it (AC-TALK-04).
+  const shownStage = (stage: (typeof state.stages)[number]) => !stage.pushedSha || stage.task === "review" || stage.task === "stage" && stage.ran.length > 0;
+  const rows: RequirementsRow[] = state.stages.filter(shownStage).map(stage => {
     const key = `req-${stage.activityId}`;
     const facts = engine.record.phases[key];
     const skill = stage.ran[0] ?? stage.expected;
-    const title = skill?.title ?? (stage.key === "kiln:early" ? "Early stakeholder review" : stage.key === "kiln:final" ? "Final stakeholder review" : "Next stage");
+    const title = skill?.title ?? (stage.key === "kiln:early" ? "Early stakeholder review" : stage.key === "kiln:final" ? "Final stakeholder review" : stage.task === "feedback" ? "Applying your feedback" : "Next stage");
     return { key: stage.key, activityId: stage.activityId, title, ...(stage.ran.length > 1 ? { otherSkills: stage.ran.slice(1).map(skill => skill.title) } : {}), ...(skill ? { skill: skill.skill } : {}),
       reaches: stage.reaches, ...(stage.key === "kiln:early" ? { addedByKiln: "early" as const } : stage.key === "kiln:final" ? { addedByKiln: "final" as const } : {}),
       ...(stage.task === "review" && stage.pushedSha && !facts?.sessionIds.length ? { noSession: true as const } : {}),
@@ -659,8 +672,20 @@ function requirementsView(engine: Engine): RequirementsView {
     const next = expectedStage(state);
     rows.push({ key: next ? nextStageKey(state, next.skill) : "kiln:next", title: next?.title ?? "Next stage", ...(next ? { skill: next.skill } : {}), state: "next", model: engine.activityModel(next?.reaches.includes("design_ready") ? "req-design" : "req-next", { finished: false }) });
   }
+  // Feedback applied after a row is listed on that row, or on the latest done row when the session that applied it ran nothing (AC-TALK-04).
+  const shown = state.stages.filter(shownStage);
+  for (const message of state.feedback) {
+    if (message.state !== "applied" || !message.appliedAt || !message.appliedCommit) continue;
+    const by = state.stages.findIndex(stage => stage.activityId === message.appliedBy);
+    const host = state.stages.slice(0, by < 0 ? state.stages.length : by + 1).findLast(stage => stage.pushedSha && shown.includes(stage));
+    const row = host && rows.find(one => one.activityId === host.activityId);
+    if (row) (row.feedback ??= []).push({ sentAt: message.at, appliedAt: message.appliedAt, commit: message.appliedCommit });
+  }
   rows.push({ key: "build", title: "Build", state: "planned" });
-  const view: RequirementsView = { origin: engine.record.origin!, rows };
+  const view: RequirementsView = { origin: engine.record.origin!, rows,
+    feedback: state.feedback.map(m => ({ id: m.id, text: m.text, at: m.at, state: m.state, ...(m.readAt ? { readAt: m.readAt } : {}), ...(m.appliedAt ? { appliedAt: m.appliedAt } : {}), ...(m.appliedCommit ? { appliedCommit: m.appliedCommit } : {}) })),
+    ...(state.draftNote && !state.review ? { draftNote: state.draftNote } : {}),
+    ...(engine.record.startedAt !== undefined && state.phase === "stages" ? { feedbackTo: engine.feedbackGoesLive() ? "running_session" as const : "next_session" as const } : {}) };
   const last = state.stages.at(-1);
   if (last?.report?.next?.kind === "before_prd" && engine.record.phases[`req-${last.activityId}`]?.stop) view.beforePrd = last.report.next;
   const review = state.review;
@@ -671,7 +696,7 @@ function requirementsView(engine: Engine): RequirementsView {
     const session = latest && engine.latestSession(latest);
     const codex = !!session && session.agentId === "codex";
     const cwd = session && session.workingDirectory || engine.worktreePath;
-    view.review = { kind: review.kind, file: review.file, readySince: review.readySince, openAssumptions: file ? countAssumptions(readFileSync(file, "utf8")).notYetConfirmed : 0,
+    view.review = { kind: review.kind, file: review.file, readySince: review.readySince, ...(review.refreshedAt ? { refreshedAt: review.refreshedAt } : {}), ...(review.whatChanged ? { whatChanged: review.whatChanged } : {}), openAssumptions: file ? countAssumptions(readFileSync(file, "utf8")).notYetConfirmed : 0,
       freshSessionCommand: codex ? codexCommand(cwd) : claudeCommand(cwd),
       ...(latest && session && engine.reopenCheck(latest).state === "available" ? { resumeCommand: codex ? codexResumeCommand(cwd, session) : resumeCommand(cwd, session.sessionId) } : {}) };
     if (review.kind === "final") {
@@ -759,6 +784,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
       resumeAfterUsageLimit: settings.resumeAfterUsageLimit,
+      ...optional("waitAtEarlyReview", engine.waitAtEarlyReviewSetting()),
       workspaceFolder: displayPath(expandHome(settings.workspaceFolder)),
       worktreePath: displayPath(engine.worktreePath),
       featureBranch: settings.featureBranch,

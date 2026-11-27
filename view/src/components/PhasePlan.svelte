@@ -51,6 +51,7 @@
     <li><strong>{stage.title}</strong>{#if stage.otherSkills?.length} · {stage.otherSkills.join(", ")}{/if} · {stage.state.replaceAll("_", " ")}
       {#if stage.model?.choice} · {stage.model.choice.modelName}{/if}
       {#if stage.pushedSha} · <code>{stage.pushedSha.slice(0, 8)}</code>{/if}
+      {#each stage.feedback ?? [] as applied}<br /><small>Feedback sent at {new Date(applied.sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Worked in and pushed at {new Date(applied.appliedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}, in <code>{applied.commit.slice(0, 7)}</code>.</small>{/each}
     </li>
   {/each}</ol>
 </section>

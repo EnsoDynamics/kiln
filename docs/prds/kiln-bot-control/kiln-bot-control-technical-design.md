@@ -100,6 +100,8 @@ Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-r
 
 Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Interfaces, continue at early review and start-build at final review).
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Interfaces, Command line: `kiln feedback`, whose status token binds the run only, and `kiln settings --wait-at-early-review`).
+
 Superseded in part by: `docs/changes/kiln-live-session-control/kiln-live-session-control-technical-design.md`, §Bot Extension (live message/takeover commands, exact-attempt status and phase/audit message-review hand-back; existing controls and durable retry rules remain).
 
 Superseded in part by: `docs/changes/kiln-completion-waivers/kiln-completion-waivers-technical-design.md`, §Command line (adds `waive-and-advance`).

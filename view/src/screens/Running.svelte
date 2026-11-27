@@ -14,6 +14,7 @@
   import KilnPanel from "../components/KilnPanel.svelte";
   import PausePanel from "../components/PausePanel.svelte";
   import PhasePlan from "../components/PhasePlan.svelte";
+  import RequirementsFeedback from "../components/RequirementsFeedback.svelte";
   import SettingsPanel from "../components/SettingsPanel.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import { phaseName, PR_ID } from "../lib/progress.js";
@@ -41,7 +42,7 @@
     <section class="card"><p>{PREFLIGHT_LIVE_REASON}</p></section>
   {/if}
   <div class="columns-main">
-    <div class="column-wide"><PhasePlan {snapshot} {connected} now={shownNow} /></div>
+    <div class="column-wide">{#if snapshot.requirements}<RequirementsFeedback {snapshot} {connected} />{/if}<PhasePlan {snapshot} {connected} now={shownNow} /></div>
     <div class="column-side">
       {#if connected}<AccountPanels {snapshot} paused={false} pullRequest={isPr} {now} />{/if}
       <SettingsPanel {snapshot} {connected} />

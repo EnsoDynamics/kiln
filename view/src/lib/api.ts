@@ -220,3 +220,5 @@ export const exitKiln = (config: PageConfig) => send(config, "POST", "/api/exit"
 
 export const continueReview = (config: PageConfig) => send(config, "POST", "/api/review/continue");
 export const startBuild = (config: PageConfig, confirmed: boolean) => send(config, "POST", "/api/build/start", { refinementConfirmed: confirmed });
+/** Feedback to the requirements (Kiln Requirements Stages, "Feedback"): the feedback box and Send feedback at either review. */
+export const sendFeedback = (config: PageConfig, text: string, stopAgain = false) => send(config, "POST", "/api/feedback", { text, ...(stopAgain ? { stopAgain: true } : {}) });

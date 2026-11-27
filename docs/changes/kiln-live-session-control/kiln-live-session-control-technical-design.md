@@ -61,6 +61,8 @@ Add action-specific journal effects: `message: not_sent | submitted | received |
 
 Superseded in part by: `docs/changes/kiln-public-release-readiness/kiln-public-release-readiness-technical-design.md`, §Design Decisions, Live control eligibility (live input is offered on every Claude Code at or above the minimum on macOS, not only on an explicitly validated profile).
 
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Feedback: Message Claude to a requirements session is tracked as feedback and carries one line naming its id before the person's text; a review session is never delivered one, and the message waits for a feedback session).
+
 Accept nonempty plain text of at most **4,000 UTF-16 code units**, measured before any normalization; display that exact limit/counter. Use whitespace trimming only to detect an empty message. Preserve all accepted leading/trailing whitespace, newlines and quotes. Reject NUL, malformed Unicode and excess length, never truncate. Bot file/stdin decoding rejects malformed UTF-8 and preserves the same text. This live limit does not change the stopped reply's existing outer-trimming policy.
 
 Write a stream-json `user` message to the existing attempt, with its stable provider UUID, exact session identity and literal content. On the validated Claude Code **2.1.311/macOS** profile, set the native per-message `text_not_typed: true` field and leave `client_composed` unset. Preserve the person's human origin; add no synthetic origin, prompt rewriting or persistent settings. The native wire schema specifies literal text handling while retaining the turn-start attachment pass. This is an internal compatibility interface, absent from the public SDK API, so enable live input only for an explicitly validated CLI/profile combination. Unknown or unproved profiles expose an unavailable reason and accept no live input; existing session execution retains its existing rules. Validate a new profile's literal slash/file handling, fresh turn-start context, message identity and supported resource-expansion behavior before enabling it.
@@ -70,6 +72,8 @@ Real no-tool probes preserved exact literal replay, imported nested `CLAUDE.md` 
 Bound stdin write settlement to 5 seconds. A timeout becomes `Delivery uncertain`, persists its hold and closes further send admission; it does not cancel the provider/tool, retry the input or claim zero bytes were delivered. Continue observing that same write and provider evidence. A late callback cannot reopen admission or clear a hold by itself, and takeover may proceed under the safe-checkpoint rules after the submission has settled as uncertain. Only one stdin write submission is in flight per attempt; another conflicting submission gets `busy`, not a queue that can later run against different work. After write settlement, later accepted messages can follow in acceptance sequence even while earlier ones await provider consumption. Takeover waits for a currently submitting write to resolve; an uncertain receipt allows takeover but blocks further sends. At most 32 accepted live inputs may await correlated terminal results; an assistant-only read receipt does not release a slot. At capacity, reject new sends as `busy` with the current count/reason, retain the draft and continue offering takeover under its normal rules. This stays below the provider's 64-entry consumption-UUID list limit while leaving room for the opening input; it is an admission rule, not an assumption of an unbounded provider queue. Browser pending/capacity state is feedback; server admission enforces both limits.
 
 ### Receipts and correlation
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Feedback: for a requirements session, Received makes the feedback read).
 
 | User-visible receipt | Evidence and progression consequence |
 |---|---|
@@ -86,6 +90,8 @@ A result finishes a provider turn, not necessarily the attempt. Persist every re
 On eventual process exit, reconcile the entire attempt and its input ledger before normal completion checks. Any unaccounted write becomes uncertain and holds progression; an earlier successful result cannot clear it. An accounted input with provider error still preserves that error for normal activity settlement. A takeover hook's successful result is an intentional yield, never a completed phase/audit. Aggregate usage/result evidence without counting cumulative provider cost twice; retain per-result deltas and the final cumulative observation distinctly.
 
 ### Uncertainty recovery
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Feedback: feedback to a requirements session takes no hold and asks no acknowledgement when its delivery is uncertain; it waits for a feedback session).
 
 Show each exact uncertain message, its receipt, output link and observation time. If still running, offer takeover under the same safe checkpoint rules. If ended, offer the existing terminal recovery only after release/history checks. Do not automatically launch a conversation to ask whether the message arrived.
 
@@ -200,6 +206,8 @@ Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-sta
 Superseded in part by: `docs/changes/kiln-pause-now/kiln-pause-now-technical-design.md`, §The Pause Now State (the pause panel's heading, choices and narrow-screen order, and the requested and completed takeover wording, for a hold that is not delivery recovery).
 
 Superseded in part by: `docs/changes/kiln-after-delivery/kiln-after-delivery-technical-design.md`, §After-Delivery Activities, "No live controls" (the merge session, like final delivery, offers no message, pause or takeover and says why), and §Closing-Audit Names (an audit's label in the live-control and pause labels).
+
+Superseded in part by: `docs/prds/kiln-requirements-stages/kiln-requirements-stages-technical-design.md` (Feedback: a message to a requirements session shows waiting, sent, read or applied in place of its delivery receipts).
 
 Add `liveControl` with target, activity label/round/provider, observed time, input state/reason, action availability, latest receipt summaries/unresolved IDs, takeover progress/reason, terminal readiness/observation, and independently requested deferred pause. Full texts/history are paged rather than copied into every SSE update. Capability projection is provider-specific and cannot infer live safety from a historical schema upgrade or the presence of a writable input pipe. Preserve the normal phase/activity/session facts. Disconnected views label last-known observation times and disable all mutations.
 

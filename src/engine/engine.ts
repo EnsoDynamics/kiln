@@ -1,7 +1,7 @@
 import { runStartChecks, startChecksPassed, type StartCheckReport } from "../start-checks.js";
 import { resolvePrdPath } from "../prd-location.js";
 import { inspectSource } from "../requirements/source.js";
-import { expectedStage, nextStageKey, readStageReport, reviewDue, type RequirementsStage } from "../requirements/stages.js";
+import { expectedStage, feedbackProblem, FEEDBACK_LIMIT_BYTES, LIVE_LIMIT_CHARACTERS, nextStageKey, readStageReport, reviewDue, type FeedbackMessage, type RequirementsStage, type RequirementsState, type StageReport } from "../requirements/stages.js";
 import { gitText, locateWrittenPrd, reviewState } from "../requirements/git.js";
 import { requirementsPrompt } from "../session/prompts.js";
 import { startPath, writtenDirectory } from "../requirements/run-path.js";
@@ -266,6 +266,7 @@ class TakeoverAlreadyComplete extends Error {}
 /** A Pause now on an attempt recovered from an earlier Kiln with no gate: nothing can stop it (Kiln Pause Now, "Wording"). */
 const GATELESS_PAUSE_REASON = "Input connection lost. Pause now waits for this session to end on its own; no forced interruption.";
 
+export type FeedbackAnswer = { ok: true; outcome: "feedback_sent" | "feedback_delivered" } | { ok: false; status: 400 | 409 | 413; code: string; reason: string };
 export type CommandResult =
   | { ok: true; noteSkipped?: true; outcome?: PhaseRecoveryOutcome; target?: PhaseRecoveryTarget }
   | { ok: false; status: 400 | 409 | 422 | 500 | 503; reason: string; code?: PhaseRecoveryCode; fieldErrors?: FieldErrors; baseErrors?: Record<string, string> };
@@ -724,6 +725,8 @@ export class Engine {
       "cancel-pause": !!this.record.pause.requestedAt && !paused && !wait && !this.commands?.busy,
       continue: (paused || this.reviewStop === "early") && !busy,
       "start-build": this.reviewStop === "final" && !!this.requirementsBuildPlan?.ok && !this.finalStartProblems.length && !busy,
+      // Feedback is taken whenever the requirements side is open, during any activity; it never waits on one (AC-TALK-03).
+      feedback: this.requirementsOpen && this.record.startedAt !== undefined && !this.folderMissing && !this.commands?.busy,
       "check-again": !!key && !this.phaseRecoveryTarget() && !busy,
       "waive-and-advance": this.markCompleteOffer().offered && !busy && !releasePending,
       settings: !this.settingUp && !this.completedPlanReading && !this.commands?.busy && !this.billing.busy && !(this.checking && this.phaseRecoveryTarget()),
@@ -754,6 +757,7 @@ export class Engine {
     const liveReason = afterDeliveryKey === MERGE_KEY ? MERGE_LIVE_REASON : PLAN_PUSH_LIVE_REASON;
     const unavailable: Partial<Record<Action, string>> = {
       "start-build": this.reviewStop === "final" ? this.finalStartProblems[0] ?? "The phase plan must pass the start checks." : "Start the build is available only at the final review.",
+      feedback: !this.record.requirements ? "This run has no requirements stages." : this.record.startedAt === undefined ? "Feedback is taken once Start is pressed." : !this.requirementsOpen ? "The build has started. Feedback goes to the requirements before the build." : this.folderMissing ? FOLDER_MISSING_REASON : "Another instruction owns control; send the feedback again in a moment.",
       "take-over": this.liveView()?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "Pause now needs an active supported Claude phase or audit."),
       message: this.liveView()?.input?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "No active supported Claude input is available."),
       "request-pause": !this.isUnderway || this.currentlyComplete ? "Nothing is running to pause after." : !this.record.pause.requestedAt && this.record.liveControl && this.record.liveControl.takeover.kind !== "delivery_recovery" && key ? `${this.auditActivity(key) ? auditSentenceStart(this.auditName(key)!) : `Phase ${this.judgedId(key)}`} is pausing or paused, which offers no pause after.` : "A pause is already requested or this activity cannot pause.",
@@ -867,6 +871,8 @@ export class Engine {
     }
     const persisted = readJson<PrdRecord>(join(this.stateDirectory, "prd.json"));
     if (!persisted || receipt.execution_id !== persisted.executionId) return undefined;
+    // Feedback saved before a crash settles as sent; it is never added twice.
+    if (receipt.instruction.action === "feedback" && persisted.requirements?.feedback.some(message => message.operationId === receipt.id)) return { ...receipt, state: "completed", stage: "settled", outcome: "feedback_sent" };
     const completed = Object.values(persisted.phases).find(f => f.completedByOperation === receipt.id);
     // A Mark complete that crashed after its record write settles with its real outcome.
     if (completed && receipt.instruction.action === "waive-and-advance") return { ...receipt, state: "completed", stage: "settled", outcome: completed.waiverId ? "marked_complete" : "checks_passed", effects: { ...receipt.effects, plan: "advanced" } };
@@ -946,7 +952,7 @@ export class Engine {
       case "cancel-pause": answer = this.cancelPause(); break;
       case "settings": {
         const loops = { ...(typeof inputs.delivery_audit_loops === "number" ? { deliveryLimit: inputs.delivery_audit_loops } : {}), ...(typeof inputs.test_audit_loops === "number" ? { testLimit: inputs.test_audit_loops } : {}) } as Partial<AuditLoopSettings>;
-        answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}) }, Object.keys(loops).length ? loops : undefined);
+        answer = await this.changeSettings({ ...(typeof inputs.keep_awake === "boolean" ? { keepAwake: inputs.keep_awake } : {}), ...(typeof inputs.resume_after_usage_limit === "boolean" ? { resumeAfterUsageLimit: inputs.resume_after_usage_limit } : {}), ...(typeof inputs.wait_at_early_review === "boolean" ? { waitAtEarlyReview: inputs.wait_at_early_review } : {}) }, Object.keys(loops).length ? loops : undefined);
         // A limit below its floor says which, as the page's field error does (AC-CHOICE-02).
         if (!answer.ok && answer.fieldErrors) return { ok: false, code: "invalid_input", reason: Object.values(answer.fieldErrors).join(" ") };
         break;
@@ -955,6 +961,12 @@ export class Engine {
       case "allow-more-loops": case "accept-and-deliver": return { ok: false, code: "removed_command", reason: REMOVED_LOOP_COMMAND };
       case "outside-confirmation": answer = refuse("Workspace confirmations have been retired; recheck the remaining completion requirements."); break;
       case "start-build": answer = await this.startRequirementsBuild(inputs.refinement_confirmed === true); break;
+      case "feedback": {
+        const sent = await this.addFeedback(inputs.text, inputs.stop_again === true, receipt.id);
+        if (!sent.ok) return sent;
+        this.record.controlApplied = { operationId: receipt.id, outcome: sent.outcome }; this.save();
+        return sent;
+      }
       case "continue": answer = this.reviewStop === "early" ? await this.leaveRequirementsReview(false) : await this.start(); break;
       case "check-again":
         if (this.preflightStopKey() !== undefined) {
@@ -1169,7 +1181,7 @@ export class Engine {
 
   private async acceptLiveMessage(raw: unknown, text: unknown, receipt: Receipt) {
     const fail = (code: string, reason: string) => { receipt.message!.delivery = "not_sent"; receipt.effects.message = "not_sent"; return { ok: false, code, reason }; };
-    if (this.requirementsOpen) return fail("input_unavailable", "Live messages are unavailable during requirements stages.");
+    if (this.requirementsOpen) return fail("input_unavailable", "During the requirements a message is feedback: send it with kiln feedback or the feedback box.");
     if (!validLiveTarget(raw) || !sameLiveTarget(raw, this.liveTarget())) return fail("stale_target", "This attempt ended or changed; the message was not sent.");
     if (messageProblem(text)) return fail("invalid_request", messageProblem(text)!);
     const run = this.latestSession(raw.activityKey)?.runs.at(-1);
@@ -1254,7 +1266,7 @@ export class Engine {
     // While a launch from the paused page is starting, no Pause now state is projected (Kiln Pause Now, "The Pause Now State").
     const pauseNow = hold && hold.kind !== "delivery_recovery" && !starting ? this.pauseNowView(hold, label) : undefined;
     const inputReason = starting ? "The new session is starting." : this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use Pause now to recover." : hold ? uncertain || hold.kind === "delivery_recovery" ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pause now is pausing or has paused this activity." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? unreadVersion("live_messages") ?? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
-    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable && !this.requirementsOpen, reason: this.requirementsOpen ? "Messages become available with requirements feedback." : inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !starting && !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (starting ? "The new session is starting." : undefined) ?? (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Pause now needs a supported Claude Code on macOS. Pause after the current activity remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? GATELESS_PAUSE_REASON : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}), ...(pauseNow ? { pauseNow } : {}) };
+    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable && !this.requirementsOpen, reason: this.requirementsOpen ? "Send feedback instead: Kiln delivers it to this session or applies it in a fresh one." : inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !starting && !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (starting ? "The new session is starting." : undefined) ?? (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Pause now needs a supported Claude Code on macOS. Pause after the current activity remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? GATELESS_PAUSE_REASON : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}), ...(pauseNow ? { pauseNow } : {}) };
   }
 
   /** The Pause now state (Kiln Pause Now technical design, "The Pause Now State"): one projection every surface reads. */
@@ -3316,6 +3328,8 @@ export class Engine {
       if (folder) { this.checking = false; this.changed(); return { ok: false, code: key === MERGE_KEY ? "merge_folder_not_ready" : "plan_push_folder_not_ready", reason: folder.facts[0]!, status: 409 }; }
     }
     if (verdict === "still_stopped" && !this.stopping) this.requestedResume = { phaseKey: key, cause: "person_resume", ...(note === "" ? {} : { note }) };
+    // At a requirements activity's Needs you, a reply given when the checks pass becomes feedback (AC-TALK-02).
+    if (verdict === "done" && note !== "" && activityKeyKind(key) === "requirements" && this.requirementsOpen) { await this.addFeedback(note); return { ok: true }; }
     this.kick();
     // A stop whose recheck cleared it, such as a loop stop saved by Kiln 1.3.0, resumes no conversation: the run carries on and the note is not delivered.
     if (verdict === "cleared") return { ok: true, ...(note !== "" ? { noteSkipped: true as const } : { outcome: "advanced" as const }) };
@@ -3666,6 +3680,11 @@ export class Engine {
       pendingLoops = next;
     }
     if (this.checking && this.phaseRecoveryTarget()) return refuse("Kiln is checking or resuming this phase. Wait before changing settings.");
+    if (change.waitAtEarlyReview !== undefined) {
+      const wait = this.waitAtEarlyReviewSetting();
+      if (!wait) return refuse("This run has no early review.");
+      if (!wait.canChange) return refuse("Wait for me at the early review can be changed only until the PRD's refinement finishes.");
+    }
     if (this.billing.busy) return refuse("Billing approval is being saved.");
     if (change.developmentDeployments !== undefined && (this.record.startedAt || this.settingUp)) return refuse("Development targets are fixed for this execution after Start.");
     const fixedFields = (["workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"] as const).filter((field) => change[field] !== undefined);
@@ -6256,25 +6275,32 @@ export class Engine {
     const last = state.stages.at(-1);
     const pending = last && !this.record.phases[`req-${last.activityId}`]?.doneAt ? last : undefined;
     const milestones = state.standing && "milestones" in state.standing ? state.standing.milestones : [];
-    const due = reviewDue(milestones, state, this.hasRequirementsDesign());
-    let task: "stage" | "review" = "stage";
+    // Feedback waiting is applied before the next stage and before either stop (technical design, "The driver").
+    const waiting = pending ? [] : state.feedback.filter(message => message.state === "waiting");
+    const due = waiting.length ? undefined : reviewDue(milestones, state, this.hasRequirementsDesign());
+    let task: RequirementsStage["task"] = waiting.length ? "feedback" : "stage";
     if (!pending && due) {
       const dir = this.record.prdDirectory;
       const review = dir && await reviewState(this.git, this.worktreePath, dir);
       if (!review || !review.current) task = "review";
       else {
         const at = this.now().toISOString();
-        if (last?.task !== "review" && !state.stages.some(stage => stage.key === `kiln:${due}` && stage.pushedSha === review.commit)) {
+        // A stop reached again after feedback keeps its one review row; the feedback session's refresh is listed on it (AC-TALK-04).
+        if (last?.task !== "review" && !state.stages.some(stage => stage.key === `kiln:${due}`)) {
           const ready: RequirementsStage = { activityId: randomUUID(), key: `kiln:${due}`, task: "review", reaches: ["review_made"], ran: [], startedAt: at, pushedSha: review.commit };
           state.stages.push(ready);
           this.phaseFacts(`req-${ready.activityId}`).doneAt = at;
         }
-        state.review = { kind: due, file: review.file, commit: review.commit, readySince: at };
+        state.review = this.readyReview(due, review.file, review.commit, at);
         if (due === "early") state.earlyReviewHeld = true;
-        if (due === "early" && state.refreshAsked) {
+        const stopAgain = due === "early" && !!state.stopAgain;
+        // With the wait off, or after a refresh asked at Resume, the early review is made and Kiln carries on (AC-EARLY-05).
+        if (due === "early" && (state.refreshAsked || this.record.settings.waitAtEarlyReview === false) && !stopAgain) {
           delete state.refreshAsked;
           this.save();
         } else {
+          delete state.refreshAsked;
+          delete state.stopAgain;
           state.phase = due === "final" ? "final_review" : "early_review";
           this.record.pause = {};
           if (due === "final") await this.readFinalStartChecks();
@@ -6288,8 +6314,9 @@ export class Engine {
     if (this.pauseDue) { this.activatePause(); return false; }
     const expected = task === "stage" ? expectedStage(state) : undefined;
     const stage: RequirementsStage = pending ?? {
-      activityId: randomUUID(), task, key: task === "review" ? `kiln:${due}` : expected ? nextStageKey(state, expected.skill) : "kiln:next",
+      activityId: randomUUID(), task, key: task === "review" ? `kiln:${due}` : task === "feedback" ? nextStageKey(state, "kiln:feedback") : expected ? nextStageKey(state, expected.skill) : "kiln:next",
       ...(expected ? { expected } : {}), reaches: expected?.reaches ?? [], ran: [], startedAt: this.now().toISOString(),
+      ...(task === "feedback" ? { messageIds: waiting.map(message => message.id) } : {}),
     };
     const key = `req-${stage.activityId}`;
     if (!pending) {
@@ -6307,6 +6334,155 @@ export class Engine {
     return (await this.settleSession(key)).kind === "done";
   }
 
+  /**
+   * The review as ready at a stop (technical design, "The Two Reviews"). Returning to the stop the
+   * person sent feedback at, it keeps when it was first ready and shows what the feedback changed.
+   */
+  private readyReview(kind: "early" | "final", file: string, commit: string, at: string): NonNullable<RequirementsState["review"]> {
+    const state = this.record.requirements!;
+    const prior = state.review?.kind === kind ? state.review : undefined;
+    // Feedback sent at this stop, or applied on the way to it since the latest stage, comes back with what it changed.
+    const lastStage = state.stages.findLast(stage => stage.task === "stage" && stage.pushedSha);
+    const since = prior?.feedbackSentAt ?? lastStage?.startedAt;
+    if (!since) return { kind, file, commit, readySince: at };
+    const applied = state.stages.filter(stage => stage.task === "feedback" && stage.pushedSha && stage.startedAt >= since);
+    const items = applied.flatMap(stage => stage.report?.changes ?? []);
+    const changed = applied.at(-1)?.pushedSha;
+    if (!prior?.feedbackSentAt) return { kind, file, commit, readySince: at, ...(changed ? { whatChanged: { items, commit: changed } } : {}) };
+    return { kind, file, commit, readySince: prior.readySince, refreshedAt: at, ...(changed ? { whatChanged: { items, commit: changed } } : {}) };
+  }
+
+  /**
+   * Feedback (AC-TALK-01 to 04), from the feedback box, `kiln feedback`, Message Claude to a
+   * requirements session and a reply at Resume that finds the work committed. It never pauses,
+   * holds or stops anything. At a review it is the stop's Send feedback: the stop ends and a
+   * feedback session applies it, then Kiln stops there again only when asked to, or always at the
+   * final review (technical design, "The Two Reviews").
+   *
+   *   await engine.addFeedback("Store staff need to look up a balance too.")   // { ok: true, outcome: "feedback_sent" }
+   */
+  async addFeedback(text: unknown, stopAgain = false, operationId?: string): Promise<FeedbackAnswer> {
+    const problem = feedbackProblem(text);
+    if (problem) return { ok: false, status: typeof text === "string" && Buffer.byteLength(text, "utf8") > FEEDBACK_LIMIT_BYTES ? 413 : 400, code: "invalid_input", reason: problem };
+    const unavailable = (reason: string): FeedbackAnswer => ({ ok: false, status: 409, code: "feedback_unavailable", reason });
+    if (!this.record.requirements || this.record.startedAt === undefined) return unavailable("Feedback is taken once Start is pressed.");
+    if (!this.requirementsOpen) return unavailable("The build has started. Feedback goes to the requirements before the build.");
+    if (stopAgain && this.reviewStop !== "early") return unavailable("Stop here again is offered only at the early review.");
+    const state = this.record.requirements;
+    const at = this.now().toISOString();
+    const message: FeedbackMessage = { id: `m-${state.feedback.length + 1}`, text: text as string, at, state: "waiting", ...(operationId ? { operationId } : {}) };
+    state.feedback.push(message);
+    if (this.reviewStop) {
+      if (state.review) state.review.feedbackSentAt = at;
+      if (stopAgain) state.stopAgain = true;
+      state.phase = "stages";
+      this.save();
+      this.changed();
+      this.kick();
+      return { ok: true, outcome: "feedback_sent" };
+    }
+    this.save();
+    await this.deliverFeedback(message);
+    this.changed();
+    this.kick();
+    return { ok: true, outcome: message.state === "waiting" ? "feedback_sent" : "feedback_delivered" };
+  }
+
+  /**
+   * Delivers a message to the running stage or feedback session through Message Claude's path,
+   * after one line naming its id. A message too long for a live message, a review session, Codex,
+   * a session without live input, or a delivery that settles as uncertain leaves it waiting, with
+   * no hold, for a feedback session (technical design, "Feedback").
+   */
+  private async deliverFeedback(message: FeedbackMessage): Promise<void> {
+    const key = this.current?.phaseKey;
+    const stage = key && this.record.requirements?.stages.find(one => `req-${one.activityId}` === key);
+    const session = this.current?.session;
+    const run = session?.runs.at(-1);
+    const control = this.control;
+    if (!stage || stage.task === "review" || message.text.length > LIVE_LIMIT_CHARACTERS || !session || session.agentId !== "claude_code" || !run || run.endedAt ||
+        !run.live?.literalInput || run.live.messageContract === "unrecognised" || !control?.sendMessage || !control.inputOpen?.() || this.record.liveControl || !this.current?.processRunning) return;
+    const uuid = randomUUID();
+    let writing: Promise<"written" | "uncertain"> | undefined;
+    try {
+      await withGate(run.live.gateDirectory, gate => {
+        if (gate.sealed || gate.held || gate.messageContract || this.record.liveControl || !control.inputOpen?.()) return;
+        const inputs = gate.inputs ??= {};
+        if (Object.values(inputs).filter(input => !input.terminal).length >= 32) return;
+        Object.assign(message, { state: "sent", sessionId: session.sessionId, uuid, sentAt: this.now().toISOString() });
+        delete message.readAt;
+        this.save();
+        inputs[uuid] = { terminal: false };
+        delete gate.turnEndedAt;
+        writeDurableMetadata(join(run.live!.gateDirectory, "gate.json"), gate);
+        writing = control.sendMessage!(`Kiln feedback ${message.id}:\n${message.text}`, uuid);
+      });
+    } catch { /* Delivery could not begin, or its outcome is unknown: the message waits for a feedback session. */ }
+    const outcome = writing ? await writing.catch(() => "uncertain" as const) : undefined;
+    if (outcome === "written" || message.state !== "sent") return;
+    this.unsendFeedback(message);
+    this.save();
+  }
+
+  /** Whether a message sent now would be delivered to the running session (technical design, "Feedback"). */
+  feedbackGoesLive(): boolean {
+    const key = this.current?.phaseKey;
+    const stage = key && this.record.requirements?.stages.find(one => `req-${one.activityId}` === key);
+    const run = this.current?.session?.runs.at(-1);
+    return !!stage && stage.task !== "review" && this.current?.session?.agentId === "claude_code" && !!run && !run.endedAt && !!run.live?.literalInput
+      && run.live.messageContract !== "unrecognised" && !!this.control?.inputOpen?.() && !this.record.liveControl && !!this.current?.processRunning;
+  }
+
+  private unsendFeedback(message: FeedbackMessage): void {
+    message.state = "waiting";
+    for (const field of ["sessionId", "uuid", "sentAt", "readAt"] as const) delete message[field];
+  }
+
+  /** The existing receipt makes a delivered message read, with the time (AC-TALK-02). */
+  private observeFeedbackReceipt(sessionId: string, event: Record<string, unknown>, at: string): void {
+    const uuids = consumedUuids(event);
+    if (!uuids.length) return;
+    let changed = false;
+    for (const message of this.record.requirements?.feedback ?? []) {
+      if (message.state !== "sent" || message.sessionId !== sessionId || !message.uuid || !uuids.includes(message.uuid)) continue;
+      message.state = "read";
+      message.readAt = at;
+      changed = true;
+    }
+    if (changed) { this.save(); this.changed(); }
+  }
+
+  /**
+   * Settles the feedback a requirements session read or was sent when it ends (technical design,
+   * "Feedback"). `done`: the session is recorded finished, at `commit`. Any `worked_in` makes a
+   * message applied; a feedback session's prompt messages, which it read, are applied when it is
+   * recorded finished and otherwise stay read for its Needs you; every other message of the
+   * session that wasn't worked in waits again for a feedback session.
+   */
+  private settleFeedback(key: string, stage: RequirementsStage, report: StageReport | undefined, done: false): void;
+  private settleFeedback(key: string, stage: RequirementsStage, report: StageReport | undefined, done: true, commit: string, at: string): void;
+  private settleFeedback(key: string, stage: RequirementsStage, report: StageReport | undefined, done: boolean, commit?: string, at?: string): void {
+    const sessions = new Set(this.record.phases[key]?.sessionIds ?? []);
+    const worked = new Set(stage.task === "review" ? [] : (report?.messages ?? []).filter(m => m.outcome === "worked_in").map(m => m.id));
+    for (const message of this.record.requirements?.feedback ?? []) {
+      if (message.state === "applied") continue;
+      const ours = !!message.sessionId && sessions.has(message.sessionId);
+      const given = ours && stage.task === "feedback" && !!message.readAt;
+      if (done && (worked.has(message.id) || given)) {
+        Object.assign(message, { state: "applied", appliedAt: at, appliedCommit: commit, appliedBy: stage.activityId });
+        delete message.uuid;
+      } else if (ours && !given && (done || !worked.has(message.id))) this.unsendFeedback(message);
+    }
+  }
+
+  /** The messages a feedback session read and left without `worked_in` (technical design, "How a stage ends"). */
+  private feedbackNotWorkedIn(key: string, stage: RequirementsStage, report: StageReport): FeedbackMessage[] {
+    if (stage.task !== "feedback") return [];
+    const sessions = new Set(this.record.phases[key]?.sessionIds ?? []);
+    const worked = new Set((report.messages ?? []).filter(m => m.outcome === "worked_in").map(m => m.id));
+    return (this.record.requirements?.feedback ?? []).filter(m => m.state !== "applied" && !!m.sessionId && sessions.has(m.sessionId) && !!m.readAt && !worked.has(m.id));
+  }
+
   private async launchRequirementStage(stage: RequirementsStage, options: { started?: () => boolean; relaunchOf?: SessionRecord["relaunchOf"]; carryOn?: { note?: string } } = {}): Promise<void> {
     const key = `req-${stage.activityId}`;
     const found = await resolveSkill({ name: "using-the-enso-method", agent: this.agentOf(key), cwd: this.sessionFolder, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), env: this.options.env, signal: this.abort.signal });
@@ -6316,14 +6492,26 @@ export class Engine {
       return;
     }
     const origin = this.record.origin!;
+    const state = this.record.requirements!;
     const work = this.record.prdDirectory ?? `${origin.title}\n${origin.files.join("\n")} at ${origin.commit}`;
-    let prompt = requirementsPrompt(stage.task === "review" ? "review" : "stage", { work, worktree: this.worktreePath, branch: this.record.settings.featureBranch, skillPath: found.skill.path, holds: this.record.requirements!.earlyReviewHeld ? "requirements_finished" : "prd_refined without a technical design, and requirements_finished" });
+    const given = (stage.messageIds ?? []).map(id => state.feedback.find(message => message.id === id)).filter((message): message is FeedbackMessage => !!message && message.state !== "applied");
+    let prompt = requirementsPrompt(stage.task, { work, worktree: this.worktreePath, branch: this.record.settings.featureBranch, skillPath: found.skill.path,
+      holds: state.earlyReviewHeld ? "requirements_finished" : "prd_refined without a technical design, and requirements_finished",
+      messages: given.map(message => `Message ${message.id}:\n${message.text}`).join("\n\n") });
     if (options.carryOn) {
       const prior = this.recoverySession(key);
       const lastMessage = prior && lastRecordedRun(prior)?.result?.text;
       prompt = carryOnPrompt({ freshSession: prompt, ...options.carryOn, ...(lastMessage ? { lastMessage } : {}), work: [], multiRepository: this.setUpRepositories.length > 1 });
     }
     await this.launchSession(key, "requirements", prompt, options);
+    // A feedback session's prompt messages are read once its session starts; one whose session fails to start stays waiting.
+    const session = this.latestSession(key);
+    if (stage.task === "feedback" && session?.runs.some(run => run.pid !== undefined)) {
+      const at = this.now().toISOString();
+      for (const message of given) if (!message.readAt || message.sessionId !== session.sessionId) Object.assign(message, { state: "read", sessionId: session.sessionId, readAt: at });
+      this.save();
+      this.changed();
+    }
   }
 
   private async requirementsCommitted(): Promise<CheckResult> {
@@ -6344,15 +6532,18 @@ export class Engine {
     const run = this.latestSession(key)?.runs.at(-1);
     const report = readStageReport(run?.result?.text ?? "", stage.task);
     const safety = await this.preflightSafety(key);
-    const stop = (checks: CheckResult[]): Verdict => { this.current = undefined; this.recordStop(key, "done_check", checks); return { kind: "stopped" }; };
+    const stop = (checks: CheckResult[]): Verdict => { this.settleFeedback(key, stage, report, false); this.current = undefined; this.recordStop(key, "done_check", checks); return { kind: "stopped" }; };
     if (safety) return stop([safety]);
     const committed = await this.requirementsCommitted();
     if (report) stage.report = report;
     if (report?.next?.kind === "before_prd") return stop([{ name: report.next.title, passed: false, facts: [`Run ${report.next.skill} in your own session, then reset Kiln for this PRD.`] }]);
+    // A feedback session gives every message it was given or read an outcome; one left out stops it, so no message goes to a second feedback session.
+    const left = !byHand && report?.next ? this.feedbackNotWorkedIn(key, stage, report) : [];
+    if (left.length) return stop([committed, { name: "Feedback worked in", passed: false, facts: left.map(message => `${message.id} was not worked in: ${message.text.length > 120 ? `${message.text.slice(0, 117)}...` : message.text}`) }]);
     const prior = this.record.prdDirectory;
     const found = await locateWrittenPrd(this.git, this.worktreePath, this.record.repositories[0]!.baseCommit!, prior, report?.prdDirectory);
     const stopAt = reviewDue(report?.milestones ?? [], state, this.hasRequirementsDesign());
-    const acceptable = !!report?.finished && (stage.task === "review" || report.ran.length > 0 || !!stopAt);
+    const acceptable = !!report?.finished && (stage.task !== "stage" || report.ran.length > 0 || !!stopAt);
     if (stage.task === "review") {
       const review = prior && await reviewState(this.git, this.worktreePath, prior);
       if (!review || !review.current) return stop([committed, { name: "Review current", passed: false, facts: [review ? `${review.file} needs refreshing${review.changed ? ` after ${review.changed}` : ""}.` : "A committed stakeholder review is missing."] }]);
@@ -6385,6 +6576,7 @@ export class Engine {
     const firstSkill = stage.ran[0]?.skill;
     if (stage.task === "stage" && firstSkill && stage.expected?.skill !== firstSkill) stage.key = nextStageKey(state, firstSkill);
     stage.pushedSha = await gitText(this.git, this.worktreePath, ["rev-parse", "HEAD"]);
+    this.settleFeedback(key, stage, report?.next || stage.task === "review" ? report : undefined, true, stage.pushedSha, at);
     const facts = this.phaseFacts(key);
     facts.doneAt = at;
     delete facts.stop;
@@ -7780,7 +7972,7 @@ export class Engine {
       stateDirectory: this.options.stateDirectory,
       record: session,
       ...(live ? { live,
-        onLiveEvent: async (event: Record<string, unknown>, at: string) => { if (await this.observeMessageContract(session, live, event)) this.observeLiveMessage(readGate(live.gateDirectory).target, event, at); this.observeHookContract(session, live); },
+        onLiveEvent: async (event: Record<string, unknown>, at: string) => { if (await this.observeMessageContract(session, live, event)) { this.observeLiveMessage(readGate(live.gateDirectory).target, event, at); this.observeFeedbackReceipt(session.sessionId, event, at); } this.observeHookContract(session, live); },
         onLiveExit: () => { this.observeHookContract(session, live); this.endLiveMessages(liveExitTarget!); },
         onLiveArgumentRejected: (argument: string) => this.recordRejectedLiveArgument(live, argument) } : {}),
       ...(this.record.liveControl ? { beforePrompt: async (identity: { pid: number; startTime: string }) => {
@@ -10905,7 +11097,20 @@ export class Engine {
 
   private runtimeControlSettings() {
     const loops = loopSettings(this.record.settings);
-    return { keep_awake: this.record.settings.keepAwake, resume_after_usage_limit: this.record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit };
+    const wait = this.waitAtEarlyReviewSetting();
+    return { keep_awake: this.record.settings.keepAwake, resume_after_usage_limit: this.record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, ...(wait ? { wait_at_early_review: wait.value } : {}) };
+  }
+
+  /**
+   * Wait for me at the early review (AC-EARLY-05): on unless turned off, set before Start and
+   * changeable until a report says the PRD is refined. Absent for a run with no requirements side.
+   */
+  waitAtEarlyReviewSetting(): { value: boolean; canChange: boolean } | undefined {
+    const state = this.record.requirements;
+    if (!state) return undefined;
+    const refined = !!state.standing && "milestones" in state.standing && state.standing.milestones.some(m => m.name === "prd_refined")
+      || state.stages.some(stage => stage.report?.milestones?.some(m => m.name === "prd_refined"));
+    return { value: this.record.settings.waitAtEarlyReview !== false, canChange: state.phase !== "closed" && !refined };
   }
 
   private save(): void {

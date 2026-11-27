@@ -447,7 +447,7 @@
         "settings"
       ],
       "group": "inspect",
-      "purpose": "Read runtime settings, or explicitly change keep-awake, automatic usage-limit recovery and the two audit loop limits.",
+      "purpose": "Read runtime settings, or explicitly change keep-awake, automatic usage-limit recovery, the two audit loop limits and, for a PRD Kiln writes, Wait for me at the early review.",
       "side_effect": "read",
       "implemented": true,
       "availability": "executable",
@@ -475,6 +475,10 @@
         "resume-after-usage-limit": {
           "value": "on|off",
           "source": "Explicit desired value; changing it requires command ID and current status token."
+        },
+        "wait-at-early-review": {
+          "value": "on|off",
+          "source": "For a PRD whose requirements Kiln writes: whether Kiln waits at the early review. On by default; changeable until the PRD's refinement finishes. Changing it requires command ID and current status token."
         },
         "delivery-audit-loops": {
           "value": "N",
@@ -507,7 +511,7 @@
         "prd_path": "Canonical absolute PRD directory.",
         "execution_id": "Internal binding identity, not a public selector.",
         "errors": "Stable code, message, retryable, next_command and next_argv.",
-        "data": "keep_awake, resume_after_usage_limit, delivery_audit_loops and test_audit_loops, with saved observation freshness.",
+        "data": "keep_awake, resume_after_usage_limit, delivery_audit_loops, test_audit_loops and, with a requirements side, wait_at_early_review, with saved observation freshness.",
         "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
         "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
         "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
@@ -2170,6 +2174,164 @@
         "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
         "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
         "control_unavailable": "Exit 3: current browser eligibility or existing authority refuses this action. Read status controls/reason; refreshing alone does not grant permission.",
+        "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
+        "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
+        "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",
+        "operation_indeterminate": "Exit 4: on a mutation/lost response, acceptance or effects are unknown. Query command-status with the original ID before any retry. Receipt queries themselves exit 0 when retrieval succeeds, even for indeterminate operations."
+      }
+    },
+    {
+      "path": [
+        "feedback"
+      ],
+      "group": "live",
+      "purpose": "Send feedback to the requirements of a PRD Kiln is writing: delivered to the running stage's session when it can take it, otherwise applied by a fresh session before the next stage. Never pauses or stops the run. At a stakeholder review it is the review's Send feedback.",
+      "side_effect": "change",
+      "implemented": true,
+      "availability": "Available on a compatible live controller; status reports current eligibility.",
+      "usage": "kiln feedback <PRD-path> (--text <text> | --file <file>) [--stop-again] [options]",
+      "arguments": [
+        {
+          "name": "PRD-path",
+          "required": true,
+          "source": "A PRD file or directory, a source material folder or a planned PRD's start path, as kiln run accepts; relative paths resolve against caller cwd; worktree aliases are accepted."
+        }
+      ],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "only-if-status-matches": {
+          "value": "status_token",
+          "source": "Copy unchanged from a fresh kiln status <PRD-path> --json; ordinary output does not invalidate it."
+        },
+        "command-id": {
+          "value": "id",
+          "source": "Caller generates a new unique ASCII identifier of 1–128 characters [A-Za-z0-9_.-], preferably a UUID, for one instruction. Reuse only for identical retries."
+        },
+        "text": {
+          "value": "text",
+          "source": "The feedback itself, as literal text."
+        },
+        "file": {
+          "value": "path",
+          "source": "A UTF-8 file holding the feedback, such as a pasted review reply, at most 32 KiB; read relative to caller cwd as kiln reply reads one."
+        },
+        "stop-again": {
+          "value": null,
+          "source": "At the early review only: stop there again once the feedback is worked in, instead of carrying on to the technical design."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "exactly_one": [
+            "text",
+            "file"
+          ]
+        },
+        {
+          "required": [
+            "only-if-status-matches",
+            "command-id"
+          ]
+        }
+      ],
+      "limits": [
+        "Changing work requires a matching compatible live controller, an available status control, --only-if-status-matches and --command-id. Existing authentication, billing, workspace and delivery checks remain.",
+        "Command IDs: 1–128 ASCII characters [A-Za-z0-9_.-], preferably UUIDs. Retained for the saved execution history lifetime; receipts remain readable after completion/controller closure.",
+        "HTTP body 64 KiB; response wait 5 seconds. Lost response is operation_indeterminate; inspect command-status before retrying.",
+        "Feedback is nonempty plain text of at most 32 KiB of UTF-8, without NUL or malformed Unicode; never truncated. A message over 4,000 characters is never delivered live: a fresh session applies it. The status token binds the run only, so feedback sent as the run moves on is never refused as stale. Refused before Start and once the build has started."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "True for accepted/completed instructions; not a guarantee of eventual success. False for admission refusal or an unknown response; inspect operation.state/effects/outcome.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "prd_path": "Canonical absolute PRD directory.",
+        "execution_id": "Internal binding identity, not a public selector.",
+        "errors": "Stable code, message, retryable, next_command and next_argv.",
+        "operation": "Durable receipt with id, command_id, execution_id, target, source, sequence, version, accepted_at, updated_at, state, stage, outcome, reason and effects. Acceptance is separate from effects/completion. States: accepted | in_progress | completed | refused | failed | indeterminate.",
+        "command_id": "Caller-generated instruction ID; reuse unchanged only for identical retries. Query with command-status.",
+        "operation.state": "accepted | in_progress | completed | refused | failed | indeterminate. Null outcome/reason means not yet known or not applicable; failed/completed is not inferred from exit 0.",
+        "operation.stage": "intent | applying | dispatching | settled; persistence/dispatch progress, not proof of provider delivery.",
+        "operation.effects.reply": "not_applicable | not_sent | submitted | delivered | unknown. submitted means provider input was written; delivered requires matching provider conversation evidence.",
+        "operation.effects.session": "not_started | starting | resumed | unknown. resumed requires a correlated saved attempt and provider start; it does not mean the phase finished.",
+        "operation.effects.plan": "not_advanced | advanced | unknown. advanced accepts completion once; it does not promise the next model turn started.",
+        "operation.outcome": "feedback_delivered when the message went to the running session, feedback_sent when it waits for a fresh session to apply it. kiln status shows each message as waiting, sent, read or applied.",
+        "operation.reason": "Refusal/failure/uncertainty explanation, or null. A completed operation may still have a domain outcome requiring operator choice.",
+        "operation.reply_text": "Normalized literal accepted reply, or null for non-reply commands. A phase_already_complete reply stays not_sent and retained for the saved history lifetime.",
+        "operation.acknowledged_by": "ID of the explicit advance operation acknowledging an unsent reply, otherwise null. Text is retained and never sent by acknowledgement.",
+        "operation.session_id": "Kiln session selector when an attempt is correlated; optional, distinct from provider conversation ID.",
+        "operation.phase_key": "Recorded phase/audit/delivery storage key when correlated; optional.",
+        "operation.attempt_id": "Stable correlated attempt ID when dispatch exists; optional.",
+        "operation.settings": "Resulting keep_awake and resume_after_usage_limit booleans for settings operations; optional on other receipts.",
+        "run_state": "Current run state when live; last_known for a closed-controller receipt read. The operation retains its original execution_id across execution replacement.",
+        "retry": "After disconnect inspect command-status. An identical ID/token/inputs replays its receipt before current eligibility, including refusals. New intent or changed token/inputs needs a new ID."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "ambiguous_target",
+        "command_id_conflict",
+        "stale_status_token",
+        "busy",
+        "control_unavailable",
+        "controller_unreachable",
+        "instance_incompatible",
+        "state_unavailable",
+        "operation_indeterminate"
+      ],
+      "exits": {
+        "0": "Instruction accepted or receipt replayed; inspect state/effects/outcome. Completed domain outcomes such as phase_already_complete and completion_checks_failed do not change this exit.",
+        "2": "Invalid input/target or command_id_conflict; no new instruction accepted.",
+        "3": "stale_status_token, busy, control_unavailable or unsent_reply_acknowledgement_required; no newly accepted change.",
+        "4": "Controller/protocol/state unavailable or operation_indeterminate; acceptance/effects must not be guessed."
+      },
+      "examples": [
+        {
+          "request": "Tell Kiln the PRD should also cover store staff.",
+          "argv": [
+            "kiln",
+            "feedback",
+            "/work/shop/source-material/gift-card-balance",
+            "--text",
+            "Store staff need to look up a balance too, from the admin.",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        },
+        {
+          "request": "Send the early review's reply and stop there again once it is worked in.",
+          "argv": [
+            "kiln",
+            "feedback",
+            "/work/shop/docs/prds/orders",
+            "--file",
+            "/tmp/review-reply.txt",
+            "--stop-again",
+            "--only-if-status-matches",
+            "opaque-status-from-kiln",
+            "--command-id",
+            "new-unique-id",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: missing/duplicate/unknown arguments, invalid command ID or malformed message. No instruction accepted.",
+        "target_not_found": "Exit 2: no saved work matches the PRD path. Discover canonical paths with kiln status --json.",
+        "ambiguous_target": "Exit 2: path identifies more than one saved execution; use the exact canonical PRD path.",
+        "command_id_conflict": "Exit 2: this ID already belongs to different effective inputs (including token/message). Query the original receipt; a new intention needs a new ID.",
+        "stale_status_token": "Exit 3: execution, controller epoch or relevant control state changed. No new effect; refresh status and obtain fresh operator intent with a new command ID. Do not retarget an old reply.",
+        "busy": "Exit 3: another accepted or unresolved operation owns control. Inspect its receipt before issuing a new instruction.",
+        "control_unavailable": "Exit 3: the run has no requirements stages, hasn't started, or its build has started. Read status controls/reason.",
         "controller_unreachable": "Exit 4: matching live controller unavailable. New controls require it; command-status can read retained receipts after closure.",
         "instance_incompatible": "Exit 4: protocol, execution identity or durable-control capability does not match. Restart with compatible Kiln; never try legacy mutation routes.",
         "state_unavailable": "Exit 4: private state is unreadable, incomplete, corrupt or a durable write failed. No successful acceptance is implied; inspect the receipt if an effect may have begun.",

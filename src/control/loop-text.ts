@@ -13,7 +13,7 @@ import { positionText, type AuditLoopsView } from "../engine/loop-view.js";
 export type { AuditLoopsView };
 
 /** Every `kiln settings` flag that changes a setting; any one makes the command a changing one. */
-export const SETTING_FLAGS = ["keep-awake", "resume-after-usage-limit", "delivery-audit-loops", "test-audit-loops"];
+export const SETTING_FLAGS = ["keep-awake", "resume-after-usage-limit", "wait-at-early-review", "delivery-audit-loops", "test-audit-loops"];
 
 /** A loop limit from the command line: a whole number of 1 or more, never clamped. */
 export function loopCount(value: string | true | string[] | undefined, flag: string): number {

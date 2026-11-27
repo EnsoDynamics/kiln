@@ -1,4 +1,5 @@
 import { reviewFile } from "../requirements/git.js";
+import { feedbackProblem, FEEDBACK_LIMIT_BYTES } from "../requirements/stages.js";
 import { type AuditLoopSettings } from "../state/audit-loops.js";
 import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageProblem } from "../live/target.js";
 import { readBaseline } from "../engine/plan-reconciliation.js";
@@ -356,6 +357,8 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     const body = await liveBody(c);
     const problem = messageProblem(body?.text);
     if (!body || Object.keys(body).sort().join() !== "instructionId,target,text" || typeof body.instructionId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.instructionId) || !validLiveTarget(body.target) || problem) return c.json({ ok: false, code: typeof body?.text === "string" && body.text.length > 4000 ? "input_too_large" : "invalid_request", reason: problem ?? "Supply instructionId, exact target and plain text.", observedAt: new Date().toISOString(), remedy: "Revise the message or refresh the session." }, typeof body?.text === "string" && body.text.length > 4000 ? 413 : 400);
+    // Message Claude aimed at a requirements session joins the feedback list: it never takes a delivery hold (Kiln Requirements Stages, "Feedback").
+    if (engine.requirementsOpen) return feedbackControl(c, body.instructionId, { text: body.text });
     try {
       const answer = engine.commands.submit({ command_id: body.instructionId, execution_id: body.target.executionId, status_token: JSON.stringify(canonicalLiveTarget(body.target)), action: "message", inputs: { target: body.target, text: body.text } });
       const receipt = answer.operation as Receipt | undefined;
@@ -481,7 +484,7 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       if (Object.keys(fieldErrors).length) return c.json({ ok: false, status: 422, reason: "The audit loop settings don't pass their checks.", fieldErrors }, 422);
     }
     // During a run they change through the settings control, as keep-awake does; before Start they are a draft field.
-    if (Object.keys(change).every(k => ["keepAwake", "resumeAfterUsageLimit", "auditLoops"].includes(k)) && Object.keys(change).length && (engine.record.startedAt !== undefined || !loops)) return legacyControl(c, "settings", { ...(change.keepAwake === undefined ? {} : { keep_awake: change.keepAwake }), ...(change.resumeAfterUsageLimit === undefined ? {} : { resume_after_usage_limit: change.resumeAfterUsageLimit }), ...(loops?.deliveryLimit === undefined ? {} : { delivery_audit_loops: loops.deliveryLimit }), ...(loops?.testLimit === undefined ? {} : { test_audit_loops: loops.testLimit }) });
+    if (Object.keys(change).every(k => ["keepAwake", "resumeAfterUsageLimit", "auditLoops", "waitAtEarlyReview"].includes(k)) && Object.keys(change).length && (engine.record.startedAt !== undefined || !loops && change.waitAtEarlyReview === undefined)) return legacyControl(c, "settings", { ...(change.keepAwake === undefined ? {} : { keep_awake: change.keepAwake }), ...(change.resumeAfterUsageLimit === undefined ? {} : { resume_after_usage_limit: change.resumeAfterUsageLimit }), ...(change.waitAtEarlyReview === undefined ? {} : { wait_at_early_review: change.waitAtEarlyReview }), ...(loops?.deliveryLimit === undefined ? {} : { delivery_audit_loops: loops.deliveryLimit }), ...(loops?.testLimit === undefined ? {} : { test_audit_loops: loops.testLimit }) });
     if (engine.commands.busy) return c.json({ ok: false, code: "busy", reason: "A durable instruction owns control." }, 409);
     const result = await engine.changeSettings(change);
     return result.ok ? c.json({ settings: snapshot().settings }) : commandRefused(c, result);
@@ -539,6 +542,31 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     }
   });
 
+  // Feedback (Kiln Requirements Stages, "Feedback"): the feedback box, Send feedback at either review, and Message Claude to a requirements session.
+  const feedbackControl = async (c: Context, id: string, inputs: Record<string, unknown>) => {
+    try {
+      const answer = engine.commands.submit({ command_id: id, execution_id: engine.record.executionId ?? "", status_token: engine.controlView().token, action: "feedback", inputs });
+      if (!answer.ok) return c.json({ ok: false, code: answer.errors[0]!.code, reason: answer.errors[0]!.message }, answer.errors[0]!.code === "invalid_input" ? 400 : 409);
+      await engine.commands.settled();
+      const op = engine.commands.lookup(id).operation as Receipt;
+      if (op.state !== "completed") return c.json({ ok: false, code: op.outcome ?? "not_applied", reason: op.reason }, 409);
+      return c.json({ ok: true, outcome: op.outcome, receipt: op, controlToken: engine.controlView().token }, 202);
+    } catch (error) {
+      const conflict = error instanceof ControlFailure && error.code === "command_id_conflict";
+      return c.json({ ok: false, code: conflict ? "instruction_conflict" : error instanceof ControlFailure ? error.code : "state_unavailable", reason: (error as Error).message }, conflict ? 409 : error instanceof ControlFailure && error.code === "invalid_input" ? 400 : 503);
+    }
+  };
+  app.post("/api/feedback", async c => {
+    const body = await jsonBody(c);
+    if (!body || Object.keys(body).some(key => !["text", "stopAgain"].includes(key)) || body.stopAgain !== undefined && typeof body.stopAgain !== "boolean") return refuse(c, 400, "Send { text, stopAgain? }.");
+    if (typeof body.text === "string" && Buffer.byteLength(body.text, "utf8") > FEEDBACK_LIMIT_BYTES) return refuse(c, 413, feedbackProblem(body.text)!);
+    const problem = feedbackProblem(body.text);
+    if (problem) return refuse(c, 400, problem);
+    if (!engine.record.requirements || engine.record.startedAt === undefined) return refuse(c, 409, "Feedback is taken once Start is pressed.");
+    if (!engine.requirementsOpen) return refuse(c, 409, "The build has started. Feedback goes to the requirements before the build.");
+    if (body.stopAgain === true && engine.reviewStop !== "early") return refuse(c, 409, "Stop here again is offered only at the early review.");
+    return feedbackControl(c, c.req.header("X-Kiln-Command-Id") ?? randomUUID(), { text: body.text, ...(body.stopAgain === true ? { stop_again: true } : {}) });
+  });
   app.post("/api/review/continue", c => engine.reviewStop === "early" ? legacyControl(c, "continue") : refuse(c, 409, "Continue is available only at the early review."));
   app.post("/api/build/start", async c => {
     const body = await jsonBody(c);
@@ -869,7 +897,7 @@ function tokenMatches(given: string | undefined, token: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function refuse(c: Context, status: 400 | 403 | 404 | 409, reason: string) {
+function refuse(c: Context, status: 400 | 403 | 404 | 409 | 413, reason: string) {
   const response = c.json(c.req.path.startsWith("/api/control/") ? controlResult({}, [errorFact(status === 403 ? "ownership_mismatch" : "invalid_input", reason)]) : { ok: false, reason }, status);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) response.headers.set(name, value);
   return response;
@@ -935,7 +963,7 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
     for (const key of ["deliveryLimit", "testLimit"]) if (loops[key] !== undefined && typeof loops[key] !== "number") return `auditLoops.${key} must be a number.`;
     change.auditLoops = loops as Partial<AuditLoopSettings> as AuditLoopSettings;
   }
-  for (const field of ["keepAwake", "resumeAfterUsageLimit"] as const) {
+  for (const field of ["keepAwake", "resumeAfterUsageLimit", "waitAtEarlyReview"] as const) {
     const value = body[field];
     if (value === undefined) continue;
     if (typeof value !== "boolean") return `${field} must be true or false.`;
@@ -952,7 +980,7 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
   // The agent, model and effort for the whole PRD are gone: each activity has its own choice (Kiln Phase Model Tiers AC-KEEP-01).
   const retired = Object.keys(body).filter((key) => ["agentId", "selectionGeneration", "model", "effort"].includes(key));
   if (retired.length > 0) return `${retired.join(", ")} ${retired.length === 1 ? "is" : "are"} no longer a setting: Kiln chooses each phase's model from its tier and Model defaults.`;
-  const unknown = Object.keys(body).filter((key) => !["developmentDeployments", "keepAwake", "resumeAfterUsageLimit", "auditLoops", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
+  const unknown = Object.keys(body).filter((key) => !["developmentDeployments", "keepAwake", "resumeAfterUsageLimit", "waitAtEarlyReview", "auditLoops", "workspaceFolder", "worktreePath", "featureBranch", "baseBranch", "bases"].includes(key));
   if (unknown.length > 0) return `Unknown setting: ${unknown.join(", ")}.`;
   return change;
 }

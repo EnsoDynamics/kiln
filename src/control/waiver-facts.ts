@@ -205,7 +205,8 @@ export function requirementsStatus(answer: Record<string, unknown>): string | un
   const requirements = answer.requirements as import("../engine/snapshot.js").RequirementsView | undefined;
   if (!requirements) return undefined;
   const heading = requirements.review ? `Waiting at the ${requirements.review.kind} stakeholder review.` : "Requirements stages";
-  return [heading, ...requirements.rows.map(row => `${row.title} · ${row.state.replaceAll("_", " ")}`)].join("\n");
+  const feedback = (requirements.feedback ?? []).map(m => `Feedback ${m.id} · ${m.state}${m.appliedCommit ? ` in ${m.appliedCommit.slice(0, 7)}` : ""} · ${m.text.split("\n")[0]!.slice(0, 80)}`);
+  return [heading, ...requirements.rows.map(row => `${row.title} · ${row.state.replaceAll("_", " ")}`), ...feedback].join("\n");
 }
 
 export function progressHeading(answer: Record<string, unknown>): string {

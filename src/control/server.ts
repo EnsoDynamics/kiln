@@ -40,7 +40,7 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
     app.get(`/api/control/v1/${path}`, async c => { try { query(c, allowed); return send(c, await handler(c)); } catch (e) { return send(c, { ...failed(e), prd_path: resolve(current().record.repository.mainCheckoutPath, startPath(current().record)), execution_id: current().record.executionId! }); } });
   };
   app.get("/api/control/v1/capabilities", c => c.json({ protocol_major: 1, protocol_minor: 3, kiln_version: "1.0.0", execution_id: current().record.executionId,
-    prd_path: resolve(current().record.repository.mainCheckoutPath, startPath(current().record)), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["start-build", "status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "locate_repository", "after_delivery", "model"] }));
+    prd_path: resolve(current().record.repository.mainCheckoutPath, startPath(current().record)), instance: { pid: process.pid, process_start_time: processTime ?? null, epoch }, features: ["start-build", "feedback", "status", "logs", "handoff", "account", "account_refresh", "settings", "commands", "command_status", "message", "take_over", "message_review", "waive_and_advance", "carry_on", "start_again", "reset", "loop_limits_move_on", "locate_repository", "after_delivery", "model"] }));
   route("status", ["detail", "format"], c => {
     const format = c.req.query("format"); if (format && !["text", "json"].includes(format)) throw new ControlFailure("invalid_input", "Format must be text or json.", 2);
     const detail = c.req.query("detail"); if (detail && detail !== "full") throw new ControlFailure("invalid_input", "Detail must be full.", 2);
@@ -119,6 +119,11 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
         const command = body as Record<string, unknown>;
         // Public spelling; the browser and journal retain their existing action identity.
         if (command.action === "take_over") command.action = "take-over";
+        // `kiln message` aimed at a requirements session is feedback, tracked in the feedback list (Kiln Requirements Stages, "Feedback").
+        if (command.action === "message" && current().requirementsOpen && command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
+          command.action = "feedback";
+          command.inputs = { text: (command.inputs as Record<string, unknown>).text };
+        }
         if (command.action === "message-review") throw new ControlFailure("invalid_input", "Use resume, verify-and-advance or carry-on with reviewed receipt IDs.", 2);
         if (command.action === "waive-and-advance" && waiveAndAdvance(current(), command) === "offer_only") {
           // At a preflight stop Mark complete is offered at once, so without --confirm it returns the offer and runs nothing (The Preflight Stop).

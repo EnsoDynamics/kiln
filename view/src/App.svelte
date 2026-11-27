@@ -1,5 +1,6 @@
 <script lang="ts">
   import Requirements from "./screens/Requirements.svelte";
+  import RequirementsFeedback from "./components/RequirementsFeedback.svelte";
   // The browser view: the shared frame, and the screen for where the feature stands, rendered
   // from the snapshot the event stream carries (technical design, "Snapshot"), at the route the
   // address names ("HTTP API", the phase route). Once the view loses Kiln, every screen keeps
@@ -141,6 +142,10 @@
       <Complete {snapshot} {connected} {now} {lastSeenAt} {config} />
     {:else}
       <Running {snapshot} {connected} {now} {lastSeenAt} />
+    {/if}
+    <!-- Feedback is taken at Needs you, during a usage wait and while paused too (Kiln Requirements Stages AC-TALK-02). -->
+    {#if snapshot.requirements && !snapshot.requirements.beforePrd && phaseScreen === undefined && router.route.screen !== "model-defaults" && ["needs_you", "waiting", "paused"].includes(snapshot.feature.state)}
+      <div class="page-main"><RequirementsFeedback {snapshot} {connected} /></div>
     {/if}
     {#key snapshot.continuation?.acceptance?.newExecutionId}<ExecutionHistory {snapshot} {config} {connected} />{/key}
     <!-- The reset line comes after everything else on the page, Earlier deliveries included (run restart AC-RESET-01). -->

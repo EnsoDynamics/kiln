@@ -57,7 +57,7 @@ describe("the command contracts", () => {
     const expected: Record<string, string> = {
       run: "start", status: "start",
       reply: "answer", resume: "answer", "carry-on": "answer", "start-again": "answer", "verify-and-advance": "answer", "check-again": "answer", "waive-and-advance": "answer", "locate-repository": "answer", "check-for-new-phases": "answer", "continue-with-phases": "answer", merge: "answer", exit: "answer",
-      message: "live", "take-over": "live", "request-pause": "live", "cancel-pause": "live", continue: "live", "start-build": "live",
+      message: "live", "take-over": "live", "request-pause": "live", "cancel-pause": "live", continue: "live", "start-build": "live", feedback: "live",
       logs: "inspect", handoff: "inspect", account: "inspect", settings: "inspect", "command-status": "inspect",
       reset: "reset",
       model: "models", "model-defaults": "models", "model-defaults set": "models", "model-defaults restore": "models", "model-defaults fallback": "models",

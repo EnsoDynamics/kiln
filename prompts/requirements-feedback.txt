@@ -1,0 +1,12 @@
+Use the installed using-the-enso-method skill at {{skillPath}}. The person sent the feedback below. Work every message into every requirements document of this work that exists, as the installed method directs for a stakeholder's feedback, so a change reaches the technical design and the phase plan too when they are written. Then refresh the stakeholder review if one exists, committing it in your last commit, with or after every other change to the PRD directory. Run no other requirements stage.
+
+Work: {{work}}
+Worktree: {{worktree}}
+Feature branch: {{branch}}
+Holds: {{holds}}
+
+{{messages}}
+
+Work only here. You may commit the documents you change on the named branch, including documents a skill would otherwise leave for the person to commit. Do not push, open a pull request, merge, build, open a browser, or change branches. Nobody can answer questions. A message that arrives during the session, opening with a line "Kiln feedback <id>:", is more of the person's feedback: work it in the same way. If one arrives after your report, work it in and end that reply with the whole kiln-report again, since Kiln reads only your last message.
+
+End your final message with a fenced kiln-report block containing JSON. Include kilnReport (1), ran (an array of objects with the skill and title of each method skill you used, or empty), finished (true when every message is dealt with and committed), next (kind, skill, title, reaches: the method's next step for this work), milestones (an array of objects with name and by), prdDirectory (the repository-relative PRD path), messages (one object per message you read, with its id and outcome worked_in, or not_worked_in when you left it for another session) and changes (short statements of what your changes did to the requirements). worked_in includes sending a message to a follow-on PRD, restating an assumption to meet a doubt, or leaving it in a pending change for a chat of its own, as the method directs. Use next.kind requirements, before_prd or build. Name each skill and title as the method names it. The four milestones are prd_refined, design_ready, review_made and requirements_finished. List the milestones the work now stands at, including ones already reached, with by this_session or earlier. Use reaches for the milestones the next stage is expected to reach.

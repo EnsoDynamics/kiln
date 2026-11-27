@@ -46,7 +46,7 @@ import type { AuditLoopsView } from "../engine/loop-view.js";
 import { afterDeliveryFacts, continuationFacts, deliveredFacts } from "./delivered-facts.js";
 import { questionLabel, recordLabelSet, repositoryDetails } from "../engine/plan-repositories.js";
 
-export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "start-build", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "locate-repository", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff", "model"];
+export const PLANNED_CONTROLS = ["reply", "resume", "carry-on", "start-again", "verify-and-advance", "request-pause", "cancel-pause", "continue", "start-build", "feedback", "check-again", "waive-and-advance", "settings", "message", "take-over", "reset", "locate-repository", "merge", "exit", "check-for-new-phases", "continue-with-phases", "handoff", "model"];
 /** What each control needs on the command line: most change work under a status token and command ID; checking for new phases takes neither (AC-BOT-01). */
 const requiredInputs = (name: string) => name === "model" ? ["PRD-path", "--phase | --audits", "--agent --model [--effort] | --use-default", "--only-if-status-matches", "--command-id"] : name === "check-for-new-phases" || name === "handoff" ? ["PRD-path"] : name === "locate-repository" ? ["PRD-path", "address-path", "folder", "--only-if-status-matches", "--command-id"] : name === "continue-with-phases" ? ["PRD-path", "--proposal", "--only-if-status-matches", "--command-id"] : ["PRD-path", "--only-if-status-matches", "--command-id"];
 interface Instructions { continuation_prompt: string | null; fresh_session_instructions: { command: string; prompt: string } | null }
@@ -396,7 +396,7 @@ function savedAuditLoops(record: SavedWork["record"]): AuditLoopsView {
 /** `--detail full`'s settings: the runtime preferences and the two audit loop limits. */
 function settingsFacts(record: SavedWork["record"]): Record<string, unknown> {
   const loops = loopSettings(record.settings);
-  return { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit };
+  return { keep_awake: record.settings.keepAwake, resume_after_usage_limit: record.settings.resumeAfterUsageLimit, delivery_audit_loops: loops.deliveryLimit, test_audit_loops: loops.testLimit, ...(record.requirements ? { wait_at_early_review: record.settings.waitAtEarlyReview !== false } : {}) };
 }
 /** `kiln status` while a folder is missing (AC-GONE-02): the state, no current activity, no stop, no phase progress. */
 function folderMissingStatus(work: SavedWork, engine: Engine | undefined, folders: FolderCheck, full: boolean): Result {

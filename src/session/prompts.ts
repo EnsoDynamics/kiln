@@ -399,6 +399,6 @@ export function preparationPrompt(values: { phaseId: string; featureName: string
 export function preparationImplementationPrompt(values: { phaseId: string; checkpoint: string; phasePrompt: string }): string { return fill(template("preparation-implementation.txt"), values); }
 
 
-export function requirementsPrompt(task: "stage" | "review", values: { skillPath: string; work: string; worktree: string; branch: string; holds: string }): string {
-  return fill(template(task === "review" ? "requirements-review.txt" : "requirements-stage.txt"), values);
+export function requirementsPrompt(task: "stage" | "review" | "feedback", values: { skillPath: string; work: string; worktree: string; branch: string; holds: string; messages?: string }): string {
+  return fill(template(`requirements-${task}.txt`), { ...values, messages: values.messages ?? "" });
 }

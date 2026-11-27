@@ -11,6 +11,28 @@ export interface StageReport {
   milestones?: Milestone[];
   prdDirectory?: string;
   draft?: { statements: string[]; leftOut: string[] };
+  /** Every message the session read, with what it did with it (Feedback). */
+  messages?: { id: string; outcome: "worked_in" | "not_worked_in" }[];
+  /** What a session that applied feedback changed (AC-EARLY-04). */
+  changes?: string[];
+}
+/** One message of feedback (technical design, "Feedback"): waiting → sent → read → applied. */
+export interface FeedbackMessage {
+  id: string; text: string; at: string; state: "waiting" | "sent" | "read" | "applied";
+  /** The session it was delivered or given to, and the delivery's input id while it is live. */
+  sessionId?: string; uuid?: string; sentAt?: string; readAt?: string; appliedAt?: string; appliedCommit?: string;
+  /** The activity whose finished session applied it. */
+  appliedBy?: string;
+  /** The journal instruction that added it, so a restart settles that instruction. */
+  operationId?: string;
+}
+export const FEEDBACK_LIMIT_BYTES = 32 * 1024;
+export const LIVE_LIMIT_CHARACTERS = 4000;
+export function feedbackProblem(text: unknown): string | undefined {
+  if (typeof text !== "string" || !text.trim()) return "Feedback must be nonempty text.";
+  if (text.includes("\0") || /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)) return "Feedback cannot contain NUL or malformed Unicode.";
+  if (Buffer.byteLength(text, "utf8") > FEEDBACK_LIMIT_BYTES) return "Feedback is limited to 32 KiB. A review reply's first part alone carries every answer.";
+  return undefined;
 }
 export interface RequirementsOrigin {
   kind: "brief" | "intake" | "planned_prd" | "prd";
@@ -31,6 +53,8 @@ export interface RequirementsStage {
   report?: StageReport;
   pushedSha?: string;
   startedAt: string;
+  /** A feedback session's messages, given in its prompt. */
+  messageIds?: string[];
 }
 export interface RequirementsState {
   phase: "stages" | "early_review" | "final_review" | "closed";
@@ -43,9 +67,9 @@ export interface RequirementsState {
   planFingerprint?: string;
   stages: RequirementsStage[];
   draftNote?: StageReport["draft"];
-  review?: { kind: "early" | "final"; file: string; commit: string; readySince: string };
+  review?: { kind: "early" | "final"; file: string; commit: string; readySince: string; refreshedAt?: string; whatChanged?: { items: string[]; commit: string }; feedbackSentAt?: string };
   notice?: { at: string; changes: string[] };
-  feedback: { id: string; text: string; at: string; state: "waiting" | "given" | "read" | "applied"; sessionId?: string; readAt?: string; appliedCommit?: string }[];
+  feedback: FeedbackMessage[];
   reachedByKiln: MilestoneName[];
 }
 
@@ -68,6 +92,16 @@ export function readStageReport(message: string, task: RequirementsStage["task"]
   if (!object(value) || value.kilnReport !== 1 || !Array.isArray(value.ran) || !value.ran.every(skill) || typeof value.finished !== "boolean") return undefined;
   const report: StageReport = { ran: value.ran.map(({ skill, title }) => ({ skill, title })), finished: value.finished };
   if (task === "review") return report;
+  if (value.messages !== undefined) {
+    if (!Array.isArray(value.messages)) return undefined;
+    const messages: NonNullable<StageReport["messages"]> = [];
+    for (const entry of value.messages) {
+      if (!object(entry) || !nonempty(entry.id) || (entry.outcome !== "worked_in" && entry.outcome !== "not_worked_in")) return undefined;
+      messages.push({ id: entry.id, outcome: entry.outcome });
+    }
+    report.messages = messages;
+  }
+  if (strings(value.changes)) report.changes = value.changes;
   const next = value.next;
   if (!object(next) || !skill(next) || (next.kind !== "requirements" && next.kind !== "before_prd" && next.kind !== "build") ||
       !Array.isArray(next.reaches) || !next.reaches.every(milestone) || !Array.isArray(value.milestones)) return undefined;

@@ -2,6 +2,7 @@
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import FeatureHeader from "../components/FeatureHeader.svelte";
   import BillingPanels from "../components/BillingPanels.svelte";
+  import RequirementsFeedback from "../components/RequirementsFeedback.svelte";
   import { changeSettings, continueReview, resumeNow, start, startBuild, type CommandAnswer, type PageConfig } from "../lib/api.js";
 
   let { snapshot, config, connected }: { snapshot: Snapshot; config: PageConfig; connected: boolean } = $props();
@@ -26,7 +27,8 @@
   {#if review}
     <h2>{final ? "Final stakeholder review" : "Early stakeholder review"}</h2>
     <p>{final ? "The requirements are finished. Review them before starting the build." : "Review the refined PRD before the technical design. The review returns at the end."}</p>
-    <p><a href={config.base + "/stakeholder-review"} target="_blank" rel="noopener">Open stakeholder review</a> · Ready since {new Date(review.readySince).toLocaleString()}</p>
+    <p><a href={config.base + "/stakeholder-review"} target="_blank" rel="noopener">Open stakeholder review</a> · Ready since {new Date(review.readySince).toLocaleString()}{#if review.refreshedAt} · refreshed at {new Date(review.refreshedAt).toLocaleString()} with your feedback{/if}</p>
+    <RequirementsFeedback {snapshot} {connected} />
     {#if final}
       <p>{review.openAssumptions} unconfirmed assumptions. The build can proceed with these assumptions.</p>
       {#if requirements.build?.noPhasePlan}<p>The requirements finished without a phase plan. Kiln builds from phase documents. Write and commit the phase plan in your own session, then press Resume.</p>{/if}
@@ -37,6 +39,7 @@
     <ul>{#each requirements.origin.files as file}<li><code>{file}</code></li>{/each}</ul>
     <p>Committed at <code>{requirements.origin.commit.slice(0, 8)}</code> on {settings.baseBranch}.</p>
     <label>Feature branch <input value={settings.featureBranch} onchange={e => act(() => changeSettings(config, { featureBranch: e.currentTarget.value }))} /></label>
+    {#if settings.waitAtEarlyReview}<label><input type="checkbox" checked={settings.waitAtEarlyReview.value} disabled={!connected || busy} onchange={e => act(() => changeSettings(config, { waitAtEarlyReview: e.currentTarget.checked }))} /> Wait for me at the early review. You can change this until the refinement finishes.</label>{/if}
     <BillingPanels {snapshot} {connected} />
   {/if}
   <h2>{final ? "Phase plan" : "Requirements stages"}</h2>
@@ -44,7 +47,7 @@
     {#if final}
       {#each snapshot.phases.filter(p => p.id !== "pr") as phase}<li>Phase {phase.id} · {phase.title} {phase.model?.choice?.modelName ?? ""}</li>{/each}
     {:else}
-      {#each requirements.rows as row}<li>{row.title}{#if row.otherSkills?.length} · {row.otherSkills.join(", ")}{/if} <small>{row.state} {row.model?.choice?.modelName ?? ""}</small>{#if row.pushedSha} · <code>{row.pushedSha.slice(0, 8)}</code>{/if}</li>{/each}
+      {#each requirements.rows as row}<li>{row.title}{#if row.otherSkills?.length} · {row.otherSkills.join(", ")}{/if} <small>{row.state} {row.model?.choice?.modelName ?? ""}</small>{#if row.pushedSha} · <code>{row.pushedSha.slice(0, 8)}</code>{/if}{#each row.feedback ?? [] as applied}<br /><small>Feedback sent at {new Date(applied.sentAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}. Worked in and pushed at {new Date(applied.appliedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}, in <code>{applied.commit.slice(0, 7)}</code>.</small>{/each}</li>{/each}
     {/if}
   </ol>
   {#if !review}
@@ -56,6 +59,7 @@
     {#each requirements.build?.checksFailed ?? [] as failure}<p>{failure}</p>{/each}
     <button disabled={!connected || busy || !!requirements.build?.checksFailed?.length || (requirements.build?.refinementConfirmation === "needed" && !confirmed)} onclick={() => act(() => startBuild(config, confirmed))}>Start the build</button>
   {:else}
+    <p>Nothing to change, or no time to read it now? Kiln carries on, and the review comes back at the end as the final review, showing only what is still open.</p>
     <button disabled={!connected || busy} onclick={() => act(() => continueReview(config))}>Continue to the technical design</button>
   {/if}
   {#if reason}<p role="alert">{reason}</p>{/if}

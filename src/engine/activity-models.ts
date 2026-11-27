@@ -138,7 +138,11 @@ export function tierView(phase: Pick<RecordedPlanPhase, "modelTier"> | undefined
 
 /** The Model defaults row an activity uses: a phase's tier's, Not rated as Standard; every other activity Audits. */
 export function rowOfActivity(plan: RecordedPlanPhase[], key: string, record?: PrdRecord): DefaultsRow {
-  if (activityKeyKind(key) === "requirements") return key === "req-design" || key !== "req-next" && record?.requirements?.designSpan ? "refining_design" : "requirements";
+  if (activityKeyKind(key) === "requirements") {
+    // A feedback session always runs on Requirements stages, inside the design span too (Kiln Requirements Stages, "Models").
+    if (record?.requirements?.stages.some(stage => key === `req-${stage.activityId}` && stage.task === "feedback")) return "requirements";
+    return key === "req-design" || key !== "req-next" && record?.requirements?.designSpan ? "refining_design" : "requirements";
+  }
   if (!isPhaseKey(key) || key === PR_PHASE_KEY) return defaultsRowFor("audits");
   return defaultsRowFor(plan.find(phase => phase.id === key)?.modelTier?.tier);
 }

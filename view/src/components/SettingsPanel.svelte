@@ -55,6 +55,12 @@
       <div class="words"><dt>Resume after a usage limit</dt><dd class="help limit-help">Switch off to finish the phase yourself; Needs you then shows how.</dd></div>
       <label class="awake"><input type="checkbox" checked={settings.resumeAfterUsageLimit} disabled={!connected} aria-label="Resume after a usage limit" onchange={(event) => save({ resumeAfterUsageLimit: event.currentTarget.checked })} />{settings.resumeAfterUsageLimit ? "On" : "Off"}</label>
     </div>
+    {#if settings.waitAtEarlyReview}
+      <div class="setting">
+        <div class="words"><dt>Wait for me at the early review</dt><dd class="help limit-help">{settings.waitAtEarlyReview.canChange ? "You can change this until the refinement finishes." : "The PRD's refinement has finished, so this is fixed."}</dd></div>
+        <label class="awake"><input type="checkbox" checked={settings.waitAtEarlyReview.value} disabled={!connected || !settings.waitAtEarlyReview.canChange} aria-label="Wait for me at the early review" onchange={(event) => save({ waitAtEarlyReview: event.currentTarget.checked })} />{settings.waitAtEarlyReview.value ? "On" : "Off"}</label>
+      </div>
+    {/if}
     {#if reason}<span class="message">{reason}</span>{/if}
     {#if snapshot.feature.multiRepository}
       <div class="fixed">

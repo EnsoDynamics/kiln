@@ -1,5 +1,7 @@
 # Phase 2: Feedback at any time
 
+**Closed:** 2026-11-27
+
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "Feedback"; "The driver" (the feedback check, Stop here again, the wait); "What a session is told" (the feedback prompt and the draft ask); "How a stage ends" (a feedback session's rows); "The Two Reviews" (the draft note, the three answers, what changed, the wait); "Interfaces" (the report's `messages`, `draft` and `changes`; `POST /api/feedback`; `POST /api/settings`; `kiln feedback`, `kiln settings`); "Changes to Earlier Designs"
 **Phase plan:** [Execution order](kiln-requirements-stages-phase-plan.md)
