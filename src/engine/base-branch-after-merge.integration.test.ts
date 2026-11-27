@@ -39,9 +39,19 @@ const main = () => h!.repository;
 const run = (...args: string[]) => git(h!.sandbox, main(), ...args).trim();
 const featureHead = () => git(h!.sandbox, h!.engine.worktreePath, "rev-parse", "HEAD").trim();
 const show = (state: "open" | "merged", mergeCommit?: string) => h!.setPullRequestViews({ [KEY]: recordedPullRequest(state, { number: 218, base: "develop", url: "https://github.com/acme/acme-shop/pull/218", head: featureHead(), ...(mergeCommit ? { mergeCommit } : {}) }) });
-/** #218 merged on GitHub by the person: the feature head pushed to develop on the origin by its address, so no remote-tracking ref here moves. */
+/**
+ * Moves the origin's develop to `from`'s HEAD, as a merge on GitHub does, without moving any ref here.
+ * The head goes to a ref no refspec maps, then develop moves inside the origin, since some Git versions
+ * update origin/develop on a push to develop by the origin's address.
+ */
+function pushToOriginDevelop(from: string, origin: string): void {
+  git(h!.sandbox, from, "push", "-q", origin, "HEAD:refs/landing/develop");
+  git(h!.sandbox, origin, "update-ref", "refs/heads/develop", "refs/landing/develop");
+  git(h!.sandbox, origin, "update-ref", "-d", "refs/landing/develop");
+}
+/** #218 merged on GitHub by the person: the origin's develop moves to the feature head and no ref here does. */
 function mergeByHand(): string {
-  git(h!.sandbox, h!.engine.worktreePath, "push", "-q", h!.origin, "HEAD:develop");
+  pushToOriginDevelop(h!.engine.worktreePath, h!.origin);
   expect(run("rev-parse", "origin/develop")).not.toBe(featureHead());
   show("merged", featureHead());
   return featureHead();
@@ -143,7 +153,7 @@ describe("Kiln brings the local base branch up to date after the merge (Kiln Aft
     expect((statusProjection(readWork(stateRoot(h!.env), h!.stateDirectory), h!.engine) as unknown as { after_delivery: { baseBranches: unknown } }).after_delivery.baseBranches).toEqual([said]);
     // Someone else's work lands on develop meanwhile; Kiln never fetches again, so it is not brought in.
     git(h!.sandbox, h!.engine.worktreePath, "commit", "-q", "--allow-empty", "-m", "chore: later work on develop");
-    git(h!.sandbox, h!.engine.worktreePath, "push", "-q", h!.origin, "HEAD:develop");
+    pushToOriginDevelop(h!.engine.worktreePath, h!.origin);
     // The person puts the edit away: the next check fast-forwards to the commit fetched after the merge, and no further.
     run("checkout", "--", "README.md");
     await h!.engine.checkCompletedPlan();
@@ -246,8 +256,8 @@ describe("Kiln brings the local base branch up to date after the merge (Kiln Aft
     // acme-shop's checkout has an edit in progress; acme-api's is clean. Both merge on GitHub.
     const shopBefore = run("rev-parse", "develop");
     writeFileSync(join(main(), "README.md"), "# acme-shop\nEdited, not committed.\n");
-    git(h!.sandbox, h!.engine.worktreePath, "push", "-q", h!.origin, "HEAD:develop");
-    git(h!.sandbox, apiWorktree, "push", "-q", apiOrigin, "HEAD:develop");
+    pushToOriginDevelop(h!.engine.worktreePath, h!.origin);
+    pushToOriginDevelop(apiWorktree, apiOrigin);
     h!.setPullRequestViews({
       [KEY]: recordedPullRequest("merged", { number: 218, base: "develop", url: "https://github.com/acme/acme-shop/pull/218", head: featureHead(), mergeCommit: featureHead() }),
       "acme/acme-api#57": recordedPullRequest("merged", { number: 57, base: "develop", url: "https://github.com/acme/acme-api/pull/57", head: apiHead, mergeCommit: apiHead }),

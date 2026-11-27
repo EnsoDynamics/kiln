@@ -6,7 +6,7 @@ section, and the newer version notice in Kiln's top bar links here.
 Work merged since the last release goes under Unreleased. Preparing a release renames that
 section to the new version.
 
-<!-- Kiln 1.0.1, 1.1.5, 1.2.0 and 1.2.1 were prepared but never published; their changes shipped in 1.0.2, 1.1.6 and 1.2.2. -->
+<!-- Kiln 1.0.1, 1.1.5, 1.2.0, 1.2.1 and 1.5.0 were prepared but never published; their changes shipped in 1.0.2, 1.1.6, 1.2.2 and 1.5.1. -->
 
 ## [Unreleased]
 
@@ -24,7 +24,11 @@ section to the new version.
   description. The **Audit loops** help now says a run makes only the loops it needs.
 - `kiln status` lists the batches of test fixes not yet started, with the new `planned` state.
 
-## [1.5.0] - 2026-11-26
+## [1.5.1] - 2026-11-26
+
+Phases pick their model from their tier, Kiln finds repositories wherever they are checked out, and
+a finished run can merge its pull requests and bring your base branch up to date. Kiln 1.5.0 did
+not reach npm; its changes ship here.
 
 ### Added
 
@@ -89,6 +93,9 @@ section to the new version.
   "Continuation" no longer appear.
 
 ### Fixed
+
+- Stopping Kiln while it was still checking a branch for an open pull request no longer leaves
+  a `gh` command running after Kiln exits.
 
 - A finished run whose pull request hasn't merged no longer shows "Plan needs reconciliation".
 

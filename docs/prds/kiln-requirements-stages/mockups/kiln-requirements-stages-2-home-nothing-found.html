@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kiln home, nothing found yet</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif&amp;family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#12110e;color:#ede8dd;font-family:Inter,-apple-system,"Segoe UI",sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:#e2694f}a:hover{color:#f0866e}
+.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace}
+.eyebrow{margin:0;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#8c8577}
+.card{background:#1b1a16;border:1px solid rgba(237,232,221,.12);border-radius:18px;padding:28px;box-sizing:border-box}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:999px;border:1px solid rgba(237,232,221,.24);background:transparent;color:#ede8dd;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer;white-space:nowrap;box-sizing:border-box}
+.help{margin:0;font-size:14.5px;color:#bdb6a8;line-height:1.55}
+.step{display:flex;gap:14px;align-items:flex-start}
+.num{flex:0 0 auto;width:26px;height:26px;border-radius:999px;border:1px solid rgba(237,232,221,.4);display:inline-flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:600}
+.kind{flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:6px;padding:18px 20px;border-radius:14px;border:1px solid rgba(237,232,221,.12)}
+</style>
+</head>
+<body>
+<div style="min-height: 100%; background: #12110e">
+<header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px; border-bottom: 1px solid rgba(237,232,221,.12)">
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 28px; line-height: 1">kiln</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; font-size: 14px; color: #bdb6a8"><span style="width: 8px; height: 8px; border-radius: 999px; background: #9cc49a"></span>Connected to Kiln</span>
+</header>
+<main style="max-width: 860px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; gap: 4px 20px; font-size: 13px; color: #8c8577"><span>Repository <span class="mono" style="color: #ede8dd">acme-shop</span></span><span>Shared branch <span class="mono" style="color: #ede8dd">develop</span></span></div>
+<h1 style="margin: 0; font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 64px; line-height: 1.05">What are we building?</h1>
+<p style="margin: 0; max-width: 640px; color: #bdb6a8">Kiln found no source material and no PRDs in this repository yet. It starts from source material, so that comes first.</p>
+</div>
+
+<section class="card" aria-labelledby="bring-h" style="display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<h2 id="bring-h" class="eyebrow">Start here</h2>
+<span style="font-family: 'Instrument Serif', Georgia, serif; font-size: 34px; line-height: 1.15">Bring your source material in</span>
+<p class="help" style="max-width: 640px">Source material is whatever says what you want built. Getting it into the repository is a conversation about what you have and what you meant, so it happens in your own agent session and not in Kiln.</p>
+<p class="help" style="max-width: 640px">Kiln starts from a brief, an intake record or a planned PRD. Other folders in <span class="mono" style="font-size: 12.5px">source-material/</span>, such as a stakeholder's feedback, are not listed.</p>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 14px">
+<div class="kind"><span style="font-weight: 600">A brief</span><span style="font-size: 13.5px; color: #bdb6a8">What you want and why, in your own words, with mockups or a prototype for anything that has a screen.</span></div>
+<div class="kind"><span style="font-weight: 600">Raw material</span><span style="font-size: 13.5px; color: #bdb6a8">Meeting transcripts, long threads, a folder of documents. The session sorts out what was decided and records it.</span></div>
+<div class="kind"><span style="font-weight: 600">Something bigger</span><span style="font-size: 13.5px; color: #bdb6a8">More than one PRD's worth. Cutting it into an initiative stays in your own session, and each planned PRD then appears here in its place.</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px; padding-top: 24px; border-top: 1px solid rgba(237,232,221,.12)">
+<div class="step"><span class="num">1</span><span>Open Claude Code or Codex in this repository.</span></div>
+<div class="step"><span class="num">2</span><div style="flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<span>Paste this, and say what you have and where it is.</span>
+<div style="padding: 16px 18px; border-radius: 12px; background: #12110e; border: 1px solid rgba(237,232,221,.18); display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px">
+<span class="mono" style="flex: 1 1 380px; min-width: 0; font-size: 13px; line-height: 1.6">Use the Enso Method. I have source material for something new to build in this repository. Help me bring it into source-material/ the way the method describes, commit it on develop, and stop there. Kiln will take it from the PRD on.</span>
+<button type="button" class="btn">Copy prompt</button>
+</div>
+</div></div>
+<div class="step"><span class="num">3</span><span>When the session commits it, it appears on this page, ready to start. The page updates by itself.</span></div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px; padding-top: 24px; border-top: 1px solid rgba(237,232,221,.12)">
+<span class="eyebrow">How much is enough</span>
+<p class="help" style="max-width: 640px">Several paragraphs on what you want and why, and screens wherever there is something to look at. Everything Kiln writes afterwards is only as good as this.</p>
+</div>
+</section>
+
+<p style="margin: 0; font-size: 13px; color: #8c8577">Already have a PRD somewhere else? <span class="mono">kiln run &lt;PRD folder&gt;</span> opens it at the stage it reached.</p>
+
+</main>
+</div>
+</body>
+</html>
