@@ -179,7 +179,9 @@ Against it: a merge can resolve code conflicts and fix failing checks, which is 
 
 ### SAVE-008. Does Restore Kiln's defaults also put the mode and the fallback back to Kiln's choices? — ⏳ PENDING (Added 2026-11-27 — new question; 70% confidence)
 
-**Assumption**: Yes. **Restore Kiln's defaults resets the whole page**: the way models are picked goes back to **Recommended model for each phase**, the five rows and the one model go back to Kiln's choices, and **Use the fallback** goes back to **Never**, with its threshold at 95. Like every other change on the page, it takes effect only **when you press Save**, for every PRD or for this PRD only.
+**Assumption**: Yes. **Restore Kiln's defaults resets the whole page**: the way models are picked goes back to **Recommended model for each phase**, the five rows and the one model go back to Kiln's choices, and **Use the fallback** goes back to **Never**, with its threshold at 95. Like every other change on the page, it takes effect only **when you press Save**, for every PRD or for this PRD only. Saved for every PRD from a PRD that has its own settings, it resets that PRD's own settings too: the PRD keeps its own settings, now the same as Kiln's choices, and later changes to your defaults don't reach it until you press Use my defaults here.
+
+**Depends on**: SAVE-004
 
 **If they choose otherwise**: Restore would return only the rows and the one model to Kiln's choices, leaving the mode and the fallback setting as they are, as it does today.
 

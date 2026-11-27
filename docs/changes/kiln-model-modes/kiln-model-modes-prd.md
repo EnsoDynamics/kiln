@@ -76,6 +76,7 @@ The preflight checks access before the run, and the pull request session closes 
   | Preflight and pull request | Claude Code · Opus · medium | Codex · GPT Sol · medium |
 
   - Replaces in part: AC-DEFAULT-01, AC-DEFAULT-02, AC-PICK-06, AC-OTHER-01 and AC-AGENTS-04 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (a fifth row holds the choice of every activity that isn't a phase or an audit, the merge and push sessions after delivery included, which no longer comes from the Audits row, the preflight's and the pull request session's rows offer Change, Needs you names that Change as where to change their choice, and the agent whose installed method is checked for the preflight comes from that row, not the Audits choice; the rest remains).
+  - Replaces in part: AC-PICK-03 in `docs/changes/kiln-phase-model-tiers/kiln-phase-model-tiers-prd.md` (at a preflight stop the Models card also offers the Preflight and pull request choice, through the pull request row's Change, where AC-PICK-03 changed AC-PREFLIGHT-03 in `docs/changes/kiln-build-preflight/kiln-build-preflight-prd.md`; the rest remains).
 
 ### Save a change on purpose, for every PRD or for this one
 

@@ -1,6 +1,6 @@
 # Design Refinement State — Kiln Model Modes
 
-Started: 2026-11-27   Current pass: 1   Status: In progress
+Started: 2026-11-27   Current pass: 2   Status: In progress
 Branch: feature/kiln-model-modes (worktree .worktrees/kiln-model-modes/kiln; never push — publish-kiln owns pushes)
 Existing code posture: Preserve (source: user; TD §Existing Code agrees)
 PRD words: at start 3266 · growth baseline 3266, blob 7a18e2d269ab8aadac12e6c468a387e1176a5ec5
@@ -17,6 +17,7 @@ Last updated: 2026-11-27
 ## Passes
 | Pass | Surfaced (new) | Taken | Resolved | Assumptions | Deferred | Blocked | Dropped |
 |---|---|---|---|---|---|---|---|
+| 2 | 3 (+Q14 carried) | 4 | 4 | 0 | 0 | 0 | 0 |
 | 1 | 14 (11 discovery, 3 conflict check, 1 noticed list, 1 raised by Q6; 2 overlapped) | 13 | 10 | 3 (+SAVE-006 from Q3) | 1 (Q14) | 0 | 0 |
 
 ## Questions
@@ -34,7 +35,10 @@ Last updated: 2026-11-27
 | Q10 | 1 | What does Restore do over an unreadable own-settings file? | Technical | LOW | 70 → 90 | Resolved | TD §Saving, §Interfaces, §Command line |
 | Q11 | 1 | "No fallback" line wording when the person didn't pick the model (Codex substitution, kept choice); mockup 7 B | Technical | LOW | 75 → 85 | Resolved by decision | TD §Snapshot; mockup 7 |
 | Q12 | 1 | An open page whose PRD gains or loses its own settings underneath it (another tab, a command) | Technical | LOW | 80 → 85 | Resolved by decision | TD §Saving, §Snapshot |
-| Q14 | 1 | Where does AC-ROW-01's "Change on the Preflight row or the pull request row" appear (ModelChanges.svelte:13 gives the Models card no Change for preflight/PR rows; Tiers AC-PICK-03's preflight-stop amendment)? From Q6's side note | Technical | MEDIUM | 70 → | Deferred | |
+| Q14 | 1 | Where does AC-ROW-01's "Change on the Preflight row or the pull request row" appear (ModelChanges.svelte:13 gives the Models card no Change for preflight/PR rows; Tiers AC-PICK-03's preflight-stop amendment)? From Q6's side note | Technical | MEDIUM | 70 → 90 | Resolved | TD §Interfaces Models block; PRD AC-ROW-01 Replaces AC-PICK-03 |
+| Q15 | 2 | Where does a merge or plan-push stop say to change its choice? (they run after completion; PR row finished, Models card hidden, per-PRD change unavailable) | Technical | MEDIUM | 75 → 85 | Resolved by decision | TD §Resolving, §Snapshot |
+| Q16 | 2 | With Restore pending in the draft, what does Save compare against (base = Kiln's choices?), when is Save available, and how does a re-read rebase? | Technical | MEDIUM | 75 → 90 | Resolved | TD §Saving, §Interfaces GET |
+| Q17 | 2 | Stop and source wording/change place when the choice comes from the one model or from the fallback under For everything (launchSource, choiceStopFact) | Technical | MEDIUM | 75 → 85 | Resolved by decision | TD §Resolving |
 | Q13 | 1 | Does For everything move a Changed by you / kept phase to its fallback, against AC-PICK-03? | Business | MEDIUM | 80 → 95 | Resolved | Already so: AC-WHEN-02 "each activity that hasn't started"; Tiers AC-FALLBACK-02 already moves changed phases at threshold; TD step 5. Conflict check found no PICK-03 conflict |
 
 ## Question notes
@@ -75,13 +79,16 @@ Resolved 93%: ModelEditor.svelte:13-15,18-20 $effect calls onchange on first ren
 ### Q12
 85%, build choice. TD §Saving after "keeps the person's pending changes over them": "The draft holds only the fields the person changed, applied over the latest read. Fields they didn't touch take the new values, and a change that now equals what was read stops being a change. When the PRD gains or loses its own settings, the title and the own-settings notice follow the new source at once. The selected target follows only while there is no draft. With a draft it stays as the person last saw it, so a save never goes to every PRD unless they selected it. Both targets stay valid after either switch (the table's rows 2 and 4)." TD §Snapshot: "`revision` is both files' stat keys, with `missing` for an absent file, so creating or removing the PRD's own settings changes it. The running Kiln watches the PRD's state directory for `model-settings.json`, as it watches the state root for Model defaults." Evidence: ModelDefaults.svelte:16,44; App.svelte:56; snapshot.ts:702,2114-2116; engine.ts:2133-2142.
 
+### Q16
+Resolved 90%. Restore makes the draft's base Kiln's choices (what an empty file reads as now), drops the changes made before it; Save sends {restore, fields differing from the base}; server clears each file written before applying fields, so it ends as shown under all four save-table rows. Restore is a change while Model defaults or this PRD's own settings hold any field. Re-read while Restore pending changes only where Kiln's choices change. GET gains `kilnChoices` and `holdsSettings`. Evidence: ModelDefaults.svelte restore() sets drafts = {}; model-defaults-edit.ts:99-102; TD one-model row; AC-DEFAULT-04. Prose given in fold brief. No PRD change.
+
 ## Exploration scripts
 | Script | Question | Finding |
 |---|---|---|
 
 ## Conflict check
 Pass 1: 2026-11-27 · 14 earlier criteria outside Tiers changed (of 486 screened) + 20 of Tiers' 26 · Replaces lines folded on AC-MODE-02, MODE-03, WHEN-02, ROW-01, SAVE-01, SAVE-04, SAVE-05, PRD-01, PRD-02, CLI-01 (3 redirected to the Tiers criterion that already supersedes the v1/recovery/bot-control part) and 2 existing lines corrected · 3 raised as questions (Q1 reset, Q2 merge/push row, Q6 preflight stop page)
-Changed after pass 1: AC-SAVE-04 (Q1 reset), AC-ROW-01, AC-CARRY-01 (Q2 merge/push row), AC-SAVE-03, AC-CLI-01 (Q4 Restore), AC-SAVE-02 (Q9), AC-SAVE-04 (conformance: SAVE-006 stated), AC-MODE-02 (list names merge and push; mockups' one-model line)
+Changed after pass 1: AC-SAVE-04 (Q1 reset), AC-ROW-01, AC-CARRY-01 (Q2 merge/push row), AC-SAVE-03, AC-CLI-01 (Q4 Restore), AC-SAVE-02 (Q9), AC-SAVE-04 (conformance: SAVE-006 stated), AC-MODE-02 (list names merge and push; mockups' one-model line), AC-ROW-01 (pass 2: Replaces AC-PICK-03)
 
 ## Register re-sort
 Pass 1: 2026-11-27 · 4 open entries · 0 moved to design · 0 written up · 1 settled by lookup (CARRY-001: Kiln Phase Model Tiers AC-DEFAULT-02 keeps what the person sets across upgrades; second opinion doubted it, orchestrator re-sorted) · 0 moved to technical · 0 raised as questions · 3 stay business, all below the line (SAVE-003 doubted by second opinion, kept: validated SAVE-001 explicitly left restart survival open and the stakeholder floated the other answer). Also: header line, Last Updated, SAVE-003 build detail removed; TD Open Questions 1 now three entries.
@@ -89,14 +96,20 @@ Pass 1: 2026-11-27 · 4 open entries · 0 moved to design · 0 written up · 1 s
 ## Conformance
 Pass 1: 8 fixed (TD existing-code description → §Launching "Skills and checks on an agent"; losing options out of a rationale; DEF-003 → Tiers AC-DEFAULT-04; SAVE-006 stated in AC-SAVE-04; CARRY-001 row date; SAVE-003 wording vs SAVE-007; register field order; DEF-002 qualified). Orchestrator added merge and push to AC-MODE-02's list and the mockups' one-model line.
 
+Pass 2: §HTTP run-complete refusal for preflight_pr; narration of today's code cut from the Models block paragraph and §Resolving; §Saving Done wording; SAVE-008 Depends on SAVE-004; orchestrator: TD OQ1 SAVE-004 line names the command-line change. Earlier in pass 2: TD own-settings decision row gains the row-4 exception; SAVE-008 states the emptied own-settings file; mockups' one-model line names the push sessions.
+
 ## Noticed, out of scope
 - Pre-existing: After Delivery AC-MERGE-05 ("run with the run's agent, model and effort") and its TD §After-Delivery Activities were never given a Replaces/Superseded pointer pair by Kiln Phase Model Tiers AC-OTHER-01, which moved merge and push onto the Audits row.
 - `kiln model-defaults --prd` changes a running PRD's choices with no status token or command ID, unlike `kiln model` (TD settles it: settings file, not a run).
 - Any write to Model defaults, even one row change, raises it to schema 2, so an older Kiln still running stops resolving every PRD (TD Delivery and changelog cover it).
+
+- Pass 2 discovery: an older Kiln still running a PRD ignores a `model-settings.json` a newer command wrote (no refusal, unlike schema 2 Model defaults); TD Delivery's "restart any Kiln still running the earlier version" covers it.
+- Inherited from Tiers (Q15 residual): a merge or plan push whose choice is a change for this PRD can't be changed after completion, short of Tiers AC-PICK-06's "where to change it"; closing it means a `preflight_pr` change after completion, new scope.
+- Pre-existing: Tiers' `auditsChangePlace` names the Audits line for merge and push stops after completion, where that line's Change is unavailable.
 
 ## Blockers
 | Blocker | Questions affected | What unblocks it |
 |---|---|---|
 
 ## Next action
-Pass 1 checkpoint commit. Then pass 2: discovery (Q14 carried first).
+Pass 2 checkpoint commit, then pass 3 discovery.
