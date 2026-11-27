@@ -424,6 +424,8 @@ export interface Snapshot {
     developmentDeployments?: DevelopmentSettings;
     /** The reason under Start while a repository row asks (find repositories anywhere "Asking Before Start"). */
     startBlockedBy?: string;
+    /** After Start: the commit Kiln started from and what changed since Documents found was drawn (run restart AC-FROM-06). */
+    startedFrom?: string;
     /** Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01): the phases carrying each tier, closed or not. */
     models: { tiers: { demanding: number; standard: number; mechanical: number; notRated: number };
       /** Why Start is unavailable for the models: an agent an activity needs isn't ready, or a choice can't be used (AC-AGENTS-01, AC-PICK-06). */
@@ -705,6 +707,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),
       ...(state === "not_started" ? optional("startBlockedBy", engine.startBlockedBy) : {}),
+      ...(record.startedAt !== undefined ? optional("startedFrom", record.startedFrom) : {}),
       models: { tiers: tierCounts(engine), ...(state === "not_started" ? optional("problem", engine.modelsProblem) : {}), fallback: fallbackSettings(engine), audits: auditsChoice(engine), revision: modelDefaultsRevision(engine.modelDefaultsFile) },
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),

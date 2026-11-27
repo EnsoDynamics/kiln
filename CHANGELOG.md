@@ -23,6 +23,15 @@ section to the new version.
   phase plan, the status line, `kiln status`, the finished page and each pull request's
   description. The **Audit loops** help now says a run makes only the loops it needs.
 - `kiln status` lists the batches of test fixes not yet started, with the new `planned` state.
+- Start no longer stops with "What Start would do has changed" when something moved after the
+  page loaded. Kiln starts from what it finds, and **Settings for this PRD** says which commit it
+  started from and what changed, such as new commits on the base branch.
+- Start pauses only when you start from a branch that already exists and that branch got new
+  commits, or its worktree changed, after the page loaded. The page says nothing has started
+  and what changed, with a **Start anyway** button.
+- When Start can't go ahead, a **Can't start** message beside the button says what is wrong and
+  what to do, naming the setting or the failed check.
+- Pressing Start while Kiln is still checking the base branch now waits for the check.
 
 ## [1.5.1] - 2026-11-26
 

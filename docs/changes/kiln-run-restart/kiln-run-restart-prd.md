@@ -60,6 +60,16 @@ The first screen, Documents found, gains one choice: where Kiln starts from. A n
   - Replaces in part: AC-START-08 in `docs/prds/kiln-v1/kiln-v1-prd.md` and AC-PRS-04 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Starting lets Kiln names the chosen branch, its open pull request, and bringing an untouched branch up to date).
 - [ ] **AC-FROM-05 — Several repositories use the one branch name.** For a PRD with several repositories, the chosen branch name applies to all of them, and the list holds every repository's branches. A repository that has the branch uses it, and its **Branch from, and PR into** reads **PR into**; one that doesn't gets it cut from its own base. A branch AC-FROM-03 makes unavailable in any repository is unavailable, naming that repository, and so is one whose existing worktrees don't share one workspace folder. **What Kiln found** reads the plan from the PRD's repository.
   - Replaces in part: AC-SPACE-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (a repository that has the branch uses it).
+- [ ] **AC-FROM-06 — Start goes ahead unless the chosen branch may be in use, and a Start that can't go ahead says why beside the button.** Kiln reads the repositories again when Start is pressed and starts from what it finds, except as the table says. A press made while Kiln is still checking a base branch or finishing another command waits a few seconds for it before answering. A press made while a billing approval is being saved is refused, saying so, so that no Start uses an approval saved after it (AC-BILL-04 in `docs/changes/kiln-billing-safeguards/kiln-billing-safeguards-prd.md`).
+
+  | When Start is pressed | What happens |
+  |---|---|
+  | A setting no longer passes its check, a start check has failed, or Kiln can't save or set up the run | Start is held. A **Can't start** message beside the button says what is wrong and what to do, naming the setting or the failed check. |
+  | The start is from a branch that already exists and, since the page was drawn, that branch moved or the worktree Kiln would use for it changed | Start pauses, having started nothing. In place of the Start button the page says nothing has started, what changed and when it is safe to go on, with a **Start anyway** button. The feature branch or folder field that changed is marked. |
+  | The page was showing settings that have since changed | Start pauses the same way, saying the page was out of date. |
+  | Anything else changed since the page was drawn: new commits on a base branch, different phases closed, a pull request opened for the branch, a different count of uncommitted files, a pull request read that failed | Kiln starts. |
+
+  Once started, the run's settings say which commit Kiln started from. They also say so when, since the page was drawn, the PRD repository's base branch got new commits, the phases closed changed, or a pull request was opened for the branch.
 
 ### Bring an Untouched Branch Up to Date
 
@@ -207,6 +217,7 @@ Each state draws the part of the page this change touches, simplified around it.
 |---|---|
 | Documents found, starting from a branch someone built phases on | AC-FROM-01, AC-FROM-02, AC-FROM-03, AC-FROM-04, AC-RESET-01 (no reset line before the first Start) |
 | Documents found after a reset, on Kiln's untouched branch | AC-FROM-01, AC-FROM-02, AC-FROM-03, AC-FROM-04, AC-CURRENT-01, AC-RESET-04, AC-RESET-01 (no reset line, as on a first visit) |
+| Start paused, Start held, and the run's starting point | AC-FROM-06 |
 | Kiln couldn't launch the agent | AC-CASE-01, AC-CASE-04, AC-CASE-02, AC-CASE-03, AC-RESET-01 |
 | The agent stopped before building anything | AC-CASE-01, AC-CASE-04, AC-CASE-03, AC-CARRY-01, AC-CURRENT-01, AC-RESET-01 |
 | The earlier conversation can't be reopened, in a phase that built nothing (as on 2026-11-11; the reason shown is illustrative) | AC-CASE-01, AC-CASE-04, AC-CASE-03, AC-CARRY-01, AC-CARRY-05, AC-CARRY-02, AC-CURRENT-01, AC-RESET-01 |

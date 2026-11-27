@@ -55,7 +55,7 @@ describe("development delivery HTTP and CLI authority",()=>{
       return original(directory, record);
     });
     try {
-      expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, reason: expect.stringContaining("Start could not be saved") });
+      expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: false, reason: expect.stringMatching(/^Kiln couldn’t save the run to .*, so nothing was started\. Check that the folder can be written and the disk isn’t full, then press Start\.$/) });
       expect(failedAtStart).toBe(true);
       expect(materializedTargets).toEqual([legacy ? target : { repository: target.repository, baseBranch: "develop" }]);
       expect(h.engine.record.settings.developmentDeployments).toEqual(choices);

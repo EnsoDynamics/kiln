@@ -20,6 +20,7 @@ a{color:#e2694f}a:hover{color:#f0866e}
 <select id="mock-case">
  <option value="found">Documents found, starting from a branch someone built phases on</option>
  <option value="found-reset">Documents found after a reset, on Kiln's untouched branch</option>
+ <option value="start-held">Start paused, Start held, and the run's starting point</option>
  <option value="launch">Kiln couldn't launch the agent</option>
  <option value="nothing">The agent stopped before building anything</option>
  <option value="conversation">The earlier conversation can't be reopened, in a phase that built nothing (as on 2026-11-11; the reason shown is illustrative)</option>
@@ -302,6 +303,40 @@ a{color:#e2694f}a:hover{color:#f0866e}
         <span style="font-size: 12.5px; color: #8c8577">Confirm refinement to start.</span>
       </div>
     </section>
+  </main>
+</div>
+</div>
+<div id="v-start-held" hidden>
+<div style="background: #12110e; color: #ede8dd; font: 14.5px/1.55 Inter, -apple-system, 'Segoe UI', sans-serif; min-height: 900px; box-sizing: border-box">
+  <main style="max-width: 1160px; margin: 0 auto; padding: 48px 32px 96px; box-sizing: border-box; display: flex; flex-direction: column; gap: 32px">
+    <span style="font-size: 14px; color: #bdb6a8; max-width: 820px">Three parts of today's pages, each drawn alone. The first two are the last column of Documents found's <strong style="color: #ede8dd; font-weight: 600">Before you start</strong>; the third is a row of <strong style="color: #ede8dd; font-weight: 600">Settings for this PRD</strong> once the run has started.</span>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; align-items: start">
+      <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 12px">
+        <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Start paused</h2>
+        <div style="border: 1px solid rgba(230,180,80,0.55); border-radius: 16px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; background: rgba(230,180,80,0.06)">
+          <span style="font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #e6b450; font-weight: 600">Paused · nothing has started</span>
+          <strong style="font-size: 17px; font-weight: 600; line-height: 1.35">Someone may be working on this branch</strong>
+          <span style="font-size: 13.5px; color: #bdb6a8"><code>feature/receipts-by-hand</code> changed after this page loaded: it was at <code>4f0a7b1</code> and is now at <code>9c1d2e4</code>.</span>
+          <button style="min-height: 52px; border-radius: 999px; font-size: 15.5px; font-weight: 600; background: #e6b450; color: #12110e; border: 1px solid #e6b450; width: 100%; cursor: pointer">Start anyway</button>
+          <span style="font-size: 12.5px; color: #8c8577">Only start if those commits are yours and that work is finished. Otherwise two sessions would be pushing to the same branch.</span>
+        </div>
+        <span style="font-size: 12.5px; color: #8c8577">The box takes the Start button's place. <strong style="font-weight: 600">Feature branch</strong> above is outlined in amber. A changed worktree reads “This branch’s worktree changed”, and settings changed elsewhere read “This page was out of date”.</span>
+      </section>
+      <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 12px">
+        <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Start held</h2>
+        <button style="min-height: 52px; padding: 0 24px; border-radius: 999px; font-size: 15.5px; font-weight: 600; background: transparent; color: #8c8577; border: 1px solid rgba(237,232,221,0.24); width: 100%; cursor: not-allowed" disabled>Start</button>
+        <div style="border: 1px solid rgba(230,180,80,0.55); border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; background: rgba(230,180,80,0.06)">
+          <strong style="font-size: 14.5px; font-weight: 600; color: #e6b450">Can’t start</strong>
+          <span style="font-size: 13.5px">Feature branch: That branch already exists. Choose a name no branch has; a new name starts this PRD over from develop.</span>
+        </div>
+        <span style="font-size: 12.5px; color: #8c8577">The same box carries a failed start check by name, several settings by their count, and a save or setup that failed.</span>
+      </section>
+      <section style="background: #1b1a16; border: 1px solid rgba(237,232,221,0.12); border-radius: 18px; padding: 28px; display: flex; flex-direction: column; gap: 12px">
+        <h2 style="margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: #8c8577">Settings for this PRD, once started</h2>
+        <span style="font-size: 12.5px; color: #8c8577">Starting point</span>
+        <span style="font-size: 14px">Started from develop at e65272a. develop got 1 commit after the page loaded (chore(release): prepare 1.5.0). It doesn’t touch this PRD’s documents.</span>
+      </section>
+    </div>
   </main>
 </div>
 </div>
@@ -705,7 +740,7 @@ claude</pre>
 </div>
 </div>
 <script>
-const views=["found","found-reset","launch","nothing","conversation","held","reset","working"];const sel=document.getElementById("mock-case");
+const views=["found","found-reset","start-held","launch","nothing","conversation","held","reset","working"];const sel=document.getElementById("mock-case");
 sel.addEventListener("change",()=>views.forEach(v=>document.getElementById("v-"+v).hidden=v!==sel.value));
 </script>
 </body>

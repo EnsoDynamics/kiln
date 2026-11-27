@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { documentsFoundRepositoriesSnapshot, documentsFoundSnapshot, findRepositoriesSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { accountLines, assumptionsLine, designLine, planCountLine, planRows, prdLine, startState } from "./documents-found.js";
+import { accountLines, assumptionsLine, designLine, failedChecksNote, planCountLine, planRows, prdLine, startState } from "./documents-found.js";
 
 describe("what Documents found says it found (AC-START-04)", () => {
   it("words each document's line as drawn", () => {
@@ -53,7 +53,22 @@ describe("Start (AC-START-05)", () => {
     expect(startState(findRepositoriesSnapshot(2), true, true)).toEqual({ enabled: false, note: "Tell Kiln where acme-labs/storefront is to start.", asks: true });
     const failing = findRepositoriesSnapshot(2);
     failing.settings.startBlockedBy = "Fix what failed, then reload.";
-    expect(startState(failing, true, true)).toEqual({ enabled: false, note: "Fix what failed, then reload." });
+    // No failed check is listed on this page, so the note keeps the general words, drawn as something to fix.
+    expect(startState(failing, true, true)).toEqual({ enabled: false, note: "Fix what failed, then reload.", fix: true });
+  });
+
+  it("names the failed start check beside Start, and how many more there are (run restart AC-FROM-06)", () => {
+    const uncommitted = "The checkout ~/acme-shop has uncommitted changes in 1 file: notes.txt";
+    expect(failedChecksNote([{ name: "Every phase cites its criteria", passed: true }, { name: uncommitted, passed: false, text: uncommitted }])).toBe(`${uncommitted}. Fix that, then reload this page.`);
+    expect(failedChecksNote([{ name: uncommitted, passed: false, text: uncommitted }, { name: "Couldn't read the plan.", passed: false, text: "Couldn't read the plan." }, { name: "third", passed: false }]))
+      .toBe(`${uncommitted}. And 2 more, listed under What Kiln found. Fix them, then reload this page.`);
+    // A repository to locate is a question, not a failed check.
+    expect(failedChecksNote([{ name: "1 repository to locate", passed: false, locate: true }])).toBe("Fix what failed, then reload.");
+    const reset = documentsFoundSnapshot({ documents: { checksFailed: true, checks: [{ name: uncommitted, passed: false, text: uncommitted }] } });
+    expect(startState(reset, true, true)).toEqual({ enabled: false, note: `${uncommitted}. Fix that, then reload this page.`, fix: true });
+    // A named repository Kiln couldn't check holds Start the same way.
+    const blocked = documentsFoundSnapshot({ settings: { startBlockedBy: "Fix what failed, then reload." }, documents: { checks: [{ name: "Couldn't check storefront.", passed: false, text: "Couldn't check storefront." }] } });
+    expect(startState(blocked, true, true)).toEqual({ enabled: false, note: "Couldn't check storefront. Fix that, then reload this page.", fix: true });
   });
 
   it("stays unavailable until the person confirms refinement", () => {
@@ -80,11 +95,11 @@ describe("Start (AC-START-05)", () => {
 
   it("says under Start which field holds it (UI-010 item 4)", () => {
     const one = documentsFoundSnapshot({ settings: { fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one." } } });
-    expect(startState(one, true, true)).toEqual({ enabled: false, note: "Worktree: That folder already exists and isn’t empty. Choose a new one." });
+    expect(startState(one, true, true)).toEqual({ enabled: false, note: "Worktree: That folder already exists and isn’t empty. Choose a new one.", fix: true });
     const base = documentsFoundSnapshot({ settings: { fieldErrors: { baseBranch: "develop isn’t on origin." } } });
-    expect(startState(base, true, true)).toEqual({ enabled: false, note: "Base branch: develop isn’t on origin." });
+    expect(startState(base, true, true)).toEqual({ enabled: false, note: "Base branch: develop isn’t on origin.", fix: true });
     const two = documentsFoundSnapshot({ settings: { fieldErrors: { featureBranch: "That isn’t a valid branch name.", worktreePath: "Enter a worktree path." } } });
-    expect(startState(two, true, true)).toEqual({ enabled: false, note: "Fix the 2 fields marked above to start." });
+    expect(startState(two, true, true)).toEqual({ enabled: false, note: "Fix the 2 fields marked above to start.", fix: true });
     expect(startState(one, false, true).note).toBe("Confirm refinement to start.");
     expect(startState(one, true, false).note).toBe("Not connected to Kiln.");
   });
@@ -107,13 +122,13 @@ describe("Documents found across repositories (multi-repo AC-REPO-03)", () => {
     const held = documentsFoundRepositoriesSnapshot();
     // Named by its label, not Kiln's name for it (find repositories anywhere AC-FOLDER-02).
     held.repositories[1] = { ...held.repositories[1]!, name: "acme-labs+admin", label: "acme-labs/admin", fieldErrors: { baseBranch: "develop isn’t on origin." } };
-    expect(startState(held, true, true)).toEqual({ enabled: false, note: "acme-labs/admin’s base branch: develop isn’t on origin." });
+    expect(startState(held, true, true)).toEqual({ enabled: false, note: "acme-labs/admin’s base branch: develop isn’t on origin.", fix: true });
     const prdBase = documentsFoundRepositoriesSnapshot();
     const prdRow = prdBase.repositories.findIndex((row) => row.kind === "prd");
     prdBase.settings.fieldErrors = { baseBranch: "develop isn’t on origin." };
     // The PRD's repository by its label too, when another repository shares its short name.
     prdBase.repositories[prdRow] = { ...prdBase.repositories[prdRow]!, name: "shop", label: "acme/storefront", fieldErrors: { baseBranch: "develop isn’t on origin." } };
-    expect(startState(prdBase, true, true)).toEqual({ enabled: false, note: "acme/storefront’s base branch: develop isn’t on origin." });
+    expect(startState(prdBase, true, true)).toEqual({ enabled: false, note: "acme/storefront’s base branch: develop isn’t on origin.", fix: true });
     const checking = documentsFoundRepositoriesSnapshot();
     checking.repositories[2] = { ...checking.repositories[2]!, baseCheck: "checking" };
     expect(startState(checking, true, true)).toEqual({ enabled: false, note: "Checking the base branches on origin…" });

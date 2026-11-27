@@ -444,6 +444,83 @@ export function newBranchPreview(branch: string, repositories: StartRepository[]
 // ---- Catching a branch up -------------------------------------------------------------------
 
 /** A repository as the catch-up reads it at the moment of use. */
+/** Why a pressed Start pauses, as the page draws it in place of the Start button (run restart "Start", AC-FROM-06). */
+export interface StartPause { headline: string; detail: string; caution: string; changed: ("branch" | "worktree" | "settings")[] }
+
+/**
+ * Whether a pressed Start pauses: `shown` is the preview the page showed (absent: the page was out
+ * of date), `now` the one just read. Only settings changed elsewhere, or an existing branch that
+ * moved or whose worktree changed, pause it; every other difference starts (AC-FROM-06).
+ *
+ *   startPause(shown, now)  // { headline: "Someone may be working on this branch", detail: "…", caution: "…", changed: ["branch"] }
+ */
+export function startPause(shown: StartPreview | undefined, now: StartPreview, label: (name: string) => string = name => name): StartPause | undefined {
+  const names = (preview: StartPreview) => preview.repositories.map(repository => repository.name).join("\n");
+  if (!shown || shown.from !== now.from || shown.branch !== now.branch || shown.bringUpToDate !== now.bringUpToDate || names(shown) !== names(now)) {
+    return { headline: "This page was out of date", detail: "The settings above changed after this page loaded. The page shows them as they are now.", caution: "Look them over, then start.", changed: ["settings"] };
+  }
+  if (now.from !== "existing") return undefined;
+  const multi = now.repositories.length > 1;
+  const branch: string[] = [];
+  const worktree: string[] = [];
+  now.repositories.forEach((repository, index) => {
+    const before = shown.repositories[index]!;
+    const where = multi ? ` in ${label(repository.name)}` : "";
+    if (before.hasBranch !== repository.hasBranch) branch.push(repository.hasBranch ? `${now.branch} was created${where} after this page loaded.` : `${now.branch} is no longer there${where}.`);
+    else if (before.tip !== repository.tip) branch.push(before.tip && repository.tip ? `${now.branch}${where} changed after this page loaded: it was at ${shortSha(before.tip)} and is now at ${shortSha(repository.tip)}.` : `${now.branch}${where} changed after this page loaded.`);
+    if (before.worktree?.path === repository.worktree?.path) return;
+    worktree.push(repository.worktree
+      ? `Kiln would work in ${displayPath(repository.worktree.path)}${where}, which wasn’t this branch’s worktree when this page loaded.`
+      : `The worktree at ${displayPath(before.worktree!.path)}${where} is no longer this branch’s, so Kiln would make its own.`);
+  });
+  if (worktree.length === 0 && shown.workspaceFolder !== now.workspaceFolder) worktree.push("The folder Kiln would work in changed after this page loaded.");
+  if (branch.length === 0 && worktree.length === 0) return undefined;
+  return {
+    headline: branch.length > 0 ? "Someone may be working on this branch" : "This branch’s worktree changed",
+    detail: [...branch, ...worktree].join(" "),
+    caution: branch.length > 0 ? "Only start if those commits are yours and that work is finished. Otherwise two sessions would be pushing to the same branch." : "Only start if that folder is yours and nothing else is running there.",
+    changed: [...(branch.length > 0 ? ["branch" as const] : []), ...(worktree.length > 0 ? ["worktree" as const] : [])],
+  };
+}
+
+/**
+ * What the run's settings say Kiln started from (run restart "Start", AC-FROM-06): the commit, then
+ * what changed between the preview the page showed and the one Start used without pausing it: the
+ * PRD repository's base, the phases closed, a pull request. `commit` is a new branch's start commit
+ * in the PRD's repository; an existing branch's is its plan source.
+ *
+ *   await startedFromNote(git, shown, now, tip)  // "Started from develop at e65272a. develop got 1 commit after the page loaded (…). It doesn’t touch this PRD’s documents."
+ */
+export async function startedFromNote(git: GitContext, shown: StartPreview | undefined, now: StartPreview, commit: string | undefined): Promise<string | undefined> {
+  const prd = now.repositories[0]!;
+  const source = now.planSource;
+  const sentences: string[] = [];
+  if (now.from === "new") {
+    if (commit === undefined) return undefined;
+    // A branch an earlier Start made and left is reused at its own commit, whatever the base has had since.
+    if (source && commit !== source.sha) return `Started from ${now.branch} at ${shortSha(commit)}, the branch an earlier Start cut from ${prd.baseBranch}.`;
+    sentences.push(`Started from ${prd.baseBranch} at ${shortSha(commit)}.`);
+  }
+  else if (!source) return undefined;
+  else sentences.push(source.kind === "base_after_catch_up" ? `Started from ${now.branch}, brought up to date with ${source.branch} at ${shortSha(source.sha)}.` : `Started from ${source.branch} at ${shortSha(source.sha)}.`);
+  if (!shown || shown === now || shown.from !== now.from) return sentences.join(" ");
+  const baseTip = (preview: StartPreview) => (preview.from === "new" ? preview.planSource?.sha : preview.repositories[0]?.baseTip);
+  const from = baseTip(shown);
+  const to = baseTip(now);
+  if (from !== undefined && to !== undefined && from !== to) {
+    const commits = await count(git, prd.mainCheckoutPath, `${from}..${to}`);
+    const subject = commits === 1 ? await runGit(git, prd.mainCheckoutPath, ["log", "-1", "--format=%s", to]) : undefined;
+    const named = subject?.exitCode === 0 && subject.stdout.trim() !== "" ? ` (${subject.stdout.trim()})` : "";
+    sentences.push(commits !== undefined && commits > 0 ? `${prd.baseBranch} got ${commits} commit${commits === 1 ? "" : "s"} after the page loaded${named}.` : `${prd.baseBranch} moved from ${shortSha(from)} to ${shortSha(to)} after the page loaded.`);
+    // A new branch starts only while the base holds the documents Kiln read, which the base check has just confirmed.
+    if (now.from === "new") sentences.push(commits === 1 ? "It doesn’t touch this PRD’s documents." : "That didn’t change this PRD’s documents.");
+  }
+  if (shown.closedCount !== now.closedCount || shown.startAt?.id !== now.startAt?.id) sentences.push(now.startAt ? `The phases closed there changed after the page loaded, so Kiln starts at Phase ${now.startAt.id}.` : "The phases closed there changed after the page loaded.");
+  const pull = (preview: StartPreview) => { const read = preview.repositories[0]?.pullRequest; return read && "number" in read ? read.number : undefined; };
+  if (pull(now) !== undefined && pull(shown) !== pull(now)) sentences.push(`Pull request #${pull(now)} for the branch was opened after the page loaded, and Kiln will use it.`);
+  return sentences.join(" ");
+}
+
 export interface CatchUpTarget { name: string; /** What its messages name it by (find repositories anywhere AC-FOLDER-02); absent: its name. */ label?: string; mainCheckoutPath: string; worktreePath?: string; baseBranch: string }
 
 export interface CatchUpReading { name: string; base: string; baseTip: string; local?: string; origin?: string; ownCommits: number; behind: number; qualifies: boolean }

@@ -133,14 +133,15 @@ it("the open page resets through its confirmation, returns to Documents found wi
       // AC-RESET-04: the same page, still connected, shows Documents found with the failed check named.
       await page.waitFor(`${text}.includes("Not started") && ${text}.includes("has uncommitted changes in 1 file: scratch.txt")`, 30_000);
       expect(await page.evaluate<boolean>(`!!document.querySelector("footer.reset")`)).toBe(false);
-      expect(await page.evaluate<string>(text)).toContain("Fix what failed, then reload.");
+      // Beside Start, the failed check by name and what to do (AC-FROM-06).
+      expect(await page.evaluate<string>(`document.querySelector(".cant-start").innerText`)).toMatch(/^Can’t start\s+.*has uncommitted changes in 1 file: scratch\.txt\. Fix that, then reload this page\.$/);
       expect(await page.evaluate<boolean>(`document.querySelector("button.start").disabled`)).toBe(true);
       expect(await page.evaluate<string>(text)).toContain("Connected to Kiln");
       expect(stdout()).toMatch(/ Reset {2}· {2}back to Documents found\n/);
       // Fixed, a reload finds every check passing.
       rmSync(join(h.repository, "scratch.txt"));
       await page.evaluate("location.reload()");
-      await page.waitFor(`${text}.includes("Working tree is clean") && !${text}.includes("Fix what failed")`, 30_000);
+      await page.waitFor(`${text}.includes("Working tree is clean") && !document.querySelector(".cant-start")`, 30_000);
       // AC-RESET-04: with every start check passing, Start is available again.
       // As on a first visit, Start then waits only for the refinement box.
       await page.evaluate(`[...document.querySelectorAll("label")].find(l => l.innerText.includes("These documents have been through requirements refinement")).querySelector("input").click()`);
@@ -294,13 +295,13 @@ it("a reset run from Kiln's own worktree adopts it: its uncommitted files are co
     try {
       // The branch that exists is chosen, its worktree is the checkout kiln run was run from: counted, and Start isn't held.
       await page.waitFor(`${text}.includes("Not started") && ${text}.includes("A branch that already exists")`, 30_000);
-      await page.waitFor(`!${text}.includes("has uncommitted changes") && !${text}.includes("Fix what failed")`, 30_000);
+      await page.waitFor(`!${text}.includes("has uncommitted changes") && !document.querySelector(".cant-start")`, 30_000);
       // Counted on the page, never reported as a clean tree.
       expect(await page.evaluate<string>(text)).not.toContain("Working tree is clean");
       // A new branch would not adopt it, so the uncommitted files fail the check as kiln run says.
       const changed = await fetch(`${base}/api/settings`, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ start: { from: "new", bringUpToDate: true } }) });
       expect(changed.status).toBe(200);
-      await page.waitFor(`${text}.includes("has uncommitted changes in 1 file: notes.txt") && ${text}.includes("Fix what failed, then reload.")`, 30_000);
+      await page.waitFor(`${text}.includes("has uncommitted changes in 1 file: notes.txt") && ${text}.includes("Fix that, then reload this page.")`, 30_000);
     } finally { await page.close(); }
   }, worktree);
 }, 120_000);

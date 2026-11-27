@@ -41,8 +41,8 @@ export function validateStartTargets(record: PrdRecord, repositories: { github: 
   for (const candidate of settings.targets) {
     const target = normalizeMergeTarget(candidate.target);
     if (target.environment !== undefined) need(candidate.confirmedNonProduction === true && candidate.confirmedTarget && authorizationTargetKey(normalizeMergeTarget(candidate.confirmedTarget)) === authorizationTargetKey(target), "Reselect the repository branch to replace this unconfirmed legacy target.", 422);
-    need(repositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && repo.baseBranch === target.baseBranch), `The development target ${target.repository} / ${target.baseBranch} no longer matches a participating repository.`, 422);
-    need(!seen.has(authorizationTargetKey(target)), "Duplicate development target.", 422); seen.add(authorizationTargetKey(target));
+    need(repositories.some(repo => target.repository === `github.com/${repo.github}`.toLowerCase() && repo.baseBranch === target.baseBranch), `Early merges are set to merge into ${target.baseBranch} in ${target.repository}, which is no longer one of this PRD’s repository branches. Untick it under Allow early merges.`, 422);
+    need(!seen.has(authorizationTargetKey(target)), `Early merges list ${target.baseBranch} in ${target.repository} twice. Remove one under Allow early merges.`, 422); seen.add(authorizationTargetKey(target));
   }
 }
 function mechanical(text: string): string { return text.replace(/^\*\*Closed:\*\*[^\n]*\n?/gm, "").replace(/^(\s*- )\[[ xX]\](\s+)/gm, "$1[ ]$2"); }
