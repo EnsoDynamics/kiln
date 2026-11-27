@@ -34,6 +34,13 @@ it("reads each message's outcome and what changed, and refuses a report whose me
   expect(readStageReport(block({ ...report, messages: [{ id: "m-1", outcome: "worked_in" }] }), "review")?.messages).toBeUndefined();
 });
 
+it("keeps a draft note only when the report gives statements or items left out (AC-NOTE-01)", () => {
+  const draft = (statements: string[], leftOut: string[]) => readStageReport(block({ ...report, draft: { statements, leftOut } }), "stage")?.draft;
+  expect(draft([], [])).toBeUndefined();
+  expect(draft(["Staff can look up a balance."], [])).toEqual({ statements: ["Staff can look up a balance."], leftOut: [] });
+  expect(draft([], ["Refunds."])).toEqual({ statements: [], leftOut: ["Refunds."] });
+});
+
 it("takes feedback up to 32 KiB of well-formed text", () => {
   expect(feedbackProblem("x".repeat(FEEDBACK_LIMIT_BYTES))).toBeUndefined();
   expect(feedbackProblem("é".repeat(FEEDBACK_LIMIT_BYTES / 2 + 1))).toMatch(/32 KiB/);

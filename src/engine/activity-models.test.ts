@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ModelEntry } from "../account/model-list.js";
 import type { PrdRecord } from "../state/records.js";
-import { launchSource, notStartedChoice, type ModelContext } from "./activity-models.js";
+import { launchSource, notStartedChoice, rowOfActivity, type ModelContext } from "./activity-models.js";
 import { choiceStopFact } from "./engine.js";
 
 let dir: string;
@@ -46,5 +46,18 @@ describe("a stop's words for a choice that can't be used", () => {
     // Neither the Preflight row nor the pull request row offers Change, so a changed Audits choice names the Audits line (AC-PICK-06 with AC-OTHER-01).
     expect(choiceStopFact({ agentId: "codex", modelName: "GPT Sol", effort: "xhigh", from: "changed", problem: "Codex's model list can't be read." }, "preflight-1"))
       .toBe("The audits, preflight and pull request session run on Codex · GPT Sol · xhigh from a change for this PRD: Codex's model list can't be read. Change it on the Audits line, in Documents found's delivery panel or the run's settings.");
+    // A requirements stage is named by its row and points to the requirements plan and its own Model defaults row (Kiln Requirements Stages AC-MODEL-06).
+    expect(choiceStopFact({ agentId: "claude_code", modelName: "Fable", effort: "high", from: "model_defaults", row: "requirements", problem: "Claude Code doesn't offer Fable on this account." }, "req-abc", "Write the PRD"))
+      .toBe("Write the PRD runs on Claude Code · Fable · high from Model defaults (Requirements stages row): Claude Code doesn't offer Fable on this account. Change the Requirements stages row in Model defaults, or this stage on its row in the requirements plan.");
+    expect(choiceStopFact({ agentId: "claude_code", modelName: "Sonnet", effort: "low", from: "saved", problem: "Claude Code doesn't offer Sonnet on this account." }, "req-row:review-technical-design#1", "Design review"))
+      .toBe("Design review runs on Claude Code · Sonnet · low from a choice saved for every PRD for this stage's skill: Claude Code doesn't offer Sonnet on this account. Change it on its row in the requirements plan.");
+  });
+});
+
+describe("the Model defaults row a requirements stage uses", () => {
+  it("puts the Next stage row on Refining the design while the design span is open, as its launch is (Kiln Requirements Stages AC-MODEL-01)", () => {
+    const record = (designSpan: boolean) => ({ requirements: { designSpan, stages: [] } }) as unknown as PrdRecord;
+    expect(rowOfActivity([], "req-next", record(false))).toBe("requirements");
+    expect(rowOfActivity([], "req-next", record(true))).toBe("refining_design");
   });
 });

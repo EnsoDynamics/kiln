@@ -5,7 +5,9 @@ import { runHelper } from "../platform/helper-process.js";
 import { CodexMetadataRpc } from "./codex-metadata-rpc.js";
 
 import { belowMinimumProblem, compareToMinimum, requirement } from "./tooling-minimums.js";
-export const METHOD_SKILLS = ["implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt", "phase-split"];
+export const METHOD_SKILLS = ["implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt"];
+// Only the skills a build session loads. Requirements stages are read from the installed
+// method's own plan (AC-PLAN-02), so no requirements-stage skill, phase-split included, is named here.
 interface CodexModel { model: string; displayName: string; description: string; hidden?: boolean; selectable?: boolean; supportedReasoningEfforts: { reasoningEffort: string; description?: string }[]; defaultReasoningEffort?: string }
 export interface AccountResult { account?: { type: string; email?: string; planType?: string } | null; workspaceRouting?: { chatgptAccountId?: string } }
 interface Window { usedPercent?: number | null; windowDurationMins?: number | null; resetsAt?: number | null }

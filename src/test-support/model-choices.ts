@@ -24,7 +24,7 @@ export async function runPrdOn(engine: Engine, choice: ModelChoice = CODEX_CHOIC
 }
 
 /** Writes Model defaults for every PRD on the test's computer: the rows given, the rest Kiln's own. */
-export function writeModelDefaults(env: NodeJS.ProcessEnv, rows: Partial<Record<"demanding" | "standard" | "mechanical" | "audits", { first?: FamilyChoice; fallback?: FamilyChoice }>>, fallback?: { enabled?: boolean; threshold?: number }): string {
+export function writeModelDefaults(env: NodeJS.ProcessEnv, rows: Partial<Record<"demanding" | "standard" | "mechanical" | "audits" | "requirements" | "refining_design", { first?: FamilyChoice; fallback?: FamilyChoice }>>, fallback?: { enabled?: boolean; threshold?: number }): string {
   const path = modelDefaultsPath(env);
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, JSON.stringify({ schemaVersion: 1, rows, ...(fallback ? { fallback } : {}) }));

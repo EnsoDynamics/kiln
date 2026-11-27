@@ -1270,8 +1270,11 @@ export class Engine {
     const starting = !!hold && this.returningTakeover && !!this.current?.processRunning;
     // While a launch from the paused page is starting, no Pause now state is projected (Kiln Pause Now, "The Pause Now State").
     const pauseNow = hold && hold.kind !== "delivery_recovery" && !starting ? this.pauseNowView(hold, label) : undefined;
+    // During the requirements a message is feedback: POST /api/live/message adds it to the feedback list, which delivers it to this
+    // session when it can and otherwise has a fresh session apply it, so the composer takes it whenever no Pause now hold stands (AC-STAGE-04).
+    const requirementsInput = { available: !hold && !starting, reason: hold ? "Pause now is pausing or has paused this activity." : starting ? "The new session is starting." : this.feedbackGoesLive() ? "Kiln sends this as feedback: this stage's session reads it at its next opportunity." : "Kiln sends this as feedback: a fresh session applies it before the next stage.", pending, feedback: true as const };
     const inputReason = starting ? "The new session is starting." : this.recoveredLive ? "Input connection lost. Your unsent draft is retained; use Pause now to recover." : hold ? uncertain || hold.kind === "delivery_recovery" ? "Delivery uncertain. Review the message in the conversation before handing back." : "Pause now is pausing or has paused this activity." : pending >= 32 ? `Busy: ${pending} accepted messages await terminal results (limit 32).` : messageOff ? liveNoticeReason(this.record, "live_messages") ?? "Message Claude is unavailable for this attempt." : !run?.live?.literalInput ? unreadVersion("live_messages") ?? "Live messages need a supported Claude Code on macOS." : !inputAvailable ? "This attempt is starting, submitting, or no longer accepting input." : "Claude reads this at its next opportunity. The current tool may finish first.";
-    return { target, label, observedAt: this.now().toISOString(), input: { available: inputAvailable && !this.requirementsOpen, reason: this.requirementsOpen ? "Send feedback instead: Kiln delivers it to this session or applies it in a fresh one." : inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !starting && !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (starting ? "The new session is starting." : undefined) ?? (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Pause now needs a supported Claude Code on macOS. Pause after the current activity remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? GATELESS_PAUSE_REASON : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}), ...(pauseNow ? { pauseNow } : {}) };
+    return { target, label, observedAt: this.now().toISOString(), input: this.requirementsOpen ? requirementsInput : { available: inputAvailable, reason: inputReason, pending }, messages: messages.slice(-50).map(r => ({ id: r.id, instructionId: r.command_id, acceptedAt: r.accepted_at, delivery: r.message!.delivery, ...(r.message!.reviewedAt ? { reviewedAt: r.message!.reviewedAt } : {}) })), reviewRequired: messages.filter(r => r.message?.delivery === "uncertain" && !r.message.reviewedAt).map(r => r.id), available: !starting && !submitting && capable && !hookOff && (!hold || hold.kind === "delivery_recovery") && !!this.current?.processRunning, reason: (starting ? "The new session is starting." : undefined) ?? (hold && this.checkpointUnavailable(hold)) ?? hold?.reason ?? (!capable ? unreadVersion("takeover") ?? "Pause now needs a supported Claude Code on macOS. Pause after the current activity remains available." : hookOff ? this.takeoverNotice(run!.live!, gate?.contract?.detail) : this.recoveredLive ? GATELESS_PAUSE_REASON : "Finish the current operation, then stop before starting more work."), ...(hold ? { takeover: hold } : {}), ...(pauseNow ? { pauseNow } : {}) };
   }
 
   /** The Pause now state (Kiln Pause Now technical design, "The Pause Now State"): one projection every surface reads. */
@@ -1787,7 +1790,7 @@ export class Engine {
     const decided = this.decisions.get(key);
     if (decided) return decided.choice;
     const choice = this.notStartedChoice(key);
-    if (!choice.model || choice.problem) throw new Error(choiceStopFact(choice, key));
+    if (!choice.model || choice.problem) throw new Error(choiceStopFact(choice, key, this.titleOf(key)));
     return { agentId: choice.agentId, model: choice.model, modelName: choice.modelName, ...(choice.effort ? { effort: choice.effort } : {}) };
   }
 
@@ -2073,7 +2076,12 @@ export class Engine {
       const plan = this.requirementsPlan;
       const state = this.record.requirements!;
       const current = this.current && activityKeyKind(this.current.phaseKey) === "requirements" ? this.current.phaseKey : undefined;
-      if (!plan) return this.isUnderway ? [{ key: current ?? "req-next", row: "Requirements stages" }] : [{ key: "req-next", row: "Requirements stages" }, { key: "req-design", row: "Refining the design" }];
+      if (!plan) {
+        if (!this.isUnderway) return [{ key: "req-next", row: "Requirements stages" }, { key: "req-design", row: "Refining the design" }];
+        // The stage the latest report names resolves under its own key, as its row and its launch do.
+        const next = expectedStage(state);
+        return [current ? { key: current, row: this.titleOf(current) } : next ? { key: `${PLANNED_STAGE_PREFIX}${nextStageKey(state, next.skill)}`, row: next.title } : { key: "req-next", row: "Requirements stages" }];
+      }
       const currentKey = current && state.stages.find(stage => `req-${stage.activityId}` === current)?.key;
       const unknown = !!state.standing && "unknown" in state.standing || !!state.cursorLost;
       return [...(current ? [{ key: current, row: this.titleOf(current) }] : unknown ? [{ key: "req-next", row: "Next stage" }] : []),
@@ -2345,7 +2353,7 @@ export class Engine {
     for (const { key } of this.unfinishedActivityKeys()) {
       if (this.startedSessionOf(key)) continue;
       const choice = this.notStartedChoice(key);
-      if (choice.problem) return choiceStopFact(choice, key);
+      if (choice.problem) return choiceStopFact(choice, key, this.titleOf(key));
     }
     return undefined;
   }
@@ -2382,7 +2390,7 @@ export class Engine {
     if (problem) return problem;
     if (target === undefined || this.startedSessionOf(target)) return undefined;
     const choice = this.notStartedChoice(target);
-    return choice.problem === undefined ? undefined : choiceStopFact(choice, target);
+    return choice.problem === undefined ? undefined : choiceStopFact(choice, target, this.titleOf(target));
   }
   private modelsChanged(): void {
     if (this.observedClaude !== this.claude) {
@@ -6370,8 +6378,29 @@ export class Engine {
 
   /** A stage key's skill and whether its plan entry makes the design ready, from the plan this PRD shows. */
   stageInfo(stageKey: string): { skill?: string; design?: boolean } {
+    const info = this.planStageInfo(stageKey);
+    // The stage Kiln launches next runs on Refining the design while the design span is open, as its launch does (AC-MODEL-01).
+    return this.record.requirements?.designSpan && stageKey === this.nextStageLaunchKey() ? { ...info, design: true } : info;
+  }
+
+  /** The key the driver gives the next stage session it launches (technical design, "What a session is told"). */
+  private nextStageLaunchKey(): string {
+    const state = this.record.requirements!;
     const plan = this.requirementsPlan;
-    if (!plan) return {};
+    const planned = plannedNext(plan, state);
+    if (planned) return planned.key;
+    const expected = plan ? undefined : expectedStage(state);
+    return expected ? nextStageKey(state, expected.skill) : "kiln:next";
+  }
+
+  private planStageInfo(stageKey: string): { skill?: string; design?: boolean } {
+    const plan = this.requirementsPlan;
+    if (!plan) {
+      // With no plan, the row the latest report names runs the skill it names (AC-MODEL-01, AC-MODEL-03).
+      const state = this.record.requirements;
+      const next = state && expectedStage(state);
+      return next && stageKey === nextStageKey(state, next.skill) ? { skill: next.skill, design: next.reaches.includes("design_ready") } : {};
+    }
     if (stageKey === "kiln:early" || stageKey === "kiln:final") return { skill: plan.reviewSkill.skill };
     const inserted = this.record.requirements?.inserted;
     if (inserted?.key === stageKey) return { skill: inserted.skill, design: inserted.reaches.includes("design_ready") };
@@ -6397,14 +6426,16 @@ export class Engine {
 
   /**
    * Fingerprints the installed method and, when no plan exists for the Requirements stages agent
-   * and that fingerprint, starts a plan read (AC-PLAN-03). `wait`: before a launch, which waits
-   * for the read (technical design, "A method update at a stage boundary"). `force`: Read again,
+   * and that fingerprint, starts a plan read (AC-PLAN-03). `wait`: at a stage boundary, which waits
+   * for a read of a method other than the one the PRD's plan came from (technical design, "A method update at a stage boundary"). `force`: Read again,
    * which reads past a saved failure or plan. A failed read isn't retried until the fingerprint
    * changes, and the driver doesn't wait on it.
    */
   async refreshRequirementsPlan(options: { wait?: boolean; force?: boolean } = {}): Promise<void> {
     if (!this.requirementsOpen || this.closed) return;
-    if (this.planRun) { if (options.wait) await this.planRun; return; }
+    // Only a read of a method other than the one the PRD's plan came from is waited for: Read again of that same method is not a method update.
+    const waitsFor = (fingerprint: string | undefined) => !!options.wait && fingerprint !== this.record.requirements?.planFingerprint;
+    if (this.planRun) { if (waitsFor(this.planMethod?.fingerprint)) await this.planRun; return; }
     const choice = this.notStartedChoice(PLAN_READ_KEY);
     const agentId = choice.agentId;
     const found = await resolveSkill({ name: "using-the-enso-method", agent: agentId, cwd: this.paths.mainCheckoutPath, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), env: this.options.env, signal: this.abort.signal });
@@ -6425,7 +6456,7 @@ export class Engine {
     if (findFailure(file, agentId, method.fingerprint) && !options.force) { this.changed(); return; }
     if (file.reading?.fingerprint === method.fingerprint && file.reading.agentId === agentId && await isProcessLive(file.reading.pid, file.reading.processStartTime)) {
       // Another Kiln reads it: the watch republishes when it lands.
-      if (options.wait) await this.waitForOtherRead(agentId, method.fingerprint);
+      if (waitsFor(method.fingerprint)) await this.waitForOtherRead(agentId, method.fingerprint);
       return;
     }
     // The choice as the model list now stands: the lookup above may have outlasted a list that was loading.
@@ -6439,7 +6470,7 @@ export class Engine {
       return;
     }
     const run = this.startPlanRead(agentId, { model: now.model, modelName: now.modelName, ...(now.effort ? { effort: now.effort } : {}) }, this.planMethod);
-    if (options.wait) await run;
+    if (waitsFor(method.fingerprint)) await run;
   }
 
   private async waitForOtherRead(agentId: AgentId, fingerprint: string): Promise<void> {
@@ -6575,9 +6606,9 @@ export class Engine {
     const last = state.stages.at(-1);
     const pending = last && !this.record.phases[`req-${last.activityId}`]?.doneAt ? last : undefined;
     if (!pending) {
-      // A changed method is read, and waited for, before the next session; a stage already running finished on its copy (AC-PLAN-07).
-      // A PRD that shows no plan yet waits for nothing: its session runs as the Next stage row and the plan fills in (AC-PLAN-05).
-      await this.refreshRequirementsPlan({ wait: !!state.planFingerprint });
+      // A changed method is read, and waited for, at a stage boundary; a stage already running finished on its copy (AC-PLAN-07).
+      // At Start nothing waits, and a PRD that shows no plan yet waits for nothing: its session runs as the Next stage row and the plan fills in (AC-PLAN-05).
+      await this.refreshRequirementsPlan({ wait: !!state.planFingerprint && state.stages.length > 0 });
       if (this.stopping || this.closed) return false;
       this.adoptPlan();
     }
@@ -9867,7 +9898,7 @@ export class Engine {
     const facts = this.record.phases[key];
     if (!facts?.wait || !this.waitsBeforeStart(key)) return false;
     const choice = this.notStartedChoice(key);
-    const problem = !this.installed(choice.agentId) ? choiceStopFact({ ...choice, problem: installRemedy(choice.agentId) }, key) : choice.problem && !choice.problem.startsWith("Reading ") ? choiceStopFact(choice, key) : undefined;
+    const problem = !this.installed(choice.agentId) ? choiceStopFact({ ...choice, problem: installRemedy(choice.agentId) }, key, this.titleOf(key)) : choice.problem && !choice.problem.startsWith("Reading ") ? choiceStopFact(choice, key, this.titleOf(key)) : undefined;
     if (problem === undefined) return false;
     delete facts.wait;
     this.unwatchWait();
@@ -11251,12 +11282,26 @@ export class Engine {
   }
 
   titleOf(phaseId: string): string {
+    if (phaseId.startsWith(PLANNED_STAGE_PREFIX)) return this.plannedStageTitle(phaseId.slice(PLANNED_STAGE_PREFIX.length)) ?? phaseId;
     const stage = this.record.requirements?.stages.find(s => phaseId === `req-${s.activityId}`);
     if (stage) return stage.ran[0]?.title ?? stage.expected?.title ?? (stage.task === "review" ? "Stakeholder review" : "Next requirements stage");
     const audit = this.auditActivity(phaseId);
     if (isPreflightKey(phaseId)) return PREFLIGHT_TITLE;
     if (isPlanPushKey(phaseId)) return "Push the plan";
     return audit ? recordedAuditName(this.record, audit).title : this.record.plan?.find((phase) => phase.id === phaseId)?.title ?? phaseId;
+  }
+
+  /** A planned requirements row's title, by its stage key: the plan's entry, Kiln's inserted row or review row, or with no plan the stage the latest report names. */
+  private plannedStageTitle(stageKey: string): string | undefined {
+    if (stageKey === "kiln:early") return "Early stakeholder review";
+    if (stageKey === "kiln:final") return "Final stakeholder review";
+    const state = this.record.requirements;
+    if (!state) return undefined;
+    if (state.inserted?.key === stageKey) return state.inserted.title;
+    const plan = this.requirementsPlan;
+    if (plan) { const at = planKeys(plan.stages).indexOf(stageKey); return at >= 0 ? plan.stages[at]!.title : undefined; }
+    const next = expectedStage(state);
+    return next && stageKey === nextStageKey(state, next.skill) ? next.title : undefined;
   }
 
   fileOf(phaseId: string): string | undefined {
@@ -11475,7 +11520,16 @@ class AuditSkillUnresolved extends Error {}
  *   choiceStopFact(choice, "2")  // "Phase 2 runs on Claude Code · Fable · high from Model defaults (Demanding row): Claude Code doesn't offer Fable on this account. Change the Demanding row in Model defaults."
  *   choiceStopFact(choice, "pr") // "The audits, preflight and pull request session run on Claude Code · Opus · high from Model defaults (Audits row): …"
  */
-export function choiceStopFact(choice: ActivityChoice, key: string): string {
+export function choiceStopFact(choice: ActivityChoice, key: string, title?: string): string {
+  if (activityKeyKind(key) === "requirements") {
+    // A requirements stage is named by its row and changed there, or in its Model defaults row (Kiln Requirements Stages AC-MODEL-06).
+    const stage = key === PLAN_READ_KEY ? "The session reading the requirements plan" : title && title !== key ? title : "The next requirements stage";
+    const named = [AGENT_NAMES[choice.agentId], choice.modelName, choice.effort].filter(Boolean).join(" · ");
+    const row = choice.row ? ROW_NAMES[choice.row] : undefined;
+    const from = choice.from === "changed" ? "a change for this PRD" : choice.from === "saved" ? "a choice saved for every PRD for this stage's skill" : `Model defaults${row ? ` (${row} row)` : ""}`;
+    const where = key === PLAN_READ_KEY ? `Change ${row ? `the ${row} row` : "it"} in Model defaults.` : choice.from === "model_defaults" ? `Change ${row ? `the ${row} row` : "it"} in Model defaults, or this stage on its row in the requirements plan.` : "Change it on its row in the requirements plan.";
+    return `${stage} runs on ${named || "a choice"} from ${from}: ${choice.problem} ${where}`;
+  }
   const who = key === PR_PHASE_KEY || !isPhaseKey(key) ? "The audits, preflight and pull request session" : `Phase ${key}`;
   const named = [AGENT_NAMES[choice.agentId], choice.modelName, choice.effort].filter(Boolean).join(" · ");
   const row = choice.row ? ROW_NAMES[choice.row] : undefined;

@@ -24,7 +24,8 @@ export interface TakeoverHold {
 }
 export interface LiveView {
   target: LiveTarget; label: string; observedAt: string; available: boolean; reason: string;
-  input?: { available: boolean; reason: string; pending: number };
+  /** `feedback`: during the requirements a message goes in as feedback (Kiln Requirements Stages AC-STAGE-04). */
+  input?: { available: boolean; reason: string; pending: number; feedback?: true };
   messages?: MessageSummary[];
   reviewRequired?: string[];
   takeover?: TakeoverHold;

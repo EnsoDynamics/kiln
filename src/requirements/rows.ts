@@ -46,7 +46,16 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
   delete state.cursorLost;
   const changes: string[] = [];
   const ran = task === "stage" ? report.ran[0] : undefined;
-  const ranAt = ran ? indexFrom(stages, pos, ran.skill) : -1;
+  // What ran ends at the last plan entry its skills reach in order, so a session that ran several stages passes none of them (AC-PLAN-06).
+  let ranAt = -1;
+  // Entries between two that ran didn't run: they are named as passed.
+  const skipped: string[] = [];
+  if (task === "stage") for (const one of report.ran) {
+    const at = indexFrom(stages, ranAt >= 0 ? ranAt + 1 : pos, one.skill);
+    if (at < 0) continue;
+    if (ranAt >= 0) skipped.push(...stages.slice(ranAt + 1, at).map(stage => stage.title));
+    ranAt = at;
+  }
   if (ran && expected && ran.skill !== expected.stage.skill) changes.push(`The session ran ${ran.title} where the plan had ${expected.stage.title} next.`);
   const next = report.next as NextStage;
   if (atStop) {
@@ -60,7 +69,7 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
   // The cursor is the first entry at or after its last position whose skill is the standing's next.
   const found = indexFrom(stages, pos, next.skill);
   if (found >= 0) {
-    const passed = found > from ? stages.slice(from, found).map(stage => stage.title) : [];
+    const passed = [...skipped, ...(found > from ? stages.slice(from, found).map(stage => stage.title) : [])];
     if (unknown) changes.push(`Kiln continues from ${stages[found]!.title}, where the method found this PRD stands.`);
     else if (passed.length) changes.push(`Passed ${passed.join(", ")}, which the method didn't run for this PRD.`);
     state.cursor = found;

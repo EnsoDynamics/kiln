@@ -70,8 +70,8 @@ it("applies feedback across every document at any moment without stopping the ru
     // 6. Feedback at the early review again, not stopping: Kiln carries on to the design without waiting.
     { actions: [{ write: { path: prd, content: PRD + "\nRefined.\nStaff can look up a count too.\nCounts are whole boxes.\nShow the date.\n" } }, { write: { path: review, content: "<h1>Early review, again</h1>" } }, { commit: "second early feedback" },
       report({ next: "technical-design-writing-standards", milestones: ["prd_refined", "review_made"], messages: [["m-3", "worked_in"]], changes: ["Shows the date."] }), { exit: 0 }] },
-    // 7. The design and phase plan.
-    { actions: [{ write: { path: design, content: DESIGN } }, { write: { path: `${dir}/${phase}`, content: PHASES[phase]! } }, { commit: "design" }, report({ ran: ["technical-design-writing-standards"], next: "build", milestones: ["prd_refined", "design_ready", "requirements_finished"] }), { exit: 0 }] },
+    // 7. The design and phase plan, held while the screen is read.
+    { actions: [{ touch: join(signals, "designing") }, { waitForFile: join(signals, "design-go") }, { write: { path: design, content: DESIGN } }, { write: { path: `${dir}/${phase}`, content: PHASES[phase]! } }, { commit: "design" }, report({ ran: ["technical-design-writing-standards"], next: "build", milestones: ["prd_refined", "design_ready", "requirements_finished"] }), { exit: 0 }] },
     // The design only adds files, so the early review is still current and the final review needs no session.
     // 8. Feedback at the final review reaches the design and the phase plan, and refreshes the review.
     { actions: [{ write: { path: design, content: DESIGN + "\nStaff lookup uses the same page.\n" } }, { write: { path: `${dir}/${phase}`, content: PHASES[phase]!.replace("# Phase 1: Return intake", "# Phase 1: Return intake and staff lookup") + "\nCovers the staff lookup.\n" } }, { write: { path: review, content: "<h1>Final review, refreshed</h1>" } }, { commit: "final feedback" },
@@ -139,8 +139,14 @@ it("applies feedback across every document at any moment without stopping the ru
 
   // Without Stop here again, Kiln carries on to the design, then stops at the final review.
   expect((await post("feedback", { text: "Show the date." })).status).toBe(202);
+  // AC-EARLY-04: while Kiln carries on, the screen shows what that round changed.
+  await waitFor(() => existsSync(join(signals, "designing")), 20_000);
+  expect(h.engine.reviewStop).toBeUndefined();
+  expect(buildSnapshot(h.engine).requirements!.whatChanged).toEqual({ kind: "early", items: ["Shows the date."], commit: feedback()[2]!.appliedCommit });
+  writeFileSync(join(signals, "design-go"), "");
   await h.engine.settled();
   expect(h.engine.reviewStop).toBe("final");
+  expect(buildSnapshot(h.engine).requirements!.whatChanged).toBeUndefined();
   expect(h.claudeCalls()).toHaveLength(7);
   expect(buildSnapshot(h.engine).requirements!.review?.whatChanged).toBeUndefined();
   expect(buildSnapshot(h.engine).phases.some(row => row.title === "Return intake")).toBe(true);
@@ -223,6 +229,33 @@ it("turns a reply given at a requirements Needs you whose checks pass into feedb
   expect(h.claudeCalls()[1]!.prompt).toContain("Message m-1:\nAlso count crates.");
 });
 
+it("lists feedback applied before any stage ran on the first row of the plan (AC-TALK-04)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [{ actions: [{ result: "Not finished." }, { exit: 0 }] }] });
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  // The record as a run leaves it when feedback waiting at the first launch was applied by the first session, before any stage ran.
+  const state = h.engine.record.requirements!;
+  const at = new Date().toISOString();
+  const commit = git(h.sandbox, h.engine.worktreePath, "rev-parse", "HEAD");
+  state.stages = [{ activityId: "applied-first", key: "kiln:feedback#1", task: "feedback", ran: [], reaches: [], startedAt: at, pushedSha: commit, messageIds: ["m-1"] },
+    { activityId: "draft", key: "prd-writing-standards#1", task: "stage", ran: [{ skill: "prd-writing-standards", title: "Write the PRD" }], reaches: [], startedAt: at, pushedSha: commit }];
+  state.feedback = [{ id: "m-1", text: "Counts are whole boxes.", at, state: "applied", appliedAt: at, appliedCommit: commit, appliedBy: "applied-first" }];
+  const first = rows()[0]!;
+  expect(first).toMatchObject({ key: "prd-writing-standards#1", feedback: [{ sentAt: at, appliedAt: at, commit }] });
+  // With no stage after it yet, the first row of the plan carries it.
+  state.stages = state.stages.slice(0, 1);
+  expect(rows()[0]).toMatchObject({ key: "kiln:next", feedback: [{ sentAt: at, appliedAt: at, commit }] });
+  // AC-EARLY-04: What changed shows only the round sent at the review, not feedback applied after the next stage started.
+  const t = (n: number) => new Date(Date.parse(at) + n * 1000).toISOString();
+  state.review = { kind: "early", file: "docs/prds/count-boxes/count-boxes-stakeholder-review.html", commit, readySince: at, feedbackSentAt: t(1) };
+  state.stages = [
+    { activityId: "round", key: "kiln:feedback#1", task: "feedback", ran: [], reaches: [], startedAt: t(2), pushedSha: "a".repeat(40), report: { ran: [], finished: true, changes: ["Shows the date."] } },
+    { activityId: "design", key: "technical-design-writing-standards#1", task: "stage", ran: [{ skill: "technical-design-writing-standards", title: "Technical design" }], reaches: [], startedAt: t(3), pushedSha: commit },
+    { activityId: "later", key: "kiln:feedback#2", task: "feedback", ran: [], reaches: [], startedAt: t(4), pushedSha: "b".repeat(40), report: { ran: [], finished: true, changes: ["Later change."] } },
+  ];
+  expect(buildSnapshot(h.engine).requirements!.whatChanged).toEqual({ kind: "early", items: ["Shows the date."], commit: "a".repeat(40) });
+});
+
 it("refuses feedback over 32 KiB and malformed feedback, and takes a pasted reply up to the limit", async () => {
   h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [
     { actions: [{ result: "Not finished." }, { exit: 0 }] },
@@ -259,6 +292,8 @@ it.skipIf(process.platform !== "darwin")("delivers a short message live to the r
   expect(feedback()[0]).toMatchObject({ id: "m-1", state: "waiting" });
   // Message Claude aimed at the requirements session joins the same list and is delivered at once.
   const target = h.engine.liveTarget()!;
+  // The browser's Message Claude takes it (AC-STAGE-04).
+  expect(h.engine.liveView()!.input).toMatchObject({ available: true, reason: "Kiln sends this as feedback: this stage's session reads it at its next opportunity.", feedback: true });
   const live = await post("live/message", { instructionId: "live-1", target, text: "Boxes can be empty." });
   expect(live.status, JSON.stringify(live.body)).toBe(202);
   expect(live.body.outcome).toBe("feedback_delivered");

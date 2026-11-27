@@ -75,6 +75,17 @@ it("moves the cursor by the standing's next, inserts a row the plan lacks, and g
   expect(plannedNext(shown, state)).toBeUndefined();
 });
 
+it("counts every skill a session ran as run, so a merged stage passes none of them (AC-PLAN-06)", () => {
+  const shown = plan([stage("A"), stage("B"), stage("C")]);
+  const state = newRequirements();
+  expect(advanceCursor(shown, state, "stage", report(["A", "B"], "C"), false)).toEqual([]);
+  expect(state.cursor).toBe(2);
+  // An entry between two that ran is named as passed.
+  const skipped = newRequirements();
+  expect(advanceCursor(plan([stage("A"), stage("B"), stage("C"), stage("D")]), skipped, "stage", report(["A", "C"], "D"), false)).toEqual(["Passed B, which the method didn't run for this PRD."]);
+  expect(skipped.cursor).toBe(3);
+});
+
 it("places Kiln's early review after the entry that refines the PRD, unless the method makes one there or it was held", () => {
   const shown = plan([stage("write"), stage("refine", ["prd_refined"]), stage("design"), stage("split", ["requirements_finished"])]);
   const state = newRequirements();

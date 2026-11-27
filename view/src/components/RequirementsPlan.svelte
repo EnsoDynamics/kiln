@@ -75,6 +75,15 @@
   {/if}
   <ol>
     {#each requirements.rows as row, index (row.key + index)}
+      {#if row.key === "build" && snapshot.preflight?.planned?.before === "build"}
+        <!-- The preflight runs at Start the build, so its row sits just above the build (AC-FINAL-04). -->
+        <li data-stage="preflight" data-state="planned">
+          <span class="circle" aria-hidden="true">PF</span>
+          <span class="names"><strong class="title quiet">Preflight</strong><span class="small">Runs at Start the build: checks access and stops, then goes straight on</span>
+            {#if snapshot.preflight.planned.model}<RowModel model={snapshot.preflight.planned.model} {underway} agents={snapshot.agents} {connected} label="Preflight model" />{/if}</span>
+          <span class="state">Planned</span>
+        </li>
+      {/if}
       <li data-stage={row.key} data-state={row.state}>
         <span class="circle" aria-hidden="true">{row.key === "build" ? "B" : `R${index + 1}`}</span>
         <span class="names">

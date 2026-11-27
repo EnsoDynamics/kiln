@@ -23,8 +23,12 @@
         method: check ? "GET" : "POST", headers: { "X-Kiln-Token": config.token, "Content-Type": "application/json" },
         ...(!check ? { body: JSON.stringify({ instructionId: state.instructionId, target, text: state.submittedText }) } : {}), signal: AbortSignal.timeout(5000),
       });
-      const answer = await response.json() as { receipt?: Receipt; reason?: string };
-      if (answer.receipt?.message) {
+      const answer = await response.json() as { ok?: boolean; outcome?: string; receipt?: Receipt; reason?: string };
+      if (!check && answer.ok && answer.outcome?.startsWith("feedback_")) {
+        // During the requirements the message joins the feedback list (Kiln Requirements Stages AC-STAGE-04).
+        state.feedback = answer.outcome === "feedback_delivered" ? "Sent as feedback to this stage's session. The feedback list shows when it reads it." : "Sent as feedback. A fresh session applies it before the next stage.";
+        state.text = ""; state.instructionId = undefined; state.submittedText = undefined;
+      } else if (answer.receipt?.message) {
         state.feedback = answer.receipt.message.delivery === "submitting" ? "Submitting — delivery is still pending." : answer.receipt.message.delivery === "not_sent" ? "Not sent. Your exact text is retained." : answer.receipt.message.delivery === "uncertain" ? "Delivery uncertain. Review this message in the conversation before explicit hand-back." : "Submission recorded. Inspect the receipt below; this does not confirm the requested action happened.";
         if (answer.receipt.message.delivery !== "submitting") { state.instructionId = undefined; state.submittedText = undefined; }
       } else if (!check && response.status < 500) {
@@ -41,7 +45,8 @@
   <label for="live-message">Your message</label>
   <textarea id="live-message" rows="4" bind:value={draft.text} aria-describedby="live-message-limit live-message-timing" disabled={draft.submitting || !!draft.instructionId} placeholder="Send an instruction to this running conversation"></textarea>
   <p id="live-message-limit" class="hint" aria-live="polite">{draft.text.length.toLocaleString()} / 4,000 UTF-16 code units · {draft.text.length > 4000 ? "Over the message limit — shorten before sending" : "Message limit"}</p>
-  <p id="live-message-timing">Claude reads this at its next opportunity. The current tool may finish first.</p>
+  <!-- During the requirements the reason says the message goes in as feedback (Kiln Requirements Stages AC-STAGE-04). -->
+  <p id="live-message-timing">{view.input?.feedback && view.input.available ? view.input.reason : "Claude reads this at its next opportunity. The current tool may finish first."}</p>
   <button class="button solid" disabled={!connected || !view.input?.available || draft.submitting || !!draft.instructionId || !!messageProblem(draft.text)} onclick={() => submit()}>Send message</button>
   {#if draft.instructionId && !draft.submitting}<button class="button" disabled={!connected} onclick={() => submit(true)}>Check submission</button>{/if}
   {#if !connected}<p>Disconnected. Reconnect before acting. Last observed {new Date(view.observedAt).toLocaleString()}. Your draft is retained.</p>{:else if !view.input?.available}<p>{view.input?.reason ?? "Live input is unavailable for this attempt."}</p>{/if}

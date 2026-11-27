@@ -4,6 +4,9 @@
   import BillingPanels from "../components/BillingPanels.svelte";
   import RequirementsFeedback from "../components/RequirementsFeedback.svelte";
   import RequirementsPlan from "../components/RequirementsPlan.svelte";
+  import RowModel from "../components/RowModel.svelte";
+  import TierTag from "../components/TierTag.svelte";
+  import { withPlannedPreflight } from "../lib/progress.js";
   import { changeSettings, continueReview, resumeNow, start, startBuild, type CommandAnswer, type PageConfig } from "../lib/api.js";
 
   let { snapshot, config, connected }: { snapshot: Snapshot; config: PageConfig; connected: boolean } = $props();
@@ -11,6 +14,8 @@
   const review = $derived(requirements.review);
   const settings = $derived(snapshot.settings);
   const final = $derived(review?.kind === "final");
+  // The final review's phase plan, as the screen before Start shows it: each phase's tier and model with Change, the Preflight row above the first (AC-FINAL-02, AC-FINAL-04).
+  const phaseRows = $derived(withPlannedPreflight(snapshot.phases.filter(p => p.id !== "pr" && p.state !== "split"), snapshot));
   let confirmed = $state(false);
   let reason = $state("");
   let busy = $state(false);
@@ -65,7 +70,15 @@
   {/if}
   {#if final}
     <h2>Phase plan</h2>
-    <ol>{#each snapshot.phases.filter(p => p.id !== "pr") as phase}<li>Phase {phase.id} · {phase.title} {phase.model?.choice?.modelName ?? ""}</li>{/each}</ol>
+    <ol class="phases">{#each phaseRows as phase (phase.id)}
+      <li data-phase={phase.id}>
+        <span class="mono">{phase.kind === "preflight" ? "PF" : phase.id}</span>
+        <span>{phase.title}</span>
+        {#if phase.tier}<TierTag tier={phase.tier} />{/if}
+        {#if phase.file}<span class="mono">{phase.file}</span>{/if}
+        {#if phase.model}<RowModel model={phase.model} underway={false} target={phase.kind === "preflight" ? undefined : { phase: phase.id }} agents={snapshot.agents} {connected} label={`${phase.title} model`} />{/if}
+      </li>
+    {/each}</ol>
   {:else}
     <RequirementsPlan {snapshot} {connected} />
   {/if}

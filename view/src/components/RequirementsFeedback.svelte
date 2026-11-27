@@ -35,8 +35,15 @@
   <section class="card" aria-labelledby="draft-h">
     <h2 id="draft-h" class="eyebrow">From the PRD draft · Nothing is waiting on this</h2>
     <p class="help">The few statements the whole PRD hangs on, as the draft has them. If one is wrong, saying so now is cheaper than after the refinement. The early stakeholder review replaces this when it is ready.</p>
-    <ol>{#each requirements.draftNote.statements as statement}<li>{statement}</li>{/each}</ol>
+    {#if requirements.draftNote.statements.length}<ol>{#each requirements.draftNote.statements as statement}<li>{statement}</li>{/each}</ol>{/if}
     {#if requirements.draftNote.leftOut.length}<h3>Not included</h3><p>{requirements.draftNote.leftOut.join(" ")}</p>{/if}
+  </section>
+{/if}
+
+{#if !review && requirements.whatChanged}
+  <section class="card" aria-labelledby="carried-h">
+    <h2 id="carried-h" class="eyebrow">What your feedback at the {requirements.whatChanged.kind} review changed · pushed <code>{requirements.whatChanged.commit.slice(0, 7)}</code></h2>
+    {#if requirements.whatChanged.items.length}<ul>{#each requirements.whatChanged.items as item}<li>{item}</li>{/each}</ul>{:else}<p>The session reported no list of changes.</p>{/if}
   </section>
 {/if}
 

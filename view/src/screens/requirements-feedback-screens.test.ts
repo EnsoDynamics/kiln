@@ -12,6 +12,8 @@ import { runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
 import RequirementsFeedback from "../components/RequirementsFeedback.svelte";
 import PhasePlan from "../components/PhasePlan.svelte";
 import SettingsPanel from "../components/SettingsPanel.svelte";
+import Requirements from "./Requirements.svelte";
+import LiveComposer from "../components/LiveComposer.svelte";
 
 const text = (markup: string) => markup.replace(/<!--[\s\S]*?-->/g, "").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&#39;|&apos;/g, "'").replace(/\s+/g, " ").replace(/ ([.,])/g, "$1").trim();
 const requirements = (change: Partial<RequirementsView> = {}): RequirementsView => ({
@@ -66,4 +68,47 @@ it("lists applied feedback with its commit on the plan row, and fixes the early 
   expect(toggle(fixed)).toMatch(/\sdisabled/);
   const open = render(SettingsPanel, { props: { snapshot: withRequirements(requirements(), { waitAtEarlyReview: { value: true, canChange: true } }), connected: true } }).body;
   expect(toggle(open)).not.toMatch(/\sdisabled/);
+});
+
+it("shows what feedback at the early review changed once Kiln carried on, and no draft card for a draft that gives nothing (AC-EARLY-04, AC-NOTE-01)", () => {
+  const carried = feedbackBox(withRequirements(requirements({ whatChanged: { kind: "early", items: ["Shows the date."], commit: "9d1e2f3cccccccc" } })));
+  expect(carried).toContain("What your feedback at the early review changed · pushed 9d1e2f3");
+  expect(carried).toContain("Shows the date.");
+  // At a stop, the review's own What changed is the one shown.
+  expect(feedbackBox(withRequirements(requirements({ review: review("final"), whatChanged: { kind: "early", items: ["Shows the date."], commit: "9d1e2f3cccccccc" } })))).not.toContain("What your feedback at the early review changed");
+  // A draft that gives only what it leaves out shows no empty list of statements.
+  const draftCard = render(RequirementsFeedback, { props: { snapshot: withRequirements(requirements({ draftNote: { statements: [], leftOut: ["Accounts"] } })), connected: true } }).body;
+  const card = draftCard.slice(draftCard.indexOf("draft-h"), draftCard.indexOf("</section>", draftCard.indexOf("draft-h")));
+  expect(text(card)).toContain("Not included Accounts");
+  expect(card).not.toContain("<ol");
+});
+
+it("shows the final review's phase plan as the screen before Start does, with each phase's tier, model and Change, and the Preflight row above it (AC-FINAL-02, AC-FINAL-04)", () => {
+  const choice = (modelName: string, effort: string) => ({ agentId: "claude_code" as const, agent: "Claude Code", model: modelName.toLowerCase(), modelName, effort });
+  const base = withRequirements(requirements({ review: review("final"), build: { refinementConfirmation: "not_needed" } }));
+  const snapshot: Snapshot = { ...base, phases: [
+    { id: "1", title: "Audit record store", file: "phase-1-audit-record-store.md", state: "planned", finishedByPerson: false, tier: { value: "demanding" }, model: { state: "will_run_on", choice: choice("Fable 5.2", "high"), from: "model_defaults", change: { available: true } } },
+    { id: "2", title: "Viewer list", file: "phase-2-viewer-list.md", state: "planned", finishedByPerson: false, tier: { value: "standard" }, model: { state: "will_run_on", choice: choice("Opus 5.5", "medium"), from: "model_defaults", change: { available: true } } },
+  ], preflight: { planned: { before: "1", model: { state: "will_run_on", choice: choice("Opus 5.5", "high"), from: "model_defaults" } } } };
+  const page = text(render(Requirements, { props: { snapshot, config: { token: "t", base: "/count-boxes" }, connected: true } }).body);
+  const plan = page.slice(page.indexOf("Phase plan"));
+  expect(plan.indexOf("PF Preflight")).toBeGreaterThan(-1);
+  expect(plan.indexOf("PF Preflight")).toBeLessThan(plan.indexOf("1 Audit record store"));
+  expect(plan).toContain("Claude Code · Opus 5.5 · high");
+  expect(plan).toMatch(/1 Audit record store Demanding [^]*phase-1-audit-record-store\.md Claude Code · Fable 5\.2 · high Change 2 Viewer list Standard [^]*phase-2-viewer-list\.md Claude Code · Opus 5\.5 · medium Change/);
+});
+
+it("says in Message Claude that a message to a requirements session goes in as feedback (AC-STAGE-04)", () => {
+  const target = { executionId: "e", activityId: "a", activityKey: "req-a", sessionId: "s", providerSessionId: "s", attemptId: "t" };
+  const reason = "Kiln sends this as feedback: this stage's session reads it at its next opportunity.";
+  const markup = render(LiveComposer, { props: { view: { target, label: "Write the PRD", observedAt: "2026-11-27T15:00:00Z", available: true, reason: "", input: { available: true, reason, pending: 0, feedback: true } }, connected: true } }).body;
+  expect(text(markup)).toContain(reason);
+  expect(text(markup)).not.toContain("Claude reads this at its next opportunity");
+});
+
+it("shows the planned Preflight row just above the Build row on the requirements plan (AC-FINAL-04)", () => {
+  const view = requirements({ rows: [{ key: "prd-writing-standards#1", title: "Write the PRD", state: "next" }, { key: "build", title: "Build", state: "planned" }] });
+  const snapshot: Snapshot = { ...withRequirements(view), preflight: { planned: { before: "build", model: { state: "will_run_on", choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" }, from: "model_defaults" } } } };
+  const plan = text(render(PhasePlan, { props: { snapshot, connected: true, now: Date.parse("2026-11-27T16:00:00Z") } }).body);
+  expect(plan).toMatch(/Write the PRD[^]*PF Preflight Runs at Start the build[^]*Claude Code · Opus 5\.5 · high[^]*B Build/);
 });

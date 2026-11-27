@@ -139,3 +139,35 @@ it("preserves the requirements conversation at a usage limit without starting pr
   expect(h.engine.record.preflight?.due).toBeUndefined();
   expect(h.claudeCalls()).toHaveLength(1);
 });
+
+it("shows the planned Preflight row just above the build on the requirements plan, and above the first phase at the final review (AC-FINAL-04)", async () => {
+  const folder = "count-boxes";
+  const dir = "docs/prds/" + folder;
+  const report = (skill: string, next: string, milestones: string[]) => ({ result: "```kiln-report\n" + JSON.stringify({
+    kilnReport: 1, ran: [{ skill, title: skill }], finished: true, next: { kind: next === "build" ? "build" : "requirements", skill: next, title: next, reaches: [] },
+    milestones: milestones.map(name => ({ name, by: "this_session" })), prdDirectory: dir }) + "\n```" });
+  const phase = "phase-1-return-intake.md";
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, preflight: true, sessions: [
+    { actions: [{ write: { path: `${dir}/${folder}-prd.md`, content: PRD } }, { write: { path: `${dir}/technical-design.md`, content: DESIGN } }, { write: { path: `${dir}/${phase}`, content: PHASES[phase]! } }, { commit: "requirements" },
+      report("phase-split", "build", ["prd_refined", "design_ready", "requirements_finished"]), { exit: 0 }] },
+    { actions: [{ write: { path: `${dir}/${folder}-stakeholder-review.html`, content: "<h1>Final</h1>" } }, { commit: "review" }, report("stakeholder-review-package", "build", []), { exit: 0 }] },
+  ] });
+  const hosted = createGithubOrigin(h.sandbox, "acme", "acme-shop");
+  git(h.sandbox, h.origin, "push", "-q", "--mirror", hosted.bare);
+  git(h.sandbox, h.repository, "remote", "set-url", "origin", hosted.url);
+  h.env.GIT_SSH_COMMAND = h.sandbox.env.GIT_SSH_COMMAND;
+  await h.engine.refreshAgents();
+  const before = buildSnapshot(h.engine);
+  expect(before.preflight?.planned).toMatchObject({ before: "build", model: { choice: { agent: "Claude Code" } } });
+  expect(before.requirements!.rows.at(-1)!.key).toBe("build");
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.engine.reviewStop).toBe("final");
+  const final = buildSnapshot(h.engine);
+  expect(final.phases[0]?.id).toBe("1");
+  // AC-FINAL-02: each phase carries its model with Change, as the screen before Start shows it.
+  expect(final.phases[0]!.model).toMatchObject({ state: "will_run_on", change: { available: true } });
+  expect(final.preflight?.planned).toMatchObject({ before: "1", model: { choice: { agent: "Claude Code" } } });
+  // The preflight still runs only at Start the build.
+  expect(h.engine.record.preflight?.due).toBeUndefined();
+});

@@ -169,6 +169,15 @@ it("reads the plan once, shows every stage with its model before Start and while
   // AC-STAGE-03: a plan read counts toward no PRD.
   expect(Object.keys(h.engine.record.phases).every(key => key.startsWith("req-") && h.engine.record.requirements!.stages.some(stage => `req-${stage.activityId}` === key))).toBe(true);
   expect(existsSync(join(stateRoot(h.env), "requirements-plan"))).toBe(true);
+  // The record as the driver leaves it when the stage that replaced the remembered skill is launched next, and a review stage launched but not started:
+  // the launched row still says the saved choice no longer applies (AC-MODEL-04), and the review row names its skill for Use this on every PRD (AC-MODEL-03).
+  const state = h.engine.record.requirements!;
+  const at = new Date().toISOString();
+  state.stages.push({ activityId: "launched-review", key: "kiln:final", task: "review", ran: [], reaches: ["review_made"], startedAt: at },
+    { activityId: "launched-replacement", key: "design-review-and-refinement#1", task: "stage", expected: { skill: "design-review-and-refinement", title: "Review and refine the design" }, ran: [], reaches: ["design_ready"], startedAt: at });
+  const launched = (id: string) => view().rows.find(row => row.activityId === id)!;
+  expect(launched("launched-replacement")).toMatchObject({ key: "design-review-and-refinement#1", savedChoiceUnmatched: { skill: "review-technical-design" }, model: { from: "model_defaults", change: { available: true } } });
+  expect(launched("launched-review")).toMatchObject({ key: "kiln:final", title: "Final stakeholder review", skill: "stakeholder-review-package" });
 });
 
 it("starts while the plan is read, says what holds, and when it can't be read says why, keeps going and reads again on request", async () => {
@@ -214,6 +223,91 @@ it("starts while the plan is read, says what holds, and when it can't be read sa
   expect(Object.keys(file.plans.claude_code!)).toHaveLength(2);
   expect(file.reading).toBeUndefined();
   h.engine.close();
+});
+
+it("never waits at Start for a read of a method updated after the PRD showed its plan (AC-PLAN-05)", async () => {
+  const signals = mkdtempSync(join(tmpdir(), "kiln-plan-"));
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder,
+    planSessions: [planSession(TODAY), planSession(UPDATED, { touch: join(signals, "reading"), waitForFile: join(signals, "release") })],
+    sessions: [{ actions: [{ touch: join(signals, "drafting") }, { result: "I need a moment." }, { exit: 0 }] }] });
+  hosted();
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "read", 20_000);
+  expect(h.engine.record.requirements!.planFingerprint).toBeTruthy();
+  writeFileSync(methodSkill(), readFileSync(methodSkill(), "utf8") + "\nUpdated.\n");
+  void h.engine.refreshRequirementsPlan();
+  await waitFor(() => existsSync(join(signals, "reading")), 20_000);
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  // The first session launches while the updated method is still being read.
+  await waitFor(() => existsSync(join(signals, "drafting")), 20_000);
+  expect(view().plan.status).toBe("reading");
+  writeFileSync(join(signals, "release"), "");
+  await h.engine.settled();
+  expect(h.planReadCalls()).toHaveLength(2);
+});
+
+it("with no plan, the Next stage row the latest report names shows and launches on its Change (AC-MODEL-01)", async () => {
+  const signals = mkdtempSync(join(tmpdir(), "kiln-plan-"));
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [
+    { actions: [{ touch: join(signals, "drafting") }, { waitForFile: join(signals, "go") }, { write: { path: prd, content: PRD } }, { commit: "draft" }, report(["prd-writing-standards"], "autonomous-prd-refinement", []), { exit: 0 }] },
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+  ] });
+  hosted();
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "failed", 20_000);
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await waitFor(() => existsSync(join(signals, "drafting")), 20_000);
+  h.engine.pause();
+  writeFileSync(join(signals, "go"), "");
+  await h.engine.settled();
+  expect(h.engine.record.pause.activeSince).toBeDefined();
+  const next = () => view().rows.find(row => row.state === "next")!;
+  expect(next()).toMatchObject({ key: "autonomous-prd-refinement#1", skill: "autonomous-prd-refinement", model: { from: "model_defaults", choice: { model: "fable" }, change: { available: true } } });
+  // While the design span is open the stage Kiln launches next runs on Refining the design, and its row says so.
+  h.engine.record.requirements!.designSpan = true;
+  expect(next().model).toMatchObject({ from: "model_defaults", choice: { model: "opus", effort: "high" } });
+  h.engine.record.requirements!.designSpan = false;
+  expect(await h.engine.changeStageModel("autonomous-prd-refinement#1", { agentId: "claude_code", model: "sonnet", effort: "high" }, false)).toEqual({ ok: true });
+  expect(next().model).toMatchObject({ from: "changed", choice: { model: "sonnet", effort: "high" } });
+  // Continue lifts the pause, as Start does on the paused screen.
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const refinement = h.engine.record.requirements!.stages[1]!;
+  expect(refinement.key).toBe("autonomous-prd-refinement#1");
+  expect(h.engine.latestSession(`req-${refinement.activityId}`)).toMatchObject({ model: "sonnet", effort: "high" });
+});
+
+it("names a planned stage whose saved choice can't be used by its title in Start's reason (AC-MODEL-06)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, planSessions: [planSession(TODAY)], sessions: [] });
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "read", 20_000);
+  writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 1, rows: {}, skills: { "phase-split": { agentId: "claude_code", family: "opus", effort: "ultra" } } }));
+  h.engine.modelChoicesChanged();
+  await waitFor(() => !!h.engine.modelsProblem);
+  expect(h.engine.modelsProblem).toMatch(/^Phase plan runs on Claude Code · Opus[^:]* · ultra from a choice saved for every PRD for this stage's skill: .* Change it on its row in the requirements plan\.$/);
+});
+
+it("never waits at a stage boundary for Read again of the method the PRD's plan came from (AC-PLAN-05)", async () => {
+  const signals = mkdtempSync(join(tmpdir(), "kiln-plan-"));
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder,
+    planSessions: [planSession(TODAY), planSession(TODAY, { touch: join(signals, "reading"), waitForFile: join(signals, "release") })],
+    sessions: [
+      { actions: [{ touch: join(signals, "drafting") }, { waitForFile: join(signals, "go") }, { write: { path: prd, content: PRD } }, { commit: "draft" }, report(["prd-writing-standards"], "autonomous-prd-refinement", []), { exit: 0 }] },
+      { actions: [{ touch: join(signals, "refining") }, { result: "Not finished." }, { exit: 0 }] },
+    ] });
+  hosted();
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "read", 20_000);
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await waitFor(() => existsSync(join(signals, "drafting")), 20_000);
+  expect(await h.engine.readPlanAgain()).toEqual({ ok: true });
+  await waitFor(() => existsSync(join(signals, "reading")), 20_000);
+  writeFileSync(join(signals, "go"), "");
+  // The next stage launches while the same method is read again.
+  await waitFor(() => existsSync(join(signals, "refining")), 20_000);
+  expect(view().plan.status).toBe("reading");
+  writeFileSync(join(signals, "release"), "");
+  await h.engine.settled();
 });
 
 it("waits to read the plan until billing is approved on a metered route", async () => {

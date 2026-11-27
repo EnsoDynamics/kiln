@@ -147,7 +147,8 @@ export function rowOfActivity(plan: RecordedPlanPhase[], key: string, record?: P
     if (key === PLAN_READ_KEY || record?.requirements?.stages.some(stage => key === `req-${stage.activityId}` && stage.task === "feedback")) return "requirements";
     // A planned row shows Refining the design when its entry makes the design ready.
     if (key.startsWith(PLANNED_STAGE_PREFIX)) return stageInfo?.(key.slice(PLANNED_STAGE_PREFIX.length)).design ? "refining_design" : "requirements";
-    return key === "req-design" || key !== "req-next" && record?.requirements?.designSpan ? "refining_design" : "requirements";
+    // The Next stage row and a launched stage both run on Refining the design while the design span is open (AC-MODEL-01).
+    return key === "req-design" || record?.requirements?.designSpan ? "refining_design" : "requirements";
   }
   if (!isPhaseKey(key) || key === PR_PHASE_KEY) return defaultsRowFor("audits");
   return defaultsRowFor(plan.find(phase => phase.id === key)?.modelTier?.tier);

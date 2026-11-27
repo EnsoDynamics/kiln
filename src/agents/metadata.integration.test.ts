@@ -75,6 +75,12 @@ describe("Claude Code enabled-skill readiness", () => {
     expect(readFileSync(`${scenario}.helpers.jsonl`, "utf8")).toContain('"kind":"skills"');
   });
 
+  it("requires no requirements-stage skill by name, so a method that renamed or merged phase-split still launches (Kiln Requirements Stages AC-PLAN-02)", async () => {
+    setup(["implement-from-requirements", "deliverable-review", "test-hardening", "refactor-pass", "implementation-lifecycle", "engineering-principles", "pre-commit-validation", "continuation-prompt"].map(name => `enso-method:${name}`));
+    await info!.refresh();
+    expect(info!.state.blockers).toEqual([]);
+  });
+
   it("continues to accept ordinary personal skills", async () => {
     setup();
     await info!.refresh();

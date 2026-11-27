@@ -56,7 +56,7 @@ import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
-import { fallbackView, launchSource, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, sessionChoice, tierView } from "./activity-models.js";
+import { fallbackView, launchSource, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, PLANNED_STAGE_PREFIX, sessionChoice, tierView } from "./activity-models.js";
 import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
 export const PR_TITLE = "Final pull request";
@@ -393,6 +393,8 @@ export interface RequirementsView {
   draftNote?: { statements: string[]; leftOut: string[] };
   /** Whether Send feedback goes to a session as it runs, or waits for a fresh one. */
   feedbackTo?: "running_session" | "next_session";
+  /** What feedback sent at a review changed, once Kiln carried on from it without stopping again (AC-EARLY-04). */
+  whatChanged?: { kind: "early" | "final"; items: string[]; commit: string };
   review?: { kind: "early" | "final"; file: string; readySince: string; refreshedAt?: string; whatChanged?: { items: string[]; commit: string }; openAssumptions: number; resumeCommand?: string; freshSessionCommand: string };
   build?: { noPhasePlan?: true; checksFailed?: string[]; refinementConfirmation: "needed" | "not_needed" };
 }
@@ -673,21 +675,29 @@ export function requirementsView(engine: Engine): RequirementsView {
   const state = engine.record.requirements!;
   // A finished feedback session is no row of its own: what it applied is listed on the row before it (AC-TALK-04).
   const shownStage = (stage: (typeof state.stages)[number]) => !stage.pushedSha || stage.task === "review" || stage.task === "stage" && stage.ran.length > 0;
+  const plan = engine.requirementsPlan;
+  // Remembered skills no stage in the plan runs: a row the latest plan change brought in that runs on its default says so (AC-MODEL-04).
+  const defaults = plan ? readModelDefaults(engine.modelDefaultsFile) : undefined;
+  const unmatched = plan && defaults?.ok ? Object.keys(defaults.defaults.skills).filter(skill => skill !== plan.reviewSkill.skill && !plan.stages.some(stage => stage.skill === skill)) : [];
+  const unmatchedOn = (stageKey: string, model: ModelView) => unmatched.length && state.notice?.added?.includes(stageKey) && model.from === "model_defaults" ? { savedChoiceUnmatched: { skill: unmatched.join(", ") } } : {};
   const rows: RequirementsRow[] = state.stages.filter(shownStage).map(stage => {
     const key = `req-${stage.activityId}`;
     const facts = engine.record.phases[key];
-    const skill = stage.ran[0] ?? stage.expected;
-    const title = skill?.title ?? (stage.key === "kiln:early" ? "Early stakeholder review" : stage.key === "kiln:final" ? "Final stakeholder review" : stage.task === "feedback" ? "Applying your feedback" : "Next stage");
+    // A review stage names the plan's review skill until it runs, so its Change offers to remember it (AC-MODEL-03).
+    const ran = stage.ran[0] ?? stage.expected;
+    const skill = ran ?? (stage.task === "review" && plan ? plan.reviewSkill : undefined);
+    const current = engine.current?.phaseKey === key;
+    const model = engine.activityModel(key, { finished: !!stage.pushedSha, liveSession: current ? engine.current!.session : undefined, current });
+    const title = ran?.title ?? (stage.key === "kiln:early" ? "Early stakeholder review" : stage.key === "kiln:final" ? "Final stakeholder review" : stage.task === "feedback" ? "Applying your feedback" : "Next stage");
     return { key: stage.key, activityId: stage.activityId, title, ...(stage.ran.length > 1 ? { otherSkills: stage.ran.slice(1).map(skill => skill.title) } : {}), ...(skill ? { skill: skill.skill } : {}),
       reaches: stage.reaches, ...(stage.key === "kiln:early" ? { addedByKiln: "early" as const } : stage.key === "kiln:final" ? { addedByKiln: "final" as const } : {}),
       ...(stage.task === "review" && stage.pushedSha && !facts?.sessionIds.length ? { noSession: true as const } : {}),
       state: stage.pushedSha ? "done" : facts?.stop ? "needs_you" : facts?.wait ? "waiting" : "running",
       startedAt: stage.startedAt, ...(stage.pushedSha ? { pushedSha: stage.pushedSha } : {}), ...(stage.pushedSha && facts?.doneAt ? { finishedAt: facts.doneAt } : {}),
-      model: engine.activityModel(key, { finished: !!stage.pushedSha, liveSession: engine.current?.phaseKey === key ? engine.current.session : undefined }) };
+      ...(stage.pushedSha ? {} : unmatchedOn(stage.key, model)), model };
   });
   for (const row of rows) if (row.activityId && row.state !== "done" && row.model) Object.assign(row.model, engine.modelControls(`req-${row.activityId}`, row.title, row.model));
   const active = rows.find(row => row.state === "running" || row.state === "waiting" || row.state === "needs_you");
-  const plan = engine.requirementsPlan;
   // Before Start, a record naming a PRD directory will stand unknown: the plan is headed by where it stands, every entry from the first (technical design, "Rows").
   const willBeUnknown = engine.record.startedAt === undefined && !!engine.record.prdDirectory;
   if (engine.reviewStop !== "final") {
@@ -706,18 +716,18 @@ export function requirementsView(engine: Engine): RequirementsView {
         const first = plan.stages.findIndex(stage => stage.reaches.includes(milestone));
         if (first >= 0 && entryKeys[first] === currentKey && !(kind === "early" && state.earlyReviewHeld)) active.stop = kind;
       }
-      const defaults = readModelDefaults(engine.modelDefaultsFile);
-      const unmatched = defaults.ok ? Object.keys(defaults.defaults.skills).filter(skill => skill !== plan.reviewSkill.skill && !plan.stages.some(stage => stage.skill === skill)) : [];
       for (const row of planRows(plan, state, { ...(currentKey ? { currentKey } : {}), next: !active && !unknown, ...(willBeUnknown ? { fromStart: true } : {}) })) {
         const modelKey = `req-row:${row.key}`;
         const model = engine.activityModel(modelKey, { finished: false });
         rows.push({ key: row.key, title: row.title, skill: row.skill, reaches: row.reaches, state: row.state, ...(row.addedByKiln ? { addedByKiln: row.addedByKiln } : {}), ...(row.stop ? { stop: row.stop } : {}),
-          ...(unmatched.length && state.notice?.added?.includes(row.key) && model.from === "model_defaults" ? { savedChoiceUnmatched: { skill: unmatched.join(", ") } } : {}),
+          ...unmatchedOn(row.key, model),
           model: { ...model, ...engine.modelControls(modelKey, row.title, model) } });
       }
     } else if (!active) {
       const next = expectedStage(state);
-      rows.push(nextRow(next ? nextStageKey(state, next.skill) : "kiln:next", next?.title ?? "Next stage", next?.skill, next?.reaches.includes("design_ready") ? "req-design" : "req-next"));
+      // The row the latest report names resolves under its own stage key, as its launch and its Change do (AC-MODEL-01).
+      const key = next ? nextStageKey(state, next.skill) : "kiln:next";
+      rows.push(nextRow(key, next?.title ?? "Next stage", next?.skill, next ? `${PLANNED_STAGE_PREFIX}${key}` : "req-next"));
     }
   }
   // Each stop is marked on the row it follows.
@@ -727,8 +737,9 @@ export function requirementsView(engine: Engine): RequirementsView {
   for (const message of state.feedback) {
     if (message.state !== "applied" || !message.appliedAt || !message.appliedCommit) continue;
     const by = state.stages.findIndex(stage => stage.activityId === message.appliedBy);
-    const host = state.stages.slice(0, by < 0 ? state.stages.length : by + 1).findLast(stage => stage.pushedSha && shown.includes(stage));
-    const row = host && rows.find(one => one.activityId === host.activityId);
+    // Feedback applied before any shown row, such as feedback sent before the first stage launched, is listed on the first row after it.
+    const host = state.stages.slice(0, by < 0 ? state.stages.length : by + 1).findLast(stage => stage.pushedSha && shown.includes(stage)) ?? state.stages.slice(by + 1).find(stage => shown.includes(stage));
+    const row = host ? rows.find(one => one.activityId === host.activityId) : rows[0];
     if (row) (row.feedback ??= []).push({ sentAt: message.at, appliedAt: message.appliedAt, commit: message.appliedCommit });
   }
   rows.push({ key: "build", title: "Build", state: "planned" });
@@ -741,6 +752,13 @@ export function requirementsView(engine: Engine): RequirementsView {
   const last = state.stages.at(-1);
   if (last?.report?.next?.kind === "before_prd" && engine.record.phases[`req-${last.activityId}`]?.stop) view.beforePrd = last.report.next;
   const review = state.review;
+  if (review?.feedbackSentAt && !engine.reviewStop) {
+    // Only the round sent at the review: feedback sessions before the next stage session, not feedback sent later while the stages run.
+    const sent = review.feedbackSentAt;
+    const nextStage = state.stages.find(stage => stage.task !== "feedback" && stage.startedAt >= sent);
+    const applied = state.stages.filter(stage => stage.task === "feedback" && stage.pushedSha && stage.startedAt >= sent && (!nextStage || stage.startedAt <= nextStage.startedAt));
+    if (applied.length) view.whatChanged = { kind: review.kind, items: applied.flatMap(stage => stage.report?.changes ?? []), commit: applied.at(-1)!.pushedSha! };
+  }
   if (review && engine.reviewStop) {
     const dir = engine.record.prdDirectory!;
     const file = ["assumptions.md", `${dir.split("/").at(-1)}-assumptions.md`].map(name => join(engine.worktreePath, dir, name)).find(file => existsSync(file));
@@ -811,7 +829,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     ...(record.completedAt && record.afterDelivery ? { afterDelivery: afterDeliveryView(engine) } : {}),
     ...(engine.finished ? { exit: { ...engine.exitControl(), command: engine.reopenCommand } } : {}),
     activities: withPlannedRows(engine, state, activityViews(engine, state, views, includeTiming, reads.auditStore)),
-    ...(engine.requirementsOpen ? { requirements: requirementsView(engine) } : preflightPlanned(engine, state, documents)),
+    ...(engine.requirementsOpen ? { requirements: requirementsView(engine), ...requirementsPreflight(engine, leaves) } : preflightPlanned(engine, state, documents)),
     auditLoops: auditLoopsView(engine),
     ...personItemFields(engine, reads.auditStore),
     ...(record.completionAudits?.policy === "legacy_complete" ? { auditHistoryUnavailable: true } : {}),
@@ -910,7 +928,9 @@ function placeHeadsUp(engine: Engine, snapshot: Snapshot): void {
   const { key, forecast } = headsUp;
   if (key === PLANNED_PREFLIGHT_KEY) { if (snapshot.preflight?.planned?.model) snapshot.preflight.planned.model.forecast = forecast; return; }
   const ids = key === PLANNED_AUDITS_KEY ? ["planned-delivery-audit", "planned-test-audit"] : key === PR_PHASE_KEY ? [PR_PHASE_KEY, "planned-pull-request"] : [key];
-  const rows: { id: string; model?: ModelView }[] = [...(snapshot.documents?.plan?.phases ?? []), ...snapshot.phases, ...(snapshot.activities ?? [])];
+  // A requirements row stands for the key its model resolves under (Kiln Requirements Stages AC-MODEL-06).
+  const stageRows = (snapshot.requirements?.rows ?? []).filter(row => row.key !== "build").map(row => ({ id: row.activityId ? `req-${row.activityId}` : row.key === "kiln:next" ? "req-next" : `${PLANNED_STAGE_PREFIX}${row.key}`, ...(row.model ? { model: row.model } : {}) }));
+  const rows: { id: string; model?: ModelView }[] = [...(snapshot.documents?.plan?.phases ?? []), ...snapshot.phases, ...(snapshot.activities ?? []), ...stageRows];
   for (const id of ids) {
     const matching = rows.filter(row => row.id === id && row.model);
     if (!matching.length) continue;
@@ -2157,6 +2177,20 @@ function preflightPlanned(engine: Engine, state: FeatureState, documents?: Docum
   if (state === "complete") return { preflight: { planned: { before: "end", model: engine.continuationPreflightModel() } } };
   const next = engine.preflightNextActivity(undefined);
   return { preflight: { planned: { before: next.key ?? "end", model } } };
+}
+
+/**
+ * While the requirements run, the planned Preflight row sits just above the build: above the first
+ * phase at the final review, and above the Build row on the requirements plan (Kiln Requirements
+ * Stages AC-FINAL-04). It runs at Start the build, on the Audits choice.
+ */
+function requirementsPreflight(engine: Engine, leaves: { id: string; closed?: boolean }[]): Pick<Snapshot, "preflight"> {
+  if (!engine.readers[engine.auditsAgent].state.optionalSkills?.buildPreflight) return {};
+  const first = leaves.find(leaf => !leaf.closed)?.id;
+  // At a final review with no phase documents there is no build to sit above (AC-FINAL-06).
+  if (engine.reviewStop === "final" && !first) return {};
+  const before = engine.reviewStop === "final" ? first! : "build";
+  return { preflight: { planned: { before, model: engine.activityModel(PLANNED_PREFLIGHT_KEY, { finished: false }) } } };
 }
 
 /** The loop an audit row is, with the limit in force (Kiln Deliver When Audit Loops Run Out AC-STOP-05); phase rows and sessions of test fixes carry none. */

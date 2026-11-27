@@ -1,5 +1,7 @@
 # Phase 6: Complete the requirements run's screens, controls and stage models
 
+**Closed:** 2026-11-27
+
 **Added by delivery audit:** 2026-11-27, after every planned phase closed. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "Reading it"; "Rows"; "The driver"; "Feedback"; "The Two Reviews"; "Starting the Build"; "Models"; "Snapshot"; the "A method update at a stage boundary" decision

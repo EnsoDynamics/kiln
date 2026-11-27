@@ -124,7 +124,8 @@ export function readStageReport(message: string, task: RequirementsStage["task"]
   report.next = { skill: next.skill, title: next.title, kind: next.kind, reaches: next.reaches };
   report.milestones = milestones;
   if (nonempty(value.prdDirectory)) report.prdDirectory = value.prdDirectory;
-  if (object(value.draft) && strings(value.draft.statements) && strings(value.draft.leftOut)) {
+  // A draft that gives neither statements nor items left out shows nothing (AC-NOTE-01).
+  if (object(value.draft) && strings(value.draft.statements) && strings(value.draft.leftOut) && (value.draft.statements.length || value.draft.leftOut.length)) {
     report.draft = { statements: value.draft.statements, leftOut: value.draft.leftOut };
   }
   return report;
