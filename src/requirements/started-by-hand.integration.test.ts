@@ -3,7 +3,7 @@
 // holds it, continues there from where it stands, and refuses while a method run is part-way through.
 
 import { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { runKilnCommand } from "../kiln-command.js";
@@ -52,11 +52,16 @@ function installMethod(harness: Harness): void {
 async function kilnRun(harness: Harness, args: string[], whileRunning?: (page: { snapshot(): Promise<Snapshot>; post(path: string, body?: unknown): Promise<{ status: number; body: Record<string, unknown> }> }) => Promise<void>) {
   let out = "";
   let address = "";
+  const opened: string[] = [];
   const signals = new EventEmitter();
   const done = runKilnCommand(["run", ...args], {
     cwd: harness.repository, env: kilnEnv(harness), signals,
     stdout: { write: (text: string) => (out += text) }, stderr: { write: (text: string) => (out += text) },
-    openBrowser: async (url) => { address = url; return { kind: "opened" as const }; },
+    openBrowser: async (url) => {
+      opened.push(url);
+      address ||= url;
+      return { kind: "opened" as const };
+    },
   });
   let code: number | undefined;
   void done.then(c => (code = c));
@@ -80,8 +85,83 @@ async function kilnRun(harness: Harness, args: string[], whileRunning?: (page: {
     if (code === undefined) signals.emit("SIGINT");
     code = await done;
   }
-  return { code, out, address };
+  return { code, out, address, opened };
 }
+
+it("opens the early review for a PRD already refined by hand before any more work (AC-PLAN-08)", async () => {
+  h = await createHarness({ files: { "customer-returns-prd.md": PRD + "\nRefined by hand.\n" }, sessions: [
+    { actions: [report("", "technical-design-writing-standards", ["prd_refined"]), { exit: 0 }] },
+    { actions: [
+      { write: { path: `${dir}/customer-returns-stakeholder-review.html`, content: "<h1>Early review</h1>" } },
+      { commit: "stakeholder review" },
+      { result: '```kiln-report\n{"kilnReport":1,"ran":[{"skill":"stakeholder-review-package","title":"Stakeholder review"}],"finished":true}\n```' },
+      { exit: 0 },
+    ] },
+  ] });
+  installMethod(h);
+  hostOnGithub(h);
+  const run = await kilnRun(h, [dir], async page => {
+    await waitFor(async () => (await page.snapshot()).requirements?.start !== undefined);
+    await waitFor(async () => (await page.snapshot()).settings.baseCheck === "ok");
+    expect((await page.post("/api/start", { previewId: (await page.snapshot()).requirements!.start!.previewId })).status).toBe(200);
+    await waitFor(async () => (await page.snapshot()).feature.state === "early_review");
+    expect(h!.claudeCalls()).toHaveLength(2);
+    expect(h!.claudeCalls()[1]!.prompt).toContain("stakeholder review");
+  });
+  expect(run.opened).toEqual([run.address, new URL("/customer-returns/stakeholder-review", run.address).href]);
+});
+
+it("goes directly to the next stage when design work already began (AC-PLAN-08)", async () => {
+  h = await createHarness({ files: { "customer-returns-prd.md": PRD, "technical-design.md": DESIGN }, sessions: [
+    { actions: [report("autonomous-design-refinement", "phase-split", ["prd_refined", "design_ready"]), { exit: 0 }] },
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+  ] });
+  installMethod(h);
+  hostOnGithub(h);
+  const run = await kilnRun(h, [dir], async page => {
+    await waitFor(async () => (await page.snapshot()).requirements?.start !== undefined);
+    await waitFor(async () => (await page.snapshot()).settings.baseCheck === "ok");
+    expect((await page.post("/api/start", { previewId: (await page.snapshot()).requirements!.start!.previewId })).status).toBe(200);
+    await waitFor(() => h!.claudeCalls().length === 2);
+    expect(h!.claudeCalls()[1]!.prompt).toContain("run exactly its next requirements stage");
+    const snapshot = await page.snapshot();
+    expect(snapshot.requirements?.review).toBeUndefined();
+    // The model list may resolve the alias while this test observes the running stage.
+    expect(snapshot.requirements?.rows.find(row => row.key === "phase-split#1")?.model?.choice)
+      .toMatchObject({ model: expect.stringMatching(/^(fable|claude-fable-5-1)$/) });
+  });
+  expect(run.opened).toEqual([run.address]);
+});
+
+it("reopens the same running requirements stage after Ctrl+C (AC-STAGE-04)", async () => {
+  h = await createHarness({ files: { "customer-returns-prd.md": PRD }, sessions: [] });
+  installMethod(h);
+  hostOnGithub(h);
+  const running = join(h.sandbox.root, "stage-running");
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [
+    { actions: [{ text: "Refining." }, { touch: running }, { waitForFile: join(h.sandbox.root, "stage-never-finishes") }] },
+    { actions: [{ result: "Resumed the refinement." }, { exit: 0 }] },
+  ] }));
+  await kilnRun(h, [dir], async page => {
+    await waitFor(async () => (await page.snapshot()).requirements?.start !== undefined);
+    await waitFor(async () => (await page.snapshot()).settings.baseCheck === "ok");
+    expect((await page.post("/api/start", { previewId: (await page.snapshot()).requirements!.start!.previewId })).status).toBe(200);
+    await waitFor(() => existsSync(running));
+  });
+  const first = h.claudeCalls()[0]!;
+  const firstId = first.args[first.args.indexOf("--session-id") + 1];
+  expect(first.args).toContain("--session-id");
+  const resumed = await kilnRun(h, [dir, "--resume"], async page => {
+    await waitFor(() => h!.claudeCalls().length === 2);
+    await waitFor(async () => (await page.snapshot()).feature.state === "needs_you");
+    const [row] = (await page.snapshot()).requirements!.rows;
+    expect(row).toMatchObject({ state: "needs_you", key: "kiln:next" });
+  });
+  expect(resumed.address).toMatch(/\/customer-returns\/?$/);
+  const args = h.claudeCalls()[1]!.args;
+  expect(args).toContain("--resume");
+  expect(args[args.indexOf("--resume") + 1]).toBe(firstId);
+});
 
 it("shows where a PRD started by hand stands, selects the unmerged branch holding it, and continues there from where it stands (AC-BEGIN-04, AC-BEGIN-08)", async () => {
   h = await createHarness({ files: { "customer-returns-prd.md": PRD }, sessions: [

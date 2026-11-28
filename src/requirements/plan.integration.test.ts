@@ -4,7 +4,7 @@
 // model changed and remembered for every PRD. Real engine, HTTP and disposable Git; the scripted
 // stand-in plays each session, the plan read included.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { processStartTime } from "../platform/process-start-time.js";
 import { writeJsonAtomically } from "../state/state-files.js";
@@ -16,7 +16,7 @@ import { DESIGN, PHASES, PRD } from "../test-support/fixture-documents.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { boundPort } from "../test-support/os-ports.js";
-import { createGithubOrigin, git } from "../test-support/git-repositories.js";
+import { commitFiles, createGithubOrigin, git } from "../test-support/git-repositories.js";
 import { modelDefaultsPath } from "../models/model-defaults.js";
 import { stateRoot } from "../state/state-files.js";
 import { readPlanFile, updatePlanFile } from "./plan.js";
@@ -83,9 +83,13 @@ it("reads the plan once, shows every stage with its model before Start and while
   await h.engine.refreshAgents();
   // AC-PLAN-03: the read starts when kiln run starts, and the plan is kept for the method's fingerprint.
   await waitFor(() => h.engine.planView().status === "read", 20_000);
-  // A second reader of the same method reuses the plan: no new read.
-  const second = await h.engineFor(folder);
+  // A different PRD using the same installed method gets the saved plan.
+  const secondFolder = "count-crates";
+  commitFiles(h.sandbox, h.repository, `source-material/${secondFolder}`, { "count-crates-brief.md": "# Count crates\n" });
+  const second = await h.engineFor(secondFolder);
   await waitFor(() => second.planView().status === "read");
+  expect(second.record.origin?.path).toBe(`source-material/${secondFolder}`);
+  expect(second.planView().readAt).toBe(h.engine.planView().readAt);
   expect(h.planReadCalls()).toHaveLength(1);
   second.close();
   hosted();
@@ -178,6 +182,23 @@ it("reads the plan once, shows every stage with its model before Start and while
   const launched = (id: string) => view().rows.find(row => row.activityId === id)!;
   expect(launched("launched-replacement")).toMatchObject({ key: "design-review-and-refinement#1", savedChoiceUnmatched: { skill: "review-technical-design" }, model: { from: "model_defaults", change: { available: true } } });
   expect(launched("launched-review")).toMatchObject({ key: "kiln:final", title: "Final stakeholder review", skill: "stakeholder-review-package" });
+});
+
+it("shows when the installed method was updated without exposing its version (AC-PLAN-03)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, planSessions: [planSession(TODAY), planSession(TODAY)], sessions: [] });
+  await waitFor(() => view().plan.status === "read");
+  const version = "9.9.9";
+  const lastUpdated = "2026-10-19T01:10:37.859Z";
+  const config = h.env.CLAUDE_CONFIG_DIR!;
+  mkdirSync(join(config, "plugins"), { recursive: true });
+  writeFileSync(join(config, "plugins", "installed_plugins.json"), JSON.stringify({
+    plugins: { "enso-method@enso-method": [{ installPath: config, version, lastUpdated }] },
+  }));
+  writeFileSync(methodSkill(), readFileSync(methodSkill(), "utf8") + "\nUpdated method.\n");
+  expect(await h.engine.readPlanAgain()).toEqual({ ok: true });
+  await waitFor(() => view().plan.status === "read" && h.planReadCalls().length === 2);
+  expect(view().plan.methodUpdatedAt).toBe(lastUpdated);
+  expect(JSON.stringify(view().plan)).not.toContain(version);
 });
 
 it("starts while the plan is read, says what holds, and when it can't be read says why, keeps going and reads again on request", async () => {

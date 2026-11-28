@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
-import { PRD } from "../test-support/fixture-documents.js";
+import { DESIGN, PHASES, PRD } from "../test-support/fixture-documents.js";
 import { buildSnapshot } from "../engine/snapshot.js";
 import { git } from "../test-support/git-repositories.js";
 import { recoveryRequest } from "../test-support/phase-recovery-request.js";
@@ -31,12 +31,128 @@ const TODAY: Stage[] = [
   ["technical-design-writing-standards", "Technical design"], ["review-technical-design", "Design review"],
   ["autonomous-design-refinement", "Refine the design", ["design_ready"]], ["phase-split", "Phase plan", ["requirements_finished"]],
 ];
-const report = (ran: string[], next: string, milestones: string[], reaches: string[] = []) => ({ result: "```kiln-report\n" + JSON.stringify({
+const report = (ran: string[], next: string, milestones: string[], reaches: string[] = [], messages: { id: string; outcome: "worked_in" }[] = []) => ({ result: "```kiln-report\n" + JSON.stringify({
   kilnReport: 1, ran: ran.map(skill => ({ skill, title: skill })), finished: true,
   next: { kind: next === "build" ? "build" : "requirements", skill: next, title: next, reaches },
-  milestones: milestones.map(name => ({ name, by: "this_session" })), prdDirectory: dir,
+  milestones: milestones.map(name => ({ name, by: "this_session" })), prdDirectory: dir, messages,
 }) + "\n```" });
 const view = () => buildSnapshot(h.engine).requirements!;
+
+it.each(["review", "feedback"] as const)("checks billing again before launching a %s session (AC-STAGE-04)", async task => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [] });
+  const started = join(h.sandbox.root, "stage-started");
+  const finish = join(h.sandbox.root, "stage-finish");
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [
+    { actions: [{ touch: started }, { waitForFile: finish }, { write: { path: prd, content: PRD } }, { commit: "refine PRD" },
+      report(["refine"], "design", ["prd_refined"]), { exit: 0 }] },
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+  ] }));
+  const engine = h.engine;
+  expect(await engine.start()).toMatchObject({ ok: true });
+  await waitFor(() => existsSync(started));
+  if (task === "feedback") expect(await engine.addFeedback("Count crates too.")).toMatchObject({ ok: true });
+  h.env.ANTHROPIC_API_KEY = "changed-billing-route-canary";
+  writeFileSync(finish, "");
+  await engine.settled();
+  const stage = engine.record.requirements?.stages.at(-1);
+  expect(stage?.task).toBe(task);
+  expect(engine.record.billing?.hold).toMatchObject({ phaseKey: `req-${stage?.activityId}` });
+  expect(h.claudeCalls()).toHaveLength(1);
+  await engine.billingCommand("approval", { executionId: engine.record.executionId, readingId: engine.billing.view.next!.readingId, approved: true });
+  expect(await engine.checkAgain(recoveryRequest(engine))).toMatchObject({ ok: true });
+  await engine.settled();
+  expect(h.claudeCalls()).toHaveLength(2);
+  expect(h.claudeCalls()[1]!.prompt).toContain(task === "review" ? "stakeholder review" : "Message m-1:\nCount crates too.");
+});
+
+it("uses billing approval given before Start for the later feedback session (AC-STAGE-04)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [] });
+  await waitFor(() => view().plan.status === "failed");
+  const started = join(h.sandbox.root, "stage-started");
+  const finish = join(h.sandbox.root, "stage-finish");
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [
+    { actions: [{ touch: started }, { waitForFile: finish }, { write: { path: prd, content: PRD } }, { commit: "draft" },
+      report(["draft"], "refine", []), { exit: 0 }] },
+    { actions: [{ write: { path: prd, content: PRD + "\nCount crates too.\n" } }, { commit: "feedback" },
+      report([], "refine", [], [], [{ id: "m-1", outcome: "worked_in" }]), { exit: 0 }] },
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+  ] }));
+  const engine = h.engine;
+  h.env.ANTHROPIC_API_KEY = "approval-before-start-canary";
+  await engine.refreshBilling();
+  expect(await engine.start()).toMatchObject({ ok: false });
+  expect(h.claudeCalls()).toHaveLength(0);
+  await engine.billingCommand("approval", { executionId: engine.record.executionId, readingId: engine.billing.view.next!.readingId, approved: true });
+  expect(await engine.start()).toMatchObject({ ok: true });
+  await waitFor(() => existsSync(started));
+  expect(await engine.addFeedback("Count crates too.")).toMatchObject({ ok: true });
+  writeFileSync(finish, "");
+  await engine.settled();
+  expect(engine.record.billing?.hold).toBeUndefined();
+  expect(h.claudeCalls()[1]!.prompt).toContain("Message m-1:\nCount crates too.");
+  expect(view().feedback[0]).toMatchObject({ state: "applied", appliedCommit: expect.any(String) });
+});
+
+it("pushes the current stage before Pause after holds a waiting feedback session (AC-STAGE-04)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [] });
+  const started = join(h.sandbox.root, "stage-started");
+  const finish = join(h.sandbox.root, "stage-finish");
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [
+    { actions: [{ touch: started }, { waitForFile: finish }, { write: { path: prd, content: PRD } }, { commit: "draft" },
+      report(["draft"], "refine", []), { exit: 0 }] },
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+  ] }));
+  const engine = h.engine;
+  expect(await engine.start()).toMatchObject({ ok: true });
+  await waitFor(() => existsSync(started));
+  expect(engine.pause()).toMatchObject({ ok: true });
+  expect(await engine.addFeedback("Count crates too.")).toMatchObject({ ok: true });
+  writeFileSync(finish, "");
+  await engine.settled();
+  expect(buildSnapshot(engine).pause).toEqual({ pending: false, active: true });
+  const pushed = git(h.sandbox, h.origin, "rev-parse", `refs/heads/${engine.record.settings.featureBranch}`).trim();
+  expect(pushed).toBe(git(h.sandbox, engine.worktreePath, "rev-parse", "HEAD").trim());
+  expect(view().feedback[0]).toMatchObject({ state: "waiting" });
+  expect(h.claudeCalls()).toHaveLength(1);
+  expect(await engine.start()).toMatchObject({ ok: true });
+  await engine.settled();
+  expect(h.claudeCalls()[1]!.prompt).toContain("Message m-1:\nCount crates too.");
+  expect(engine.pause()).toMatchObject({ ok: false, reason: expect.stringContaining("Needs you") });
+});
+
+it.each(["early", "final"] as const)("clears a pending Pause after at the %s review (AC-STAGE-04)", async kind => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [] });
+  const started = join(h.sandbox.root, "stage-started");
+  const finish = join(h.sandbox.root, "stage-finish");
+  const finalFiles = kind === "final" ? [
+    { write: { path: `${dir}/technical-design.md`, content: DESIGN } },
+    { write: { path: `${dir}/phase-1-return-intake.md`, content: PHASES["phase-1-return-intake.md"]! } },
+  ] : [];
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [
+    { actions: [{ touch: started }, { waitForFile: finish }, { write: { path: prd, content: PRD } }, ...finalFiles,
+      { write: { path: review, content: "<h1>Stakeholder review</h1>" } }, { commit: "refinement and review" },
+      report(["refine", "stakeholder-review-package"], kind === "final" ? "build" : "design", ["prd_refined", "review_made"]), { exit: 0 }] },
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+  ] }));
+  const engine = h.engine;
+  expect(await engine.start()).toMatchObject({ ok: true });
+  await waitFor(() => existsSync(started));
+  expect(engine.pause()).toMatchObject({ ok: true });
+  expect(buildSnapshot(engine).pause).toEqual({ pending: true, active: false });
+  writeFileSync(finish, "");
+  await engine.settled();
+  expect(engine.reviewStop).toBe(kind);
+  expect(buildSnapshot(engine).pause).toEqual({ pending: false, active: false });
+  expect(h.claudeCalls()).toHaveLength(1);
+  if (kind === "early") {
+    expect(await engine.resume()).toMatchObject({ ok: true });
+    await engine.settled();
+    expect(h.claudeCalls()).toHaveLength(2);
+  } else {
+    expect(engine.requirementsBuildPlan).toMatchObject({ ok: true });
+    expect(h.claudeCalls()).toHaveLength(1);
+  }
+});
 
 it("shows a plan read that finishes during the first session at once, with every entry planned from the first (AC-PLAN-05)", async () => {
   const signals = mkdtempSync(join(tmpdir(), "kiln-controls-"));
@@ -158,7 +274,12 @@ it("gives a stage's Needs you its own prompt, and a stage whose conversation can
   const key = h.engine.stoppedPhaseKey()!;
   expect(key).toMatch(/^req-/);
   // The fresh-session prompt is the stage session's own, never a phase's.
-  const prompt = buildSnapshot(h.engine).needsYou!.freshSessionPrompt!;
+  const stop = buildSnapshot(h.engine).needsYou!;
+  const sessionId = h.engine.latestSession(key)!.sessionId;
+  expect(stop).toMatchObject({ phaseId: key, sessionId, resumeOffered: true,
+    resumeCommand: expect.stringContaining(`claude --resume ${sessionId}`) });
+  expect(stop.resumeCommand).toContain(h.engine.worktreePath);
+  const prompt = stop.freshSessionPrompt!;
   expect(prompt).toContain("run exactly its next requirements stage");
   expect(prompt).toContain("Feature branch:");
   expect(prompt).not.toContain("implement-from-requirements");

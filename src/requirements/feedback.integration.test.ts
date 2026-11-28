@@ -16,6 +16,7 @@ import { buildSnapshot } from "../engine/snapshot.js";
 import { startLocalServer, type LocalServer } from "../server/local-server.js";
 import { boundPort } from "../test-support/os-ports.js";
 import { createGithubOrigin, git } from "../test-support/git-repositories.js";
+import { codexWorkFixture } from "../test-support/codex-work-fixture.js";
 
 let h: Harness;
 let server: LocalServer | undefined;
@@ -419,20 +420,92 @@ it.skipIf(process.platform !== "darwin")("sends a delivered message the session 
   expect(feedback()[0]).toMatchObject({ state: "applied", appliedCommit: h.engine.record.requirements!.stages[1]!.pushedSha });
 });
 
-it.skipIf(process.platform !== "darwin")("sends a message the stage read but left unworked to a fresh session", async () => {
-  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [
-    { actions: [{ text: "Drafting." }, { liveMessages: 1 }, { write: { path: prd, content: PRD } }, { commit: "draft" },
+it.skipIf(process.platform !== "darwin")("shows feedback as sent until receipt, then applies it in a fresh session if left unworked (AC-TALK-02)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [] });
+  const receipt = join(h.sandbox.root, "confirm-feedback");
+  const finish = join(h.sandbox.root, "finish-stage");
+  writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [
+    { actions: [{ text: "Drafting." }, { waitForFile: receipt }, { liveMessages: 1 }, { waitForFile: finish }, { write: { path: prd, content: PRD } }, { commit: "draft" },
       report({ ran: ["prd-writing-standards"], next: "autonomous-prd-refinement", milestones: [], messages: [["m-1", "not_worked_in"]] }), { exit: 0 }] },
     { actions: [{ write: { path: prd, content: PRD + "\nWorked in.\n" } }, { commit: "feedback" }, report({ next: "autonomous-prd-refinement", milestones: [], messages: [["m-1", "worked_in"]] }), { exit: 0 }] },
     { actions: [{ result: "Not finished." }, { exit: 0 }] },
-  ] });
+  ] }));
   h.env.KILN_STANDIN_VERSION = "2.1.311";
   mkdirSync(join(h.env.CLAUDE_CONFIG_DIR!, "sessions"), { recursive: true });
-  const post = await serve();
-  expect(await h.engine.start()).toMatchObject({ ok: true });
-  await waitFor(() => h.engine.feedbackGoesLive());
-  expect((await post("feedback", { text: "Count crates." })).body.outcome).toBe("feedback_delivered");
+  try {
+    expect(await h.engine.start()).toMatchObject({ ok: true });
+    await waitFor(() => h.engine.feedbackGoesLive());
+    const delivery = h.engine.addFeedback("Count crates.");
+    await waitFor(() => feedback()[0]?.sentAt !== undefined);
+    expect(buildSnapshot(h.engine).requirements?.feedback[0]).toMatchObject({ id: "m-1", state: "sent" });
+    expect(buildSnapshot(h.engine).requirements?.feedback[0]?.readAt).toBeUndefined();
+    writeFileSync(receipt, "");
+    await waitFor(() => feedback()[0]?.readAt !== undefined);
+    expect(buildSnapshot(h.engine).requirements?.feedback[0]).toMatchObject({ state: "read", readAt: expect.any(String) });
+    writeFileSync(finish, "");
+    expect(await delivery).toMatchObject({ ok: true, outcome: "feedback_delivered" });
+  } finally {
+    writeFileSync(receipt, "");
+    writeFileSync(finish, "");
+  }
   await h.engine.settled();
   expect(h.claudeCalls()[1]!.prompt).toContain("Message m-1:\nCount crates.");
-  expect(feedback()[0]).toMatchObject({ state: "applied", appliedCommit: h.engine.record.requirements!.stages[1]!.pushedSha });
-});
+  expect(feedback()[0]).toMatchObject({ state: "applied", readAt: expect.any(String), appliedCommit: h.engine.record.requirements!.stages[1]!.pushedSha });
+}, 40_000);
+
+it("queues feedback during Codex and applies it before the next stage (AC-TALK-02)", async () => {
+  const codex = codexWorkFixture();
+  const release = join(codex.sandbox.root, "finish-codex");
+  try {
+    h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [
+      { actions: [{ write: { path: prd, content: PRD + "\nCount crates too.\n" } }, { commit: "feedback" },
+        report({ next: "autonomous-prd-refinement", milestones: [], messages: [["m-1", "worked_in"]] }), { exit: 0 }] },
+      { actions: [{ result: "Not finished." }, { exit: 0 }] },
+    ] });
+    await waitFor(() => h.engine.planView().status === "failed");
+    Object.assign(h.tools, { codex: codex.options.executable });
+    codex.configureEnvironment(h.env);
+    const script = join(h.sandbox.root, "write-draft.mjs");
+    writeFileSync(script, `
+      import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+      import { execFileSync } from "node:child_process";
+      const deadline = Date.now() + 15_000;
+      while (!existsSync(${JSON.stringify(release)})) {
+        if (Date.now() > deadline) throw new Error("Test did not release the Codex stage.");
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+      mkdirSync(${JSON.stringify(dir)}, { recursive: true });
+      writeFileSync(${JSON.stringify(prd)}, ${JSON.stringify(PRD)});
+      execFileSync("git", ["add", ${JSON.stringify(prd)}]);
+      execFileSync("git", ["commit", "-qm", "draft"]);
+    `);
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, itemFirst: true, ordinaryUsageAllowed: true,
+      additionalSkills: ["using-the-enso-method"], skill: join(h.env.CLAUDE_CONFIG_DIR!, "skills", "using-the-enso-method", "SKILL.md"),
+      command: `${quote(process.execPath)} ${quote(script)}`,
+      finalText: report({ ran: ["prd-writing-standards"], next: "autonomous-prd-refinement", milestones: [] }).result });
+    const engine = h.reopen();
+    await engine.refreshAgents();
+    expect(await engine.changeStageModel("kiln:next", { agentId: "codex", model: "gpt-6.1-sol", effort: "high" }, false)).toMatchObject({ ok: true });
+    const post = await serve();
+    expect(await engine.start()).toMatchObject({ ok: true });
+    const turnStarted = () => codex.calls().some(call => call.method === "turn/start");
+    await waitFor(() => turnStarted() || engine.stoppedPhaseKey() !== undefined);
+    expect(turnStarted(), JSON.stringify(buildSnapshot(engine).needsYou)).toBe(true);
+    expect(buildSnapshot(engine).requirements?.feedbackTo).toBe("next_session");
+    expect((await post("feedback", { text: "Count crates too." })).status).toBe(202);
+    expect(buildSnapshot(engine).requirements?.feedback[0]).toMatchObject({ id: "m-1", state: "waiting" });
+    expect(h.claudeCalls()).toHaveLength(0);
+    writeFileSync(release, "");
+    await engine.settled();
+    expect(h.claudeCalls()[0]?.prompt).toContain("Message m-1:\nCount crates too.");
+    expect(feedback()[0]).toMatchObject({ state: "applied", appliedCommit: engine.record.requirements?.stages[1]?.pushedSha });
+    expect(engine.record.requirements?.stages.map(stage => stage.task)).toEqual(["stage", "feedback", "stage"]);
+  } finally {
+    writeFileSync(release, "");
+    await server?.close();
+    server = undefined;
+    await h?.engine.stop("sigint");
+    await codex.sandbox.cleanup();
+  }
+}, 40_000);

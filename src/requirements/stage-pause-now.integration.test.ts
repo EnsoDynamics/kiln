@@ -67,9 +67,11 @@ darwin("resumes the held stage's own session when work is left", async () => {
   const key = await pausedStage([{ actions: [{ result: "Continued the stage." }] }]);
   const recovery = buildSnapshot(h.engine).needsYou!.phaseRecovery!.target;
   writeFileSync(join(h.engine.worktreePath, "notes.md"), "Notes.\n");
-  expect((await post("resume", { target: recovery })).body).toMatchObject({ outcome: "resume_requested" });
+  expect((await post("resume", { target: recovery, note: "Count crates in this stage." })).body).toMatchObject({ outcome: "resume_requested" });
   await h.engine.settled();
   expect(h.engine.record.liveControl).toBeUndefined();
   expect(h.claudeCalls()).toHaveLength(2);
+  expect(h.claudeCalls()[1]!.args).toContain("--resume");
   expect(h.claudeCalls()[1]!.args).toContain(h.engine.latestSession(key)!.sessionId);
+  expect(h.claudeCalls()[1]!.prompt).toContain("Count crates in this stage.");
 }, 120_000);
