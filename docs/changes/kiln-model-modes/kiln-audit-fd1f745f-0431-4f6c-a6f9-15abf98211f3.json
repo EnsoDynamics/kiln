@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6e7e3f9c-756d-492e-aaa2-6aac9c05a174",
+  "activityId": "fd1f745f-0431-4f6c-a6f9-15abf98211f3",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The test audit graded all 17 criteria of Kiln Model Modes against the PRD: 13 are Adequate and 4 are Weak (AC-SAVE-04, AC-ROW-01, AC-WHEN-03, AC-GUIDE-01), none Missing and no mapped test failing. Ten red checks, covering every high-risk Adequate criterion plus AC-SAVE-05 and AC-PRD-01, each broke the riskiest stated part, and a test caught every one. The remaining work is one batch of test fixes recorded in test-audit.md: three red checks still to run (AC-MODE-01, AC-WHEN-01, AC-SAVE-02) and the four Weak rows, with AC-SAVE-04 (own settings kept across an upgrade) first because it is high risk.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "kind": "test",
+      "criterion": "AC-SAVE-04",
+      "problem": "A high-risk criterion is still Weak: no test proves a PRD's own settings are kept across an upgrade of Kiln.",
+      "action": "None yet; the next session of test fixes adds the test. Review it only if it is still open at delivery."
+    }
+  ],
+  "settled": [],
+  "changedImplementation": false,
+  "afterDeliveryActions": [
+    "Once the pull request has merged, release Kiln as a minor version, as the technical design's Delivery section says."
+  ]
+}
