@@ -2081,8 +2081,10 @@ export class Engine {
       if (!plan) {
         if (!this.isUnderway) return [{ key: "req-next", row: "Requirements stages" }, { key: "req-design", row: "Refining the design" }];
         // The stage the latest report names resolves under its own key, as its row and its launch do.
+        // A stop's review the driver runs next resolves under the key its row and launch take (AC-MODEL-06).
+        const review = this.noPlanReview();
         const next = expectedStage(state);
-        return [current ? { key: current, row: this.titleOf(current) } : next ? { key: `${PLANNED_STAGE_PREFIX}${nextStageKey(state, next.skill)}`, row: next.title } : { key: "req-next", row: "Requirements stages" }];
+        return [current ? { key: current, row: this.titleOf(current) } : review ? { key: `${PLANNED_STAGE_PREFIX}${review.key}`, row: review.title } : next ? { key: `${PLANNED_STAGE_PREFIX}${nextStageKey(state, next.skill)}`, row: next.title } : { key: "req-next", row: "Requirements stages" }];
       }
       const currentKey = current && state.stages.find(stage => `req-${stage.activityId}` === current)?.key;
       const unknown = !!state.standing && "unknown" in state.standing || !!state.cursorLost;
@@ -6306,6 +6308,9 @@ export class Engine {
     if (!review.current) return refuse("The stakeholder review needs refreshing. Press Resume.");
     const committed = await this.requirementsCommitted();
     if (!committed.passed) return refuse(committed.facts.join("\n"));
+    // The person's own commits at the review go to the feature branch before the build (AC-STAGE-02).
+    const pushed = await this.pushRequirementsBranch();
+    if (pushed) return refuse(`Kiln couldn't push the feature branch: ${pushed}`);
     const at = this.now().toISOString();
     const baseline = await this.readPlan();
     if (!baseline.ok) return refuse(baseline.problem);
@@ -6326,9 +6331,16 @@ export class Engine {
       if (!committed.passed) return refuse(committed.facts.join("\n"));
       const dir = this.record.prdDirectory;
       if (!dir) return refuse("The PRD directory is missing.");
+      // Kiln moves on with the person's own commits on the feature branch (AC-STAGE-02).
+      const pushed = await this.pushRequirementsBranch();
+      if (pushed) return refuse(`Kiln couldn't push the feature branch: ${pushed}`);
       const review = await reviewState(this.git, this.worktreePath, dir);
       if (kind === "final" && review.current) { await this.readFinalStartChecks(); this.changed(); return { ok: true, outcome: "advanced" }; }
       if (kind === "early" && !review.current) state.refreshAsked = true;
+    } else {
+      // Continue moves on too, with whatever the person committed at the review (AC-STAGE-02).
+      const pushed = await this.pushRequirementsBranch();
+      if (pushed) return refuse(`Kiln couldn't push the feature branch: ${pushed}`);
     }
     state.phase = "stages";
     this.save();
@@ -6477,7 +6489,8 @@ export class Engine {
     }
     if (findFailure(file, agentId, method.fingerprint) && !options.force) { this.changed(); return; }
     if (file.reading?.fingerprint === method.fingerprint && file.reading.agentId === agentId && await isProcessLive(file.reading.pid, file.reading.processStartTime)) {
-      // Another Kiln reads it: the watch republishes when it lands.
+      // Another Kiln reads it: the screen says so now, and the watch republishes when it lands (AC-PLAN-04).
+      this.changed();
       if (waitsFor(method.fingerprint)) await this.waitForOtherRead(agentId, method.fingerprint);
       return;
     }
@@ -6622,7 +6635,7 @@ export class Engine {
   }
 
   /** The stop's review row key: the method's entry right after the one that reaches the stop when it makes a review, otherwise Kiln's (technical design, "Data Models"). */
-  private reviewRowKey(kind: "early" | "final"): string {
+  reviewRowKey(kind: "early" | "final"): string {
     const plan = this.requirementsPlan;
     if (!plan) return `kiln:${kind}`;
     const at = plan.stages.findIndex(stage => stage.reaches.includes(kind === "early" ? "prd_refined" : "requirements_finished"));
@@ -6896,6 +6909,16 @@ export class Engine {
     return { name: CHECK_NAMES.committed, passed: !facts.length, facts };
   }
 
+  /** Pushes the feature branch in every repository whenever the requirements move on; Git's rejection when it fails (AC-STAGE-02). */
+  private async pushRequirementsBranch(): Promise<string | undefined> {
+    const branch = this.record.settings.featureBranch;
+    for (const entry of this.setUpRepositories) {
+      const pushed = await runGit(this.git, expandHome(entry.worktreePath), ["push", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
+      if (pushed.exitCode !== 0) return this.setUpRepositories.length > 1 ? `${entry.name}: ${gitError(pushed)}` : gitError(pushed);
+    }
+    return undefined;
+  }
+
   private async judgeRequirements(key: string, byHand = false): Promise<Verdict> {
     const state = this.record.requirements!;
     const stage = state.stages.find(one => `req-${one.activityId}` === key)!;
@@ -6924,11 +6947,8 @@ export class Engine {
       else if (!acceptable && !committed.facts.length) committed.facts.push("The session did not report a finished stage.");
       return stop([{ ...committed, passed: false }]);
     }
-    const branch = this.record.settings.featureBranch;
-    for (const entry of this.setUpRepositories) {
-      const pushed = await runGit(this.git, expandHome(entry.worktreePath), ["push", "origin", `refs/heads/${branch}:refs/heads/${branch}`]);
-      if (pushed.exitCode !== 0) return stop([committed, { name: CHECK_NAMES.pushed, passed: false, facts: [gitError(pushed)] }]);
-    }
+    const pushed = await this.pushRequirementsBranch();
+    if (pushed) return stop([committed, { name: CHECK_NAMES.pushed, passed: false, facts: [pushed] }]);
     const at = this.now().toISOString();
     if (found.directory) this.record.prdDirectory = found.directory;
     const plan = this.requirementsPlan;

@@ -1,5 +1,7 @@
 # Phase 10: Complete the requirements plan's notices and stop marks, and the pushes after a review
 
+**Closed:** 2026-11-28
+
 **Added by delivery audit:** 2026-11-27, after every planned phase closed, in the audit that followed phases 7 and 8. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "Reading it"; "Rows"; "How a stage ends"; "The Two Reviews"; "Models"

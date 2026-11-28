@@ -30,6 +30,11 @@ const indexFrom = (stages: PlanStage[], from: number, skill: string) => {
   return -1;
 };
 
+const indexReaching = (stages: PlanStage[], from: number, milestone: MilestoneName) => {
+  for (let i = Math.max(0, from); i < stages.length; i++) if (stages[i]!.reaches.includes(milestone)) return i;
+  return -1;
+};
+
 /**
  * Moves the cursor for a stage or feedback report that set the standing (technical design,
  * "Rows"), and says what changed when the report passed an entry that didn't run, ran a stage the
@@ -39,9 +44,10 @@ const indexFrom = (stages: PlanStage[], from: number, skill: string) => {
 export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, task: "stage" | "feedback", report: StageReport, atStop: boolean): string[] {
   const stages = plan.stages;
   const pos = state.cursor;
-  const expected = plannedNext(plan, state);
   // From an unknown standing the files can't say which entries are behind, so the notice names where Kiln goes on from (AC-BEGIN-04).
   const unknown = !!state.standing && "unknown" in state.standing;
+  // After a stop that ran nothing in the plan the session ran as the Next stage row, but the plan still had the entry at the cursor next (AC-PLAN-06).
+  const expected = unknown ? undefined : state.inserted ? { stage: state.inserted } : stages[pos] && { stage: stages[pos]! };
   delete state.inserted;
   delete state.cursorLost;
   const changes: string[] = [];
@@ -58,13 +64,30 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
     else firstRanAt = at;
     ranAt = at;
   }
+  // The entries between the cursor and the first one the session ran didn't run, up to the one the cursor moves to.
+  const beforeFirst = (upTo = firstRanAt) => Math.min(firstRanAt, upTo) > pos ? stages.slice(pos, Math.min(firstRanAt, upTo)).map(stage => stage.title) : [];
   if (ran && expected && ran.skill !== expected.stage.skill) changes.push(`The session ran ${ran.title} where the plan had ${expected.stage.title} next.`);
   const next = report.next as NextStage;
   if (atStop) {
     // The entry right after the one that reached the stop is the stop's review when it makes one; otherwise Kiln's row stays.
-    if (ranAt < 0) { if (ran || task === "stage") state.cursorLost = true; return changes; }
+    if (ranAt < 0) {
+      if (task === "stage") {
+        // The session ran nothing in the plan, so its row is Kiln's Next stage row; the entries its milestones put behind the work still leave the plan (AC-PLAN-06).
+        const final = next.kind === "build" || !!report.milestones?.some(m => m.name === "requirements_finished");
+        let reached = indexReaching(stages, pos, final ? "requirements_finished" : "prd_refined");
+        if (reached < 0 && final) reached = stages.length - 1;
+        if (reached >= pos) {
+          state.cursor = stages[reached + 1]?.reaches.includes("review_made") ? reached + 2 : reached + 1;
+          const after = stages[state.cursor];
+          if (unknown) changes.push(after ? `Kiln continues from ${after.title}, where the method found this PRD stands.` : "The method found every stage in the plan done for this PRD.");
+          else changes.push(`Passed ${stages.slice(pos, reached + 1).map(stage => stage.title).join(", ")}, which the method didn't run for this PRD.`);
+        }
+      }
+      if (ran || task === "stage") state.cursorLost = true;
+      return changes;
+    }
     // Every entry the cursor moves past that didn't run is named, as away from a stop (AC-PLAN-06).
-    const passed = [...(firstRanAt > pos ? stages.slice(pos, firstRanAt).map(stage => stage.title) : []), ...skipped];
+    const passed = [...beforeFirst(), ...skipped];
     if (!unknown && passed.length) changes.push(`Passed ${passed.join(", ")}, which the method didn't run for this PRD.`);
     state.cursor = stages[ranAt + 1]?.reaches.includes("review_made") ? ranAt + 2 : ranAt + 1;
     return changes;
@@ -74,7 +97,7 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
   // The cursor is the first entry at or after its last position whose skill is the standing's next.
   const found = indexFrom(stages, pos, next.skill);
   if (found >= 0) {
-    const passed = [...skipped, ...(found > from ? stages.slice(from, found).map(stage => stage.title) : [])];
+    const passed = [...beforeFirst(found), ...(found > firstRanAt ? skipped : []), ...(found > from ? stages.slice(from, found).map(stage => stage.title) : [])];
     if (unknown) changes.push(`Kiln continues from ${stages[found]!.title}, where the method found this PRD stands.`);
     else if (passed.length) changes.push(`Passed ${passed.join(", ")}, which the method didn't run for this PRD.`);
     state.cursor = found;

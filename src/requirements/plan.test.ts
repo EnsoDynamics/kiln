@@ -149,3 +149,49 @@ it("from an unknown standing, a PRD started by hand, lists every entry from the 
   expect(advanceCursor(shown, state, "stage", report(["refine"], "design"), false)).toEqual(["Kiln continues from design, where the method found this PRD stands."]);
   expect(state.cursor).toBe(2);
 });
+
+it("names the entries before the first one a session ran, away from a stop too (AC-PLAN-06)", () => {
+  const shown = plan([stage("A"), stage("B"), stage("C"), stage("D")]);
+  const state = newRequirements();
+  expect(advanceCursor(shown, state, "stage", report(["C"], "D"), false)).toEqual(["The session ran C where the plan had A next.", "Passed A, B, which the method didn't run for this PRD."]);
+  expect(state.cursor).toBe(3);
+  // A report whose next comes before what it ran passes only the entries before the new cursor.
+  const back = newRequirements();
+  expect(advanceCursor(shown, back, "stage", report(["C"], "B"), false)).toEqual(["The session ran C where the plan had A next.", "Passed A, which the method didn't run for this PRD."]);
+  expect(back.cursor).toBe(1);
+});
+
+it("at a stop where the session ran nothing, drops the entries the milestones put behind, and the next report names what it passes (AC-PLAN-06)", () => {
+  const shown = plan([stage("write"), stage("refine", ["prd_refined"]), stage("design", ["design_ready"]), stage("split", ["requirements_finished"])]);
+  const atRefined = (ran: string[], next: string): StageReport => ({ ...report(ran, next), milestones: [{ name: "prd_refined", by: "earlier" }] });
+  // A PRD refined by hand: the first session from the unknown standing runs nothing and reports the early review.
+  const byHand = { ...newRequirements(), standing: { unknown: true as const, at: "2026-11-27T00:00:00Z" } };
+  expect(advanceCursor(shown, byHand, "stage", atRefined([], "stakeholder-review-package"), true)).toEqual(["Kiln continues from design, where the method found this PRD stands."]);
+  expect(byHand.cursor).toBe(2);
+  expect(byHand.cursorLost).toBe(true);
+  expect(plannedRows(shown, byHand, { next: false }).map(row => row.key)).toEqual(["kiln:early", "design#1", "split#1", "kiln:final"]);
+  // From a known standing the passed entries are named.
+  const known = { ...newRequirements(), standing: { next: { kind: "requirements" as const, skill: "write", title: "write", reaches: [] }, milestones: [], at: "2026-11-27T00:00:00Z" } };
+  expect(advanceCursor(shown, known, "stage", atRefined([], "stakeholder-review-package"), true)).toEqual(["Passed write, refine, which the method didn't run for this PRD."]);
+  expect(known.cursor).toBe(2);
+  // A cursor lost before entries were dropped: Continue's session ran the design, and the entries it passes are named.
+  const lost = { ...known, cursor: 0, cursorLost: true as const };
+  expect(advanceCursor(shown, lost, "stage", report(["design"], "split"), false)).toEqual(["The session ran design where the plan had write next.", "Passed write, refine, which the method didn't run for this PRD."]);
+  expect(lost.cursor).toBe(3);
+  expect(lost.cursorLost).toBeUndefined();
+  // At the final review with nothing run, every entry is behind.
+  const finished = { ...newRequirements(), cursor: 2, standing: known.standing };
+  expect(advanceCursor(shown, finished, "stage", report([], "build", "build"), true)).toEqual(["Passed design, split, which the method didn't run for this PRD."]);
+  expect(finished.cursor).toBe(4);
+  // With no entry reaching requirements_finished, the last entry is the one the final review follows.
+  const noSplit = plan([stage("write"), stage("refine", ["prd_refined"]), stage("design")]);
+  const ended = { ...newRequirements(), cursor: 2, standing: known.standing };
+  expect(advanceCursor(noSplit, ended, "stage", report([], "build", "build"), true)).toEqual(["Passed design, which the method didn't run for this PRD."]);
+  expect(ended.cursor).toBe(3);
+  // The method's own review entry right after the refining one is the stop's review row, so the cursor goes past it too, and it isn't named as passed.
+  const reviewed = plan([stage("write"), stage("refine", ["prd_refined"]), stage("stakeholder-review-package", ["review_made"]), stage("design")]);
+  const atReview = { ...newRequirements(), standing: known.standing };
+  expect(advanceCursor(reviewed, atReview, "stage", atRefined([], "stakeholder-review-package"), true)).toEqual(["Passed write, refine, which the method didn't run for this PRD."]);
+  expect(atReview.cursor).toBe(3);
+  expect(plannedRows(reviewed, atReview, { next: false }).map(row => row.key)).toEqual(["design#1", "kiln:final"]);
+});

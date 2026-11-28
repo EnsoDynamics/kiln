@@ -1,9 +1,10 @@
 // A requirements stage follows a phase's model rules for the fallback (Kiln Requirements Stages
-// AC-MODEL-06): the heads-up on the row Kiln launches next, a stage stopped before it started
-// included, while the stage is current why the fallback wasn't used, and the terminal line naming
-// a stage that started on it. Real engine and Git; the Claude account reading is set at the
-// reader's boundary, since an account can't be brought to the threshold on demand.
-import { mkdtempSync, writeFileSync } from "node:fs";
+// AC-MODEL-06): the heads-up on the row Kiln launches next, a stage stopped before it started and
+// a stop's review with no plan included, while the stage is current why the fallback wasn't used,
+// and the terminal line naming a stage that started on it. Real engine and Git; the Claude account
+// reading is set at the reader's boundary, since an account can't be brought to the threshold on
+// demand.
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -14,6 +15,7 @@ import { ScriptedClaude, signedIn, usageRow, type ScriptedReading } from "../tes
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import { buildSnapshot } from "../engine/snapshot.js";
+import { modelDefaultsPath } from "../models/model-defaults.js";
 
 let h: Harness | undefined;
 let codex: ReturnType<typeof codexWorkFixture> | undefined;
@@ -157,4 +159,48 @@ it("names the requirements stage in the terminal line when it starts on the fall
   await h.engine.settled();
   const lines = h.events.filter(event => event.kind === "message" && event.text.includes("started on the fallback"));
   expect(lines).toEqual([{ kind: "message", text: expect.stringMatching(/^Next requirements stage started on the fallback, Claude Code · Fable [0-9.]* · high: Codex's .* read 97%, at or above the 95% threshold/) }]);
+});
+
+it("with no plan, puts the heads-up on the stop's review row when the review is Kiln's next launch (Phase Model Tiers AC-FALLBACK-04, AC-PICK-06)", async () => {
+  const signals = mkdtempSync(join(tmpdir(), "kiln-stage-fallback-"));
+  const dir = "docs/prds/count-boxes";
+  const report = (ran: string, next: string, milestones: string[], reaches: string[] = []) => ({ result: "```kiln-report\n" + JSON.stringify({ kilnReport: 1, ran: [{ skill: ran, title: ran }], finished: true,
+    next: { kind: "requirements", skill: next, title: next, reaches }, milestones: milestones.map(name => ({ name, by: "this_session" })), prdDirectory: dir }) + "\n```" });
+  const claude = new SetClaude(weekly(10));
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder: "count-boxes", engineOptions: { claude }, sessions: [
+    { actions: [{ write: { path: `${dir}/count-boxes-prd.md`, content: "# Count boxes PRD\n" } }, { commit: "draft" }, report("prd-writing-standards", "autonomous-prd-refinement", []), { exit: 0 }] },
+    // The refinement reaches the early stop, and its report names the method's review skill next.
+    { actions: [{ touch: join(signals, "refining") }, { waitForFile: join(signals, "go") }, { write: { path: `${dir}/count-boxes-prd.md`, content: "# Count boxes PRD\n\nRefined.\n" } }, { commit: "refine" }, report("autonomous-prd-refinement", "stakeholder-review-package", ["prd_refined"], ["review_made"]), { exit: 0 }] },
+  ] });
+  codex = codexWorkFixture();
+  Object.assign(h.tools, { codex: codex.options.executable });
+  codex.configureEnvironment(h.env);
+  codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10, windowDurationMins: 300 } } } } });
+  writeModelDefaults(h.env, { requirements: { first: { agentId: "claude_code", family: "fable", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "high" } } }, { enabled: true, threshold: 95 });
+  h.engine.modelChoicesChanged();
+  await h.engine.refreshAgents();
+  await waitFor(() => buildSnapshot(h!.engine).requirements!.plan.status === "failed", 20_000);
+  await h.engine.refreshAgents();
+  await waitFor(() => !h!.engine.readers.claude_code.state.pending && !h!.engine.readers.codex.state.pending);
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await waitFor(() => existsSync(join(signals, "refining")), 20_000);
+  // Pause after: Kiln holds before the review session the refinement's stop calls for.
+  h.engine.pause();
+  writeFileSync(join(signals, "go"), "");
+  await h.engine.settled();
+  expect(h.engine.record.pause.activeSince).toBeDefined();
+  // Claude Code's allowance now stands past the threshold, so the review's launch would fall back.
+  claude.reading = weekly(97);
+  await claude.refreshAccount();
+  await waitFor(() => !!h!.engine.headsUp(), 20_000);
+  expect(h.engine.headsUp()!.key).toBe("req-row:kiln:early");
+  const shown = rows();
+  expect(shown.find(row => row.state === "next")).toMatchObject({ key: "kiln:early", model: { forecast: { choice: { agent: "Codex" }, limit: { agent: "Claude Code", percent: 97 } } } });
+  expect(shown.filter(row => row.model?.forecast)).toHaveLength(1);
+  // The choice checks read the same row: a choice saved for the review's skill that can't be used names the review row.
+  const path = modelDefaultsPath(h.env);
+  writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(path, "utf8")), skills: { "stakeholder-review-package": { agentId: "claude_code", family: "opus", effort: "ultra" } } }));
+  h.engine.modelChoicesChanged();
+  await waitFor(() => !!h!.engine.modelsProblem);
+  expect(h.engine.modelsProblem).toMatch(/^Early stakeholder review runs on Claude Code · Opus[^:]* · ultra from a choice saved for every PRD for this stage's skill: /);
 });

@@ -735,8 +735,9 @@ export function requirementsView(engine: Engine): RequirementsView {
       }
     }
   }
-  // Each stop is marked on the row it follows.
-  rows.forEach((row, i) => { const kind = row.addedByKiln ?? (row.key === "kiln:early" ? "early" : row.key === "kiln:final" ? "final" : undefined); if (kind && i > 0) rows[i - 1]!.stop ??= kind; });
+  // Each stop is marked on the row before its review row: Kiln's, or the method's own review entry that makes the stop's review (AC-PLAN-01).
+  const reviewKinds = new Map((["early", "final"] as const).map(kind => [engine.reviewRowKey(kind), kind]));
+  rows.forEach((row, i) => { const kind = row.addedByKiln ?? (row.key === "kiln:early" ? "early" : row.key === "kiln:final" ? "final" : reviewKinds.get(row.key)); if (kind && i > 0) rows[i - 1]!.stop ??= kind; });
   // Feedback applied after a row is listed on that row, or on the latest done row when the session that applied it ran nothing (AC-TALK-04).
   const shown = state.stages.filter(shownStage);
   for (const message of state.feedback) {
