@@ -80,7 +80,7 @@ it("places recorded runs, material Kiln or a PRD was started from, origin-only m
   expect(scan.underWay.find(item => item.title === "Labels")).toMatchObject({ branch: "elsewhere", path: "docs/changes/labels" });
   expect(scan.underWay[0]).toMatchObject({ path: "source-material/boxes", line: "Requirements. Write the PRD.", waitsForYou: true });
   expect(scan.underWay.find(item => item.title === "returns")!.line).toBe("Build. 1 of 2 phases done. Kiln couldn't read its state. Its Kiln is at http://127.0.0.1:4702/returns.");
-  expect(scan.underWay.find(item => item.title === "Drafted")).toMatchObject({ startedByHand: true, line: "Started by hand. PRD written, no technical design yet. Kiln continues from there, with the early review once the PRD is refined." });
+  expect(scan.underWay.find(item => item.title === "Drafted")).toMatchObject({ startedByHand: true, line: "Started by hand. PRD written, no technical design yet, with the design refinement part-way through. Kiln continues from there, with the early review once the PRD is refined." });
   expect(scan.folded.map(item => item.title)).toEqual(["Newer", "Older"]);
   expect(scan.folded[0]!.line).toBe("PRD written, no technical design yet. Last changed Nov 18.");
 });
@@ -161,7 +161,7 @@ it("places what only origin or another branch holds, uncommitted material, rows 
   // A started run names the repositories its phases name before they start (AC-HOME-10).
   expect(line("multi")!.alsoChanges).toEqual(["warehouse"]);
   expect(line("Designing")).toMatchObject({ branch: "prd/designing", startedByHand: true });
-  expect(line("Boxes")!.line).toBe("Requirements. Kiln couldn't read its state. Its Kiln is at http://127.0.0.1:4703/boxes.");
+  expect(line("Boxes")!.line).toBe("Requirements. The first stage hasn't begun. Kiln couldn't read its state. Its Kiln is at http://127.0.0.1:4703/boxes.");
   expect(scan.folded.map(item => item.title)).toEqual(["Gifts by hand"]);
 });
 

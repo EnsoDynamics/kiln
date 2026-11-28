@@ -146,3 +146,37 @@ it("names what to commit, or the bring-up-to-date step, for material and PRDs th
   expect(merged.code).toBe(1);
   expect(merged.output).toContain("docs/prds/merged is committed only on origin's develop. Bring the local shared branch develop up to date.");
 });
+
+it("names the intake record's one step left in kiln run, wherever the record is written (AC-BEGIN-03)", async () => {
+  const repo = repository();
+  const bin = join(sandbox.root, "bin");
+  installStandIns(bin);
+  const env = { ...sandbox.env, PATH: bin + delimiter + (sandbox.env.PATH ?? ""), KILN_PORT_RANGE: await reservePortRange(), KILN_NO_BROWSER: "1" };
+  const run = async (path: string) => {
+    let output = "";
+    const code = await runKilnCommand(["run", path], { cwd: repo, env, stdout: { write: (s: string) => output += s }, stderr: { write: (s: string) => output += s }, signals: new EventEmitter() });
+    return { code, output };
+  };
+  for (const name of ["visits", "talks", "calls"]) {
+    commitFiles(sandbox, repo, `source-material/${name}`, { [`${name}-brief.md`]: `# Brief: ${name}\n` });
+    commitFiles(sandbox, repo, `source-material/${name}/received`, { "notes.txt": "notes\n" });
+  }
+  git(sandbox, repo, "push", "-q", "origin", "develop");
+  commitFiles(sandbox, repo, "source-material/talks", { "talks-requirements-intake.md": "# Requirements intake: Talks\n" });
+  git(sandbox, repo, "push", "-q", "origin", "develop");
+  git(sandbox, repo, "reset", "-q", "--hard", "HEAD~1");
+  git(sandbox, repo, "switch", "-q", "-c", "intake-work");
+  commitFiles(sandbox, repo, "source-material/visits", { "visits-requirements-intake.md": "# Requirements intake: Visits\n" });
+  git(sandbox, repo, "switch", "-q", "develop");
+  const visits = await run("source-material/visits");
+  expect(visits.code).toBe(1);
+  expect(visits.output).toContain("source-material/visits/visits-requirements-intake.md isn't committed on develop, only on intake-work. Commit it on develop.");
+  const talks = await run("source-material/talks");
+  expect(talks.code).toBe(1);
+  expect(talks.output).toContain("source-material/talks/talks-requirements-intake.md is committed only on origin's develop. Bring the local shared branch develop up to date.");
+  writeFileSync(join(repo, "source-material/calls/calls-requirements-intake.md"), "# Requirements intake: Calls\n");
+  const calls = await run("source-material/calls");
+  expect(calls.code).toBe(1);
+  expect(calls.output).toContain("source-material/calls/calls-requirements-intake.md isn't committed on develop. Commit it on develop.");
+  expect(calls.output).not.toContain("has no intake record yet");
+});

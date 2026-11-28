@@ -125,6 +125,34 @@ it("shows where a PRD started by hand stands, selects the unmerged branch holdin
   expect(git(h.sandbox, calls[0]!.cwd, "log", "--format=%s", "-3").trim().split("\n")).toEqual(["review", "refine the PRD", "amend the PRD"]);
 });
 
+it("names a committed design refinement it accepts in where the PRD stands, as the home screen does (AC-BEGIN-04)", async () => {
+  h = await createHarness({ files: { "customer-returns-prd.md": PRD, "customer-returns-design-refinement-state.md": "checkpoint 1\n" }, sessions: [] });
+  hostOnGithub(h);
+  const { out } = await kilnRun(h, [dir], async (page) => {
+    await waitFor(async () => (await page.snapshot()).requirements?.start !== undefined);
+    expect((await page.snapshot()).requirements?.standsAt).toBe("PRD written, no technical design yet, with the design refinement part-way through");
+  });
+  expect(out).toContain("started by hand: PRD written, no technical design yet, with the design refinement part-way through.");
+});
+
+it("opens a PRD from origin's copy of its branch when the local copy is stale, with that branch selected (AC-BEGIN-08)", async () => {
+  h = await createHarness({ files: { "customer-returns-prd.md": PRD }, sessions: [] });
+  hostOnGithub(h);
+  // Pushed from another computer: origin's prd/gift-cards holds the PRD, the local prd/gift-cards is still at develop.
+  git(h.sandbox, h.repository, "switch", "-q", "-c", "prd/gift-cards");
+  commitFiles(h.sandbox, h.repository, "docs/changes/gift-cards", { "gift-cards-prd.md": "# PRD: Gift cards from elsewhere\n" });
+  git(h.sandbox, h.repository, "push", "-q", "-u", "origin", "prd/gift-cards");
+  git(h.sandbox, h.repository, "switch", "-q", "develop");
+  git(h.sandbox, h.repository, "branch", "-q", "-f", "prd/gift-cards", "develop");
+  const opened = await kilnRun(h, ["docs/changes/gift-cards"], async (page) => {
+    await waitFor(async () => (await page.snapshot()).requirements?.start !== undefined);
+    const snapshot = await page.snapshot();
+    expect(snapshot.requirements).toMatchObject({ standsAt: "PRD written, no technical design yet", origin: { kind: "prd", title: "Gift cards from elsewhere" }, start: { from: "existing", holds: "prd/gift-cards" } });
+    expect(snapshot.settings.featureBranch).toBe("prd/gift-cards");
+  });
+  expect(opened.address).toMatch(/\/gift-cards$/);
+});
+
 it("names the method run part-way through instead of the uncommitted files, and opens nothing (AC-BEGIN-04)", async () => {
   h = await createHarness({ files: { "customer-returns-prd.md": PRD }, sessions: [] });
   writeFileSync(join(h.repository, dir, "customer-returns-prd-refinement-state.md"), "round 2\n");

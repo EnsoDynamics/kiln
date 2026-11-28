@@ -9,9 +9,12 @@ import { basename, join, posix, resolve } from "node:path";
 import { listWorktrees, runGit, type GitContext } from "../engine/git-reads.js";
 import { expandHome } from "../engine/worktree-setup.js";
 import { featureNameFor } from "../prd-location.js";
-import { readPhasePlan, leavesOf, namedRepositories } from "../plan/phase-plan.js";
+import { readPhasePlan, leavesOf } from "../plan/phase-plan.js";
+import { readRepositoryName, sameAddressPath } from "../plan/repository-names.js";
+import { recordedName } from "../engine/plan-repositories.js";
+import { parseGithubOrigin } from "../github-origin.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
-import { documentsStand, holdingByDirectory, readBranchRefs, type HoldingBranch } from "../requirements/branches.js";
+import { documentsStand, holdingByDirectory, partWayFiles, readBranchRefs, roundsNotCommitted, standsWithRound, type HoldingBranch } from "../requirements/branches.js";
 import { briefName, initiativeRows, type InitiativeRow } from "../requirements/source.js";
 import type { SavedWork } from "../control/private-state.js";
 import { startedBranches } from "../engine/start-from.js";
@@ -113,9 +116,22 @@ function recordLine(record: PrdRecord): string {
     const ready = requirements.review?.readySince;
     if (requirements.phase === "early_review") return `Requirements. The early stakeholder review has been ready since ${ready ? time(ready) : "the stop"}.`;
     if (requirements.phase === "final_review") return `Requirements done. The final stakeholder review has been ready since ${ready ? time(ready) : "the stop"}.`;
+    // The stage running; else, between stages, the last one finished and the one the method puts next; else where the PRD stood at Start.
     const current = requirements.stages.findLast(stage => !stage.pushedSha);
-    const title = current?.ran[0]?.title ?? current?.expected?.title;
-    return title ? `Requirements. ${title}.` : "Requirements.";
+    if (current) {
+      const title = current.ran[0]?.title ?? current.expected?.title;
+      if (title) return `Requirements. ${title}.`;
+      if (current.task === "feedback") return "Requirements. Applying stakeholder feedback.";
+      if (current.task === "review") return "Requirements. Making the stakeholder review.";
+      return requirements.standsAt ? `Requirements. ${requirements.standsAt}; the first session finds the next stage.` : "Requirements. The first session finds the next stage.";
+    }
+    const last = requirements.stages.findLast(stage => stage.task === "stage" && stage.pushedSha);
+    const lastTitle = last ? last.ran.at(-1)?.title ?? last.expected?.title : undefined;
+    const next = requirements.standing && !("unknown" in requirements.standing) ? requirements.standing.next.title : undefined;
+    if (lastTitle && next) return `Requirements. Last finished: ${lastTitle}. Next: ${next}.`;
+    if (next) return `Requirements. Next: ${next}.`;
+    if (lastTitle) return `Requirements. Last finished: ${lastTitle}.`;
+    return requirements.standsAt ? `Requirements. ${requirements.standsAt}.` : "Requirements. The first stage hasn't begun.";
   }
   const leaves = (record.plan ?? []).filter(phase => !("splitInto" in phase) || phase.splitInto === undefined);
   const done = leaves.filter(phase => record.phases[phase.id]?.doneAt).length;
@@ -139,6 +155,10 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
   const sharedRead = sharedLocal ?? sharedRemote;
   // Origin's copy is read for what the local one lacks only when origin is ahead: when it is an ancestor, pulling would bring nothing (AC-HOME-03).
   const remoteAhead = !!sharedRemote && sharedRemote !== sharedLocal && !(sharedLocal && (await runGit(git, cwd, ["merge-base", "--is-ancestor", sharedRemote, sharedLocal])).exitCode === 0);
+  // The repository's own address path, to drop it from the others a PRD changes when its phase documents name it that way (AC-HOME-10).
+  const originUrl = (await text(git, cwd, ["config", "--get", "remote.origin.url"]))?.trim();
+  const ownGithub = originUrl ? parseGithubOrigin(originUrl) : undefined;
+  const ownAddress = ownGithub ? `${ownGithub.owner}/${ownGithub.name}` : undefined;
   const item = (path: string, fields: Omit<HomeItem, "id" | "repository" | "checkout" | "path" | "alsoChanges"> & { alsoChanges?: string[] }): HomeItem => ({ id: `${name}:${path}`, repository: name, checkout: cwd, path, alsoChanges: [], ...fields });
 
   // The names written on any branch: a PRD or initiative folder of the material's name hides it (AC-HOME-13, first row).
@@ -211,11 +231,17 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
     // Any other folder under source-material/ is not listed (AC-HOME-13).
     if (!local && !remote && !checkout && !received) continue;
     const words = featureNameFor(folder);
-    // A folder holding received/ and no intake record is an intake not finished, even beside a brief: the first row that fits is Not ready yet (HOME-004).
-    const intakeAnywhere = [...found.local, ...found.remote, ...found.checkout].includes(intake);
     if (!shared) { scan.notReady.push(item(path, { title: words, where: `${path}/`, line: "Kiln can't tell the shared branch. Run git remote set-head origin --auto, and this is placed." })); continue; }
-    if (received && !intakeAnywhere) {
-      scan.notReady.push(item(path, { title: words, where: `${path}/`, line: `Material brought in under received/${found.local.length || found.remote.length || onDisk.has(folder) || !elsewhere.has(folder) ? "" : `, only on ${elsewhere.get(folder)}`}, and its intake record isn't written yet. When it is, this moves up.` }));
+    // A folder holding received/ with no intake record on the local shared branch is an intake not finished, even beside a brief: the first row that fits is Not ready yet, with the one step left (HOME-004, AC-HOME-03).
+    if (received && !found.local.includes(intake)) {
+      const record = `${path}/${intake}`;
+      const onBranch = async () => { for (const ref of [...refs.local.values(), ...refs.remote.values()]) if (ref.name !== shared && ref.tip !== sharedLocal && ref.tip !== sharedRemote && (await filesAt(git, cwd, ref.tip, "source-material")).includes(record)) return ref.name; return undefined; };
+      const inWorktree = worktreePathsOf(listedWorktrees, cwd).some(worktree => existsSync(join(worktree, record)));
+      const branchHolding = await onBranch();
+      const line = found.remote.includes(intake) ? `Its intake record is committed on origin's ${shared} only. Bring your local ${shared} up to date and it moves up.`
+        : inWorktree || branchHolding ? `Its intake record isn't committed on ${shared}${branchHolding ? `, only on ${branchHolding}` : ""}. Commit ${record} there and it moves up.`
+        : `Material brought in under received/${found.local.length || found.remote.length || onDisk.has(folder) || !elsewhere.has(folder) ? "" : `, only on ${elsewhere.get(folder)}`}, and its intake record isn't written yet. When it is, this moves up.`;
+      scan.notReady.push(item(path, { title: words, where: `${path}/`, line }));
       continue;
     }
     if (local && sharedLocal) {
@@ -357,10 +383,6 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
     const read = (fileName: string) => fromWorktree ? (existsSync(join(worktree!, directory, fileName)) ? readFileSync(join(worktree!, directory, fileName), "utf8") : "") : commit ? showAt(git, cwd, commit, `${directory}/${fileName}`) : "";
     const title = titleOf(await read(`${folder}-prd.md`), /^PRD:\s*/i) ?? featureNameFor(folder);
     const byHand = record?.completedAt ? {} : { startedByHand: true as const };
-    if (!shared && !started) {
-      scan.notReady.push(item(directory, { title, where: `${directory}/`, line: "Kiln can't tell the shared branch. Run git remote set-head origin --auto, and this is placed.", ...byHand }));
-      continue;
-    }
     const phaseNames = names.filter(isPhaseFileName);
     let open = false;
     let built: string | undefined;
@@ -371,28 +393,45 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
       open = leaves.some(leaf => !leaf.closed);
       built = `Phase plan of ${leaves.length}, ${leaves.filter(leaf => leaf.closed).length} built`;
       // Every phase document's **Repositories:** line, split records included (AC-HOME-10).
-      repositories = namedRepositories(plan.phases, name);
+      repositories = plan.phases.flatMap(phase => phase.repositories);
+    }
+    // Each name as Kiln names the repository, as the engine does, so the PRD's own and a repository written two ways drop out (AC-HOME-10).
+    const kilnName = (written: string) => {
+      if (started) return recordedName(started, written);
+      const read = readRepositoryName(written);
+      if (read.kind !== "path") return written;
+      return ownAddress && sameAddressPath(read.addressPath, ownAddress) ? name : read.addressPath.toLowerCase();
+    };
+    const own = new Set([name, ...(started ? [started.repository.name] : [])]);
+    const alsoChanges = [...new Set([...(started ? started.repositories.filter(entry => entry.kind !== "prd").map(entry => entry.name) : []), ...repositories.map(kilnName)])].filter(one => !own.has(one));
+    if (!shared && !started) {
+      scan.notReady.push(item(directory, { title, where: `${directory}/`, line: "Kiln can't tell the shared branch. Run git remote set-head origin --auto, and this is placed.", ...byHand, alsoChanges }));
+      continue;
     }
     // The method's files for a refinement in progress or feedback not yet applied, in any worktree or committed.
-    const inProgress = [`${folder}-prd-refinement-state.md`, `${folder}-design-refinement-state.md`, `${folder}-pending-feedback-changes.md`].some(file => names.includes(file) || worktreePaths.some(path => existsSync(join(path, directory, file))));
+    const present = (file: string) => names.includes(file) || worktreePaths.some(path => existsSync(join(path, directory, file)));
+    const inProgress = partWayFiles(folder).some(([file]) => present(file));
     // Documents only on a branch that hasn't merged: the PRD itself, or a later document the shared branch doesn't have yet (AC-HOME-13).
     const sharedNames = new Set(sharedRead && onShared.has(directory) ? await listAt(sharedRead) : []);
     const onlyOnBranch = !!branch && (!onShared.has(directory) || names.some(file => !sharedNames.has(file)));
     // Every phase built, with nothing under way: not listed. Under way's row comes first (AC-HOME-13).
     if (phaseNames.length && !open && !started && !inProgress && !onlyOnBranch) continue;
     const lastChanged = commit ? await lastChange(git, cwd, commit, directory) : undefined;
-    const alsoChanges = [...new Set([...(started ? started.repositories.filter(entry => entry.kind !== "prd").map(entry => entry.name) : []), ...repositories])];
     if (started) {
       const probe = await input.probe(work!);
       const waitsForYou = probe.state === "waiting_for_you" || !probe.feature && (started.requirements?.phase === "early_review" || started.requirements?.phase === "final_review" || Object.values(started.phases).some(facts => !!facts.stop));
       scan.underWay.push(item(started.origin?.path ?? directory, { title: started.featureName, where: `${directory}/`, line: recordLine(started) + unreadable(probe), state: probe.state, ...(probe.address ? { address: probe.address } : {}), alsoChanges, ...(lastChanged ? { lastChanged } : {}), ...(waitsForYou ? { waitsForYou: true } : {}) }));
       continue;
     }
-    const stands = built ?? documentsStand(names, folder);
+    // The round part-way through is named; with its work not committed, `kiln run` refuses the start until it finishes or stops (AC-HOME-04, AC-BEGIN-04).
+    // With work not committed, the round named is the one that holds the start back.
+    const notCommitted = inProgress ? new Set((await roundsNotCommitted(git, cwd, directory)).map(one => one.file)) : new Set<string>();
+    const held = notCommitted.size > 0;
+    const stands = standsWithRound(built ?? documentsStand(names, folder), held ? file => notCommitted.has(file) : present, folder);
     const live = work ? await input.probe(work) : undefined;
     if (open || inProgress || onlyOnBranch) {
       const on = branch ? `, on the branch ${branch.name}, not merged yet` : "";
-      const next = built ? "" : stands.startsWith("PRD written") ? " Kiln continues from there, with the early review once the PRD is refined." : " Kiln continues from there.";
+      const next = held ? " Its work isn't committed: finish that round or stop it, and Kiln continues from there." : built ? "" : stands.startsWith("PRD written") ? " Kiln continues from there, with the early review once the PRD is refined." : " Kiln continues from there.";
       scan.underWay.push(item(directory, { title, where: `${directory}/`, line: `${record?.completedAt ? "Kiln's run finished" : "Started by hand"}${on}. ${stands}.${next}${pull}${live ? unreadable(live) : ""}`, state: live?.state ?? "not_running", ...(live?.address ? { address: live.address } : {}), ...byHand, ...(branch ? { branch: branch.name } : {}), alsoChanges, ...(lastChanged ? { lastChanged } : {}), ...(live?.state === "waiting_for_you" ? { waitsForYou: true as const } : {}) }));
       continue;
     }

@@ -20,7 +20,7 @@ import { probeRun } from "../control/client.js";
 import { runGit } from "../engine/git-reads.js";
 import { findExecutable } from "../platform/helper-process.js";
 import { openBrowser, type BrowserOpening } from "../platform/open-browser.js";
-import { findFailure, readPlanFile, updatePlanFile } from "../requirements/plan.js";
+import { updatePlanFile } from "../requirements/plan.js";
 import { SECURITY_HEADERS, TOKEN_HEADER } from "../server/local-server.js";
 import { takeInstanceLock, viewAddress, PORT_RANGE, type InstanceLockContent } from "../state/instance-lock.js";
 import { ensurePrivateDirectory, newToken, prdStateDirectory, stateRoot } from "../state/state-files.js";
@@ -164,15 +164,18 @@ export async function runHome(context: CommandContext, options: { viewDirectory?
     const tools = { claude: findExecutable("claude", context.env) ?? "claude", ...(findExecutable("codex", context.env) ? { codex: findExecutable("codex", context.env)! } : {}) };
     // Read again asks for a fresh read: the failures saved for it no longer hold it back.
     if (force) updatePlanFile(root, file => { for (const agent of Object.keys(file.failures)) file.failures[agent] = {}; });
-    const outcomes: Awaited<ReturnType<typeof readPlanForHome>>[] = [];
+    const results: Awaited<ReturnType<typeof readPlanForHome>>[] = [];
     plan = { status: "reading" };
     void rescan();
     for (const repository of scope.repositories) {
       if (abort.signal.aborted) return;
-      outcomes.push(await readPlanForHome({ repository: repository.path, tools, env: context.env, homeState: directory, signal: abort.signal }).catch(() => "unavailable" as const));
+      results.push(await readPlanForHome({ repository: repository.path, tools, env: context.env, homeState: directory, signal: abort.signal }).catch(() => ({ outcome: "unavailable" as const })));
     }
+    const outcomes = results.map(one => one.outcome);
+    // The reason of the read that failed, never an older failure saved for another method (AC-PLAN-05).
+    const failure = results.find(one => one.outcome === "failed")?.failure;
     // One line for the scope: a failed read is shown first, then a wait for billing, then read.
-    plan = outcomes.includes("failed") ? { status: "failed", ...planFailure(root) } : outcomes.includes("metered") ? { status: "none", waitsForBilling: true } : outcomes.some(one => one === "read" || one === "known") ? { status: "read" } : { status: "none" };
+    plan = outcomes.includes("failed") ? { status: "failed", ...(failure ? { failure } : {}) } : outcomes.includes("metered") ? { status: "none", waitsForBilling: true } : outcomes.some(one => one === "read" || one === "known") ? { status: "read" } : { status: "none" };
     await rescan();
   };
   void readPlans();
@@ -316,15 +319,6 @@ function liveLock(stateDirectory: string): InstanceLockContent | undefined {
     process.kill(lock.pid, 0);
     return lock;
   } catch { return undefined; }
-}
-
-function planFailure(root: string): { failure?: string } {
-  const file = readPlanFile(root);
-  for (const agent of Object.keys(file.failures)) for (const fingerprint of Object.keys(file.failures[agent] ?? {})) {
-    const failure = findFailure(file, agent, fingerprint);
-    if (failure) return { failure: failure.reason };
-  }
-  return {};
 }
 
 const lastLines = (text: string) => text.trim().split(/\r?\n/).slice(-4).join("\n");

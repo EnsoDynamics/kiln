@@ -1,5 +1,5 @@
 import { newRequirements } from "./requirements/stages.js";
-import { documentsStand } from "./requirements/branches.js";
+import { documentsStand, standsWithRound } from "./requirements/branches.js";
 import { runHome } from "./home/home.js";
 import { otherStartedBranches } from "./engine/start-from.js";
 import { expandHome } from "./engine/worktree-setup.js";
@@ -323,7 +323,9 @@ function startContext(run: KilnRun, entries: PrdRecord["repositories"]) {
 function adoptStartedByHand(record: PrdRecord, report: Awaited<ReturnType<typeof runStartChecks>>): void {
   if (!report.startedByHand || !record.requirements) return;
   const files = (report.origin?.files ?? []).map(file => basename(file));
-  record.requirements.standsAt = documentsStand(files, basename(record.prdDirectory!));
+  const folder = basename(record.prdDirectory!);
+  // A committed round part-way through, which `kiln run` accepts, is named as the home screen names it (AC-BEGIN-04).
+  record.requirements.standsAt = standsWithRound(documentsStand(files, folder), file => files.includes(file), folder);
   const branch = report.startedByHand.branch;
   if (branch) record.requirements.holdingBranch = branch.name;
   else delete record.requirements.holdingBranch;

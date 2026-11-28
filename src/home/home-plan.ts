@@ -29,10 +29,19 @@ export interface HomePlanOptions {
 /** What came of it, for the home list's plan line and for tests. */
 export type HomePlanOutcome = "read" | "known" | "failed" | "metered" | "busy" | "unavailable";
 
+/** The outcome, and for a failed read the reason saved for the agent and method this read read (AC-PLAN-05). */
+export interface HomePlanResult { outcome: HomePlanOutcome; failure?: string }
+
 /**
- *   await readPlanForHome({ repository: "/work/acme-shop", tools, env, homeState, signal })  // "read"
+ *   await readPlanForHome({ repository: "/work/acme-shop", tools, env, homeState, signal })  // { outcome: "read" }
+ *   // { outcome: "failed", failure: "Claude Code isn't signed in." }
  */
-export async function readPlanForHome(options: HomePlanOptions): Promise<HomePlanOutcome> {
+export async function readPlanForHome(options: HomePlanOptions): Promise<HomePlanResult> {
+  const outcome = await readPlan(options);
+  return typeof outcome === "string" ? { outcome } : outcome;
+}
+
+async function readPlan(options: HomePlanOptions): Promise<HomePlanOutcome | HomePlanResult> {
   const { env, signal, repository } = options;
   const defaultsFile = modelDefaultsPath(env);
   const root = dirname(defaultsFile);
@@ -47,11 +56,12 @@ export async function readPlanForHome(options: HomePlanOptions): Promise<HomePla
   try { method = methodOf(found.skill.path, env); } catch { return "unavailable"; }
   const file = readPlanFile(root);
   if (findPlan(file, agentId, method.fingerprint)) return "known";
-  if (findFailure(file, agentId, method.fingerprint)) return "failed";
+  const saved = findFailure(file, agentId, method.fingerprint);
+  if (saved) return { outcome: "failed", failure: saved.reason };
   if (file.reading && await isProcessLive(file.reading.pid, file.reading.processStartTime)) return "busy";
-  const failed = (reason: string): HomePlanOutcome => {
+  const failed = (reason: string): HomePlanResult => {
     updatePlanFile(root, one => { (one.failures[agentId] ??= {})[method.fingerprint] = { reason, at: new Date().toISOString() }; });
-    return "failed";
+    return { outcome: "failed", failure: reason };
   };
   const info = new AgentInfo({ agentId, executable: options.tools, cwd: repository, claudeCwd: options.homeState, env });
   let launchEnv = env;
@@ -89,6 +99,6 @@ export async function readPlanForHome(options: HomePlanOptions): Promise<HomePla
     }
     if (result.stopped) return "unavailable";
     updatePlanFile(root, one => { (one.failures[agentId] ??= {})[method.fingerprint] = { reason: result.reason, at }; });
-    return "failed";
+    return { outcome: "failed", failure: result.reason };
   } finally { release(); }
 }

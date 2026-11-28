@@ -4,7 +4,7 @@
 
 import { EventEmitter } from "node:events";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { runKilnCommand } from "../kiln-command.js";
@@ -13,6 +13,8 @@ import { PRD, PHASES, DESIGN } from "../test-support/fixture-documents.js";
 import { commitFiles, createGithubOrigin, createRepository, createSandbox, git, installStandIns, type Sandbox } from "../test-support/git-repositories.js";
 import { reservePortRange } from "../test-support/os-ports.js";
 import { runHome, type HomeList } from "./home.js";
+import { methodOf, updatePlanFile } from "../requirements/plan.js";
+import { modelDefaultsPath } from "../models/model-defaults.js";
 
 let sandbox: Sandbox | undefined;
 let ports = "";
@@ -214,4 +216,19 @@ it("covers each repository directly inside a folder in one list, naming its repo
     expect([list.underWay, list.ready, list.notReady, list.folded].every(items => items.length === 0)).toBe(true);
     expect(list.scope.nothingFound).toEqual(["acme-docs"]);
   }, ["new"]);
+});
+
+it("shows the reason the plan read it just made failed, never an older method's (AC-PLAN-05)", async () => {
+  sandbox = createSandbox();
+  const repo = repository("shop");
+  const skill = join(sandbox.root, "claude-config", "skills", "using-the-enso-method");
+  mkdirSync(skill, { recursive: true });
+  writeFileSync(join(skill, "SKILL.md"), "---\nname: using-the-enso-method\n---\n# Test method\n");
+  const runEnv = env();
+  const { fingerprint } = methodOf(join(skill, "SKILL.md"), runEnv);
+  updatePlanFile(dirname(modelDefaultsPath(runEnv)), file => { file.failures.claude_code = { "an-earlier-method": { reason: "The earlier method's read failed.", at: "2026-11-01T00:00:00Z" }, [fingerprint]: { reason: "This method's read failed.", at: "2026-11-27T00:00:00Z" } }; });
+  await home(repo.path, async (page) => {
+    await waitFor(async () => (await page.list()).plan.status === "failed", 20_000);
+    expect((await page.list()).plan).toEqual({ status: "failed", failure: "This method's read failed." });
+  });
 });

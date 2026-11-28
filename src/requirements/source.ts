@@ -1,6 +1,6 @@
 import { basename, posix } from "node:path";
 import { defaultBaseBranch } from "../engine/worktree-setup.js";
-import { localBranchCommit, originBranches, type GitContext } from "../engine/git-reads.js";
+import { listWorktrees, localBranchCommit, originBranches, type GitContext } from "../engine/git-reads.js";
 import { gitText, prdFile } from "./git.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { existsSync } from "node:fs";
@@ -172,7 +172,10 @@ export async function inspectSource(git: GitContext, cwd: string, path: string):
     const found = await elsewhere(file);
     if (found && "origin" in found) return `${file} is committed only on origin's ${base}. Bring the local shared branch ${base} up to date.`;
     if (found) return `${file} isn't committed on ${base}, only on ${found.branch}. Commit it on ${base}.`;
-    return existsSync(join(cwd, file)) ? `${file} isn't committed on ${base}. Commit it on ${base}.` : otherwise;
+    // Written but not committed, in the checkout or any of its worktrees.
+    const listed = await listWorktrees(git, cwd);
+    const worktrees = listed.ok ? listed.worktrees.map(one => one.path) : [cwd];
+    return worktrees.some(worktree => existsSync(join(worktree, file))) ? `${file} isn't committed on ${base}. Commit it on ${base}.` : otherwise;
   };
 
   if (!initiative) {
@@ -186,7 +189,8 @@ export async function inspectSource(git: GitContext, cwd: string, path: string):
       return { problem: other ? await notCommitted(other, "") : `Commit ${brief} or ${intake} on ${base}.` };
     }
     // Material brought in under received/ with no intake record is an intake not finished, even beside a brief (HOME-004, AC-HOME-13 row 2).
-    if (file === brief && !files.includes(intake) && (files.some(one => one.startsWith(`${folder}/received/`)) || existsSync(join(cwd, folder, "received")))) return { problem: `Write ${intake}: the material brought in under ${folder}/received/ has no intake record yet.` };
+    // A record written but not on the local shared branch names the step left, as the brief's message does (AC-BEGIN-03).
+    if (file === brief && !files.includes(intake) && (files.some(one => one.startsWith(`${folder}/received/`)) || existsSync(join(cwd, folder, "received")))) return { problem: await notCommitted(intake, `Write ${intake}: the material brought in under ${folder}/received/ has no intake record yet.`) };
     const dirty = await gitText(git, cwd, ["--literal-pathspecs", "status", "--porcelain", "--untracked-files=all", "--", folder]);
     if (dirty) return { problem: `Commit the changes under ${folder} on ${base}:\n${dirty}` };
     const differs = await gitText(git, cwd, ["--literal-pathspecs", "diff", "--name-only", commit, "--", folder]);

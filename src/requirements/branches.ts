@@ -52,15 +52,15 @@ export async function branchesHolding(git: GitContext, cwd: string, directory: s
     if (name === shared || exclude.has(name)) continue;
     if (name.startsWith("prd/") && name.slice(4) !== own) continue;
     const copies = [local.get(name), remote.get(name)].filter((copy): copy is Ref => !!copy);
-    let holds = false;
+    // The copy read is the one that holds it: the local one when it does, otherwise origin's.
+    let read: Ref | undefined;
     for (const copy of copies) {
       const tree = await treeOf(git, cwd, copy.tip, directory);
       if (!tree || sharedTrees.some(shared => shared === tree)) continue;
       const own = await runGit(git, cwd, ["rev-list", "-1", copy.tip, ...sharedTips.map(tip => `^${tip}`), "--", directory]);
-      if (own.exitCode === 0 && own.stdout.trim()) { holds = true; break; }
+      if (own.exitCode === 0 && own.stdout.trim()) { read = copy; break; }
     }
-    if (!holds) continue;
-    const read = copies[0]!;
+    if (!read) continue;
     held.push({ name, ref: read.ref, tip: read.tip, date: read.date });
   }
   return held.sort((a, b) => b.date - a.date);
@@ -73,22 +73,28 @@ export async function branchesHolding(git: GitContext, cwd: string, directory: s
  * One line each, naming where and what to do.
  */
 export async function partWayProblems(git: GitContext, mainCheckout: string, directory: string): Promise<string[]> {
+  return (await roundsNotCommitted(git, mainCheckout, directory)).map(one => one.problem);
+}
+
+/** Each round whose work isn't committed, with its file and the line `kiln run` refuses the start with. */
+export async function roundsNotCommitted(git: GitContext, mainCheckout: string, directory: string): Promise<{ file: string; problem: string }[]> {
   const listed = await listWorktrees(git, mainCheckout);
   const worktrees = listed.ok ? listed.worktrees.map(worktree => worktree.path) : [mainCheckout];
   const folder = posix.basename(directory);
-  const problems: string[] = [];
+  const found: { file: string; problem: string }[] = [];
   for (const worktree of worktrees) {
-    if (existsSync(join(worktree, directory, `${folder}-prd-refinement-state.md`))) problems.push(`The PRD refinement is part-way through in ${worktree} with its work not committed. Resume it there and let it finish, or tell it to stop, which commits what it has. Then start again.`);
+    const refinement = `${folder}-prd-refinement-state.md`;
+    if (existsSync(join(worktree, directory, refinement))) found.push({ file: refinement, problem: `The PRD refinement is part-way through in ${worktree} with its work not committed. Resume it there and let it finish, or tell it to stop, which commits what it has. Then start again.` });
     for (const [file, line] of [
       [`${folder}-design-refinement-state.md`, `The design refinement has work since its last checkpoint in ${worktree}. Resume it there to its next checkpoint or its end. Then start again.`],
       [`${folder}-pending-feedback-changes.md`, `Stakeholder feedback is part-way through being applied in ${worktree}. Finish that round there and commit it. Then start again.`],
     ] as const) {
       if (!existsSync(join(worktree, directory, file))) continue;
       const status = await runGit(git, worktree, ["--literal-pathspecs", "status", "--porcelain", "--untracked-files=all", "--", `${directory}/${file}`]);
-      if (status.exitCode !== 0 || status.stdout.trim()) problems.push(line);
+      if (status.exitCode !== 0 || status.stdout.trim()) found.push({ file, problem: line });
     }
   }
-  return problems;
+  return found;
 }
 
 /**
@@ -103,6 +109,25 @@ export function documentsStand(files: string[], folder: string): string {
   if (files.some(file => file === "technical-design.md" || file === `${folder}-technical-design.md`)) return "Technical design written, no phase plan";
   if (files.includes(`${folder}-prd.md`)) return "PRD written, no technical design yet";
   return "No PRD written yet";
+}
+
+/** The method's files that say a round is part-way through, in the order the home line names them, with its words for each (AC-HOME-04, AC-BEGIN-04). */
+export const partWayFiles = (folder: string): [string, string][] => [
+  [`${folder}-prd-refinement-state.md`, "the PRD refinement part-way through"],
+  [`${folder}-design-refinement-state.md`, "the design refinement part-way through"],
+  [`${folder}-pending-feedback-changes.md`, "stakeholder feedback part-way through being applied"],
+];
+
+/**
+ * Where a PRD's documents stand, naming a refinement or feedback round part-way through when
+ * `present` holds its file (AC-HOME-04, AC-BEGIN-04).
+ *
+ *   standsWithRound("PRD written, no technical design yet", file => file === "return-labels-design-refinement-state.md", "return-labels")
+ *   // "PRD written, no technical design yet, with the design refinement part-way through"
+ */
+export function standsWithRound(stands: string, present: (fileName: string) => boolean, folder: string): string {
+  const round = partWayFiles(folder).find(([file]) => present(file))?.[1];
+  return round ? `${stands}, with ${round}` : stands;
 }
 
 /** The file names directly in a directory at a commit. */
@@ -127,7 +152,8 @@ export async function holdingByDirectory(git: GitContext, cwd: string, shared: s
   for (const name of new Set([...local.keys(), ...remote.keys()])) {
     if (name === shared || exclude.has(name)) continue;
     const copies = [local.get(name), remote.get(name)].filter((copy): copy is Ref => !!copy);
-    const directories = new Set<string>();
+    // Each directory with the copy that holds it: the local one when it does, otherwise origin's.
+    const directories = new Map<string, Ref>();
     for (const copy of copies) {
       // Cached by the tip and both shared tips, so an unchanged branch costs nothing on the next scan.
       const key = `${cwd}\0${copy.tip}\0${sharedTips.join(",")}`;
@@ -144,10 +170,9 @@ export async function holdingByDirectory(git: GitContext, cwd: string, shared: s
         if (heldCache.size > 2000) heldCache.clear();
         heldCache.set(key, found);
       }
-      for (const directory of found) if (!name.startsWith("prd/") || name.slice(4) === posix.basename(directory)) directories.add(directory);
+      for (const directory of found) if ((!name.startsWith("prd/") || name.slice(4) === posix.basename(directory)) && !directories.has(directory)) directories.set(directory, copy);
     }
-    const read = copies[0]!;
-    for (const directory of directories) {
+    for (const [directory, read] of directories) {
       const list = held.get(directory) ?? [];
       list.push({ name, ref: read.ref, tip: read.tip, date: read.date });
       held.set(directory, list);

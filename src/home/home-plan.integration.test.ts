@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, type Harness } from "../test-support/engine-harness.js";
-import { readPlanFile } from "../requirements/plan.js";
+import { methodOf, readPlanFile, updatePlanFile } from "../requirements/plan.js";
 import { modelDefaultsPath } from "../models/model-defaults.js";
 import { dirname } from "node:path";
 import { readPlanForHome } from "./home-plan.js";
@@ -29,17 +29,26 @@ const read = (harness: Harness) => readPlanForHome({ repository: harness.reposit
 
 it("reads the plan once when the home screen opens, then keeps it (AC-PLAN-03)", async () => {
   h = await harness();
-  expect(await read(h)).toBe("read");
+  expect((await read(h)).outcome).toBe("read");
   const file = readPlanFile(dirname(modelDefaultsPath(h.env)));
   expect(Object.values(file.plans.claude_code ?? {})[0]?.stages.map(stage => stage.skill)).toEqual(["prd-writing-standards", "phase-split"]);
-  expect(await read(h)).toBe("known");
+  expect((await read(h)).outcome).toBe("known");
   expect(h.planReadCalls()).toHaveLength(1);
 });
 
 it("never starts the read on a metered route: it waits for a PRD's billing approval (AC-PLAN-03)", async () => {
   h = await harness();
   h.env.ANTHROPIC_API_KEY = "home-plan-canary";
-  expect(await read(h)).toBe("metered");
+  expect((await read(h)).outcome).toBe("metered");
   expect(h.planReadCalls()).toHaveLength(0);
   expect(readPlanFile(dirname(modelDefaultsPath(h.env))).failures.claude_code ?? {}).toEqual({});
+});
+
+it("gives the reason saved for the agent and method it read, never an older method's failure (AC-PLAN-05)", async () => {
+  h = await harness();
+  const root = dirname(modelDefaultsPath(h.env));
+  const { fingerprint } = methodOf(join(h.sandbox.root, "claude-config", "skills", "using-the-enso-method", "SKILL.md"), h.env);
+  updatePlanFile(root, file => { file.failures.claude_code = { "an-earlier-method": { reason: "The earlier method's read failed.", at: "2026-11-01T00:00:00Z" }, [fingerprint]: { reason: "This method's read failed.", at: "2026-11-27T00:00:00Z" } }; });
+  expect(await read(h)).toEqual({ outcome: "failed", failure: "This method's read failed." });
+  expect(h.planReadCalls()).toHaveLength(0);
 });
