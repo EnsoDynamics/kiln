@@ -24,6 +24,7 @@ import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine, type EngineOptions } from "./engine.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
 import { buildSnapshot, type PhaseView } from "./snapshot.js";
+import { rowModelTarget } from "../../view/src/lib/models.js";
 
 let harness: Harness | undefined;
 let codex: ReturnType<typeof codexWorkFixture> | undefined;
@@ -459,6 +460,40 @@ describe("the preflight and the pull request session share a row of their own (A
     expect(reopened.notStartedChoice("pr")).toMatchObject({ model: "haiku", from: "changed" });
     expect(await reopened.changeModel("preflight_pr", "default")).toEqual({ ok: true });
     expect(reopened.notStartedChoice("pr")).toMatchObject({ model: "opus", effort: "medium", from: "model_defaults" });
+  });
+
+  it("changes the row's choice from the pull request row while the pull request session is next but hasn't launched", async () => {
+    const h = await fixture(allPhases());
+    // Paused during Phase 3: once it closes, the pull request session is next and nothing has launched it.
+    let requested = false;
+    const off = h.engine.onChange(() => { if (!requested && h.engine.current?.phaseKey === "3" && h.engine.current.session) { requested = true; h.engine.pause(); } });
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    await h.engine.settled(); off();
+    expect(h.engine.record.nextActivityKey).toBe("pr");
+    expect(h.engine.latestSession("pr")).toBeUndefined();
+    // The row is the pull request's, so its Change targets the Preflight and pull request choice, not a phase.
+    const pr = row(h.engine, "pr");
+    expect(pr).toMatchObject({ kind: "final_delivery", state: "next", model: { change: { available: true } } });
+    expect(rowModelTarget(pr)).toBe("preflight_pr");
+    expect(await h.engine.changeModel("preflight_pr", { agentId: "claude_code", model: "haiku", effort: "low" })).toEqual({ ok: true });
+    expect(row(h.engine, "pr").model).toMatchObject({ choice: { modelName: "Haiku 5.5", effort: "low" }, from: "changed", useDefault: true });
+    expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "haiku", from: "changed" });
+  });
+
+  it("changes the row's choice from the pull request row when its launch stopped on a choice that can't be used", async () => {
+    const h = await fixture(allPhases());
+    // While Phase 3 runs, the row's first choice moves to an agent this computer doesn't have, so the pull request session can't launch.
+    let changed = false;
+    const off = h.engine.onChange(() => { if (!changed && h.engine.current?.phaseKey === "3" && h.engine.current.session) { changed = true; saved(h, { rows: { preflight_pr: { first: { agentId: "codex", family: "sol", effort: "high" } } } }); } });
+    expect(await h.engine.start({ refinementConfirmed: true })).toEqual({ ok: true });
+    await h.engine.settled(); off();
+    expect(h.engine.record.phases.pr?.stop?.kind).toBe("selection");
+    expect(h.engine.latestSession("pr")).toBeUndefined();
+    const pr = row(h.engine, "pr");
+    expect(pr).toMatchObject({ kind: "final_delivery", state: "needs_you", model: { change: { available: true } } });
+    expect(rowModelTarget(pr)).toBe("preflight_pr");
+    expect(await h.engine.changeModel("preflight_pr", { agentId: "claude_code", model: "haiku", effort: "low" })).toEqual({ ok: true });
+    expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "haiku", from: "changed" });
   });
 
   it("looks up the audits' skill on the Audits choice's agent and the preflight's on the Preflight and pull request choice's", async () => {

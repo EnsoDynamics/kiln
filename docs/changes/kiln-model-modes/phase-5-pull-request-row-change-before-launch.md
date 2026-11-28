@@ -1,5 +1,6 @@
 # Phase 5: Complete the pull request row's Change before the pull request session starts
 
+**Closed:** 2026-11-27
 **Added by delivery audit:** 2026-11-27, after every planned phase closed. It builds what earlier phases left out of the criterion below.
 **Parent PRD:** [Kiln Model Modes](kiln-model-modes-prd.md)
 **Technical design:** [Kiln Model Modes technical design](kiln-model-modes-technical-design.md) — relevant sections: "Snapshot", "HTTP"

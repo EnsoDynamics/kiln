@@ -1429,7 +1429,8 @@ function phaseViews(engine: Engine, state: FeatureState, includeTiming: boolean)
     const facts = record.phases[PR_PHASE_KEY];
     const firstSession = engine.sessionRecord(PR_PHASE_KEY, facts?.sessionIds[0] ?? "");
     const startedAt = firstSession?.runs[0]?.startedAt;
-    const row: PhaseView = { id: PR_PHASE_KEY, title: deliveryEnabled(record) ? "Finalize delivery" : PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
+    // Its kind is set here, not only from the activity history, so a pull request session that is next but hasn't launched keeps its Change on the Preflight and pull request choice (AC-ROW-01).
+    const row: PhaseView = { id: PR_PHASE_KEY, kind: "final_delivery", title: deliveryEnabled(record) ? "Finalize delivery" : PR_TITLE, file: "pull request session", state: "planned", finishedByPerson: facts?.finishedByPerson ?? false };
     if (engine.finished) Object.assign(row, { state: "done", ...optional("doneAt", facts?.doneAt) });
     else if (facts?.stop) row.state = "needs_you";
     else if (facts?.wait) row.state = "waiting";
