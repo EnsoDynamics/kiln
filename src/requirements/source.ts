@@ -28,6 +28,11 @@ export interface InitiativeRow {
   dependsOn: string[];
 }
 
+/** A planned row links a contracts file the commit read lacks: the caller names where it is committed instead, when it can (AC-BEGIN-03, AC-HOME-03). */
+export class MissingContractsFile extends Error {
+  constructor(readonly contract: string) { super(`Commit the planned PRD contracts file ${contract} on the shared branch.`); }
+}
+
 const folderOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
 /**
@@ -62,7 +67,7 @@ export async function initiativeRows(git: GitContext, cwd: string, ref: string, 
       contract = posix.join(folder, link[2]!);
       if (!contracts.has(contract)) {
         const present = await gitText(git, cwd, ["--literal-pathspecs", "ls-tree", ref, "--", contract]);
-        if (!present) throw new Error(`Commit the planned PRD contracts file ${contract} on the shared branch.`);
+        if (!present) throw new MissingContractsFile(contract);
         contracts.set(contract, await gitText(git, cwd, ["show", `${ref}:${contract}`]));
       }
       const section = contracts.get(contract)!.split(/^#{2,6}\s+/m).find(s => s.split(/\r?\n/, 1)[0]!.toLowerCase().replace(/[^\w -]/g, "").trim().replace(/\s+/g, "-") === link[3]);
@@ -202,11 +207,11 @@ export async function inspectSource(git: GitContext, cwd: string, path: string):
   }
 
   // A planned PRD's row is read from the shared branch: the local copy, else origin's, to say what was written from it before anything else.
-  const rowsAt = async (ref: string) => {
+  const rowsAt = async (ref: string): Promise<{ markdown: string; rows?: InitiativeRow[]; problem?: string; contract?: string } | undefined> => {
     if (!(await held(ref, list))) return undefined;
     const markdown = await gitText(git, cwd, ["show", `${ref}:${list}`]);
     try { return { markdown, rows: await initiativeRows(git, cwd, ref, folder, markdown) }; }
-    catch (error) { return { markdown, problem: (error as Error).message }; }
+    catch (error) { return { markdown, problem: (error as Error).message, ...(error instanceof MissingContractsFile ? { contract: error.contract } : {}) }; }
   };
   const local = commit ? await rowsAt(commit) : undefined;
   const fromOrigin = originShared && originShared !== commit ? await rowsAt(originShared) : undefined;
@@ -227,7 +232,9 @@ export async function inspectSource(git: GitContext, cwd: string, path: string):
   }
   if (!commit) return { problem: `Bring the local shared branch ${base} up to date.` };
   if (!local) return { problem: await notCommitted(list, `Commit ${list} on ${base}.`) };
-  if (local.problem) return { problem: local.problem };
+  // A contracts file only origin's shared branch holds is one pull away, as a brief is (AC-BEGIN-03).
+  // Only when origin's copy reads cleanly, as the home screen judges it; otherwise the commit step stands.
+  if (local.problem) return { problem: local.contract && fromOrigin?.rows ? await notCommitted(local.contract, local.problem) : local.problem };
   const dirty = await gitText(git, cwd, ["--literal-pathspecs", "status", "--porcelain", "--untracked-files=all", "--", folder]);
   if (dirty) return { problem: `Commit the changes under ${folder} on ${base}:\n${dirty}` };
   const differs = await gitText(git, cwd, ["--literal-pathspecs", "diff", "--name-only", commit, "--", folder]);

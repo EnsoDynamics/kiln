@@ -1,5 +1,7 @@
 # Phase 11: Complete the start screen's branch and label, the home screen's stage lines, and the contracts-file step
 
+**Closed:** 2026-11-28
+
 **Added by delivery audit:** 2026-11-28, after every planned phase closed, in the audit that followed phases 9 and 10. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "Branch and worktree" (a start from source material always cuts a new branch); "Snapshot" (the location label); "The Home Screen" ("What it lists"); "What `kiln run` accepts"

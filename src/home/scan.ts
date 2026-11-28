@@ -15,7 +15,7 @@ import { recordedName } from "../engine/plan-repositories.js";
 import { parseGithubOrigin } from "../github-origin.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
 import { documentsStand, holdingByDirectory, partWayFiles, readBranchRefs, roundsNotCommitted, standsWithRound, type HoldingBranch } from "../requirements/branches.js";
-import { briefName, initiativeRows, type InitiativeRow } from "../requirements/source.js";
+import { briefName, initiativeRows, MissingContractsFile, type InitiativeRow } from "../requirements/source.js";
 import type { SavedWork } from "../control/private-state.js";
 import { startedBranches } from "../engine/start-from.js";
 import type { RunState } from "../control/client.js";
@@ -117,17 +117,26 @@ function recordLine(record: PrdRecord): string {
     if (requirements.phase === "early_review") return `Requirements. The early stakeholder review has been ready since ${ready ? time(ready) : "the stop"}.`;
     if (requirements.phase === "final_review") return `Requirements done. The final stakeholder review has been ready since ${ready ? time(ready) : "the stop"}.`;
     // The stage running; else, between stages, the last one finished and the one the method puts next; else where the PRD stood at Start.
+    // A stage finished by hand with no report and no expected stage has no title: the one before it names the stage reached.
+    const lastTitle = requirements.stages.filter(stage => stage.task === "stage" && stage.pushedSha).map(stage => stage.ran.at(-1)?.title ?? stage.expected?.title).findLast(title => !!title);
+    const known = requirements.standing && !("unknown" in requirements.standing) ? requirements.standing : undefined;
+    const next = known?.next.title;
     const current = requirements.stages.findLast(stage => !stage.pushedSha);
     if (current) {
       const title = current.ran[0]?.title ?? current.expected?.title;
       if (title) return `Requirements. ${title}.`;
-      if (current.task === "feedback") return "Requirements. Applying stakeholder feedback.";
-      if (current.task === "review") return "Requirements. Making the stakeholder review.";
-      return requirements.standsAt ? `Requirements. ${requirements.standsAt}; the first session finds the next stage.` : "Requirements. The first session finds the next stage.";
+      // A session with no title of its own says the stage the PRD reached before it (AC-HOME-04).
+      const reached = lastTitle ? ` Last finished: ${lastTitle}.` : requirements.standsAt ? ` ${requirements.standsAt}.` : "";
+      if (current.task === "feedback") return `Requirements.${reached} Applying stakeholder feedback${next ? ` before ${next}` : ""}.`;
+      if (current.task === "review") {
+        const final = current.key === "kiln:final" || (current.key !== "kiln:early" && !!known?.milestones.some(one => one.name === "requirements_finished"));
+        return final ? `Requirements done.${reached} Making the final stakeholder review.` : `Requirements.${reached} Making the early stakeholder review.`;
+      }
+      // Only the session before the first report has where the PRD stood at Start; a later one follows a stage finished by hand or a lost cursor.
+      if (requirements.standsAt) return `Requirements. ${requirements.standsAt}; the first session finds the next stage.`;
+      if (lastTitle) return `Requirements. Last finished: ${lastTitle}. A session finds the next stage.`;
+      return requirements.stages.length > 1 ? "Requirements. A session finds the next stage." : "Requirements. The first session finds the next stage.";
     }
-    const last = requirements.stages.findLast(stage => stage.task === "stage" && stage.pushedSha);
-    const lastTitle = last ? last.ran.at(-1)?.title ?? last.expected?.title : undefined;
-    const next = requirements.standing && !("unknown" in requirements.standing) ? requirements.standing.next.title : undefined;
     if (lastTitle && next) return `Requirements. Last finished: ${lastTitle}. Next: ${next}.`;
     if (next) return `Requirements. Next: ${next}.`;
     if (lastTitle) return `Requirements. Last finished: ${lastTitle}.`;
@@ -259,7 +268,7 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
   // ---- Planned PRDs, read from the shared branch only -----------------------------------
   // Each initiative's PRD list at a tip, its rows or the reason they can't be read.
   const initiativesAt = async (tip: string) => {
-    const found: { initiative: string; folder: string; list: string; heading: string; rows?: InitiativeRow[]; problem?: string }[] = [];
+    const found: { initiative: string; folder: string; list: string; heading: string; rows?: InitiativeRow[]; problem?: string; contract?: string }[] = [];
     const names = new Set((await filesAt(git, cwd, tip, "docs/initiatives")).map(file => file.split("/")[2]).filter((one): one is string => !!one));
     for (const initiative of names) {
       const folder = `docs/initiatives/${initiative}`;
@@ -268,7 +277,7 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
       if (!markdown) continue;
       const heading = titleOf(markdown, /(?:\s+[—–-]\s+|\s+)Initiative PRDs$/i) ?? featureNameFor(initiative);
       try { found.push({ initiative, folder, list, heading, rows: await cached(`rows\0${cwd}\0${tip}\0${list}`, () => initiativeRows(git, cwd, tip, folder, markdown)) }); }
-      catch (error) { found.push({ initiative, folder, list, heading, problem: (error as Error).message }); }
+      catch (error) { found.push({ initiative, folder, list, heading, problem: (error as Error).message, ...(error instanceof MissingContractsFile ? { contract: error.contract } : {}) }); }
     }
     return found;
   };
@@ -281,10 +290,13 @@ export async function scanRepository(input: ScanInput): Promise<RepositoryScan> 
   const readRemote = remoteAhead ? await initiativesAt(sharedRemote!) : [];
   // Every row the local list holds, whatever its status: the local list is the one `kiln run` reads.
   const listed = new Set<string>(readLocal.flatMap(one => (one.rows ?? []).filter(row => row.status !== "planned").map(row => `${one.folder}/${row.directory}`)));
+  // A contracts file the local list links and only origin's copy holds: origin's clean read places the rows, one pull from ready (AC-HOME-03).
+  const pulledContract = (folder: string) => readLocal.some(other => other.folder === folder && other.contract) && readRemote.some(other => other.folder === folder && other.rows);
   for (const [found, local] of [[readLocal, true], [readRemote, false]] as const) {
     for (const one of found) {
+      if (local && one.contract && pulledContract(one.folder)) continue;
       if (!local && one.problem && readLocal.some(other => other.folder === one.folder)) continue;
-      if (!local && readLocal.some(other => other.folder === one.folder && other.problem)) continue;
+      if (!local && !pulledContract(one.folder) && readLocal.some(other => other.folder === one.folder && other.problem)) continue;
       if (one.problem) {
         if (!listed.has(one.folder)) scan.notReady.push(item(one.folder, { title: one.heading, where: one.list, line: local ? `${one.problem} Its planned PRDs appear once it is.` : behind }));
         listed.add(one.folder);

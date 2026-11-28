@@ -440,6 +440,12 @@ export interface Snapshot {
     /** More than one repository (multi-repo AC-SPACE-03): the screens then show them. */
     multiRepository: boolean;
     prdFolder: string;
+    /**
+     * What the header names until the PRD's folder exists (technical design, "Location label";
+     * AC-BEGIN-07): the source material folder, or the initiative and planned PRD. Absent once
+     * `prdDirectory` is set, when the header names `prdFolder`.
+     */
+    location?: { kind: "source_material"; folder: string } | { kind: "planned_prd"; initiative: string; prd: string };
     state: FeatureState;
     currentPhaseId?: string;
     phasesDone: number;
@@ -845,6 +851,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
       repositoryLabel: engine.labelOf(engine.paths.repositoryName),
       multiRepository: engine.multiRepository,
       prdFolder: `${engine.paths.prdDirectoryFromRoot}/`,
+      ...optional("location", locationLabel(record)),
       state,
       phasesDone: deliveryEnabled(record) ? views.filter(phase => phase.id !== PR_PHASE_KEY && !isAfterDeliveryKey(phase.id) && phase.state === "done").length : leaves.filter((leaf) => effectiveRecordedClosed(record, leaf)).length,
       phasesTotal: leaves.length,
@@ -2373,4 +2380,12 @@ function labelledPlanCheck(engine: Engine, check: NonNullable<PrdRecord["complet
     ...(result.proposal ? { proposal: { ...result.proposal, preparation: result.proposal.preparation.map((binding) => ({ ...binding, label: engine.labelOf(binding.repository) })) } } : {}),
   };
   return { ...check, ...(check.result ? { result: labelled(check.result)! } : {}), ...(check.earlierResult ? { earlierResult: labelled(check.earlierResult)! } : {}) };
+}
+
+/** The header's location until the PRD's folder exists (technical design, "Location label"). */
+function locationLabel(record: Engine["record"]): Snapshot["feature"]["location"] {
+  const origin = record.origin;
+  if (!origin || record.prdDirectory || origin.kind === "prd") return undefined;
+  if (origin.kind === "planned_prd" && origin.initiative) return { kind: "planned_prd", initiative: `${origin.initiative.path}/`, prd: origin.path.slice(origin.path.lastIndexOf("/") + 1) };
+  return { kind: "source_material", folder: `${origin.path}/` };
 }

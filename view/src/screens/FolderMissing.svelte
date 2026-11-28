@@ -37,7 +37,7 @@
 {#snippet parts(list: Part[])}{#each list as part, index (index)}{#if part.tone === "code"}<code>{part.text}</code>{:else if part.tone}<span class={part.tone}>{part.text}</span>{:else}{part.text}{/if}{/each}{/snippet}
 
 <main class="page-main">
-  <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="progress">
+  <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} location={snapshot.feature.location} name={snapshot.feature.name} layout="progress">
     <Pill tone="amber" icon="warning" large>Folder missing</Pill>
   </FeatureHeader>
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} {now} />{/if}

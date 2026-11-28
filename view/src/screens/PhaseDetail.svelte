@@ -80,12 +80,12 @@
 
 <main class="page-main detail-page">
   {#if pausingHeader}
-    <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail">
+    <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} location={snapshot.feature.location} name={snapshot.feature.name} layout="detail">
       <Pill tone="amber-outline" icon={connected ? "spinner" : undefined} spin={connected}>{pausingHeader.label}</Pill>
       {#each pausingHeader.facts as fact, index (index)}{#if index > 0}<span class="dot" aria-hidden="true">·</span>{/if}<span class="header-fact">{fact}</span>{/each}
     </FeatureHeader>
   {:else}
-    <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} layout="detail" />
+    <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} location={snapshot.feature.location} name={snapshot.feature.name} layout="detail" />
   {/if}
   {#if !connected && lastSeenAt !== undefined}<DisconnectedBanner {lastSeenAt} phaseClause={phaseName(phaseId, snapshot)} {now} />{/if}
   <section class="phase">

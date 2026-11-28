@@ -173,7 +173,7 @@
 </script>
 
 <main>
-  <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name}>
+  <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} location={snapshot.feature.location} name={snapshot.feature.name}>
     <span class="pill">Not started</span>
     <span class="lead">{lead}</span>
   </FeatureHeader>

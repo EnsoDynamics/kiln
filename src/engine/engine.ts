@@ -10382,8 +10382,11 @@ export class Engine {
    * The starting point (run restart "The starting point"): the saved choice, else computed at
    * each preview: `existing` when a branch named `settings.featureBranch` exists in any of the
    * PRD's repositories, local or on origin. A started record without one started on a new branch.
+   * A start from source material or a planned PRD, with no PRD folder yet, always cuts a new branch
+   * (AC-BEGIN-06), even when a reset left the branch Kiln cut, so the name check asks for another.
    */
   get startChoice(): { from: "new" | "existing"; bringUpToDate: boolean } {
+    if (this.startsFromSource) return { from: "new", bringUpToDate: this.record.start?.bringUpToDate ?? true };
     if (this.record.start) return this.record.start;
     if (this.record.startedAt !== undefined) return { from: "new", bringUpToDate: true };
     return { from: this.featureBranchExists ? "existing" : "new", bringUpToDate: true };
@@ -10448,8 +10451,11 @@ export class Engine {
    *
    *   await engine.changeStart({ from: "existing", bringUpToDate: true })  // { ok: true }
    */
+  /** A start from source material or a planned PRD whose PRD folder doesn't exist yet (AC-BEGIN-06). */
+  private get startsFromSource(): boolean { return !!this.record.origin && !this.record.prdDirectory; }
+
   async changeStart(start: { from: "new" | "existing"; bringUpToDate: boolean }): Promise<CommandResult> {
-    if (this.requirementsOpen && start.from === "existing" && !this.record.prdDirectory) return refuse("Source material starts on a new feature branch.");
+    if (start.from === "existing" && (this.startsFromSource || (this.requirementsOpen && !this.record.prdDirectory))) return refuse("Source material starts on a new feature branch.");
     if (this.record.startedAt !== undefined || this.settingUp) return refuse("Where Kiln starts from is fixed once Start is pressed.");
     if (this.workspaceFixed) return refuse("The workspace folder and feature branch are fixed once a repository is set up.");
     this.record.start = { from: start.from, bringUpToDate: start.bringUpToDate };

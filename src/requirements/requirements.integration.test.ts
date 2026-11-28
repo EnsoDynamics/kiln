@@ -8,7 +8,8 @@ import { startLocalServer } from "../server/local-server.js";
 import { afterEach, expect, it } from "vitest";
 import { createHarness, waitFor, type Harness } from "../test-support/engine-harness.js";
 import { buildSnapshot } from "../engine/snapshot.js";
-import { createGithubOrigin, git } from "../test-support/git-repositories.js";
+import { commitFiles, createGithubOrigin, git } from "../test-support/git-repositories.js";
+import { inspectSource } from "./source.js";
 
 let h: Harness;
 afterEach(async () => { await h?.cleanup(); });
@@ -170,4 +171,51 @@ it("shows the planned Preflight row just above the build on the requirements pla
   expect(final.preflight?.planned).toMatchObject({ before: "1", model: { choice: { agent: "Claude Code" } } });
   // The preflight still runs only at Start the build.
   expect(h.engine.record.preflight?.due).toBeUndefined();
+});
+
+it("offers a new branch for source material even when the default name's branch is left from a reset, and keeps a typed name (AC-BEGIN-06)", async () => {
+  h = await createHarness({ sourceBrief: "# Brief: Count boxes\n", sessions: [{ actions: [{ result: "Waiting." }, { exit: 0 }] }] });
+  // A reset before the draft leaves the branch Kiln cut, so the default name is taken.
+  const taken = h.engine.record.settings.featureBranch;
+  git(h.sandbox, h.repository, "branch", taken);
+  await h.engine.refreshStartPreview();
+  expect(h.engine.startChoice.from).toBe("new");
+  expect(h.engine.startPreview?.from).toBe("new");
+  const refused = await h.engine.start({});
+  expect(refused).toMatchObject({ ok: false, fieldErrors: { featureBranch: expect.stringMatching(/^That branch already exists\./) } });
+  // A new name stays typed, and Start cuts that branch.
+  expect(await h.engine.changeSettings({ featureBranch: "feature/count-boxes-again" })).toMatchObject({ ok: true });
+  await h.engine.refreshStartPreview();
+  expect(h.engine.record.settings.featureBranch).toBe("feature/count-boxes-again");
+  expect(h.engine.startChoice.from).toBe("new");
+  expect(h.engine.fieldErrors.featureBranch).toBeUndefined();
+  expect(await h.engine.changeStart({ from: "existing", bringUpToDate: true })).toMatchObject({ ok: false, reason: "Source material starts on a new feature branch." });
+  expect(await h.engine.start({})).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(git(h.sandbox, h.engine.worktreePath, "branch", "--show-current").trim()).toBe("feature/count-boxes-again");
+});
+
+it("names the source material folder, or the initiative and planned PRD, in the header until the PRD's folder exists (AC-BEGIN-07)", async () => {
+  const folder = "count-boxes";
+  const dir = "docs/prds/" + folder;
+  const report = { kilnReport: 1, ran: [{ skill: "refine", title: "refine" }], finished: true, next: { kind: "requirements", skill: "design", title: "design", reaches: ["design_ready"] }, milestones: [{ name: "prd_refined", by: "this_session" }], prdDirectory: dir };
+  h = await createHarness({ sourceBrief: "# Brief: Count boxes\n", folder, sessions: [
+    { actions: [{ write: { path: dir + "/" + folder + "-prd.md", content: PRD } }, { commit: "draft" }, { result: "```kiln-report\n" + JSON.stringify(report) + "\n```" }, { exit: 0 }] },
+  ] });
+  expect(buildSnapshot(h.engine).feature.location).toEqual({ kind: "source_material", folder: "source-material/count-boxes/" });
+  // A planned PRD is named by its initiative and its directory, from the origin kiln run records for one.
+  const origin = h.engine.record.origin!;
+  commitFiles(h.sandbox, h.repository, "docs/initiatives/shifts", { "shifts-initiative-prds.md": "# Shifts Initiative PRDs\n\n| # | PRD | Depends on | Status |\n|---|---|---|---|\n| 1 | [Rotas](c.md#rotas) | None | planned |\n", "c.md": "## Rotas\n" });
+  const planned = await inspectSource({ git: h.tools.git, env: h.env }, h.repository, "docs/initiatives/shifts/rotas");
+  expect(planned).toHaveProperty("origin");
+  h.engine.record.origin = (planned as { origin: typeof origin }).origin;
+  expect(buildSnapshot(h.engine).feature.location).toEqual({ kind: "planned_prd", initiative: "docs/initiatives/shifts/", prd: "rotas" });
+  h.engine.record.origin = origin;
+  // Once the draft names the PRD's folder, the header names that folder.
+  expect(await h.engine.start({})).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.engine.record.prdDirectory).toBe(dir);
+  const snapshot = buildSnapshot(h.engine);
+  expect(snapshot.feature.location).toBeUndefined();
+  expect(snapshot.feature.prdFolder).toBe(dir + "/");
 });

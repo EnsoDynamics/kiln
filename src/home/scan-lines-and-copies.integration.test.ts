@@ -30,23 +30,43 @@ const scanOf = (repo: string, works: SavedWork[]) => scanRepository({ git: { git
 const at = "2026-11-27T01:00:00Z";
 const requirements = (change: Partial<RequirementsState>): RequirementsState => ({ ...newRequirements(), ...change });
 
-it("says the stage a Kiln run reached between stages, while feedback runs, while the standing is unknown and before its first session (AC-HOME-04)", async () => {
+it("says the stage a Kiln run reached between stages, while feedback or a review runs, while the standing is unknown, before its first session and after it (AC-HOME-04)", async () => {
   sandbox = createSandbox();
   const repo = createRepository(sandbox, "shop", createBareOrigin(sandbox, "shop"));
-  for (const name of ["between", "feedback", "finding", "paused"]) commitFiles(sandbox, repo, `docs/prds/${name}`, { [`${name}-prd.md`]: `# PRD: ${name}\n` });
+  for (const name of ["between", "feedback", "finding", "paused", "answers", "early", "final", "again", "keyed", "stood", "later"]) commitFiles(sandbox, repo, `docs/prds/${name}`, { [`${name}-prd.md`]: `# PRD: ${name}\n` });
   git(sandbox, repo, "push", "-qu", "origin", "develop");
+  const finished = (id: string, skill: string, title: string) => ({ activityId: id, key: `${skill}#1`, task: "stage" as const, expected: { skill, title }, ran: [{ skill, title }], reaches: [], pushedSha: "c".repeat(40), startedAt: at });
+  const refined = finished("r1", "autonomous-prd-refinement", "Refine the PRD");
+  const designed = finished("t1", "autonomous-design-refinement", "Refine the design");
   const run = (name: string, state: RequirementsState) => record(repo, `docs/prds/${name}`, one => { one.startedAt = at; one.requirements = state; });
   const scan = await scanOf(repo, [
     run("between", requirements({ stages: [{ activityId: "a1", key: "prd-writing-standards#1", task: "stage", expected: { skill: "prd-writing-standards", title: "Write the PRD" }, ran: [{ skill: "prd-writing-standards", title: "Write the PRD" }], reaches: [], pushedSha: "b".repeat(40), startedAt: at }], standing: { milestones: [], next: { skill: "autonomous-prd-refinement", title: "Refine the PRD", kind: "requirements", reaches: [] }, at } })),
     run("feedback", requirements({ stages: [{ activityId: "a2", key: "feedback#1", task: "feedback", ran: [], reaches: [], startedAt: at }] })),
     run("finding", requirements({ standsAt: "PRD written, no technical design yet", standing: { unknown: true, at }, stages: [{ activityId: "a3", key: "kiln:next", task: "stage", ran: [], reaches: [], startedAt: at }] })),
     run("paused", requirements({ standsAt: "Technical design written, no phase plan" })),
+    // Sessions with no title of their own say the stage reached (AC-HOME-04).
+    run("answers", requirements({ stages: [refined, { activityId: "b2", key: "kiln:feedback#1", task: "feedback", ran: [], reaches: [], startedAt: at }], standing: { milestones: [{ name: "prd_refined", by: "this_session" }], next: { skill: "technical-design-writing-standards", title: "Write the technical design", kind: "requirements", reaches: [] }, at } })),
+    run("early", requirements({ stages: [refined, { activityId: "c2", key: "kiln:early", task: "review", ran: [], reaches: [], startedAt: at }] })),
+    run("final", requirements({ stages: [designed, { activityId: "d2", key: "stakeholder-review-package#2", task: "review", ran: [], reaches: [], startedAt: at }], standing: { milestones: [{ name: "requirements_finished", by: "this_session" }], next: { skill: "implement-from-requirements", title: "Build", kind: "build", reaches: [] }, at } })),
+    // A Next stage session after a stage finished by hand at Needs you: not the first, and the stage before it is the one reached.
+    run("again", requirements({ standing: { unknown: true, at }, stages: [refined, { activityId: "e2", key: "kiln:next", task: "stage", ran: [], reaches: [], pushedSha: "e".repeat(40), startedAt: at }, { activityId: "e3", key: "kiln:next#2", task: "stage", ran: [], reaches: [], startedAt: at }] })),
+    // The final review by Kiln's own key, before any milestone says so; a feedback session before any stage finished; later untitled sessions.
+    run("keyed", requirements({ stages: [designed, { activityId: "f2", key: "kiln:final", task: "review", ran: [], reaches: [], startedAt: at }] })),
+    run("stood", requirements({ standsAt: "PRD written, no technical design yet", stages: [{ activityId: "g1", key: "kiln:feedback#1", task: "feedback", ran: [], reaches: [], startedAt: at }] })),
+    run("later", requirements({ standing: { unknown: true, at }, stages: [{ activityId: "h1", key: "kiln:next", task: "stage", ran: [], reaches: [], pushedSha: "h".repeat(40), startedAt: at }, { activityId: "h2", key: "kiln:next#2", task: "stage", ran: [], reaches: [], startedAt: at }] })),
   ]);
   const line = (name: string) => scan.underWay.find(item => item.path === `docs/prds/${name}`)?.line;
+  expect(line("keyed")).toBe("Requirements done. Last finished: Refine the design. Making the final stakeholder review.");
+  expect(line("stood")).toBe("Requirements. PRD written, no technical design yet. Applying stakeholder feedback.");
+  expect(line("later")).toBe("Requirements. A session finds the next stage.");
   expect(line("between")).toBe("Requirements. Last finished: Write the PRD. Next: Refine the PRD.");
   expect(line("feedback")).toBe("Requirements. Applying stakeholder feedback.");
   expect(line("finding")).toBe("Requirements. PRD written, no technical design yet; the first session finds the next stage.");
   expect(line("paused")).toBe("Requirements. Technical design written, no phase plan.");
+  expect(line("answers")).toBe("Requirements. Last finished: Refine the PRD. Applying stakeholder feedback before Write the technical design.");
+  expect(line("early")).toBe("Requirements. Last finished: Refine the PRD. Making the early stakeholder review.");
+  expect(line("final")).toBe("Requirements done. Last finished: Refine the design. Making the final stakeholder review.");
+  expect(line("again")).toBe("Requirements. Last finished: Refine the PRD. A session finds the next stage.");
 });
 
 it("names the refinement or feedback round part-way through, and says its uncommitted work must finish first (AC-HOME-04, AC-BEGIN-04)", async () => {
@@ -167,4 +187,31 @@ it("names the round whose work isn't committed when another round's file is comm
   writeFileSync(join(repo, "docs/prds/both/both-pending-feedback-changes.md"), "1. Rename\n");
   const scan = await scanOf(repo, []);
   expect(scan.underWay.find(item => item.title === "Both")?.line).toBe("Started by hand. PRD written, no technical design yet, with stakeholder feedback part-way through being applied. Its work isn't committed: finish that round or stop it, and Kiln continues from there.");
+});
+
+it("names bringing the local shared branch up to date when only origin's copy holds a planned PRD's contracts file, on the home screen and in kiln run (AC-HOME-03, AC-BEGIN-03)", async () => {
+  sandbox = createSandbox();
+  const repo = createRepository(sandbox, "shop", createBareOrigin(sandbox, "shop"));
+  const table = (name: string) => `# ${name} Initiative PRDs\n\n| # | PRD | Depends on | Status |\n|---|---|---|---|\n| 1 | [Leads](c.md#leads) | None | planned |\n`;
+  // Teams' list is on the local develop; its contracts file only on origin's. Pairs' contracts file is committed nowhere.
+  commitFiles(sandbox, repo, "docs/initiatives/teams", { "teams-initiative-prds.md": table("Teams") });
+  commitFiles(sandbox, repo, "docs/initiatives/pairs", { "pairs-initiative-prds.md": table("Pairs") });
+  git(sandbox, repo, "push", "-qu", "origin", "develop");
+  commitFiles(sandbox, repo, "docs/initiatives/teams", { "c.md": "## Leads\n" });
+  git(sandbox, repo, "push", "-q", "origin", "develop");
+  git(sandbox, repo, "reset", "-q", "--hard", "HEAD~1");
+  git(sandbox, repo, "fetch", "-q", "origin");
+
+  const scan = await scanOf(repo, []);
+  expect(scan.ready).toEqual([]);
+  expect(Object.fromEntries(scan.notReady.map(item => [item.path, item.line]))).toEqual({
+    "docs/initiatives/teams/leads": "Committed on origin's develop only. Bring your local develop up to date and it moves up.",
+    "docs/initiatives/pairs": "Commit the planned PRD contracts file docs/initiatives/pairs/c.md on the shared branch. Its planned PRDs appear once it is.",
+  });
+  const problem = async (path: string) => { const read = await inspectSource({ git: "git", env: sandbox!.env }, repo, path); return "problem" in read ? read.problem : undefined; };
+  expect(await problem("docs/initiatives/teams/leads")).toBe("docs/initiatives/teams/c.md is committed only on origin's develop. Bring the local shared branch develop up to date.");
+  expect(await problem("docs/initiatives/pairs/leads")).toBe("Commit the planned PRD contracts file docs/initiatives/pairs/c.md on the shared branch.");
+  // Once brought up to date, the planned PRD is ready.
+  git(sandbox, repo, "merge", "-q", "--ff-only", "origin/develop");
+  expect((await scanOf(repo, [])).ready.map(item => item.path)).toEqual(["docs/initiatives/teams/leads"]);
 });
