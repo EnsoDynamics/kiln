@@ -82,6 +82,20 @@ export function convertAcceptanceSettings(settings: Record<string, unknown>): vo
   settings.modelChoices = { phases: {}, ...(saved && !isCurrentDefault(saved) ? { kept: saved } : {}) } satisfies ModelChoices;
 }
 
+/**
+ * Migration to schema 28 (Kiln Model Modes, "Data Models"; AC-CARRY-01's last row): the Preflight
+ * and pull request entry starts as a copy of the Audits entry, a choice or `"default"` alike, so
+ * the preflight, the pull request session, the merge and the plan push resolve after the upgrade
+ * as they did before it. Settings that already hold the entry are left as they are.
+ *
+ *   migratePreflightPrChoice({ phases: {}, audits: { agentId: "codex", model: "gpt-6.2-sol", effort: "high" } })
+ *   // the choices now also hold preflightPr: { agentId: "codex", model: "gpt-6.2-sol", effort: "high" }
+ */
+export function migratePreflightPrChoice(choices: ModelChoices | undefined): void {
+  if (!choices || choices.preflightPr !== undefined || choices.audits === undefined) return;
+  choices.preflightPr = choices.audits === "default" ? "default" : { ...choices.audits };
+}
+
 /** A continuation's new settings drop a kept choice equal to Kiln's current default (KEEP-003). */
 export function continuedModelChoices(choices: ModelChoices): ModelChoices {
   const next: ModelChoices = structuredClone(choices);
@@ -99,5 +113,6 @@ export function assertModelChoices(value: ModelChoices | undefined): void {
   if (!value || typeof value !== "object" || typeof value.phases !== "object" || value.phases === null) throw new Error("Malformed model choices.");
   for (const entry of Object.values(value.phases)) if (entry !== "default" && !validChoice(entry)) throw new Error("Malformed model choice for a phase.");
   if (value.audits !== undefined && value.audits !== "default" && !validChoice(value.audits)) throw new Error("Malformed Audits model choice.");
+  if (value.preflightPr !== undefined && value.preflightPr !== "default" && !validChoice(value.preflightPr)) throw new Error("Malformed Preflight and pull request model choice.");
   if (value.kept !== undefined && !validChoice(value.kept)) throw new Error("Malformed kept model choice.");
 }

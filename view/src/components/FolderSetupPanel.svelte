@@ -4,7 +4,7 @@
   // with recovery's extra help lines and fixed fields, and Before you start with the Starting lets
   // Kiln list and Start. Edits go to the engine's draft and nothing is saved before Start (AC-SAFE-01).
   import BusyStatus from "./BusyStatus.svelte";
-  import ModelLines from "./ModelLines.svelte";
+  import ModelsBlock from "./ModelsBlock.svelte";
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import type { Part, PanelFields, SetupPanel, StartKind } from "../../../src/engine/folder-setup.js";
   import AccountPanel from "./AccountPanel.svelte";
@@ -14,6 +14,7 @@
   import CodeText from "./CodeText.svelte";
   import { accountHeading, accountLines, agentsHoldStart } from "../lib/documents-found.js";
   import { neededAgents } from "../lib/agents.js";
+  import { thresholdInForce } from "../lib/models.js";
   import { day } from "../lib/folder-missing.js";
   import { addedLabel } from "../lib/progress.js";
 
@@ -172,11 +173,11 @@
         <span class="help">{SESSIONS_ADD}</span>
       {/if}
 
-      <!-- Documents found's model line in place of Agent, Model and Effort (Kiln Phase Model Tiers AC-KEEP-01). -->
+      <!-- The Models block's choice in force, without its controls, in place of Agent, Model and Effort (Kiln Phase Model Tiers AC-KEEP-01; Kiln Model Modes AC-PRD-01). -->
       <div class="field">
-        <ModelLines {snapshot} {connected} readOnly />
+        <ModelsBlock {snapshot} {connected} readOnly />
         {#each agents as agent (agent.agentId)}
-          {@const account = accountLines(agent.account, snapshot.settings.models.fallback.enabled ? snapshot.settings.models.fallback.threshold : undefined)}
+          {@const account = accountLines(agent.account, thresholdInForce(snapshot.settings.models))}
           <span class="help">{#if agents.length > 1}{accountHeading(agent)}<br />{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}{account.line}{/if}{#if account.usageError}<br /><span class="message">{account.usageError}</span>{:else if account.usage}<br />{account.usage}{/if}{/if}</span>
           {#if agent.modelListError}<span class="message">{agent.modelListError}</span>{/if}
         {/each}
@@ -185,7 +186,7 @@
       </div>
       {#each readiness as agent (agent.agentId)}<p class="message">{agent.readinessErrors!.join(" ")}</p>{/each}
       <button type="button" class="button" disabled={!connected || agents.some((agent) => agent.pending || agent.billing?.pending)} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
-      {#each agents as agent (agent.agentId)}{#if agent.account && agent.agentId === "codex"}<AccountPanel account={agent.account} agent={agent.agent} paused={false} notStarted={true} markInUse={agents.length > 1} threshold={snapshot.settings.models.fallback.enabled ? snapshot.settings.models.fallback.threshold : undefined} {now} />{/if}{/each}
+      {#each agents as agent (agent.agentId)}{#if agent.account && agent.agentId === "codex"}<AccountPanel account={agent.account} agent={agent.agent} paused={false} notStarted={true} markInUse={agents.length > 1} threshold={thresholdInForce(snapshot.settings.models)} {now} />{/if}{/each}
       <label class="check"><input type="checkbox" checked={panel.fields.keepAwake} disabled={!connected} onchange={(event) => change(panel.selected, { keepAwake: event.currentTarget.checked })} /> <span>Keep this computer awake while a session works or Kiln waits<span class="help block">Stops idle sleep only. Closing a laptop’s lid can still put it to sleep; Kiln picks up where it left off afterwards.</span>{#if snapshot.settings.keepAwakeError}<span class="message block">{snapshot.settings.keepAwakeError}</span>{/if}</span></label>
       <label class="check"><input type="checkbox" checked={panel.fields.resumeAfterUsageLimit} disabled={!connected} onchange={(event) => change(panel.selected, { resumeAfterUsageLimit: event.currentTarget.checked })} /> <span>Resume after a usage limit<span class="help block">Switch off to finish the phase yourself; Needs you then shows how.</span></span></label>
       <dl class="fixed">

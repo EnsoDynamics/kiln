@@ -13,8 +13,10 @@ export interface DecidedLimit { agentId: AgentId; label: string; percent?: numbe
 /** The decision's result as the session saves it (`launch.fallback`) and the snapshot shows it (`model.fallback`). */
 export interface LaunchFallback<Choice = DecisionChoice> {
   used: boolean;
-  limit: DecidedLimit;
-  threshold: number;
+  /** The fallback was used because it is used for everything, with no usage read: no limit or threshold (Kiln Model Modes, "Launching"). */
+  forEverything?: true;
+  limit?: DecidedLimit;
+  threshold?: number;
   /** The first choice, when the launch went to the fallback. */
   first?: Choice;
   /** Why the fallback wasn't used, when it wasn't. */

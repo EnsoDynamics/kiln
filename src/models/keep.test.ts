@@ -7,9 +7,10 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { sessionFiles } from "../session/claude-session.js";
 import { appendJsonLine } from "../state/state-files.js";
-import { migrateRecord, readSessionRecord, SCHEMA_VERSION, writeSessionRecord, type PrdRecord, type SessionRecord } from "../state/records.js";
+import { migrateRecord, readSessionRecord, SCHEMA_VERSION, writeSessionRecord, type ModelChoices, type PrdRecord, type SessionRecord } from "../state/records.js";
+import type { ModelChoice } from "./model-defaults.js";
 import { newPrdRecord } from "../state/new-record.js";
-import { continuedModelChoices, convertAcceptanceSettings, isCurrentDefault } from "./keep.js";
+import { continuedModelChoices, convertAcceptanceSettings, isCurrentDefault, migratePreflightPrChoice } from "./keep.js";
 
 let dir: string;
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), "kiln-keep-")); mkdirSync(dir, { recursive: true }); });
@@ -72,7 +73,7 @@ describe("migrating to schema 27 (AC-KEEP-02's table)", () => {
     const record = migrateRecord(schema25("codex", { model: "" }), dir);
     expect(record.settings.modelChoices).toEqual({ phases: {} });
     for (const retired of ["agentId", "selectionGeneration", "agentChoices", "model", "effort"]) expect(record.settings).not.toHaveProperty(retired);
-    expect(record.schemaVersion).toBe(27);
+    expect(record.schemaVersion).toBe(SCHEMA_VERSION);
   });
 
   it("starts the activity on the first of its sessions, in creation order, that got a response", () => {
@@ -116,5 +117,23 @@ describe("a continuation (KEEP-003)", () => {
     const picked = { agentId: "codex", agentChoices: { codex: { model: "gpt-6-astra", effort: "xhigh" } } };
     convertAcceptanceSettings(picked);
     expect(picked).toEqual({ modelChoices: { phases: {}, kept: { agentId: "codex", model: "gpt-6-astra", effort: "xhigh" } } });
+  });
+});
+
+describe("the Preflight and pull request entry of settings saved before it existed (Kiln Model Modes AC-CARRY-01)", () => {
+  it("starts as a copy of the Audits entry, and is left alone once it exists or when there is no Audits entry", () => {
+    const audits: ModelChoice = { agentId: "claude_code", model: "sonnet", effort: "low" };
+    const copied: ModelChoices = { phases: {}, audits };
+    migratePreflightPrChoice(copied);
+    expect(copied.preflightPr).toEqual(audits);
+    const useDefault: ModelChoices = { phases: {}, audits: "default" };
+    migratePreflightPrChoice(useDefault);
+    expect(useDefault.preflightPr).toBe("default");
+    const own: ModelChoices = { phases: {}, audits, preflightPr: "default" };
+    migratePreflightPrChoice(own);
+    expect(own.preflightPr).toBe("default");
+    const none: ModelChoices = { phases: {} };
+    migratePreflightPrChoice(none);
+    expect(none).toEqual({ phases: {} });
   });
 });

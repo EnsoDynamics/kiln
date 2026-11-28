@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6e7e3f9c-756d-492e-aaa2-6aac9c05a174",
+  "activityId": "f1958eb7-6bb2-4106-ba73-1553d5df2a6e",
+  "kind": "delivery_audit",
+  "outcome": "passed",
+  "summary": "This repair audit re-read AC-ROW-01, the only criterion phase 5's change could reach; the other 16 criteria keep their earlier Implemented status. Phase 5's repair is built: the pull request row now carries its kind before the pull request session launches, so its Change targets the Preflight and pull request choice while that session is next, paused or stopped before launch. The one candidate gap, that the finished page's planned Preflight row for the next run offers no Change, follows a decision the technical design states, so AC-ROW-01 was amended to match it. One round ran and confirmed no new gap; every criterion is implemented.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [],
+  "afterDeliveryActions": [
+    "Once the pull request has merged, release Kiln as a minor version, as the technical design's Delivery section says."
+  ]
+}

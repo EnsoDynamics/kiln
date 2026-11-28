@@ -46,11 +46,11 @@ describe("Documents found", () => {
     expect(page).toMatch(/<input id="worktree"[^>]*value="~\/devel\/acme-shop-kiln\/customer-returns"/);
     expect(page).toMatch(/<input id="branch"[^>]*value="feature\/customer-returns"/);
     expect(page).toMatch(/<option value="develop"[^>]*>develop<\/option><option value="main"[^>]*>main<\/option>/);
-    // One line says models are chosen for each phase; no Agent, Model or Effort for the PRD (Kiln Phase Model Tiers AC-KEEP-01).
+    // The Models block offers the two ways to pick models; no Agent, Model or Effort while the recommended choice is in force (Kiln Model Modes AC-PRD-01).
     expect(page).not.toMatch(/id="agent"|id="model"|aria-pressed=/);
     const words = text(page);
-    // The delivery panel's model lines: per phase with the Model defaults link, the Audits choice, and the fallback (AC-DEFAULT-02, AC-OTHER-01, AC-FALLBACK-01).
-    expect(words).toContain("Models Chosen for each phase 4 not rated. Change any phase in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults . alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
+    // The delivery panel's Models block: the two choices, the fallback line and Model defaults link under the recommended one, and the Audits choice (Kiln Model Modes AC-PRD-01; mockup 5).
+    expect(words).toContain("Models Recommended model for each phase Wait for the limit. No fallback is switched on. Model defaults One model for this PRD Every phase, both audits, the preflight, and the pull request, merge and push sessions. Audits Claude Code · Opus 5.5 · high Change The delivery audit and the test audit. Not a tier: they check the whole PRD. alex@acme-shop.dev · Max plan Used: 5-hour 13% · weekly 22% · Fable 0%");
     expect(words).not.toContain("Effort");
     // Model defaults' table appears only on its own page, never here (AC-DEFAULT-02).
     expect(page).not.toMatch(/data-row=/);
@@ -63,6 +63,12 @@ describe("Documents found", () => {
     expect(text(html())).toContain(
       "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page Push this PRD’s documents to develop only when you press Continue on the finished page Never deploy or touch other branches Start Confirm refinement to start.",
     );
+  });
+
+  it("names the agent the merge session will run on in what Kiln may do, not the phases' agent (Kiln Model Modes AC-ROW-01)", () => {
+    const words = text(html(documentsFoundSnapshot({ mergeAgent: "Codex" })));
+    expect(words).toContain("Merge the delivery’s pull requests only when you press Merge with Codex on the finished page");
+    expect(words).not.toContain("Merge with Claude Code");
   });
 
   it("names the branches the person chose in what Kiln may do", () => {
@@ -81,7 +87,7 @@ describe("Documents found", () => {
     const snapshot = documentsFoundSnapshot({
       settings: {
         fieldErrors: { worktreePath: "That folder already exists and isn’t empty. Choose a new one.", baseBranch: "develop isn’t on origin." },
-        models: { tiers: { demanding: 0, standard: 0, mechanical: 0, notRated: 4 }, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode.", fallback: { enabled: false, threshold: 95 }, audits: documentsFoundSnapshot().settings.models.audits, revision: "missing" },
+        models: { ...documentsFoundSnapshot().settings.models, problem: "Opus 5.5 can’t run unattended on this account; it needs auto mode." },
         keepAwakeError: "Can’t keep this computer awake: systemd-inhibit isn’t available.",
       },
       documents: { startError: "Couldn’t set up the worktree: fatal: could not create directory" },
@@ -124,7 +130,7 @@ describe("Documents found", () => {
     snapshot.agents[0]!.account = { startedAt: "", updatedAt: "", limits: [], error: "Not signed in to Claude Code. Run `claude auth login`." };
     const page = html(snapshot);
     const words = text(page);
-    expect(words).toContain("Set one up in Model defaults . Not signed in to Claude Code. Run claude auth login . Listed models");
+    expect(words).toContain("Not a tier: they check the whole PRD. Not signed in to Claude Code. Run claude auth login . Listed models");
     // The command is drawn as code, not with its backticks (UI-010 item 7).
     expect(page).toMatch(/Run <span class="code-inline">claude auth login<\/span>\./);
   });
@@ -238,7 +244,7 @@ describe("Documents found finding repositories anywhere (docs/changes/kiln-find-
     expect(shown).toContain("Tell Kiln which checkout of acme-labs/storefront to use to start.");
     expect(page).toMatch(/<span class="[^"]*\basks\b[^"]*">Tell Kiln which checkout of acme-labs\/storefront to use to start\.<\/span>/);
     expect(page.match(/type="radio" name="checkout-acme-labs\/storefront"/g)).toHaveLength(3);
-    expect(page).not.toMatch(/type="radio"[^>]*checked/);
+    expect(page).not.toMatch(/type="radio" name="checkout-[^"]*"[^>]*checked/);
     expect(page).toMatch(/<button type="button" class="use[^"]*" disabled[^>]*>Use this checkout<\/button>/);
   });
 

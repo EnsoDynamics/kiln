@@ -2,12 +2,15 @@
   // The one editor for a model choice (Kiln Phase Model Tiers, "Command line": one editor and one
   // omitted-effort rule): the agent, then a model or model family it offers, then an effort that
   // choice takes. A row's Change, the Audits line and each side of a Model defaults row use it. An
-  // agent whose list can't be read offers no choices and says why.
+  // agent whose list can't be read offers no choices and says why. `onchange` hears every choice the
+  // editor holds, its own adjustments included; `onpick` hears only what a person picked, for a
+  // caller that must not take the editor's adjustment as a change.
   import { effortWord, startingEffort, type EditorAgent } from "../lib/models.js";
 
-  let { agents, agentId, value, effort, label, disabled = false, onchange }: {
+  type Choice = { agentId: string; value: string; effort?: string };
+  let { agents, agentId, value, effort, label, disabled = false, onchange, onpick }: {
     agents: EditorAgent[]; agentId: string; value: string | undefined; effort: string | undefined; label: string; disabled?: boolean;
-    onchange: (choice: { agentId: string; value: string; effort?: string }) => void;
+    onchange: (choice: Choice) => void; onpick?: (choice: Choice) => void;
   } = $props();
 
   const agent = $derived(agents.find(one => one.agentId === agentId) ?? agents[0]);
@@ -19,10 +22,13 @@
     if (agent && option && (agent.agentId !== agentId || option.value !== value || shownEffort !== effort)) onchange({ agentId: agent.agentId, value: option.value, ...(shownEffort ? { effort: shownEffort } : {}) });
   });
 
+  /** A person's own pick on one of the editor's controls. */
+  function picked(choice: Choice) { onchange(choice); onpick?.(choice); }
+
   function pickAgent(id: string) {
     const next = agents.find(one => one.agentId === id);
     const first = next?.options[0];
-    onchange({ agentId: id, value: first?.value ?? "", ...(first && startingEffort(first, effort) ? { effort: startingEffort(first, effort)! } : {}) });
+    picked({ agentId: id, value: first?.value ?? "", ...(first && startingEffort(first, effort) ? { effort: startingEffort(first, effort)! } : {}) });
   }
 </script>
 
@@ -39,13 +45,13 @@
     <span class="problem">{agent.problem}</span>
   {:else if agent}
     <label class="line"><span class="name">Model</span>
-      <select value={option?.value} {disabled} onchange={(event) => { const next = agent.options.find(one => one.value === event.currentTarget.value); onchange({ agentId: agent.agentId, value: event.currentTarget.value, ...(startingEffort(next, effort) ? { effort: startingEffort(next, effort)! } : {}) }); }}>
+      <select value={option?.value} {disabled} onchange={(event) => { const next = agent.options.find(one => one.value === event.currentTarget.value); picked({ agentId: agent.agentId, value: event.currentTarget.value, ...(startingEffort(next, effort) ? { effort: startingEffort(next, effort)! } : {}) }); }}>
         {#each agent.options as one (one.value)}<option value={one.value}>{one.name}</option>{/each}
       </select>
     </label>
     {#if option && option.efforts.length}
       <label class="line"><span class="name">Effort</span>
-        <select value={shownEffort} {disabled} onchange={(event) => onchange({ agentId: agent.agentId, value: option.value, effort: event.currentTarget.value })}>
+        <select value={shownEffort} {disabled} onchange={(event) => picked({ agentId: agent.agentId, value: option.value, effort: event.currentTarget.value })}>
           {#each option.efforts as one (one)}<option value={one}>{effortWord(one).charAt(0).toUpperCase() + effortWord(one).slice(1)}</option>{/each}
         </select>
       </label>

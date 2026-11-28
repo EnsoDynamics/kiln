@@ -2063,11 +2063,11 @@
         "model"
       ],
       "group": "models",
-      "purpose": "Change the agent, model and effort of one phase that hasn't started, or this PRD's Audits choice, in a run underway; or return either to its default.",
+      "purpose": "Change the agent, model and effort of one phase that hasn't started, this PRD's Audits choice, or its Preflight and pull request choice, in a run underway; or return any of them to its default.",
       "side_effect": "change",
       "implemented": true,
       "availability": "Available on a compatible live controller with the model feature, in a run underway that isn't complete; status reports current eligibility, and each activity's model.change says whether its phase can change.",
-      "usage": "kiln model <PRD-path> (--phase <id> | --audits) (--agent <claude_code|codex> --model <value> [--effort <value>] | --use-default) --only-if-status-matches <token> --command-id <id> [--json]",
+      "usage": "kiln model <PRD-path> (--phase <id> | --audits | --preflight-pr) (--agent <claude_code|codex> --model <value> [--effort <value>] | --use-default) --only-if-status-matches <token> --command-id <id> [--json]",
       "arguments": [
         {
           "name": "PRD-path",
@@ -2090,7 +2090,11 @@
         },
         "audits": {
           "value": null,
-          "source": "This PRD's Audits choice, which the preflight, every delivery and test audit and the pull request session run on. Never refused for an activity's state: it reaches every such activity that hasn't started, and one launching or running takes it only if it ends with no response."
+          "source": "This PRD's Audits choice, which every delivery and test audit runs on. Never refused for an activity's state: it reaches every such activity that hasn't started, and one launching or running takes it only if it ends with no response."
+        },
+        "preflight-pr": {
+          "value": null,
+          "source": "This PRD's Preflight and pull request choice, which the preflight, the pull request session, and the merge and push sessions after delivery run on. Never refused for an activity's state: it reaches every such activity that hasn't started, and one launching or running takes it only if it ends with no response. Refused once the run is complete."
         },
         "agent": {
           "value": "claude_code|codex",
@@ -2106,7 +2110,7 @@
         },
         "use-default": {
           "value": null,
-          "source": "Return the phase to its tier's choice in Model defaults, or the Audits choice to the Audits row's."
+          "source": "Return the phase to its tier's choice in Model defaults, the Audits choice to the Audits row's, or the Preflight and pull request choice to the Preflight and pull request row's."
         },
         "only-if-status-matches": {
           "value": "status_token",
@@ -2121,7 +2125,8 @@
         {
           "exactly_one": [
             "phase",
-            "audits"
+            "audits",
+            "preflight-pr"
           ]
         },
         {
@@ -2238,11 +2243,11 @@
         "model-defaults"
       ],
       "group": "models",
-      "purpose": "Print Model defaults: each tier's and the Audits row's first choice and fallback, the fallback switch and its threshold.",
+      "purpose": "Print Model defaults, or with --prd the settings in force for one PRD: how Kiln picks a model (the recommended model for each phase, or one model for everything), the one model, each tier's, the Audits row's and the Preflight and pull request row's first choice and fallback, and the fallback setting with its threshold.",
       "side_effect": "read",
       "implemented": true,
-      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
-      "usage": "kiln model-defaults [--json]",
+      "availability": "Executable on this computer; needs no running Kiln. With --prd, needs Kiln's record of that PRD, which exists once kiln run has opened it.",
+      "usage": "kiln model-defaults [--prd <PRD-path>] [--json]",
       "arguments": [],
       "flags": {
         "json": {
@@ -2252,30 +2257,39 @@
         "help": {
           "value": null,
           "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "prd": {
+          "value": "PRD-path",
+          "source": "A PRD file or directory Kiln has a record of, as kiln status lists it. The command then reads the settings in force for that PRD, or saves for that PRD only, which gives it settings of its own when it has none; every other PRD keeps Model defaults."
         }
       },
       "required_exclusive_groups": [],
       "limits": [
         "Reads each installed agent's model list and readiness now, as the Model defaults page does.",
-        "Subcommands: kiln model-defaults set, restore and fallback."
+        "Without --prd, prints Model defaults and no PRD's own settings. With --prd, prints that PRD's own settings when it has them, otherwise Model defaults, and says which.",
+        "Subcommands: kiln model-defaults set, mode, fallback, restore and use-defaults."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
-        "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
-        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "path": "The settings file in force: <state root>/model-defaults.json, or the PRD's own model-settings.json in its state directory when it has its own settings.",
+        "prd_path": "With --prd, the canonical absolute PRD directory.",
+        "source": "defaults, or prd when the settings in force are the PRD's own.",
+        "data": "source (defaults, or prd when the PRD has its own settings), prd (the PRD's name, with --prd), mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the file in force holds it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never), agents (each installed agent's families with their efforts, and its readiness), kilnChoices (the same settings as a file holding nothing reads now) and holdsSettings (whether Model defaults or this PRD's own settings hold any field).",
+        "notice": "Present after Restore over Model defaults that didn't parse: the fallback is now off.",
+        "can_restore": "On state_unavailable: whether the one write allowed over the unread file is available (restore over Model defaults, use-defaults over a PRD's own settings).",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
       "errors": [
         "invalid_input",
+        "target_not_found",
         "state_unavailable"
       ],
       "exits": {
         "0": "Read or change completed.",
-        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
-        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+        "2": "Invalid input, a choice or value Kiln won't save, or --prd names a PRD Kiln has no record of; nothing changed.",
+        "4": "The settings in force can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
       },
       "examples": [
         {
@@ -2285,11 +2299,22 @@
             "model-defaults",
             "--json"
           ]
+        },
+        {
+          "request": "Which settings is the orders PRD running on?",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "--prd",
+            "/work/shop/docs/prds/orders",
+            "--json"
+          ]
         }
       ],
       "error_meanings": {
         "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
-        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+        "target_not_found": "Exit 2: Kiln has no record of the PRD --prd names. Open it once with kiln run <PRD-path>.",
+        "state_unavailable": "Exit 4: the settings in force don't parse or were written by a newer Kiln. Every save over them is refused. Over Model defaults, kiln model-defaults restore rewrites a file that doesn't parse. Over a PRD's own settings, kiln model-defaults use-defaults --prd <PRD-path> removes them, and is the only command with --prd that works. Both are refused over a file a newer Kiln wrote. While Model defaults can't be read, a --prd command on a PRD with no settings of its own is refused too."
       }
     },
     {
@@ -2298,11 +2323,11 @@
         "set"
       ],
       "group": "models",
-      "purpose": "Set a Model defaults row's first choice, fallback or both.",
+      "purpose": "Set a row's first choice, fallback or both, in Model defaults or with --prd for one PRD.",
       "side_effect": "computer_setting",
       "implemented": true,
-      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
-      "usage": "kiln model-defaults set --row <demanding|standard|mechanical|audits> [--first-agent <agent> --first-model <family> [--first-effort <value>]] [--fallback-agent <agent> --fallback-model <family> [--fallback-effort <value>]] [--json]",
+      "availability": "Executable on this computer; needs no running Kiln. With --prd, needs Kiln's record of that PRD, which exists once kiln run has opened it.",
+      "usage": "kiln model-defaults set --row <demanding|standard|mechanical|audits|preflight-pr> [--first-agent <agent> --first-model <family> [--first-effort <value>]] [--fallback-agent <agent> --fallback-model <family> [--fallback-effort <value>]] [--prd <PRD-path>] [--json]",
       "arguments": [],
       "flags": {
         "json": {
@@ -2338,8 +2363,12 @@
           "source": "The fallback's effort. Omitted: none for a model that takes no effort, otherwise the default the agent reports for the family's newest model, refused when it reports none (Claude Code reports none)."
         },
         "row": {
-          "value": "demanding|standard|mechanical|audits",
-          "source": "The row to change. Standard is also the row of a phase with no Model tier line; Audits covers the preflight, the audits and the pull request session."
+          "value": "demanding|standard|mechanical|audits|preflight-pr",
+          "source": "The row to change. Standard is also the row of a phase with no Model tier line; Audits covers the delivery audit and the test audit; preflight-pr covers the preflight, the pull request session, and the merge and push sessions after delivery."
+        },
+        "prd": {
+          "value": "PRD-path",
+          "source": "A PRD file or directory Kiln has a record of, as kiln status lists it. The command then reads the settings in force for that PRD, or saves for that PRD only, which gives it settings of its own when it has none; every other PRD keeps Model defaults."
         }
       },
       "required_exclusive_groups": [
@@ -2350,7 +2379,8 @@
         }
       ],
       "limits": [
-        "Changes a setting for every PRD in every repository on this computer, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started or a phase changed for one PRD.",
+        "Without --prd, changes a setting for every PRD in every repository on this computer that follows Model defaults, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started, a phase changed for one PRD, or a PRD that has its own settings.",
+        "With --prd, saves for that PRD only, as This PRD only does on the Model defaults page: the PRD gets settings of its own when it has none, starting from what Model defaults holds, and keeps them until kiln model-defaults use-defaults --prd, even when they end up the same as Model defaults. To save one change for every PRD and for a PRD that has its own settings, run the command twice, once without --prd and once with it.",
         "Takes neither --command-id nor --only-if-status-matches.",
         "Refused when the row's first choice and fallback would be on the same agent: to move a row to the other agent, change both sides in one command."
       ],
@@ -2358,19 +2388,23 @@
         "schema_version": "Public result schema, currently 1.",
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
-        "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
-        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "path": "The settings file in force: <state root>/model-defaults.json, or the PRD's own model-settings.json in its state directory when it has its own settings.",
+        "prd_path": "With --prd, the canonical absolute PRD directory.",
+        "source": "defaults, or prd when the settings in force are the PRD's own.",
+        "data": "source (defaults, or prd when the PRD has its own settings), prd (the PRD's name, with --prd), mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the file in force holds it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never), agents (each installed agent's families with their efforts, and its readiness), kilnChoices (the same settings as a file holding nothing reads now) and holdsSettings (whether Model defaults or this PRD's own settings hold any field).",
+        "notice": "Present after Restore over Model defaults that didn't parse: the fallback is now off.",
+        "can_restore": "On state_unavailable: whether the one write allowed over the unread file is available (restore over Model defaults, use-defaults over a PRD's own settings).",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
       "errors": [
         "invalid_input",
+        "target_not_found",
         "state_unavailable"
       ],
       "exits": {
         "0": "Read or change completed.",
-        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
-        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+        "2": "Invalid input, a choice or value Kiln won't save, or --prd names a PRD Kiln has no record of; nothing changed.",
+        "4": "The settings in force can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
       },
       "examples": [
         {
@@ -2393,7 +2427,8 @@
       ],
       "error_meanings": {
         "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
-        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+        "target_not_found": "Exit 2: Kiln has no record of the PRD --prd names. Open it once with kiln run <PRD-path>.",
+        "state_unavailable": "Exit 4: the settings in force don't parse or were written by a newer Kiln. Every save over them is refused. Over Model defaults, kiln model-defaults restore rewrites a file that doesn't parse. Over a PRD's own settings, kiln model-defaults use-defaults --prd <PRD-path> removes them, and is the only command with --prd that works. Both are refused over a file a newer Kiln wrote. While Model defaults can't be read, a --prd command on a PRD with no settings of its own is refused too."
       }
     },
     {
@@ -2402,11 +2437,11 @@
         "restore"
       ],
       "group": "models",
-      "purpose": "Restore Kiln's defaults: clear the four rows, keeping the fallback switch and threshold.",
+      "purpose": "Restore Kiln's defaults, in Model defaults or with --prd for one PRD: the recommended model for each phase, Kiln's five rows and one model, and the fallback off (Never, with its threshold at 95).",
       "side_effect": "computer_setting",
       "implemented": true,
-      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
-      "usage": "kiln model-defaults restore [--json]",
+      "availability": "Executable on this computer; needs no running Kiln. With --prd, needs Kiln's record of that PRD, which exists once kiln run has opened it.",
+      "usage": "kiln model-defaults restore [--prd <PRD-path>] [--json]",
       "arguments": [],
       "flags": {
         "json": {
@@ -2416,31 +2451,41 @@
         "help": {
           "value": null,
           "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "prd": {
+          "value": "PRD-path",
+          "source": "A PRD file or directory Kiln has a record of, as kiln status lists it. The command then reads the settings in force for that PRD, or saves for that PRD only, which gives it settings of its own when it has none; every other PRD keeps Model defaults."
         }
       },
       "required_exclusive_groups": [],
       "limits": [
-        "Changes a setting for every PRD in every repository on this computer, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started or a phase changed for one PRD.",
+        "Turns the fallback off: it returns the way models are picked, the five rows, the one model, and the fallback setting with its threshold to Kiln's choices, as Restore Kiln's defaults does on the page.",
+        "Without --prd, changes a setting for every PRD in every repository on this computer that follows Model defaults, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started, a phase changed for one PRD, or a PRD that has its own settings.",
+        "With --prd, restores that PRD's own settings to Kiln's choices; the PRD keeps settings of its own, holding nothing, until kiln model-defaults use-defaults --prd.",
         "Takes neither --command-id nor --only-if-status-matches.",
-        "Over a file that doesn't parse, writes every row at its default and the fallback off at 95, and says the fallback is now off. Refused over a file written by a newer Kiln."
+        "Over Model defaults that don't parse, writes every setting at Kiln's choice and says the fallback is now off. Refused over a file written by a newer Kiln, and with --prd over own settings that can't be read."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
-        "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
-        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "path": "The settings file in force: <state root>/model-defaults.json, or the PRD's own model-settings.json in its state directory when it has its own settings.",
+        "prd_path": "With --prd, the canonical absolute PRD directory.",
+        "source": "defaults, or prd when the settings in force are the PRD's own.",
+        "data": "source (defaults, or prd when the PRD has its own settings), prd (the PRD's name, with --prd), mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the file in force holds it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never), agents (each installed agent's families with their efforts, and its readiness), kilnChoices (the same settings as a file holding nothing reads now) and holdsSettings (whether Model defaults or this PRD's own settings hold any field).",
+        "notice": "Present after Restore over Model defaults that didn't parse: the fallback is now off.",
+        "can_restore": "On state_unavailable: whether the one write allowed over the unread file is available (restore over Model defaults, use-defaults over a PRD's own settings).",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
       "errors": [
         "invalid_input",
+        "target_not_found",
         "state_unavailable"
       ],
       "exits": {
         "0": "Read or change completed.",
-        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
-        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+        "2": "Invalid input, a choice or value Kiln won't save, or --prd names a PRD Kiln has no record of; nothing changed.",
+        "4": "The settings in force can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
       },
       "examples": [
         {
@@ -2455,7 +2500,8 @@
       ],
       "error_meanings": {
         "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
-        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+        "target_not_found": "Exit 2: Kiln has no record of the PRD --prd names. Open it once with kiln run <PRD-path>.",
+        "state_unavailable": "Exit 4: the settings in force don't parse or were written by a newer Kiln. Every save over them is refused. Over Model defaults, kiln model-defaults restore rewrites a file that doesn't parse. Over a PRD's own settings, kiln model-defaults use-defaults --prd <PRD-path> removes them, and is the only command with --prd that works. Both are refused over a file a newer Kiln wrote. While Model defaults can't be read, a --prd command on a PRD with no settings of its own is refused too."
       }
     },
     {
@@ -2464,11 +2510,11 @@
         "fallback"
       ],
       "group": "models",
-      "purpose": "Turn the fallback on or off, or set its threshold, for every PRD on this computer.",
+      "purpose": "Choose when the fallback is used, never, when usage is nearly out or for everything, or set its threshold, in Model defaults or with --prd for one PRD.",
       "side_effect": "computer_setting",
       "implemented": true,
-      "availability": "Executable on this computer; needs no PRD path and no running Kiln.",
-      "usage": "kiln model-defaults fallback [--on | --off] [--threshold <1..100>] [--json]",
+      "availability": "Executable on this computer; needs no running Kiln. With --prd, needs Kiln's record of that PRD, which exists once kiln run has opened it.",
+      "usage": "kiln model-defaults fallback [--never | --at-threshold | --for-everything | --on | --off] [--threshold <1..100>] [--prd <PRD-path>] [--json]",
       "arguments": [],
       "flags": {
         "json": {
@@ -2479,49 +2525,73 @@
           "value": null,
           "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
         },
+        "never": {
+          "value": null,
+          "source": "Never use the fallback: at a usage limit a run waits and picks up again."
+        },
+        "at-threshold": {
+          "value": null,
+          "source": "Use the fallback when the first choice's usage reaches the threshold: an activity about to launch starts on its row's fallback when a limit on its first choice's account reads at or above it. Saved with the threshold given, or the one in force."
+        },
+        "for-everything": {
+          "value": null,
+          "source": "Use the fallback for everything, until you change this: every activity that hasn't started launches on its row's fallback without reading usage, which keeps a run off the first choices' account. An activity with no fallback keeps its own choice."
+        },
         "on": {
           "value": null,
-          "source": "Use the fallback when usage is nearly out: an activity about to launch starts on its row's fallback when a limit on its first choice's account reads at or above the threshold."
+          "source": "The same as --at-threshold."
         },
         "off": {
           "value": null,
-          "source": "Wait for the limit, as Kiln does with the fallback off."
+          "source": "The same as --never."
         },
         "threshold": {
           "value": "1..100",
           "source": "A whole-number percent; 95 until changed."
+        },
+        "prd": {
+          "value": "PRD-path",
+          "source": "A PRD file or directory Kiln has a record of, as kiln status lists it. The command then reads the settings in force for that PRD, or saves for that PRD only, which gives it settings of its own when it has none; every other PRD keeps Model defaults."
         }
       },
       "required_exclusive_groups": [
         {
           "at_most_one": [
+            "never",
+            "at-threshold",
+            "for-everything",
             "on",
             "off"
           ]
         }
       ],
       "limits": [
-        "Changes a setting for every PRD in every repository on this computer, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started or a phase changed for one PRD.",
+        "Without --prd, changes a setting for every PRD in every repository on this computer that follows Model defaults, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started, a phase changed for one PRD, or a PRD that has its own settings.",
+        "With --prd, saves for that PRD only, as This PRD only does on the Model defaults page: the PRD gets settings of its own when it has none, starting from what Model defaults holds, and keeps them until kiln model-defaults use-defaults --prd, even when they end up the same as Model defaults. To save one change for every PRD and for a PRD that has its own settings, run the command twice, once without --prd and once with it.",
         "Takes neither --command-id nor --only-if-status-matches.",
-        "Give --on or --off, --threshold, or both. Once on, it applies to every PRD on the computer until turned off."
+        "Give one setting, --threshold, or both. The setting has no effect while one model runs everything, which has no fallback."
       ],
       "result_fields": {
         "schema_version": "Public result schema, currently 1.",
         "ok": "Whether the read or change completed.",
         "observed_at": "Collection time in ISO 8601 UTC.",
-        "path": "The Model defaults file: <state root>/model-defaults.json.",
-        "data": "rows (demanding, standard, mechanical, audits; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the person set it), fallback (enabled, threshold) and agents (each installed agent's families with their efforts, and its readiness).",
-        "notice": "Present after Restore over a file that didn't parse: the fallback is now off.",
+        "path": "The settings file in force: <state root>/model-defaults.json, or the PRD's own model-settings.json in its state directory when it has its own settings.",
+        "prd_path": "With --prd, the canonical absolute PRD directory.",
+        "source": "defaults, or prd when the settings in force are the PRD's own.",
+        "data": "source (defaults, or prd when the PRD has its own settings), prd (the PRD's name, with --prd), mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the file in force holds it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never), agents (each installed agent's families with their efforts, and its readiness), kilnChoices (the same settings as a file holding nothing reads now) and holdsSettings (whether Model defaults or this PRD's own settings hold any field).",
+        "notice": "Present after Restore over Model defaults that didn't parse: the fallback is now off.",
+        "can_restore": "On state_unavailable: whether the one write allowed over the unread file is available (restore over Model defaults, use-defaults over a PRD's own settings).",
         "errors": "Stable code, message, retryable, next_command and next_argv."
       },
       "errors": [
         "invalid_input",
+        "target_not_found",
         "state_unavailable"
       ],
       "exits": {
         "0": "Read or change completed.",
-        "2": "Invalid input, or a choice or value Kiln won't save; nothing changed.",
-        "4": "Model defaults can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+        "2": "Invalid input, a choice or value Kiln won't save, or --prd names a PRD Kiln has no record of; nothing changed.",
+        "4": "The settings in force can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
       },
       "examples": [
         {
@@ -2530,16 +2600,322 @@
             "kiln",
             "model-defaults",
             "fallback",
-            "--on",
+            "--at-threshold",
             "--threshold",
             "90",
+            "--json"
+          ]
+        },
+        {
+          "request": "Keep the orders PRD off my Claude Code account for now.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "fallback",
+            "--for-everything",
+            "--prd",
+            "/work/shop/docs/prds/orders",
             "--json"
           ]
         }
       ],
       "error_meanings": {
         "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
-        "state_unavailable": "Exit 4: the file doesn't parse or was written by a newer Kiln. Every save is refused; kiln model-defaults restore rewrites a file that doesn't parse, and is refused too over a newer one."
+        "target_not_found": "Exit 2: Kiln has no record of the PRD --prd names. Open it once with kiln run <PRD-path>.",
+        "state_unavailable": "Exit 4: the settings in force don't parse or were written by a newer Kiln. Every save over them is refused. Over Model defaults, kiln model-defaults restore rewrites a file that doesn't parse. Over a PRD's own settings, kiln model-defaults use-defaults --prd <PRD-path> removes them, and is the only command with --prd that works. Both are refused over a file a newer Kiln wrote. While Model defaults can't be read, a --prd command on a PRD with no settings of its own is refused too."
+      }
+    },
+    {
+      "path": [
+        "model-defaults",
+        "mode"
+      ],
+      "group": "models",
+      "purpose": "Choose how Kiln picks a model, the recommended model for each phase or one model for everything, in Model defaults or with --prd for one PRD.",
+      "side_effect": "computer_setting",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no running Kiln. With --prd, needs Kiln's record of that PRD, which exists once kiln run has opened it.",
+      "usage": "kiln model-defaults mode (--recommended | --one-model [--agent <claude_code|codex> --model <family> [--effort <value>]]) [--prd <PRD-path>] [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "recommended": {
+          "value": null,
+          "source": "The recommended model for each phase: each activity runs on its row's choice."
+        },
+        "one-model": {
+          "value": null,
+          "source": "One model for everything: every phase, both audits, the preflight, and the pull request, merge and push sessions that haven't started run on one agent, model and effort, with no fallback."
+        },
+        "agent": {
+          "value": "claude_code|codex",
+          "source": "The one model's agent; goes with --model and --one-model."
+        },
+        "model": {
+          "value": "family",
+          "source": "The one model's family: Claude Code's alias (fable, opus, sonnet, haiku) or Codex's family (sol, astra). Kiln uses the newest version of the family each time it launches an activity."
+        },
+        "effort": {
+          "value": "value",
+          "source": "The one model's effort. Omitted: none for a model that takes no effort, otherwise the default the agent reports for the family's newest model, refused when it reports none (Claude Code reports none)."
+        },
+        "prd": {
+          "value": "PRD-path",
+          "source": "A PRD file or directory Kiln has a record of, as kiln status lists it. The command then reads the settings in force for that PRD, or saves for that PRD only, which gives it settings of its own when it has none; every other PRD keeps Model defaults."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "exactly_one": [
+            "recommended",
+            "one-model"
+          ]
+        }
+      ],
+      "limits": [
+        "Without --prd, changes a setting for every PRD in every repository on this computer that follows Model defaults, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started, a phase changed for one PRD, or a PRD that has its own settings.",
+        "With --prd, saves for that PRD only, as This PRD only does on the Model defaults page: the PRD gets settings of its own when it has none, starting from what Model defaults holds, and keeps them until kiln model-defaults use-defaults --prd, even when they end up the same as Model defaults. To save one change for every PRD and for a PRD that has its own settings, run the command twice, once without --prd and once with it.",
+        "Takes neither --command-id nor --only-if-status-matches.",
+        "--one-model without --agent and --model saves the one model the command would print: the one already picked, else Claude Code · Opus · high, or Codex · GPT Sol · high where Claude Code isn't installed.",
+        "Each way of picking models keeps its settings while the other is selected."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The settings file in force: <state root>/model-defaults.json, or the PRD's own model-settings.json in its state directory when it has its own settings.",
+        "prd_path": "With --prd, the canonical absolute PRD directory.",
+        "source": "defaults, or prd when the settings in force are the PRD's own.",
+        "data": "source (defaults, or prd when the PRD has its own settings), prd (the PRD's name, with --prd), mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the file in force holds it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never), agents (each installed agent's families with their efforts, and its readiness), kilnChoices (the same settings as a file holding nothing reads now) and holdsSettings (whether Model defaults or this PRD's own settings hold any field).",
+        "notice": "Present after Restore over Model defaults that didn't parse: the fallback is now off.",
+        "can_restore": "On state_unavailable: whether the one write allowed over the unread file is available (restore over Model defaults, use-defaults over a PRD's own settings).",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, a choice or value Kiln won't save, or --prd names a PRD Kiln has no record of; nothing changed.",
+        "4": "The settings in force can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Run everything on Codex GPT Sol at high effort.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "mode",
+            "--one-model",
+            "--agent",
+            "codex",
+            "--model",
+            "sol",
+            "--effort",
+            "high",
+            "--json"
+          ]
+        },
+        {
+          "request": "Go back to the recommended model for each phase.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "mode",
+            "--recommended",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
+        "target_not_found": "Exit 2: Kiln has no record of the PRD --prd names. Open it once with kiln run <PRD-path>.",
+        "state_unavailable": "Exit 4: the settings in force don't parse or were written by a newer Kiln. Every save over them is refused. Over Model defaults, kiln model-defaults restore rewrites a file that doesn't parse. Over a PRD's own settings, kiln model-defaults use-defaults --prd <PRD-path> removes them, and is the only command with --prd that works. Both are refused over a file a newer Kiln wrote. While Model defaults can't be read, a --prd command on a PRD with no settings of its own is refused too."
+      }
+    },
+    {
+      "path": [
+        "model-defaults",
+        "one-model"
+      ],
+      "group": "models",
+      "purpose": "Pick the one model that One model for everything runs on, without changing how Kiln picks a model, in Model defaults or with --prd for one PRD.",
+      "side_effect": "computer_setting",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no running Kiln. With --prd, needs Kiln's record of that PRD, which exists once kiln run has opened it.",
+      "usage": "kiln model-defaults one-model --agent <claude_code|codex> --model <family> [--effort <value>] [--prd <PRD-path>] [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "agent": {
+          "value": "claude_code|codex",
+          "source": "The one model's agent; goes with --model."
+        },
+        "model": {
+          "value": "family",
+          "source": "The one model's family: Claude Code's alias (fable, opus, sonnet, haiku) or Codex's family (sol, astra). Kiln uses the newest version of the family each time it launches an activity."
+        },
+        "effort": {
+          "value": "value",
+          "source": "The one model's effort. Omitted: none for a model that takes no effort, otherwise the default the agent reports for the family's newest model, refused when it reports none (Claude Code reports none)."
+        },
+        "prd": {
+          "value": "PRD-path",
+          "source": "A PRD file or directory Kiln has a record of, as kiln status lists it. The command then reads the settings in force for that PRD, or saves for that PRD only, which gives it settings of its own when it has none; every other PRD keeps Model defaults."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "required": [
+            "agent",
+            "model"
+          ]
+        }
+      ],
+      "limits": [
+        "Changes only the one model. How Kiln picks a model stays as it is: under the recommended model for each phase, the one model is kept and runs nothing until kiln model-defaults mode --one-model selects it.",
+        "Without --prd, changes the one model for every PRD in every repository on this computer that follows Model defaults, including runs underway: each activity that hasn't started takes it at its next resolution. It never changes an activity that has started, a phase changed for one PRD, or a PRD that has its own settings.",
+        "With --prd, saves for that PRD only, as This PRD only does on the Model defaults page: the PRD gets settings of its own when it has none, starting from what Model defaults holds, and keeps them until kiln model-defaults use-defaults --prd, even when they end up the same as Model defaults. To save one change for every PRD and for a PRD that has its own settings, run the command twice, once without --prd and once with it.",
+        "Takes neither --command-id nor --only-if-status-matches."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The settings file in force: <state root>/model-defaults.json, or the PRD's own model-settings.json in its state directory when it has its own settings.",
+        "prd_path": "With --prd, the canonical absolute PRD directory.",
+        "source": "defaults, or prd when the settings in force are the PRD's own.",
+        "data": "source (defaults, or prd when the PRD has its own settings), prd (the PRD's name, with --prd), mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the file in force holds it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never), agents (each installed agent's families with their efforts, and its readiness), kilnChoices (the same settings as a file holding nothing reads now) and holdsSettings (whether Model defaults or this PRD's own settings hold any field).",
+        "notice": "Present after Restore over Model defaults that didn't parse: the fallback is now off.",
+        "can_restore": "On state_unavailable: whether the one write allowed over the unread file is available (restore over Model defaults, use-defaults over a PRD's own settings).",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, a choice or value Kiln won't save, or --prd names a PRD Kiln has no record of; nothing changed.",
+        "4": "The settings in force can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Keep Codex GPT Sol at high effort as the one model, still picking the recommended model for each phase.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "one-model",
+            "--agent",
+            "codex",
+            "--model",
+            "sol",
+            "--effort",
+            "high",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: --agent or --model is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, or a model list that can't be read. Nothing changed.",
+        "target_not_found": "Exit 2: Kiln has no record of the PRD --prd names. Open it once with kiln run <PRD-path>.",
+        "state_unavailable": "Exit 4: the settings in force don't parse or were written by a newer Kiln. Every save over them is refused. Over Model defaults, kiln model-defaults restore rewrites a file that doesn't parse. Over a PRD's own settings, kiln model-defaults use-defaults --prd <PRD-path> removes them, and is the only command with --prd that works. Both are refused over a file a newer Kiln wrote. While Model defaults can't be read, a --prd command on a PRD with no settings of its own is refused too."
+      }
+    },
+    {
+      "path": [
+        "model-defaults",
+        "use-defaults"
+      ],
+      "group": "models",
+      "purpose": "Use my defaults here: remove one PRD's own settings, so it follows Model defaults again.",
+      "side_effect": "computer_setting",
+      "implemented": true,
+      "availability": "Executable on this computer; needs no running Kiln. With --prd, needs Kiln's record of that PRD, which exists once kiln run has opened it.",
+      "usage": "kiln model-defaults use-defaults --prd <PRD-path> [--json]",
+      "arguments": [],
+      "flags": {
+        "json": {
+          "value": null,
+          "source": "Caller requests JSON; bot-control execution emits one versioned result on stdout, diagnostics on stderr. Existing helpers support JSON help and retain their own execution formats."
+        },
+        "help": {
+          "value": null,
+          "source": "--help or -h; complete reference; no controller, Git, sign-in or TTY required."
+        },
+        "prd": {
+          "value": "PRD-path",
+          "source": "A PRD file or directory Kiln has a record of, as kiln status lists it. The command then reads the settings in force for that PRD, or saves for that PRD only, which gives it settings of its own when it has none; every other PRD keeps Model defaults."
+        }
+      },
+      "required_exclusive_groups": [
+        {
+          "required": [
+            "prd"
+          ]
+        }
+      ],
+      "limits": [
+        "Removes the PRD's own settings at once; every activity of it that hasn't started takes Model defaults at its next resolution. A PRD with no settings of its own is left as it is.",
+        "Takes neither --command-id nor --only-if-status-matches.",
+        "Works over own settings that can't be read, and whether or not Model defaults can be read; then it reports Model defaults' error. Refused over own settings written by a newer Kiln."
+      ],
+      "result_fields": {
+        "schema_version": "Public result schema, currently 1.",
+        "ok": "Whether the read or change completed.",
+        "observed_at": "Collection time in ISO 8601 UTC.",
+        "path": "The settings file in force: <state root>/model-defaults.json, or the PRD's own model-settings.json in its state directory when it has its own settings.",
+        "prd_path": "With --prd, the canonical absolute PRD directory.",
+        "source": "defaults, or prd when the settings in force are the PRD's own.",
+        "data": "source (defaults, or prd when the PRD has its own settings), prd (the PRD's name, with --prd), mode (recommended or one_model), oneModel (a choice with the same fields as a row's side), rows (demanding, standard, mechanical, audits, preflight_pr; each first and fallback with agentId, agent, family, familyName, effort, modelName as the agent offers it now, problem, and set: whether the file in force holds it), fallback (use: never, threshold or everything; threshold; enabled, true unless use is never), agents (each installed agent's families with their efforts, and its readiness), kilnChoices (the same settings as a file holding nothing reads now) and holdsSettings (whether Model defaults or this PRD's own settings hold any field).",
+        "notice": "Present after Restore over Model defaults that didn't parse: the fallback is now off.",
+        "can_restore": "On state_unavailable: whether the one write allowed over the unread file is available (restore over Model defaults, use-defaults over a PRD's own settings).",
+        "errors": "Stable code, message, retryable, next_command and next_argv."
+      },
+      "errors": [
+        "invalid_input",
+        "target_not_found",
+        "state_unavailable"
+      ],
+      "exits": {
+        "0": "Read or change completed.",
+        "2": "Invalid input, a choice or value Kiln won't save, or --prd names a PRD Kiln has no record of; nothing changed.",
+        "4": "The settings in force can't be read (a file that doesn't parse, or one written by a newer Kiln); nothing changed."
+      },
+      "examples": [
+        {
+          "request": "Put the orders PRD back on my defaults.",
+          "argv": [
+            "kiln",
+            "model-defaults",
+            "use-defaults",
+            "--prd",
+            "/work/shop/docs/prds/orders",
+            "--json"
+          ]
+        }
+      ],
+      "error_meanings": {
+        "invalid_input": "Exit 2: a flag is missing or malformed, or the save is refused: a family or effort its agent doesn't offer, an effort that can't be filled in, a model that can't run in auto mode, a model list that can't be read, a row's first choice and fallback on the same agent, or a threshold outside 1 to 100. Nothing changed.",
+        "target_not_found": "Exit 2: Kiln has no record of the PRD --prd names. Open it once with kiln run <PRD-path>.",
+        "state_unavailable": "Exit 4: the settings in force don't parse or were written by a newer Kiln. Every save over them is refused. Over Model defaults, kiln model-defaults restore rewrites a file that doesn't parse. Over a PRD's own settings, kiln model-defaults use-defaults --prd <PRD-path> removes them, and is the only command with --prd that works. Both are refused over a file a newer Kiln wrote. While Model defaults can't be read, a --prd command on a PRD with no settings of its own is refused too."
       }
     },
     {

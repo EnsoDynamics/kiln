@@ -1,4 +1,4 @@
-import { convertAcceptanceSettings } from "../models/keep.js";
+import { convertAcceptanceSettings, migratePreflightPrChoice } from "../models/keep.js";
 /** Durable continuation payloads; the engine and its existing command journal own mutations. */
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -25,7 +25,8 @@ export function executionEnding(row: ExecutionSummary): { ending: "completed" | 
   return { ending: row.ending ?? "completed", endedAt: row.endedAt ?? row.completedAt! };
 }
 export interface ContinuationAcceptance {
-  formatVersion: 1; id: string; operationId: string; commandId: string; proposalId: string;
+  /** 2 once its settings hold the Preflight and pull request entry (Kiln Model Modes, "Data Models"); 1 is still read. */
+  formatVersion: 1 | 2; id: string; operationId: string; commandId: string; proposalId: string;
   completedExecutionId: string; newExecutionId: string; acceptedAt: string;
   candidateId: string; archiveId: string; proposal: ContinuationProposal;
   pendingAuthorityId?: string; authorization?: import("../state/development-delivery.js").DevelopmentAuthorization;
@@ -76,7 +77,9 @@ export function readAcceptance(directory: string, id: string): ContinuationAccep
   const value = read<ContinuationAcceptance>(directory, join(directory, "continuation-acceptances", `${id}.json`));
   // An acceptance saved before schema 27 holds the PRD-wide choice; it is converted as read (Kiln Phase Model Tiers, "Settings saved outside the PRD record").
   if (value?.settings) convertAcceptanceSettings(value.settings as unknown as Record<string, unknown>);
-  if (value.formatVersion !== 1 || value.id !== id || !safeIdentity(value.operationId) || !safeIdentity(value.completedExecutionId) || !safeIdentity(value.newExecutionId) || !/^[a-f0-9]{64}$/.test(value.proposalId) || value.proposal.id !== value.proposalId || !["preparing", "blocked", "active", "superseded"].includes(value.state) || !Array.isArray(value.repositories)) throw new Error("Invalid retained continuation acceptance; restore its durable record before retrying.");
+  // One saved before the Preflight and pull request entry gets the record migration's copy of the Audits entry (Kiln Model Modes AC-CARRY-01).
+  if (value?.settings && value.formatVersion === 1) migratePreflightPrChoice(value.settings.modelChoices);
+  if (value.formatVersion !== 1 && value.formatVersion !== 2 || value.id !== id || !safeIdentity(value.operationId) || !safeIdentity(value.completedExecutionId) || !safeIdentity(value.newExecutionId) || !/^[a-f0-9]{64}$/.test(value.proposalId) || value.proposal.id !== value.proposalId || !["preparing", "blocked", "active", "superseded"].includes(value.state) || !Array.isArray(value.repositories)) throw new Error("Invalid retained continuation acceptance; restore its durable record before retrying.");
   if (!/^[a-f0-9]{64}$/.test(value.candidateId) || !/^[a-f0-9]{64}$/.test(value.archiveId) || !Number.isFinite(Date.parse(value.acceptedAt)) || typeof value.canonicalWorkspace !== "string" || value.settings.workspaceFolder !== value.canonicalWorkspace || !value.settings.featureBranch.endsWith(`-continue-${value.newExecutionId}`) || value.repositories.length !== value.proposal.repositories.length || new Set(value.repositories.map(repo => repo.name)).size !== value.repositories.length) throw new Error("Damaged continuation setup identity.");
   if (JSON.stringify(readContinuationProposal(directory, value.proposalId)) !== JSON.stringify(value.proposal) || value.proposal.completedExecutionId !== value.completedExecutionId) throw new Error("The retained acceptance does not match its immutable proposal.");
   for (const repo of value.repositories) {

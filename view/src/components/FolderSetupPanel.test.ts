@@ -23,7 +23,7 @@ const claude = (snapshot: Snapshot): AgentView => snapshot.agents[0]!;
 describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-KEEP-01)", () => {
   it("says models are chosen for each phase, with no Agent, Model or Effort to set", () => {
     const page = html(withPanel({}));
-    expect(text(page)).toContain("Models Chosen for each phase");
+    expect(text(page)).toContain("Models Recommended model for each phase");
     expect(page).not.toMatch(/id="fm-agent"|id="fm-model"|aria-pressed=/);
     expect(text(page)).not.toMatch(/Agent fixed for this PRD|Effort/);
   });
@@ -31,8 +31,8 @@ describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-K
   it("shows the model list's error under the model line", () => {
     const snapshot = withPanel({});
     claude(snapshot).modelListError = "Claude Code couldn’t list its models.";
-    // The panel shows Documents found's model lines, without Change: nothing changes until the run is set up again.
-    expect(text(html(snapshot))).toContain("Models Chosen for each phase Model defaults Audits Claude Code · Opus 5.5 · high The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults . alex@acme-shop.dev");
+    // The panel shows the Models block's choice in force, without its controls or Change (Kiln Model Modes AC-PRD-01): nothing changes until the run is set up again.
+    expect(text(html(snapshot))).toContain("Models Recommended model for each phase Wait for the limit. No fallback is switched on. Model defaults Audits Claude Code · Opus 5.5 · high The delivery audit and the test audit. Not a tier: they check the whole PRD. alex@acme-shop.dev");
     expect(text(html(snapshot))).toContain("Claude Code couldn’t list its models.");
   });
 
@@ -40,9 +40,9 @@ describe("the setup panel's model line (AC-SETUP-01; Kiln Phase Model Tiers AC-K
     const snapshot = withPanel({});
     const account = claude(snapshot).account!;
     claude(snapshot).account = { ...account, limits: account.limits.map((limit, index) => index === 0 ? { ...limit, overThreshold: true as const } : limit) };
-    snapshot.settings.models.fallback = { enabled: true, threshold: 10 };
+    snapshot.settings.models.fallback = { use: "threshold", enabled: true, threshold: 10 };
     expect(text(html(snapshot))).toMatch(/Used: 5-hour \d+% \(above your 10% threshold\)/);
-    snapshot.settings.models.fallback = { enabled: false, threshold: 10 };
+    snapshot.settings.models.fallback = { use: "never", enabled: false, threshold: 10 };
     expect(text(html(snapshot))).not.toContain("above your");
   });
 
@@ -76,7 +76,7 @@ describe("the rest of Documents found's fields (Phase 5 of missing worktree reco
     claude(snapshot).readinessErrors = ["Codex needs a newer CLI."];
     const words = text(html(snapshot));
     expect(words).toMatch(/Kiln picks up where it left off afterwards\. Kiln couldn’t keep this computer awake\. Resume after a usage limit/);
-    expect(words).toMatch(/Chosen for each phase[^]*Codex needs a newer CLI\. Refresh agent information/);
+    expect(words).toMatch(/Recommended model for each phase[^]*Codex needs a newer CLI\. Refresh agent information/);
     expect(text(html(withPanel({})))).not.toMatch(/Kiln couldn’t keep/);
   });
 
@@ -140,7 +140,7 @@ describe("the panel's sections and first-Start words (AC-SETUP-01)", () => {
 
   it("lays out How Kiln will deliver it in Documents found's order, for one repository", () => {
     const words = text(html(withPanel({})));
-    const order = ["Worktree", "Feature branch", "Branch from, and PR into", "Sessions can add a repository they find they need.", "Models", "Chosen for each phase", "Refresh agent information", "Keep this computer awake while a session works or Kiln waits", "Resume after a usage limit", "Pushes", "Ends at"];
+    const order = ["Worktree", "Feature branch", "Branch from, and PR into", "Sessions can add a repository they find they need.", "Models", "Recommended model for each phase", "Refresh agent information", "Keep this computer awake while a session works or Kiln waits", "Resume after a usage limit", "Pushes", "Ends at"];
     const deliver = words.slice(words.indexOf("How Kiln will deliver it"), words.indexOf("Before you start"));
     const at = order.map((label) => deliver.indexOf(label));
     expect(at.every((position) => position >= 0), JSON.stringify(at)).toBe(true);

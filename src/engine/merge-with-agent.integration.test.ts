@@ -79,10 +79,10 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     expect(afterDeliveryText(status().after_delivery, false)).toMatch(/^Merge with the agent: Merge with Claude Code starts one more session/);
     const phasesDone = page.feature.phasesDone;
     // The run's effort changed after the build: the merge session takes the run's model and effort as they are now (AC-MERGE-05).
-    // It runs on the Audits choice (Kiln Phase Model Tiers AC-OTHER-01), changed here the way the page changes it.
+    // It runs on the Preflight and pull request choice (Kiln Model Modes AC-ROW-01), changed here the way the page changes it.
     const choice = h!.engine.launchChoice(MERGE_KEY);
     const effort = h!.engine.modelEntry(choice.model)!.supportedEffortLevels.find(level => level !== choice.effort)!;
-    h!.engine.record.settings.modelChoices.audits = { agentId: choice.agentId, model: choice.model, effort }; h!.engine.modelChoicesChanged();
+    h!.engine.record.settings.modelChoices.preflightPr = { agentId: choice.agentId, model: choice.model, effort }; h!.engine.modelChoicesChanged();
 
     const receipt = await control("merge", { via: "command_line" });
     expect(receipt).toMatchObject({ state: "completed", outcome: "merge_started" });
@@ -127,6 +127,29 @@ describe("Merge with the agent (Kiln After Delivery AC-MERGE-01 to AC-MERGE-04, 
     // Nothing is remembered as a setting or a grant.
     expect(JSON.stringify(h!.engine.record.settings)).not.toContain("merge");
     expect(h!.engine.record.developmentAuthorization).toEqual(authorization);
+  });
+
+  it("launches the merge session on its row's fallback while the fallback is used for everything, and records that the setting sent it there (Kiln Model Modes AC-WHEN-02, AC-WHEN-03)", async () => {
+    await finished([merging()]);
+    const { writeSettings } = await import("../test-support/model-choices.js");
+    // The row's first choice is on Codex, which isn't installed here, and its fallback on Claude Code: the merge runs on the fallback.
+    writeSettings(h!.env, { fallback: { use: "everything" }, rows: { preflight_pr: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "opus", effort: "low" } } } });
+    h!.engine.modelChoicesChanged();
+    expect(h!.engine.notStartedChoice(MERGE_KEY)).toMatchObject({ agentId: "claude_code", model: "opus", effort: "low", row: "preflight_pr", everything: { first: { agentId: "codex" } } });
+    // Merge with {agent} names the agent the merge session will run on.
+    expect(buildSnapshot(h!.engine).afterDelivery?.offer).toMatchObject({ kind: "offered", available: true, note: expect.stringMatching(/^Merge with Claude Code starts one more session/) });
+    expect(await control("merge", { via: "command_line" })).toMatchObject({ state: "completed", outcome: "merge_started" });
+    await h!.engine.settled();
+    expect(mergeCalls()).toHaveLength(1);
+    const launch = mergeCalls()[0]!.args;
+    expect(launch.slice(launch.indexOf("--model"), launch.indexOf("--model") + 4)).toEqual(["--model", "opus", "--effort", "low"]);
+    // It takes no launch decision, yet saves the same record: the setting, the first choice, and no limit or threshold.
+    expect(h!.engine.latestSession(MERGE_KEY)).toMatchObject({ kind: "merge", agentId: "claude_code", model: "opus", effort: "low" });
+    expect(h!.engine.latestSession(MERGE_KEY)!.launch).toEqual({ from: "model_defaults", fallback: { used: true, forEverything: true, first: { agentId: "codex", model: "", modelName: "GPT Sol", effort: "high" } } });
+    expect(h!.events.filter(event => event.kind === "message" && event.text.includes("started on the fallback")).map(event => (event as { text: string }).text)).toEqual([expect.stringMatching(/^The merge session started on the fallback, Claude Code · Opus[^·]* · low: the fallback is used for everything, so it didn't start on Codex · GPT Sol · high\. It finishes on Claude Code\.$/)]);
+    // The phase detail keeps the same facts.
+    const row = buildSnapshot(h!.engine).phases.find(one => one.id === MERGE_KEY) ?? (buildSnapshot(h!.engine).activities ?? []).find(one => one.id === MERGE_KEY);
+    expect(row?.details?.fallback).toMatchObject({ used: true, forEverything: true, first: { agent: "Codex" } });
   });
 
   it("keeps a page reading from closing the activity while the session runs, with no live controls, and closes it at the session's end", async () => {
@@ -314,6 +337,8 @@ describe("the press from the page (AC-MERGE-02)", () => {
       h!.reopen(); await h!.engine.refreshAgents();
       expect(h!.engine.selectionError).toBeUndefined();
       await h!.engine.checkCompletedPlan();
+      // Before the press, Merge with {agent} names the agent the session will launch on (Kiln Model Modes AC-ROW-01).
+      expect(buildSnapshot(h!.engine).mergeAgent).toBe("Codex");
       expect(await control("merge")).toMatchObject({ state: "completed", outcome: "merge_started" });
       await h!.engine.settled();
       const starts = f.calls().filter(call => call.method === "turn/start");
@@ -323,6 +348,43 @@ describe("the press from the page (AC-MERGE-02)", () => {
       expect(input).toContain("#218 (`acme/acme-shop`): `feature/customer-returns` into `develop`");
       expect(h!.engine.latestSession(MERGE_KEY)).toMatchObject({ agentId: "codex", kind: "merge" });
       expect(mergeCalls()).toEqual([]);
+    } finally { await h!.engine.stop("sigint"); await f.sandbox.cleanup(); }
+  });
+
+  it("names the merge session's agent before the press from the Preflight and pull request row, whatever ran the phases (Kiln Model Modes AC-ROW-01)", async () => {
+    await finished([]);
+    const f = codexWorkFixture();
+    try {
+      Object.assign(h!.tools, { codex: f.options.executable });
+      f.configureEnvironment(h!.env);
+      h!.reopen(); await h!.engine.refreshAgents();
+      const { writeSettings } = await import("../test-support/model-choices.js");
+      expect(buildSnapshot(h!.engine).mergeAgent).toBe("Claude Code");
+      // Only the Preflight and pull request row moves to Codex; every phase ran on Claude Code.
+      writeSettings(h!.env, { rows: { preflight_pr: { first: { agentId: "codex", family: "sol", effort: "medium" }, fallback: { agentId: "claude_code", family: "opus", effort: "medium" } } } });
+      h!.engine.modelChoicesChanged();
+      const snapshot = buildSnapshot(h!.engine);
+      expect(snapshot.agents.find(agent => agent.inUse)?.agent ?? snapshot.agents[0]?.agent).toBe("Claude Code");
+      expect(snapshot.mergeAgent).toBe("Codex");
+      expect(snapshot.afterDelivery?.offer.note).toMatch(/^Merge with Codex starts one more session/);
+      // One model for everything on Claude Code puts the merge back there.
+      writeSettings(h!.env, { mode: "one_model", oneModel: { agentId: "claude_code", family: "opus", effort: "high" }, rows: { preflight_pr: { first: { agentId: "codex", family: "sol", effort: "medium" }, fallback: { agentId: "claude_code", family: "opus", effort: "medium" } } } });
+      h!.engine.modelChoicesChanged();
+      expect(buildSnapshot(h!.engine).mergeAgent).toBe("Claude Code");
+      const named = () => { const shown = buildSnapshot(h!.engine); return [shown.mergeAgent, shown.afterDelivery?.offer.note?.split(" starts")[0]]; };
+      // For everything puts the merge on its row's fallback.
+      writeSettings(h!.env, { fallback: { use: "everything" } });
+      h!.engine.modelChoicesChanged();
+      expect(named()).toEqual(["Codex", "Merge with Codex"]);
+      // One model on Codex, over Kiln's Claude Code row.
+      writeSettings(h!.env, { mode: "one_model", oneModel: { agentId: "codex", family: "sol", effort: "high" } });
+      h!.engine.modelChoicesChanged();
+      expect(named()).toEqual(["Codex", "Merge with Codex"]);
+      // This PRD's change to its Preflight and pull request row.
+      writeSettings(h!.env, {});
+      h!.engine.record.settings.modelChoices.preflightPr = { ...CODEX_CHOICE };
+      h!.engine.modelChoicesChanged();
+      expect(named()).toEqual(["Codex", "Merge with Codex"]);
     } finally { await h!.engine.stop("sigint"); await f.sandbox.cleanup(); }
   });
 

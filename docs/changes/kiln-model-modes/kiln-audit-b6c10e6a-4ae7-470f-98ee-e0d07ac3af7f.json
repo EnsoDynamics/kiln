@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6e7e3f9c-756d-492e-aaa2-6aac9c05a174",
+  "activityId": "b6c10e6a-4ae7-470f-98ee-e0d07ac3af7f",
+  "kind": "test_audit",
+  "outcome": "passed",
+  "summary": "The session of test fixes took the audit's one batch whole. The three red checks still to run (AC-MODE-01, AC-WHEN-01, AC-SAVE-02) each went red, so those rows stay Adequate. New tests raised the four Weak rows, and each was seen to fail with the behavior it proves broken: AC-SAVE-04 (own settings kept across an upgrade of Kiln), AC-ROW-01 (Change at a preflight stop, and the preflight's agent taken from its own row), AC-WHEN-03 (no warning line under For everything) and AC-GUIDE-01 (what Never and For everything do). Fresh reviewers re-graded all four Adequate, so every one of the 17 criteria is now Adequate or better and nothing is left to fix. The full suite is green apart from two load-timing failures in unrelated files, which pass alone. A flaky AC-PRD-02 browser test was steadied without changing what it asserts. Only tests changed.",
+  "completionPhases": [],
+  "needsYou": [],
+  "settled": [
+    {
+      "id": "item-1",
+      "how": "A new test reopens a record saved by the earlier schema while the PRD has its own settings, and shows those settings still in force and the file byte-unchanged. It went red when the record upgrade removed the file, and a fresh re-grade put AC-SAVE-04 at Adequate, 18 of 18 stated parts."
+    }
+  ],
+  "changedImplementation": false,
+  "afterDeliveryActions": [
+    "Once the pull request has merged, release Kiln as a minor version, as the technical design's Delivery section says."
+  ]
+}

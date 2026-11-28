@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6e7e3f9c-756d-492e-aaa2-6aac9c05a174",
+  "activityId": "ce5023a0-456d-436d-9dec-78ae13175c59",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "Three rounds of fresh assessors traced all 15 criteria through the code. 12 are fully built. Three are partly built, and phase 4 now builds the missing parts. Restore Kiln's defaults, saved for every PRD, can't be saved when the PRD's own settings and Model defaults both hold nothing, so that PRD never goes back to the defaults (AC-SAVE-03). Before the merge starts, the Merge with {agent} button names the first installed agent, not the agent the merge session will run on (AC-ROW-01). No command saves the one model without also switching every PRD to One model for everything (AC-CLI-01). Round 1 confirmed two gaps, round 2 one more, and round 3 none.",
+  "completionPhases": ["4"],
+  "needsYou": [],
+  "settled": []
+}

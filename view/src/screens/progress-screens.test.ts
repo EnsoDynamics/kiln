@@ -376,6 +376,10 @@ describe("the progress screens across repositories (multi-repo AC-PRS-03, AC-PRS
     expect(words).toContain(
       "In each repository Kiln commits and pushes to the feature branch, and opens one pull request into that repository’s base once every phase closes, added repositories included. It merges the delivery’s pull requests only when you press Merge with Claude Code on the finished page, in the PRD’s repository pushes this PRD’s documents to its base only when you press Continue there, and never deploys or touches other branches.",
     );
+    // The line names the agent the merge session will run on, which the snapshot gives (Kiln Model Modes AC-ROW-01).
+    const onCodex = text(running({ ...runningRepositoriesSnapshot(), mergeAgent: "Codex" }));
+    expect(onCodex).toContain("It merges the delivery’s pull requests only when you press Merge with Codex on the finished page");
+    expect(onCodex).not.toContain("Merge with Claude Code");
     const now = text(/<section class="now[\s\S]*?<\/section>/.exec(page)![0]);
     expect(now).toContain("Model Opus 5.5 · high effort Commits 3 in 2 repositories returns-api 7f3d9a0 feat(credit): store credit ledger (phase 2b) 4c1a8e5 test(credit): ledger balances notifications added in phase 2b 2b6f1d3 feat(emails): store credit issued email (phase 2b) Session");
     expect(now).not.toContain("Worktree");

@@ -3,13 +3,15 @@
   // Standard, Mechanical or Not rated, with an information control. Pointing at it, focusing it
   // or pressing it shows the explanation; nothing of it shows otherwise.
   import type { TierView } from "../../../src/engine/activity-models.js";
+  import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { TIER_LABELS, tierExplanation } from "../lib/models.js";
 
-  let { tier }: { tier: TierView } = $props();
+  // `models`: the settings in force, so Standard's explanation says where its model is set (Kiln Model Modes AC-MODE-02, AC-SAVE-04).
+  let { tier, models }: { tier: TierView; models?: Snapshot["settings"]["models"] | undefined } = $props();
   let open = $state(false);
   const uid = $props.id();
   const id = `tier-${uid}`;
-  const explanation = $derived(tierExplanation(tier));
+  const explanation = $derived(tierExplanation(tier, models));
 </script>
 
 <span class="tier" class:open data-tier={tier.value}>

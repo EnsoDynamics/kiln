@@ -80,7 +80,7 @@ describe("migrating a schema 1 record", () => {
     expect(migrateRecord(record)).toBe(record);
     expect(record).toMatchObject({ ...before, schemaVersion: SCHEMA_VERSION, settings: { ...record.settings, modelChoices: { phases: {}, kept: { agentId: "claude_code", model: "opus", effort: "high" } }, resumeAfterUsageLimit: true } });
     for (const retired of ["model", "effort", "agentId", "agentChoices", "selectionGeneration"]) expect(record.settings).not.toHaveProperty(retired);
-    expect(SCHEMA_VERSION).toBe(27);
+    expect(SCHEMA_VERSION).toBe(28);
   });
 
   it("gives a schema 26 record, written before model tiers, each activity's model choices (Kiln Phase Model Tiers AC-KEEP-02)", () => {
@@ -94,6 +94,35 @@ describe("migrating a schema 1 record", () => {
     expect(twentySix.schemaVersion).toBe(SCHEMA_VERSION);
     expect(twentySix.settings.modelChoices).toEqual({ phases: {}, kept: { agentId: "claude_code", model: "opus", effort: "high" } });
     for (const retired of ["model", "effort", "agentId", "agentChoices", "selectionGeneration"]) expect(twentySix.settings).not.toHaveProperty(retired);
+  });
+
+  it("copies a schema 27 record's Audits entry into the Preflight and pull request entry, a choice or Use the default alike (Kiln Model Modes AC-CARRY-01)", () => {
+    const schema27 = (modelChoices: PrdRecord["settings"]["modelChoices"]) => {
+      const record = { ...schemaOne({}), schemaVersion: 2, repositories: [] } as PrdRecord;
+      migrateRecord(record);
+      return migrateRecord({ ...JSON.parse(JSON.stringify(record)), schemaVersion: 27, settings: { ...record.settings, modelChoices } } as PrdRecord);
+    };
+    const audits = { agentId: "codex" as const, model: "gpt-6.2-sol", effort: "high" };
+    // An Audits choice changed for one PRD is kept for its audits, and for its preflight, pull request, merge and push sessions.
+    const changed = schema27({ phases: { "2": { agentId: "claude_code", model: "sonnet", effort: "low" } }, audits });
+    expect(changed.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(changed.settings.modelChoices).toEqual({ phases: { "2": { agentId: "claude_code", model: "sonnet", effort: "low" } }, audits, preflightPr: audits });
+    expect(changed.settings.modelChoices.preflightPr).not.toBe(changed.settings.modelChoices.audits);
+    expect(schema27({ phases: {}, audits: "default", kept: { agentId: "claude_code", model: "opus", effort: "high" } }).settings.modelChoices).toEqual({ phases: {}, audits: "default", preflightPr: "default", kept: { agentId: "claude_code", model: "opus", effort: "high" } });
+    // With no Audits entry there is nothing to copy: both follow their rows, or the kept choice.
+    expect(schema27({ phases: {} }).settings.modelChoices).toEqual({ phases: {} });
+  });
+
+  it("leaves a current record's Preflight and pull request entry as the person set it", () => {
+    const record = { ...schemaOne({}), schemaVersion: 2, repositories: [] } as PrdRecord;
+    migrateRecord(record);
+    const own = { agentId: "claude_code" as const, model: "sonnet", effort: "low" };
+    record.settings.modelChoices = { phases: {}, audits: { agentId: "codex", model: "gpt-6.2-sol", effort: "high" }, preflightPr: own };
+    expect(migrateRecord(record).settings.modelChoices.preflightPr).toEqual(own);
+    record.settings.modelChoices = { phases: {}, audits: { agentId: "codex", model: "gpt-6.2-sol", effort: "high" } };
+    expect(migrateRecord(record).settings.modelChoices.preflightPr).toBeUndefined();
+    record.settings.modelChoices = { phases: {}, preflightPr: { agentId: "claude_code", model: "" } as never };
+    expect(() => migrateRecord(record)).toThrow("Malformed Preflight and pull request model choice.");
   });
 
   it("reads a v1 record as schema 3 with Resume after a usage limit on, and keeps a schema 3 record's own choice (AC-AUTO-04)", () => {

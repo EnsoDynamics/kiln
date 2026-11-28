@@ -30,7 +30,9 @@ import { buildSnapshot, labelledExecution, type DocumentsFound, type Snapshot } 
 import { readOutputLines } from "../session/claude-session.js";
 import { NewerSchemaError, type AgentId, type Settings } from "../state/records.js";
 import { DEFAULTS_ROWS, type DefaultsRow, type FamilyChoice, type ModelChoice } from "../models/model-defaults.js";
-import { editModelDefaults, modelDefaultsView, type DefaultsChange } from "../models/model-defaults-edit.js";
+import type { ModelTarget } from "../engine/engine.js";
+import { chooseForPrd, saveSettings, settingsView, useDefaults, type ModelsBlockChoice, type Refusal } from "../models/model-defaults-edit.js";
+import type { SaveTarget, SettingsChange } from "../models/settings-change.js";
 import { AuditRefusal } from "../audit/contracts.js";
 import { RESULT_CHECK } from "../audit/admission.js";
 import { strictJson, REPORT_LIMIT } from "../audit/storage.js";
@@ -485,23 +487,26 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
     return result.ok ? c.json({ settings: snapshot().settings }) : commandRefused(c, result);
   });
 
-  // Model defaults, for every PRD on this computer (Kiln Phase Model Tiers AC-DEFAULT-02, AC-FALLBACK-01; "HTTP").
-  const defaultsBody = () => modelDefaultsView(engine.modelDefaultsFile, engine.modelContext.lists, engine.modelDefaultsAgents());
+  // The settings in force for this PRD, its own or Model defaults, and a save of the page's changes for every PRD or for this one (Kiln Model Modes AC-SAVE-01 to AC-SAVE-05; "HTTP").
+  const defaultsBody = () => settingsView(engine.settingsPaths, { prd: options.featureName, lists: engine.modelContext.lists, agents: engine.modelDefaultsAgents(), claudeCodeInstalled: engine.claudeCodeInstalled });
+  const unread = (refusal: Refusal) => ({ source: refusal.source, reason: refusal.reason, path: refusal.path, canRestore: refusal.canRestore });
   app.get("/api/model-defaults", (c) => {
     const view = defaultsBody();
-    return view.ok ? c.json(view.view) : c.json({ reason: view.reason, path: view.path, canRestore: view.canRestore }, 409);
+    return view.ok ? c.json(view.view) : c.json(unread(view), 409);
   });
   app.post("/api/model-defaults", async (c) => {
     const body = await jsonBody(c);
-    const change = body === undefined ? undefined : defaultsChange(body);
-    if (change === undefined || typeof change === "string") return refuse(c, 400, change ?? "The body must be a JSON object.");
-    const answer = editModelDefaults(engine.modelDefaultsFile, change, engine.modelContext.lists);
-    if (!answer.ok) return c.json({ ok: false, reason: answer.reason, ...(answer.status === 409 ? { path: answer.path, canRestore: answer.canRestore } : {}) }, answer.status);
+    const request = body === undefined ? undefined : settingsRequest(body);
+    if (request === undefined || typeof request === "string") return refuse(c, 400, request ?? "The body must be a JSON object.");
+    const answer = "save" in request ? saveSettings(engine.settingsPaths, request.save.target, request.save.changes, engine.modelContext.lists)
+      : "choose" in request ? chooseForPrd(engine.settingsPaths, request.choose, engine.modelContext.lists, engine.claudeCodeInstalled)
+      : useDefaults(engine.settingsPaths);
+    if (!answer.ok) return c.json({ ok: false, ...(answer.status === 409 ? unread(answer) : { reason: answer.reason }) }, answer.status);
     engine.modelChoicesChanged();
     const view = defaultsBody();
-    return view.ok ? c.json({ ...view.view, ...(answer.fallbackTurnedOff ? { notice: "Kiln's defaults are restored, and the fallback is now off." } : {}) }) : c.json({ reason: view.reason, path: view.path, canRestore: view.canRestore }, 409);
+    return view.ok ? c.json({ ...view.view, ...("notice" in answer && answer.notice ? { notice: answer.notice } : {}) }) : c.json(unread(view), 409);
   });
-  // One phase's model, or this PRD's Audits choice (AC-PICK-03, AC-OTHER-01): applied directly before Start, through the instruction journal in a run.
+  // One phase's model, this PRD's Audits choice, or its Preflight and pull request choice (AC-PICK-03, AC-OTHER-01, AC-ROW-01): applied directly before Start, through the instruction journal in a run.
   app.post("/api/model", async (c) => {
     const body = await jsonBody(c);
     const change = body === undefined ? undefined : modelChange(body);
@@ -513,9 +518,9 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
       const result = await engine.changeModel(change.target, change.choice);
       return result.ok ? c.json({ ok: true, settings: snapshot().settings }) : commandRefused(c, result);
     }
-    if (change.target !== "audits") { const refused = engine.modelChangeRefusal(checked.key, `Phase ${change.target.phase}`); if (refused) return c.json({ ok: false, reason: refused }, 409); }
+    if (typeof change.target !== "string") { const refused = engine.modelChangeRefusal(checked.key, `Phase ${change.target.phase}`); if (refused) return c.json({ ok: false, reason: refused }, 409); }
     const choice = change.choice;
-    return legacyControl(c, "model", { ...(change.target === "audits" ? { audits: true } : { phase: change.target.phase }), ...(choice === "default" ? { use_default: true } : { agent_id: choice.agentId, model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) }) });
+    return legacyControl(c, "model", { ...(change.target === "audits" ? { audits: true } : change.target === "preflight_pr" ? { preflight_pr: true } : { phase: change.target.phase }), ...(choice === "default" ? { use_default: true } : { agent_id: choice.agentId, model: choice.model, ...(choice.effort ? { effort: choice.effort } : {}) }) });
   });
 
   app.post("/api/metadata/refresh", async (c) => { await engine.refreshAgents(); await engine.refreshBilling(); return c.json({ settings: snapshot().settings, agents: snapshot().agents }); });
@@ -937,12 +942,12 @@ function settingsChange(body: Record<string, unknown>): Partial<Settings> | stri
   return change;
 }
 
-/** `POST /api/model`'s body: `{ target: { phase } | "audits", choice: ModelChoice | "default" }`; a string is why it was refused. */
-function modelChange(body: Record<string, unknown>): { target: { phase: string } | "audits"; choice: ModelChoice | "default" } | string {
+/** `POST /api/model`'s body: `{ target: { phase } | "audits" | "preflight_pr", choice: ModelChoice | "default" }`; a string is why it was refused. */
+function modelChange(body: Record<string, unknown>): { target: ModelTarget; choice: ModelChoice | "default" } | string {
   if (Object.keys(body).some(key => key !== "target" && key !== "choice")) return "The body takes target and choice.";
   const target = body.target as Record<string, unknown> | string | undefined;
-  const parsedTarget = target === "audits" ? "audits" as const : target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).join() === "phase" && typeof target.phase === "string" && target.phase !== "" ? { phase: target.phase } : undefined;
-  if (!parsedTarget) return "target is { phase: \"<id>\" } or \"audits\".";
+  const parsedTarget: ModelTarget | undefined = target === "audits" || target === "preflight_pr" ? target : target && typeof target === "object" && !Array.isArray(target) && Object.keys(target).join() === "phase" && typeof target.phase === "string" && target.phase !== "" ? { phase: target.phase } : undefined;
+  if (!parsedTarget) return "target is { phase: \"<id>\" }, \"audits\" or \"preflight_pr\".";
   if (body.choice === "default") return { target: parsedTarget, choice: "default" };
   const choice = modelChoiceOf(body.choice, "model");
   return typeof choice === "string" ? choice : { target: parsedTarget, choice: { agentId: choice.agentId, model: choice.value, ...(choice.effort === undefined ? {} : { effort: choice.effort }) } };
@@ -959,30 +964,66 @@ function modelChoiceOf(raw: unknown, name: "model" | "family"): { agentId: Agent
   return { agentId: choice.agentId, value: choice[name] as string, ...(choice.effort === undefined ? {} : { effort: choice.effort as string }) };
 }
 
-/** `POST /api/model-defaults`'s body: one of a row's sides, Restore, or the fallback switch and threshold. */
-function defaultsChange(body: Record<string, unknown>): DefaultsChange | string {
-  const keys = Object.keys(body);
-  if (keys.length !== 1) return "Send one of set, restore or fallback.";
-  if (body.restore !== undefined) return body.restore === true ? { restore: true } : "restore is true.";
-  if (body.fallback !== undefined) {
-    const fallback = body.fallback as Record<string, unknown> | null;
-    if (!fallback || typeof fallback !== "object" || Array.isArray(fallback) || !Object.keys(fallback).length || Object.keys(fallback).some(key => key !== "enabled" && key !== "threshold")) return "fallback takes enabled and threshold.";
-    if (fallback.enabled !== undefined && typeof fallback.enabled !== "boolean") return "enabled is true or false.";
+/**
+ * `POST /api/model-defaults`'s body (Kiln Model Modes, "HTTP"): a save of the page's changes for
+ * every PRD or for this one, a choice made in the Models block, or Use my defaults here.
+ *
+ *   settingsRequest({ save: { target: "this_prd", changes: { fallback: { use: "everything" } } } })
+ *   settingsRequest({ choose: { mode: "one_model" } })
+ *   settingsRequest({ useDefaults: true })
+ */
+function settingsRequest(body: Record<string, unknown>): { save: { target: SaveTarget; changes: SettingsChange } } | { choose: ModelsBlockChoice } | { useDefaults: true } | string {
+  if (Object.keys(body).length !== 1) return "Send one of save, choose or useDefaults.";
+  if (body.useDefaults !== undefined) return body.useDefaults === true ? { useDefaults: true } : "useDefaults is true.";
+  if (body.choose !== undefined) {
+    const choose = body.choose;
+    if (!isRecord(choose) || !Object.keys(choose).length || Object.keys(choose).some(key => key !== "mode" && key !== "oneModel")) return "choose takes mode, oneModel or both.";
+    const changes = settingsChangeOf(choose);
+    return typeof changes === "string" ? changes : { choose: changes as ModelsBlockChoice };
+  }
+  const save = body.save;
+  if (!isRecord(save) || Object.keys(save).some(key => key !== "target" && key !== "changes")) return "Send one of save, choose or useDefaults; save takes target and changes.";
+  if (save.target !== "every_prd" && save.target !== "this_prd") return "target is every_prd or this_prd.";
+  const changes = settingsChangeOf(save.changes);
+  return typeof changes === "string" ? changes : { save: { target: save.target, changes } };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A save's changes: at least one of restore, mode, oneModel, rows and fallback. */
+function settingsChangeOf(value: unknown): SettingsChange | string {
+  if (!isRecord(value) || !Object.keys(value).length || Object.keys(value).some(key => !["restore", "mode", "oneModel", "rows", "fallback"].includes(key))) return "changes takes at least one of restore, mode, oneModel, rows and fallback.";
+  const change: SettingsChange = {};
+  if (value.restore !== undefined) { if (value.restore !== true) return "restore is true."; change.restore = true; }
+  if (value.mode !== undefined) { if (value.mode !== "recommended" && value.mode !== "one_model") return "mode is recommended or one_model."; change.mode = value.mode; }
+  const family = (given: unknown): FamilyChoice | string => { const choice = modelChoiceOf(given, "family"); return typeof choice === "string" ? choice : { agentId: choice.agentId, family: choice.value, ...(choice.effort === undefined ? {} : { effort: choice.effort }) }; };
+  if (value.oneModel !== undefined) { const choice = family(value.oneModel); if (typeof choice === "string") return choice; change.oneModel = choice; }
+  if (value.rows !== undefined) {
+    if (!isRecord(value.rows) || !Object.keys(value.rows).length) return "rows names at least one row.";
+    change.rows = {};
+    for (const [row, given] of Object.entries(value.rows)) {
+      if (!DEFAULTS_ROWS.includes(row as DefaultsRow)) return "A row is demanding, standard, mechanical, audits or preflight_pr.";
+      if (!isRecord(given) || !Object.keys(given).length || Object.keys(given).some(key => key !== "first" && key !== "fallback")) return "A row changes first, fallback or both.";
+      const sides: { first?: FamilyChoice; fallback?: FamilyChoice } = {};
+      for (const side of ["first", "fallback"] as const) {
+        if (given[side] === undefined) continue;
+        const choice = family(given[side]);
+        if (typeof choice === "string") return choice;
+        sides[side] = choice;
+      }
+      change.rows[row as DefaultsRow] = sides;
+    }
+  }
+  if (value.fallback !== undefined) {
+    const fallback = value.fallback;
+    if (!isRecord(fallback) || !Object.keys(fallback).length || Object.keys(fallback).some(key => key !== "use" && key !== "threshold")) return "fallback takes use and threshold.";
+    if (fallback.use !== undefined && fallback.use !== "never" && fallback.use !== "threshold" && fallback.use !== "everything") return "use is never, threshold or everything.";
     if (fallback.threshold !== undefined && typeof fallback.threshold !== "number") return "threshold is a number.";
-    return { fallback: { ...(fallback.enabled === undefined ? {} : { enabled: fallback.enabled as boolean }), ...(fallback.threshold === undefined ? {} : { threshold: fallback.threshold as number }) } };
+    change.fallback = { ...(fallback.use === undefined ? {} : { use: fallback.use }), ...(fallback.threshold === undefined ? {} : { threshold: fallback.threshold as number }) };
   }
-  const set = body.set as Record<string, unknown> | null;
-  if (!set || typeof set !== "object" || Array.isArray(set) || Object.keys(set).some(key => !["row", "first", "fallback"].includes(key))) return "set takes row, first and fallback.";
-  if (!DEFAULTS_ROWS.includes(set.row as DefaultsRow)) return "row is demanding, standard, mechanical or audits.";
-  if (set.first === undefined && set.fallback === undefined) return "set changes first, fallback or both.";
-  const sides: { first?: FamilyChoice; fallback?: FamilyChoice } = {};
-  for (const side of ["first", "fallback"] as const) {
-    if (set[side] === undefined) continue;
-    const choice = modelChoiceOf(set[side], "family");
-    if (typeof choice === "string") return choice;
-    sides[side] = { agentId: choice.agentId, family: choice.value, ...(choice.effort === undefined ? {} : { effort: choice.effort }) };
-  }
-  return { set: { row: set.row as DefaultsRow, ...sides } };
+  return change;
 }
 
 function escapeHtml(text: string): string {

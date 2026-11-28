@@ -137,13 +137,17 @@ export async function installInspectionRoutes(app: Hono, current: () => Engine, 
         // isn't a phase Kiln builds is target_not_found, a choice its agent doesn't offer invalid_input, a phase that can't change now control_unavailable.
         if (command.action === "model" && command.inputs && typeof command.inputs === "object" && !Array.isArray(command.inputs)) {
           const inputs = command.inputs as Record<string, unknown>;
-          const target = typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits" as const;
+          const target: import("../engine/engine.js").ModelTarget = typeof inputs.phase === "string" ? { phase: inputs.phase } : inputs.preflight_pr === true ? "preflight_pr" : "audits";
           const choice = inputs.use_default === true ? "default" as const : typeof inputs.agent_id === "string" && typeof inputs.model === "string" ? { agentId: inputs.agent_id as AgentId, model: inputs.model, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) } : undefined;
-          if (choice && (target === "audits" || typeof target.phase === "string")) {
+          if (choice) {
             const engine = current();
             const checked = engine.checkModelChange(target, choice);
-            if (!checked.ok) throw new ControlFailure(target !== "audits" && !engine.shownPlan.some(phase => phase.id === target.phase && phase.splitInto === undefined) ? "target_not_found" : "invalid_input", checked.reason, 2);
-            const refused = target === "audits" ? undefined : engine.modelChangeRefusal(target.phase, `Phase ${target.phase}`);
+            if (!checked.ok) {
+              // The Preflight and pull request choice is refused once the run is complete, as a phase that can't change now is.
+              if (checked.status === 409) throw new ControlFailure("control_unavailable", checked.reason, 3);
+              throw new ControlFailure(typeof target !== "string" && !engine.shownPlan.some(phase => phase.id === target.phase && phase.splitInto === undefined) ? "target_not_found" : "invalid_input", checked.reason, 2);
+            }
+            const refused = typeof target === "string" ? undefined : engine.modelChangeRefusal(target.phase, `Phase ${target.phase}`);
             if (refused) throw new ControlFailure("control_unavailable", refused, 3);
           }
         }

@@ -26,9 +26,9 @@
   import type { StartPause } from "../../../src/engine/start-from.js";
   import TierTag from "../components/TierTag.svelte";
   import RowModel from "../components/RowModel.svelte";
-  import ModelLines from "../components/ModelLines.svelte";
+  import ModelsBlock from "../components/ModelsBlock.svelte";
   import type { ModelView, TierView } from "../../../src/engine/activity-models.js";
-  import { rowModelLine, tierCountsLine } from "../lib/models.js";
+  import { rowModelLine, thresholdInForce, type ModelTarget } from "../lib/models.js";
   import AccountPanel from "../components/AccountPanel.svelte";
   import { inUseAgent, mergeAgent, neededAgents } from "../lib/agents.js";
   import CodeText from "../components/CodeText.svelte";
@@ -71,8 +71,6 @@
   const fallbackWarning = $derived(settings.models.fallback.warning);
   // A fallback-only agent's problem is told by the warning instead.
   const readiness = $derived(agents.filter((agent) => agent.readinessErrors?.length && agent.agentId !== fallbackWarning?.agentId));
-  // Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01): the tier counts, under "Chosen for each phase".
-  const tierLine = $derived(tierCountsLine(settings.models.tiers));
   const preflightModel = $derived(snapshot.preflight?.planned?.model);
   const baseChoices = $derived(settings.baseBranches && settings.baseBranches.length > 0 ? settings.baseBranches : settings.baseBranch ? [settings.baseBranch] : []);
   const fixedLocked = $derived(!connected || documents.starting === true);
@@ -388,9 +386,9 @@
       {/if}
 
       <div class="field models">
-        <ModelLines {snapshot} {connected} counts={tierLine} />
+        <ModelsBlock {snapshot} {connected} controls />
         {#each agents as agent (agent.agentId)}
-          {@const account = accountLines(agent.account, settings.models.fallback.enabled ? settings.models.fallback.threshold : undefined)}
+          {@const account = accountLines(agent.account, thresholdInForce(settings.models))}
           <span class="agent">{#if agents.length > 1}<span class="sub">{accountHeading(agent)}</span>{/if}{#if account.error}<span class="message"><CodeText text={account.error} /></span>{:else}{#if account.line}<span class="sub">{account.line}</span>{/if}{#if account.usageError}<span class="message">{account.usageError}</span>{:else if account.usage}<span class="sub">{account.usage}</span>{/if}{/if}</span>
           {#if agent.modelListError}<span class="message">{agent.modelListError}</span>{/if}
         {/each}
@@ -400,7 +398,7 @@
       </div>
       {#each readiness as agent (agent.agentId)}<p class="message">{agent.readinessErrors!.join(" ")}</p>{/each}
       <button type="button" class="button" disabled={!connected || agents.some((agent) => agent.pending || agent.billing?.pending)} onclick={() => fetch("/api/metadata/refresh", { method: "POST", headers: { "X-Kiln-Token": config.token } })}>Refresh agent information</button>
-      {#each agents as agent (agent.agentId)}{#if agent.account && agent.agentId === "codex"}<AccountPanel account={agent.account} agent={agent.agent} paused={false} notStarted={true} markInUse={agents.length > 1} threshold={settings.models.fallback.enabled ? settings.models.fallback.threshold : undefined} {now} />{/if}{/each}
+      {#each agents as agent (agent.agentId)}{#if agent.account && agent.agentId === "codex"}<AccountPanel account={agent.account} agent={agent.agent} paused={false} notStarted={true} markInUse={agents.length > 1} threshold={thresholdInForce(settings.models)} {now} />{/if}{/each}
 
 
       <label for="awake" class="awake">
@@ -484,7 +482,7 @@
 {/snippet}
 
 {#snippet preflight()}
-  <li class="phase preflight-row"><span class="circle mono">PF</span><span class="title">Preflight</span><span class="note">checks access and stops, then goes straight on</span>{@render model(preflightModel)}</li>
+  <li class="phase preflight-row"><span class="circle mono">PF</span><span class="title">Preflight</span><span class="note">checks access and stops, then goes straight on</span>{@render model(preflightModel, "preflight_pr", "Preflight")}</li>
 {/snippet}
 
 {#snippet phase(row: { id: string; title: string; closed: boolean; repositories: string[]; attended?: string | undefined; tier?: TierView | undefined; model?: ModelView | undefined })}
@@ -493,11 +491,11 @@
 {/snippet}
 
 {#snippet tag(tier: TierView | undefined)}
-  {#if tier}<TierTag {tier} />{/if}
+  {#if tier}<TierTag {tier} models={settings.models} />{/if}
 {/snippet}
 
-{#snippet model(shown: ModelView | undefined, target?: { phase: string }, title?: string)}
-  <!-- Each phase shows the model it will run on, with Change for one that hasn't started (Kiln Phase Model Tiers AC-PICK-02, AC-PICK-03). -->
+{#snippet model(shown: ModelView | undefined, target?: ModelTarget, title?: string)}
+  <!-- Each phase shows the model it will run on, with Change for one that hasn't started (Kiln Phase Model Tiers AC-PICK-02, AC-PICK-03); the Preflight row's Change sets this PRD's Preflight and pull request choice (Kiln Model Modes AC-ROW-01). -->
   {#if shown && (rowModelLine(shown, false) || shown.problem || shown.change)}<span class="phase-model"><RowModel model={shown} underway={false} {target} agents={snapshot.agents} {connected} label={`${title ?? "Preflight"} model`} /></span>{/if}
 {/snippet}
 

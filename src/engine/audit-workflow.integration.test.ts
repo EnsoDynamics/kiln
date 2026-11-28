@@ -385,7 +385,7 @@ describe("automatic completion activities", () => {
     expect(rows[1]!.state).toBe("needs_you");
     expect(h.claudeCalls().findLast(c => c.prompt.startsWith("Run Delivery audit"))!.prompt).toContain(`- item-1 (other; listed by Delivery audit loop 1): ${decision} Decide it before the next audit.`);
   });
-  it("launches each delivery audit round, the test audit and the pull request on this PRD's changed Audits choice, and the repair phase on its tier's (Kiln Phase Model Tiers AC-OTHER-01)", { timeout: 120_000 }, async () => {
+  it("launches each delivery audit round and the test audit on this PRD's changed Audits choice, the repair phase on its tier's, and the pull request on its own row's (Kiln Phase Model Tiers AC-OTHER-01; Kiln Model Modes AC-ROW-01)", { timeout: 120_000 }, async () => {
     const h = await fixture([auditSession({ gap: true }), auditSession(), auditSession()], [landingSession(`${directory}/value.mjs`, files["value.mjs"]), pullRequestSession()]);
     // Audits' Model defaults first choice is Claude Code · Opus · high; this PRD changes it before Start.
     expect(await h.engine.changeModel("audits", { agentId: "claude_code", model: "sonnet", effort: "low" })).toEqual({ ok: true });
@@ -402,7 +402,8 @@ describe("automatic completion activities", () => {
       ["Phase", false, "opus", "medium"],
       ["Delivery audit", false, "sonnet", "low"],
       ["Test audit", false, "sonnet", "low"],
-      ["Final pull request", false, "sonnet", "low"],
+      // The pull request session no longer runs on the Audits choice: Preflight and pull request's Claude Code · Opus · medium.
+      ["Final pull request", false, "opus", "medium"],
     ]);
   });
   it("carries a test audit's item through its repair to the next delivery audit, which must settle it, and names it in the final pull request (AC-NEUTRAL-03)", { timeout: 120_000 }, async () => {

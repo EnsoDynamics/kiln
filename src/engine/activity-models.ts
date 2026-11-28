@@ -4,16 +4,16 @@
 
 import type { Tier } from "../plan/phase-document.js";
 import { defaultsRowFor, resolveModel, resolveNotStarted, fallbackFor, type ActivityChoice, type ChoiceSource, type ModelList, type ResolvedChoice } from "../models/resolver.js";
-import { readModelDefaults, type DefaultsRow, type ModelDefaults } from "../models/model-defaults.js";
+import { ROW_NAMES, settingsInForce, type DefaultsRow, type ModelDefaults } from "../models/model-defaults.js";
 import { AGENT_NAMES, PR_PHASE_KEY, type AgentId, type PrdRecord, type RecordedPlanPhase, type SessionRecord } from "../state/records.js";
-import { isPhaseKey } from "../state/activity-keys.js";
+import { isAfterDeliveryKey, isAuditKey, isPhaseKey } from "../state/activity-keys.js";
 import { startingSession } from "../models/start-line.js";
 import { effectiveRecordedClosed } from "./waivers.js";
 import { requirement } from "../agents/tooling-minimums.js";
 
 /** The key a planned row resolves its choice under: an audit key with no facts, so the Audits choice (AC-OTHER-01). */
 export const PLANNED_AUDITS_KEY = "audit-planned";
-/** The key the planned Preflight row resolves its choice under: a preflight key with no facts. */
+/** The key the planned Preflight row resolves its choice under: a preflight key with no facts, so the Preflight and pull request choice (AC-ROW-01). */
 export const PLANNED_PREFLIGHT_KEY = "preflight-planned";
 
 /** Why an agent is needed (Kiln Phase Model Tiers, "Agents"): the plan rows that run on it, and whether only a fallback names it. */
@@ -47,8 +47,14 @@ export interface ModelView {
   change?: { available: boolean; reason?: string };
   /** Where Use the default is offered: the row's choice is Changed by you. */
   useDefault?: true;
-  /** The launch decision a session of it ran on, when a limit read at or above the threshold (AC-FALLBACK-03). */
+  /**
+   * The launch decision a session of it ran on, when a limit read at or above the threshold
+   * (AC-FALLBACK-03); or, while the fallback is used for everything, that this row's choice is its
+   * fallback, from the resolver before any launch (AC-WHEN-03).
+   */
   fallback?: FallbackView;
+  /** The fallback is used for everything and the activity has none, so it runs on its own choice (AC-WHEN-02). */
+  noFallback?: true;
   /** The heads-up (AC-FALLBACK-04): the next activity would launch on this fallback on the latest readings. */
   forecast?: { choice: ChoiceView; limit: LimitView; threshold: number };
 }
@@ -56,8 +62,8 @@ export interface ModelView {
 /** A decision's recorded limit as a row shows it: the agent's name, the window or block, its percent. */
 export interface LimitView { agent: string; label: string; percent?: number }
 
-/** `model.fallback` (technical design, "Snapshot"). */
-export interface FallbackView { used: boolean; limit: LimitView; threshold: number; first?: ChoiceView; reason?: string; /** Where the first choice came from: Model defaults, or a change for this PRD. */ from?: ChoiceSource }
+/** `model.fallback` (technical design, "Snapshot"): `limit` and `threshold` are absent when `forEverything` is set. */
+export interface FallbackView { used: boolean; forEverything?: true; limit?: LimitView; threshold?: number; first?: ChoiceView; reason?: string; /** Where the first choice came from: the settings in force, the one model, or a change for this PRD. */ from?: ChoiceSource }
 
 type SavedFallback = NonNullable<NonNullable<SessionRecord["launch"]>["fallback"]>;
 
@@ -68,13 +74,21 @@ export function choiceView(choice: { agentId: AgentId; model: string; modelName:
 
 /** A saved decision as the row, card and phase detail show it. */
 export function fallbackView(saved: SavedFallback, from?: ChoiceSource): FallbackView {
-  const { agentId, ...limit } = saved.limit;
   return {
     ...(from ? { from } : {}),
-    used: saved.used, limit: { agent: AGENT_NAMES[agentId], ...limit }, threshold: saved.threshold,
+    used: saved.used,
+    ...(saved.forEverything ? { forEverything: true as const } : {}),
+    ...(saved.limit ? { limit: limitView(saved.limit) } : {}),
+    ...(saved.threshold === undefined ? {} : { threshold: saved.threshold }),
     ...(saved.first ? { first: choiceView(saved.first) } : {}),
     ...(saved.reason ? { reason: saved.reason } : {}),
   };
+}
+
+/** A decision's recorded limit with its agent named. */
+export function limitView(limit: NonNullable<SavedFallback["limit"]>): LimitView {
+  const { agentId, ...rest } = limit;
+  return { agent: AGENT_NAMES[agentId], ...rest };
 }
 
 /**
@@ -88,12 +102,14 @@ function rowFallback(session: SessionRecord, current: boolean | undefined, finis
   return { fallback: fallbackView(saved, session.launch?.from) };
 }
 
-/** What the resolver reads for every activity: Model defaults now, whether Claude Code is installed, each agent's model list. */
+/** What the resolver reads for every activity: the settings in force now, whether Claude Code is installed, each agent's model list. */
 export interface ModelContext {
   record: PrdRecord;
   /** The plan the rows show: the recorded plan, or before Start the one Documents found shows. */
   plan: RecordedPlanPhase[];
   defaultsPath: string;
+  /** Where this PRD's own settings are kept, in its state directory; the PRD has them while the file exists. */
+  settingsPath?: string | undefined;
   claudeCodeInstalled: boolean;
   lists: Partial<Record<AgentId, ModelList>>;
   session(key: string, id: string): SessionRecord | undefined;
@@ -101,33 +117,101 @@ export interface ModelContext {
   firstResponse?(key: string, id: string): string | undefined;
 }
 
-/** Whether the activity is a phase, whose own row offers Change; every other activity runs on the Audits choice (AC-OTHER-01). */
+/** Whether the activity is a phase, whose own row offers Change. */
 export function isPhaseActivity(key: string): boolean { return isPhaseKey(key) && key !== PR_PHASE_KEY; }
 
 /**
- * Where a person changes the Audits choice that the preflight, the audits and the pull request
- * session run on (AC-PICK-06 with AC-OTHER-01): neither the Preflight row nor the pull request row
- * offers Change, so the Audits line, or Model defaults' Audits row for a Model defaults choice.
+ * Which choice an activity that isn't a phase runs on (AC-ROW-01, ROW-002): an audit on the Audits
+ * choice; the preflight and the pull request session, and the merge and plan push after delivery,
+ * on the Preflight and pull request choice.
+ *
+ *   activityGroup("audit-7f3a")  // "audits"
+ *   activityGroup("pr")          // "preflight_pr"
+ *   activityGroup("merge")       // "after_delivery"
+ */
+export function activityGroup(key: string): "phase" | "audits" | "preflight_pr" | "after_delivery" {
+  if (isPhaseActivity(key)) return "phase";
+  if (isAuditKey(key)) return "audits";
+  return isAfterDeliveryKey(key) ? "after_delivery" : "preflight_pr";
+}
+
+/**
+ * Where a person changes the Audits choice the delivery audit and the test audit run on
+ * (AC-PICK-06 with AC-OTHER-01): the Audits line, or the Audits row for a row's choice.
  *
  *   auditsChangePlace("changed")         // "Change it on the Audits line, in Documents found's delivery panel or the run's settings."
  *   auditsChangePlace("model_defaults")  // "Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings."
  */
-export function auditsChangePlace(from: ChoiceSource): string {
+export function auditsChangePlace(from: ChoiceSource, ownSettings = false): string {
   return from === "changed"
     ? "Change it on the Audits line, in Documents found's delivery panel or the run's settings."
-    : "Change the Audits row in Model defaults, or the Audits line in Documents found's delivery panel or the run's settings.";
+    : `Change the Audits row in ${settingsPage(ownSettings)}, or the Audits line in Documents found's delivery panel or the run's settings.`;
+}
+
+/** Where the settings in force are changed: Model defaults, which shows this PRD's own settings when opened from its page. */
+function settingsPage(ownSettings: boolean): string { return ownSettings ? "Model defaults, opened from this PRD's page" : "Model defaults"; }
+/** What the settings in force are called where a choice came from them. */
+function settingsName(ownSettings: boolean): string { return ownSettings ? "this PRD's own settings" : "Model defaults"; }
+
+/** What a stop or a status line needs to say where a choice came from (AC-PICK-06). */
+export interface ChoiceOrigin {
+  key: string;
+  from: ChoiceSource;
+  row: DefaultsRow;
+  ownSettings?: boolean | undefined;
+  /** The choice is the activity's fallback: launched on a limit at the threshold, or used for everything. */
+  fallback?: "threshold" | "everything" | undefined;
 }
 
 /**
- * Where a launch's choice came from and where to change it (AC-PICK-06): the fallback, a change
- * for this PRD, or Model defaults, from the decision saved for the launch.
+ * Where an activity's choice came from, and where to change it, as a stop says them (AC-PICK-06;
+ * Kiln Model Modes, "Resolving a Choice", the source table): a change for this PRD, the one model,
+ * a row of the settings in force, or that row's Fallback column. The settings in force are Model
+ * defaults or this PRD's own settings, which Model defaults shows when opened from this PRD's
+ * page. The merge and a plan push run once the run is complete, when no row offers Change.
  *
- *   launchSource("2", { from: "changed" })  // "A change for this PRD. Change it on its row in the phase plan."
+ *   choiceOrigin({ key: "2", from: "model_defaults", row: "demanding" })
+ *   // { from: "Model defaults (Demanding row)", where: "Change the Demanding row in Model defaults." }
+ *   choiceOrigin({ key: "2", from: "changed", row: "demanding", fallback: "everything" })
+ *   // { from: "the Demanding row's Fallback column in Model defaults, used for everything", where: "Change that row's fallback, or the fallback setting, in Model defaults." }
  */
-export function launchSource(key: string, launch: Pick<NonNullable<SessionRecord["launch"]>, "from" | "fallback">): string {
-  if (launch.fallback?.used) return "The fallback, from Model defaults' Fallback column. Change it in Model defaults.";
-  if (!isPhaseActivity(key)) return launch.from === "changed" ? `A change for this PRD. ${auditsChangePlace("changed")}` : `Model defaults. ${auditsChangePlace("model_defaults")}`;
-  return launch.from === "changed" ? "A change for this PRD. Change it on its row in the phase plan." : "Model defaults. Change it in Model defaults, or on its row in the phase plan.";
+export function choiceOrigin(origin: ChoiceOrigin): { from: string; where: string } {
+  const own = origin.ownSettings === true;
+  const row = ROW_NAMES[origin.row];
+  const group = activityGroup(origin.key);
+  if (origin.fallback === "everything") return { from: `the ${row} row's Fallback column in ${settingsName(own)}, used for everything`, where: `Change that row's fallback, or the fallback setting, in ${settingsPage(own)}.` };
+  if (origin.fallback === "threshold") return { from: `the fallback, from the ${row} row's Fallback column in ${settingsName(own)}`, where: `Change it in ${settingsPage(own)}.` };
+  if (origin.from === "changed") {
+    const where = group === "phase" ? "Change it on its row in the phase plan." : group === "audits" ? auditsChangePlace("changed") : group === "preflight_pr" ? `Change it on ${PREFLIGHT_PR_ROWS}.` : "It can't be changed once the run is complete.";
+    return { from: "a change for this PRD", where };
+  }
+  if (origin.from === "one_model") {
+    const onRow = group === "phase" ? ", or on its row in the phase plan" : group === "preflight_pr" ? `, or on ${PREFLIGHT_PR_ROWS}` : "";
+    return { from: `the one model in ${settingsName(own)}`, where: `Change the one model in ${settingsPage(own)}${onRow}.` };
+  }
+  const from = own ? `this PRD's own settings (${row} row)` : `Model defaults (${row} row)`;
+  if (group === "audits") return { from, where: auditsChangePlace("model_defaults", own) };
+  return { from, where: `Change the ${row} row in ${settingsPage(own)}${group === "preflight_pr" ? `, or change it for this PRD on ${PREFLIGHT_PR_ROWS}` : ""}.` };
+}
+
+/** The two rows whose Change sets this PRD's Preflight and pull request choice (AC-ROW-01). */
+const PREFLIGHT_PR_ROWS = "the Preflight row or the pull request row in the phase plan";
+
+/**
+ * Where a launch's choice came from and where to change it, as a stopped session and the
+ * terminal say them (AC-PICK-06), from the decision saved for the launch and the row the
+ * activity uses.
+ *
+ *   launchSource("2", { from: "changed" }, "standard")  // "A change for this PRD. Change it on its row in the phase plan."
+ *   launchSource("2", { from: "model_defaults", fallback: { used: true, … } }, "demanding")
+ *   // "The fallback, from the Demanding row's Fallback column in Model defaults. Change it in Model defaults."
+ */
+export function launchSource(key: string, launch: Pick<NonNullable<SessionRecord["launch"]>, "from" | "fallback" | "ownSettings">, row: DefaultsRow): string {
+  const fallback = launch.fallback?.used ? launch.fallback.forEverything ? "everything" as const : "threshold" as const : undefined;
+  const origin = choiceOrigin({ key, from: launch.from, row, ownSettings: launch.ownSettings, fallback });
+  // A Model defaults choice keeps the words it had before a PRD could hold its own settings.
+  if (launch.from === "model_defaults" && !launch.ownSettings && !fallback) return `Model defaults. ${activityGroup(key) === "phase" ? "Change it in Model defaults, or on its row in the phase plan." : origin.where}`;
+  return `${origin.from.charAt(0).toUpperCase()}${origin.from.slice(1)}. ${origin.where}`;
 }
 
 /** A phase's tag: its tier line's tier and reason, or Not rated (AC-TIER-01). */
@@ -136,16 +220,18 @@ export function tierView(phase: Pick<RecordedPlanPhase, "modelTier"> | undefined
   return tier ? { value: tier.tier, ...(tier.reason ? { reason: tier.reason } : {}) } : { value: "not_rated" };
 }
 
-/** The Model defaults row an activity uses: a phase's tier's, Not rated as Standard; every other activity Audits. */
+/** The row an activity uses: a phase's tier's, Not rated as Standard; an audit's Audits; every other activity's Preflight and pull request (AC-ROW-01). */
 export function rowOfActivity(plan: RecordedPlanPhase[], key: string): DefaultsRow {
-  if (!isPhaseKey(key) || key === PR_PHASE_KEY) return defaultsRowFor("audits");
+  const group = activityGroup(key);
+  if (group !== "phase") return defaultsRowFor(group === "audits" ? "audits" : "preflight_pr");
   return defaultsRowFor(plan.find(phase => phase.id === key)?.modelTier?.tier);
 }
 
-/** The activity's own entry: a phase's, by its id, or the PRD's one Audits entry. */
+/** The activity's own entry (resolver step 2): a phase's, by its id; an audit's, the Audits entry; every other activity's, the Preflight and pull request entry. */
 function entryOf(record: PrdRecord, key: string) {
   const choices = record.settings.modelChoices;
-  return isPhaseKey(key) && key !== PR_PHASE_KEY ? choices.phases[key] : choices.audits;
+  const group = activityGroup(key);
+  return group === "phase" ? choices.phases[key] : group === "audits" ? choices.audits : choices.preflightPr;
 }
 
 /** The session whose first response started the activity, when it has started (AC-PICK-04). */
@@ -160,34 +246,38 @@ export function startedSession(context: Pick<ModelContext, "record" | "session" 
   return startingSession(facts, id => context.session(key, id));
 }
 
-/** Model defaults as the file says now; a file that can't be read gives its reason in place of a choice. */
-export function defaultsNow(context: Pick<ModelContext, "defaultsPath">): { defaults: ModelDefaults } | { problem: string } {
-  const read = readModelDefaults(context.defaultsPath);
-  return read.ok ? { defaults: read.defaults } : { problem: read.reason };
+/** The settings in force as the files say now, with their source; a file that can't be read gives its reason in place of a choice. */
+export function settingsNow(context: Pick<ModelContext, "defaultsPath" | "settingsPath">): { defaults: ModelDefaults; source: "defaults" | "prd" } | { problem: string; source: "defaults" | "prd" } {
+  const inForce = settingsInForce(context);
+  return inForce.read.ok ? { defaults: inForce.read.defaults, source: inForce.source } : { problem: inForce.read.reason, source: inForce.source };
 }
 
 /**
- * The choice an activity with no start runs on (resolver steps 2 to 4), with its problem when it
- * can't be used. Model defaults that can't be read make every Model defaults choice unusable,
- * with the file's reason; Kiln never falls back to its shipped defaults over it.
+ * The choice an activity with no start runs on (resolver steps 2 to 5), with its problem when it
+ * can't be used. Settings in force that can't be read make every choice unusable, with the file's
+ * reason: Kiln never falls back to its shipped choices over them, nor to Model defaults over a
+ * PRD's own settings, and a choice of the PRD's own can't launch either, because the unread file
+ * may say the fallback is used for everything, which wins over it (Kiln Model Modes, "Settings in
+ * Force").
  */
 export function notStartedChoice(context: ModelContext, key: string): ActivityChoice {
   const entry = entryOf(context.record, key);
-  const now = defaultsNow(context);
+  const now = settingsNow(context);
   const row = rowOfActivity(context.plan, key);
   if ("problem" in now) {
-    // A choice of the PRD's own needs no Model defaults; only a Model defaults choice takes the file's reason.
+    const ownSettings = now.source === "prd" ? { ownSettings: true as const } : {};
+    // A choice of the PRD's own keeps its mark and names what the person picked, with the file's reason in place of its own.
     const kept = context.record.settings.modelChoices.kept;
     const own = entry && entry !== "default" ? entry : entry === undefined ? kept : undefined;
-    if (own) return { ...resolveModel(own, context.lists[own.agentId] ?? { pending: true }), from: "changed" };
-    return { agentId: context.claudeCodeInstalled ? "claude_code" : "codex", modelName: "", problem: now.problem, from: "model_defaults", row };
+    if (own) return { ...resolveModel(own, context.lists[own.agentId] ?? { pending: true }), from: "changed", ...ownSettings, problem: `${now.problem} Until it reads, Kiln can't tell whether the fallback is used for everything, so nothing launches.`, settingsUnreadable: true };
+    return { agentId: context.claudeCodeInstalled ? "claude_code" : "codex", modelName: "", problem: now.problem, from: "model_defaults", row, ...ownSettings };
   }
-  return resolveNotStarted({ defaults: now.defaults, entry, kept: context.record.settings.modelChoices.kept, row, claudeCodeInstalled: context.claudeCodeInstalled, lists: context.lists });
+  return resolveNotStarted({ defaults: now.defaults, source: now.source, entry, kept: context.record.settings.modelChoices.kept, row, claudeCodeInstalled: context.claudeCodeInstalled, lists: context.lists });
 }
 
-/** The activity's fallback (AC-FALLBACK-02), none when it is on the choice's own agent or Model defaults can't be read. */
-export function activityFallback(context: ModelContext, key: string, choice: Pick<ResolvedChoice, "agentId">): ResolvedChoice | undefined {
-  const now = defaultsNow(context);
+/** The activity's fallback (AC-FALLBACK-02), none when it has none (see `fallbackFor`) or the settings in force can't be read. */
+export function activityFallback(context: ModelContext, key: string, choice: Pick<ActivityChoice, "agentId" | "everything">): ResolvedChoice | undefined {
+  const now = settingsNow(context);
   if ("problem" in now) return undefined;
   return fallbackFor({ defaults: now.defaults, row: rowOfActivity(context.plan, key), lists: context.lists }, choice);
 }
@@ -198,7 +288,7 @@ export function sessionChoice(session: SessionRecord): ChoiceView {
   return { agentId, agent: AGENT_NAMES[agentId], model: session.initModel ?? session.model, modelName: session.modelDisplayName, ...(session.effort ? { effort: session.effort } : {}) };
 }
 
-function resolvedView(choice: ActivityChoice): ChoiceView | undefined {
+function resolvedView(choice: ResolvedChoice): ChoiceView | undefined {
   if (!choice.modelName) return undefined;
   return { agentId: choice.agentId, agent: AGENT_NAMES[choice.agentId], model: choice.model ?? "", modelName: choice.modelName, ...(choice.effort ? { effort: choice.effort } : {}) };
 }
@@ -232,7 +322,24 @@ export function modelView(context: ModelContext, key: string, state: RowState): 
   if (state.liveSession) return { state: "will_run_on", choice: sessionChoice(state.liveSession), ...launchMarks(state.liveSession.launch, true), ...rowFallback(state.liveSession, state.current, false) };
   const choice = notStartedChoice(context, key);
   const view = resolvedView(choice);
-  return { state: "will_run_on", ...(view ? { choice: view } : {}), from: choice.from, ...(choice.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}), ...(choice.problem ? { problem: choice.problem } : {}) };
+  return {
+    state: "will_run_on", ...(view ? { choice: view } : {}), from: choice.from,
+    ...(choice.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}),
+    ...(choice.problem ? { problem: choice.problem } : {}),
+    ...notStartedFallback(choice),
+  };
+}
+
+/**
+ * What a row that hasn't started says while the fallback is used for everything (AC-WHEN-03): its
+ * choice is its fallback, tagged, with the choice it would otherwise run on as its first choice;
+ * or it has no fallback and runs on its own choice.
+ */
+export function notStartedFallback(choice: ActivityChoice): Pick<ModelView, "fallback" | "noFallback"> {
+  if (choice.noFallback) return { noFallback: true };
+  if (!choice.everything) return {};
+  const first = resolvedView(choice.everything.first);
+  return { fallback: { from: choice.from, used: true, forEverything: true, ...(first ? { first } : {}) } };
 }
 
 /**

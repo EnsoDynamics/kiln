@@ -102,26 +102,58 @@ describe("the guide to model tiers, Model defaults and the usage fallback", () =
   it("say how to change a phase's model in the browser and from a terminal", () => {
     expect(choosing).toMatch(/press \*\*Change\*\* on a phase that hasn't started/);
     expect(choosing).toContain("until you press **Use the default**");
-    expect(terminal).toContain("`kiln model` changes a phase's model or the Audits choice");
+    expect(terminal).toContain("`kiln model` changes a phase's model, the Audits choice or the Preflight and pull request choice");
     expect(guide.indexOf("\n## Choosing models\n")).toBeGreaterThanOrEqual(0);
     expect(guideModels).toContain("kiln model <PRD-path> --phase 3 --agent codex");
     expect(guideModels).toContain("kiln model <PRD-path> --audits --use-default");
   });
 
   it("say how to change Model defaults in the browser and from a terminal", () => {
-    expect(choosing).toContain("The **Model defaults** link in the delivery panel or the run's settings opens the page");
+    expect(choosing).toContain("The **Model defaults** link in the Models block, named **Models for this PRD** while the PRD has its own settings, opens the page");
     expect(choosing).toContain("**Restore Kiln's defaults**");
-    expect(terminal).toContain("`kiln model-defaults` prints and changes Model defaults, the fallback switch and its threshold");
-    for (const command of ["kiln model-defaults set --row mechanical", "kiln model-defaults restore", "kiln model-defaults fallback --on --threshold 90"]) {
+    expect(terminal).toContain("`kiln model-defaults` prints and saves everything the Model defaults page does, for every PRD or, with `--prd`, for one");
+    for (const command of ["kiln model-defaults set --row mechanical", "kiln model-defaults restore", "kiln model-defaults fallback --at-threshold --threshold 90"]) {
       expect(guideModels, command).toContain(command);
     }
   });
 
-  it("say the fallback is off by default, decided only at launch, and spends the other agent's account", () => {
-    expect(fallback).toContain("**Use the fallback when usage is nearly out**, off until you turn it on");
+  it("say the fallback is never used by default, decided only at launch, and spends the other agent's account", () => {
+    expect(fallback).toContain("- **Never**, the default");
     expect(fallback).toContain("It is decided only at launch, never partway through an activity");
     expect(fallback).toContain("**The fallback spends your other agent's account**");
-    expect(guideModels).toContain("each time Kiln launches an activity that hasn't started, it reads both accounts");
-    expect(guideModels).toContain("It spends the other agent's account.");
+    expect(guideModels).toContain("`--at-threshold`, when a limit on the first choice's account reads at or above the threshold");
+    expect(guideModels).toContain("The fallback spends the other agent's account.");
+  });
+
+  // Kiln Model Modes AC-GUIDE-01.
+  it("say how to choose one model for everything or for one PRD, in the browser and from a terminal", () => {
+    expect(choosing).toContain("- **One model for everything**: every phase, both audits, the preflight, and the pull request, merge and push sessions run on one agent, model and effort that you pick");
+    expect(choosing).toContain("offers **Recommended model for each phase** and **One model for this PRD**");
+    expect(choosing).toContain("A choice there applies to this PRD alone at once, with no Save");
+    expect(guideModels).toContain("kiln model-defaults mode --one-model --agent codex --model sol --effort high");
+    expect(guideModels).toContain("kiln model-defaults mode --recommended --prd <PRD-path>");
+  });
+
+  it("say what the three fallback settings do and what For everything is for", () => {
+    for (const setting of ["- **Never**", "- **When the first choice's usage reaches** a threshold", "- **For everything, until you change this**"]) expect(fallback, setting).toContain(setting);
+    expect(fallback).toContain("- **Never**, the default: at a usage limit the run waits and picks up again.");
+    expect(fallback).toContain("- **For everything, until you change this**: every activity that hasn't started launches on its row's fallback without reading usage.");
+    expect(fallback).toContain("This is how you keep a run off an account you want to spare");
+    expect(guideModels).toContain("kiln model-defaults fallback --for-everything --prd <PRD-path>");
+    expect(guideModels).toContain("`--on` and `--off` still work and mean `--at-threshold` and `--never`");
+  });
+
+  it("say that the preflight and the pull request session have a row of their own", () => {
+    expect(choosing).toContain("have a row of their own, **Preflight and pull request**");
+    expect(choosing).toContain("| Preflight and pull request | Claude Code · Opus · medium | Codex · GPT Sol · medium |");
+    expect(guideModels).toContain("kiln model-defaults set --row preflight-pr");
+    expect(guideModels).toContain("its Preflight and pull request choice (`--preflight-pr`)");
+  });
+
+  it("say a change is saved for every PRD or for one PRD, in the browser and from a terminal", () => {
+    expect(choosing).toContain("Nothing there takes effect until you press **Save**, and the bar at the foot of the page asks where: **Every PRD on this computer**, the default, or **This PRD only**");
+    expect(choosing).toContain("offers **Use my defaults here**");
+    expect(guideModels).toContain("Add `--prd <PRD-path>` to read or save one PRD's own settings instead");
+    expect(guideModels).toContain("kiln model-defaults use-defaults --prd <PRD-path>");
   });
 });

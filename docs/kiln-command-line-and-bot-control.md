@@ -24,9 +24,9 @@ new feature branch or on a branch that already exists.
 
 ## Choosing models
 
-`kiln status <PRD-path> --json` gives each activity its `tier` and `model`, and `plan_models` lists every row of the plan, phases Kiln hasn't allocated and planned audit rows included, with the choice each will run on, runs on or ran on and whether it can change (`model.change`). With the usage fallback on, a row's `model.fallback` records the launch decision it started on, and `model.forecast` is the heads-up on the next activity.
+`kiln status <PRD-path> --json` gives each activity its `tier` and `model`, and `plan_models` lists every row of the plan, phases Kiln hasn't allocated and planned audit rows included, with the choice each will run on, runs on or ran on and whether it can change (`model.change`). While the usage fallback can be used, a row's `model.fallback` records the launch decision it started on, with `forEverything` when the fallback is used for everything, and `model.forecast` is the heads-up on the next activity.
 
-`kiln model` changes one phase that hasn't started, or this PRD's Audits choice, in a run underway. Like the other changing commands it takes a command ID and the status token:
+`kiln model` changes one phase that hasn't started, this PRD's Audits choice (`--audits`), or its Preflight and pull request choice (`--preflight-pr`), in a run underway. Like the other changing commands it takes a command ID and the status token:
 
 ```sh
 kiln model <PRD-path> --phase 3 --agent codex --model gpt-6.2-sol --effort high --only-if-status-matches <token> --command-id <id>
@@ -35,16 +35,27 @@ kiln model <PRD-path> --audits --use-default --only-if-status-matches <token> --
 
 A phase that has started keeps what it started on, so it is refused. An omitted `--effort` takes the default effort the agent reports for that model; Claude Code reports none, so a Claude Code model that takes effort needs one. Before Start, change models on Documents found.
 
-`kiln model-defaults` prints Model defaults, the settings for every PRD on this computer, and its subcommands change them with the same limits as the page. They need no PRD path, running Kiln or safety flags:
+`kiln model-defaults` prints Model defaults, the settings for every PRD on this computer, and its subcommands save whatever the Model defaults page saves, with the same limits. Add `--prd <PRD-path>` to read or save one PRD's own settings instead: a save gives the PRD settings of its own when it has none, and every other PRD keeps Model defaults. They need no running Kiln or safety flags:
 
 ```sh
 kiln model-defaults
+kiln model-defaults --prd <PRD-path>
+kiln model-defaults mode --one-model --agent codex --model sol --effort high
+kiln model-defaults mode --recommended --prd <PRD-path>
+kiln model-defaults one-model --agent claude_code --model opus --effort high
 kiln model-defaults set --row mechanical --first-agent claude_code --first-model sonnet --first-effort high
+kiln model-defaults set --row preflight-pr --first-agent claude_code --first-model sonnet --first-effort medium
+kiln model-defaults fallback --at-threshold --threshold 90
+kiln model-defaults fallback --for-everything --prd <PRD-path>
 kiln model-defaults restore
-kiln model-defaults fallback --on --threshold 90
+kiln model-defaults use-defaults --prd <PRD-path>
 ```
 
-`set` takes a model family (`fable`, `opus`, `sonnet`, `sol`, `astra`), resolved when each activity launches to the newest version its agent offers. A row can't have its first choice and fallback on the same agent. `fallback --on` turns on the usage fallback: each time Kiln launches an activity that hasn't started, it reads both accounts and starts the activity on the row's fallback when a limit on the first choice's account reads at or above the threshold and the fallback can take it. It spends the other agent's account.
+`mode` chooses the recommended model for each phase or one model for everything; `--one-model` without `--agent` and `--model` saves the one model the command would print. `one-model` saves the one model alone and leaves the mode as it is, so you can pick it while every PRD stays on the recommended model for each phase. One model has no fallback, so a run on it waits at a usage limit. `set` takes a model family (`fable`, `opus`, `sonnet`, `haiku`, `sol`, `astra`), resolved when each activity launches to the newest version its agent offers, for the `demanding`, `standard`, `mechanical`, `audits` or `preflight-pr` row; `preflight-pr` covers the preflight, the pull request session, and the merge and push sessions after delivery. A row can't have its first choice and fallback on the same agent.
+
+`fallback` chooses when an activity launches on its row's fallback: `--never`; `--at-threshold`, when a limit on the first choice's account reads at or above the threshold and the fallback can take it; or `--for-everything`, without reading usage, which keeps a run off the first choices' account until you change it. `--on` and `--off` still work and mean `--at-threshold` and `--never`. The fallback spends the other agent's account. `restore` returns the mode, the five rows, the one model and the fallback setting to Kiln's choices. `use-defaults --prd` removes a PRD's own settings, so it follows Model defaults again.
+
+A save for every PRD made on the page of a PRD with its own settings goes into both: the same command without `--prd`, then with it.
 
 ## Command IDs and status tokens
 

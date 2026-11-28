@@ -49,7 +49,7 @@ import { AuditStore } from "../audit/storage.js";
 import { captureSnapshot } from "../audit/snapshots.js";
 import { runTiming } from "../session/timing.js";
 import { auditSessionPrompt, planPushPrompt, preflightSessionPrompt } from "../session/prompts.js";
-import { isPhaseKey, isPreflightKey, activityKeyKind, isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
+import { isPreflightKey, activityKeyKind, isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../state/activity-keys.js";
 import { keyOf as preflightKeyOf, latestPreflight, preflightActivity, preflightSettled, readPreflightReport, setPreflightDue, unfinishedPreflight, PREFLIGHT_CHECK, PREFLIGHT_LIVE_REASON, PREFLIGHT_PAUSE_REASON, PREFLIGHT_SKILL, PREFLIGHT_STOP_REASON, PREFLIGHT_TITLE, type PreflightActivity, type PreflightReport, type PreflightTrigger } from "./preflight.js";
 import { appendLoop, closedKinds, closingAudits, limitFloor, LOOP_STOP_LINE, loopSettings, REMOVED_LOOP_COMMAND, startedLedger, validLimit, type AuditLoopSettings } from "../state/audit-loops.js";
 import { nextStepsForecast } from "./next-steps.js";
@@ -78,10 +78,10 @@ import { sleepInterruption } from "../session/run-verdict.js";
 import { ensurePrivateDirectory } from "../state/state-files.js";
 import { AgentInfo } from "../agents/metadata.js";
 import { AGENT_IDS, AGENT_NAMES, type AgentId, type CodexUsageRecovery, type RecordedPlanPhase } from "../state/records.js";
-import { modelDefaultsPath, readModelDefaults, type ModelChoice } from "../models/model-defaults.js";
+import { fallbackInForce, modelDefaultsPath, prdSettingsPath, settingsInForce, settingsRevision, type DefaultsRow, type ModelChoice, type SettingsInForce } from "../models/model-defaults.js";
 import { checkModelChoice } from "../models/model-defaults-edit.js";
 import { continuedModelChoices } from "../models/keep.js";
-import { activityFallback, auditsChangePlace, choiceView, launchMarks, launchSource, ranOnView, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
+import { activityFallback, activityGroup, choiceOrigin, choiceView, launchMarks, launchSource, limitView, notStartedFallback, ranOnView, rowOfActivity, countedFor, fallbackView, installRemedy, listWords, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, type AgentNeed, modelView, notStartedChoice, phaseFinished, startedSession, tierView, type FallbackView, type ModelContext, type ModelView, type TierView } from "./activity-models.js";
 import { firstResponseInSavedEvents } from "../models/start-line.js";
 import type { ActivityChoice, ModelList, ResolvedChoice } from "../models/resolver.js";
 import { choiceWords, decideLaunch, firstOverThreshold, limitWords, type DecisionChoice, type LaunchFallback, type UsageSide } from "../models/launch-decision.js";
@@ -94,8 +94,8 @@ import { executableAvailable } from "../platform/helper-process.js";
 // is kept per phase and per session; the next phase is chosen in one function, `nextLeaf`.
 
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, type FSWatcher } from "node:fs";
-import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { delimiter, isAbsolute, join, relative, sep } from "node:path";
 import type { AccountView } from "../account/claude-account.js";
 import type { ClaudeInfoSource } from "../account/claude-info.js";
 import type { ModelEntry } from "../account/model-list.js";
@@ -607,6 +607,7 @@ export class Engine {
     activityHistory(this.record, options.stateDirectory);
     if (migratingActivities && this.record.startedAt) writePrdRecord(options.stateDirectory, this.record);
     this.defaultsPath = options.modelDefaultsPath ?? modelDefaultsPath(options.env);
+    this.settingsPath = prdSettingsPath(options.stateDirectory);
     this.claudeCodeInstalled = executableAvailable(options.tools.claude, options.env);
     this.codexInstalled = !!options.tools.codex && executableAvailable(options.tools.codex, options.env);
     // One reader per agent (Kiln Phase Model Tiers, "Agents"): each holds its own readiness, model list, account and usage.
@@ -754,7 +755,7 @@ export class Engine {
       "locate-repository": this.record.startedAt === undefined ? `${this.paths.featureName} hasn’t started. Tell Kiln where a repository is on Documents found, in the browser.` : "No stop is asking where a repository is.",
       merge: this.mergeControl().reason ?? "Merge with the agent isn't offered here.",
       exit: this.exitControl().reason ?? "Exit Kiln isn't offered here.",
-      model: !this.isUnderway ? "No run is underway. Change models on Documents found." : this.record.completedAt ? "The run is complete; no activity is left to change." : this.folderMissing ? FOLDER_MISSING_REASON : "Kiln is checking, dispatching or reconciling an instruction.",
+      model: !this.isUnderway ? "No run is underway. Change models on Documents found." : this.record.completedAt ? RUN_COMPLETE_REASON : this.folderMissing ? FOLDER_MISSING_REASON : "Kiln is checking, dispatching or reconciling an instruction.",
       ...(afterDeliveryRunning ? { "take-over": liveReason, message: liveReason, "request-pause": liveReason } : {}),
       ...(preflightStop ? { reply: PREFLIGHT_STOP_REASON, resume: PREFLIGHT_STOP_REASON, "carry-on": PREFLIGHT_STOP_REASON, "start-again": PREFLIGHT_STOP_REASON, "verify-and-advance": PREFLIGHT_STOP_REASON } : {}),
       ...(preflightRunning ? { "request-pause": PREFLIGHT_PAUSE_REASON } : {}),
@@ -925,7 +926,7 @@ export class Engine {
       case "message": return this.acceptLiveMessage(inputs.target, inputs.text, receipt);
       case "message-review": return this.reviewMessages(inputs.target, inputs.receipt_ids);
       case "take-over": return this.acceptTakeover(inputs.target, receipt);
-      case "model": answer = await this.changeModel(typeof inputs.phase === "string" ? { phase: inputs.phase } : "audits", inputs.use_default === true ? "default" : { agentId: inputs.agent_id as AgentId, model: inputs.model as string, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) });
+      case "model": answer = await this.changeModel(typeof inputs.phase === "string" ? { phase: inputs.phase } : inputs.preflight_pr === true ? "preflight_pr" : "audits", inputs.use_default === true ? "default" : { agentId: inputs.agent_id as AgentId, model: inputs.model as string, ...(typeof inputs.effort === "string" ? { effort: inputs.effort } : {}) });
         break;
       case "request-pause": answer = this.pause(); break;
       case "cancel-pause": answer = this.cancelPause(); break;
@@ -1614,6 +1615,8 @@ export class Engine {
   }
 
   private readonly defaultsPath: string;
+  /** This PRD's own settings, in its state directory; it has them while the file exists (Kiln Model Modes, "Settings in Force"). */
+  private readonly settingsPath: string;
   /** Whether Claude Code is installed, read when Kiln starts and at each refresh (Kiln Phase Model Tiers, "Agents"). */
   claudeCodeInstalled: boolean;
 
@@ -1626,7 +1629,7 @@ export class Engine {
       lists[id] = !this.installed(id) ? { error: `${AGENT_NAMES[id]} isn't installed.` } : { models: metadata.models, error: metadata.modelListError, pending: metadata.pending && !metadata.models };
     }
     return {
-      record: this.record, plan: this.shownPlan, defaultsPath: this.defaultsPath, claudeCodeInstalled: this.claudeCodeInstalled,
+      record: this.record, plan: this.shownPlan, defaultsPath: this.defaultsPath, settingsPath: this.settingsPath, claudeCodeInstalled: this.claudeCodeInstalled,
       lists,
       session: (key, id) => this.sessionRecord(key, id),
       firstResponse: (key, id) => this.sessionFirstResponse(key, id),
@@ -1646,8 +1649,30 @@ export class Engine {
   /** The choice an activity with no start runs on now (AC-PICK-01, AC-OTHER-01, AC-DEFAULT-04). */
   notStartedChoice(key: string): ActivityChoice { return notStartedChoice(this.modelContext, key); }
 
-  /** The activity's fallback, when its row has one on the other agent (AC-FALLBACK-02). */
+  /** The activity's fallback, when its row has one on the other agent (AC-FALLBACK-02); none under one model, or once the fallback used for everything is its choice. */
   fallbackOf(key: string): ReturnType<typeof activityFallback> { return activityFallback(this.modelContext, key, this.notStartedChoice(key)); }
+
+  /** The settings in force for this PRD as the files say now: its own when it has them, otherwise Model defaults (Kiln Model Modes, "Settings in Force"). */
+  get settingsInForce(): SettingsInForce { return settingsInForce({ defaultsPath: this.defaultsPath, settingsPath: this.settingsPath }); }
+
+  /** Where the two settings files are, for a reader that resolves against them. */
+  get settingsPaths(): { defaultsPath: string; settingsPath: string } { return { defaultsPath: this.defaultsPath, settingsPath: this.settingsPath }; }
+
+  /**
+   * The threshold the launch decision reads usage against, only while the fallback setting is in
+   * force as the threshold setting: not under one model, Never or For everything, and not while
+   * the settings in force can't be read (Kiln Model Modes, "Launching").
+   */
+  get fallbackThreshold(): number | undefined {
+    const read = this.settingsInForce.read;
+    return read.ok && fallbackInForce(read.defaults) === "threshold" ? read.defaults.fallback.threshold : undefined;
+  }
+
+  /** The row of the settings in force an activity uses (AC-ROW-01). */
+  rowOf(key: string): DefaultsRow { return rowOfActivity(this.shownPlan, key); }
+
+  /** Where a launch's choice came from and where to change it (AC-PICK-06). */
+  launchSourceOf(key: string, launch: NonNullable<SessionRecord["launch"]>): string { return launchSource(key, launch, this.rowOf(key)); }
 
   /** A row's model (AC-PICK-02): what it will run on, runs on or ran on. */
   activityModel(key: string, state: { finished: boolean; liveSession?: SessionRecord | undefined; current?: boolean }): ModelView {
@@ -1659,6 +1684,9 @@ export class Engine {
     }
     return modelView(this.modelContext, key, state);
   }
+
+  /** What a choice that hasn't launched says of the fallback used for everything (AC-WHEN-03), as its row says it. */
+  notStartedFallbackOf(key: string): Pick<ModelView, "fallback" | "noFallback"> { return notStartedFallback(this.notStartedChoice(key)); }
 
   /**
    * The planned Preflight row on a finished run's Continue offer (Kiln Phase Model Tiers, "The
@@ -1714,8 +1742,7 @@ export class Engine {
 
   /**
    * The keys of every activity not yet finished that Kiln will run: each leaf phase not closed,
-   * then the audits' choice, standing for the preflight, the audits and the pull request session
-   * until the run completes.
+   * then the pull request session's key until the run completes.
    */
   private unfinishedChoiceKeys(): string[] {
     const plan = this.shownPlan;
@@ -1729,8 +1756,15 @@ export class Engine {
     return this.startedSessionOf(key)?.agentId ?? this.decisions.get(key)?.choice.agentId ?? this.notStartedChoice(key).agentId;
   }
 
-  /** The agent of the Audits choice, which the preflight, the audits and the pull request session run on (AC-OTHER-01); their skills are looked up for it. */
-  get auditsAgent(): AgentId { return this.notStartedChoice(PR_PHASE_KEY).agentId; }
+  /** The agent of the Audits choice, which the delivery audit and the test audit run on (AC-OTHER-01, AC-ROW-01); their skill is looked up for it. */
+  get auditsAgent(): AgentId { return this.notStartedChoice(PLANNED_AUDITS_KEY).agentId; }
+
+  /**
+   * The agent of the Preflight and pull request choice (AC-ROW-01; Kiln Model Modes, "Skills and
+   * checks on an agent"): the preflight's skill and the check for a planned preflight follow it,
+   * and so do the reads that name no activity, which follow the pull request session's choice.
+   */
+  get preflightPrAgent(): AgentId { return this.notStartedChoice(PR_PHASE_KEY).agentId; }
 
   /**
    * What an activity's next session launches on (AC-PICK-01, AC-PICK-04): a started activity's
@@ -1757,20 +1791,22 @@ export class Engine {
    * The launch decision (Kiln Phase Model Tiers AC-FALLBACK-02, "The launch decision"), for an
    * activity that hasn't started, run immediately before the existing launch checks. Undefined
    * when the first choice can't be used, known before launch: the `selection` stop that follows
-   * applies, and the fallback never replaces it. With the switch off, or no fallback, the first
-   * choice. Otherwise both agents' usage is read for this launch, and the fallback's launch checks
-   * run only when a counted limit on the first choice's account reads at or above the threshold.
+   * applies, and the fallback never replaces it. Unless the fallback setting is in force as the
+   * threshold setting, or with no fallback, the resolver's choice: under For everything that is
+   * already the fallback, so no usage is read, and the decision records that the setting, not a
+   * limit, sent the launch there (Kiln Model Modes, "Launching"). Otherwise both agents' usage is
+   * read for this launch, and the fallback's launch checks run only when a counted limit on the
+   * first choice's account reads at or above the threshold.
    * `endsWait`: an automatic launch ending a wait, bounded by the activity's one-attempt record.
    */
   private async decideLaunch(key: string, endsWait: boolean): Promise<LaunchDecision | undefined> {
     const first = this.notStartedChoice(key);
     if (!first.model || first.problem) return undefined;
     const firstChoice = toDecisionChoice(first);
-    const base = { from: first.from, ...(first.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}) };
-    const settings = readModelDefaults(this.defaultsPath);
+    const base = launchRecord(first);
+    const threshold = this.fallbackThreshold;
     const fallback = this.fallbackOf(key);
-    if (!settings.ok || !settings.defaults.fallback.enabled || !fallback) return { choice: firstChoice, launch: base, read: false };
-    const threshold = settings.defaults.fallback.threshold;
+    if (threshold === undefined || !fallback) return { choice: firstChoice, launch: base, read: false };
     const [firstAccount, fallbackAccount] = await Promise.all([this.readUsageForLaunch(first.agentId), this.readUsageForLaunch(fallback.agentId)]);
     const fallbackChoice = toDecisionChoice(fallback);
     const firstUsage = this.usageSide(key, firstChoice, firstAccount, endsWait);
@@ -1895,13 +1931,12 @@ export class Engine {
    * preparation-permissions read, which need a launch.
    */
   private forecastDecision(key: string, endsWait: boolean): { choice: DecisionChoice; fallback: LaunchFallback } | undefined {
-    const settings = readModelDefaults(this.defaultsPath);
-    if (!settings.ok || !settings.defaults.fallback.enabled) return undefined;
+    const threshold = this.fallbackThreshold;
+    if (threshold === undefined) return undefined;
     const first = this.notStartedChoice(key);
     if (!first.model || first.problem) return undefined;
     const fallback = this.fallbackOf(key);
     if (!fallback) return undefined;
-    const threshold = settings.defaults.fallback.threshold;
     const latest = (agentId: AgentId): AgentAccount | undefined => {
       if (!this.installed(agentId)) return undefined;
       if (agentId === "codex") return this.readers.codex.state.account;
@@ -1920,13 +1955,13 @@ export class Engine {
    * The heads-up (AC-FALLBACK-04): the activity Kiln will launch next, when the decision on the
    * latest readings would launch it on the fallback. That is the current activity when it has no
    * start and no session of it is launching or running, otherwise the first activity after it with
-   * no start. No row carries it while the start of the one Kiln would launch next is unknown.
+   * no start. No row carries it while the start of the one Kiln would launch next is unknown, and
+   * it is given only while the threshold setting is in force (AC-WHEN-03).
    *
    *   engine.headsUp()  // { key: "2", forecast: { choice: { agent: "Codex", modelName: "GPT Astra 1", … }, limit: { agent: "Claude Code", label: "Weekly", percent: 97 }, threshold: 95 } }
    */
   headsUp(): { key: string; forecast: NonNullable<ModelView["forecast"]> } | undefined {
-    const settings = readModelDefaults(this.defaultsPath);
-    if (!settings.ok || !settings.defaults.fallback.enabled || this.record.completedAt) return undefined;
+    if (this.fallbackThreshold === undefined || this.record.completedAt) return undefined;
     const keys = [...new Set(this.unfinishedActivityKeys().map(row => row.key))].filter(key => this.choiceActivity(key));
     const currentKey = this.current?.phaseKey ?? this.waitingPhaseKey() ?? this.stoppedPhaseKey();
     const from = currentKey === undefined ? 0 : Math.max(0, keys.indexOf(currentKey));
@@ -1934,9 +1969,9 @@ export class Engine {
       if (this.unknownStarts.has(key)) return undefined;
       if (this.startedSessionOf(key) || this.sessionBusy(key)) continue;
       const forecast = this.forecastDecision(key, this.record.phases[key]?.wait !== undefined);
-      if (!forecast) return undefined;
-      const { agentId, ...limit } = forecast.fallback.limit;
-      return { key, forecast: { choice: choiceView(forecast.choice), limit: { agent: AGENT_NAMES[agentId], ...limit }, threshold: forecast.fallback.threshold } };
+      // A decision on usage always records the limit it read and the threshold it read it against.
+      if (!forecast?.fallback.limit || forecast.fallback.threshold === undefined) return undefined;
+      return { key, forecast: { choice: choiceView(forecast.choice), limit: limitView(forecast.fallback.limit), threshold: forecast.fallback.threshold } };
     }
     return undefined;
   }
@@ -1949,9 +1984,12 @@ export class Engine {
   }
 
   /**
-   * Every agent the run needs (Kiln Phase Model Tiers AC-AGENTS-01, "Agents"): each one an
-   * unfinished activity runs on, by plan row, and with the fallback switch on each one only an
-   * unfinished activity's fallback names. An agent that isn't installed is needed by the same rule.
+   * Every agent the run needs (Kiln Phase Model Tiers AC-AGENTS-01, "Agents"; Kiln Model Modes,
+   * "Launching"): each one an unfinished activity runs on, by plan row, and, only while the
+   * fallback setting is in force as the threshold setting, each one only an unfinished activity's
+   * fallback names. Under For everything an activity runs on its fallback, so its first choice's
+   * agent isn't needed for it; under one model only that model's agent is. An agent that isn't
+   * installed is needed by the same rule.
    *
    *   engine.neededBy()  // { claude_code: { activities: ["Phase 1", "the pull request session"], fallbackOnly: false }, codex: { activities: [], fallbackOnly: true } }
    */
@@ -1963,8 +2001,7 @@ export class Engine {
     };
     const keys = this.unfinishedActivityKeys();
     for (const { key, row } of keys) add(this.agentOf(key), row);
-    const read = readModelDefaults(this.defaultsPath);
-    if (read.ok && read.defaults.fallback.enabled) {
+    if (this.fallbackThreshold !== undefined) {
       for (const { key } of keys) {
         if (this.startedSessionOf(key)) continue;
         const fallback = this.fallbackOf(key);
@@ -2015,7 +2052,7 @@ export class Engine {
   /** Stops every reader's schedule. */
   closeReaders(): void { for (const id of AGENT_IDS) this.readers[id].close(); }
 
-  /** Whether the run needs the agent now: an unfinished activity or, with the switch on, a fallback names it. */
+  /** Whether the run needs the agent now: an unfinished activity or, with the threshold setting in force, a fallback names it. */
   isNeeded(agentId: AgentId): boolean { return this.neededBy()[agentId] !== undefined; }
   /** Whether the agent is installed, read when Kiln starts and at each refresh. */
   installed(agentId: AgentId): boolean { return agentId === "claude_code" ? this.claudeCodeInstalled : this.codexInstalled; }
@@ -2023,15 +2060,15 @@ export class Engine {
   /**
    * Every activity not yet finished that Kiln will run, with the plan row Start's reason names it
    * by: the preflight while planned or allocated and unfinished, each leaf phase not finished,
-   * each allocated audit not finished, then the audit kinds still expected and the pull request
-   * session, which stand on the Audits choice until the pull request session finishes.
+   * each allocated audit not finished, then the audit kinds still expected, on the Audits choice,
+   * and the pull request session, on the Preflight and pull request choice, until it finishes.
    */
   private unfinishedActivityKeys(): { key: string; row: string }[] {
     const rows: { key: string; row: string }[] = [];
     const finished = (key: string) => !!this.record.phases[key]?.doneAt;
     const preflight = latestPreflight(this.record);
     if (preflight && !finished(preflightKeyOf(preflight))) rows.push({ key: preflightKeyOf(preflight), row: "the preflight" });
-    else if (!this.record.completedAt && this.readers[this.auditsAgent].state.optionalSkills?.buildPreflight && (!this.isUnderway || this.record.preflight?.due)) rows.push({ key: PLANNED_PREFLIGHT_KEY, row: "the preflight" });
+    else if (!this.record.completedAt && this.readers[this.preflightPrAgent].state.optionalSkills?.buildPreflight && (!this.isUnderway || this.record.preflight?.due)) rows.push({ key: PLANNED_PREFLIGHT_KEY, row: "the preflight" });
     for (const phase of this.shownPlan) {
       if (phase.splitInto !== undefined) continue;
       const key = this.factsKeyOf(phase.id);
@@ -2125,24 +2162,34 @@ export class Engine {
   }
   private readAgents = new Set<AgentId>();
   private syncingAgent = false;
-  private defaultsWatch: FSWatcher | undefined;
+  private settingsTimer: NodeJS.Timeout | undefined;
 
   /**
-   * Model defaults reach every activity that hasn't started, in runs underway too: each Kiln
-   * watches the state root for the file's name, since an atomic write replaces the file, and
-   * republishes its page (Kiln Phase Model Tiers, "Model defaults across running Kilns").
+   * Model defaults reach every activity that hasn't started, in runs underway too, and so do this
+   * PRD's own settings when they are created, changed or removed: each running Kiln reads both
+   * files' revision once a second and republishes its page when it changed (Kiln Phase Model
+   * Tiers, "Model defaults across running Kilns"; Kiln Model Modes, "Snapshot"). A read of two
+   * files' status, not a watch on their folders: a folder watch loses events while the computer
+   * is busy, on macOS reports events written in the same moment under one name, and there made
+   * stopping Kiln up to a second slower once a second folder was watched.
    */
   private watchModelDefaults(): void {
-    try {
-      mkdirSync(dirname(this.defaultsPath), { recursive: true });
-      this.defaultsWatch = watch(dirname(this.defaultsPath), (_event, name) => {
-        if (this.closed || name !== basename(this.defaultsPath)) return;
-        this.modelChoicesChanged();
-      });
-      this.defaultsWatch.on("error", () => { this.defaultsWatch?.close(); this.defaultsWatch = undefined; });
-      this.defaultsWatch.unref();
-    } catch { this.defaultsWatch = undefined; }
+    this.settingsSeen = settingsRevision(this.settingsPaths);
+    this.settingsTimer = setInterval(this.settingsNoticed, SETTINGS_READ_MS);
+    this.settingsTimer.unref();
   }
+
+  /** Both settings files' revision as last read. */
+  private settingsSeen = "";
+
+  /** Reads both settings files' revision, and republishes the page when it changed. */
+  private readonly settingsNoticed = (): void => {
+    if (this.closed) return;
+    const revision = settingsRevision(this.settingsPaths);
+    if (revision === this.settingsSeen) return;
+    this.settingsSeen = revision;
+    this.modelChoicesChanged();
+  };
 
   /**
    * Saves the activity's start once one of its sessions got its first response (Kiln Phase Model
@@ -2192,16 +2239,29 @@ export class Engine {
   }
 
   /**
-   * A change of model for one phase, or for this PRD's Audits activities (AC-PICK-03, AC-OTHER-01,
-   * `POST /api/model`): the choice checked against its agent's list with its effort filled in, then
-   * the phase's state, read after its sessions' histories. "default" returns the row to its tier's
-   * choice, or the Audits row's. The Audits entry is never refused for an activity's state: an
-   * activity launching or running keeps its saved decision and takes the new choice only if it
-   * ends with no response.
+   * What the Preflight row, the planned Preflight row and the planned or allocated pull request row
+   * offer (AC-ROW-01): Change and Use the default, following the row's own state as a Delivery
+   * audit row's does, for this PRD's Preflight and pull request choice. None once the run is
+   * complete, when only the merge and a plan push could still take the choice.
    */
-  checkModelChange(target: { phase: string } | "audits", choice: ModelChoice | "default"): { ok: true; key: string; choice: ModelChoice | "default" } | Extract<CommandResult, { ok: false }> {
-    let key: string = PR_PHASE_KEY;
-    if (target !== "audits") {
+  preflightPrControls(key: string, label: string, view: ModelView): Pick<ModelView, "change" | "useDefault"> {
+    return this.record.completedAt ? {} : this.modelControls(key, label, view);
+  }
+
+  /**
+   * A change of model for one phase, for this PRD's audits, or for its preflight and pull request
+   * session (AC-PICK-03, AC-OTHER-01, AC-ROW-01, `POST /api/model`): the choice checked against its
+   * agent's list with its effort filled in, then the phase's state, read after its sessions'
+   * histories. "default" returns the row to its tier's choice, the Audits row's or the Preflight
+   * and pull request row's. The Audits and the Preflight and pull request entries are never
+   * refused for an activity's state: an activity launching or running keeps its saved decision and
+   * takes the new choice only if it ends with no response. The Preflight and pull request entry is
+   * refused once the run is complete, when only the merge and a plan push could still take it.
+   */
+  checkModelChange(target: ModelTarget, choice: ModelChoice | "default"): { ok: true; key: string; choice: ModelChoice | "default" } | Extract<CommandResult, { ok: false }> {
+    let key: string = target === "audits" ? PLANNED_AUDITS_KEY : PR_PHASE_KEY;
+    if (target === "preflight_pr" && this.record.completedAt) return { ok: false, status: 409, reason: RUN_COMPLETE_REASON };
+    if (typeof target !== "string") {
       const leaves = this.shownPlan.filter(phase => phase.splitInto === undefined);
       if (!leaves.some(phase => phase.id === target.phase)) return { ok: false, status: 422, reason: `${target.phase} isn't a phase Kiln builds in this plan. Phases: ${leaves.map(phase => phase.id).join(", ")}.` };
       key = target.phase;
@@ -2212,18 +2272,19 @@ export class Engine {
   }
 
   /** Applies a checked change (before Start directly, in a run through the instruction journal). */
-  async changeModel(target: { phase: string } | "audits", choice: ModelChoice | "default"): Promise<CommandResult> {
+  async changeModel(target: ModelTarget, choice: ModelChoice | "default"): Promise<CommandResult> {
     const checked = this.checkModelChange(target, choice);
     if (!checked.ok) return checked;
     const choices = this.record.settings.modelChoices;
-    if (target !== "audits") {
+    if (typeof target !== "string") {
       const label = `Phase ${target.phase}`;
       // Change reads the phase's histories first: a terminal that already answered has started it.
       if (!this.startedSessionOf(checked.key) && !this.sessionBusy(checked.key) && this.record.phases[checked.key]?.sessionIds.length) await this.readStart(checked.key);
       const refused = this.modelChangeRefusal(checked.key, label);
       if (refused) return { ok: false, status: 409, reason: refused };
       choices.phases[target.phase] = checked.choice;
-    } else choices.audits = checked.choice;
+    } else if (target === "audits") choices.audits = checked.choice;
+    else choices.preflightPr = checked.choice;
     this.save();
     this.modelChoicesChanged();
     return { ok: true };
@@ -3343,7 +3404,7 @@ export class Engine {
   /** A billing restriction that would stop a launch, as the launch path's own check reads it (run restart AC-CARRY-03). */
   private launchRestriction(key: string | undefined = this.stoppedPhaseKey() ?? this.heldHistoryKey()): string | undefined {
     // The check uses the agent of the activity about to launch (AC-AGENTS-02).
-    if ((key === undefined ? this.auditsAgent : this.agentOf(key)) === "codex") return undefined;
+    if ((key === undefined ? this.preflightPrAgent : this.agentOf(key)) === "codex") return undefined;
     const view = this.billing.view;
     if (!view.next || view.canLaunch) return undefined;
     return view.next.readinessError ?? "Billing restrictions would stop a launch. Review and approve this billing setup, or change its source and recheck.";
@@ -4108,7 +4169,7 @@ export class Engine {
   close(): void {
     this.closed = true;
     this.abort.abort();
-    this.defaultsWatch?.close();
+    if (this.settingsTimer) clearInterval(this.settingsTimer);
     if (this.takeoverTimer) clearInterval(this.takeoverTimer);
     if (this.recoveredTimer) clearInterval(this.recoveredTimer);
     this.offClaude?.();
@@ -5053,7 +5114,7 @@ export class Engine {
       };
       const delivery = await this.deliveryDecision(options.press === true, signal);
       await this.bringBaseBranchesUpToDate(signal);
-      return discoverCompletedPlan({ agentId: this.auditsAgent, codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, delivery, observeInput, label: (name) => this.labelOf(name) });
+      return discoverCompletedPlan({ agentId: this.preflightPrAgent, codex: this.options.tools.codex, record: this.record, directory: this.stateDirectory, shared: expandHome(this.paths.mainCheckoutPath), git: { ...this.git, signal }, attemptedAt, delivery, observeInput, label: (name) => this.labelOf(name) });
     }).then(check => {
       if (this.stopping || this.closed) return check;
       const pendingAuthority = readPendingAuthority(this.stateDirectory, this.record);
@@ -6049,7 +6110,7 @@ export class Engine {
    * fallback included) and where to change it. Read before the stop drops the decision.
    *
    *   this.launchStopFact("2", "Codex is not signed in.")
-   *   // "Codex is not signed in. This launch was on Codex · GPT Sol · xhigh. Chosen from: The fallback, from Model defaults' Fallback column. Change it in Model defaults."
+   *   // "Codex is not signed in. This launch was on Codex · GPT Sol · xhigh. Chosen from: The fallback, from the Standard row's Fallback column in Model defaults. Change it in Model defaults."
    *
    * A launch the agent refused once its process ran passes that session, whose saved decision names the choice.
    */
@@ -6059,13 +6120,13 @@ export class Engine {
     // A started activity names what it started on, and no place to change it ("A choice that can't be used").
     const started = this.startedSessionOf(key);
     if (started) return `${message} It started on ${named(started)}, which it finishes on.`;
-    if (launched?.launch) return `${message} This launch was on ${named({ agentId: launched.agentId, modelDisplayName: launched.modelDisplayName, effort: launched.effort })}. Chosen from: ${launchSource(key, launched.launch)}`;
+    if (launched?.launch) return `${message} This launch was on ${named({ agentId: launched.agentId, modelDisplayName: launched.modelDisplayName, effort: launched.effort })}. Chosen from: ${this.launchSourceOf(key, launched.launch)}`;
     const decided = this.decisions.get(key);
-    if (decided) return `${message} This launch was on ${named(decided.choice)}. Chosen from: ${launchSource(key, decided.launch)}`;
+    if (decided) return `${message} This launch was on ${named(decided.choice)}. Chosen from: ${this.launchSourceOf(key, decided.launch)}`;
     // At Check again no launch has decided yet: its next launch starts from its current choice.
     const choice = this.notStartedChoice(key);
     if (!choice.modelName || choice.problem) return message;
-    return `${message} Its next launch runs on ${named(choice)}. Chosen from: ${launchSource(key, { from: choice.from })}`;
+    return `${message} Its next launch runs on ${named(choice)}. Chosen from: ${this.launchSourceOf(key, launchRecord(choice))}`;
   }
 
 
@@ -6139,7 +6200,7 @@ export class Engine {
 
   preflightActivity(key: string): PreflightActivity | undefined { return preflightActivity(this.record, key); }
 
-  private resolvePreflightSkill(agent: AgentId = this.auditsAgent): Promise<SkillResolution> {
+  private resolvePreflightSkill(agent: AgentId = this.preflightPrAgent): Promise<SkillResolution> {
     return resolveSkill({ name: PREFLIGHT_SKILL, agent, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), cwd: this.sessionFolder, env: this.options.env, signal: this.abort.signal });
   }
 
@@ -6546,11 +6607,11 @@ export class Engine {
    * stop's key can be an earlier, finished audit; any other failure keeps its own message.
    *
    *   this.readinessFact(new AuditSkillUnresolved("Enable exactly one delivery-audit skill in …"))
-   *   // "The audits, preflight and pull request session run on Codex · GPT Sol · high from Model defaults (Audits row): Enable exactly one delivery-audit skill in … Change the Audits row in Model defaults, or …"
+   *   // "The audits run on Codex · GPT Sol · high from Model defaults (Audits row): Enable exactly one delivery-audit skill in … Change the Audits row in Model defaults, or …"
    */
   private readinessFact(error: unknown): string {
     const message = (error as Error).message;
-    return error instanceof AuditSkillUnresolved ? choiceStopFact({ ...this.notStartedChoice(PR_PHASE_KEY), problem: message }, PR_PHASE_KEY) : message;
+    return error instanceof AuditSkillUnresolved ? choiceStopFact({ ...this.notStartedChoice(PLANNED_AUDITS_KEY), problem: message }, PLANNED_AUDITS_KEY) : message;
   }
 
   private async allocateAudit(kind: AuditKind, continuation = false, withoutSkill = false): Promise<AuditActivity> {
@@ -6861,7 +6922,7 @@ export class Engine {
   }
 
   private preparationContext() {
-    return { agentId: this.record.preparation ? this.agentOf(this.record.preparation.phaseId) : this.auditsAgent, record: this.record, stateDirectory: this.stateDirectory, git: this.git, env: this.options.env, signal: this.abort.signal, codex: this.options.tools.codex, sessionId: this.record.preparation && this.latestSession(this.record.preparation.phaseId)?.sessionId, transcriptPath: this.record.preparation ? findTranscripts(claudeConfigFolder(this.options.env), this.latestSession(this.record.preparation.phaseId)?.sessionId ?? "").main : undefined, authorizeCommands: () => this.authorizePreparationCommands(), save: () => { this.writeContinuationMetadata(() => this.save()); this.changed(); }, now: () => this.now().toISOString(), label: (name: string) => this.labelOf(name) };
+    return { agentId: this.record.preparation ? this.agentOf(this.record.preparation.phaseId) : this.preflightPrAgent, record: this.record, stateDirectory: this.stateDirectory, git: this.git, env: this.options.env, signal: this.abort.signal, codex: this.options.tools.codex, sessionId: this.record.preparation && this.latestSession(this.record.preparation.phaseId)?.sessionId, transcriptPath: this.record.preparation ? findTranscripts(claudeConfigFolder(this.options.env), this.latestSession(this.record.preparation.phaseId)?.sessionId ?? "").main : undefined, authorizeCommands: () => this.authorizePreparationCommands(), save: () => { this.writeContinuationMetadata(() => this.save()); this.changed(); }, now: () => this.now().toISOString(), label: (name: string) => this.labelOf(name) };
   }
 
   /** Adapter shutdown has drained the scanner; every retained owner must also exit. */
@@ -7050,8 +7111,11 @@ export class Engine {
     }
     // The launch decision is saved on the session before its process starts (Kiln Phase Model Tiers, "The launch decision").
     const decided = this.decisions.get(phaseKey);
-    if (decided || session.launch) {
-      if (decided) session.launch = decided.launch; else delete session.launch;
+    // A merge or a push after delivery takes no launch decision; one that launches on its fallback because the fallback is used for everything records that, as every activity does (AC-WHEN-03).
+    const afterDelivery = !decided && !this.choiceActivity(phaseKey) && !this.startedSessionOf(phaseKey) ? this.notStartedChoice(phaseKey) : undefined;
+    const launch = decided?.launch ?? (afterDelivery?.everything ? launchRecord(afterDelivery) : undefined);
+    if (launch || session.launch) {
+      if (launch) session.launch = launch; else delete session.launch;
       writeSessionRecord(this.options.stateDirectory, session);
     }
     // Every launch says how its run started, including a reused record a carry-on left (run restart "A session record with no run").
@@ -10684,26 +10748,54 @@ export class Engine {
   }
 }
 
-/** Model defaults' row names, as a stop names where a choice came from. */
-const ROW_NAMES = { demanding: "Demanding", standard: "Standard", mechanical: "Mechanical", audits: "Audits" } as const;
-
 /** An audit skill that doesn't resolve on the Audits choice's agent, carrying the resolver's message. */
 class AuditSkillUnresolved extends Error {}
 
 /**
- * A choice that can't be used, as its stop names it (AC-PICK-06): the choice, where it came from
- * and where to change it, then why.
+ * A choice that can't be used, as its stop names it (AC-PICK-06; Kiln Model Modes, "Resolving a
+ * Choice"): whose choice it is, the choice, where it came from, why it can't be used, and where
+ * to change it. The audits are one subject; the preflight and the pull request session another,
+ * on the Preflight and pull request row (AC-ROW-01); the merge and a plan push each their own.
  *
  *   choiceStopFact(choice, "2")  // "Phase 2 runs on Claude Code · Fable · high from Model defaults (Demanding row): Claude Code doesn't offer Fable on this account. Change the Demanding row in Model defaults."
- *   choiceStopFact(choice, "pr") // "The audits, preflight and pull request session run on Claude Code · Opus · high from Model defaults (Audits row): …"
+ *   choiceStopFact(choice, "pr") // "The preflight and the pull request session run on Claude Code · Opus · medium from Model defaults (Preflight and pull request row): …"
  */
 export function choiceStopFact(choice: ActivityChoice, key: string): string {
-  const who = key === PR_PHASE_KEY || !isPhaseKey(key) ? "The audits, preflight and pull request session" : `Phase ${key}`;
+  const group = activityGroup(key);
+  const who = group === "phase" ? `Phase ${key}` : group === "audits" ? "The audits" : group === "preflight_pr" ? "The preflight and the pull request session" : key === MERGE_KEY ? "The merge session" : "The push session";
   const named = [AGENT_NAMES[choice.agentId], choice.modelName, choice.effort].filter(Boolean).join(" · ");
-  const row = choice.row ? ROW_NAMES[choice.row] : undefined;
-  const from = choice.from === "changed" ? "a change for this PRD" : `Model defaults${row ? ` (${row} row)` : ""}`;
-  const where = !who.startsWith("Phase") ? auditsChangePlace(choice.from) : choice.from === "changed" ? "Change it on its row in the phase plan." : `Change ${row ? `the ${row} row` : "it"} in Model defaults.`;
-  return `${who} ${who.startsWith("Phase") ? "runs" : "run"} on ${named || "a choice"} from ${from}: ${choice.problem} ${where}`;
+  // A choice taken from a row carries it; any other source names no row, and the activity's own stands in.
+  const row = choice.row ?? (group === "phase" ? "standard" : group === "audits" ? "audits" : "preflight_pr");
+  const origin = choiceOrigin({ key, from: choice.from, row, ownSettings: choice.ownSettings, fallback: choice.everything ? "everything" : undefined });
+  // Where the settings in force can't be read, the reason names the file and its remedy; changing the choice wouldn't help.
+  const where = choice.settingsUnreadable ? "" : ` ${origin.where}`;
+  return `${who} ${group === "audits" || group === "preflight_pr" ? "run" : "runs"} on ${named || "a choice"} from ${origin.from}: ${choice.problem}${where}`;
+}
+
+/** How often a running Kiln reads the two settings files' revision, to notice either created, changed or removed. */
+const SETTINGS_READ_MS = 1_000;
+
+/** Why a model command or Change is refused on a finished run. */
+const RUN_COMPLETE_REASON = "The run is complete; no activity is left to change.";
+
+/** What `POST /api/model` and `kiln model` change: one phase's choice, this PRD's Audits choice, or its Preflight and pull request choice. */
+export type ModelTarget = { phase: string } | "audits" | "preflight_pr";
+
+/**
+ * The decision a launch on the resolver's choice saves (Kiln Model Modes, "Launching"): where the
+ * choice came from, whether the settings in force were the PRD's own, and, when the choice is the
+ * activity's fallback used for everything, that the setting sent it there, with its first choice
+ * and no limit or threshold.
+ *
+ *   launchRecord(choice)  // { from: "model_defaults", fallback: { used: true, forEverything: true, first: { agentId: "claude_code", model: "fable", modelName: "Fable 5.2", effort: "high" } } }
+ */
+function launchRecord(choice: ActivityChoice): NonNullable<SessionRecord["launch"]> {
+  return {
+    from: choice.from,
+    ...(choice.claudeCodeMissing ? { claudeCodeMissing: true as const } : {}),
+    ...(choice.ownSettings ? { ownSettings: true as const } : {}),
+    ...(choice.everything ? { fallback: { used: true, forEverything: true as const, first: toDecisionChoice(choice.everything.first) } } : {}),
+  };
 }
 
 function codexNotDispatched(run: SessionRun): boolean {
@@ -10758,10 +10850,12 @@ function toDecisionChoice(choice: ResolvedChoice): DecisionChoice {
  *
  *   fallbackStartLine("Phase 2", session, fallback)
  *   // "Phase 2 started on the fallback, Codex · GPT Astra 1 · high: Claude Code's Weekly read 97%, at or above the 95% threshold, so it didn't start on Claude Code · Fable 5 · high. It finishes on Codex."
+ *   // "Phase 2 started on the fallback, Codex · GPT Astra 1 · high: the fallback is used for everything, so it didn't start on Claude Code · Fable 5 · high. It finishes on Codex."
  */
 export function fallbackStartLine(name: string, session: SessionRecord, fallback: LaunchFallback): string {
   const ran = { agentId: session.agentId ?? "claude_code", modelName: session.modelDisplayName, ...(session.effort ? { effort: session.effort } : {}) };
-  const limit = fallback.limit.percent === undefined ? limitWords(fallback.limit) : `${limitWords(fallback.limit)}, at or above the ${fallback.threshold}% threshold`;
+  // With the fallback used for everything, the setting is the reason, in place of a limit reading (AC-WHEN-03).
+  const limit = !fallback.limit ? "the fallback is used for everything" : fallback.limit.percent === undefined ? limitWords(fallback.limit) : `${limitWords(fallback.limit)}, at or above the ${fallback.threshold}% threshold`;
   return `${name} started on the fallback, ${choiceWords(ran)}: ${limit}${fallback.first ? `, so it didn't start on ${choiceWords(fallback.first)}` : ""}. It finishes on ${AGENT_NAMES[ran.agentId]}.`;
 }
 

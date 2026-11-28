@@ -21,7 +21,6 @@ import { git } from "../test-support/git-repositories.js";
 import { createHarness, landingSession, waitFor } from "../test-support/engine-harness.js";
 import { startLocalServer } from "./local-server.js";
 import { serveViewFixture } from "../test-support/view-fixture-server.js";
-import { tierCountsLine } from "../../view/src/lib/models.js";
 import {
   completeRepositoriesSnapshot,
   completeSnapshot,
@@ -376,38 +375,23 @@ const WITH_AGENT_METADATA = `(() => {
 })()`;
 
 // Kiln Phase Model Tiers AC-KEEP-01 replaces the PRD-wide Agent, Model and Effort controls
-// with the model lines (AC-DEFAULT-02, AC-OTHER-01, AC-FALLBACK-01): Models with the Model
-// defaults link, the Audits choice with its Change, and the fallback line, in Documents found's
-// delivery panel and in the run's settings. Adapt only those regions of the earlier reference;
-// every other text box is compared as drawn.
-const withModelTiers = (tierLine: string | undefined) => `(() => {
+// with the Models block in Documents found's delivery panel and in the run's settings (Kiln Model
+// Modes AC-PRD-01). Adapt only those regions of the earlier reference; every other text box is
+// compared as drawn.
+const withModelTiers = `(() => {
   const el = (tag, text, style) => Object.assign(document.createElement(tag), { ...(text === undefined ? {} : { textContent: text }), style });
   const HELP = 'font-size: 12.5px; font-weight: 400; color: #8c8577; line-height: 1.55';
-  const SETTINGS_HELP = 'font-size: 12.5px; font-weight: 400; color: #8c8577; line-height: 1.5';
-  const LINK = 'color: #ede8dd; text-underline-offset: 3px';
-  const modelLines = (settings, underway, counts) => {
-    const label = settings ? 'font-size: 12.5px; font-weight: 400; color: #8c8577' : 'font-size: 13px; font-weight: 500; color: #bdb6a8';
-    const help = settings ? SETTINGS_HELP : HELP;
-    const value = 'font-size: 14.5px; color: #ede8dd';
-    const line = (...children) => { const div = el('div', undefined, 'display: flex; flex-direction: column; gap: 3px'); div.append(...children); return div; };
-    const withLink = (before, after) => { const span = el('span', undefined, help); span.append(before, el('a', 'Model defaults', LINK), after); return span; };
-    const model = el('span', undefined, 'display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; margin-top: 4px');
-    model.append(el('span', 'Claude Code · Opus 5.5 · high', 'font-size: 13.5px; color: #bdb6a8'), el('button', 'Change', 'padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: #ede8dd; text-decoration: underline; text-underline-offset: 3px'));
-    const lines = el('div', undefined, 'display: flex; flex-direction: column; gap: 14px');
-    lines.append(
-      line(el('span', 'Models', label), el('span', 'Chosen for each phase', value), ...(counts ? [el('span', counts, help)] : []), withLink(underway ? "Change any phase that hasn't started, in the phase plan. " : 'Change any phase in the phase plan. ', '')),
-      line(el('span', 'Audits', label), model, el('span', 'The preflight and the pull request session use it too.', help)),
-      line(el('span', 'If usage is nearly out', label), el('span', 'Wait for the limit', value), withLink('No fallback is switched on. Set one up in ', '.')),
-    );
-    return lines;
-  };
+  // Kiln Model Modes AC-PRD-01 replaces these lines with the Models block, drawn by that change's
+  // mockups 5 to 7 and proved in models-block-browser.integration.test.ts: an empty box holds its
+  // place here, and the view's block is emptied the same way before the layouts are compared.
+  const modelLines = () => el('div', undefined, 'display: flex; flex-direction: column');
   const model = document.querySelector('#model');
   if (model) {
     const pair = model.closest('div[style*="grid"]');
     const account = pair.firstElementChild.lastElementChild;
     for (const node of [...account.childNodes]) if (node.nodeType === 3) node.remove();
     const field = el('div', undefined, 'display: flex; flex-direction: column; gap: 6px');
-    field.append(modelLines(false, false, ${JSON.stringify(tierLine ?? "")}), account, el('span', 'Listed models do not guarantee account access.', HELP));
+    field.append(modelLines(), account, el('span', 'Listed models do not guarantee account access.', HELP));
     const refresh = el('button', 'Refresh agent information', 'display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 20px; border-radius: 999px; font-family: Inter, sans-serif; font-size: 14.5px; font-weight: 600; background: transparent; color: #ede8dd; border: 1px solid rgba(237,232,221,0.28); box-sizing: border-box');
     pair.replaceWith(field);
     field.after(refresh);
@@ -420,18 +404,18 @@ const withModelTiers = (tierLine: string | undefined) => `(() => {
   const term = [...document.querySelectorAll('dt')].find(dt => dt.textContent === 'Model and effort');
   if (term) {
     const setting = term.parentElement.parentElement;
-    setting.replaceChildren(modelLines(true, true, ''));
+    setting.replaceChildren(modelLines());
   }
   return true;
 })()`;
 
 /** The text layout of a mockup, drawn with the view's fonts, after any `addition` to it runs. */
-async function mockupLayout(mockup: string, clock: number, addition?: string, tierLine?: string): Promise<TextBox[]> {
+async function mockupLayout(mockup: string, clock: number, addition?: string): Promise<TextBox[]> {
   const drawn = await chrome.open(new URL(mockup, MOCKUPS).href, { clock, timeZone: TIME_ZONE });
   try {
     await drawn.waitFor(`document.readyState === "complete"`);
     if (addition) await drawn.evaluate(addition);
-    await drawn.evaluate(withModelTiers(tierLine));
+    await drawn.evaluate(withModelTiers);
     await drawn.evaluate(WITH_AGENT_METADATA);
     await drawn.evaluate(USE_VIEW_FONTS);
     return await drawn.evaluate<TextBox[]>(TEXT_LAYOUT);
@@ -537,7 +521,7 @@ const SCREENS: {
       "Repository acme-shop PRD folder docs/prds/customer-returns/ Customer returns Not started Review what Kiln found and how it will deliver, then start.",
       "PRD customer-returns-prd.md 14 acceptance criteria, AC-RET-01 to AC-RET-14 Technical design technical-design.md Cites all 14 criteria",
       "Every phase cites its criteria Dependencies point backward Working tree is clean",
-      `${SESSIONS_ADD} Models Chosen for each phase 4 not rated. Change any phase in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults.`,
+      `${SESSIONS_ADD} Models Recommended model for each phase Wait for the limit. No fallback is switched on. Model defaults One model for this PRD Every phase, both audits, the preflight, and the pull request, merge and push sessions. Audits Claude Code · Opus 5.5 · high Change The delivery audit and the test audit. Not a tier: they check the whole PRD.`,
       "Keep this computer awake while a session works or Kiln waits Stops idle sleep only.",
       `Kiln picks up where it left off afterwards. ${LIMIT_SETTING.label} ${LIMIT_SETTING.help}`,
       "Starting lets Kiln Commit and push to feature/customer-returns Open one pull request into develop once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page Push this PRD’s documents to develop only when you press Continue on the finished page Never deploy or touch other branches Start",
@@ -556,7 +540,7 @@ const SCREENS: {
       "Every phase cites its criteria Dependencies point backward Repositories found on this computer Working tree of product is clean",
       "Holds a worktree of each repository below, all on the feature branch. Every phase works here in turn.",
       "Used in every repository. Repositories Branch from, and PR into product PRD’s repository",
-      `${SESSIONS_ADD} Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks. Models Chosen for each phase 4 not rated. Change any phase in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults.`,
+      `${SESSIONS_ADD} Sessions follow each repository’s CLAUDE.md, but not its .claude/settings.json or hooks. Models Recommended model for each phase Wait for the limit. No fallback is switched on. Model defaults One model for this PRD Every phase, both audits, the preflight, and the pull request, merge and push sessions. Audits Claude Code · Opus 5.5 · high Change The delivery audit and the test audit. Not a tier: they check the whole PRD.`,
       "Pushes After every phase Ends at One PR in each repository that changed, ready for review. Kiln won’t merge.",
       "Starting lets Kiln In each repository, commit and push to feature/customer-returns In each repository, open one pull request into its base branch once every phase closes Merge the delivery’s pull requests only when you press Merge with Claude Code on the finished page In the PRD’s repository, push this PRD’s documents to main only when you press Continue on the finished page Never deploy or touch other branches Start",
     ],
@@ -576,7 +560,7 @@ const SCREENS: {
       "● The credit multiplier is applied before rounding; checking that against… · reviewer Details",
       "Phase plan 2 of 5 done 1 Return intake phase-1-return-intake.md 52m · pushed a1c4e09 Done Details 2 Refund routing phase-2-refund-routing.md Split into 2a, 2b 2a Card refunds phase-2a-card-refunds.md 48m · pushed 5d81b37 Done Details 2b Store credit phase-2b-store-credit.md 49m Implementing 3 Returns dashboard phase-3-returns-dashboard.md Planned 4 Restock check-in phase-4-restock-check-in.md Planned",
       "Claude account alex@acme-shop.dev Max plan · usage updated 2 min ago 5-hour window 82% Resets in 1h 12m Close to the limit. Pause after this phase to switch accounts. Weekly 41% Resets in 4d Weekly · Fable 6% Resets in 4d",
-      "Settings for this PRD A phase that has started keeps the model it started with. Models Chosen for each phase Change any phase that hasn't started, in the phase plan. Model defaults Audits Claude Code · Opus 5.5 · high Change The preflight and the pull request session use it too. If usage is nearly out Wait for the limit No fallback is switched on. Set one up in Model defaults. Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On Resume after a usage limit Switch off to finish the phase yourself; Needs you then shows how. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
+      "Settings for this PRD A phase that has started keeps the model it started with. Models Recommended model for each phase Wait for the limit. No fallback is switched on. Model defaults One model for this PRD Every phase, both audits, the preflight, and the pull request, merge and push sessions. Audits Claude Code · Opus 5.5 · high Change The delivery audit and the test audit. Not a tier: they check the whole PRD. Keep awake While a session works or Kiln waits Closing the lid can still put the computer to sleep. On Resume after a usage limit Switch off to finish the phase yourself; Needs you then shows how. On The same for every phase Worktree, feature branch, and one PR into develop, set before the first phase. Each phase builds on the one before, so they can’t change.",
       "Pause Now Stops after the command it is running, usually within seconds. Phase 2b stays open. Then either press Resume when you’re ready, or take the conversation over in your terminal. The paused page gives you the command. Pause now",
       "After phase 2b Lets the phase finish. Kiln commits, pushes and runs the completion checks, then waits before starting phase 3. Pause after phase 2b",
       "Kiln Connected Kiln is running in your terminal. Keep it open: Ctrl+C there interrupts the current phase, and kiln run picks up where it left off.",
@@ -766,7 +750,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
     it(`lays out ${screen.name} as drawn: each text where the mockup puts it, in its color, type and panel (AC-LOOK-01)`, async () => {
       const clock = screen.clock ?? RUNNING_NOW;
       const changedPause = ["running", "paused"].includes(screen.name);
-      const mockup = await mockupLayout(screen.mockup, clock, changedPause ? `${screen.addition};${LEGACY_PAUSE_LAYOUT}` : screen.addition, tierCountsLine(screen.snapshot().settings.models.tiers));
+      const mockup = await mockupLayout(screen.mockup, clock, changedPause ? `${screen.addition};${LEGACY_PAUSE_LAYOUT}` : screen.addition);
       const { server, page } = await openScreen(screen.snapshot(), screen.path ?? "", clock);
       try {
         await page.waitFor(`document.body.innerText.includes(${JSON.stringify(screen.copy[0]!.split(" ").slice(-3).join(" "))})`);
@@ -789,6 +773,7 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
         // the Audit loops section and the effort note; the rest of each layout is compared as drawn.
         // The added sections are covered in view/src/screens/audit-loops-screens.test.ts.
         await page.evaluate("document.querySelectorAll('fieldset.loops, .effort-default').forEach(element => element.remove())");
+        await page.evaluate("document.querySelectorAll('[data-models-block]').forEach(element => element.replaceChildren())");
         const decided = mockup.map((box) => ({ ...box, text: screen.decided?.[box.text] ?? box.text }));
         expect(layoutDifferences(decided, await page.evaluate<TextBox[]>(TEXT_LAYOUT))).toEqual([]);
       } finally {
@@ -812,6 +797,8 @@ describe("each screen in a real browser, from its mockup's sample data", () => {
       await page.evaluate(FONTS_LOADED);
       // The settings panel's Audit loops section is Kiln Audit Loop Limits' addition (AC-LOOP-01); the rest is compared as drawn.
       await page.evaluate("document.querySelectorAll('fieldset.loops').forEach(element => element.remove())");
+      // The Models block is Kiln Model Modes' (AC-PRD-01), emptied here as the mockup's region is.
+      await page.evaluate("document.querySelectorAll('[data-models-block]').forEach(element => element.replaceChildren())");
       expect(layoutDifferences(mockup, await page.evaluate<TextBox[]>(TEXT_LAYOUT))).toEqual([]);
     } finally {
       await page.close();
@@ -1527,8 +1514,8 @@ describe("the controls, in a real browser", () => {
   it("shows models as chosen for each phase with only the Audits line's Change, and saves keep-awake with its checkbox at once (AC-VIEW-08, UI-009)", async () => {
     const { server, page } = await openScreen(runningSnapshot());
     try {
-      await page.waitFor(`document.body.innerText.includes("Chosen for each phase")`);
-      expect(await words(page)).toContain(flat("Models Chosen for each phase Change any phase that hasn't started, in the phase plan. Model defaults"));
+      await page.waitFor(`document.body.innerText.includes("Recommended model for each phase")`);
+      expect(await words(page)).toContain(flat("Models Recommended model for each phase Wait for the limit. No fallback is switched on. Model defaults One model for this PRD"));
       expect(await page.evaluate(`[...document.querySelectorAll("button")].filter(button => button.textContent.trim() === "Change").map(button => button.closest(".line")?.textContent.includes("Audits"))`)).toEqual([true]);
       await page.evaluate(`document.querySelector('input[type="checkbox"]').click()`);
       await waitUntil(() => server.commands.length === 1);

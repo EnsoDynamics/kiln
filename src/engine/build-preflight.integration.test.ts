@@ -18,9 +18,13 @@ import { buildSnapshot, documentsFound } from "./snapshot.js";
 import { Engine } from "./engine.js";
 import { createCometContinuation } from "../test-support/comet-continuation-fixture.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
+import { rowModelTarget } from "../../view/src/lib/models.js";
 
 /** The planned Preflight row shows the Audits choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row"). */
-const AUDITS_PLANNED = { state: "will_run_on", from: "model_defaults", choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "high" } };
+/** The planned Preflight row on a finished run's Continue offer: the Preflight and pull request row's choice, with no Change once the run is complete (Kiln Model Modes AC-ROW-01). */
+const CONTINUE_PLANNED = { state: "will_run_on", from: "model_defaults", choice: { agentId: "claude_code", agent: "Claude Code", model: "opus", modelName: "Opus 5.5", effort: "medium" } };
+/** The planned Preflight row before and during a run: the same choice, with Change on the row. */
+const PREFLIGHT_PLANNED = { ...CONTINUE_PLANNED, change: { available: true } };
 const plain = { green: (s: string) => s, amber: (s: string) => s, red: (s: string) => s, grey: (s: string) => s, bold: (s: string) => s } as unknown as Parameters<typeof formatTerminalEvent>[2];
 let harness: Harness | undefined;
 afterEach(async () => { await harness?.cleanup(); harness = undefined; });
@@ -66,7 +70,7 @@ const terminal = (h: Harness) => h.events.map(event => formatTerminalEvent(event
 describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01, AC-PREFLIGHT-02, AC-PREFLIGHT-08)", () => {
   it("runs first after Start, goes straight on when ready, and its row says what it found", async () => {
     const h = await fixture([ready]);
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: AUDITS_PLANNED } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: PREFLIGHT_PLANNED } });
     expect(await h.engine.start({ refinementConfirmed: true })).toMatchObject({ ok: true });
     await h.engine.settled();
     const all = prompts(h);
@@ -135,7 +139,7 @@ describe("the preflight comes before anything else the run does (AC-PREFLIGHT-01
     writeFileSync(release, "");
     await waitFor(() => h.engine.record.pause.activeSince !== undefined);
     await h.engine.settled();
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "2b", model: AUDITS_PLANNED } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "2b", model: PREFLIGHT_PLANNED } });
     expect(await h.engine.start()).toMatchObject({ ok: true });
     await h.engine.settled();
     const all = prompts(h);
@@ -196,6 +200,21 @@ describe("items stop the run at Needs you (AC-PREFLIGHT-03)", () => {
     expect(prompts(h)[1]).toContain("phase-1-return-intake.md");
     expect(preflightRows(h.engine)[0]).toMatchObject({ state: "done", waivedChecks: 1, preflight: { outcome: "items" } });
     expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  it("offers the Preflight and pull request choice through the pull request row's Change at the stop, and a change there reaches the pull request session (Kiln Model Modes AC-ROW-01)", async () => {
+    const h = await fixture([items]);
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.preflightStopKey()).toMatch(/^preflight-/);
+    const prRow = () => (buildSnapshot(h.engine).activities ?? []).find(one => one.id === "planned-pull-request")!;
+    expect(prRow()).toMatchObject({ kind: "final_delivery", state: "planned", model: { from: "model_defaults", change: { available: true } } });
+    expect(rowModelTarget(prRow())).toBe("preflight_pr");
+    expect(await h.engine.changeModel("preflight_pr", { agentId: "claude_code", model: "haiku", effort: "low" })).toEqual({ ok: true });
+    expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "haiku", effort: "low", from: "changed" });
+    expect(prRow().model).toMatchObject({ choice: { modelName: "Haiku 5.5", effort: "low" }, from: "changed", useDefault: true });
+    // The audits keep their own row's choice.
+    expect(h.engine.notStartedChoice("audit-planned")).toMatchObject({ model: "opus", effort: "high", from: "model_defaults", row: "audits" });
   });
 
   it("Check Preflight again starts a fresh session under the same activity and reads its report as it read the first", async () => {
@@ -312,7 +331,7 @@ describe("Resume runs a preflight only while none has settled (AC-PREFLIGHT-01, 
 
   it("one after Resume following no report, run ahead of the interrupted phase and drawn directly above its row", async () => {
     const h = await interruptedRun([noReport, ready]);
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "1", model: AUDITS_PLANNED } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "1", model: PREFLIGHT_PLANNED } });
     await h.engine.start();
     await waitFor(() => (h.engine.record.preflight?.activities.length ?? 0) === 2);
     await h.engine.settled();
@@ -522,10 +541,10 @@ describe("hardening: Continue runs a preflight before the first added phase (AC-
     h.engine = new Engine({ paths: { ...h.engine.paths, repositoryName: "comet-library" }, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, record: readPrdRecord(h.stateDirectory)!, sleepReader: { next: async () => [] }, originRetryMs: 0 });
     await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     await h.engine.checkCompletedPlan();
-    // A kept choice equal to Kiln's current default is dropped by the continuation, so the row shows the Audits row's choice.
+    // A kept choice equal to Kiln's current default is dropped by the continuation, so the row shows the Preflight and pull request row's choice.
     h.engine.record.settings.modelChoices.kept = { agentId: "claude_code", model: "opus", effort: "medium" };
     h.engine.modelChoicesChanged();
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: AUDITS_PLANNED } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: CONTINUE_PLANNED } });
     // Any other kept choice is carried on, Changed by you.
     h.engine.record.settings.modelChoices.kept = { agentId: "claude_code", model: "sonnet", effort: "low" };
     h.engine.modelChoicesChanged();
@@ -541,7 +560,7 @@ describe("hardening: Continue runs a preflight before the first added phase (AC-
     await waitFor(() => !h.engine.readers.claude_code.state.pending && !h.engine.billing.pending && !h.engine.billing.busy);
     const before = h.claudeCalls().length;
     const check = await h.engine.checkCompletedPlan();
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: AUDITS_PLANNED } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: CONTINUE_PLANNED } });
     expect((await h.engine.continuationCommand("accept", { proposalId: check.result!.proposal!.id, commandId: "continue-with-preflight", executionId: h.engine.record.executionId!, statusToken: h.engine.controlView().token })).ok).toBe(true);
     await waitFor(() => h.claudeCalls().length >= before + 2);
     const after = prompts(h).slice(before);
@@ -598,7 +617,7 @@ describe("test audit: where the row sits and what opening it shows (AC-PREFLIGHT
     harness = await createHarness({ sessions: [], preflight: true, files: closing(...closed) });
     const h = await fixture([]);
     await h.engine.refreshAgents();
-    expect(buildSnapshot(h.engine, found(h)).preflight).toEqual({ planned: { before, model: AUDITS_PLANNED } });
+    expect(buildSnapshot(h.engine, found(h)).preflight).toEqual({ planned: { before, model: PREFLIGHT_PLANNED } });
   });
 
   it("the run's plan draws the row directly above the first open phase, below the closed one, on a branch with closed phases", async () => {

@@ -9,6 +9,7 @@
   import TopBar from "./components/TopBar.svelte";
   import { newerVersion, type PageConfig } from "./lib/api.js";
   import { Connection } from "./lib/connection.svelte.js";
+  import { modelDefaultsDraft } from "./lib/model-defaults-draft.svelte.js";
   import { Router } from "./lib/router.svelte.js";
   import { setViewContext } from "./lib/view-context.js";
   import Complete from "./screens/Complete.svelte";
@@ -52,7 +53,7 @@
     }
   });
   const connected = $derived(connection.connected);
-  // The Model defaults file's revision; the Model defaults page reads the file again when it changes.
+  // Both settings files' revision; the Model defaults page reads them again when it changes.
   const modelsKey = $derived(snapshot?.settings.models.revision ?? "");
   const lastSeenAt = $derived(connection.lastEventAt);
 
@@ -76,6 +77,10 @@
     if (router.route.screen === "phase" && snapshot && connected && phaseScreen === undefined) router.replace(config.base);
   });
 
+  // Unsaved changes on Model defaults are kept in page memory, so reloading, closing the tab or
+  // leaving Kiln's address would lose them: the browser asks first (Kiln Model Modes AC-SAVE-02).
+  const beforeUnload = (event: BeforeUnloadEvent) => { if (modelDefaultsDraft.pending) { event.preventDefault(); event.returnValue = ""; } };
+
   let latest = $state<string | undefined>();
   onMount(() => {
     connection.open();
@@ -89,6 +94,8 @@
     clearInterval(ticker);
   });
 </script>
+
+<svelte:window onbeforeunload={beforeUnload} />
 
 <div class="page">
   <TopBar {connected} lastEventAt={lastSeenAt} {now} home={config.base} {router} {latest} exited={!!connection.exited} />
@@ -115,8 +122,8 @@
       <div class="command-notice" role="status"><div><strong>Added work accepted</strong><p>Phases {notice.addedPhaseIds.join(", ")} added · {notice.remainingCount} unfinished phases remain.</p><p>Plan: {notice.source}</p></div></div>
     {/if}
     {#if router.route.screen === "model-defaults"}
-      <!-- Model defaults, a page of its own for every PRD on this computer (Kiln Phase Model Tiers AC-DEFAULT-02). -->
-      <ModelDefaults featureName={snapshot.feature.name} {connected} changed={modelsKey} />
+      <!-- Model defaults, a page of its own: the settings in force for this PRD, its own or every PRD's (Kiln Phase Model Tiers AC-DEFAULT-02; Kiln Model Modes AC-SAVE-05). -->
+      <ModelDefaults featureName={snapshot.feature.name} {connected} changed={modelsKey} agents={snapshot.agents} />
     {:else if phaseScreen !== undefined}
       {#key phaseScreen}<PhaseDetail {snapshot} phaseId={phaseScreen} {connected} {now} {lastSeenAt} />{/key}
     {:else if snapshot.feature.state === "folder_missing" && snapshot.folderMissing}

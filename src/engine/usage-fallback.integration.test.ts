@@ -256,7 +256,7 @@ describe("a Codex first choice falls back to Claude Code (AC-FALLBACK-02, AC-FAL
     await waitFor(() => h.engine.isPhaseDone("1") || h.engine.stoppedPhaseKey() !== undefined);
     const session = h.engine.sessionRecord("1", h.engine.record.phases["1"]!.sessionIds[0]!)!;
     expect(session).toMatchObject({ agentId: "claude_code", model: "sonnet", launch: { fallback: { used: true, limit: { agentId: "codex", label: "ordinary usage blocked" }, threshold: 95, first: { agentId: "codex", model: "gpt-6.1-sol" } } } });
-    expect(session.launch!.fallback!.limit.percent).toBeUndefined();
+    expect(session.launch!.fallback!.limit!.percent).toBeUndefined();
     expect(codex!.calls().some(call => call.method === "thread/start")).toBe(false);
     expect(h.engine.isPhaseDone("1")).toBe(true);
     expect(row(h.engine, "1").model).toMatchObject({ state: "ran_on", choice: { agent: "Claude Code" }, fallback: { used: true, limit: { agent: "Codex", label: "ordinary usage blocked" } } });
@@ -276,7 +276,7 @@ describe("a Codex first choice falls back to Claude Code (AC-FALLBACK-02, AC-FAL
     expect(h.engine.stoppedPhaseKey()).toBe("1");
     expect(h.engine.startedSessionOf("1")).toBeUndefined();
     expect(h.engine.latestSession("1")).toMatchObject({ agentId: "claude_code", launch: { fallback: { used: true } } });
-    expect(buildSnapshot(h.engine).needsYou?.choiceSource).toBe("The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    expect(buildSnapshot(h.engine).needsYou?.choiceSource).toBe("The fallback, from the Standard row's Fallback column in Model defaults. Change it in Model defaults.");
     // The stop also carries the fallback's agent, model and effort, which its Needs you line names.
     expect(buildSnapshot(h.engine).needsYou).toMatchObject({ agent: "Claude Code", model: h.engine.latestSession("1")!.modelDisplayName, effort: "high" });
     expect(h.engine.latestSession("1")).toMatchObject({ model: "sonnet" });
@@ -301,13 +301,13 @@ describe("a fallback whose launch check fails after the decision (AC-PICK-06, \"
     expect(h.engine.stoppedPhaseKey()).toBe("1");
     expect(h.engine.latestSession("1")).toBeUndefined();
     const facts = buildSnapshot(h.engine).needsYou!.checks.flatMap(check => check.facts.map(fact => typeof fact === "string" ? fact : (fact as { text: string }).text));
-    expect(facts).toContain("Codex isn't signed in. Run codex login. This launch was on Codex · GPT-6.1-Sol · high. Chosen from: The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    expect(facts).toContain("Codex isn't signed in. Run codex login. This launch was on Codex · GPT-6.1-Sol · high. Chosen from: The fallback, from the Standard row's Fallback column in Model defaults. Change it in Model defaults.");
     expect(codex!.calls().some(call => call.method === "thread/start")).toBe(false);
     expect(h.claudeCalls()).toEqual([]);
     // Check again launches again: the decision names the fallback once more and the same check fails, so the stop names it again.
     await h.engine.checkAgain(recoveryRequest(h.engine, "verify")).catch(() => undefined); await h.engine.settled();
     expect(h.engine.stoppedPhaseKey()).toBe("1");
-    expect(stopFacts(h.engine)).toContain("Codex isn't signed in. Run codex login. This launch was on Codex · GPT-6.1-Sol · high. Chosen from: The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+    expect(stopFacts(h.engine)).toContain("Codex isn't signed in. Run codex login. This launch was on Codex · GPT-6.1-Sol · high. Chosen from: The fallback, from the Standard row's Fallback column in Model defaults. Change it in Model defaults.");
   });
 
   it("names the first choice at a launch on it, and at a Check again that still fails, its next launch's choice", async () => {

@@ -10,7 +10,7 @@ import { prdTreeAtHead } from "./worktree-setup.js";
 import { Engine } from "./engine.js";
 import { buildSnapshot } from "./snapshot.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
-import { runPrdOn, writeModelDefaults } from "../test-support/model-choices.js";
+import { runPrdOn, writeModelDefaults, writeSettings } from "../test-support/model-choices.js";
 
 let h: Harness | undefined;
 let f: ReturnType<typeof codexWorkFixture> | undefined;
@@ -52,7 +52,7 @@ describe("an older method under Codex is not an error (AC-PREFLIGHT-05)", () => 
     expect(h.engine.readers.codex.state.optionalSkills).toEqual({ buildPreflight: true });
     // With no Documents found passed, the planned row has no activity to sit above.
     // It reads Will run on with the PRD's Codex choice (Kiln Phase Model Tiers AC-PICK-02).
-    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: { state: "will_run_on", from: "changed", choice: { agentId: "codex", agent: "Codex", model: "gpt-6.1-sol", modelName: "GPT-6.1-Sol", effort: "high" } } } });
+    expect(buildSnapshot(h.engine).preflight).toEqual({ planned: { before: "end", model: { state: "will_run_on", from: "changed", choice: { agentId: "codex", agent: "Codex", model: "gpt-6.1-sol", modelName: "GPT-6.1-Sol", effort: "high" }, change: { available: true }, useDefault: true } } });
     h.engine.start({ refinementConfirmed: true }).catch(() => {});
     await waitFor(() => turns(f).length >= 1);
     expect(turns(f)[0]).toContain("Run the Enso Method's build preflight");
@@ -115,5 +115,55 @@ describe("the installed method checked is the preflight's own agent, from its Au
     expect(h.engine.record.preflight!.activities).toHaveLength(1);
     expect(turns(f).some(turn => turn.includes("Run the Enso Method's build preflight"))).toBe(false);
     await h.engine.settled();
+  });
+});
+
+/**
+ * A run on both agents with a schema 2 Model defaults file: the phases and Audits on `audits`'
+ * agent, the Preflight and pull request row on `preflightPr`'s, and `build-preflight` installed
+ * only in `skillIn`'s method.
+ */
+async function rowsRun(audits: "claude_code" | "codex", preflightPr: "claude_code" | "codex", skillIn: "claude_code" | "codex") {
+  h = await createHarness({ sessions: [], preflight: skillIn === "claude_code" });
+  f = codexWorkFixture();
+  Object.assign(h.tools, { codex: f.options.executable });
+  f.configureEnvironment(h.env);
+  f.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, additionalSkills: skillIn === "codex" ? ["build-preflight"] : [] });
+  const codex = { agentId: "codex" as const, family: "sol", effort: "high" };
+  const claude = { agentId: "claude_code" as const, family: "sonnet", effort: "high" };
+  const on = (agent: "claude_code" | "codex") => agent === "codex" ? { first: codex, fallback: claude } : { first: claude, fallback: codex };
+  writeSettings(h.env, { rows: { demanding: on(audits), standard: on(audits), mechanical: on(audits), audits: on(audits), preflight_pr: on(preflightPr) } });
+  h.engine.close();
+  const prdTree = await prdTreeAtHead({ git: h.tools.git, env: h.env }, h.repository, h.engine.paths.prdDirectoryFromRoot);
+  h.engine = new Engine({ prdTree: prdTree!, paths: h.engine.paths, record: h.engine.record, tools: h.tools, env: h.env, stateDirectory: h.stateDirectory, originRetryMs: 0, sleepReader: { next: async () => [] } });
+  const read = readPlanAt(h.repository, "docs/prds/customer-returns");
+  if (read.ok) h.engine.record.plan = recordedPlan(read.plan);
+  h.engine.modelChoicesChanged();
+  await h.engine.refreshAgents();
+  expect(h.engine.selectionError).toBeUndefined();
+  expect([h.engine.auditsAgent, h.engine.preflightPrAgent]).toEqual([audits, preflightPr]);
+  return { h, f };
+}
+
+describe("the installed method checked is the Preflight and pull request row's agent, not the Audits row's (Kiln Model Modes AC-ROW-01)", () => {
+  it("Audits on Claude Code, the new row on Codex, the skill only in Codex's method: the Preflight row shows and the preflight launches on Codex", async () => {
+    const { h, f } = await rowsRun("claude_code", "codex", "codex");
+    expect(h.engine.readers.claude_code.state.optionalSkills).toEqual({ buildPreflight: false });
+    expect(h.engine.readers.codex.state.optionalSkills).toEqual({ buildPreflight: true });
+    expect(buildSnapshot(h.engine).preflight).toMatchObject({ planned: { model: { state: "will_run_on", choice: { agentId: "codex" } } } });
+    h.engine.start({ refinementConfirmed: true }).catch(() => {});
+    await waitFor(() => turns(f).length >= 1);
+    expect(turns(f)[0]).toContain("Run the Enso Method's build preflight");
+    expect(h.engine.record.preflight!.activities).toHaveLength(1);
+    expect(claudePrompts(h).some(prompt => prompt.startsWith("Run the Enso Method's build preflight"))).toBe(false);
+    await h.engine.settled();
+  });
+
+  it("Audits on Codex, the new row on Claude Code, the skill only in Codex's method: no Preflight row, and the first session is Phase 1", async () => {
+    const { h } = await rowsRun("codex", "claude_code", "codex");
+    expect(h.engine.readers.claude_code.state.optionalSkills).toEqual({ buildPreflight: false });
+    expect(h.engine.readers.codex.state.optionalSkills).toEqual({ buildPreflight: true });
+    expect(buildSnapshot(h.engine).preflight).toBeUndefined();
+    expect((buildSnapshot(h.engine).activities ?? []).some(row => row.kind === "preflight")).toBe(false);
   });
 });

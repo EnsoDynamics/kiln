@@ -35,6 +35,52 @@ export function rowModelLine(model: ModelView, underway: boolean): string | unde
 /** The note beside a choice Kiln filled in from the Fallback column because Claude Code isn't installed (AC-DEFAULT-04). */
 export const CLAUDE_CODE_MISSING_NOTE = "Claude Code isn't installed, so this runs on its Codex choice.";
 
+/**
+ * Why a row has no fallback while the fallback is used for everything (Kiln Model Modes AC-WHEN-02,
+ * "Snapshot"; mockup 7, state B): the person's own choice is on the fallback's agent, or Claude
+ * Code isn't installed and the row already runs on its Codex choice. A row of the settings in force
+ * can't put both sides on one agent, so there is no third case.
+ *
+ *   noFallbackNote({ noFallback: true, from: "changed" })  // "No fallback: the model you picked is on the same agent as its fallback."
+ */
+export function noFallbackNote(model: Pick<ModelView, "noFallback" | "claudeCodeMissing">): string | undefined {
+  if (!model.noFallback) return undefined;
+  return model.claudeCodeMissing ? "No fallback: Claude Code isn't installed, so this already runs on its Codex choice." : "No fallback: the model you picked is on the same agent as its fallback.";
+}
+
+/** What a row's Change sets: one phase's choice, this PRD's Audits choice, or its Preflight and pull request choice. */
+export type ModelTarget = { phase: string } | "audits" | "preflight_pr";
+
+/**
+ * What a plan row's Change targets (Kiln Model Modes, "HTTP"): a Delivery audit or Test audit row
+ * the Audits choice; a Preflight or pull request row the Preflight and pull request choice,
+ * whatever phase id it also carries; a phase its own. A merge or push row offers none.
+ *
+ *   rowModelTarget({ id: "pr", kind: "final_delivery" })  // "preflight_pr"
+ */
+export function rowModelTarget(row: { id: string; kind?: string | undefined; plannedActivity?: boolean | undefined }): ModelTarget | undefined {
+  if (row.kind === "delivery_audit" || row.kind === "test_audit") return "audits";
+  if (row.kind === "preflight" || row.kind === "final_delivery") return "preflight_pr";
+  return (row.kind === undefined || row.kind === "implementation") && !row.plannedActivity ? { phase: row.id } : undefined;
+}
+
+type ModelSettings = Snapshot["settings"]["models"];
+
+/**
+ * The threshold limits are marked against, only while the threshold setting is in force: not under
+ * one model, Never or For everything (Kiln Model Modes, "Launching").
+ *
+ *   thresholdInForce({ mode: "recommended", fallback: { use: "threshold", threshold: 95, … } })  // 95
+ */
+export function thresholdInForce(models: Pick<ModelSettings, "mode" | "fallback">): number | undefined {
+  return models.mode === "recommended" && models.fallback.use === "threshold" ? models.fallback.threshold : undefined;
+}
+
+/** Where the settings in force are set, as an explanation names it. */
+function settingsPlace(models: Pick<ModelSettings, "source"> | undefined): string {
+  return models?.source === "prd" ? "this PRD's own settings" : "Model defaults";
+}
+
 /** What an information control shows (AC-TIER-02's table). */
 export interface TierExplanation { heading: string; body: string; source?: string }
 
@@ -46,28 +92,22 @@ const FROM_LINE = "From the phase document's Model tier line.";
  *
  *   tierExplanation({ value: "mechanical", reason: "Repeats phase 1's label builder." })
  *   // { heading: "Why this phase is mechanical", body: "Repeats phase 1's label builder.", source: "From the phase document's Model tier line." }
+ *
+ * Standard says where the model is set: Model defaults, this PRD's own settings, or the one model
+ * while it runs everything (Kiln Model Modes AC-MODE-02, AC-SAVE-04).
  */
-export function tierExplanation(tier: TierView): TierExplanation {
+export function tierExplanation(tier: TierView, models?: Pick<ModelSettings, "mode" | "source">): TierExplanation {
   switch (tier.value) {
     case "demanding":
     case "mechanical":
       return { heading: `Why this phase is ${tier.value}`, body: tier.reason ?? "The phase document's Model tier line gives no reason.", source: FROM_LINE };
     case "standard":
-      return { heading: "What standard means", body: "Each phase document rates how capable a model its build needs. Standard is the usual rating, and the model for it is set in Model defaults." };
+      return { heading: "What standard means", body: models?.mode === "one_model"
+        ? `Each phase document rates how capable a model its build needs. Standard is the usual rating. One model runs everything for now, and it is set in ${settingsPlace(models)}.`
+        : `Each phase document rates how capable a model its build needs. Standard is the usual rating, and the model for it is set in ${settingsPlace(models)}.` };
     case "not_rated":
       return { heading: "What not rated means", body: "This phase document has no Model tier line, so Kiln treats the phase as standard." };
   }
-}
-
-/**
- * Documents found's "Chosen for each phase" counts, in tier order, leaving out a tier with none.
- *
- *   tierCountsLine({ demanding: 1, standard: 2, mechanical: 1, notRated: 1 })  // "1 demanding, 2 standard, 1 mechanical, 1 not rated."
- */
-export function tierCountsLine(tiers: Snapshot["settings"]["models"]["tiers"]): string | undefined {
-  const parts = [[tiers.demanding, "demanding"], [tiers.standard, "standard"], [tiers.mechanical, "mechanical"], [tiers.notRated, "not rated"]] as const;
-  const shown = parts.filter(([count]) => count > 0).map(([count, word]) => `${count} ${word}`);
-  return shown.length ? `${shown.join(", ")}.` : undefined;
 }
 
 /** One choice an editor offers: a model (a row's Change) or a family (Model defaults). */
@@ -93,6 +133,17 @@ export function rowEditorAgents(agents: Snapshot["agents"]): EditorAgent[] {
 }
 
 /**
+ * The agents a model family editor offers, from `GET /api/model-defaults`: each agent's families
+ * at their newest version, none for one whose list can't be read, with the reason.
+ *
+ *   familyEditorAgents([{ agentId: "claude_code", agent: "Claude Code", families: [{ family: "opus", familyName: "Opus", modelName: "Opus 5.5", efforts: ["high"] }] }])
+ *   // [{ agentId: "claude_code", agent: "Claude Code", options: [{ value: "opus", name: "Opus, latest (Opus 5.5)", efforts: ["high"] }] }]
+ */
+export function familyEditorAgents(agents: { agentId: AgentId; agent: string; families: { family: string; familyName: string; modelName: string; efforts: string[]; defaultEffort?: string | undefined }[]; modelListError?: string | undefined }[]): EditorAgent[] {
+  return agents.map(agent => ({ agentId: agent.agentId, agent: agent.agent, options: agent.families.map(one => ({ value: one.family, name: `${one.familyName}, latest (${one.modelName})`, efforts: one.efforts, defaultEffort: one.defaultEffort })), ...(agent.families.length ? {} : { problem: agent.modelListError ?? `${agent.agent} offers no model families Kiln can read.` }) }));
+}
+
+/**
  * The effort an editor starts on for a choice: the current one when the choice offers it, else
  * the agent's default for it, else high, else the first it offers; none for a choice that takes none.
  *
@@ -106,13 +157,42 @@ export function startingEffort(option: Pick<EditorOption, "efforts" | "defaultEf
 }
 
 /**
- * The delivery panel's and the run's settings' fallback line (AC-FALLBACK-01).
+ * The line under Recommended model for each phase in the Models block (Kiln Model Modes AC-PRD-01;
+ * mockups 5 and 7, state C): when the fallback is used, with its threshold when it has one.
  *
- *   fallbackLine({ enabled: true, threshold: 95 })  // { value: "Use the fallback at 95%" }
- *   fallbackLine({ enabled: false, threshold: 95 }) // { value: "Wait for the limit", help: "No fallback is switched on. Set one up in" }
+ *   recommendedLine({ use: "threshold", threshold: 95 })   // "Each phase moves to its fallback when usage reaches 95%."
+ *   recommendedLine({ use: "everything", threshold: 95 })  // "Every phase runs on its fallback for now."
+ *   recommendedLine({ use: "never", threshold: 95 })       // "Wait for the limit. No fallback is switched on."
  */
-export function fallbackLine(fallback: { enabled: boolean; threshold: number }): { value: string; help?: string } {
-  return fallback.enabled ? { value: `Use the fallback at ${fallback.threshold}%` } : { value: "Wait for the limit", help: "No fallback is switched on. Set one up in" };
+export function recommendedLine(fallback: Pick<ModelSettings["fallback"], "use" | "threshold">): string {
+  if (fallback.use === "everything") return "Every phase runs on its fallback for now.";
+  return fallback.use === "threshold" ? `Each phase moves to its fallback when usage reaches ${fallback.threshold}%.` : "Wait for the limit. No fallback is switched on.";
+}
+
+/**
+ * The one model as the Models block names it where it shows the choice without its controls.
+ *
+ *   oneModelLine({ agent: "Claude Code", familyName: "Opus", modelName: "Opus 5.5", effort: "xhigh", … })  // "Claude Code · Opus 5.5 · extra high"
+ */
+export function oneModelLine(one: Pick<ModelSettings["oneModel"], "agent" | "familyName" | "modelName" | "effort">): string {
+  return [one.agent, one.modelName ?? one.familyName, one.effort ? effortWord(one.effort) : undefined].filter(Boolean).join(" · ");
+}
+
+/**
+ * The line under One model for everything on Model defaults (Kiln Model Modes AC-MODE-03; mockup
+ * 2): the account the one model's agent is signed in to, as the account panel reads it, and that
+ * a run waits at a usage limit, since one model has no fallback. An agent the snapshot holds no
+ * account for is named alone.
+ *
+ *   oneModelAccountLine("Claude Code", { email: "you@example.com", plan: "Max plan", limits: [{ kind: "weekly_all", label: "Weekly", percent: 44 }] })
+ *   // "Claude Code · you@example.com · Max plan · 44% of weekly limit used. At a usage limit a run waits and picks up again."
+ */
+export function oneModelAccountLine(agent: string, account: { email?: string | undefined; plan?: string | undefined; error?: string | undefined; limits: { kind?: string; label: string; percent?: number | undefined }[] } | undefined): string {
+  const read = account && !account.error ? account : undefined;
+  const limit = read?.limits.find(one => one.kind === "weekly_all" && one.percent !== undefined) ?? read?.limits.find(one => one.percent !== undefined);
+  const name = limit?.label.toLowerCase();
+  const used = limit ? `${limit.percent}% of ${/window$/.test(name!) ? name : `${name} limit`} used` : undefined;
+  return `${[agent, read?.email, read?.plan, used].filter(Boolean).join(" · ")}. At a usage limit a run waits and picks up again.`;
 }
 
 /**
@@ -135,7 +215,7 @@ export function limitPhrase(limit: LimitView): string {
  *   // "Claude Code's weekly limit was at 96% when this began, but the fallback wasn't used: Codex isn't signed in."
  */
 export function fallbackNotUsedNote(fallback: FallbackView | undefined): string | undefined {
-  if (!fallback || fallback.used) return undefined;
+  if (!fallback || fallback.used || !fallback.limit) return undefined;
   return `${limitPhrase(fallback.limit)} when this began, but the fallback wasn't used: ${fallback.reason ?? "it couldn't be used."}`;
 }
 
@@ -158,10 +238,17 @@ export function forecastLine(forecast: ModelView["forecast"]): string | undefine
  *
  *   fallbackStory(fallback, "phase", "Codex")
  *   // { heading: "This phase started on the fallback", body: "Claude Code's weekly limit was at 97% when the phase began, at or above your 95% threshold. The first choice was Claude Code · Fable 5.2 · high, which you chose. The phase finishes on Codex." }
+ *
+ * While the fallback is used for everything, the reason is that setting, in place of a limit
+ * reading (Kiln Model Modes AC-WHEN-03; mockup 7, state E):
+ *
+ *   // { heading: "This phase started on the fallback", body: "The fallback is set to be used for everything, so the phase began on it without reading usage. The first choice was Claude Code · Fable 5.2 · high. The phase finishes on Codex." }
  */
 export function fallbackStory(fallback: FallbackView | undefined, noun: string, agent: string | undefined): { heading: string; body: string } | undefined {
   if (!fallback?.used) return undefined;
-  const limit = fallback.limit.percent === undefined ? `${limitPhrase(fallback.limit)} when the ${noun} began` : `${limitPhrase(fallback.limit)} when the ${noun} began, at or above your ${fallback.threshold}% threshold`;
   const first = fallback.first ? ` The first choice was ${choiceLine(fallback.first)}${fallback.from === "changed" ? ", which you chose" : ""}.` : "";
-  return { heading: `This ${noun} started on the fallback`, body: `${limit}.${first}${agent ? ` The ${noun} finishes on ${agent}.` : ""}` };
+  const finishes = agent ? ` The ${noun} finishes on ${agent}.` : "";
+  if (!fallback.limit) return { heading: `This ${noun} started on the fallback`, body: `The fallback is set to be used for everything, so the ${noun} began on it without reading usage.${first}${finishes}` };
+  const limit = fallback.limit.percent === undefined ? `${limitPhrase(fallback.limit)} when the ${noun} began` : `${limitPhrase(fallback.limit)} when the ${noun} began, at or above your ${fallback.threshold}% threshold`;
+  return { heading: `This ${noun} started on the fallback`, body: `${limit}.${first}${finishes}` };
 }

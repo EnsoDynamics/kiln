@@ -8,6 +8,7 @@
   // its Details list them, and the pull-request row counts the pull requests (multi-repo AC-PRS-03).
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import { detailRows, openedLabel, preflightPill, rowFacts, rowPill, rowState, withPlannedPreflight, type RowState } from "../lib/progress.js";
+  import { rowModelTarget } from "../lib/models.js";
   import { phasePath, routedClick } from "../lib/router.svelte.js";
   import { viewContext } from "../lib/view-context.js";
   import DetailsList from "./DetailsList.svelte";
@@ -28,7 +29,6 @@
   const underway = $derived(snapshot.feature.state !== "not_started");
   const { config, router } = viewContext();
   // What a row's Change changes: a phase its own choice, a Delivery audit or Test audit row this PRD's Audits choice (AC-PICK-03, AC-OTHER-01).
-  const modelTarget = (row: (typeof rows)[number]): { phase: string } | "audits" | undefined => row.kind === "delivery_audit" || row.kind === "test_audit" ? "audits" : (row.kind === undefined || row.kind === "implementation") && !row.plannedActivity ? { phase: row.id } : undefined;
 
   const LOOKS: Record<RowState, { circle: CircleTone; pill: PillTone; icon?: IconName }> = {
     done: { circle: "done", pill: "green-tint", icon: "check" },
@@ -59,7 +59,7 @@
         {#snippet title()}{#if accessible}<a class="title phase-link" href={link} onclick={(event) => routedClick(event, router, link)}>{row.title}<span aria-hidden="true"></span></a>{:else}<span class="title" class:quiet={state === "planned"}>{row.title}</span>{/if}{/snippet}
         <div class="row">
           <PhaseCircle id={circleId(row)} tone={look.circle} />
-          <span class="names">{#if row.attended !== undefined || row.tier}<span class="title-line">{@render title()}{#if row.tier}<TierTag tier={row.tier} />{/if}{#if row.attended !== undefined}<NeedsYouThere text={row.attended} />{/if}</span>{:else}{@render title()}{/if}{#if row.file}<span class="file mono">{row.file}</span>{/if}{#if row.model}<RowModel model={row.model} {underway} target={modelTarget(row)} agents={snapshot.agents} {connected} label={`${row.title} model`} />{/if}</span>
+          <span class="names">{#if row.attended !== undefined || row.tier}<span class="title-line">{@render title()}{#if row.tier}<TierTag tier={row.tier} models={snapshot.settings.models} />{/if}{#if row.attended !== undefined}<NeedsYouThere text={row.attended} />{/if}</span>{:else}{@render title()}{/if}{#if row.file}<span class="file mono">{row.file}</span>{/if}{#if row.model}<RowModel model={row.model} {underway} target={rowModelTarget(row)} agents={snapshot.agents} {connected} label={`${row.title} model`} />{/if}</span>
           <span class="state">
             {#if facts}<span class="facts">{facts}</span>{/if}
             <Pill tone={look.pill} icon={look.icon} spin={state === "implementing"}>{rowPill(row, state, opened)}</Pill>

@@ -42,7 +42,7 @@ describe("Model defaults are kept for every PRD (AC-DEFAULT-02)", () => {
     const response = await fetch(new URL("/api/model-defaults", server.address), {
       method: "POST",
       headers: { "X-Kiln-Token": h.engine.record.token, "Content-Type": "application/json", Origin: new URL(server.address).origin },
-      body: JSON.stringify({ set: { row: "standard", first: { agentId: "claude_code", family: "sonnet", effort: "low" } } }),
+      body: JSON.stringify({ save: { target: "every_prd", changes: { rows: { standard: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } } } }),
     });
     expect(response.status).toBe(200);
 

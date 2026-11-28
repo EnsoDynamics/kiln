@@ -126,7 +126,7 @@ describe("Continue pushes the plan first (Kiln After Delivery AC-BACK-05, AC-MER
     // It runs on the Audits choice (Kiln Phase Model Tiers AC-OTHER-01), changed here the way the page changes it.
     const choice = h!.engine.launchChoice(planPushKey("not-yet-started"));
     const effort = h!.engine.modelEntry(choice.model)!.supportedEffortLevels.find(level => level !== choice.effort)!;
-    h!.engine.record.settings.modelChoices.audits = { agentId: choice.agentId, model: choice.model, effort }; h!.engine.modelChoicesChanged();
+    h!.engine.record.settings.modelChoices.preflightPr = { agentId: choice.agentId, model: choice.model, effort }; h!.engine.modelChoicesChanged();
     const proposal = await offer();
     expect(proposal.commits).toEqual([{ sha: localHead(), subject: "docs(comet): add lending", onlyDocuments: true }]);
     const finishedExecution = h!.engine.record.executionId!;

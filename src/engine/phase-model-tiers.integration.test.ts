@@ -70,8 +70,8 @@ describe("the tier picks each phase's model (AC-TIER-01, AC-PICK-01, AC-DEFAULT-
     await h.engine.settled();
     expect(h.engine.record.completedAt).toBeDefined();
     const launches = h.claudeCalls().filter(call => !call.args.includes("--resume")).map(call => [flag(call.args, "--model"), flag(call.args, "--effort")]);
-    // Phase 1 on its demanding choice, 2b on mechanical's, 3 not rated as standard, the pull request on Audits'.
-    expect(launches).toEqual([["fable", "high"], ["sonnet", "high"], ["opus", "medium"], ["opus", "high"]]);
+    // Phase 1 on its demanding choice, 2b on mechanical's, 3 not rated as standard, the pull request on the Preflight and pull request row's (Kiln Model Modes AC-ROW-01).
+    expect(launches).toEqual([["fable", "high"], ["sonnet", "high"], ["opus", "medium"], ["opus", "medium"]]);
     // Finished rows say what their session ran on, its model as the agent reported it.
     expect(choiceOf(row(h.engine, "1"))).toEqual(["ran_on", "Claude Code", "Fable 5.1", "high"]);
     expect(choiceOf(row(h.engine, "3"))).toEqual(["ran_on", "Claude Code", "Opus 5.5", "medium"]);
@@ -108,7 +108,7 @@ describe("Kiln reads each tier line each time it reads the plan, and never write
     expect(h.engine.record.completedAt).toBeDefined();
     const launches = h.claudeCalls().filter(call => !call.args.includes("--resume")).map(call => [flag(call.args, "--model"), flag(call.args, "--effort")]);
     // 1 demanding; 2b on standard's choice as Kiln re-read it; 3 standard; the added 4 mechanical; the pull request on Audits'.
-    expect(launches).toEqual([["fable", "high"], ["opus", "medium"], ["opus", "medium"], ["sonnet", "high"], ["opus", "high"]]);
+    expect(launches).toEqual([["fable", "high"], ["opus", "medium"], ["opus", "medium"], ["sonnet", "high"], ["opus", "medium"]]);
     expect(row(h.engine, "2b").tier).toEqual({ value: "standard", reason: "store credit has its own rules." });
     expect(row(h.engine, "4").tier).toEqual({ value: "mechanical", reason: "one CSV export." });
     expect(choiceOf(row(h.engine, "4"))).toEqual(["ran_on", "Claude Code", "Sonnet 5.5", "high"]);
@@ -162,12 +162,13 @@ describe("a computer without Claude Code (AC-DEFAULT-04)", () => {
     harness.engine.modelChoicesChanged();
     expect(harness.engine.claudeCodeInstalled).toBe(false);
     for (const id of ["1", "2b", "3"]) expect(row(harness.engine, id).model).toMatchObject({ claudeCodeMissing: true, from: "model_defaults", choice: { agentId: "codex", agent: "Codex" } });
-    // Each row's Codex choice is its tier's Fallback column: GPT Astra · high for demanding, GPT Sol · high for the rest, GPT Sol · extra high for audits.
+    // Each row's Codex choice is its tier's Fallback column: GPT Astra · high for demanding, GPT Sol · high for the rest, GPT Sol · extra high for audits, GPT Sol · medium for the preflight and the pull request.
     const notStarted = (key: string) => harness!.engine.notStartedChoice(key);
     expect(notStarted("1")).toMatchObject({ agentId: "codex", modelName: "GPT Astra", effort: "high", row: "demanding" });
     expect(notStarted("2b")).toMatchObject({ agentId: "codex", modelName: "GPT Sol", effort: "high", row: "mechanical" });
     expect(notStarted("3")).toMatchObject({ agentId: "codex", modelName: "GPT Sol", effort: "high", row: "standard" });
-    expect(notStarted("pr")).toMatchObject({ agentId: "codex", modelName: "GPT Sol", effort: "xhigh", row: "audits" });
+    expect(notStarted("audit-planned")).toMatchObject({ agentId: "codex", modelName: "GPT Sol", effort: "xhigh", row: "audits" });
+    expect(notStarted("pr")).toMatchObject({ agentId: "codex", modelName: "GPT Sol", effort: "medium", row: "preflight_pr" });
     expect(harness.engine.agentOf("1")).toBe("codex");
     expect(harness.engine.agentOf("pr")).toBe("codex");
     expect(Object.keys(harness.engine.neededBy())).toEqual(["codex"]);
@@ -267,7 +268,7 @@ describe("a phase that started on the fallback in an earlier execution (AC-FALLB
 });
 
 describe("planned rows and a choice found unusable during the run (AC-PICK-02, AC-PICK-06)", () => {
-  it("shows planned Delivery audit, Test audit and pull request rows on the Audits choice while a phase runs", async () => {
+  it("shows planned Delivery audit and Test audit rows on the Audits choice, and the pull request row on its own, while a phase runs", async () => {
     const h = await fixture([{ actions: [{ text: "Working." }, { waitForFile: "release-planned" }, { result: "Stopped." }] }]);
     await h.engine.start({ refinementConfirmed: true });
     await waitFor(() => h.engine.record.phases["1"]?.startedSessionId !== undefined);
@@ -275,7 +276,8 @@ describe("planned rows and a choice found unusable during the run (AC-PICK-02, A
     const planned = rows.filter(one => one.plannedActivity);
     expect(planned.map(one => [one.id, one.kind, one.title])).toEqual([["planned-delivery-audit", "delivery_audit", "Delivery audit"], ["planned-test-audit", "test_audit", "Test audit"], ["planned-pull-request", "final_delivery", "Pull request"]]);
     expect(rows.slice(-3)).toEqual(planned);
-    for (const one of planned) expect(choiceOf(one)).toEqual(["will_run_on", "Claude Code", "Opus 5.5", "high"]);
+    // The audits check the whole PRD at high effort; the pull request session, which doesn't, runs at medium (Kiln Model Modes AC-ROW-01).
+    expect(planned.map(choiceOf)).toEqual([["will_run_on", "Claude Code", "Opus 5.5", "high"], ["will_run_on", "Claude Code", "Opus 5.5", "high"], ["will_run_on", "Claude Code", "Opus 5.5", "medium"]]);
     // Rows that aren't phases carry no tier tag (AC-TIER-02), while the running phase does.
     for (const one of planned) expect(one.tier).toBeUndefined();
     expect(rows.find(one => one.id === "1")!.tier).toEqual({ value: "demanding", reason: "AC-RET-02 moves money on retries." });

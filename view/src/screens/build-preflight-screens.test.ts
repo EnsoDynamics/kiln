@@ -107,7 +107,9 @@ describe("a running preflight (AC-PREFLIGHT-08)", () => {
 describe("the preflight stop (AC-PREFLIGHT-03, mockup state 2)", () => {
   function preflightStop(resumable = true): Snapshot {
     const snapshot = needsYouMessageSnapshot();
-    snapshot.activities = [preflightRow({ state: "needs_you", doneAt: undefined, preflight: { outcome: "items" } }), ...snapshot.phases];
+    // The pull request session hasn't started, so its row is planned, with Change on the Preflight and pull request choice (Kiln Model Modes AC-ROW-01).
+    const pullRequest: PhaseView = { id: "planned-pull-request", kind: "final_delivery", title: "Pull request", file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: { state: "will_run_on", choice: { agentId: "claude_code", agent: "Claude Code", model: "sonnet", modelName: "Sonnet 5.5", effort: "low" }, from: "model_defaults", change: { available: true } } };
+    snapshot.activities = [preflightRow({ state: "needs_you", doneAt: undefined, preflight: { outcome: "items" } }), ...snapshot.phases, pullRequest];
     snapshot.feature.currentPhaseId = KEY;
     const stop = snapshot.needsYou!;
     snapshot.needsYou = {
@@ -157,6 +159,13 @@ describe("the preflight stop (AC-PREFLIGHT-03, mockup state 2)", () => {
     expect(card).toContain(`data-phase="${phase.id}"`);
     expect(text(card)).toContain("Audits");
     expect(text(card)).toContain("Change");
+    // The pull request row offers the Preflight and pull request choice's Change at the preflight stop (Kiln Model Modes AC-ROW-01).
+    const from2 = card.indexOf('data-phase="planned-pull-request"');
+    expect(from2).toBeGreaterThan(-1);
+    const prRow = text(card.slice(from2, card.indexOf("</li>", from2)));
+    expect(prRow).toContain("Pull request");
+    expect(prRow).toContain("Will run on Claude Code · Sonnet 5.5 · low");
+    expect(prRow).toContain("Change");
     // The preflight's own controls are unchanged: no reply field, no session controls.
     expect(page).not.toContain("<textarea");
   });

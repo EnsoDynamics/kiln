@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { ModelView } from "../../../src/engine/activity-models.js";
 import type { PhaseView, Snapshot } from "../../../src/engine/snapshot.js";
 import { documentsFoundSnapshot, RUNNING_NOW, runningSnapshot } from "../../../src/test-support/sample-snapshots.js";
-import { choiceLine, rowModelLine, tierCountsLine, tierExplanation } from "../lib/models.js";
+import { choiceLine, rowModelLine, tierExplanation } from "../lib/models.js";
 import DocumentsFound from "./DocumentsFound.svelte";
 import Running from "./Running.svelte";
 
@@ -38,11 +38,6 @@ describe("what a row says", () => {
     expect(tierExplanation({ value: "mechanical" })).toEqual({ heading: "Why this phase is mechanical", body: "The phase document's Model tier line gives no reason.", source: "From the phase document's Model tier line." });
     expect(tierExplanation({ value: "standard", reason: "ignored" }).body).toBe("Each phase document rates how capable a model its build needs. Standard is the usual rating, and the model for it is set in Model defaults.");
     expect(tierExplanation({ value: "not_rated" }).body).toBe("This phase document has no Model tier line, so Kiln treats the phase as standard.");
-  });
-
-  it("counts the tiers in Documents found's delivery panel, leaving out a tier with none", () => {
-    expect(tierCountsLine({ demanding: 1, standard: 2, mechanical: 1, notRated: 1 })).toBe("1 demanding, 2 standard, 1 mechanical, 1 not rated.");
-    expect(tierCountsLine({ demanding: 0, standard: 3, mechanical: 0, notRated: 0 })).toBe("3 standard.");
   });
 });
 
@@ -80,10 +75,12 @@ describe("the running plan (AC-TIER-02, AC-PICK-02)", () => {
     expect(running(tiered())).toMatch(/>PR<\/span>/);
   });
 
-  it("offers Change on a Delivery audit and a Test audit row that hasn't started, and not on the pull request row (AC-OTHER-01)", () => {
+  it("offers Change on a Delivery audit and a Test audit row that hasn't started, and on the pull request row only where the snapshot gives it one (AC-OTHER-01; Kiln Model Modes AC-ROW-01)", () => {
     const snapshot = tiered();
     const audits: ModelView = { state: "will_run_on", choice: choice("Claude Code", "Opus 5.5", "high"), from: "model_defaults", change: { available: true } };
-    const planned = (id: string, kind: PhaseView["kind"], title: string): PhaseView => ({ id, kind, title, file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: audits });
+    // A finished run's pull request row carries no change: only the merge and a plan push could still take the choice.
+    const noChange: ModelView = { state: "will_run_on", choice: choice("Claude Code", "Opus 5.5", "medium"), from: "model_defaults" };
+    const planned = (id: string, kind: PhaseView["kind"], title: string): PhaseView => ({ id, kind, title, file: "", state: "planned", plannedActivity: true, finishedByPerson: false, model: kind === "final_delivery" ? noChange : audits });
     snapshot.activities = [...snapshot.phases, planned("planned-delivery-audit", "delivery_audit", "Delivery audit"), planned("planned-test-audit", "test_audit", "Test audit"), planned("planned-pull-request", "final_delivery", "Pull request")];
     const page = running(snapshot);
     const rowOf = (id: string) => text(page.split(`data-phase="${id}"`)[1]!.split("</li>")[0]!);
@@ -114,7 +111,7 @@ describe("the running plan (AC-TIER-02, AC-PICK-02)", () => {
 
   it("drops the run's settings' Model and effort for one line saying models are chosen for each phase (AC-KEEP-01)", () => {
     const words = text(running(tiered()));
-    expect(words).toContain("Settings for this PRD A phase that has started keeps the model it started with. Models Chosen for each phase");
+    expect(words).toContain("Settings for this PRD A phase that has started keeps the model it started with. Models Recommended model for each phase");
     expect(words).not.toMatch(/Agent fixed for this PRD|Model and effort Opus/);
   });
 });
@@ -136,7 +133,7 @@ describe("Documents found's plan (AC-PICK-01, AC-PICK-06, AC-KEEP-01)", () => {
 
   it("carries a choice that can't be used on its row, and holds Start with the reason", () => {
     const problem = "Phase 2a runs on Claude Code · Fable · high from Model defaults (Demanding row): Claude Code doesn't offer Fable on this account. Change the Demanding row in Model defaults.";
-    const page = found(phases => { const phase = phases.find(one => one.id === "2a")!; Object.assign(phase, { tier: { value: "demanding" }, model: { state: "will_run_on", choice: choice("Claude Code", "Fable", "high"), problem: "Claude Code doesn't offer Fable on this account." } }); }, { models: { tiers: { demanding: 1, standard: 0, mechanical: 0, notRated: 3 }, problem, fallback: { enabled: false, threshold: 95 }, audits: documentsFoundSnapshot().settings.models.audits, revision: "missing" } });
+    const page = found(phases => { const phase = phases.find(one => one.id === "2a")!; Object.assign(phase, { tier: { value: "demanding" }, model: { state: "will_run_on", choice: choice("Claude Code", "Fable", "high"), problem: "Claude Code doesn't offer Fable on this account." } }); }, { models: { ...documentsFoundSnapshot().settings.models, tiers: { demanding: 1, standard: 0, mechanical: 0, notRated: 3 }, problem } });
     expect(text(page)).toContain("Claude Code · Fable · high Claude Code doesn't offer Fable on this account.");
     expect(text(page)).toContain(problem);
     expect(page).toMatch(/<button type="button" class="start[^"]*"[^>]* disabled/);
