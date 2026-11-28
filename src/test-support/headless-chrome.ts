@@ -28,6 +28,10 @@ export interface BrowserPage {
   evaluate<T>(expression: string): Promise<T>;
   /** Waits until the expression is truthy, or fails after `timeoutMs`. */
   waitFor(expression: string, timeoutMs?: number): Promise<void>;
+  /** Addresses of tabs this page opened through the browser. */
+  popupUrls(): Promise<string[]>;
+  /** Clicks the element with Chrome's user activation, so it can open a new tab. */
+  click(selector: string): Promise<void>;
   /** Moves the real pointer over the first element matching `selector`, or to the page's top-left corner when `selector` is undefined. */
   pointAt(selector: string | undefined): Promise<void>;
   /** A full-page PNG. */
@@ -151,9 +155,14 @@ export async function launchChrome(): Promise<HeadlessChrome> {
         if (answer.exceptionDetails) throw new Error(`${expression}: ${JSON.stringify(answer.exceptionDetails)}`);
         return answer.result.value;
       };
+      const point = (selector: string) => evaluate<{ x: number; y: number }>(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); element.scrollIntoView({ block: "center" }); const box = element.getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
       return {
         problems,
         evaluate,
+        async popupUrls() {
+          const { targetInfos } = await send("Target.getTargets") as { targetInfos: { type: string; url: string; openerId?: string }[] };
+          return targetInfos.filter(info => info.type === "page" && info.openerId === targetId).map(info => info.url);
+        },
         async waitFor(expression, timeoutMs = 10_000) {
           const until = Date.now() + timeoutMs;
           for (;;) {
@@ -162,8 +171,15 @@ export async function launchChrome(): Promise<HeadlessChrome> {
             await new Promise((resolve) => setTimeout(resolve, 100));
           }
         },
+        async click(selector) {
+          const answer = await send("Runtime.evaluate", {
+            expression: `document.querySelector(${JSON.stringify(selector)}).click()`,
+            userGesture: true,
+          }, sessionId);
+          if (answer.exceptionDetails) throw new Error(`Could not click ${selector}: ${JSON.stringify(answer.exceptionDetails)}`);
+        },
         async pointAt(selector) {
-          const at = selector === undefined ? { x: 0, y: 0 } : await evaluate<{ x: number; y: number }>(`(() => { const element = document.querySelector(${JSON.stringify(selector)}); element.scrollIntoView({ block: "center" }); const box = element.getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+          const at = selector === undefined ? { x: 0, y: 0 } : await point(selector);
           await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y }, sessionId);
         },
         async screenshot() {

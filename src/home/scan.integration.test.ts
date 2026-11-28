@@ -1,16 +1,20 @@
 // AC-HOME-13's rows that depend on Kiln's own records and on Git alone (Kiln Requirements Stages
 // AC-HOME-02 to 05, 12, 13): a real repository, real records, and each run's Kiln as the probe
-// reports it. The probe's reading of a live Kiln is `runStateOf`, tested below; its HTTP side is
-// the one `kiln status` uses.
+// reports it. The live probe uses the same authenticated controller route as `kiln status`.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { runStateOf } from "../control/client.js";
-import type { SavedWork } from "../control/private-state.js";
+import { probeRun, runStateOf } from "../control/client.js";
+import { readWork, type SavedWork } from "../control/private-state.js";
 import { defaultSettings } from "../engine/worktree-setup.js";
 import { newRequirements } from "../requirements/stages.js";
 import { newPrdRecord } from "../state/new-record.js";
+import { stateRoot, writeJsonAtomically } from "../state/state-files.js";
+import { processStartTime } from "../platform/process-start-time.js";
+import { startFixtureController } from "../test-support/controller-server.js";
+import { createHarness, waitFor } from "../test-support/engine-harness.js";
 import { commitFiles, createBareOrigin, createRepository, createSandbox, git, type Sandbox } from "../test-support/git-repositories.js";
 import { scanRepository } from "./scan.js";
 import { inspectSource } from "../requirements/source.js";
@@ -326,4 +330,72 @@ it("places origin-only PRDs, uncommitted initiative lists, written PRD-list rows
   expect(await inspect("source-material/gifts")).toEqual({ problem: "docs/prds/gifts was written from source-material/gifts." });
   expect(await inspect("source-material/mixed")).toMatchObject({ problem: expect.stringContaining("mixed-requirements-intake.md") });
   expect(await inspect("docs/initiatives/rota/swaps")).toEqual({ problem: "docs/initiatives/rota/rota-initiative-prds.md isn't committed on develop, only on plan/rota. Commit it on develop." });
+});
+
+
+it("reads a live controller's state from Home and retains the stopped or unreadable address facts (AC-HOME-05)", async () => {
+  const h = await createHarness({ sourceBrief: "# Boxes\n", folder: "boxes", sessions: [] });
+  try {
+    const signal = join(h.sandbox.root, "finish-stage");
+    const report = "```kiln-report\n" + JSON.stringify({
+      kilnReport: 1, ran: [{ skill: "prd-writing-standards", title: "Write the PRD" }], finished: true,
+      prdDirectory: "docs/prds/boxes", milestones: [], next: { kind: "requirements", skill: "autonomous-prd-refinement", title: "Refine the PRD", reaches: ["prd_refined"] },
+    }) + "\n```";
+    writeFileSync(h.scenarioPath, JSON.stringify({ sessions: [
+      { actions: [{ text: "Working on the PRD." }, { waitForFile: signal }, { write: { path: "docs/prds/boxes/boxes-prd.md", content: "# PRD: Boxes\n" } }, { commit: "draft" }, { result: report }, { exit: 0 }] },
+      { actions: [{ result: "Need more input." }, { exit: 0 }] },
+    ] }));
+    const work = () => readWork(stateRoot(h.env), h.stateDirectory);
+    expect(await probeRun(work())).toEqual({ state: "not_running" });
+    const { server, release } = await startFixtureController({ engine: h.engine, folderName: "boxes", featureName: "Boxes", token: h.engine.record.token });
+    try {
+      const address = server.address;
+      await h.engine.refreshAgents();
+      await waitFor(() => h.engine.planView().status === "failed");
+      expect(await h.engine.start()).toMatchObject({ ok: true });
+      await waitFor(() => h.engine.current?.session?.firstResponseAt !== undefined);
+      expect(await probeRun(work())).toEqual({ state: "working", address, feature: "implementing" });
+      h.engine.pause();
+      writeFileSync(signal, "");
+      await h.engine.settled();
+      expect(await probeRun(work())).toEqual({ state: "paused", address, feature: "paused" });
+      expect(await h.engine.start()).toMatchObject({ ok: true });
+      await h.engine.settled();
+      expect(await probeRun(work())).toEqual({ state: "waiting_for_you", address, feature: "needs_you" });
+      const wrongToken = work();
+      wrongToken.record.token = "wrong-token";
+      expect(await probeRun(wrongToken)).toEqual({ state: "unreadable", address });
+    } finally {
+      await server.close();
+      release();
+    }
+    expect(await probeRun(work())).toEqual({ state: "not_running" });
+  } finally {
+    await h.cleanup();
+  }
+});
+
+it("keeps Home's address when a controller releases its instance lock during the probe (AC-HOME-05)", async () => {
+  const h = await createHarness({ sourceBrief: "# Boxes\n", folder: "boxes", sessions: [] });
+  const lock = join(h.stateDirectory, "instance.lock");
+  // A controller may exit after discovery starts, before Home can read its status.
+  const retiring = createServer((_request, response) => {
+    unlinkSync(lock);
+    response.writeHead(503).end("Controller stopped");
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      retiring.once("error", reject);
+      retiring.listen(0, "127.0.0.1", resolve);
+    });
+    const address = retiring.address();
+    if (typeof address !== "object" || !address) throw new Error("The test controller did not bind a TCP port.");
+    writeJsonAtomically(lock, { pid: process.pid, processStartTime: await processStartTime(process.pid), port: address.port });
+    const work = readWork(stateRoot(h.env), h.stateDirectory);
+    expect(await probeRun(work)).toEqual({ state: "unreadable", address: `http://127.0.0.1:${address.port}/boxes` });
+    expect(await probeRun(work)).toEqual({ state: "not_running" });
+  } finally {
+    await new Promise<void>(resolve => retiring.close(() => resolve()));
+    await h.cleanup();
+  }
 });

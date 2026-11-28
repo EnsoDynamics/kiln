@@ -74,6 +74,8 @@ it("changes a phase and the Audits choice on Documents found, then Model default
   expect(await sides("standard")).toEqual(["Claude Code · Opus · medium", "Codex · GPT Sol · high"]);
   expect(await sides("mechanical")).toEqual(["Claude Code · Sonnet · high", "Codex · GPT Sol · high"]);
   expect(await sides("audits")).toEqual(["Claude Code · Opus · high", "Codex · GPT Sol · extra high"]);
+  expect(await sides("requirements")).toEqual(["Claude Code · Fable · high", "Codex · GPT Astra · high"]);
+  expect(await sides("refining_design")).toEqual(["Claude Code · Opus · high", "Codex · GPT Sol · extra high"]);
   await press(page, '[data-row="standard"]', "Change");
   await page.waitFor(`document.querySelectorAll('[data-row="standard"] select').length === 2`);
   await pick(page, '[data-row="standard"]', 0, "sonnet");
@@ -147,5 +149,49 @@ it("shows a phase's tier explanation only while the tag is pointed at, focused o
   await page.evaluate(`${button}.click()`);
   await page.waitFor(`${button}.getAttribute("aria-expanded") === "false"`);
   expect(await shown()).toBe("none");
+  expect(page.problems).toEqual([]);
+});
+
+it("remembers the requirements skill named by Change before Start and at Needs you (AC-MODEL-03)", async () => {
+  const plan = {
+    kilnPlan: 1,
+    stages: [
+      { skill: "prd-writing-standards", title: "Write the PRD", reaches: [] },
+      { skill: "phase-split", title: "Make a phase plan", reaches: ["requirements_finished"] },
+    ],
+    reviewSkill: { skill: "stakeholder-review-package", title: "Stakeholder review" },
+  };
+  h = await createHarness({
+    sourceBrief: "# Count boxes\n",
+    folder: "count-boxes",
+    planSessions: [{ actions: [{ result: "```kiln-plan\n" + JSON.stringify(plan) + "\n```" }, { exit: 0 }] }],
+    sessions: [{ noInit: true, actions: [] }],
+  });
+  await h.engine.refreshAgents();
+  await waitFor(() => h!.engine.planView().status === "read");
+  server = await startLocalServer({ engine: h.engine, port: 0, folderName: "count-boxes", featureName: "Count boxes", token: h.engine.record.token });
+  chrome = await launchChrome();
+  const page = await chrome.open(server.address, { width: 1200 });
+
+  async function remember(skill: string, family: string, effort: string) {
+    const row = `li[data-stage="${skill}#1"]`;
+    await page.waitFor(hasButton(row, "Change"));
+    await press(page, row, "Change");
+    const checkbox = `${row} input[type=checkbox]`;
+    const control = `document.querySelector(${JSON.stringify(checkbox)})`;
+    expect(await page.evaluate<string>(`${control}.closest("label").textContent.trim()`)).toBe(`Use this for ${skill} on every PRD`);
+    await pick(page, row, 0, family);
+    await pick(page, row, 1, effort);
+    await page.evaluate(`${control}.click()`);
+    await press(page, row, "Done");
+    await page.waitFor(`document.querySelector(${JSON.stringify(row)}).textContent.includes("Saved for every PRD")`);
+    expect(JSON.parse(readFileSync(modelDefaultsPath(h!.env), "utf8")).skills[skill]).toEqual({ agentId: "claude_code", family, effort });
+  }
+
+  await remember("phase-split", "sonnet", "medium");
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  await page.waitFor(`document.querySelector(".model-changes li[data-stage='prd-writing-standards#1']") !== null`);
+  await remember("prd-writing-standards", "haiku", "low");
   expect(page.problems).toEqual([]);
 });

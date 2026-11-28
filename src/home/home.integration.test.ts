@@ -15,11 +15,15 @@ import { reservePortRange } from "../test-support/os-ports.js";
 import { runHome, type HomeList } from "./home.js";
 import { methodOf, updatePlanFile } from "../requirements/plan.js";
 import { modelDefaultsPath } from "../models/model-defaults.js";
+import { readJsonLines } from "../state/state-files.js";
+import type { Snapshot } from "../engine/snapshot.js";
+import { launchChrome, type HeadlessChrome } from "../test-support/headless-chrome.js";
 
 let sandbox: Sandbox | undefined;
+let chrome: HeadlessChrome | undefined;
 let ports = "";
 beforeEach(async () => { ports = await reservePortRange(); });
-afterEach(async () => { await sandbox?.cleanup(); sandbox = undefined; });
+afterEach(async () => { await chrome?.close(); chrome = undefined; await sandbox?.cleanup(); sandbox = undefined; });
 
 const CLI = fileURLToPath(new URL("../../dist/cli.js", import.meta.url));
 const closed = (markdown: string) => markdown.replace(/^(# .+)$/m, "$1\n\n**Closed:** 2026-11-01");
@@ -34,11 +38,14 @@ function repository(name: string) {
 function env(): NodeJS.ProcessEnv {
   const bin = join(sandbox!.root, "bin");
   installStandIns(bin);
-  return { ...sandbox!.env, PATH: [bin, sandbox!.env.PATH ?? process.env.PATH ?? ""].join(delimiter), KILN_NO_BROWSER: "1", KILN_PORT_RANGE: ports };
+  const scenario = join(sandbox!.root, "home-sessions.json");
+  writeFileSync(scenario, JSON.stringify({ sessions: [{ actions: [{ result: "Need a person to continue this PRD." }, { exit: 0 }] }] }));
+  // Home scans during this test's commits. Keep its background Git reads from refreshing the fixture index.
+  return { ...sandbox!.env, GIT_OPTIONAL_LOCKS: "0", KILN_STANDIN_SCENARIO: scenario, PATH: [bin, sandbox!.env.PATH ?? process.env.PATH ?? ""].join(delimiter), KILN_NO_BROWSER: "1", KILN_PORT_RANGE: ports };
 }
 
 /** `kiln` in `cwd` until `whileRunning` is done with its page, then Ctrl+C. */
-async function home(cwd: string, whileRunning: (page: { list(): Promise<HomeList>; events(): () => string; open(id: string): Promise<{ status: number; body: { ok: boolean; address?: string; reason?: string } }> }, out: () => string) => Promise<void>, args: string[] = []) {
+async function home(cwd: string, whileRunning: (page: { address: string; list(): Promise<HomeList>; events(): () => string; open(id: string): Promise<{ status: number; body: { ok: boolean; address?: string; reason?: string } }> }, out: () => string) => Promise<void>, args: string[] = []) {
   let out = "";
   let address = "";
   const signals = new EventEmitter();
@@ -56,6 +63,7 @@ async function home(cwd: string, whileRunning: (page: { list(): Promise<HomeList
     expect(token).not.toBe("");
     const streams: AbortController[] = [];
     try { await whileRunning({
+      address,
       // The page's event stream, as the browser holds it: every list the server sends, as text.
       events: () => {
         let received = "";
@@ -80,8 +88,41 @@ async function home(cwd: string, whileRunning: (page: { list(): Promise<HomeList
   return { code, out };
 }
 
+/** The per-PRD page gives the test the same token the browser uses. */
+async function openedRun(address: string) {
+  const html = await (await fetch(address)).text();
+  const token = /name="kiln-token" content="([^"]+)"/.exec(html)?.[1];
+  expect(token).toBeTruthy();
+  const origin = new URL(address).origin;
+  const headers = { Origin: origin, "X-Kiln-Token": token!, "Content-Type": "application/json" };
+  return {
+    snapshot: async () => await (await fetch(`${origin}/api/snapshot`, { headers })).json() as Snapshot,
+    start: async (previewId: string | undefined) => await fetch(`${origin}/api/start`, { method: "POST", headers, body: JSON.stringify({ previewId }) }),
+  };
+}
+
+async function openFromHome(homeAddress: string, itemId: string, action: string) {
+  chrome ??= await launchChrome();
+  const page = await chrome.open(homeAddress);
+  const selector = `li[data-item=${JSON.stringify(itemId)}] button`;
+  const button = `document.querySelector(${JSON.stringify(selector)})`;
+  await page.waitFor(`${button}?.textContent.trim() === ${JSON.stringify(action)} && !${button}.disabled`);
+  await page.click(selector);
+  await waitFor(async () => (await page.popupUrls()).some(url => url.startsWith("http:"))).catch(async error => {
+    throw new Error(`${action} did not open a run for ${itemId}. The Home page reads: ${await page.evaluate("document.body.innerText")}`, { cause: error });
+  });
+  const [opened] = (await page.popupUrls()).filter(url => url.startsWith("http:"));
+  expect(opened).toBeTruthy();
+  expect(await page.evaluate("location.href")).toBe(homeAddress);
+  await page.close();
+  return opened!;
+}
+
 it("lists each item in one place by file names and Git, keeps the list current, and opens an item in a Kiln of its own (AC-HOME-01 to 08, 12, 13)", async () => {
   sandbox = createSandbox();
+  const skill = join(sandbox.env.CLAUDE_CONFIG_DIR!, "skills", "using-the-enso-method");
+  mkdirSync(skill, { recursive: true });
+  writeFileSync(join(skill, "SKILL.md"), "---\nname: using-the-enso-method\n---\n# Test method\n");
   const shop = repository("acme-shop");
   const repo = shop.path;
   // Ready to start: a brief, an intake record and two planned PRDs, one of which waits for the other's build.
@@ -116,6 +157,9 @@ it("lists each item in one place by file names and Git, keeps the list current, 
   mkdirSync(join(repo, "source-material/store-locator/received"), { recursive: true });
   writeFileSync(join(repo, "source-material/store-locator/received/call.txt"), "transcript\n");
 
+  const calls = () => readJsonLines<{ prompt: string }>(join(sandbox!.root, "home-sessions.json.calls.jsonl"))
+    .filter(call => !call.prompt.startsWith("Read the installed Enso Method's requirements plan"));
+  let stoppedId = "";
   // Run from a folder deep inside the repository: the whole repository is covered (AC-HOME-08).
   const { code, out } = await home(join(repo, "docs/prds"), async (page, output) => {
     const list = await page.list();
@@ -151,27 +195,63 @@ it("lists each item in one place by file names and Git, keeps the list current, 
     rmSync(join(repo, "source-material/email-digest"), { recursive: true });
     // Review and start opens the item in a Kiln of its own, at its own address, and the home starts nothing itself (AC-HOME-05).
     const gift = (await page.list()).ready.find(item => item.title === "Gift card balance lookup")!;
-    const opened = await page.open(gift.id);
-    expect(opened.status, JSON.stringify(opened.body) + output()).toBe(200);
-    expect(opened.body.address).toMatch(/\/gift-card-balance$/);
-    expect((await fetch(opened.body.address!)).status).toBe(200);
+    const opened = await openFromHome(page.address, gift.id, "Review and start");
+    expect(opened).toMatch(/\/gift-card-balance$/);
+    expect((await fetch(opened)).status).toBe(200);
     expect(output()).toContain("Gift card balance lookup · ");
     // Opened again, it goes to the same Kiln rather than starting a second.
-    expect((await page.open(gift.id)).body.address).toBe(opened.body.address);
+    expect((await page.open(gift.id)).body.address).toBe(opened);
+    expect((await openedRun(opened).then(run => run.snapshot())).feature.state).toBe("not_started");
+    expect((await page.list()).ready.some(item => item.id === gift.id)).toBe(true);
+    expect(calls()).toEqual([]);
   });
   expect(code).toBe(130);
   expect(out).toContain("Kiln's home screen stopped.");
   // Ctrl+C stopped the Kiln it started too.
   expect(out).toContain("Gift card balance lookup · Kiln stopped.");
 
+  // Review and continue opens the hand-authored PRD in its own Kiln on its existing branch.
+  await home(repo, async page => {
+    const labels = (await page.list()).underWay.find(item => item.title === "Return labels")!;
+    const continued = await openFromHome(page.address, labels.id, "Review and continue");
+    expect(continued).toMatch(/\/return-labels$/);
+    const labelsRun = await openedRun(continued);
+    expect(await labelsRun.snapshot()).toMatchObject({ feature: { state: "not_started" }, settings: { featureBranch: "prd/return-labels" } });
+    expect(calls()).toEqual([]);
+    // Only an explicit Start on that PRD's page begins work.
+    await waitFor(async () => {
+      const { settings, requirements } = await labelsRun.snapshot();
+      return settings.baseCheck === "ok" && !settings.models.problem && !!requirements?.start?.previewId;
+    });
+    const started = await labelsRun.start((await labelsRun.snapshot()).requirements!.start!.previewId);
+    expect(started.status, await started.text()).toBe(200);
+    await waitFor(async () => (await labelsRun.snapshot()).feature.state === "needs_you");
+    await waitFor(async () => (await page.list()).underWay.some(item => item.title === "Return labels" && !item.startedByHand && item.state === "waiting_for_you"));
+    stoppedId = (await page.list()).underWay.find(item => item.title === "Return labels")!.id;
+    expect((await page.open(stoppedId)).body.address).toBe(continued);
+    expect(calls()).toHaveLength(1);
+  });
+
+  // Open also restores a saved run whose Kiln is no longer live, without resuming it.
+  await home(repo, async page => {
+    const labels = (await page.list()).underWay.find(item => item.id === stoppedId)!;
+    expect(labels).toMatchObject({ title: "Return labels", state: "not_running" });
+    expect(labels.startedByHand).toBeUndefined();
+    const again = await openFromHome(page.address, labels.id, "Open");
+    expect(again).toMatch(/\/return-labels$/);
+    expect((await openedRun(again).then(run => run.snapshot())).feature.state).toBe("needs_you");
+    expect(calls()).toHaveLength(1);
+  });
+
   // An item whose Kiln can't start says why: here a PRD refinement part-way through (AC-BEGIN-04).
   // The refinement runs in the branch's own worktree, where its state file sits beside the PRD.
-  const refining = join(sandbox.root, "return-labels-worktree");
-  git(sandbox, repo, "worktree", "add", "-q", refining, "prd/return-labels");
-  writeFileSync(join(refining, "docs/changes/return-labels/return-labels-prd-refinement-state.md"), "round 1\n");
+  const refining = join(sandbox.root, "invoice-export-worktree");
+  git(sandbox, repo, "worktree", "add", "-q", "-b", "prd/invoice-export", refining, "develop");
+  commitFiles(sandbox, refining, "docs/changes/invoice-export", { "invoice-export-prd.md": "# PRD: Invoice export\n" });
+  writeFileSync(join(refining, "docs/changes/invoice-export/invoice-export-prd-refinement-state.md"), "round 1\n");
   await home(repo, async (page) => {
-    const labels = (await page.list()).underWay.find(item => item.title === "Return labels")!;
-    const refused = await page.open(labels.id);
+    const invoice = (await page.list()).underWay.find(item => item.title === "Invoice export")!;
+    const refused = await page.open(invoice.id);
     expect(refused.status).toBe(502);
     expect(refused.body.reason).toContain(`The PRD refinement is part-way through in ${refining}`);
   });

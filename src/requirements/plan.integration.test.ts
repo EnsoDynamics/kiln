@@ -74,7 +74,7 @@ it("reads the plan once, shows every stage with its model before Start and while
     planSessions: [planSession(TODAY), planSession(UPDATED)],
     sessions: [
       // 1. The draft. While it runs the method is updated; the stage finishes on the copy it started with.
-      { actions: [{ touch: join(signals, "drafting") }, { waitForFile: join(signals, "updated") }, { write: { path: prd, content: PRD } }, { commit: "draft" }, report(["prd-writing-standards"], "autonomous-prd-refinement", []), { exit: 0 }] },
+      { actions: [{ text: "Drafting the PRD." }, { touch: join(signals, "drafting") }, { waitForFile: join(signals, "updated") }, { write: { path: prd, content: PRD } }, { commit: "draft" }, report(["prd-writing-standards"], "autonomous-prd-refinement", []), { exit: 0 }] },
       // 2. The refinement, on the plan read again before it launched.
       { actions: [{ write: { path: prd, content: PRD + "\nRefined.\n" } }, { commit: "refine" }, report(["autonomous-prd-refinement"], "technical-design-writing-standards", ["prd_refined"]), { exit: 0 }] },
       // 3. The early review.
@@ -91,7 +91,6 @@ it("reads the plan once, shows every stage with its model before Start and while
   expect(second.record.origin?.path).toBe(`source-material/${secondFolder}`);
   expect(second.planView().readAt).toBe(h.engine.planView().readAt);
   expect(h.planReadCalls()).toHaveLength(1);
-  second.close();
   hosted();
   expect(h.planReadCalls()).toHaveLength(1);
   expect(h.planReadCalls()[0]!.prompt).toContain(methodSkill().replace("SKILL.md", ""));
@@ -122,6 +121,12 @@ it("reads the plan once, shows every stage with its model before Start and while
   expect(await post("model", { target: { stage: "review-technical-design#1" }, choice: { agentId: "claude_code", model: "sonnet", effort: "medium" }, remember: true })).toMatchObject({ status: 200 });
   expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8")).skills).toEqual({ "review-technical-design": { agentId: "claude_code", family: "sonnet", effort: "medium" } });
   expect(model("review-technical-design#1")).toMatchObject({ from: "saved", choice: { model: "sonnet", effort: "medium" }, useDefault: true });
+  try {
+    expect(buildSnapshot(second).requirements!.rows.find(row => row.key === "review-technical-design#1")!.model)
+      .toMatchObject({ from: "saved", choice: { agent: "Claude Code", model: "sonnet", effort: "medium" } });
+  } finally {
+    second.close();
+  }
   // Use the default opts this PRD's stage out of the saved choice, and Change back to it follows the saved choice again.
   expect(await post("model", { target: { stage: "review-technical-design#1" }, choice: "default" })).toMatchObject({ status: 200 });
   expect(model("review-technical-design#1")).toMatchObject({ from: "model_defaults", choice: { model: "fable" } });
@@ -134,6 +139,10 @@ it("reads the plan once, shows every stage with its model before Start and while
   await waitFor(() => existsSync(join(signals, "drafting")));
   // AC-STAGE-03: the running stage shows its skill and model; the stages still to come follow it.
   expect(rows().slice(0, 2)).toEqual([{ key: "prd-writing-standards#1", title: "Write the PRD", state: "running" }, { key: "autonomous-prd-refinement#1", title: "Refine the PRD", state: "planned", stop: "early" }]);
+  await waitFor(() => model("prd-writing-standards#1").state === "running_on");
+  const running = model("prd-writing-standards#1");
+  expect(running).toMatchObject({ state: "running_on", choice: { agent: "Claude Code", model: "claude-fable-5-1", effort: "high" } });
+  expect(running.change).toBeUndefined();
   // A stage that has started keeps what it started on.
   expect(await post("model", { target: { stage: "prd-writing-standards#1" }, choice: { agentId: "claude_code", model: "opus", effort: "high" } })).toMatchObject({ status: 409 });
 
@@ -149,6 +158,9 @@ it("reads the plan once, shows every stage with its model before Start and while
   const after = view();
   expect(after.notice?.changes).toEqual(["No longer in the plan: Design review, Refine the design.", "New in the plan: Review and refine the design.", "The plan has 5 stages where it had 6."]);
   expect(after.notice?.methodUpdatedAt).toBe(h.engine.requirementsPlan!.methodUpdatedAt);
+  const finishedModel = model("prd-writing-standards#1");
+  expect(finishedModel).toMatchObject({ state: "ran_on", choice: { agent: "Claude Code", model: "claude-fable-5-1", effort: "high" } });
+  expect(finishedModel.change).toBeUndefined();
   // Finished stages keep their record; the stages still to come are the updated method's.
   expect(rows()).toEqual([
     { key: "prd-writing-standards#1", title: "Write the PRD", state: "done" },
@@ -305,7 +317,12 @@ it("names a planned stage whose saved choice can't be used by its title in Start
   writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 1, rows: {}, skills: { "phase-split": { agentId: "claude_code", family: "opus", effort: "ultra" } } }));
   h.engine.modelChoicesChanged();
   await waitFor(() => !!h.engine.modelsProblem);
-  expect(h.engine.modelsProblem).toMatch(/^Phase plan runs on Claude Code · Opus[^:]* · ultra from a choice saved for every PRD for this stage's skill: .* Change it on its row in the requirements plan\.$/);
+  const refused = await h.engine.start();
+  expect(refused).toMatchObject({ ok: false, reason: expect.stringMatching(/^Phase plan runs on Claude Code · Opus[^:]* · ultra from a choice saved for every PRD for this stage's skill: .* Change it on its row in the requirements plan\.$/) });
+  await h.engine.settled();
+  expect(h.engine.record.startedAt).toBeUndefined();
+  expect(h.engine.record.requirements!.stages).toEqual([]);
+  expect(h.claudeCalls()).toEqual([]);
 });
 
 it("never waits at a stage boundary for Read again of the method the PRD's plan came from (AC-PLAN-05)", async () => {
@@ -421,6 +438,43 @@ it("runs a design stage the plan expects on Refining the design, and a stage the
   expect(h.engine.record.requirements!.notice?.changes).toEqual(["Passed Phase plan, which the method didn't run for this PRD."]);
 });
 
+it("reads the plan on the requirements row and switches model at the design span boundaries without a plan (AC-MODEL-02)", async () => {
+  const signals = mkdtempSync(join(tmpdir(), "kiln-design-span-"));
+  const feedback = { result: "```kiln-report\n" + JSON.stringify({
+    kilnReport: 1, ran: [], finished: true, prdDirectory: dir, milestones: [],
+    next: { kind: "requirements", skill: "design-follow-up", title: "Design follow-up", reaches: [] },
+    messages: [{ id: "m-1", outcome: "worked_in" }],
+  }) + "\n```" };
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [
+    { actions: [{ write: { path: prd, content: PRD } }, { commit: "draft" }, report(["prd-writing-standards"], "autonomous-design-refinement", [], ["design_ready"]), { exit: 0 }] },
+    { actions: [{ touch: join(signals, "designing") }, { waitForFile: join(signals, "continue") }, { write: { path: `${dir}/technical-design.md`, content: DESIGN } }, { commit: "refine design" }, report(["autonomous-design-refinement"], "design-follow-up", []), { exit: 0 }] },
+    { actions: [{ write: { path: `${dir}/technical-design.md`, content: DESIGN + "\nDesign feedback applied.\n" } }, { commit: "apply feedback" }, feedback, { exit: 0 }] },
+    { actions: [report(["design-follow-up"], "phase-split", ["design_ready"]), { exit: 0 }] },
+    { actions: [{ result: "Need the phase plan." }, { exit: 0 }] },
+  ] });
+  hosted();
+  h.engine.record.settings.waitAtEarlyReview = false;
+  writeFileSync(modelDefaultsPath(h.env), JSON.stringify({ schemaVersion: 2, rows: { requirements: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } }));
+  h.engine.modelChoicesChanged();
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "failed");
+  expect(await h.engine.readPlanAgain()).toEqual({ ok: true });
+  await waitFor(() => h.planReadCalls().length === 2 && view().plan.status === "failed");
+  expect(h.planReadCalls()[1]!.args).toEqual(expect.arrayContaining(["--model", "sonnet", "--effort", "low"]));
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await waitFor(() => existsSync(join(signals, "designing")));
+  expect(await h.engine.addFeedback("Keep the counter on the first page. " + "x".repeat(4100))).toMatchObject({ ok: true, outcome: "feedback_sent" });
+  writeFileSync(join(signals, "continue"), "");
+  await h.engine.settled();
+  const launched = h.claudeCalls().map(call => [call.args[call.args.indexOf("--model") + 1], call.args[call.args.indexOf("--effort") + 1]]);
+  expect(launched).toEqual([["sonnet", "low"], ["opus", "high"], ["sonnet", "low"], ["opus", "high"], ["sonnet", "low"]]);
+  expect(h.claudeCalls()[2]!.prompt).toContain("Message m-1:\nKeep the counter on the first page.");
+  expect(view().rows.find(row => row.key === "autonomous-design-refinement#1")?.model)
+    .toMatchObject({ state: "ran_on", choice: { agent: "Claude Code", model: "claude-opus-5-5", effort: "high" } });
+  expect(view().rows.find(row => row.key === "phase-split#1")?.model)
+    .toMatchObject({ state: "running_on", choice: { agent: "Claude Code", model: "claude-sonnet-5-5", effort: "low" } });
+});
+
 async function cli(args: string[]) {
   const child = spawn(process.execPath, [fileURLToPath(new URL("../../dist/cli.js", import.meta.url)), ...args], { cwd: h.sandbox.root, env: h.env, stdio: ["ignore", "pipe", "pipe"] });
   let stdout = ""; let stderr = ""; child.stdout.on("data", data => stdout += String(data)); child.stderr.on("data", data => stderr += String(data));
@@ -462,6 +516,20 @@ it("changes a stage's model, remembers it for every PRD and forgets it from a te
   expect(row.code, row.stdout).toBe(0);
   expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8")).rows.refining_design.first).toEqual({ agentId: "claude_code", family: "sonnet", effort: "high" });
   await waitFor(() => view().rows.find(one => one.key === "autonomous-design-refinement#1")!.model!.choice?.model === "sonnet");
+  const specific = await cli(["model", join(h.repository, path), "--stage", "technical-design-writing-standards#1", "--agent", "claude_code", "--model", "haiku", "--effort", "low", "--only-if-status-matches", (await cli(["status", join(h.repository, path), "--json"])).json().status_token as string, "--command-id", "design-on-haiku", "--json"]);
+  expect(specific.code, specific.stdout + specific.stderr).toBe(0);
+  await h.engine.commands.settled();
+  const requirementsRow = await cli(["model-defaults", "set", "--row", "requirements", "--first-agent", "claude_code", "--first-model", "sonnet", "--first-effort", "low", "--json"]);
+  expect(requirementsRow.code, requirementsRow.stdout + requirementsRow.stderr).toBe(0);
+  expect(requirementsRow.json().data).toMatchObject({ rows: { requirements: { first: { agentId: "claude_code", family: "sonnet", effort: "low" } } } });
+  expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8")).rows.requirements.first).toEqual({ agentId: "claude_code", family: "sonnet", effort: "low" });
+  expect((await cli(["model-defaults", "set", "--row", "bogus", "--first-agent", "claude_code", "--first-model", "sonnet", "--first-effort", "low"])).code).toBe(2);
+  const model = (key: string) => view().rows.find(one => one.key === key)!.model!;
+  await waitFor(() => model("autonomous-prd-refinement#1").choice?.model === "sonnet");
+  expect(model("autonomous-prd-refinement#1")).toMatchObject({ from: "model_defaults", choice: { agent: "Claude Code", model: "sonnet", effort: "low" } });
+  expect(model("technical-design-writing-standards#1")).toMatchObject({ from: "changed", choice: { agent: "Claude Code", model: "haiku", effort: "low" } });
+  expect(model("prd-writing-standards#1")).toMatchObject({ state: "running_on", choice: { agent: "Claude Code", model: "claude-fable-5-1", effort: "high" } });
+  expect(model("prd-writing-standards#1").change).toBeUndefined();
   const remembered = await cli(["model-defaults", "remember", "--skill", "phase-split", "--agent", "claude_code", "--model", "sonnet", "--effort", "high", "--json"]);
   expect(remembered.code, remembered.stdout).toBe(0);
   expect((remembered.json().data as { skills: { skill: string }[] }).skills.map(one => one.skill)).toEqual(["technical-design-writing-standards", "phase-split"]);
@@ -469,7 +537,7 @@ it("changes a stage's model, remembers it for every PRD and forgets it from a te
   expect(forgot.code).toBe(0);
   expect(forgot.stdout).toContain("Saved for every PRD, phase-split: Claude Code · Sonnet · high");
   expect(forgot.stdout).not.toContain("technical-design-writing-standards");
-  await waitFor(() => view().rows.find(row => row.key === "technical-design-writing-standards#1")!.model!.from === "model_defaults");
+  expect(model("technical-design-writing-standards#1").from).toBe("changed");
   expect((await cli(["model-defaults", "forget", "--skill", "nothing-saved"])).code).toBe(2);
 });
 

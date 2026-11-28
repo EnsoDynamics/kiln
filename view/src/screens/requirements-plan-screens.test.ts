@@ -79,6 +79,15 @@ it("shows what a method update changed, done stages with their time and commit, 
   expect(shown).toContain("A choice saved for review-technical-design no longer applies, since the plan no longer runs it. This stage runs on its default.");
 });
 
+it("shows the Fallback tag on the requirements stage that used it (AC-MODEL-06)", () => {
+  const shown = page(view({ rows: [
+    row("prd-writing-standards#1", "Write the PRD", { state: "done", model: {
+      state: "ran_on", choice: choice("fable"), fallback: { used: true, limit: { agent: "Codex", label: "Weekly", percent: 97 }, threshold: 95 },
+    } }),
+  ] }), "implementing");
+  expect(shown).toContain("Ran on Claude Code · Fable · high Fallback");
+});
+
 it("names the requirements stage running and where Kiln stops next in the header", async () => {
   const { headerState } = await import("../lib/progress.js");
   const base = runningSnapshot();

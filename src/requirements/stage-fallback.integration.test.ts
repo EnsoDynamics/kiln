@@ -157,6 +157,8 @@ it("names the requirements stage in the terminal line when it starts on the fall
   await waitFor(() => !!h!.engine.headsUp(), 20_000);
   expect(await h.engine.start()).toMatchObject({ ok: true });
   await h.engine.settled();
+  const stage = rows().find(row => row.activityId)!;
+  expect(stage.model).toMatchObject({ choice: { agent: "Claude Code", model: "claude-fable-5-1", effort: "high" }, fallback: { used: true, limit: { agent: "Codex", percent: 97 }, threshold: 95 } });
   const lines = h.events.filter(event => event.kind === "message" && event.text.includes("started on the fallback"));
   expect(lines).toEqual([{ kind: "message", text: expect.stringMatching(/^Next requirements stage started on the fallback, Claude Code · Fable [0-9.]* · high: Codex's .* read 97%, at or above the 95% threshold/) }]);
 });
@@ -203,4 +205,37 @@ it("with no plan, puts the heads-up on the stop's review row when the review is 
   h.engine.modelChoicesChanged();
   await waitFor(() => !!h!.engine.modelsProblem);
   expect(h.engine.modelsProblem).toMatch(/^Early stakeholder review runs on Claude Code · Opus[^:]* · ultra from a choice saved for every PRD for this stage's skill: /);
+});
+
+
+it("keeps a started requirements stage on its original agent when the default and usage change (AC-MODEL-01, AC-MODEL-06)", async () => {
+  const claude = new SetClaude(weekly(10));
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder: "count-boxes", engineOptions: { claude }, sessions: [
+    { actions: [{ write: { path: "draft-notes.md", content: "Partial stage work.\n" } }, { result: "Need the user's input." }, { exit: 0 }] },
+    { actions: [{ result: "Still drafting." }, { exit: 0 }] },
+  ] });
+  codex = codexWorkFixture();
+  Object.assign(h.tools, { codex: codex.options.executable });
+  codex.configureEnvironment(h.env);
+  codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10, windowDurationMins: 300 } } } } });
+  writeModelDefaults(h.env, { requirements: { first: { agentId: "claude_code", family: "fable", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "high" } } }, { enabled: true, threshold: 95 });
+  h.engine.modelChoicesChanged();
+  await h.engine.refreshAgents();
+  await waitFor(() => h!.engine.planView().status === "failed");
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const key = h.engine.stoppedPhaseKey()!;
+  const started = h.engine.startedSessionOf(key)!;
+  expect(started).toMatchObject({ agentId: "claude_code", model: "fable", effort: "high" });
+  claude.reading = weekly(97);
+  await claude.refreshAccount();
+  writeModelDefaults(h.env, { requirements: { first: { agentId: "claude_code", family: "sonnet", effort: "low" }, fallback: { agentId: "codex", family: "sol", effort: "high" } } }, { enabled: true, threshold: 95 });
+  h.engine.modelChoicesChanged();
+  expect(rows().find(row => row.activityId === key.slice("req-".length))?.model)
+    .toMatchObject({ state: "running_on", choice: { agent: "Claude Code", model: "claude-fable-5-1", effort: "high" } });
+  expect(await h.engine.resume()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.claudeCalls()).toHaveLength(2);
+  expect(h.claudeCalls()[1]!.args).toEqual(expect.arrayContaining(["--resume", started.sessionId, "--model", "claude-fable-5-1", "--effort", "high"]));
+  expect(h.engine.latestSession(key)).toMatchObject({ sessionId: started.sessionId, agentId: "claude_code", model: "fable", effort: "high" });
 });

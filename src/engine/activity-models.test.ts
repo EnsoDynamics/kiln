@@ -37,6 +37,12 @@ describe("where a stopped launch's choice came from (AC-PICK-06)", () => {
   });
 });
 
+it("names a requirements stage's changed and fallback choices at a stop (AC-MODEL-06)", () => {
+  expect(launchSource("req-abc", { from: "changed" })).toBe("A change for this PRD. Change it on its row in the requirements plan.");
+  expect(launchSource("req-abc", { from: "model_defaults", fallback: { used: true, limit: { agentId: "claude_code", label: "Weekly", percent: 97 }, threshold: 95 } }))
+    .toBe("The fallback, from Model defaults' Fallback column. Change it in Model defaults.");
+});
+
 describe("a stop's words for a choice that can't be used", () => {
   it("name the choice, where it came from and where to change it, for a phase and for the audits", () => {
     expect(choiceStopFact({ agentId: "claude_code", model: "claude-opus-4-1", modelName: "claude-opus-4-1", effort: "high", from: "changed", problem: "Claude Code doesn't offer claude-opus-4-1 on this account." }, "3"))

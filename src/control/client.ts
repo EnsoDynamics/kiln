@@ -21,7 +21,10 @@ import { modelDefaultsCommand } from "./model-defaults-command.js";
 import { terminalColors } from "../terminal-output.js";
 
 interface Capability { protocol_major: number; execution_id: string; prd_path: string; instance: { pid: number; process_start_time: string | null }; features: string[] }
-interface Controller { features?: string[]; state: "reachable" | "stopped" | "unreachable" | "incompatible"; address?: string; error?: string }
+type Controller = { features?: string[]; error?: string } & (
+  | { state: "stopped"; address?: never }
+  | { state: "reachable" | "unreachable" | "incompatible"; address: string }
+);
 async function controller(work: SavedWork, deadline = Date.now() + 2000): Promise<Controller> {
   const path = join(work.directory, "instance.lock");
   if (!existsSync(path)) return { state: "stopped" };
@@ -30,16 +33,16 @@ async function controller(work: SavedWork, deadline = Date.now() + 2000): Promis
   const address = `http://127.0.0.1:${lock.port}`;
   try {
     const response = await fetch(`${address}/api/control/v1/capabilities`, { headers: { "X-Kiln-Token": work.record.token }, redirect: "error", signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) });
-    if (!response.ok) return { state: "incompatible", error: "Controller does not support the authenticated inspection protocol. Restart it with the updated Kiln." };
+    if (!response.ok) return { state: "incompatible", address, error: "Controller does not support the authenticated inspection protocol. Restart it with the updated Kiln." };
     const cap = await response.json() as Capability;
-    if (cap.protocol_major !== 1 || cap.execution_id !== work.record.executionId || cap.prd_path !== work.canonical || cap.instance?.pid !== lock.pid || (cap.instance.process_start_time && cap.instance.process_start_time !== lock.processStartTime)) return { state: "incompatible", error: "Controller protocol or saved execution identity does not match; no controls attempted." };
+    if (cap.protocol_major !== 1 || cap.execution_id !== work.record.executionId || cap.prd_path !== work.canonical || cap.instance?.pid !== lock.pid || (cap.instance.process_start_time && cap.instance.process_start_time !== lock.processStartTime)) return { state: "incompatible", address, error: "Controller protocol or saved execution identity does not match; no controls attempted." };
     return { state: "reachable", address, features: cap.features };
   } catch {
     // Process identity is a secondary check; successful authenticated identity needs no ps access.
     const start = await processStartTime(lock.pid, { timeoutMs: Math.max(1, deadline - Date.now()) }).catch(() => undefined);
     if (start && start !== lock.processStartTime) return { state: "stopped" };
     try { process.kill(lock.pid, 0); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ESRCH") return { state: "stopped" }; }
-    return { state: "unreachable", error: "Known controller could not be authenticated within its probe deadline." };
+    return { state: "unreachable", address, error: "Known controller could not be authenticated within its probe deadline." };
   }
 }
 async function request(work: SavedWork, owner: Controller, route: string, timeout = 5000, refresh = false): Promise<Result> {
@@ -304,9 +307,8 @@ export async function probeRun(work: SavedWork, deadline = Date.now() + 2000): P
   let owner: Controller;
   try { owner = await controller(work, deadline); } catch { return { state: "unreadable" }; }
   if (owner.state === "stopped") return { state: "not_running" };
-  const lock = privateJson<InstanceLockContent>(work.root, join(work.directory, "instance.lock"));
   const folder = (work.record.origin?.path ?? work.record.prdDirectory ?? "").split("/").at(-1) ?? "";
-  const address = `http://127.0.0.1:${lock.port}/${folder}`;
+  const address = `${owner.address}/${folder}`;
   if (owner.state !== "reachable") return { state: "unreadable", address };
   try {
     const answer = await request(work, owner, "status", Math.max(1, deadline - Date.now()));

@@ -21,6 +21,8 @@ const list = (change: Partial<HomeList> = {}): HomeList => ({
     item("Purchase approvals", { state: "waiting_for_you", waitsForYou: true, line: "Requirements. The early stakeholder review has been ready since 12:47 PM." }),
     item("Customer returns", { state: "working", line: "Build. 2 of 5 phases done.", alsoChanges: ["acme-admin"] }),
     item("Wholesale invoices", { state: "unreadable", line: "Build. 2 of 3 phases done. Kiln couldn't read its state. Its Kiln is at http://127.0.0.1:4321/wholesale-invoices." }),
+    item("Paused importer", { state: "paused", line: "Requirements. Write the PRD." }),
+    item("Stopped importer", { state: "not_running", line: "Requirements. Write the PRD." }),
     item("Return labels", { state: "not_running", startedByHand: true, branch: "prd/return-labels", line: "Started by hand, on the branch prd/return-labels, not merged yet. PRD written, no technical design yet." }),
   ],
   ready: [
@@ -40,6 +42,8 @@ it("lists what is under way first with each Kiln's state, then what is ready and
   expect(shown).toContain("Purchase approvals docs/prds/Purchase approvals/ Requirements. The early stakeholder review has been ready since 12:47 PM. Waiting for you Open");
   expect(shown).toContain("Customer returns docs/prds/Customer returns/ Build. 2 of 5 phases done. Also changes acme-admin. Working Open");
   expect(shown).toContain("Kiln couldn't read its state. Its Kiln is at http://127.0.0.1:4321/wholesale-invoices. State not read Open");
+  expect(shown).toContain("Paused importer docs/prds/Paused importer/ Requirements. Write the PRD. Paused Open");
+  expect(shown).toContain("Stopped importer docs/prds/Stopped importer/ Requirements. Write the PRD. Not running Open");
   expect(shown).toContain("not merged yet. PRD written, no technical design yet. Not running Review and continue");
   expect(shown).toContain("Gift card balance lookup Brief source-material/gift-card-balance/gift-card-balance-brief.md Review and start");
   expect(shown).toContain("Loyalty program: Redemption Planned PRD docs/prds/Loyalty program: Redemption/ Its build waits for Points earning. Review and start");
