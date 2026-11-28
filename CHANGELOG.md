@@ -33,6 +33,13 @@ section to the new version.
   what to do, naming the setting or the failed check.
 - Pressing Start while Kiln is still checking the base branch now waits for the check.
 
+### Fixed
+
+- A live session no longer gets stuck with "Kiln checkpoint unavailable: Admission lock is
+  unresolved" after a checkpoint hook is killed partway through, as happens when a workflow's
+  subagents are stopped. A session already stuck this way recovers the next time Kiln checks
+  it, for example on **Check again**.
+
 ## [1.5.1] - 2026-11-26
 
 Phases pick their model from their tier, Kiln finds repositories wherever they are checked out, and
