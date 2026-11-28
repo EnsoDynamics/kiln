@@ -1165,7 +1165,10 @@ function needsYouView(engine: Engine, phaseKey: string): Snapshot["needsYou"] {
   const folder = session ? engine.workingDirectoryOf(session) : engine.sessionFolder;
   const auditTask = engine.auditRecoveryTask(phaseKey, folder);
   const preflight = engine.preflightActivity(phaseKey);
+  // A requirements session's fresh session gets that stage, feedback or review session's own prompt (AC-STAGE-04).
+  const requirementsStage = engine.requirementsStageOf(phaseKey);
   const originalPrompts = (ran: boolean) =>
+      requirementsStage ? engine.requirementsStagePrompt(requirementsStage) :
       phaseKey === MERGE_KEY ? engine.mergePrompt(folder) :
       isPlanPushKey(phaseKey) ? engine.planPushPrompt(phaseKey) :
       preflight ? engine.preflightPrompt(preflight, folder) :

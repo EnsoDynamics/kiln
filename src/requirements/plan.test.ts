@@ -101,6 +101,37 @@ it("names every entry a report at a stop moves the cursor past without running i
   expect(advanceCursor(shown, merged, "stage", report(["A", "B", "C"], "stakeholder-review-package"), true)).toEqual([]);
 });
 
+it("at a stop, passes and names the entries up to the one reaching its milestone, from an earlier entry the session ran, an unknown standing or a feedback report (AC-PLAN-06)", () => {
+  const reached = (r: StageReport, ...names: string[]): StageReport => ({ ...r, milestones: names.map(name => ({ name, by: "this_session" })) as NonNullable<StageReport["milestones"]> });
+  const shown = plan([stage("Write"), stage("Refine", ["prd_refined"]), stage("Design"), stage("Split", ["requirements_finished"])]);
+  // The session ran Write and reported prd_refined: Refine is passed and named, and the cursor goes past it.
+  const early = newRequirements();
+  expect(advanceCursor(shown, early, "stage", reached(report(["Write"], "stakeholder-review-package"), "prd_refined"), true)).toEqual(["Passed Refine, which the method didn't run for this PRD."]);
+  expect(early.cursor).toBe(2);
+  expect(plannedRows(shown, early, { next: true }).map(row => row.key)).toEqual(["kiln:early", "Design#1", "Split#1", "kiln:final"]);
+  // At the final stop the design session put the build next: Split is passed and named, not dropped silently.
+  const final = newRequirements();
+  final.cursor = 2;
+  expect(advanceCursor(shown, final, "stage", reached(report(["Design"], "build", "build"), "prd_refined", "requirements_finished"), true)).toEqual(["Passed Split, which the method didn't run for this PRD."]);
+  expect(final.cursor).toBe(4);
+  // From an unknown standing, a session that ran a plan entry says where Kiln continues from.
+  const unknown = newRequirements();
+  unknown.standing = { unknown: true, at: "2026-11-28T00:00:00Z" };
+  expect(advanceCursor(shown, unknown, "stage", reached(report(["Refine"], "stakeholder-review-package"), "prd_refined"), true)).toEqual(["Kiln continues from Design, where the method found this PRD stands."]);
+  expect(unknown.cursor).toBe(2);
+  // A feedback report at a stop moves the cursor past the entries its milestones put behind the work, and names them.
+  const feedback = newRequirements();
+  expect(advanceCursor(shown, feedback, "feedback", reached(report([], "stakeholder-review-package"), "prd_refined"), true)).toEqual(["Passed Write, Refine, which the method didn't run for this PRD."]);
+  expect(feedback.cursor).toBe(2);
+  expect(feedback.cursorLost).toBeUndefined();
+  const unknownFeedback = newRequirements();
+  unknownFeedback.standing = { unknown: true, at: "2026-11-28T00:00:00Z" };
+  expect(advanceCursor(shown, unknownFeedback, "feedback", reached(report([], "stakeholder-review-package"), "prd_refined"), true)).toEqual(["Kiln continues from Design, where the method found this PRD stands."]);
+  // Feedback at a stop the cursor is already past moves nothing and says nothing.
+  expect(advanceCursor(shown, feedback, "feedback", reached(report([], "stakeholder-review-package"), "prd_refined"), true)).toEqual([]);
+  expect(feedback.cursor).toBe(2);
+});
+
 it("places Kiln's early review after the entry that refines the PRD, unless the method makes one there or it was held", () => {
   const shown = plan([stage("write"), stage("refine", ["prd_refined"]), stage("design"), stage("split", ["requirements_finished"])]);
   const state = newRequirements();

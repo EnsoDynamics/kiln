@@ -50,7 +50,9 @@ it("holds at both reviews and refuses a build without phase documents, including
   await engine.settled();
   expect(buildSnapshot(engine).requirements?.build).toMatchObject({ noPhasePlan: true });
   expect(h.claudeCalls()).toHaveLength(4);
-  expect(await engine.startRequirementsBuild(true)).toMatchObject({ ok: false });
+  // The control's reason is the "No phase documents" fact the screen shows (AC-FINAL-06).
+  expect(engine.controlView().controls.find(c => c.name === "start-build")).toMatchObject({ available: false, reason: expect.stringMatching(/^No phase documents/) });
+  expect(await engine.startRequirementsBuild(true)).toMatchObject({ ok: false, reason: expect.stringMatching(/^No phase documents/) });
   expect(git(h.sandbox, hosted.bare, "rev-parse", engine.record.settings.featureBranch)).toBe(git(h.sandbox, engine.worktreePath, "rev-parse", "HEAD"));
   // The written PRD exists only on the feature branch. The source checkout still resolves its name.
   engine.close();
@@ -62,11 +64,17 @@ it("holds at both reviews and refuses a build without phase documents, including
   try {
     await waitFor(() => !!address || exit !== undefined);
     expect(address, log).toMatch(/\/count-boxes\/?$/);
+    let statusToken = "";
     for (const target of ["source-material/" + folder, dir, draft]) {
       log = "";
       expect(await runKilnCommand(["status", target, "--json"], context)).toBe(0);
       expect(JSON.parse(log)).toMatchObject({ state: "final_review", execution_id: engine.record.executionId });
+      statusToken = JSON.parse(log).status_token as string;
+      expect((JSON.parse(log).controls as { name: string; reason: string | null }[]).find(c => c.name === "start-build")?.reason).toMatch(/^No phase documents/);
     }
+    log = "";
+    expect(await runKilnCommand(["start-build", dir, "--only-if-status-matches", statusToken, "--command-id", "no-phase-plan"], context)).not.toBe(0);
+    expect(log, log).toContain("No phase documents");
   } finally { if (exit === undefined) signals.emit("SIGINT"); await controller; }
   const reopened = h.reopenFromDisk();
   await reopened.prepare();

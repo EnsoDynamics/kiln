@@ -19,7 +19,7 @@ import { boundPort } from "../test-support/os-ports.js";
 import { createGithubOrigin, git } from "../test-support/git-repositories.js";
 import { modelDefaultsPath } from "../models/model-defaults.js";
 import { stateRoot } from "../state/state-files.js";
-import { readPlanFile } from "./plan.js";
+import { readPlanFile, updatePlanFile } from "./plan.js";
 
 let h: Harness;
 let server: LocalServer | undefined;
@@ -327,6 +327,37 @@ it("waits to read the plan until billing is approved on a metered route", async 
   expect(h.planReadCalls()).toHaveLength(2);
 });
 
+it("reads nothing more on billing approval once another Kiln's read gave the method a plan (AC-PLAN-03)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, planSessions: [{ actions: [{ result: "No plan." }, { exit: 0 }] }, planSession(TODAY)], sessions: [] });
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "failed", 20_000);
+  h.env.ANTHROPIC_API_KEY = "plan-read-canary";
+  await h.engine.refreshBilling();
+  expect(await h.engine.readPlanAgain()).toEqual({ ok: true });
+  await waitFor(() => h.engine.planWaitsForBilling, 20_000);
+  // Another PRD's Kiln reads the plan for the same agent and method while this one waits.
+  const method = h.engine.planMethod!;
+  const at = new Date().toISOString();
+  updatePlanFile(h.engine.planRoot, file => {
+    (file.plans[method.agentId] ??= {})[method.fingerprint] = { methodUpdatedAt: method.updatedAt, readAt: at, usedAt: at,
+      stages: TODAY.map(([skill, title, reaches]) => ({ skill, title, reaches: reaches ?? [] })) as never, reviewSkill: { skill: "stakeholder-review-package", title: "Stakeholder review" } };
+    delete file.failures[method.agentId]?.[method.fingerprint];
+  });
+  await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, readingId: h.engine.billing.view.next!.readingId, approved: true });
+  await new Promise(resolve => setTimeout(resolve, 1_000));
+  // Only the failed read ran: the approval started no second, paid read, and the PRD shows the plan that landed.
+  expect(h.planReadCalls()).toHaveLength(1);
+  expect(h.engine.planWaitsForBilling).toBe(false);
+  expect(view().plan.status).toBe("read");
+  // Read again of the plan already known still reads it once billing is approved.
+  h.env.ANTHROPIC_API_KEY = "plan-read-canary-2";
+  await h.engine.refreshBilling();
+  expect(await h.engine.readPlanAgain()).toEqual({ ok: true });
+  await waitFor(() => h.engine.planWaitsForBilling, 20_000);
+  await h.engine.billingCommand("approval", { executionId: h.engine.record.executionId, readingId: h.engine.billing.view.next!.readingId, approved: true });
+  await waitFor(() => h.planReadCalls().length === 2, 20_000);
+});
+
 it("runs a design stage the plan expects on Refining the design, and a stage the method put next that the plan lacks on a row of its own", async () => {
   h = await createHarness({ sourceBrief: "# Count boxes\n", folder, planSessions: [planSession(TODAY)],
     sessions: [
@@ -364,8 +395,9 @@ it("runs a design stage the plan expects on Refining the design, and a stage the
   // The choice is kept as its family, so a newer Sonnet is used when it ships.
   expect(JSON.parse(readFileSync(modelDefaultsPath(h.env), "utf8")).skills["autonomous-prd-refinement"]).toEqual({ agentId: "claude_code", family: "sonnet", effort: "medium" });
   expect(h.engine.record.requirements!.designSpan).toBe(false);
-  // AC-PLAN-06: what changed when a report passed the plan.
-  expect(h.engine.record.requirements!.notice?.changes).toEqual(["Passed Design review, which the method didn't run for this PRD."]);
+  // AC-PLAN-06: what changed when a report passed the plan. The latest notice is the final stop's: the design
+  // refinement put the build next, so the Phase plan entry it skipped is named, not dropped.
+  expect(h.engine.record.requirements!.notice?.changes).toEqual(["Passed Phase plan, which the method didn't run for this PRD."]);
 });
 
 async function cli(args: string[]) {

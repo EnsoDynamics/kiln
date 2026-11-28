@@ -1,5 +1,7 @@
 # Phase 12: Complete the plan's notices at a stop, the plan read after billing approval, stage recovery, and the start-build reason
 
+**Closed:** 2026-11-28
+
 **Added by delivery audit:** 2026-11-28, after every planned phase closed, in the audit that followed phases 9 and 10. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "Rows"; "Reading it"; "The driver"; "How a stage ends"; "Starting the Build"

@@ -56,6 +56,8 @@ export interface RequirementsStage {
   startedAt: string;
   /** A feedback session's messages, given in its prompt. */
   messageIds?: string[];
+  /** The entry skill's path the stage's session was launched with, which its fresh-session prompt at Needs you names again. */
+  skillPath?: string;
 }
 export interface RequirementsState {
   phase: "stages" | "early_review" | "final_review" | "closed";

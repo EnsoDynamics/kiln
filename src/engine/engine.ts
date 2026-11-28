@@ -761,7 +761,8 @@ export class Engine {
     const afterDeliveryRunning = afterDeliveryKey !== undefined && !key && !wait && !(isPlanPushKey(afterDeliveryKey) && openPlanPush(this.record)?.doneAt);
     const liveReason = afterDeliveryKey === MERGE_KEY ? MERGE_LIVE_REASON : PLAN_PUSH_LIVE_REASON;
     const unavailable: Partial<Record<Action, string>> = {
-      "start-build": this.reviewStop === "final" ? this.finalStartProblems[0] ?? "The phase plan must pass the start checks." : "Start the build is available only at the final review.",
+      // With no phase documents the reason is the plan read's own fact, as the screen shows it (AC-FINAL-06).
+      "start-build": this.reviewStop === "final" ? (() => { const plan = this.requirementsBuildPlan; return plan && !plan.ok ? plan.problem : this.finalStartProblems[0] ?? "The phase plan must pass the start checks."; })() : "Start the build is available only at the final review.",
       feedback: !this.record.requirements ? "This run has no requirements stages." : this.record.startedAt === undefined ? "Feedback is taken once Start is pressed." : !this.requirementsOpen ? "The build has started. Feedback goes to the requirements before the build." : this.folderMissing ? FOLDER_MISSING_REASON : "Another instruction owns control; send the feedback again in a moment.",
       "take-over": this.liveView()?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "Pause now needs an active supported Claude phase or audit."),
       message: this.liveView()?.input?.reason ?? (preflightRunning ? PREFLIGHT_LIVE_REASON : "No active supported Claude input is available."),
@@ -1538,7 +1539,8 @@ export class Engine {
   }
 
   private async takeoverBecameComplete(key: string): Promise<boolean> {
-    if (!this.record.liveControl) return false;
+    // A requirements stage was judged as Check again judges it before its resume was queued; the phase done check never judges it (AC-STAGE-04).
+    if (!this.record.liveControl || activityKeyKind(key) === "requirements") return false;
     const outcome = await this.doneCheck(key);
     if (outcome === "stopping" || outcome.unavailable) throw new CompletionCheckUnavailable("Could not recheck activity completion before dispatch.");
     if (!outcome.passed) return false;
@@ -1649,7 +1651,11 @@ export class Engine {
     try { return await this.billing.command(action, body, this.billingCwd, this.sessionEnv()); }
     finally {
       // A plan read waiting for this PRD's billing approval starts once it is given (AC-PLAN-03).
-      if (action === "approval" && this.planWaitsForBilling) void this.refreshRequirementsPlan({ force: true }).catch(() => this.changed());
+      // Once a plan for the method is known, another Kiln's read included, the approval reads nothing again.
+      if (action === "approval" && this.planWaitsForBilling) {
+        if (this.planLanded()) this.adoptPlan();
+        else void this.refreshRequirementsPlan({ force: true }).catch(() => this.changed());
+      }
       this.changed();
     }
   }
@@ -2809,7 +2815,8 @@ export class Engine {
     if (!hold && facts?.stop?.kind !== "done_check" && facts?.stop?.kind !== "not_resumable") return undefined;
     // The target names the latest conversation, or the latest launch when none began (run restart "A session record with no run").
     const session = this.recoverySession(phaseKey);
-    if (!session || session.kind !== "phase" && !this.record.liveControl || !session?.runs.some(run => run.pid !== undefined)) return undefined;
+    const requirementsNotResumable = session?.kind === "requirements" && facts?.stop?.kind === "not_resumable";
+    if (!session || session.kind !== "phase" && !requirementsNotResumable && !this.record.liveControl || !session?.runs.some(run => run.pid !== undefined)) return undefined;
     return { executionId: this.record.executionId!, phaseKey, sessionId: session.sessionId, stoppedAt: hold?.at ?? facts!.stop!.at, ...(this.record.liveControl ? { live: this.record.liveControl.takeover.target } : {}) };
   }
 
@@ -2849,12 +2856,15 @@ export class Engine {
       if (this.record.liveControl) await (action === "carry_on" || this.record.liveControl.takeover.history ? this.requireCarryOnOwnership() : this.requireTakeoverReturn());
       if (latest.agentId === "codex") await this.stopLiveProcess(latest);
       if (activityKeyKind(key) === "requirements") {
-        if (action === "verify") {
+        // Resume and carry on judge the stage as Check again does: one the person finished and committed in their
+        // terminal moves on, and a reply becomes feedback; with work left, the session resumes or a fresh one carries on (AC-STAGE-04).
+        if (action === "verify" || await this.requirementsMovesOn(key)) {
           const verdict = await this.judgeRequirements(key, true);
           if (verdict.kind !== "done") return { ok: true, outcome: "still_stopped", target: target! };
           this.resolveMessageHold();
           delete this.record.liveControl;
           this.save();
+          if (action !== "verify" && note && this.requirementsOpen) await this.addFeedback(note);
           this.kick();
           return { ok: true, outcome: "advanced", target: target! };
         }
@@ -6372,6 +6382,22 @@ export class Engine {
   /** The read waits for this PRD's billing approval on a metered route (AC-PLAN-03). */
   planWaitsForBilling = false;
 
+  /**
+   * Whether a plan for the method this Kiln fingerprinted is known, read by this Kiln or another;
+   * a known plan ends a wait for billing approval, since no read is needed (AC-PLAN-03).
+   */
+  private planLanded(): boolean {
+    const method = this.planMethod;
+    const plan = method && findPlan(this.planFile(), method.agentId, method.fingerprint);
+    // Only a plan read since the wait began ends it: Read again of a plan already known still reads once approved.
+    if (!plan || this.planWaitSince && plan.readAt < this.planWaitSince) return false;
+    this.planWaitsForBilling = false;
+    this.planWaitSince = undefined;
+    return true;
+  }
+  /** When the read began waiting for billing approval. */
+  private planWaitSince: string | undefined;
+
   /** The state root, which holds the plan file beside Model defaults. */
   get planRoot(): string { return dirname(this.defaultsPath); }
 
@@ -6450,6 +6476,7 @@ export class Engine {
       mkdirSync(this.planRoot, { recursive: true });
       this.planWatch = watch(this.planRoot, (_event, name) => {
         if (this.closed || name !== PLAN_FILE) return;
+        this.planLanded();
         this.adoptPlan();
         this.changed();
       });
@@ -6483,6 +6510,7 @@ export class Engine {
     const file = this.planFile();
     const known = findPlan(file, agentId, method.fingerprint);
     if (known && !options.force) {
+      this.planLanded();
       // A plan in use stays: it is dropped only after 30 days unused.
       if (Date.now() - Date.parse(known.usedAt) > 24 * 60 * 60_000) updatePlanFile(this.planRoot, one => { const kept = one.plans[agentId]?.[method.fingerprint]; if (kept) kept.usedAt = this.now().toISOString(); }, this.now());
       this.adoptPlan(); this.changed(); return;
@@ -6531,7 +6559,7 @@ export class Engine {
         // The read's launch runs the billing check; on a metered route it starts once this PRD's billing approval is given (AC-PLAN-03, AC-STAGE-04).
         try {
           const inspection = await this.billing.refresh(this.billingCwd, env, launchArguments(randomUUID(), choice.model, choice.effort), true);
-          if (inspection.summary.route === "metered" && !inspection.summary.approved) { this.planWaitsForBilling = true; return; }
+          if (inspection.summary.route === "metered" && !inspection.summary.approved) { this.planWaitsForBilling = true; this.planWaitSince = this.now().toISOString(); return; }
           if (inspection.readinessError) { this.planFailed(agentId, method.fingerprint, inspection.readinessError); return; }
           env = inspection.launchEnv;
         } catch (error) {
@@ -6541,6 +6569,7 @@ export class Engine {
         }
       }
       this.planWaitsForBilling = false;
+      this.planWaitSince = undefined;
       const startedAt = this.now().toISOString();
       const release = await takePlanLock(this.planRoot, { agentId, fingerprint: method.fingerprint, startedAt, pid: process.pid, processStartTime: await processStartTime(process.pid) ?? "" });
       if (!release) { await this.waitForOtherRead(agentId, method.fingerprint); return; }
@@ -6866,6 +6895,30 @@ export class Engine {
     return (this.record.requirements?.feedback ?? []).filter(m => m.state !== "applied" && !!m.sessionId && sessions.has(m.sessionId) && !!m.readAt && !worked.has(m.id));
   }
 
+  /** The feedback messages a feedback session is given in its prompt, less those already applied. */
+  private feedbackGiven(stage: RequirementsStage): FeedbackMessage[] {
+    const state = this.record.requirements!;
+    return (stage.messageIds ?? []).map(id => state.feedback.find(message => message.id === id)).filter((message): message is FeedbackMessage => !!message && message.state !== "applied");
+  }
+
+  /**
+   * A requirements session's own prompt (technical design, "What a session is told"): what its
+   * launch gives it, and what Needs you offers for a fresh session of that stage (AC-STAGE-04).
+   */
+  requirementsStagePrompt(stage: RequirementsStage): string {
+    const origin = this.record.origin!;
+    const state = this.record.requirements!;
+    const work = this.record.prdDirectory ?? `${origin.title}\n${origin.files.join("\n")} at ${origin.commit}`;
+    return requirementsPrompt(stage.task, { work, worktree: this.worktreePath, branch: this.record.settings.featureBranch, skillPath: stage.skillPath ?? this.planMethod?.skillPath ?? "using-the-enso-method",
+      holds: state.earlyReviewHeld ? "requirements_finished" : "prd_refined without a technical design, and requirements_finished",
+      messages: this.feedbackGiven(stage).map(message => `Message ${message.id}:\n${message.text}`).join("\n\n") });
+  }
+
+  /** The requirements stage an activity key names. */
+  requirementsStageOf(key: string): RequirementsStage | undefined {
+    return this.record.requirements?.stages.find(one => `req-${one.activityId}` === key);
+  }
+
   private async launchRequirementStage(stage: RequirementsStage, options: { started?: () => boolean; relaunchOf?: SessionRecord["relaunchOf"]; carryOn?: { note?: string } } = {}): Promise<void> {
     const key = `req-${stage.activityId}`;
     const found = await resolveSkill({ name: "using-the-enso-method", agent: this.agentOf(key), cwd: this.sessionFolder, claude: this.options.tools.claude, ...(this.options.tools.codex ? { codex: this.options.tools.codex } : {}), env: this.options.env, signal: this.abort.signal });
@@ -6874,13 +6927,9 @@ export class Engine {
       this.recordStop(key, "selection", [{ name: "Installed Enso Method", passed: false, facts: [found.message] }]);
       return;
     }
-    const origin = this.record.origin!;
-    const state = this.record.requirements!;
-    const work = this.record.prdDirectory ?? `${origin.title}\n${origin.files.join("\n")} at ${origin.commit}`;
-    const given = (stage.messageIds ?? []).map(id => state.feedback.find(message => message.id === id)).filter((message): message is FeedbackMessage => !!message && message.state !== "applied");
-    let prompt = requirementsPrompt(stage.task, { work, worktree: this.worktreePath, branch: this.record.settings.featureBranch, skillPath: found.skill.path,
-      holds: state.earlyReviewHeld ? "requirements_finished" : "prd_refined without a technical design, and requirements_finished",
-      messages: given.map(message => `Message ${message.id}:\n${message.text}`).join("\n\n") });
+    stage.skillPath = found.skill.path;
+    let prompt = this.requirementsStagePrompt(stage);
+    const given = this.feedbackGiven(stage);
     if (options.carryOn) {
       const prior = this.recoverySession(key);
       const lastMessage = prior && lastRecordedRun(prior)?.result?.text;
@@ -6895,6 +6944,14 @@ export class Engine {
       this.save();
       this.changed();
     }
+  }
+
+  /** Whether a stopped requirements session's work is all committed, and a review session's review current, so Check again's judgment would pass. */
+  private async requirementsMovesOn(key: string): Promise<boolean> {
+    if (!(await this.requirementsCommitted()).passed) return false;
+    if (this.requirementsStageOf(key)?.task !== "review") return true;
+    const dir = this.record.prdDirectory;
+    return !!dir && (await reviewState(this.git, this.worktreePath, dir)).current;
   }
 
   private async requirementsCommitted(): Promise<CheckResult> {
@@ -6925,13 +6982,16 @@ export class Engine {
     return pushed ? refuse(`Kiln couldn't push the feature branch: ${pushed}`) : undefined;
   }
 
-  private async judgeRequirements(key: string, byHand = false): Promise<Verdict> {
+  private async judgeRequirements(key: string, byHand = false, notResumable = false): Promise<Verdict> {
     const state = this.record.requirements!;
     const stage = state.stages.find(one => `req-${one.activityId}` === key)!;
     const run = this.latestSession(key)?.runs.at(-1);
     const report = readStageReport(run?.result?.text ?? "", stage.task);
     const safety = await this.preflightSafety(key);
-    const stop = (checks: CheckResult[]): Verdict => { this.settleFeedback(key, stage, report, false); this.current = undefined; this.recordStop(key, "done_check", checks); return { kind: "stopped" }; };
+    // Check again at a stop whose conversation can't be reopened keeps that stop, so carry-on stays its way on (AC-STAGE-04).
+    // A resume that never began a conversation stops as one that can't be reopened, as a phase's does.
+    const kind = notResumable || this.record.phases[key]?.stop?.kind === "not_resumable" ? "not_resumable" : "done_check";
+    const stop = (checks: CheckResult[]): Verdict => { this.settleFeedback(key, stage, report, false); this.current = undefined; this.recordStop(key, kind, checks); return { kind: "stopped" }; };
     if (safety) return stop([safety]);
     const committed = await this.requirementsCommitted();
     if (report) stage.report = report;
@@ -7589,7 +7649,12 @@ export class Engine {
   private async launchAtStop(request: NonNullable<Engine["requestedLaunch"]>, launch: { started?: () => boolean; relaunchOf?: SessionRecord["relaunchOf"] } = {}): Promise<void> {
     const key = request.phaseKey;
     const requirements = this.record.requirements?.stages.find(stage => key === `req-${stage.activityId}`);
-    if (requirements) return this.launchRequirementStage(requirements, request.kind === "carry_on" ? { carryOn: request.note ? { note: request.note } : {} } : {});
+    if (requirements) {
+      const facts = this.record.phases[key];
+      // The fresh session clears the stop it carries on from, as a phase's launch at a stop does.
+      const started = launch.started ?? (() => { if (facts) delete facts.stop; this.checking = false; return true; });
+      return this.launchRequirementStage(requirements, { started, ...(request.kind === "carry_on" ? { carryOn: request.note ? { note: request.note } : {} } : {}) });
+    }
     if (isPreflightKey(key)) return this.launchPreflightAtStop(key);
     const facts = this.record.phases[key]!;
     await this.additionChain;
@@ -8673,9 +8738,10 @@ export class Engine {
         this.recordStop(phaseKey, "selection", [{ name: "Codex launch settings", passed: false, facts: [this.launchStopFact(phaseKey, run.codex.verificationFailure, session)] }]);
         return { kind: "stopped" };
       }
+      const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && (session.agentId === "codex" ? this.transcriptMissing(session) : !runReportedInit(this.options.stateDirectory, session, runIndex));
       if (activityKeyKind(phaseKey) === "requirements") {
-        if (run?.limitRefusal && session) return this.settleRefused(phaseKey, session, runIndex, [{ name: "Requirements stage", passed: false, facts: ["The agent reached its usage limit."] }]);
-        return await this.judgeRequirements(phaseKey);
+        if (!notResumable && run?.limitRefusal && session) return this.settleRefused(phaseKey, session, runIndex, [{ name: "Requirements stage", passed: false, facts: ["The agent reached its usage limit."] }]);
+        return await this.judgeRequirements(phaseKey, false, notResumable);
       }
       if (isPreflightKey(phaseKey)) return await this.judgePreflight(phaseKey);
       if (this.record.preparation?.phaseId === phaseKey && (this.record.preparation.stage !== "implementation" || !session?.runs[this.record.preparation.implementationRun!])) {
@@ -8685,7 +8751,6 @@ export class Engine {
         }
         return this.advancePreparation();
       }
-      const notResumable = session !== undefined && run !== undefined && run.cause !== "launch" && run.pid !== undefined && (session.agentId === "codex" ? this.transcriptMissing(session) : !runReportedInit(this.options.stateDirectory, session, runIndex));
       if (isAfterDeliveryKey(phaseKey)) return await this.judgeAfterDelivery(phaseKey, notResumable);
       if (phaseKey === PR_PHASE_KEY) {
         const check = await this.pullRequestCheck(PR_PHASE_KEY);
@@ -8795,7 +8860,8 @@ export class Engine {
    */
   private async recheckStop(phaseKey: string, options: { routeAudits?: boolean; resuming?: boolean } = {}): Promise<"done" | "complete" | "cleared" | "still_stopped"> {
     const routeAudits = options.routeAudits !== false;
-    if (activityKeyKind(phaseKey) === "requirements" && !this.record.billing?.hold && this.record.phases[phaseKey]?.stop?.kind === "done_check") return (await this.judgeRequirements(phaseKey, true)).kind === "done" ? "done" : "still_stopped";
+    const requirementsStop = this.record.phases[phaseKey]?.stop?.kind;
+    if (activityKeyKind(phaseKey) === "requirements" && !this.record.billing?.hold && (requirementsStop === "done_check" || requirementsStop === "not_resumable")) return (await this.judgeRequirements(phaseKey, true)).kind === "done" ? "done" : "still_stopped";
     if (isPreflightKey(phaseKey)) { const preflight = await this.recheckPreflight(phaseKey); if (preflight) return preflight; }
     const facts = this.record.phases[phaseKey]!;
     const hold = this.record.billing?.hold;
@@ -9584,7 +9650,8 @@ export class Engine {
    */
   stoppedPhase(): string | undefined {
     const key = this.stoppedPhaseKey();
-    if (key === undefined || key === PR_PHASE_KEY || activityKeyKind(key) === "requirements" || this.auditActivity(key) || isPreflightKey(key) || this.record.liveControl) return undefined;
+    // A requirements activity is one only when its conversation can't be reopened, so carry-on is its way on (AC-STAGE-04).
+    if (key === undefined || key === PR_PHASE_KEY || activityKeyKind(key) === "requirements" && this.record.phases[key]?.stop?.kind !== "not_resumable" || this.auditActivity(key) || isPreflightKey(key) || this.record.liveControl) return undefined;
     const hold = this.record.billing?.hold?.phaseKey === key ? this.record.billing.hold : undefined;
     if (hold && hold.action !== "resume") return undefined;
     const kind = this.record.phases[key]?.stop?.kind;

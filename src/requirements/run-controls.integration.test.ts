@@ -3,7 +3,7 @@
 // Needs you is and pushes, a review with no plan runs under the key and skill its row shows, and a
 // PRD's first plan says a saved choice no longer applies. Real engine and disposable Git; the
 // scripted stand-in plays each session, the plan read included.
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -141,6 +141,116 @@ it("carries a reply at Needs you into the new session of a stage whose session n
   const call = h.claudeCalls()[1]!;
   expect(call.args).not.toContain("--resume");
   expect(call.prompt).toContain("Count crates as well.");
+});
+
+it("gives a stage's Needs you its own prompt, and a stage whose conversation can't be reopened carry-on, with Check again judging it as a stage (AC-STAGE-04)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+    // Resume reopens nothing: the conversation can't be reopened.
+    { noInit: true, actions: [] },
+    // The carry-on's fresh session finishes the draft.
+    { actions: [{ write: { path: prd, content: PRD } }, { commit: "draft" }, report(["prd-writing-standards"], "autonomous-prd-refinement", []), { exit: 0 }] },
+  ] });
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "failed", 20_000);
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const key = h.engine.stoppedPhaseKey()!;
+  expect(key).toMatch(/^req-/);
+  // The fresh-session prompt is the stage session's own, never a phase's.
+  const prompt = buildSnapshot(h.engine).needsYou!.freshSessionPrompt!;
+  expect(prompt).toContain("run exactly its next requirements stage");
+  expect(prompt).toContain("Feature branch:");
+  expect(prompt).not.toContain("implement-from-requirements");
+  expect(prompt).not.toContain("Closed");
+  // It names the entry skill the stage's session was launched with.
+  const skillPath = h.engine.record.requirements!.stages[0]!.skillPath!;
+  expect(skillPath).toMatch(/using-the-enso-method/);
+  expect(prompt).toContain(`using-the-enso-method skill at ${skillPath}`);
+  writeFileSync(join(h.engine.worktreePath, "notes.md"), "Notes.\n");
+  expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.engine.record.phases[key]?.stop?.kind).toBe("not_resumable");
+  expect(buildSnapshot(h.engine).needsYou).toMatchObject({ carryOn: { available: true }, resumeOffered: false });
+  // Check again judges the stage by Everything committed, and the stop stays one carry-on ends.
+  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true });
+  expect(h.engine.record.phases[key]?.stop).toMatchObject({ kind: "not_resumable", checks: [expect.objectContaining({ name: "Everything committed", passed: false })] });
+  expect(h.engine.record.phases[key]?.doneAt).toBeUndefined();
+  // Carry on starts a fresh session of the stage with its own prompt and the reply.
+  git(h.sandbox, h.engine.worktreePath, "add", "notes.md");
+  git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "notes");
+  // Work still left, so carry-on starts a fresh session rather than moving on.
+  writeFileSync(join(h.engine.worktreePath, "more.md"), "More.\n");
+  expect(await h.engine.carryOn({ ...recoveryRequest(h.engine), note: "Count crates as well." })).toMatchObject({ ok: true });
+  await waitFor(() => h.claudeCalls().length >= 3, 20_000);
+  const call = h.claudeCalls()[2]!;
+  expect(call.args).not.toContain("--resume");
+  expect(call.prompt).toContain("run exactly its next requirements stage");
+  expect(call.prompt).toContain("Count crates as well.");
+});
+
+it("moves a stage whose conversation can't be reopened on when Check again finds everything committed (AC-STAGE-04)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+    { noInit: true, actions: [] },
+    { actions: [{ result: "Not finished either." }, { exit: 0 }] },
+  ] });
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "failed", 20_000);
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const key = h.engine.stoppedPhaseKey()!;
+  writeFileSync(join(h.engine.worktreePath, "notes.md"), "Notes.\n");
+  expect(await h.engine.resume(recoveryRequest(h.engine))).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.engine.record.phases[key]?.stop?.kind).toBe("not_resumable");
+  // The person finishes the stage by hand and commits it.
+  mkdirSync(join(h.engine.worktreePath, dir), { recursive: true });
+  writeFileSync(join(h.engine.worktreePath, prd), PRD);
+  git(h.sandbox, h.engine.worktreePath, "add", ".");
+  git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "draft by hand");
+  expect(await h.engine.checkAgain(recoveryRequest(h.engine, "verify"))).toMatchObject({ ok: true, outcome: "advanced" });
+  expect(h.engine.record.phases[key]?.doneAt).toBeDefined();
+  expect(h.engine.record.phases[key]?.stop).toBeUndefined();
+  expect(h.engine.record.requirements!.standing).toMatchObject({ unknown: true });
+  // The next stage session finds where the PRD stands.
+  await h.engine.settled();
+  expect(h.claudeCalls()).toHaveLength(3);
+  expect(h.claudeCalls()[2]!.args).not.toContain("--resume");
+});
+
+it("moves the plan past the entries a feedback session's report at a stop puts behind the work, and says where Kiln continues (AC-PLAN-06)", async () => {
+  const feedbackReport = { result: "```kiln-report\n" + JSON.stringify({
+    kilnReport: 1, ran: [], finished: true, next: { kind: "requirements", skill: "technical-design-writing-standards", title: "Technical design", reaches: [] },
+    milestones: [{ name: "prd_refined", by: "this_session" }], prdDirectory: dir, messages: [{ id: "m-1", outcome: "worked_in" }],
+  }) + "\n```" };
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder, planSessions: [{ actions: [{ result: "The stages:\n" + planBlock(TODAY) }, { exit: 0 }] }], sessions: [
+    { actions: [{ result: "Not finished." }, { exit: 0 }] },
+    // The feedback session refines the PRD the person wrote by hand and reports the early stop's milestone.
+    { actions: [{ write: { path: prd, content: PRD + "\nRefined with the feedback.\n" } }, { commit: "feedback" }, feedbackReport, { exit: 0 }] },
+    { actions: [{ write: { path: review, content: "<h1>Early</h1>" } }, { commit: "review" }, { result: "```kiln-report\n" + JSON.stringify({ kilnReport: 1, ran: [{ skill: "stakeholder-review-package", title: "Stakeholder review" }], finished: true }) + "\n```" }, { exit: 0 }] },
+  ] });
+  await h.engine.refreshAgents();
+  await waitFor(() => view().plan.status === "read", 20_000);
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  // The person finishes the draft by hand at Needs you, with feedback waiting: the standing is unknown and feedback runs first.
+  mkdirSync(join(h.engine.worktreePath, dir), { recursive: true });
+  writeFileSync(join(h.engine.worktreePath, prd), PRD);
+  git(h.sandbox, h.engine.worktreePath, "add", prd);
+  git(h.sandbox, h.engine.worktreePath, "commit", "-qm", "draft by hand");
+  expect(await h.engine.addFeedback("Count crates as well.")).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const checked = await h.engine.checkAgain(recoveryRequest(h.engine));
+  expect(checked, JSON.stringify(checked)).toMatchObject({ ok: true });
+  await h.engine.settled();
+  expect(h.engine.reviewStop).toBe("early");
+  expect(h.engine.record.requirements!.stages.map(stage => stage.task)).toEqual(["stage", "feedback", "review"]);
+  expect(view().notice?.changes).toContain("Kiln continues from Technical design, where the method found this PRD stands.");
+  // Write and Refine are behind the work: the early review lists only what comes after them.
+  expect(view().rows.filter(row => row.state === "planned" || row.state === "next").map(row => row.key)).toEqual([
+    "technical-design-writing-standards#1", "review-technical-design#1", "autonomous-design-refinement#1", "phase-split#1", "kiln:final", "build",
+  ]);
 });
 
 it("with no plan, runs the stop's review under the key and skill its row shows, with its Change and the choice remembered for that skill (AC-MODEL-01, AC-MODEL-03)", async () => {

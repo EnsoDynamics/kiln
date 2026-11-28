@@ -69,27 +69,24 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
   if (ran && expected && ran.skill !== expected.stage.skill) changes.push(`The session ran ${ran.title} where the plan had ${expected.stage.title} next.`);
   const next = report.next as NextStage;
   if (atStop) {
-    // The entry right after the one that reached the stop is the stop's review when it makes one; otherwise Kiln's row stays.
-    if (ranAt < 0) {
-      if (task === "stage") {
-        // The session ran nothing in the plan, so its row is Kiln's Next stage row; the entries its milestones put behind the work still leave the plan (AC-PLAN-06).
-        const final = next.kind === "build" || !!report.milestones?.some(m => m.name === "requirements_finished");
-        let reached = indexReaching(stages, pos, final ? "requirements_finished" : "prd_refined");
-        if (reached < 0 && final) reached = stages.length - 1;
-        if (reached >= pos) {
-          state.cursor = stages[reached + 1]?.reaches.includes("review_made") ? reached + 2 : reached + 1;
-          const after = stages[state.cursor];
-          if (unknown) changes.push(after ? `Kiln continues from ${after.title}, where the method found this PRD stands.` : "The method found every stage in the plan done for this PRD.");
-          else changes.push(`Passed ${stages.slice(pos, reached + 1).map(stage => stage.title).join(", ")}, which the method didn't run for this PRD.`);
-        }
-      }
-      if (ran || task === "stage") state.cursorLost = true;
-      return changes;
+    // The entries the report's milestones put behind the work leave the plan, whatever the session ran: the cursor
+    // moves past the first entry from it that reaches the stop's milestone (the last entry at the final review when
+    // none does), or past the last entry the session ran when that is later (AC-PLAN-06).
+    const final = next.kind === "build" || !!report.milestones?.some(m => m.name === "requirements_finished");
+    let reached = indexReaching(stages, pos, final ? "requirements_finished" : "prd_refined");
+    if (reached < 0 && final) reached = stages.length - 1;
+    const end = Math.max(reached, ranAt);
+    if (end >= pos) {
+      // The entry right after the one that reached the stop is the stop's review when it makes one; otherwise Kiln's row stays.
+      state.cursor = stages[end + 1]?.reaches.includes("review_made") ? end + 2 : end + 1;
+      const after = stages[state.cursor];
+      // Every entry the cursor moves past that didn't run is named, as away from a stop.
+      const passed = ranAt < 0 ? stages.slice(pos, end + 1).map(stage => stage.title) : [...beforeFirst(), ...skipped, ...stages.slice(ranAt + 1, end + 1).map(stage => stage.title)];
+      if (unknown) changes.push(after ? `Kiln continues from ${after.title}, where the method found this PRD stands.` : "The method found every stage in the plan done for this PRD.");
+      else if (passed.length) changes.push(`Passed ${passed.join(", ")}, which the method didn't run for this PRD.`);
     }
-    // Every entry the cursor moves past that didn't run is named, as away from a stop (AC-PLAN-06).
-    const passed = [...beforeFirst(), ...skipped];
-    if (!unknown && passed.length) changes.push(`Passed ${passed.join(", ")}, which the method didn't run for this PRD.`);
-    state.cursor = stages[ranAt + 1]?.reaches.includes("review_made") ? ranAt + 2 : ranAt + 1;
+    // After a stage session that ran nothing in the plan, the next stage session runs as the Next stage row.
+    if (ranAt < 0 && (ran || task === "stage")) state.cursorLost = true;
     return changes;
   }
   if (next.kind !== "requirements") return changes;
