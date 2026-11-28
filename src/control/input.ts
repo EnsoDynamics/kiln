@@ -6,7 +6,12 @@ import { resolve } from "node:path";
 import { messageProblem } from "../live/target.js";
 import { ControlFailure } from "./result.js";
 const LIMIT = 32768;
-export async function readMessage(file: string | undefined, cwd: string, policy: "reply" | "live" | "feedback" = "reply"): Promise<string> {
+/**
+ * `policy`: "live" checks a Message Claude message; "message" reads one unchecked, for
+ * `messageInputProblem` (live/target.ts) once the run is known, since a message to a requirements session is
+ * feedback, up to 32 KiB (Kiln Requirements Stages AC-TALK-01).
+ */
+export async function readMessage(file: string | undefined, cwd: string, policy: "reply" | "live" | "message" | "feedback" = "reply"): Promise<string> {
   const failure = () => new ControlFailure("invalid_input", "Message input must be UTF-8, at most 32 KiB, and readable within five seconds.", 2);
   let timer: NodeJS.Timeout | undefined;
   const read = async () => {
@@ -27,8 +32,9 @@ export async function readMessage(file: string | undefined, cwd: string, policy:
       });
     }
     if (bytes.length > LIMIT) throw failure();
-    let message: string; try { message = new TextDecoder("utf-8", { fatal: true, ignoreBOM: policy === "live" }).decode(bytes); } catch { throw failure(); }
+    let message: string; try { message = new TextDecoder("utf-8", { fatal: true, ignoreBOM: policy === "live" || policy === "message" }).decode(bytes); } catch { throw failure(); }
     if (policy === "live") { const problem = messageProblem(message); if (problem) throw new ControlFailure("invalid_input", problem, 2); return message; }
+    if (policy === "message") return message;
     if (policy === "feedback") { const problem = feedbackProblem(message); if (problem) throw new ControlFailure("invalid_input", problem, 2); return message; }
     message = message.trim();
     if (!message || message.length > 4000 || message.includes("\0")) throw new ControlFailure("invalid_input", "Reply must contain 1–4,000 characters, without NUL.", 2);
@@ -38,3 +44,4 @@ export async function readMessage(file: string | undefined, cwd: string, policy:
   catch (error) { if (error instanceof ControlFailure) throw error; throw failure(); }
   finally { clearTimeout(timer); }
 }
+

@@ -111,7 +111,7 @@ import { leavesOf, namedRepositories, type PhasePlan, type PlannedPhase } from "
 import { endProcessTree } from "../platform/helper-process.js";
 import type { KeepAwakeHolder } from "../platform/keep-awake.js";
 import { isProcessLive, processStartTime } from "../platform/process-start-time.js";
-import { findFailure, findPlan, methodOf, planChanges, planKeys, readPlanFile, remapCursor, takePlanLock, updatePlanFile, PLAN_FILE, type PlanFile, type RequirementsPlan } from "../requirements/plan.js";
+import { earlierPlan, findFailure, findPlan, methodOf, planChanges, planKeys, readPlanFile, remapCursor, takePlanLock, updatePlanFile, PLAN_FILE, type PlanFile, type RequirementsPlan } from "../requirements/plan.js";
 import { runPlanRead } from "../requirements/plan-read.js";
 import { advanceCursor, freeKey, plannedNext, plannedRows as plannedRowsOf } from "../requirements/rows.js";
 import { platformSleepReader, type SleepReader } from "../platform/sleep-readings.js";
@@ -2075,7 +2075,9 @@ export class Engine {
       // With a plan, every planned stage row counts (Kiln Requirements Stages, "Requirements start checks"); without one, the two rows' first choices.
       const plan = this.requirementsPlan;
       const state = this.record.requirements!;
-      const current = this.current && activityKeyKind(this.current.phaseKey) === "requirements" ? this.current.phaseKey : undefined;
+      // The running stage, or one stopped at Needs you or waiting before it started, which the next launch resumes (AC-MODEL-06).
+      const last = state.stages.at(-1);
+      const current = this.current && activityKeyKind(this.current.phaseKey) === "requirements" ? this.current.phaseKey : last && !this.record.phases[`req-${last.activityId}`]?.doneAt ? `req-${last.activityId}` : undefined;
       if (!plan) {
         if (!this.isUnderway) return [{ key: "req-next", row: "Requirements stages" }, { key: "req-design", row: "Refining the design" }];
         // The stage the latest report names resolves under its own key, as its row and its launch do.
@@ -2970,6 +2972,8 @@ export class Engine {
   /** "Phase 3", "Delivery audit", "Final delivery". */
   private activityName(key: string): string {
     const audit = this.auditActivity(key);
+    // A requirements stage is named by its row title (Kiln Requirements Stages AC-MODEL-06).
+    if (activityKeyKind(key) === "requirements") return this.titleOf(key);
     return key === PR_PHASE_KEY ? "Final delivery" : key === MERGE_KEY ? "The merge session" : isPlanPushKey(key) ? "The push session" : audit ? recordedAuditName(this.record, audit).title : isPreflightKey(key) ? PREFLIGHT_TITLE : `Phase ${this.judgedId(key)}`;
   }
 
@@ -6393,9 +6397,27 @@ export class Engine {
     return expected ? nextStageKey(state, expected.skill) : "kiln:next";
   }
 
+  /**
+   * With no plan, the stop's review the driver runs next: keyed `kiln:early` or `kiln:final` as its
+   * launch is, running the skill the latest report put next (AC-MODEL-01, AC-MODEL-03).
+   */
+  noPlanReview(): { key: "kiln:early" | "kiln:final"; title: string; skill?: string } | undefined {
+    const state = this.record.requirements;
+    if (!state || this.requirementsPlan || this.reviewStop) return undefined;
+    const standing = state.standing;
+    if (!standing || "unknown" in standing || state.feedback.some(message => message.state === "waiting")) return undefined;
+    const kind = reviewDue(standing.milestones, state, this.hasRequirementsDesign());
+    if (!kind) return undefined;
+    // At a standing the driver stops at, the report's next names that stop's review (technical design, "Rows").
+    const skill = standing.next.kind === "requirements" ? standing.next.skill : undefined;
+    return { key: `kiln:${kind}`, title: kind === "early" ? "Early stakeholder review" : "Final stakeholder review", ...(skill ? { skill } : {}) };
+  }
+
   private planStageInfo(stageKey: string): { skill?: string; design?: boolean } {
     const plan = this.requirementsPlan;
     if (!plan) {
+      const review = this.noPlanReview();
+      if (review && stageKey === review.key) return review.skill ? { skill: review.skill } : {};
       // With no plan, the row the latest report names runs the skill it names (AC-MODEL-01, AC-MODEL-03).
       const state = this.record.requirements;
       const next = state && expectedStage(state);
@@ -6553,7 +6575,8 @@ export class Engine {
     const state = this.record.requirements;
     const method = this.planMethod;
     if (!state || !this.requirementsOpen || !method || state.planFingerprint === method.fingerprint) return;
-    if (this.current && activityKeyKind(this.current.phaseKey) === "requirements") return;
+    // Only a PRD that already shows a plan keeps it while a session runs; one that shows none takes it as soon as it is read (AC-PLAN-05).
+    if (state.planFingerprint && this.current && activityKeyKind(this.current.phaseKey) === "requirements") return;
     const plan = findPlan(this.planFile(), method.agentId, method.fingerprint);
     if (!plan) return;
     const at = this.now().toISOString();
@@ -6569,6 +6592,12 @@ export class Engine {
       const index = next?.kind === "requirements" ? plan.stages.findIndex(stage => stage.skill === next.skill) : -1;
       state.cursor = index >= 0 ? index : 0;
       if (next?.kind === "requirements" && index < 0 && state.stages.length) state.inserted = { skill: next.skill, title: next.title, reaches: next.reaches, key: freeKey(plan, state, next.skill) };
+      // The method may have changed since a choice was saved: a row this plan brought in against the computer's earlier plan says so (AC-MODEL-04).
+      const earlier = earlierPlan(this.planFile(), method.agentId, method.fingerprint);
+      if (earlier) {
+        const known = new Set(planKeys(earlier.stages));
+        state.firstPlanAdded = planKeys(plan.stages).filter(key => !known.has(key));
+      }
     }
     state.planFingerprint = method.fingerprint;
     this.save();
@@ -6654,7 +6683,9 @@ export class Engine {
     // The expected stage is the plan's entry at the cursor; without a plan, the standing's next (technical design, "What a session is told").
     const plan = this.requirementsPlan;
     const planned = task === "stage" ? plannedNext(plan, state) : undefined;
-    const expected = task === "stage" ? planned?.stage ?? (plan ? undefined : expectedStage(state)) : undefined;
+    // With no plan, a review runs the skill the latest report put next, so its row's Change and a remembered choice apply (AC-MODEL-01, AC-MODEL-03).
+    const noPlanReview = task === "review" ? this.noPlanReview() : undefined;
+    const expected = task === "stage" ? planned?.stage ?? (plan ? undefined : expectedStage(state)) : noPlanReview?.skill ? { skill: noPlanReview.skill, title: noPlanReview.title, reaches: [] } : undefined;
     const stage: RequirementsStage = pending ?? {
       activityId: randomUUID(), task, key: task === "review" ? this.reviewRowKey(due!) : task === "feedback" ? nextStageKey(state, "kiln:feedback") : planned ? planned.key : expected ? nextStageKey(state, expected.skill) : "kiln:next",
       ...(expected ? { expected: { skill: expected.skill, title: expected.title } } : {}), reaches: expected?.reaches ?? [], ran: [], startedAt: this.now().toISOString(),
@@ -7971,7 +8002,8 @@ export class Engine {
       return;
     }
     const requirements = this.record.requirements?.stages.find(stage => key === `req-${stage.activityId}`);
-    if (requirements) { await this.launchRequirementStage(requirements, { started, ...(relaunchOf ? { relaunchOf } : {}) }); return; }
+    // A reply at Needs you for a stage whose session never started a conversation is carried as a carry-on note, as a phase's is (AC-STAGE-04).
+    if (requirements) { await this.launchRequirementStage(requirements, { started, ...(relaunchOf ? { relaunchOf } : {}), ...(note ? { carryOn: { note } } : {}) }); return; }
     if (isPreflightKey(key)) { await this.launchPreflightAtStop(key, { started, ...(relaunchOf ? { relaunchOf } : {}) }); return; }
     const audit = this.auditActivity(key);
     if (!audit && key !== PR_PHASE_KEY) {
@@ -8743,8 +8775,10 @@ export class Engine {
     const hold = this.record.billing?.hold;
     if (hold?.phaseKey === phaseKey && isAfterDeliveryKey(phaseKey)) return this.recheckAfterDeliveryHold(phaseKey, hold);
     if (hold?.phaseKey === phaseKey) {
+      const ran = !!(hold.sessionId ? this.sessionRecord(phaseKey, hold.sessionId) : this.latestSession(phaseKey))?.runs.length;
+      if (activityKeyKind(phaseKey) === "requirements") return this.recheckRequirementsHold(phaseKey, hold, ran);
       // A billing hold's recheck reads the hold's own session, so a launch hold is rechecked as a launch (run restart "A session record with no run").
-      if ((hold.sessionId ? this.sessionRecord(phaseKey, hold.sessionId) : this.latestSession(phaseKey))?.runs.length) {
+      if (ran) {
         const outcome = phaseKey === PR_PHASE_KEY ? await this.pullRequestCheck(phaseKey) : await this.doneCheck(phaseKey);
         if (outcome !== "stopping" && "ghError" in outcome && outcome.ghError && !outcome.passed) { this.unfinishedRecheck(phaseKey); return "still_stopped"; }
         const unreadable = outcome !== "stopping" && "unavailable" in outcome ? outcome.unavailable : undefined;
@@ -8942,15 +8976,41 @@ export class Engine {
   private clearStop(phaseKey: string): "cleared" {
     const facts = this.record.phases[phaseKey]!;
     delete facts.stop;
-    if (facts.sessionIds.length === 0 && !facts.doneAt && !this.auditActivity(phaseKey) && !isPreflightKey(phaseKey)) delete this.record.phases[phaseKey];
+    // A requirements stage keeps its facts with its stage record, which the driver relaunches (Kiln Requirements Stages AC-MODEL-06).
+    if (facts.sessionIds.length === 0 && !facts.doneAt && !this.auditActivity(phaseKey) && !isPreflightKey(phaseKey) && activityKeyKind(phaseKey) !== "requirements") delete this.record.phases[phaseKey];
     this.save();
     return "cleared";
   }
 
   /** An activity's own completion check, for a launch-check stop on an activity that has not run. */
+  /**
+   * A billing hold on a requirements stage, rechecked as its Needs you is: by its report and
+   * Everything committed, never by phase documents, pushing when it moves on (AC-STAGE-02,
+   * AC-STAGE-04). A launch hold on a stage that never ran clears once billing allows the launch.
+   */
+  private async recheckRequirementsHold(phaseKey: string, hold: NonNullable<NonNullable<PrdRecord["billing"]>["hold"]>, ran: boolean): Promise<"done" | "cleared" | "still_stopped"> {
+    if (!ran) {
+      await this.billing.refresh(this.billingCwd, this.sessionEnv(), [], true);
+      if (this.billing.view.canLaunch) { delete this.record.billing!.hold; this.save(); return "cleared"; }
+    }
+    const facts = this.record.phases[phaseKey]!;
+    const before = facts.stop;
+    if ((await this.judgeRequirements(phaseKey, true)).kind === "done") { delete this.record.billing!.hold; this.save(); return "done"; }
+    // The judgement's rows go on the hold, which stays the one stop shown.
+    const rows = facts.stop?.checks ?? [];
+    if (before) facts.stop = before; else delete facts.stop;
+    hold.checks = markReasonRows(ran ? rows : [...rows, { name: "Billing approval", passed: false, facts: [hold.reason] }]);
+    if (ran) hold.rowsAreCompletionChecks = true; else delete hold.rowsAreCompletionChecks;
+    hold.run = this.newRun("recheck");
+    this.save();
+    return "still_stopped";
+  }
+
   private async completionRows(phaseKey: string): Promise<CheckResult[]> {
     // A preflight has no completion rows (Reading the Result).
     if (isPreflightKey(phaseKey)) return [];
+    // A requirements stage is judged by Everything committed, never by phase documents (AC-STAGE-02).
+    if (activityKeyKind(phaseKey) === "requirements") return [await this.requirementsCommitted()];
     if (phaseKey === PR_PHASE_KEY) return (await this.pullRequestCheck(PR_PHASE_KEY)).checks;
     if (phaseKey === MERGE_KEY) return this.mergeResult().checks;
     if (isPlanPushKey(phaseKey)) return (await this.planPushReading(phaseKey)).checks;

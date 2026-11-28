@@ -124,7 +124,7 @@
     {:else if snapshot.feature.state === "folder_missing" && snapshot.folderMissing}
       <FolderMissing {snapshot} {connected} {now} {lastSeenAt} />
     {:else if snapshot.requirements && ["not_started", "early_review", "final_review"].includes(snapshot.feature.state)}
-      <Requirements {snapshot} {config} {connected} />
+      <Requirements {snapshot} {config} {connected} {now} />
     {:else if snapshot.feature.state === "not_started" && snapshot.documents}
       <DocumentsFound {snapshot} {config} {connected} {lastSeenAt} {now} />
     {:else if snapshot.requirements?.beforePrd}

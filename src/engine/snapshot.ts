@@ -55,7 +55,7 @@ import { questionLabel } from "./plan-repositories.js";
 import { noticeLines } from "./compatibility-notices.js";
 import type { CatchUpOffer, StartPreview } from "./start-from.js";
 import { isPhaseFileName } from "../plan/phase-ids.js";
-import { isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
+import { activityKeyKind, isPhaseKey, isPreflightKey } from "../state/activity-keys.js";
 import { fallbackView, launchSource, PLANNED_AUDITS_KEY, PLANNED_PREFLIGHT_KEY, PLANNED_STAGE_PREFIX, sessionChoice, tierView } from "./activity-models.js";
 import { keyOf as preflightKeyOf, preflightFound, preflightSettled, PREFLIGHT_TITLE, type PreflightOutcome } from "./preflight.js";
 
@@ -679,7 +679,7 @@ export function requirementsView(engine: Engine): RequirementsView {
   // Remembered skills no stage in the plan runs: a row the latest plan change brought in that runs on its default says so (AC-MODEL-04).
   const defaults = plan ? readModelDefaults(engine.modelDefaultsFile) : undefined;
   const unmatched = plan && defaults?.ok ? Object.keys(defaults.defaults.skills).filter(skill => skill !== plan.reviewSkill.skill && !plan.stages.some(stage => stage.skill === skill)) : [];
-  const unmatchedOn = (stageKey: string, model: ModelView) => unmatched.length && state.notice?.added?.includes(stageKey) && model.from === "model_defaults" ? { savedChoiceUnmatched: { skill: unmatched.join(", ") } } : {};
+  const unmatchedOn = (stageKey: string, model: ModelView) => unmatched.length && (state.notice?.added ?? state.firstPlanAdded)?.includes(stageKey) && model.from === "model_defaults" ? { savedChoiceUnmatched: { skill: unmatched.join(", ") } } : {};
   const rows: RequirementsRow[] = state.stages.filter(shownStage).map(stage => {
     const key = `req-${stage.activityId}`;
     const facts = engine.record.phases[key];
@@ -724,10 +724,15 @@ export function requirementsView(engine: Engine): RequirementsView {
           model: { ...model, ...engine.modelControls(modelKey, row.title, model) } });
       }
     } else if (!active) {
-      const next = expectedStage(state);
-      // The row the latest report names resolves under its own stage key, as its launch and its Change do (AC-MODEL-01).
-      const key = next ? nextStageKey(state, next.skill) : "kiln:next";
-      rows.push(nextRow(key, next?.title ?? "Next stage", next?.skill, next ? `${PLANNED_STAGE_PREFIX}${key}` : "req-next"));
+      // A stop's review the driver runs next shows under the key its launch takes, with the skill the report put next (AC-MODEL-01, AC-MODEL-03).
+      const review = engine.noPlanReview();
+      if (review) rows.push(nextRow(review.key, review.title, review.skill, `${PLANNED_STAGE_PREFIX}${review.key}`));
+      else {
+        // The row the latest report names resolves under its own stage key, as its launch and its Change do (AC-MODEL-01).
+        const next = expectedStage(state);
+        const key = next ? nextStageKey(state, next.skill) : "kiln:next";
+        rows.push(nextRow(key, next?.title ?? "Next stage", next?.skill, next ? `${PLANNED_STAGE_PREFIX}${key}` : "req-next"));
+      }
     }
   }
   // Each stop is marked on the row it follows.
@@ -2203,6 +2208,8 @@ function loopFacts(engine: Engine, key: string): Pick<PhaseView, "loops"> {
 function activityName(engine: Engine, key: string): string {
   if (key === PR_PHASE_KEY) return "Final delivery";
   if (isPreflightKey(key)) return PREFLIGHT_TITLE;
+  // A requirements stage is named by its row title (Kiln Requirements Stages AC-MODEL-06).
+  if (activityKeyKind(key) === "requirements") return engine.titleOf(key);
   const audit = key.startsWith("audit-") ? engine.auditActivity(key) : undefined;
   if (audit) return recordedAuditName(engine.record, audit).title;
   return `Phase ${judgedKeyFor(engine.record.plan ?? [], key)}`;

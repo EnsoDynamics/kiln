@@ -15,12 +15,28 @@
     const all = (snapshot.activities ?? snapshot.phases).filter(row => row.model?.change && targetOf(row));
     return [...all.filter(row => row.id === phaseId), ...all.filter(row => row.id !== phaseId)];
   });
+  // A requirements run's stages that haven't started, the stopped or waiting one first, each with its Change and remember box (Kiln Requirements Stages AC-MODEL-01, AC-MODEL-03, AC-MODEL-06).
+  const stages = $derived.by(() => {
+    const all = (snapshot.requirements?.rows ?? []).filter(row => row.key !== "build" && row.state !== "done" && row.model?.change);
+    const stopped = all.filter(row => row.activityId !== undefined && `req-${row.activityId}` === phaseId);
+    return [...stopped, ...all.filter(row => !stopped.includes(row))];
+  });
   const circle = (row: Row) => row.kind === "delivery_audit" ? "DA" : row.kind === "test_audit" ? "TA" : row.id;
 </script>
 
 {#if !snapshot.feature.completedAt}
 <section class="card model-changes" aria-labelledby="model-changes-h">
   <h2 id="model-changes-h" class="eyebrow">Models</h2>
+  {#if stages.length}
+    <ul>
+      {#each stages as row, index (row.key + index)}
+        <li data-stage={row.key}>
+          <span class="title-line"><span class="title">{row.title}</span>{#if row.skill}<span class="skill mono">{row.skill}</span>{/if}</span>
+          <RowModel model={row.model!} underway={true} target={{ stage: row.activityId ?? row.key }} agents={snapshot.agents} {connected} label={`${row.title} model`} rememberSkill={row.key === "kiln:next" ? undefined : row.skill} />
+        </li>
+      {/each}
+    </ul>
+  {/if}
   {#if rows.length}
     <ul>
       {#each rows as row (row.id)}
@@ -43,4 +59,5 @@
   .title-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
   .circle { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; height: 28px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 12.5px; color: var(--muted); box-sizing: border-box; }
   .title { font-size: 15px; color: var(--text); }
+  .skill { font-size: 12.5px; color: var(--dim); }
 </style>

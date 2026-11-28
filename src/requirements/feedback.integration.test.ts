@@ -313,7 +313,7 @@ it("takes feedback and the early review setting from the terminal, and shows the
   h = await createHarness({ sourceBrief: "# Count boxes\n", folder, sessions: [{ actions: [{ result: "Not finished." }, { exit: 0 }] }] });
   expect(await h.engine.start()).toMatchObject({ ok: true });
   await h.engine.settled();
-  await serve();
+  const post = await serve();
   writeJsonAtomically(join(h.stateDirectory, "instance.lock"), { pid: process.pid, processStartTime: await processStartTime(process.pid), port: boundPort(server!.address) });
   const path = join(h.repository, "source-material", folder);
   const cli = async (args: string[]) => {
@@ -344,8 +344,21 @@ it("takes feedback and the early review setting from the terminal, and shows the
   const message = await cli(["message", path, "--message-file", said, "--only-if-status-matches", await token(), "--command-id", "msg-1", "--json"]);
   expect(message.code, message.stdout + message.stderr).toBe(0);
   await h.engine.commands.settled();
+  // Over Message Claude's 4,000 characters, as a pasted review reply often is: feedback for a fresh session, not refused, from the terminal and the browser (AC-TALK-01).
+  const pasted = "Reply: " + "r".repeat(4100);
+  writeFileSync(said, pasted);
+  const long = await cli(["message", path, "--message-file", said, "--only-if-status-matches", await token(), "--command-id", "msg-2", "--json"]);
+  expect(long.code, long.stdout + long.stderr).toBe(0);
+  await h.engine.commands.settled();
+  expect(h.engine.commands.lookup("msg-2").operation).toMatchObject({ state: "completed", outcome: "feedback_sent" });
+  const target = { executionId: h.engine.record.executionId!, activityId: "a", activityKey: "a", sessionId: "s", providerSessionId: "p", attemptId: "t" };
+  const browser = await post("live/message", { instructionId: "live-long", target, text: pasted + " Pallets." });
+  expect(browser.status, JSON.stringify(browser.body)).toBe(202);
+  expect(browser.body.outcome).toBe("feedback_sent");
+  // Over feedback's own 32 KiB, it is refused.
+  expect(await post("live/message", { instructionId: "live-huge", target, text: "x".repeat(32 * 1024 + 1) })).toMatchObject({ status: 413, body: { code: "input_too_large" } });
   const status = await cli(["status", path, "--json"]);
-  expect((status.json().requirements as { feedback: { text: string; state: string }[] }).feedback).toMatchObject([{ text: "From the review reply: count crates as well.\n", state: "waiting" }, { text: "And pallets.", state: "waiting" }, { text: "Count bins too.", state: "waiting" }]);
+  expect((status.json().requirements as { feedback: { text: string; state: string }[] }).feedback).toMatchObject([{ text: "From the review reply: count crates as well.\n", state: "waiting" }, { text: "And pallets.", state: "waiting" }, { text: "Count bins too.", state: "waiting" }, { text: pasted, state: "waiting" }, { text: pasted + " Pallets.", state: "waiting" }]);
   expect((await cli(["status", path])).stdout).toContain("Feedback m-2 · waiting · And pallets.");
   const off = await cli(["settings", path, "--wait-at-early-review", "off", "--only-if-status-matches", await token(), "--command-id", "wait-off", "--json"]);
   expect(off.code, off.stdout + off.stderr).toBe(0);

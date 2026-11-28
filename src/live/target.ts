@@ -1,3 +1,4 @@
+import { feedbackProblem } from "../requirements/stages.js";
 /** Exact attempt identity shared by browser, journal and provider gate. */
 export interface LiveTarget {
   executionId: string; activityId: string; activityKey: string;
@@ -45,6 +46,10 @@ export interface LiveMessage {
   evidence?: { eventUuid?: string; uuids: string[]; at: string; result: boolean }[];
 }
 export interface MessageSummary { id: string; instructionId: string; acceptedAt: string; delivery: LiveMessage["delivery"]; reviewedAt?: string }
+/** A Message Claude message's problem: feedback's rules while the run's requirements are open, up to 32 KiB, otherwise the live message's (Kiln Requirements Stages AC-TALK-01). */
+export function messageInputProblem(text: unknown, requirementsOpen: boolean): string | undefined {
+  return requirementsOpen ? feedbackProblem(text) : messageProblem(text);
+}
 export function messageProblem(text: unknown): string | undefined {
   if (typeof text !== "string" || !text.trim()) return "Enter a nonempty plain text message.";
   if (text.length > 4000) return "The message exceeds 4,000 UTF-16 code units; nothing was truncated.";

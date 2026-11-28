@@ -86,6 +86,21 @@ it("counts every skill a session ran as run, so a merged stage passes none of th
   expect(skipped.cursor).toBe(3);
 });
 
+it("names every entry a report at a stop moves the cursor past without running it (AC-PLAN-06)", () => {
+  const shown = plan([stage("A"), stage("B"), stage("C", ["prd_refined"]), stage("D")]);
+  // Between two that ran: [A, C] at the early review passes B.
+  const between = newRequirements();
+  expect(advanceCursor(shown, between, "stage", report(["A", "C"], "stakeholder-review-package"), true)).toEqual(["Passed B, which the method didn't run for this PRD."]);
+  expect(between.cursor).toBe(3);
+  // Before the first that ran: [C] from the start passes A and B.
+  const before = newRequirements();
+  expect(advanceCursor(shown, before, "stage", report(["C"], "stakeholder-review-package"), true)).toEqual(["The session ran C where the plan had A next.", "Passed A, B, which the method didn't run for this PRD."]);
+  expect(before.cursor).toBe(3);
+  // A merged stage that ran every entry up to the stop passes none.
+  const merged = newRequirements();
+  expect(advanceCursor(shown, merged, "stage", report(["A", "B", "C"], "stakeholder-review-package"), true)).toEqual([]);
+});
+
 it("places Kiln's early review after the entry that refines the PRD, unless the method makes one there or it was held", () => {
   const shown = plan([stage("write"), stage("refine", ["prd_refined"]), stage("design"), stage("split", ["requirements_finished"])]);
   const state = newRequirements();

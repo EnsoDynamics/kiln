@@ -1,5 +1,7 @@
 # Phase 8: Complete the requirements run's controls, plan screen and stage models
 
+**Closed:** 2026-11-27
+
 **Added by delivery audit:** 2026-11-27, after every planned phase closed, in the audit that followed phases 5 and 6. It builds what earlier phases left out of the criteria below.
 **Parent PRD:** [Kiln Requirements Stages](kiln-requirements-stages-prd.md)
 **Technical design:** [Kiln Requirements Stages technical design](kiln-requirements-stages-technical-design.md) — relevant sections: "Reading it"; "Rows"; "The driver"; "How a stage ends"; "Feedback" (Length); "The Two Reviews"; "Models"; "Snapshot"

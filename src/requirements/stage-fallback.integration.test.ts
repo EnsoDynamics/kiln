@@ -1,6 +1,7 @@
 // A requirements stage follows a phase's model rules for the fallback (Kiln Requirements Stages
-// AC-MODEL-06): the heads-up on the row Kiln launches next, and, while the stage is current, why
-// the fallback wasn't used. Real engine and Git; the Claude account reading is set at the
+// AC-MODEL-06): the heads-up on the row Kiln launches next, a stage stopped before it started
+// included, while the stage is current why the fallback wasn't used, and the terminal line naming
+// a stage that started on it. Real engine and Git; the Claude account reading is set at the
 // reader's boundary, since an account can't be brought to the threshold on demand.
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -74,4 +75,86 @@ it("shows the heads-up on the requirements row Kiln launches next", async () => 
   expect(h.engine.headsUp()!.key).toBe("req-next");
   const next = rows().find(row => row.key === "kiln:next")!;
   expect(next.model?.forecast).toMatchObject({ choice: { agent: "Codex" }, limit: { agent: "Claude Code", percent: 97 }, threshold: 95 });
+});
+
+it("keeps the heads-up on a stage stopped before it started, with its Change there, not on the stage after it", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder: "count-boxes", engineOptions: { claude: new SetClaude(weekly(97)) }, sessions: [] });
+  codex = codexWorkFixture();
+  Object.assign(h.tools, { codex: codex.options.executable });
+  codex.configureEnvironment(h.env);
+  codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10, windowDurationMins: 300 } } } } });
+  writeModelDefaults(h.env, { requirements: { first: { agentId: "claude_code", family: "fable", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "high" } } }, { enabled: true, threshold: 95 });
+  h.engine.modelChoicesChanged();
+  await h.engine.refreshAgents();
+  await waitFor(() => buildSnapshot(h!.engine).requirements!.plan.status === "failed", 20_000);
+  await h.engine.refreshAgents();
+  await waitFor(() => !h!.engine.readers.claude_code.state.pending && !h!.engine.readers.codex.state.pending);
+  await waitFor(() => !!h!.engine.headsUp(), 20_000);
+  // The stage launches on its fallback, whose Codex copy holds no method: it stops before its session starts.
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const stopped = h.engine.stoppedPhaseKey()!;
+  expect(h.engine.record.phases[stopped]).toMatchObject({ sessionIds: [], stop: { kind: "selection" } });
+  // The next launch is that stage's again, so the heads-up stays on its row, which offers its Change (Phase Model Tiers AC-FALLBACK-04, AC-PICK-06).
+  expect(h.engine.headsUp()!.key).toBe(stopped);
+  const row = rows().find(one => one.activityId && `req-${one.activityId}` === stopped)!;
+  expect(row).toMatchObject({ state: "needs_you", model: { forecast: { choice: { agent: "Codex" }, threshold: 95 }, change: { available: true } } });
+});
+
+it("with a plan, keeps the heads-up on the stopped stage's row and takes a Change made there at its relaunch (AC-PICK-06)", async () => {
+  const plan = "```kiln-plan\n" + JSON.stringify({ kilnPlan: 1, stages: [{ skill: "prd-writing-standards", title: "Write the PRD", reaches: [] }, { skill: "autonomous-prd-refinement", title: "Refine the PRD", reaches: ["prd_refined"] }, { skill: "phase-split", title: "Phase plan", reaches: ["requirements_finished"] }], reviewSkill: { skill: "stakeholder-review-package", title: "Stakeholder review" } }) + "\n```";
+  const claude = new SetClaude(weekly(97));
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder: "count-boxes", engineOptions: { claude },
+    planSessions: [{ actions: [{ result: plan }, { exit: 0 }] }], sessions: [{ actions: [{ result: "Not finished." }, { exit: 0 }] }] });
+  codex = codexWorkFixture();
+  Object.assign(h.tools, { codex: codex.options.executable });
+  codex.configureEnvironment(h.env);
+  codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 10, windowDurationMins: 300 } } } } });
+  writeModelDefaults(h.env, { requirements: { first: { agentId: "claude_code", family: "fable", effort: "high" }, fallback: { agentId: "codex", family: "sol", effort: "high" } } }, { enabled: true, threshold: 95 });
+  h.engine.modelChoicesChanged();
+  await h.engine.refreshAgents();
+  await waitFor(() => buildSnapshot(h!.engine).requirements!.plan.status === "read", 20_000);
+  await h.engine.refreshAgents();
+  await waitFor(() => !h!.engine.readers.claude_code.state.pending && !h!.engine.readers.codex.state.pending);
+  await waitFor(() => !!h!.engine.headsUp(), 20_000);
+  expect(h.engine.headsUp()!.key).toBe("req-row:prd-writing-standards#1");
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const stopped = h.engine.stoppedPhaseKey()!;
+  expect(h.engine.record.phases[stopped]).toMatchObject({ sessionIds: [], stop: { kind: "selection" } });
+  // The stopped stage is the next launch: the heads-up is on its row, not on the planned stage after it.
+  expect(h.engine.headsUp()!.key).toBe(stopped);
+  const shown = rows();
+  expect(shown.find(one => one.activityId && `req-${one.activityId}` === stopped)).toMatchObject({ key: "prd-writing-standards#1", state: "needs_you", model: { forecast: { choice: { agent: "Codex" } }, change: { available: true } } });
+  expect(shown.filter(one => one.model?.forecast)).toHaveLength(1);
+  // A Change made on that row, as Needs you offers it, is what the relaunch runs on.
+  const activityId = stopped.slice("req-".length);
+  expect(await h.engine.changeStageModel(activityId, { agentId: "claude_code", model: "opus", effort: "high" }, false)).toEqual({ ok: true });
+  // Claude Code's allowance has recovered, so the relaunch decides on the changed choice itself.
+  claude.reading = weekly(10);
+  await claude.refreshAccount();
+  expect(await h.engine.checkAgain({})).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const call = h.claudeCalls().at(-1)!;
+  expect(call.args[call.args.indexOf("--model") + 1]).toBe("opus");
+});
+
+it("names the requirements stage in the terminal line when it starts on the fallback (Phase Model Tiers AC-FALLBACK-03)", async () => {
+  h = await createHarness({ sourceBrief: "# Count boxes\n", folder: "count-boxes", engineOptions: { claude: new SetClaude(weekly(10)) }, sessions: [{ actions: [{ result: "Not finished." }, { exit: 0 }] }] });
+  codex = codexWorkFixture();
+  Object.assign(h.tools, { codex: codex.options.executable });
+  codex.configureEnvironment(h.env);
+  codex.set({ dynamicRecord: true, stateDirectory: h.stateDirectory, usage: { accountId: "proof-account", ordinaryUsageAllowed: true, rateLimits: {}, rateLimitsByLimitId: { codex: { limitId: "codex", primary: { usedPercent: 97, windowDurationMins: 300 } } } } });
+  // Codex first, at 97%: the stage starts on its Claude Code fallback.
+  writeModelDefaults(h.env, { requirements: { first: { agentId: "codex", family: "sol", effort: "high" }, fallback: { agentId: "claude_code", family: "fable", effort: "high" } } }, { enabled: true, threshold: 95 });
+  h.engine.modelChoicesChanged();
+  await h.engine.refreshAgents();
+  await waitFor(() => buildSnapshot(h!.engine).requirements!.plan.status === "failed", 20_000);
+  await h.engine.refreshAgents();
+  await waitFor(() => !h!.engine.readers.claude_code.state.pending && !h!.engine.readers.codex.state.pending);
+  await waitFor(() => !!h!.engine.headsUp(), 20_000);
+  expect(await h.engine.start()).toMatchObject({ ok: true });
+  await h.engine.settled();
+  const lines = h.events.filter(event => event.kind === "message" && event.text.includes("started on the fallback"));
+  expect(lines).toEqual([{ kind: "message", text: expect.stringMatching(/^Next requirements stage started on the fallback, Claude Code · Fable [0-9.]* · high: Codex's .* read 97%, at or above the 95% threshold/) }]);
 });

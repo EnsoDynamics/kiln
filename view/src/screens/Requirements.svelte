@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snapshot } from "../../../src/engine/snapshot.js";
   import FeatureHeader from "../components/FeatureHeader.svelte";
+  import StateHeader from "../components/StateHeader.svelte";
   import BillingPanels from "../components/BillingPanels.svelte";
   import RequirementsFeedback from "../components/RequirementsFeedback.svelte";
   import RequirementsPlan from "../components/RequirementsPlan.svelte";
@@ -9,7 +10,9 @@
   import { withPlannedPreflight } from "../lib/progress.js";
   import { changeSettings, continueReview, resumeNow, start, startBuild, type CommandAnswer, type PageConfig } from "../lib/api.js";
 
-  let { snapshot, config, connected }: { snapshot: Snapshot; config: PageConfig; connected: boolean } = $props();
+  let { snapshot, config, connected, now = Date.now() }: { snapshot: Snapshot; config: PageConfig; connected: boolean; now?: number } = $props();
+  // At either review the header names the review the run waits at, with the PRD total line (AC-STAGE-03).
+  const atReview = $derived(snapshot.feature.state === "early_review" || snapshot.feature.state === "final_review");
   const requirements = $derived(snapshot.requirements!);
   const review = $derived(requirements.review);
   const settings = $derived(snapshot.settings);
@@ -29,7 +32,8 @@
 </script>
 
 <main class="requirements">
-  <FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} />
+  {#if atReview}<StateHeader {snapshot} {connected} {now} />
+  {:else}<FeatureHeader repositoryName={snapshot.feature.repositoryLabel} prdFolder={snapshot.feature.prdFolder} name={snapshot.feature.name} />{/if}
   {#if review}
     <h2>{final ? "Final stakeholder review" : "Early stakeholder review"}</h2>
     <p>{final ? "The requirements are finished. Review them before starting the build." : "Review the refined PRD before the technical design. The review returns at the end."}</p>

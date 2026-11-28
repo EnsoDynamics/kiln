@@ -1,7 +1,7 @@
 import { reviewFile } from "../requirements/git.js";
 import { feedbackProblem, FEEDBACK_LIMIT_BYTES } from "../requirements/stages.js";
 import { type AuditLoopSettings } from "../state/audit-loops.js";
-import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageProblem } from "../live/target.js";
+import { validLiveTarget, sameLiveTarget, canonicalLiveTarget, messageInputProblem } from "../live/target.js";
 import { readBaseline } from "../engine/plan-reconciliation.js";
 import { judgedPhase } from "../engine/plan-reading.js";
 import { executionDeliveries } from "../engine/continuation-state.js";
@@ -355,8 +355,10 @@ export async function startLocalServer(options: LocalServerOptions): Promise<Loc
 
   app.post("/api/live/message", async c => {
     const body = await liveBody(c);
-    const problem = messageProblem(body?.text);
-    if (!body || Object.keys(body).sort().join() !== "instructionId,target,text" || typeof body.instructionId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.instructionId) || !validLiveTarget(body.target) || problem) return c.json({ ok: false, code: typeof body?.text === "string" && body.text.length > 4000 ? "input_too_large" : "invalid_request", reason: problem ?? "Supply instructionId, exact target and plain text.", observedAt: new Date().toISOString(), remedy: "Revise the message or refresh the session." }, typeof body?.text === "string" && body.text.length > 4000 ? 413 : 400);
+    // Aimed at a requirements session, a message is feedback, up to 32 KiB: one too long to deliver live is applied by a fresh session (AC-TALK-01).
+    const problem = messageInputProblem(body?.text, engine.requirementsOpen);
+    const tooLarge = typeof body?.text === "string" && (engine.requirementsOpen ? Buffer.byteLength(body.text, "utf8") > FEEDBACK_LIMIT_BYTES : body.text.length > 4000);
+    if (!body || Object.keys(body).sort().join() !== "instructionId,target,text" || typeof body.instructionId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(body.instructionId) || !validLiveTarget(body.target) || problem) return c.json({ ok: false, code: tooLarge ? "input_too_large" : "invalid_request", reason: problem ?? "Supply instructionId, exact target and plain text.", observedAt: new Date().toISOString(), remedy: "Revise the message or refresh the session." }, tooLarge ? 413 : 400);
     // Message Claude aimed at a requirements session joins the feedback list: it never takes a delivery hold (Kiln Requirements Stages, "Feedback").
     if (engine.requirementsOpen) return feedbackControl(c, body.instructionId, { text: body.text });
     try {

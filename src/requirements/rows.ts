@@ -48,12 +48,14 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
   const ran = task === "stage" ? report.ran[0] : undefined;
   // What ran ends at the last plan entry its skills reach in order, so a session that ran several stages passes none of them (AC-PLAN-06).
   let ranAt = -1;
+  let firstRanAt = -1;
   // Entries between two that ran didn't run: they are named as passed.
   const skipped: string[] = [];
   if (task === "stage") for (const one of report.ran) {
     const at = indexFrom(stages, ranAt >= 0 ? ranAt + 1 : pos, one.skill);
     if (at < 0) continue;
     if (ranAt >= 0) skipped.push(...stages.slice(ranAt + 1, at).map(stage => stage.title));
+    else firstRanAt = at;
     ranAt = at;
   }
   if (ran && expected && ran.skill !== expected.stage.skill) changes.push(`The session ran ${ran.title} where the plan had ${expected.stage.title} next.`);
@@ -61,6 +63,9 @@ export function advanceCursor(plan: RequirementsPlan, state: RequirementsState, 
   if (atStop) {
     // The entry right after the one that reached the stop is the stop's review when it makes one; otherwise Kiln's row stays.
     if (ranAt < 0) { if (ran || task === "stage") state.cursorLost = true; return changes; }
+    // Every entry the cursor moves past that didn't run is named, as away from a stop (AC-PLAN-06).
+    const passed = [...(firstRanAt > pos ? stages.slice(pos, firstRanAt).map(stage => stage.title) : []), ...skipped];
+    if (!unknown && passed.length) changes.push(`Passed ${passed.join(", ")}, which the method didn't run for this PRD.`);
     state.cursor = stages[ranAt + 1]?.reaches.includes("review_made") ? ranAt + 2 : ranAt + 1;
     return changes;
   }

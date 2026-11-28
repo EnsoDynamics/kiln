@@ -1,5 +1,6 @@
 import { ResponseSpool, spoolResult, releaseResult } from "./spool.js";
 import { readMessage } from "./input.js";
+import { messageInputProblem } from "../live/target.js";
 import { lookupReceipt, receiptResult, validateInstruction, validBy, type Action } from "./commands.js";
 import { requirementsStatus, locateText, personItemsText, progressHeading, progressText, receiptLines, statusLabels, statusPause, type ProgressRow } from "./waiver-facts.js";
 import { join } from "node:path";
@@ -144,7 +145,7 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     let message: string | undefined;
     if (mutation) {
       if (!flags["command-id"] || !flags["only-if-status-matches"]) throw new ControlFailure("invalid_input", "Changing commands require command ID and status token.", 2);
-      if (name === "reply" || name === "message" || name === "carry-on" && (flags["message-file"] || flags["message-from-stdin"])) message = await readMessage(typeof flags["message-file"] === "string" ? flags["message-file"] : undefined, context.cwd, name === "message" ? "live" : "reply");
+      if (name === "reply" || name === "message" || name === "carry-on" && (flags["message-file"] || flags["message-from-stdin"])) message = await readMessage(typeof flags["message-file"] === "string" ? flags["message-file"] : undefined, context.cwd, name === "message" ? "message" : "reply");
       // Feedback is the literal text given, or a file of up to 32 KiB, such as a pasted review reply (Kiln Requirements Stages, "Command line").
       if (name === "feedback") message = typeof flags.text === "string" ? flags.text : await readMessage(String(flags.file), context.cwd, "feedback");
       for (const key of ["keep-awake", "resume-after-usage-limit", "wait-at-early-review"]) if (flags[key] && !["on", "off"].includes(String(flags[key]))) throw new ControlFailure("invalid_input", "Settings accept on or off.", 2);
@@ -162,6 +163,8 @@ export async function runInspectionCommand(args: string[], context: CommandConte
     const max = String(flags["max-lines"] ?? "50");
     if (name === "logs" && !/^(?:[1-9]\d?|1\d\d|200)$/.test(max)) throw new ControlFailure("invalid_input", "--max-lines must be 1–200.", 2);
     const work = await targetWork(parsed.positionals[0]!, context.cwd, context.env);
+    // A message to a requirements session is feedback, up to 32 KiB; to a build session, a live message of up to 4,000 characters (AC-TALK-01).
+    if (name === "message" && message !== undefined) { const problem = messageInputProblem(message, !!work.record.requirements && work.record.requirements.phase !== "closed"); if (problem) throw new ControlFailure("invalid_input", problem, 2); }
     const owner = await controller(work);
     if (name === "command-status") {
       if (owner.state === "reachable" && owner.features?.includes("command_status")) { const answer = await request(work, owner, `commands/${encodeURIComponent(String(flags["command-id"]))}`, 12000); return write(answer, receiptLead(answer, freshRecord(work))); }

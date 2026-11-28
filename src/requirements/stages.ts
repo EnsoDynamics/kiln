@@ -31,7 +31,8 @@ export const LIVE_LIMIT_CHARACTERS = 4000;
 export function feedbackProblem(text: unknown): string | undefined {
   if (typeof text !== "string" || !text.trim()) return "Feedback must be nonempty text.";
   if (text.includes("\0") || /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text)) return "Feedback cannot contain NUL or malformed Unicode.";
-  if (Buffer.byteLength(text, "utf8") > FEEDBACK_LIMIT_BYTES) return "Feedback is limited to 32 KiB. A review reply's first part alone carries every answer.";
+  // Counted as UTF-8 without Buffer, so the browser view checks it as Kiln does.
+  if (new TextEncoder().encode(text).length > FEEDBACK_LIMIT_BYTES) return "Feedback is limited to 32 KiB. A review reply's first part alone carries every answer.";
   return undefined;
 }
 export interface RequirementsOrigin {
@@ -69,6 +70,8 @@ export interface RequirementsState {
   draftNote?: StageReport["draft"];
   review?: { kind: "early" | "final"; file: string; commit: string; readySince: string; refreshedAt?: string; whatChanged?: { items: string[]; commit: string }; feedbackSentAt?: string };
   notice?: { at: string; methodUpdatedAt?: string; changes: string[]; /** Stage keys the plan change brought in (AC-MODEL-04). */ added?: string[] };
+  /** Stage keys the PRD's first plan brought in against the computer's earlier plan for that agent, for a saved choice that no longer applies (AC-MODEL-04). */
+  firstPlanAdded?: string[];
   /** A row Kiln inserted at the cursor for a stage the method put next that the plan didn't have (technical design, "Rows"). */
   inserted?: { skill: string; title: string; reaches: MilestoneName[]; key: string };
   /** A session at a stop ran nothing in the plan: the next stage session runs as the Next stage row. */

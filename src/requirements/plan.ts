@@ -49,6 +49,12 @@ export function updatePlanFile(root: string, change: (file: PlanFile) => void, n
 }
 
 export function findPlan(file: PlanFile, agentId: string, fingerprint: string): RequirementsPlan | undefined { return file.plans[agentId]?.[fingerprint]; }
+/** The agent's plan read most recently before the one for `fingerprint`: the method as it stood before (AC-MODEL-04). */
+export function earlierPlan(file: PlanFile, agentId: string, fingerprint: string): RequirementsPlan | undefined {
+  const plans = file.plans[agentId] ?? {};
+  const now = plans[fingerprint];
+  return Object.entries(plans).filter(([one, plan]) => one !== fingerprint && (!now || plan.readAt < now.readAt)).map(([, plan]) => plan).sort((a, b) => b.readAt.localeCompare(a.readAt))[0];
+}
 export function findFailure(file: PlanFile, agentId: string, fingerprint: string): { reason: string; at: string } | undefined { return file.failures[agentId]?.[fingerprint]; }
 
 /**

@@ -1,12 +1,15 @@
 <script lang="ts">
   import type { LiveView } from "../../../src/live/target.js";
   import type { Receipt } from "../../../src/control/commands.js";
-  import { messageProblem } from "../../../src/live/target.js";
+  import { messageInputProblem } from "../../../src/live/target.js";
   import { liveDraft } from "../lib/live-drafts.svelte.js";
   import { viewContext } from "../lib/view-context.js";
   let { view, connected }: { view: LiveView; connected: boolean } = $props();
   const { config } = viewContext();
   const draft = $derived(liveDraft(view.target));
+  // To a requirements session the message is feedback, up to 32 KiB: one too long to deliver live is applied by a fresh session (Kiln Requirements Stages AC-TALK-01).
+  const feedback = $derived(!!view.input?.feedback);
+  const messageProblem = (text: string) => messageInputProblem(text, feedback);
   $effect(() => {
     const receipt = view.messages?.find(m => m.instructionId === draft.instructionId);
     if (receipt && receipt.delivery !== "submitting") { draft.instructionId = undefined; draft.submittedText = undefined; }
@@ -44,7 +47,8 @@
   <p>{view.label} · Claude · <span class="mono">{view.target.providerSessionId}</span></p>
   <label for="live-message">Your message</label>
   <textarea id="live-message" rows="4" bind:value={draft.text} aria-describedby="live-message-limit live-message-timing" disabled={draft.submitting || !!draft.instructionId} placeholder="Send an instruction to this running conversation"></textarea>
-  <p id="live-message-limit" class="hint" aria-live="polite">{draft.text.length.toLocaleString()} / 4,000 UTF-16 code units · {draft.text.length > 4000 ? "Over the message limit — shorten before sending" : "Message limit"}</p>
+  {#if feedback}<p id="live-message-limit" class="hint" aria-live="polite">{draft.text.length.toLocaleString()} characters{#if draft.text.length > 4000 && !messageProblem(draft.text)}{" · "}Too long to send to this session: a fresh session applies it before the next stage{/if}</p>
+  {:else}<p id="live-message-limit" class="hint" aria-live="polite">{draft.text.length.toLocaleString()} / 4,000 UTF-16 code units · {draft.text.length > 4000 ? "Over the message limit — shorten before sending" : "Message limit"}</p>{/if}
   <!-- During the requirements the reason says the message goes in as feedback (Kiln Requirements Stages AC-STAGE-04). -->
   <p id="live-message-timing">{view.input?.feedback && view.input.available ? view.input.reason : "Claude reads this at its next opportunity. The current tool may finish first."}</p>
   <button class="button solid" disabled={!connected || !view.input?.available || draft.submitting || !!draft.instructionId || !!messageProblem(draft.text)} onclick={() => submit()}>Send message</button>

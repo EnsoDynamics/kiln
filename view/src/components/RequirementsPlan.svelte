@@ -41,13 +41,17 @@
     <h2 class="eyebrow">Requirements plan</h2>
     {#if plan.status === "read"}<span class="count">{underway ? `${doneCount} of ${stages.length} done · ` : `${stages.length} stages · `}Each stage runs on the model shown</span>{/if}
   </div>
+  <!-- Where the plan shown came from, kept while it is read again or after a read fails (AC-PLAN-03). -->
+  {#snippet shownSource()}Read from the Enso Method installed on this computer{#if plan.methodUpdatedAt}, last updated {day(plan.methodUpdatedAt)}{/if}. Kiln keeps no list of its own, so this is whatever your copy of the method does.{/snippet}
   {#if plan.status === "read"}
-    <p class="source">Read from the Enso Method installed on this computer{#if plan.methodUpdatedAt}, last updated {day(plan.methodUpdatedAt)}{/if}. Kiln keeps no list of its own, so this is whatever your copy of the method does.
+    <p class="source">{@render shownSource()}
       {#if plan.canReadAgain}<button type="button" class="link" disabled={!connected || busy} onclick={again}>Read again</button>{/if}</p>
   {:else if plan.status === "reading"}
+    {#if plan.readAt}<p class="source">{@render shownSource()}</p>{/if}
     <p class="source"><strong>Reading the plan from the Enso Method installed here</strong>{#if plan.readingSince} · {elapsed(plan.readingSince)}{/if}</p>
     <p class="small">A short session reads the method's own map of what comes after source material and lists the stages, with the skill each one runs. Start doesn't wait for it: each stage's session finds the next stage itself, and the plan fills in here once it is read.</p>
   {:else if plan.status === "failed"}
+    {#if plan.readAt}<p class="source">{@render shownSource()}</p>{/if}
     <p class="source"><strong>Kiln couldn't read the plan</strong>{#if plan.failure}. {plan.failure.reason}{/if}
       {#if plan.canReadAgain}<button type="button" class="link" disabled={!connected || busy} onclick={again}>Read again</button>{/if}</p>
     <p class="small">Start still works. Each stage's session finds the next stage itself, and the plan fills in here as stages run.</p>
