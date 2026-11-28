@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 2,
+  "executionId": "d2e263a0-337b-4f25-9a3d-7533ede707f0",
+  "activityId": "23cfc0e8-909b-4a46-8424-554c0f89656d",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "The repair audit after phases 9 and 10 re-read the 58 criteria whose behavior runs through files those phases changed, in four rounds. Phases 9 and 10 closed what they were added for, but 9 criteria still have a part missing, every one an edge case or a single variant of its criterion. Phase 11 completes the start screen's branch choice and header label for source material, the home screen's stage lines while a feedback, review or Next stage session runs, and the step named when only origin holds a planned PRD's contracts file. Phase 12 completes the plan's notices at a stop, stops a second plan read after billing approval, gives a requirements stage its own fresh-session prompt, completion check and way on at Needs you and after Pause now, and gives kiln start-build the no-phase-plan reason. Round 4 confirmed no new gap, but the admission lock cut many of its readers short, so the build-and-audit cycle after phases 11 and 12 re-reads them. No criterion was changed outside the requirements or amended.",
+  "completionPhases": ["11", "12"],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "Kiln's checkpoint hook again reported \"Kiln checkpoint unavailable: Admission lock is unresolved; retry reconciliation\" throughout this audit. It cut off most fourth-round assessors after a few tool calls, some more than once, and blocked some of their Bash calls. The live attempt's gate.json under the PRD's Kiln state directory reached 16.7 MB during this audit. Every tool call of every parallel sub-agent waits on admission.lock while withGate in src/live/gate.ts reads and fsync-rewrites that file, and the lock gives up after 5 seconds.",
+      "action": "Look at gate.json growth and the 5-second admission deadline in src/live/gate.ts (live-attempts under the PRD's Kiln state directory). Many parallel sub-agents exceed that deadline, so delivery and test audits keep losing assessors."
+    }
+  ],
+  "settled": []
+}
