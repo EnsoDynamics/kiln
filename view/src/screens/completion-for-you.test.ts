@@ -64,8 +64,8 @@ describe("Closing audits on the finished page (AC-LEFT-02)", () => {
   it.each([true, false])("shows each kind's loops used and limit after the pull request section, before For you and Delivery history, connected=%s", connected => {
     const html = page({ items: [item("item-2", "test", "Test gap", "AC-RET-04 has no test.")], afterDelivery: [] }, connected);
     const block = closing(html)!;
-    expect(block).toMatch(/Delivery audit<\/dt><dd[^>]*>4 of 4 loops<\/dd>/);
-    expect(block).toMatch(/Test audit<\/dt><dd[^>]*>2 of 4 loops<\/dd>/);
+    expect(block).toMatch(/Delivery audit<\/dt><dd[^>]*>4 loops \(max 4\)<\/dd>/);
+    expect(block).toMatch(/Test audit<\/dt><dd[^>]*>2 loops \(max 4\)<\/dd>/);
     expect(html.indexOf('id="closing-audits"')).toBeGreaterThan(html.indexOf('<section class="pr'));
     expect(html.indexOf('id="closing-audits"')).toBeLessThan(html.indexOf('id="for-you"'));
     if (html.includes('id="delivery-history"')) expect(html.indexOf('id="closing-audits"')).toBeLessThan(html.indexOf('id="delivery-history"'));
@@ -75,7 +75,7 @@ describe("Closing audits on the finished page (AC-LEFT-02)", () => {
     const critical = page({ items: [item("item-1", "critical", "Critical finding", "Card numbers are logged.")], afterDelivery: [] });
     expect(critical.indexOf('id="closing-audits"')).toBeGreaterThan(critical.indexOf('<section class="pr'));
     expect(critical.indexOf('id="for-you"')).toBeLessThan(critical.indexOf('id="closing-audits"'));
-    expect(closing(page({ items: [], afterDelivery: [] }))).toContain("4 of 4 loops");
+    expect(closing(page({ items: [], afterDelivery: [] }))).toContain("4 loops (max 4)");
   });
 });
 

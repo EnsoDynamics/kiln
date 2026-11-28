@@ -45,7 +45,7 @@ const blocker = { kind: "blocker", problem: "The sandbox API key is not set.", a
 const editingSession = (exit = 0) => ({ actions: [{ result: "Edited #214's description." }, { exit }] });
 const prompts = (current: Harness) => current.claudeCalls().map(call => call.prompt);
 const pullRequestPrompts = (current: Harness) => prompts(current).filter(prompt => prompt.includes("Open each pull request's description with the block below"));
-const CLOSING = "## Closing audits\n\nDelivery audit: 1 of 4 loops. Test audit: 1 of 4 loops.";
+const CLOSING = "## Closing audits\n\nDelivery audit: 1 loop (max 4). Test audit: 1 loop (max 4).";
 /** A pull request opened before the run reaches final delivery, as a person or another tool would. */
 function openOutsideKiln(current: Harness, number = 214): void {
   const github = current.engine.record.repository.github;
@@ -207,7 +207,7 @@ describe("a send-back to the audits (AC-LEFT-01)", () => {
     expect(current.engine.record.completionAudits!.activities.map(a => [a.kind, a.round])).toEqual([["delivery_audit", 1], ["test_audit", 1], ["delivery_audit", 2], ["test_audit", 2]]);
     expect(pullRequestPrompts(current)).toHaveLength(2);
     expect(current.engine.record.completedAt).toBeTruthy();
-    expect(prSessions(current).at(-1)!.deliveryBlock!.block).toContain("Delivery audit: 2 of 4 loops. Test audit: 2 of 4 loops.");
+    expect(prSessions(current).at(-1)!.deliveryBlock!.block).toContain("Delivery audit: 2 loops (max 4). Test audit: 2 loops (max 4).");
   });
 });
 
@@ -231,7 +231,7 @@ describe("a hold stop after a pull request session already ran (AC-ITEM-01, AC-L
     expect((await control(current, "waive-and-advance", { check_run_id: offer.checkRunId, via: "browser" })).outcome).toBe("continued");
     // A second pull request session wrote the block with the waived blocker; only then did the run complete.
     expect(pullRequestPrompts(current)).toHaveLength(2);
-    expect(pullRequestPrompts(current)[1]).toMatch(/## For you\n\n- Blocker: .* \(Waived: waived at Final delivery, [^\n]*\n\n## Closing audits\n\nDelivery audit: 2 of 4 loops\. Test audit: 2 of 4 loops\./);
+    expect(pullRequestPrompts(current)[1]).toMatch(/## For you\n\n- Blocker: .* \(Waived: waived at Final delivery, [^\n]*\n\n## Closing audits\n\nDelivery audit: 2 loops \(max 4\)\. Test audit: 2 loops \(max 4\)\./);
     expect(current.engine.record.completedAt).toBeTruthy();
     expect(current.engine.record.waivers!.map(waiver => waiver.effect)).toEqual(["continued"]);
   });
@@ -249,7 +249,7 @@ describe("the finished page and kiln status say the same (AC-LEFT-02, AC-BOT-02)
     // kiln status gives each pull request's label beside its repository's name (find repositories anywhere "kiln status --json").
     expect(answer.delivered).toEqual({ ...expected, pullRequests: expected.pullRequests.map((pull) => ({ ...pull, label: pull.repository })), forYou: { items: [{ id: "item-1", kind: "other", words: null, line: `${other.problem} ${other.action} Still open.`, problem: `${other.problem} ${other.action}`, action: "Still open.", waits_on: null, criterion: null }], afterDelivery: [] } });
     const text = deliveredText(answer.delivered as Parameters<typeof deliveredText>[0], false)!;
-    expect(text.split("\n").slice(0, 3)).toEqual(["Closing audits: Delivery audit: 1 of 4 loops. Test audit: 1 of 4 loops.", `Pull request: https://github.com/${github}/pull/218`, "For you:"]);
+    expect(text.split("\n").slice(0, 3)).toEqual(["Closing audits: Delivery audit: 1 loop (max 4). Test audit: 1 loop (max 4).", `Pull request: https://github.com/${github}/pull/218`, "For you:"]);
     // The block the pull request was given carries the same line.
     expect(pullRequestPrompts(current)[0]).toContain(`- ${(answer.delivered as { forYou: { items: { line: string }[] } }).forYou.items[0]!.line}`);
     // A later settings change does not rewrite what the run had at delivery.
@@ -271,7 +271,7 @@ describe("the finished page and kiln status say the same (AC-LEFT-02, AC-BOT-02)
     expect(buildSnapshot(current.engine).delivered!.loops).toEqual(loops);
     const answer = status(current);
     expect((answer.delivered as { loops: unknown }).loops).toEqual(loops);
-    expect(deliveredText(answer.delivered as Parameters<typeof deliveredText>[0], false)!.split("\n")[0]).toBe("Closing audits: Delivery audit: 2 of 3 loops. Test audit: 1 of 5 loops.");
+    expect(deliveredText(answer.delivered as Parameters<typeof deliveredText>[0], false)!.split("\n")[0]).toBe("Closing audits: Delivery audit: 2 loops (max 3). Test audit: 1 loop (max 5).");
   });
 
   it("shows For you and Closing audits for a run completed with no pull request session, its work already merged", { timeout: 240_000 }, async () => {
@@ -291,6 +291,6 @@ describe("the finished page and kiln status say the same (AC-LEFT-02, AC-BOT-02)
     const answer = status(current);
     expect(answer.delivered).toMatchObject({ loops: { delivery: { used: 1, limit: 1 }, test: { used: 1, limit: 1 } }, forYou: { items: [{ id: "item-1", kind: "blocker", waived: { activity: "pr" }, waived_tag: expect.stringMatching(/^waived at Final delivery, .* UTC · browser · /) }] }, pullRequests: [] });
     const text = deliveredText(answer.delivered as Parameters<typeof deliveredText>[0], false)!;
-    expect(text).toMatch(/^Closing audits: Delivery audit: 1 of 1 loops\. Test audit: 1 of 1 loops\.\nFor you:\n {2}- Blocker: .* \(Waived: waived at Final delivery, /);
+    expect(text).toMatch(/^Closing audits: Delivery audit: 1 loop \(max 1\)\. Test audit: 1 loop \(max 1\)\.\nFor you:\n {2}- Blocker: .* \(Waived: waived at Final delivery, /);
   });
 });

@@ -6,7 +6,9 @@ import { runLastOutputAt } from "../session/claude-session.js";
 import { codexBillingView } from "../billing/codex.js";
 import type { BillingView } from "../billing/authority.js";
 import { RESULT_CHECK } from "../audit/admission.js";
-import { activityHistory, acceptedAudit, auditKey as auditKeyOf } from "../audit/workflow.js";
+import { activityHistory, acceptedAudit, auditKey as auditKeyOf, effectiveAudit, hasEffectiveResult, latestTestContinues } from "../audit/workflow.js";
+import { waitingBatches, waitingBatchKey } from "../audit/fix-plan.js";
+import { stepsAfter } from "./next-steps.js";
 import { AuditStore } from "../audit/storage.js";
 import { personItems, settledLines } from "../audit/person-items.js";
 import type { WorkSnapshot } from "../audit/contracts.js";
@@ -40,7 +42,7 @@ import { isAfterDeliveryKey, isPlanPushKey, MERGE_KEY, planPushKey } from "../st
 import { readAcceptance } from "./continuation-state.js";
 import { applyWaivers, AUDIT_WARNING, checkCounts, effectiveRecordedClosed, KNOWN_PROBLEM_CHECKS, NO_REPORT_WARNING, PLAN_WARNING, type AuditWaiverResult, type MarkCompleteOffer, type WaivedItem, type Waiver, type WaiverSource } from "./waivers.js";
 import { activityLoops, auditLoopsView } from "./loop-view.js";
-import { closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
+import { closedKinds, closingAudits, LOOP_STOP_LINE } from "../state/audit-loops.js";
 import { PR_PHASE_KEY, type CheckRun, type CheckResult, type PrdRecord, type Effort, type PullRequestFacts, type MergedBranchFacts, type DeliveryHistory, type RecordedPlanPhase, type RepositoryKind, type SessionRecord, type StopKind, type StopLimit } from "../state/records.js";
 import type { Engine, RepositoryCommits } from "./engine.js";
 import type { ExecutionSummary } from "./continuation-state.js";
@@ -192,8 +194,12 @@ export interface PhaseView {
   /** Identifiers only; a person reads the title and line (Kiln After Delivery AC-AUDIT-01). */
   round?: number;
   continuationIndex?: number;
-  /** A session of test fixes: the test audit loop that started its chain and its place in that chain, from 1. */
-  fixing?: { loop?: number; session: number };
+  /**
+   * A session of test fixes: the test audit loop that started its chain, its place in that chain,
+   * from 1, and on a batch its number, the plan's current count and its gaps (Kiln Planned Test Fix
+   * Batches, "Interfaces"). A batch that has not started carries it too, with `plannedActivity`.
+   */
+  fixing?: { loop?: number; session: number; batch?: { number: number; of: number; gaps: number } };
   audit?: { outcome?: string; summary?: string; checks: CheckResult[]; criteria: { key: string; status: string; findings: string[] }[]; repositories: { name: string; label?: string; revision: string }[]; blockers: string[]; pendingActions: string[];
     /** Items an accepted audit left for a person while Kiln carried on, and whether any is still waiting (AC-NEUTRAL-03). */
     personItems?: { count: number; waiting: boolean };
@@ -421,6 +427,8 @@ export interface Snapshot {
     developmentDeployments?: DevelopmentSettings;
     /** The reason under Start while a repository row asks (find repositories anywhere "Asking Before Start"). */
     startBlockedBy?: string;
+    /** After Start: the commit Kiln started from and what changed since Documents found was drawn (run restart AC-FROM-06). */
+    startedFrom?: string;
     /** Models are chosen for each phase (Kiln Phase Model Tiers AC-KEEP-01): the phases carrying each tier, closed or not. */
     models: { tiers: { demanding: number; standard: number; mechanical: number; notRated: number };
       /** Why Start is unavailable for the models: an agent an activity needs isn't ready, or a choice can't be used (AC-AGENTS-01, AC-PICK-06). */
@@ -713,6 +721,7 @@ export function buildSnapshot(engine: Engine, documents?: DocumentsFound, reads:
     settings: {
       ...optional("developmentDeployments", settings.developmentDeployments),
       ...(state === "not_started" ? optional("startBlockedBy", engine.startBlockedBy) : {}),
+      ...(record.startedAt !== undefined ? optional("startedFrom", record.startedFrom) : {}),
       models: { tiers: tierCounts(engine), ...(state === "not_started" ? optional("problem", engine.modelsProblem) : {}), ...settingsInForceView(engine), audits: auditsChoice(engine), revision: settingsRevision(engine.settingsPaths) },
       keepAwake: settings.keepAwake,
       ...optional("keepAwakeError", engine.keepAwakeError),
@@ -778,8 +787,10 @@ function placeHeadsUp(engine: Engine, snapshot: Snapshot): void {
   if (!headsUp) return;
   const { key, forecast } = headsUp;
   if (key === PLANNED_PREFLIGHT_KEY) { if (snapshot.preflight?.planned?.model) snapshot.preflight.planned.model.forecast = forecast; return; }
-  const ids = key === PLANNED_AUDITS_KEY ? ["planned-delivery-audit", "planned-test-audit"] : key === PR_PHASE_KEY ? [PR_PHASE_KEY, "planned-pull-request"] : [key];
-  const rows: { id: string; model?: ModelView }[] = [...(snapshot.documents?.plan?.phases ?? []), ...snapshot.phases, ...(snapshot.activities ?? [])];
+  const rows: { id: string; model?: ModelView; fixing?: PhaseView["fixing"]; plannedActivity?: true }[] = [...(snapshot.documents?.plan?.phases ?? []), ...snapshot.phases, ...(snapshot.activities ?? [])];
+  // A batch of test fixes that has not started stands for the audits too, where it takes the planned Test audit row's place.
+  const firstBatch = rows.find(row => row.plannedActivity && row.fixing?.batch)?.id;
+  const ids = key === PLANNED_AUDITS_KEY ? ["planned-delivery-audit", "planned-test-audit", ...(firstBatch ? [firstBatch] : [])] : key === PR_PHASE_KEY ? [PR_PHASE_KEY, "planned-pull-request"] : [key];
   for (const id of ids) {
     const matching = rows.filter(row => row.id === id && row.model);
     if (!matching.length) continue;
@@ -798,8 +809,57 @@ function addFallbackDetails(engine: Engine, snapshot: Snapshot): void {
   }
 }
 
+/**
+ * The rows with the planned rows and the batches of test fixes that have not started (Kiln Planned
+ * Test Fix Batches, "Where the rows sit"): the batches after every phase row, completion phases
+ * included, and before the pull request, Merge and Push rows still to come; a planned Delivery audit
+ * row above them and the planned pull request row after them. They take the planned Test audit row's place.
+ */
 function withPlannedRows(engine: Engine, state: FeatureState, rows: PhaseView[]): PhaseView[] {
-  return [...rows, ...plannedRows(engine, state, rows)];
+  const batches = batchRows(engine, state);
+  const planned = plannedRows(engine, state, rows).filter(row => !batches.length || row.id !== "planned-test-audit");
+  if (!batches.length) return [...rows, ...planned];
+  const at = rows.findIndex(row => (row.id === PR_PHASE_KEY || row.kind === "merge" || row.kind === "plan_push") && row.state !== "done");
+  const [before, after] = at === -1 ? [rows, []] : [rows.slice(0, at), rows.slice(at)];
+  const delivery = planned.filter(row => row.id === "planned-delivery-audit");
+  return [...before, ...delivery, ...batches, ...after, ...planned.filter(row => row.id !== "planned-delivery-audit")];
+}
+
+/**
+ * A row for each batch of test fixes that has not started (Kiln Planned Test Fix Batches AC-BATCH-01,
+ * AC-BATCH-04): planned, with the Audits choice and Change as the planned Test audit row has them, no
+ * session, timing, details or link. Its name comes from the chain reading, never from an activity.
+ */
+function batchRows(engine: Engine, state: FeatureState): PhaseView[] {
+  const { record } = engine;
+  if (state === "not_started" || state === "complete" || state === "folder_missing" || engine.finished || record.completedAt) return [];
+  const waiting = waitingBatches(record);
+  if (!waiting) return [];
+  const loop = auditNameFacts(record, waiting.audit).loop?.number;
+  const model = engine.activityModel(PLANNED_AUDITS_KEY, { finished: false });
+  const next = state === "paused" && batchIsNext(engine);
+  return waiting.batches.map((batch, index) => {
+    const fixing = { ...(loop !== undefined ? { loop } : {}), session: batch.number, batch };
+    const name = auditName({ kind: "test_audit", fixing });
+    return { id: waitingBatchKey(waiting.audit, batch.number), kind: "test_audit", title: name.title, file: name.line ?? "", fixing, state: index === 0 && next ? "next" : "planned", plannedActivity: true, finishedByPerson: false, model: { ...model, ...engine.modelControls(PLANNED_AUDITS_KEY, name.title, model) } };
+  });
+}
+
+/**
+ * Whether the first batch that has not started reads Next on a paused run: no allocated activity is
+ * unfinished, no phase is left to build, and the step after the latest audit of either kind with an
+ * effective result is a session of test fixes. It reads the record only, as the forecasts do.
+ */
+function batchIsNext(engine: Engine): boolean {
+  const { record } = engine;
+  const audits = record.completionAudits?.activities ?? [];
+  const unfinished = [...audits.map(auditKeyOf), ...(record.preflight?.activities ?? []).map(preflightKeyOf)].some(key => !record.phases[key]?.doneAt);
+  if (unfinished || recordedLeaves(record.plan ?? []).some(leaf => !effectiveRecordedClosed(record, leaf))) return false;
+  const latest = [...audits].sort((a, b) => a.sequence - b.sequence).findLast(hasEffectiveResult);
+  const result = latest && effectiveAudit(engine.stateDirectory, latest);
+  if (!latest || !result) return false;
+  const steps = stepsAfter({ kind: latest.kind, fixing: latest.continuationIndex > 1, closed: closedKinds(record), latestTestContinues: latestTestContinues({ record, stateDirectory: engine.stateDirectory }) }, result.countedOutcome, result.changedImplementation ?? false);
+  return steps[0] === "session of test fixes";
 }
 
 function folderMissingSnapshot(view: import("./folder-facts.js").FolderMissingView, engine: Engine): FolderMissingSnapshot {

@@ -23,6 +23,7 @@
   import CatchUpOffer from "../components/CatchUpOffer.svelte";
   import type { RepositoryRow, Snapshot } from "../../../src/engine/snapshot.js";
   import type { Settings } from "../../../src/state/records.js";
+  import type { StartPause } from "../../../src/engine/start-from.js";
   import TierTag from "../components/TierTag.svelte";
   import RowModel from "../components/RowModel.svelte";
   import ModelsBlock from "../components/ModelsBlock.svelte";
@@ -95,6 +96,8 @@
   let refined = $state(false);
   let pressing = $state(false);
   let startReason = $state<string | undefined>(undefined);
+  // A paused Start takes the button's place until Start anyway or a settings change (run restart AC-FROM-06).
+  let paused = $state<StartPause | undefined>(undefined);
   const startNow = $derived(startState(snapshot, refined, connected));
   // While a row asks, the status line says what to tell Kiln first (find repositories anywhere "Asking Before Start").
   const asking = $derived(snapshot.repositories.filter((row) => row.question !== undefined));
@@ -126,6 +129,7 @@
 
   async function save(change: Partial<Settings> & { start?: { from: "new" | "existing"; bringUpToDate: boolean } }) {
     startReason = undefined;
+    paused = undefined;
     const answer = await changeSettings(config, change);
     if (!answer.ok) startReason = answer.reason;
   }
@@ -165,9 +169,13 @@
     startReason = undefined;
     const answer = await start(config, refined, startFrom?.previewId);
     pressing = false;
-    // A setup failure shows as the snapshot's startError; anything else refused shows its reason.
-    if (!answer.ok && !answer.fieldErrors && snapshot.documents?.startError === undefined) startReason = answer.reason;
+    paused = answer.ok ? undefined : answer.paused;
+    // A refused press says why beside the button, unless it paused; a field message, once the snapshot carries it, says it by name.
+    if (!answer.ok && !answer.paused) startReason = answer.unreachable ? "Couldn’t reach Kiln. Check that kiln run is still running in your terminal. This page reconnects by itself, and shows the run if Start did go through." : answer.reason;
   }
+  // What holds Start that someone must fix: the held note, else the last press's refusal, else a failed setup. A pause shows only the first.
+  const cantStart = $derived(startNow.fix ? startNow.note : paused ? undefined : startReason ?? documents.startError);
+  const startNote = $derived(startNow.fix ? undefined : startNow.note);
 </script>
 
 <main>
@@ -295,9 +303,9 @@
         <div class="field">
           <label for="workspace">Workspace folder</label>
           {#if existing && startFrom?.workspaceFolder}
-            <input id="workspace" type="text" class="mono" value={withSlash(startFrom.workspaceFolder)} readonly disabled />
+            <input id="workspace" type="text" class="mono" class:changed={paused?.changed.includes("worktree")} value={withSlash(startFrom.workspaceFolder)} readonly disabled />
           {:else}
-            <input id="workspace" type="text" class="mono" value={drafts.workspaceFolder ?? withSlash(settings.workspaceFolder)} disabled={fixedLocked || settings.fixed.workspaceFolder} oninput={(event) => typed("workspaceFolder", event.currentTarget.value)} onblur={() => committed("workspaceFolder")} />
+            <input id="workspace" type="text" class="mono" class:changed={paused?.changed.includes("worktree")} value={drafts.workspaceFolder ?? withSlash(settings.workspaceFolder)} disabled={fixedLocked || settings.fixed.workspaceFolder} oninput={(event) => typed("workspaceFolder", event.currentTarget.value)} onblur={() => committed("workspaceFolder")} />
           {/if}
           {#if settings.fieldErrors.workspaceFolder}<span class="message">{settings.fieldErrors.workspaceFolder}</span>{/if}
           {#if existing && startFrom?.workspaceFolder}
@@ -347,9 +355,9 @@
         <div class="field">
           <label for="worktree">Worktree</label>
           {#if adopted}
-            <input id="worktree" type="text" class="mono" value={adopted.path} readonly disabled />
+            <input id="worktree" type="text" class="mono" class:changed={paused?.changed.includes("worktree")} value={adopted.path} readonly disabled />
           {:else}
-            <input id="worktree" type="text" class="mono" value={drafts.worktreePath ?? settings.worktreePath} disabled={fixedLocked || settings.fixed.worktreePath} oninput={(event) => typed("worktreePath", event.currentTarget.value)} onblur={() => committed("worktreePath")} />
+            <input id="worktree" type="text" class="mono" class:changed={paused?.changed.includes("worktree")} value={drafts.worktreePath ?? settings.worktreePath} disabled={fixedLocked || settings.fixed.worktreePath} oninput={(event) => typed("worktreePath", event.currentTarget.value)} onblur={() => committed("worktreePath")} />
           {/if}
           {#if settings.fieldErrors.worktreePath}<span class="message">{settings.fieldErrors.worktreePath}</span>{/if}
           <span class="help">{adopted ? adoptedWorktreeHelp(adopted.uncommittedFiles) : "One worktree and one branch for the whole PRD. Every phase works here in turn. These three are set once, before the first phase; keep-awake can be changed later."}</span>
@@ -450,11 +458,21 @@
     </div>
 
     <div class="column end">
-      <button type="button" class="start" class:ready={startNow.enabled} class:busy={pressing} aria-busy={pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
+      {#if paused}
+        <div class="paused" role="alert">
+          <span class="paused-tag">Paused · nothing has started</span>
+          <strong class="paused-head">{paused.headline}</strong>
+          <span class="paused-detail">{paused.detail}</span>
+          <button type="button" class="start anyway" class:ready={startNow.enabled} class:busy={pressing} aria-busy={pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>Start anyway</button>
+          <span class="help">{paused.caution}</span>
+        </div>
+      {:else}
+        <button type="button" class="start" class:ready={startNow.enabled} class:busy={pressing} aria-busy={pressing} disabled={!startNow.enabled || pressing} onclick={pressStart}>{startLabel}</button>
+      {/if}
       {#if pressing}<BusyStatus text={`Setting up the run and launching ${inUseAgent(snapshot)?.agent ?? "Claude Code"}.`} />{/if}
-      {#if startNow.asks && closedLine}<span class="help">{closedLine} <span class="asks">{startNow.note}</span></span>
-      {:else if closedLine || startNow.note}<span class="help" class:asks={startNow.asks}>{[closedLine, startNow.note].filter(Boolean).join(" ")}</span>{/if}
-      {#if documents.startError}<span class="message">{documents.startError}</span>{:else if startReason}<span class="message">{startReason}</span>{/if}
+      {#if startNow.asks && closedLine}<span class="help">{closedLine} <span class="asks">{startNote}</span></span>
+      {:else if closedLine || startNote}<span class="help" class:asks={startNow.asks}>{[closedLine, startNote].filter(Boolean).join(" ")}</span>{/if}
+      {#if cantStart}<div class="cant-start" role="alert"><strong>Can’t start</strong><span>{cantStart}</span></div>{/if}
     </div>
   </section>
 </main>
@@ -484,7 +502,7 @@
 {#snippet branchField()}
   {#if existing && startFrom}
     <!-- Every name, available or not; an unavailable name's reason is the field's message (run restart "The branch list"). -->
-    <select id="branch" class="mono" value={settings.featureBranch} disabled={branchFixed} onchange={(event) => save({ featureBranch: event.currentTarget.value })}>
+    <select id="branch" class="mono" class:changed={paused?.changed.includes("branch")} value={settings.featureBranch} disabled={branchFixed} onchange={(event) => save({ featureBranch: event.currentTarget.value })}>
       {#if !startFrom.branches.some((branch) => branch.name === settings.featureBranch)}<option value={settings.featureBranch}>{settings.featureBranch}</option>{/if}
       {#each startFrom.branches as branch (branch.name)}<option value={branch.name}>{branch.name}</option>{/each}
     </select>
@@ -608,4 +626,13 @@
   .nowrap { white-space: nowrap; }
   .start { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px; padding: 0 24px; border-radius: 999px; font-family: var(--sans); font-size: 15.5px; font-weight: 600; box-sizing: border-box; background: transparent; color: var(--dim); border: 1px solid var(--line-strong); width: 100%; cursor: not-allowed; }
   .start.ready { background: var(--text); color: var(--bg); border-color: var(--text); cursor: pointer; }
+  /* A paused Start, in the button's place: nothing has started, what changed, and the one button that goes on (run restart AC-FROM-06). */
+  .paused { display: flex; flex-direction: column; gap: 10px; padding: 18px 20px; border: 1px solid var(--amber-border); border-radius: 16px; background: rgba(230, 180, 80, 0.06); }
+  .paused-tag { font-size: 11.5px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--amber); }
+  .paused-head { font-size: 17px; font-weight: 600; line-height: 1.35; color: var(--text); }
+  .paused-detail { font-size: 13.5px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+  .start.anyway.ready { background: var(--amber); color: var(--bg); border-color: var(--amber); }
+  .cant-start { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--amber-border); border-radius: 14px; background: rgba(230, 180, 80, 0.06); font-size: 13.5px; line-height: 1.55; overflow-wrap: anywhere; }
+  .cant-start strong { font-size: 14.5px; font-weight: 600; color: var(--amber); }
+  input.changed, select.changed { border-color: var(--amber-border); opacity: 1; }
 </style>

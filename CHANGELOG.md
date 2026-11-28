@@ -10,6 +10,36 @@ section to the new version.
 
 ## [Unreleased]
 
+### Added
+
+- When a test audit plans its test fixes as batches, the phase plan shows a row for each batch
+  as soon as the audit ends, so you can see how many fixing sessions are coming. The audit's
+  row says how many test gaps it found and how many batches it planned, each batch row names
+  its batch and its number of gaps.
+
+### Changed
+
+- A loop is named with its maximum, "loop 1 · max 4", wherever "loop 1 of 4" appeared: the
+  phase plan, the status line, `kiln status`, the finished page and each pull request's
+  description. The **Audit loops** help now says a run makes only the loops it needs.
+- `kiln status` lists the batches of test fixes not yet started, with the new `planned` state.
+- Start no longer stops with "What Start would do has changed" when something moved after the
+  page loaded. Kiln starts from what it finds, and **Settings for this PRD** says which commit it
+  started from and what changed, such as new commits on the base branch.
+- Start pauses only when you start from a branch that already exists and that branch got new
+  commits, or its worktree changed, after the page loaded. The page says nothing has started
+  and what changed, with a **Start anyway** button.
+- When Start can't go ahead, a **Can't start** message beside the button says what is wrong and
+  what to do, naming the setting or the failed check.
+- Pressing Start while Kiln is still checking the base branch now waits for the check.
+
+### Fixed
+
+- A live session no longer gets stuck with "Kiln checkpoint unavailable: Admission lock is
+  unresolved" after a checkpoint hook is killed partway through, as happens when a workflow's
+  subagents are stopped. A session already stuck this way recovers the next time Kiln checks
+  it, for example on **Check again**.
+
 ## [1.5.1] - 2026-11-26
 
 Phases pick their model from their tier, Kiln finds repositories wherever they are checked out, and

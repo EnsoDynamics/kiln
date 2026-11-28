@@ -59,6 +59,7 @@ Nothing about the model is hidden or decided silently. Every row says what it ra
   - Superseded in part by: AC-SAVE-04 in `docs/changes/kiln-model-modes/kiln-model-modes-prd.md` (a PRD can hold its own settings, the fallback setting among them, and a change saved for This PRD only is kept for that PRD alone, not for every PRD on the computer; its activities take their choices and fallbacks from them, a change to the defaults doesn't reach it, a change saved for one PRD reaches no other PRD, Needs you names them as where a choice came from, and the Standard tag's explanation names them as where the model is set; the rest remains).
 
 - [ ] **AC-PICK-02 — Every row says what it ran on, runs on or will run on.** Wherever Kiln shows the plan, each activity's row shows a model choice, as the table says. The model is named as its agent reports it. The current activity's card shows the same choice and, for a phase, its tier.
+  - Superseded in part by: AC-BATCH-01 in `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md` (while a test audit's planned batches have rows, they take the place of the planned Test audit row and each reads as that row does; the rest remains)
 
   | The activity | Its row shows |
   |---|---|

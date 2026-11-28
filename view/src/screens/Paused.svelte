@@ -15,7 +15,7 @@
   import SettingsPanel from "../components/SettingsPanel.svelte";
   import StateHeader from "../components/StateHeader.svelte";
   import { start } from "../lib/api.js";
-  import { capitalized, nextPhase, pausedAfter, phaseName, PR_ID } from "../lib/progress.js";
+  import { capitalized, nextPhase, pausedAfter, phaseName, PR_ID, rowAuditName } from "../lib/progress.js";
   import { clockTime } from "../lib/time.js";
   import { viewContext } from "../lib/view-context.js";
 
@@ -44,7 +44,7 @@
   <section class="held" aria-labelledby="now-h">
     <div class="words">
       <span class="eyebrow">{snapshot.restartReview ? "Ready to resume" : after ? `Paused after ${phaseName(after.id, snapshot)}` : "Paused"}</span>
-      <h2 id="now-h">{#if nextIsPr}Next: the pull request{:else if next?.kind === "preflight"}Next: the preflight{:else if next}Next: {nextName}, {next.title}{/if}</h2>
+      <h2 id="now-h">{#if nextIsPr}Next: the pull request{:else if next?.kind === "preflight"}Next: the preflight{:else if next?.plannedActivity && next.fixing?.batch}Next: {rowAuditName(next).sentence}{:else if next}Next: {nextName}, {next.title}{/if}</h2>
       <p>{snapshot.restartReview ? snapshot.restartReview.action === "resume" ? "Resume the interrupted conversation with its saved history." : snapshot.restartReview.action === "wait" ? "Resume automatic usage recovery for the saved conversation." : "Review the phase plan, then resume when you’re ready." : after ? `${capitalized(phaseName(after.id, snapshot))} finished. Paused before the next activity.` : "Paused before the next activity."}</p>
       <p>
         {#if after?.doneAt}{capitalized(phaseName(after.id, snapshot))}, {after.title}, finished with its commit and push at {clockTime(after.doneAt, new Date(now), { afterWord: true })}.{/if}

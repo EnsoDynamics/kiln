@@ -67,9 +67,11 @@ A person who comes back to a delivered run sees how much checking it got, withou
   - Replaces in part: AC-PR-01 in `docs/prds/kiln-v1/kiln-v1-prd.md`, AC-PRS-05 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` and AC-DELIVER-04 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (a pull request already open is completed only after a pull request session in this run has written its **For you** and loop counts into the description, or when the person marks final delivery complete)
   - Replaces in part: AC-WAIVE-02 and AC-WAIVE-05 in `docs/changes/kiln-completion-waivers/kiln-completion-waivers-prd.md` and AC-STOPCHECK-02 in `docs/changes/kiln-checks-at-a-stop/kiln-checks-at-a-stop-prd.md` (where the only failing check at final delivery is the pull request description, Check again there starts the pull request session, so **Mark final delivery complete** can be pressed on the check that stopped Kiln, without Check again first, and the line saying what Check again runs is left out; `kiln waive-and-advance` without `--confirm` does what Check again does there)
   - Replaces in part: AC-PR-05 in `docs/prds/kiln-v1/kiln-v1-prd.md` (a pull request found already open no longer completes without a session, so its row and terminal lines show the session that wrote its description)
+  - Superseded in part by: AC-MAX-01 in `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md` (the wording of the loops used; where they are shown remains)
 - [ ] **AC-LEFT-02 — The finished page and `kiln status` say the same.** A delivered run's finished page and `kiln status` show the loops of each kind used and whether that was the limit, beside the delivery facts they show today. The heading is unchanged.
   - Replaces in part: AC-PR-04 in `docs/prds/kiln-v1/kiln-v1-prd.md`, AC-PRS-03 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` and AC-DISPLAY-03 in `docs/changes/kiln-development-deployments/kiln-development-deployments-prd.md` (the Complete screen also shows the loops used of each kind and **For you**)
   - Replaces in part: AC-SHOW-01 in `docs/changes/kiln-multi-repo-delivery/kiln-multi-repo-delivery-prd.md` (Complete also shows the loops of each kind used and **For you**; the rest of its layout remains)
+  - Superseded in part by: AC-MAX-01 in `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md` (the wording of the loops used; where they are shown remains)
 
 ### Stop for a Person Only When the Work Cannot Go On
 
@@ -104,6 +106,7 @@ With nothing to decide at a limit, the loop stop and its controls go away, and t
   - Replaces: AC-STOP-01 and AC-STOP-02 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md`
   - Replaces in part: AC-STOP-03 in `docs/changes/kiln-audit-loop-limits/kiln-audit-loop-limits-prd.md` (the loop stop page and its two stop commands are removed, and `kiln status` no longer shows the removed setting; `kiln settings` sets the two limits)
 - [ ] **AC-STOP-05 — The run's page says which loop it is on.** During the closing audits, the status line names what is running: an audit with its loop and the limit, or a phase or session of test fixes as for any other work. At a Needs you stop it keeps the latest audit's loop. `kiln status` reports the same. It never adds a mark for the last loop; the numbers show it.
+  - Superseded in part by: AC-MAX-01 in `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md` (the wording of each status line, and a session of test fixes named by its batch; what the status line names, and when, remains)
 
   | While | The status line says, for example |
   |---|---|

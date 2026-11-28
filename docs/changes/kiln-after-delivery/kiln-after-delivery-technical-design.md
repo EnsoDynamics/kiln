@@ -261,6 +261,8 @@ A page that receives `exited` shows the Kiln has exited state from the event and
 
 ## Closing-Audit Names (AC-AUDIT-01)
 
+Superseded in part by: `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-technical-design.md`, §Names (the line beneath an audit, the name of a batch, and the status-line and loops-used text joining the module).
+
 One function, in a module the page can import, gives every audit activity its row title, the line beneath it and a sentence form for prose.
 
 | Activity | Title | Line | In a sentence |
@@ -274,6 +276,8 @@ _n_ is the loop the ledger counted for the audit. A session of test fixes takes 
 The function replaces every place a person reads an audit's name: the phase-plan row and the session page's heading; the terminal's audit lines, including the line that starts an audit; the live-control label, the pause label and the pause sentences built from it; the paused-partway page's eyebrow and the pause panel's activity name; the "was marked complete" check row; the `kiln status` progress rows, title and line both, and the waiver labels; and the "listed by" and "settled by" names in the session page and the pull request description. The audit prompt's own round and continuation numbers are not a person's reading and stay.
 
 ## Interfaces (AC-BOT-01, AC-BOT-02)
+
+Superseded in part by: `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-technical-design.md`, §Interfaces (`fixing` gains `batch`; rows for batches that have not started).
 
 **Command line.**
 

@@ -273,6 +273,55 @@ describe("version-2 audit admission", () => {
     const delivery = await fixture(); delivery.report.outcome = "continue_test"; writeFileSync(join(delivery.root, "note.txt"), "x"); commit(delivery.sandbox, delivery.root, ["note.txt"]); delivery.saveReport();
     expect((await delivery.submit()).refusal?.reason).toContain("Only a test audit");
   });
+  describe("the fix plan in the report (Kiln Planned Test Fix Batches AC-BATCH-01, AC-BATCH-02, AC-BATCH-05)", () => {
+    const record = (f: Awaited<ReturnType<typeof fixture>>) => { writeFileSync(join(f.root, directory, "test-audit.md"), `# Test audit\n${randomUUID()}\n`); commit(f.sandbox, f.root, [`${directory}/test-audit.md`]); };
+    it("copies a continue_test report's batches onto the activity in the write that records it", async () => {
+      const f = await fixture("test_audit"); record(f);
+      f.report.outcome = "continue_test"; f.report.fixBatches = [{ criteria: ["AC-1", "AC-2"] }, { criteria: ["AC-3"] }]; f.saveReport();
+      expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "continue_test" });
+      expect(f.activity.testWork).toEqual({ batches: [{ criteria: ["AC-1", "AC-2"] }, { criteria: ["AC-3"] }], changedImplementation: false });
+    });
+    it("accepts a continue_test report with no plan, or an empty one, and never refuses for a missing plan (AC-BATCH-05)", async () => {
+      for (const batches of [undefined, []]) {
+        const f = await fixture("test_audit"); record(f);
+        f.report.outcome = "continue_test"; if (batches) f.report.fixBatches = batches; f.saveReport();
+        expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "continue_test" });
+        expect(f.activity.testWork).toEqual({ batches: [], changedImplementation: false });
+      }
+    });
+    it("keeps no plan on an activity whose result counts anything but continue_test", async () => {
+      const f = await fixture("test_audit"); f.saveReport();
+      expect(await f.submit()).toMatchObject({ disposition: "recorded", nextAction: "final_delivery" });
+      expect(f.activity.testWork).toBeUndefined();
+      // A session of test fixes that added phases leaves no plan either (AC-BATCH-04).
+      const phases = await fixture("test_audit"); phases.activity.continuationIndex = 2; appendPhase(phases, "2");
+      phases.report.outcome = "completion_phases"; phases.report.completionPhases = ["2"]; phases.saveReport();
+      expect(await phases.submit()).toMatchObject({ disposition: "recorded", nextAction: "implementation" });
+      expect(phases.activity.testWork).toBeUndefined();
+    });
+    it("refuses a criterion named twice, an empty or malformed batch, batches with another outcome, and the field on a delivery audit's report", async () => {
+      const refused = async (f: Awaited<ReturnType<typeof fixture>>, fixBatches: unknown, outcome: AuditReportV2["outcome"] = "continue_test") => {
+        record(f); f.report.outcome = outcome; (f.report as unknown as Record<string, unknown>).fixBatches = fixBatches;
+        if (outcome === "needs_you") f.report.needsYou = [{ kind: "blocker", problem: "No access.", action: "Grant it.", waitsOn: "The tests." }];
+        f.saveReport(); const result = await f.submit();
+        expect(f.activity.testWork).toBeUndefined();
+        return result.refusal;
+      };
+      expect(await refused(await fixture("test_audit"), [{ criteria: ["AC-1"] }, { criteria: ["AC-1"] }])).toMatchObject({ code: "invalid_report", reason: "fixBatches names each criterion once, in one batch; repeated: AC-1." });
+      expect(await refused(await fixture("test_audit"), [{ criteria: ["AC-2", "AC-2"] }])).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("repeated: AC-2") });
+      for (const bad of [[{ criteria: [] }], [{ criteria: [""] }], [{}], ["AC-1"], { criteria: ["AC-1"] }]) expect(await refused(await fixture("test_audit"), bad)).toMatchObject({ code: "invalid_report", reason: "fixBatches must be a list of batches, each {criteria} with at least one criterion ID." });
+      expect(await refused(await fixture("test_audit"), [{ criteria: ["AC-1"] }], "needs_you")).toMatchObject({ code: "invalid_report", reason: "fixBatches lists batches only on a continue_test report; omit it with any other outcome." });
+      const phases = await fixture("test_audit", { openPhase: true });
+      expect(await refused(phases, [{ criteria: ["AC-1"] }], "completion_phases")).toMatchObject({ code: "invalid_report", reason: expect.stringContaining("only on a continue_test report") });
+      for (const batches of [[{ criteria: ["AC-1"] }], []]) expect(await refused(await fixture(), batches, "passed")).toMatchObject({ code: "invalid_report", reason: "Only a test audit reports fixBatches." });
+    });
+    it("names the field in the contract a refusal quotes and kiln audit status returns", async () => {
+      const f = await fixture("test_audit");
+      expect(auditStatus(f.context).reportContract).toContain("fixBatches ({criteria}[]");
+      const help = JSON.stringify(commandContracts.find(c => c.path.join(" ") === "audit submit"));
+      expect(help).toContain('"fixBatches":"Optional {criteria: string[]}[] on a test audit');
+    });
+  });
   it("ignores a skill that changed while the audit ran (AC-NEUTRAL-08)", async () => {
     const f = await fixture(); writeFileSync(f.skillPath, "# delivery-audit\nRewritten this afternoon.\n"); f.saveReport();
     expect((await f.submit()).disposition).toBe("recorded");

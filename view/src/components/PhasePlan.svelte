@@ -2,7 +2,7 @@
   // The phase plan: every phase in plan order, all at one level, with its number, file name,
   // title word for word and state, and a Details section for each phase that has run (PRD
   // AC-WATCH-01, AC-LOOK-03). The pull-request session is its last row once every leaf is
-  // closed (AC-PR-05). An audit row that is a loop says which (loop 2 of 4), with no mark for the
+  // closed (AC-PR-05). An audit row that is a loop says which, with its maximum (loop 2 · max 4), with no mark for the
   // last loop; phase rows and sessions of test fixes carry none (Kiln Deliver When Audit Loops Run
   // Out AC-STOP-05). For a multi-repository PRD a Done row counts the repositories it pushed to,
   // its Details list them, and the pull-request row counts the pull requests (multi-repo AC-PRS-03).

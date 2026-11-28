@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { auditHeading, auditName, recordedAuditName } from "./audit-names.js";
+import { auditHeading, auditName, loopsUsedText, recordedAuditName } from "./audit-names.js";
 import { appendLoop, startedLedger } from "../state/audit-loops.js";
 
 describe("closing-audit names (Kiln After Delivery AC-AUDIT-01)", () => {
   it("titles each audit for what it does, with its loop beneath, and never says round or continuation", () => {
-    expect(auditName({ kind: "delivery_audit", loop: { number: 2, limit: 4 } })).toEqual({ title: "Delivery audit", line: "Loop 2 of 4", sentence: "delivery audit loop 2" });
-    expect(auditName({ kind: "test_audit", loop: { number: 4, limit: 4 } })).toEqual({ title: "Test audit", line: "Loop 4 of 4", sentence: "test audit loop 4" });
+    expect(auditName({ kind: "delivery_audit", loop: { number: 2, limit: 4 } })).toEqual({ title: "Delivery audit", line: "Loop 2 · max 4", sentence: "delivery audit loop 2" });
+    expect(auditName({ kind: "test_audit", loop: { number: 4, limit: 4 } })).toEqual({ title: "Test audit", line: "Loop 4 · max 4", sentence: "test audit loop 4" });
     expect(auditName({ kind: "test_audit", fixing: { loop: 1, session: 2 } })).toEqual({ title: "Fixing tests", line: "From test audit loop 1 · session 2", sentence: "fixing tests from test audit loop 1, session 2" });
     expect(auditName({ kind: "delivery_audit" })).toEqual({ title: "Delivery audit", sentence: "delivery audit" });
     expect(auditHeading(auditName({ kind: "delivery_audit" }))).toBe("Delivery audit");
@@ -30,14 +30,31 @@ describe("closing-audit names (Kiln After Delivery AC-AUDIT-01)", () => {
     const record = { settings: { auditLoops: { deliveryLimit: 3, testLimit: 5 } }, auditLoops: ledger, completionAudits: { activities } };
     const names = activities.map(activity => auditHeading(recordedAuditName(record, activity)));
     expect(names).toEqual([
-      "Delivery audit · Loop 1 of 3",
-      "Test audit · Loop 1 of 5",
+      "Delivery audit · Loop 1 · max 3",
+      "Test audit · Loop 1 · max 5",
       "Fixing tests · From test audit loop 1 · session 1",
       "Fixing tests · From test audit loop 1 · session 2",
-      "Test audit · Loop 2 of 5",
+      "Test audit · Loop 2 · max 5",
       "Fixing tests · From test audit loop 2 · session 1",
       "Delivery audit",
     ]);
     for (const name of names) expect(name).not.toMatch(/round|continuation/i);
+  });
+});
+
+describe("planned batches and loops named with their maximum (Kiln Planned Test Fix Batches AC-BATCH-03, AC-MAX-01)", () => {
+  it("names a batch by its number of the plan's count, its loop and its gaps, keeping \"of\", and a session with no batch as today", () => {
+    expect(auditName({ kind: "test_audit", fixing: { loop: 1, session: 2, batch: { number: 2, of: 3, gaps: 14 } } })).toEqual({ title: "Fixing tests", line: "Batch 2 of 3 from test audit loop 1 · 14 gaps", sentence: "fixing tests, batch 2 of 3 from test audit loop 1" });
+    expect(auditName({ kind: "test_audit", fixing: { loop: 1, session: 1, batch: { number: 1, of: 1, gaps: 1 } } }).line).toBe("Batch 1 of 1 from test audit loop 1 · 1 gap");
+    expect(auditName({ kind: "test_audit", fixing: { session: 1, batch: { number: 1, of: 2, gaps: 5 } } }).line).toBe("Batch 1 of 2 from test audit · 5 gaps");
+  });
+
+  it("gives a test audit that planned batches its found-and-planned clause after the loop, and names the loop alone before it has a result", () => {
+    expect(auditName({ kind: "test_audit", loop: { number: 1, limit: 4 }, found: { gaps: 31, batches: 2 } })).toEqual({ title: "Test audit", line: "Loop 1 · max 4 · found 31 test gaps and planned them as 2 batches", sentence: "test audit loop 1" });
+    expect(auditName({ kind: "test_audit", loop: { number: 1, limit: 4 } }).line).toBe("Loop 1 · max 4");
+  });
+
+  it("says the loops a delivered run used with their maximum, singular for one", () => {
+    expect(loopsUsedText({ delivery: { used: 4, limit: 4 }, test: { used: 1, limit: 4 } })).toBe("Delivery audit: 4 loops (max 4). Test audit: 1 loop (max 4).");
   });
 });

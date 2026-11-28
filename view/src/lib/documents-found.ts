@@ -143,6 +143,20 @@ export interface StartState {
   note?: string;
   /** The note says to tell Kiln where a repository is, drawn amber (find repositories anywhere AC-SEE-04). */
   asks?: true;
+  /** The note names something to fix, drawn as Can't start (run restart AC-FROM-06). */
+  fix?: true;
+}
+
+/**
+ * The note while a start check fails: the first failed check by name, how many more there are, and what to do (run restart AC-FROM-06).
+ *
+ *   failedChecksNote(documents.checks)  // "The checkout ~/acme-shop has uncommitted changes in 1 file: notes.txt. Fix that, then reload this page."
+ */
+export function failedChecksNote(checks: { name: string; passed: boolean; text?: string; locate?: true }[] = []): string {
+  const failed = checks.filter((check) => !check.passed && !check.locate).map((check) => check.text ?? check.name);
+  if (failed.length === 0) return FIX_WHAT_FAILED;
+  const first = /[.!?…]$/.test(failed[0]!) ? failed[0]! : `${failed[0]!}.`;
+  return failed.length === 1 ? `${first} Fix that, then reload this page.` : `${first} And ${failed.length - 1} more, listed under What Kiln found. Fix them, then reload this page.`;
 }
 
 /**
@@ -155,9 +169,10 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   const multi = snapshot.feature.multiRepository;
   if (documents?.starting) return { enabled: false, note: multi ? "Setting up the worktrees…" : "Setting up the worktree…" };
   // On a page a reset built, a failed start check holds Start until a reload finds them all passing (run restart AC-RESET-04).
-  if (documents?.checksFailed) return { enabled: false, note: FIX_WHAT_FAILED };
+  if (documents?.checksFailed) return { enabled: false, note: failedChecksNote(documents.checks), fix: true };
   // A row that asks where its repository is holds Start, and says which (find repositories anywhere AC-ASK-01).
-  if (settings.startBlockedBy) return { enabled: false, note: settings.startBlockedBy, ...(settings.startBlockedBy !== FIX_WHAT_FAILED && repositories.some((row) => row.question !== undefined) ? { asks: true as const } : {}) };
+  if (settings.startBlockedBy === FIX_WHAT_FAILED) return { enabled: false, note: failedChecksNote(documents?.checks), fix: true };
+  if (settings.startBlockedBy) return { enabled: false, note: settings.startBlockedBy, ...(repositories.some((row) => row.question !== undefined) ? { asks: true as const } : {}) };
   if (multi && (settings.baseCheck === "checking" || repositories.some((row) => row.baseCheck === "checking"))) return { enabled: false, note: "Checking the base branches on origin…" };
   if (settings.baseCheck === "checking") return { enabled: false, note: `Checking ${settings.baseBranch || "the base branch"} on origin…` };
   const agents = agentsHoldStart(snapshot);
@@ -165,8 +180,8 @@ export function startState(snapshot: Snapshot, refinementConfirmed: boolean, con
   if (!refinementConfirmed) return { enabled: false, note: "Confirm refinement to start." };
   if (!connected) return { enabled: false, note: "Not connected to Kiln." };
   const held = heldBy(snapshot);
-  if (held.length === 1) return { enabled: false, note: `${held[0]!.field}: ${held[0]!.message}` };
-  if (held.length > 1) return { enabled: false, note: `Fix the ${held.length} fields marked above to start.` };
+  if (held.length === 1) return { enabled: false, note: `${held[0]!.field}: ${held[0]!.message}`, fix: true };
+  if (held.length > 1) return { enabled: false, note: `Fix the ${held.length} fields marked above to start.`, fix: true };
   return { enabled: true };
 }
 

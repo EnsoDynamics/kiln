@@ -1,6 +1,6 @@
 /** Cross-process admission: the hold and each tool's permission share one durable boundary. */
 import { randomUUID, createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, openSync, closeSync, fsyncSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync, openSync, closeSync, fsyncSync } from "node:fs";
 import { join } from "node:path";
 import { writeDurableMetadata } from "../control/durable-file.js";
 import { processStartTime } from "../platform/process-start-time.js";
@@ -53,46 +53,124 @@ async function dead(pid: number, start: string): Promise<boolean> {
   try { process.kill(pid, 0); return false; }
   catch (e) { if ((e as NodeJS.ErrnoException).code === "ESRCH") return true; throw e; }
 }
+/** A path through the lock that came free while it was read is absent; macOS can report that as EINVAL. */
+const gone = (e: unknown) => ["ENOENT", "ENOTDIR", "EINVAL"].includes(String((e as NodeJS.ErrnoException).code));
 function readIfPresent(path: string): string | undefined {
   try { return readFileSync(path, "utf8"); }
-  catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw e; }
+  catch (e) { if (gone(e)) return undefined; throw e; }
 }
+const CLAIM = /^admission\.owner\.[0-9a-f-]+$/;
+/** The name an earlier Kiln's lock owner takes inside the claim of the helper that took over from it. */
+const LEGACY_OWNER = "admission.legacy-owner";
+interface Holder { pid: number; start: string; take: string; as: string; lock: "symlink" | "directory" }
+function ownerIn(text: string | undefined): { pid: number; start: string } | undefined {
+  if (text === undefined) return undefined;
+  try {
+    const owner = JSON.parse(text) as { pid: number; start: string; generation: string };
+    return Number.isSafeInteger(owner.pid) && owner.start && owner.generation ? { pid: owner.pid, start: owner.start } : undefined;
+  } catch { return undefined; }
+}
+function entries(directory: string): { name: string; isDirectory(): boolean }[] {
+  try { return readdirSync(directory, { withFileTypes: true }); }
+  catch (e) { if (gone(e)) return []; throw e; }
+}
+/**
+ * Whether a claim holds `name`, taken over from a dead holder, directly or through claims it took
+ * in turn. A chain grows by one only when a taker is killed between its take and freeing the lock.
+ */
+function holds(claim: string, name: string, depth = 16): boolean {
+  return depth > 0 && entries(claim).some(entry => entry.name === name || entry.isDirectory() && CLAIM.test(entry.name) && holds(join(claim, entry.name), name, depth - 1));
+}
+/** The top-level claim that is `name`, or that took it over. */
+function claimHolder(directory: string, name: string, lock: Holder["lock"]): Holder | undefined {
+  const claims = entries(directory).filter(entry => entry.isDirectory() && CLAIM.test(entry.name));
+  const top = claims.find(entry => entry.name === name) ?? claims.find(entry => holds(join(directory, entry.name), name));
+  const owner = top && ownerIn(readIfPresent(join(directory, top.name, "holder.json")));
+  return owner && { ...owner, take: join(directory, top.name), as: top.name, lock };
+}
+/**
+ * Who holds the lock, and the path whose rename into a claim takes over from them; undefined
+ * when that is unknown or the lock has just come free.
+ */
+function lockHolder(directory: string, lock: string): Holder | undefined {
+  let link: boolean;
+  try { link = lstatSync(lock).isSymbolicLink(); }
+  catch (e) { if (gone(e)) return undefined; throw e; }
+  if (link) {
+    let target: string;
+    try { target = readlinkSync(lock); }
+    catch (e) { if (gone(e)) return undefined; throw e; }
+    return CLAIM.test(target) ? claimHolder(directory, target, "symlink") : undefined;
+  }
+  // Kiln 1.5.1 and earlier made the lock directory, then wrote its owner inside. A helper that
+  // died between the two left its identity only in that write's one temporary file, if at all.
+  const names = entries(lock).map(entry => entry.name);
+  const pending = names.filter(name => /^owner\.json\.[0-9a-f-]+\.tmp$/.test(name));
+  const identity = names.includes("owner.json") ? "owner.json" : pending.length === 1 ? pending[0] : undefined;
+  if (identity === undefined) return claimHolder(directory, LEGACY_OWNER, "directory");
+  const owner = ownerIn(readIfPresent(join(lock, identity)));
+  return owner && { ...owner, take: join(lock, identity), as: LEGACY_OWNER, lock: "directory" };
+}
+/** Whether the lock is still the one whose holder was taken into `taken`. */
+function stillHeld(lock: string, holder: Holder, taken: string): boolean {
+  let link: boolean;
+  try { link = lstatSync(lock).isSymbolicLink(); }
+  catch (e) { if (gone(e)) return false; throw e; }
+  if (holder.lock === "directory") return !link;
+  if (!link) return false;
+  let target: string;
+  try { target = readlinkSync(lock); }
+  catch (e) { if (gone(e)) return false; throw e; }
+  return target === holder.as || holds(taken, target);
+}
+/**
+ * The lock is published already owned: the owner record is made durable in a private claim
+ * directory, then a symlink to that claim is created at the lock path, which fails if anything is
+ * there. Taking over from a dead holder renames the holder's record into the taker's own claim,
+ * which only one contender can win, and a taker killed before it frees the lock is then the
+ * holder. A helper killed at any point leaves either no lock or one whose holder is recorded.
+ */
 export async function withGate<T>(directory: string, update: (state: GateState) => T): Promise<T> {
-  const lock = join(directory, "admission.lock"); const ownerFile = join(lock, "owner.json");
+  // The claim's record is not named owner.json, so an earlier Kiln's lock path can never reach it
+  // through this release's symlink: an earlier Kiln reads such a lock as unknown and waits.
+  const lock = join(directory, "admission.lock"); const ownerFile = join(lock, "holder.json");
   const deadline = Date.now() + 5000; const generation = randomUUID();
   const start = await processStartTime(process.pid, { timeoutMs: 5000 });
   if (!start) throw new Error("Cannot establish admission owner identity.");
-  for (;;) {
-    try {
-      if (existsSync(join(directory, "recovery.lock"))) throw new Error("Admission recovery is unresolved.");
-      mkdirSync(lock, { mode: 0o700 }); break;
-    }
-    catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      // Missing/partial identity is unknown; never break a lock by age.
-      // The holder may release between the mkdir and this read: that is the lock coming free.
-      const before = readIfPresent(ownerFile);
-      if (before !== undefined) {
-        const owner = JSON.parse(before) as { pid: number; start: string; generation: string };
-        if (!Number.isSafeInteger(owner.pid) || !owner.start || !owner.generation) throw new Error("Admission owner identity is unknown.", { cause: e });
-        if (await dead(owner.pid, owner.start)) {
-          const recovery = join(directory, "recovery.lock");
-          try { mkdirSync(recovery, { mode: 0o700 }); }
-          catch (e) { if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new Error("Admission owner-death recovery is unresolved.", { cause: e }); throw e; }
-          try {
-            if (existsSync(ownerFile) && readFileSync(ownerFile, "utf8") === before) {
-              unlinkSync(ownerFile); rmdirSync(lock); syncDirectory(directory);
-            }
-          } finally { rmdirSync(recovery); syncDirectory(directory); }
+  const claimName = `admission.owner.${generation}`; const claim = join(directory, claimName);
+  mkdirSync(claim, { mode: 0o700 });
+  // Once this claim holds a dead holder's record it is the lock's holder, until the lock is freed.
+  let holding = false;
+  try {
+    writeDurableMetadata(join(claim, "holder.json"), { pid: process.pid, start, generation }); syncDirectory(directory);
+    for (;;) {
+      try { symlinkSync(claimName, lock); break; }
+      catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        // Missing/partial identity is unknown; never break a lock by age.
+        // The holder may release between the symlink and this read: that is the lock coming free.
+        const holder = lockHolder(directory, lock);
+        if (holder && await dead(holder.pid, holder.start)) {
+          try { renameSync(holder.take, join(claim, holder.as)); }
+          catch (e) { if (gone(e)) continue; throw e; }
+          const taken = join(claim, holder.as);
+          // A holder killed after freeing the lock left its claim behind; taking it proves nothing
+          // about the lock. The lock is this claim's to free only if it names what was taken, and
+          // then no one else can change it.
+          if (!stillHeld(lock, holder, taken)) { rmSync(taken, { recursive: true, force: true }); continue; }
+          holding = true; syncDirectory(claim); syncDirectory(directory);
+          if (holder.lock === "symlink") unlinkSync(lock); else rmdirSync(lock);
+          syncDirectory(directory); holding = false;
+          rmSync(taken, { recursive: true, force: true });
           continue;
         }
+        if (Date.now() >= deadline) throw new Error("Admission lock is unresolved; retry reconciliation.", { cause: e });
+        await new Promise(resolve => setTimeout(resolve, 20));
       }
-      if (Date.now() >= deadline) throw new Error("Admission lock is unresolved; retry reconciliation.", { cause: e });
-      await new Promise(resolve => setTimeout(resolve, 20));
     }
-  }
+  } catch (e) { if (!holding) rmSync(claim, { recursive: true, force: true }); throw e; }
   try {
-    writeDurableMetadata(ownerFile, { pid: process.pid, start, generation }); syncDirectory(directory);
+    syncDirectory(directory);
     const state = readGate(directory); const result = update(state);
     writeDurableMetadata(join(directory, "gate.json"), state);
     return result;
@@ -101,7 +179,7 @@ export async function withGate<T>(directory: string, update: (state: GateState) 
     const owner = JSON.parse(readFileSync(ownerFile, "utf8")) as { generation: string };
     // eslint-disable-next-line no-unsafe-finally -- An ambiguous release must block the hook response, never grant permission.
     if (owner.generation !== generation) throw new Error("Admission owner generation changed; retained its lock.");
-    else { unlinkSync(ownerFile); rmdirSync(lock); syncDirectory(directory); }
+    else { unlinkSync(lock); syncDirectory(directory); rmSync(claim, { recursive: true, force: true }); }
   }
 }
 /** Records the stop the first time a response acts on the hold; later responses leave it as written. */

@@ -162,6 +162,7 @@ Whenever no session is running or being started on a finished run, the person ca
 A person reading the list of activity should be able to tell an audit from the sessions that fix what it found, and see how many loops the run has used, without learning the words "round" and "continuation".
 
 - [ ] **AC-AUDIT-01 — Each closing-audit row is titled for what it does.** Rows read as the table says, with loop numbers as Kiln already counts them: a loop is one run of an audit, and sessions of test fixes are not loops. The words "Round" and "Continuation" appear nowhere a person reads an audit's name: the phase plan, the session page, the terminal, Needs you and For you (AUDIT-001).
+  - Superseded in part by: AC-BATCH-03 in `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md` (the line beneath an audit's row, which reads Loop _n_ · max _limit_, and beneath a session of test fixes; the titles, and "Round" and "Continuation" appearing nowhere, remain)
 
   | Session | Row title | Line beneath it |
   |---|---|---|
@@ -192,6 +193,7 @@ Every control this change adds to the page has a command, as Kiln's other contro
   - Replaces in part: AC-ACT-01 and AC-ACT-03 in `docs/prds/kiln-bot-control/kiln-bot-control-prd.md` (two more commands join the controls for a run already started, and `kiln merge` merges work, which that PRD left out of the command line)
   - Replaces in part: AC-BOT-01 in `docs/changes/kiln-deliver-when-audit-loops-run-out/kiln-deliver-when-audit-loops-run-out-prd.md` (the command that continues with the offered phases also pushes this PRD's documents first, as Continue does, and `kiln check-for-new-phases` does what the card's Check now does)
 - [ ] **AC-BOT-02 — `kiln status` shows the new states.** `kiln status` reports in text and JSON everything these screens show: waiting to merge, merging, merged, pushing the plan, a stopped merge or push session, the two answers Kiln gives when it looks for new phases with where the phases came from, and the audit names of AC-AUDIT-01.
+  - Superseded in part by: AC-BOT-01 in `docs/changes/kiln-planned-test-fix-batches/kiln-planned-test-fix-batches-prd.md` (the audit names `kiln status` reports are those of AC-BATCH-03 and AC-MAX-01)
 
 ## Out of Scope
 

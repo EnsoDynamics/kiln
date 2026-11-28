@@ -31,8 +31,8 @@ describe("the Audit loops settings are two limits (AC-CHOICE-01)", () => {
     expect(section).toMatch(/<input id="loops-deliveryLimit" type="number" min="1"[^>]*value="4"/);
     expect(section).toMatch(/<input id="loops-testLimit" type="number" min="1"[^>]*value="4"/);
     expect(section.match(/<input/g)).toHaveLength(2);
-    expect(words).toContain("Max delivery audit loops The delivery audit checks that every acceptance criterion is built, and Kiln builds the phases it adds. Each run of the audit is one loop. After the phases from loop 4 are built, Kiln goes on to the test audit.");
-    expect(words).toContain("Max test audit loops The test audit checks that the tests would notice if a criterion broke, and Kiln builds or fixes what it finds. Each run of the audit is one loop. After the work from loop 4 is done, Kiln opens the pull request, after a delivery audit if one is left.");
+    expect(words).toContain("Max delivery audit loops The delivery audit checks that every acceptance criterion is built, and Kiln builds the phases it adds. If a run reaches loop 4, Kiln builds the phases from it and goes on to the test audit.");
+    expect(words).toContain("Max test audit loops The test audit checks that the tests would notice if a criterion broke, and Kiln builds or fixes what it finds. If a run reaches loop 4, Kiln finishes the work from it and opens the pull request, after a delivery audit if one is left.");
     expect(words).toContain("Both can be changed while Kiln runs, from the page or the command line.");
     // The third setting Kiln 1.3.0 released, and its acceptance sentence, are gone.
     expect(section).not.toContain('type="radio"');
@@ -44,8 +44,22 @@ describe("the Audit loops settings are two limits (AC-CHOICE-01)", () => {
     const snapshot = documentsFoundSnapshot();
     snapshot.auditLoops = auditLoopsView({ settings: { deliveryLimit: 2, testLimit: 6 } });
     const words = text(fieldset(documentsFound(snapshot)));
-    expect(words).toContain("After the phases from loop 2 are built");
-    expect(words).toContain("After the work from loop 6 is done");
+    expect(words).toContain("If a run reaches loop 2, Kiln builds the phases from it");
+    expect(words).toContain("If a run reaches loop 6, Kiln finishes the work from it");
+  });
+});
+
+describe("the Audit loops help says a run makes only the loops it needs, wherever the settings appear (Kiln Planned Test Fix Batches AC-MAX-02)", () => {
+  const loopWords = "Each loop is one audit plus the work it finds. A run makes only the loops it needs; these are the most it will make.";
+
+  it("says it on Documents found, before the two limits", () => {
+    const words = text(fieldset(documentsFound(documentsFoundSnapshot())));
+    expect(words).toMatch(new RegExp(`^Audit loops After the planned phases close, two audits check the work\\. ${loopWords.replace(/[.;]/g, "\\$&")} Max delivery audit loops`));
+  });
+
+  it("says it in the run's settings panel, before the two limits", () => {
+    const words = text(fieldset(running(runningSnapshot())));
+    expect(words).toMatch(new RegExp(`^Audit loops ${loopWords.replace(/[.;]/g, "\\$&")} Max delivery audit loops`));
   });
 });
 
@@ -90,7 +104,7 @@ describe("there is no loop stop (AC-STOP-04)", () => {
 
 describe("the status line names the loop (AC-STOP-05)", () => {
   it("names a running audit's loop", () => {
-    expect(header(running(closingAuditsSnapshot({ id: "audit-da2", position: { audit: "delivery", loop: 2, limit: 4 } })))).toContain("Delivery audit loop 2 of 4");
+    expect(header(running(closingAuditsSnapshot({ id: "audit-da2", position: { audit: "delivery", loop: 2, limit: 4 } })))).toContain("Delivery audit loop 2 · max 4");
   });
 
   it("names a phase an audit added as any phase, with no loop", () => {
@@ -100,12 +114,12 @@ describe("the status line names the loop (AC-STOP-05)", () => {
   });
 
   it("names a session of test fixes by the latest test loop", () => {
-    expect(header(running(closingAuditsSnapshot({ id: "audit-ta1-2", position: { audit: "test", loop: 2, limit: 4, fixing: true } })))).toContain("Fixing tests from test audit loop 2 of 4");
+    expect(header(running(closingAuditsSnapshot({ id: "audit-ta1-2", position: { audit: "test", loop: 2, limit: 4, fixing: true } })))).toContain("Fixing tests from test audit loop 2");
   });
 
   it("keeps the latest loop at a Needs you stop", () => {
     const words = header(needsYou(storedLoopStopSnapshot()));
-    expect(words).toContain("Needs you Test audit loop 4 of 4");
+    expect(words).toContain("Needs you Test audit loop 4 · max 4");
   });
 
   it("never marks a last loop", () => {
@@ -117,9 +131,9 @@ describe("each audit row carries its loop label (AC-STOP-05)", () => {
   const page = running(closingAuditsSnapshot());
   const row = (id: string) => text(page.match(new RegExp(`<li[^>]*data-phase="${id}"[^>]*>[\\s\\S]*?</li>`))?.[0] ?? "");
 
-  it("titles each audit for what it does with Loop N of 4 beneath, a session of test fixes by the loop it works from, and phase rows with none (Kiln After Delivery AC-AUDIT-01)", () => {
-    expect([1, 2, 3, 4].map(n => row(`audit-da${n}`))).toEqual([1, 2, 3, 4].map(n => expect.stringContaining(`Delivery audit Loop ${n} of 4`)));
-    expect(row("audit-ta1")).toContain("Test audit Loop 1 of 4");
+  it("titles each audit for what it does with Loop N · max 4 beneath, a session of test fixes by the loop it works from, and phase rows with none (Kiln After Delivery AC-AUDIT-01)", () => {
+    expect([1, 2, 3, 4].map(n => row(`audit-da${n}`))).toEqual([1, 2, 3, 4].map(n => expect.stringContaining(`Delivery audit Loop ${n} · max 4`)));
+    expect(row("audit-ta1")).toContain("Test audit Loop 1 · max 4");
     expect(row("audit-ta1-2")).toContain("Fixing tests From test audit loop 1 · session 1");
     for (const id of ["9", "10", "11"]) expect(row(id)).not.toMatch(/loop/i);
     expect(text(page)).not.toMatch(/Round|Continuation/);
@@ -127,7 +141,7 @@ describe("each audit row carries its loop label (AC-STOP-05)", () => {
   });
 
   it("names the loop on the audit's own page", () => {
-    expect(text(detail(closingAuditsSnapshot(), "audit-da3"))).toContain("Loop 3 of 4");
+    expect(text(detail(closingAuditsSnapshot(), "audit-da3"))).toContain("Loop 3 · max 4");
   });
   it("names a session of test fixes on its own page and an audit at Needs you by what it does, never by round or continuation (Kiln After Delivery AC-AUDIT-01)", () => {
     const fixing = text(detail(closingAuditsSnapshot(), "audit-ta1-2"));

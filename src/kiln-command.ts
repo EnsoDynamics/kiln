@@ -564,7 +564,7 @@ function preflightLine(event: Extract<TerminalEvent, { kind: "audit" }>, columns
   return formatPhaseLine(event.at, "PF", PREFLIGHT_TITLE, { kind: "completed", summary: "" }, columns, colors);
 }
 
-/** An audit's title on its terminal line: "Delivery audit · Loop 1 of 4", "Fixing tests · From test audit loop 1 · session 2" (AC-AUDIT-01). */
+/** An audit's title on its terminal line: "Delivery audit · Loop 1 · max 4", "Fixing tests · Batch 1 of 2 from test audit loop 1 · 17 gaps" (AC-AUDIT-01, Kiln Planned Test Fix Batches AC-BATCH-03). */
 function auditTitle(event: Extract<TerminalEvent, { kind: "audit" }>): string {
   return event.line ? `${event.title} · ${event.line}` : event.title;
 }

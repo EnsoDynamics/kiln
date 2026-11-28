@@ -14,7 +14,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 
 const plain = terminalColors({ isTTY: false }, {});
 const plan = readPhasePlan(Object.entries(PHASES).map(([fileName, markdown]) => ({ fileName, markdown })));
-const BLOCK = "## Closing audits\n\nDelivery audit: 1 of 4 loops. Test audit: 1 of 4 loops.";
+const BLOCK = "## Closing audits\n\nDelivery audit: 1 loop (max 4). Test audit: 1 loop (max 4).";
 
 describe("the terminal's phase lines", () => {
   // The mockup's plan: the longest title is "Returns dashboard", so titles pad to 19.

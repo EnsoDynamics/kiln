@@ -2,6 +2,7 @@ import type { PhaseRecoveryTarget } from "../../../src/engine/phase-recovery.js"
 // How the view talks to Kiln: the token the server wrote into the page, sent with every API
 // request (technical design, "Local security"), and the engine's commands as plain requests.
 
+import type { StartPause } from "../../../src/engine/start-from.js";
 import type { OutputLine } from "../../../src/session/session-output.js";
 import type { Settings } from "../../../src/state/records.js";
 
@@ -17,7 +18,10 @@ export function pageConfig(document: Document): PageConfig {
   return { token: meta("kiln-token"), base: meta("kiln-base") };
 }
 
-export type CommandAnswer = { ok: true; [key: string]: unknown } | { ok: false; reason: string; uncertain?: boolean; fieldErrors?: Record<string, string> };
+export type CommandAnswer = { ok: true; [key: string]: unknown } | { ok: false; reason: string; uncertain?: boolean; fieldErrors?: Record<string, string>;
+  /** The refusal's code, when it has one. */ code?: string;
+  /** A paused Start: what changed and when it is safe to go on (run restart AC-FROM-06). */ paused?: StartPause;
+  /** The request never reached Kiln. */ unreachable?: true };
 
 const pendingInstructions = new WeakMap<PageConfig, Map<string, { id: string; token: string }>>();
 const actionQueues = new WeakMap<PageConfig, Promise<void>>();
@@ -44,14 +48,14 @@ async function sendInstruction(config: PageConfig, method: "POST" | "DELETE", pa
     const answer = (await response.json()) as Record<string, unknown>;
     if (response.ok && typeof answer.controlToken === "string") config.controlToken = answer.controlToken;
     if (response.status < 500) instructions.delete(key);
-    return response.ok ? { ...answer, ok: true } : { ok: false, reason: String(answer.reason ?? response.statusText), ...(response.status >= 500 ? { uncertain: true } : {}), ...(answer.fieldErrors ? { fieldErrors: answer.fieldErrors as Record<string, string> } : {}) };
+    return response.ok ? { ...answer, ok: true } : { ok: false, reason: String(answer.reason ?? response.statusText), ...(response.status >= 500 ? { uncertain: true } : {}), ...(answer.fieldErrors ? { fieldErrors: answer.fieldErrors as Record<string, string> } : {}), ...(typeof answer.code === "string" ? { code: answer.code } : {}), ...(answer.paused ? { paused: answer.paused as StartPause } : {}) };
   } catch (error) {
-    return { ok: false, uncertain: true, reason: `${(error as Error).message}${instruction ? ` Instruction ${instruction.id} may have been accepted; repeating this action will inspect or replay the same instruction.` : ""}` };
+    return { ok: false, uncertain: true, unreachable: true, reason: `${(error as Error).message}${instruction ? ` Instruction ${instruction.id} may have been accepted; repeating this action will inspect or replay the same instruction.` : ""}` };
   }
 }
 
 export const changeSettings = (config: PageConfig, change: Partial<Settings> & { start?: { from: "new" | "existing"; bringUpToDate: boolean } }) => send(config, "POST", "/api/settings", change);
-/** Start submits the preview the page showed; a preview that changed is refused `start_changed` (run restart "Start"). */
+/** Start submits the preview the page showed; `start_changed` with `paused` when the chosen branch may be in use (run restart "Start", AC-FROM-06). */
 /** The answer to where a repository is, before Start (find repositories anywhere "HTTP"). */
 export const locateRepository = (config: PageConfig, repository: string, folder: string) => send(config, "POST", "/api/repository-location", { repository, folder });
 export const changeRepositoryLocation = (config: PageConfig, repository: string) => send(config, "POST", "/api/repository-location/change", { repository });

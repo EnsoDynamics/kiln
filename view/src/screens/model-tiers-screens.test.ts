@@ -102,6 +102,13 @@ describe("the running plan (AC-TIER-02, AC-PICK-02)", () => {
     expect(text(running(tiered()))).toContain("Claude Code · Opus 5.5 · medium effort Standard phase · started");
   });
 
+  it("says in the run's settings which commit Kiln started from, once it has (run restart AC-FROM-06)", () => {
+    const started = tiered();
+    expect(text(running(started))).not.toContain("Starting point");
+    started.settings.startedFrom = "Started from develop at e65272a. develop got 1 commit after the page loaded (chore: release notes). It doesn’t touch this PRD’s documents.";
+    expect(text(running(started))).toContain("Starting point Started from develop at e65272a. develop got 1 commit after the page loaded (chore: release notes). It doesn’t touch this PRD’s documents.");
+  });
+
   it("drops the run's settings' Model and effort for one line saying models are chosen for each phase (AC-KEEP-01)", () => {
     const words = text(running(tiered()));
     expect(words).toContain("Settings for this PRD A phase that has started keeps the model it started with. Models Recommended model for each phase");

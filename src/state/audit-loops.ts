@@ -105,11 +105,6 @@ export function closingAudits(record: Parameters<typeof limitsInForce>[0]): Clos
   return { delivery: kind("delivery"), test: kind("test") };
 }
 
-/** "Delivery audit: 4 of 4 loops. Test audit: 2 of 4 loops." (AC-LEFT-01). */
-export function closingAuditsText(loops: ClosingAudits): string {
-  return `Delivery audit: ${loops.delivery.used} of ${loops.delivery.limit} loops. Test audit: ${loops.test.used} of ${loops.test.limit} loops.`;
-}
-
 /**
  * The lowest value a limit may be set to: the runs of that audit already made in this execution,
  * the one under way included; 1 once `atPullRequest` is written, since nothing in this execution
