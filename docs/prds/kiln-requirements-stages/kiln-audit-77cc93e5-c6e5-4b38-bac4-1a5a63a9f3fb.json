@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "executionId": "d2e263a0-337b-4f25-9a3d-7533ede707f0",
+  "activityId": "77cc93e5-c6e5-4b38-bac4-1a5a63a9f3fb",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The first test-fix batch raised all five criteria to Adequate. The whole PRD now has 21 Adequate and 38 Weak criteria. Ten deliberate breaks were detected twice each. The next batch starts with AC-MODEL-06 and AC-HOME-05.",
+  "completionPhases": [],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "Earlier audits lost assessors when the checkpoint admission lock timed out. One live attempt's gate file grew to 16.7 MB while parallel sessions were contending on it.",
+      "action": "Investigate gate file growth and the five-second admission deadline in src/live/gate.ts."
+    },
+    {
+      "id": "item-7",
+      "criterion": "AC-MODEL-06",
+      "problem": "Tests still leave gaps around a refused choice launching nothing, keeping the original agent after a stage starts, and opening a fresh session after a refusal before the first response.",
+      "action": "Review this row if it is still open after the next test-fix batch."
+    },
+    {
+      "id": "item-8",
+      "criterion": "AC-HOME-05",
+      "problem": "Tests still leave gaps around opening from home without starting anything, reading a live run's state, and the available actions for a stopped run.",
+      "action": "Review this row if it is still open after the next test-fix batch."
+    }
+  ],
+  "settled": [
+    {
+      "id": "item-2",
+      "how": "Local integration and rendered screen tests prove billing approval and launch checks, both pauses and their absence at stops, resumed stage replies, and reopening the interrupted stage. Fresh review graded AC-STAGE-04 Adequate."
+    },
+    {
+      "id": "item-3",
+      "how": "Command and HTTP tests refuse early Start the build and refuse Continue at the final review with a valid phase plan. Only the explicit final build action launches work. AC-STAGE-06 is Adequate."
+    },
+    {
+      "id": "item-4",
+      "how": "The tests cover the hand-reached milestone, suppress the early stop after design starts, continue after design readiness, and check that each stop opens the review. AC-PLAN-08 is Adequate."
+    },
+    {
+      "id": "item-5",
+      "how": "A second PRD uses the same saved plan. Registry and rendering tests prove the date is shown and the version stays out, and the metered approval hold remains covered. AC-PLAN-03 is Adequate."
+    },
+    {
+      "id": "item-6",
+      "how": "The live Claude test now observes Sent without a read time and Read only after a receipt. The Codex test checks that feedback waits and is applied in a fresh session before the next stage. AC-TALK-02 is Adequate."
+    }
+  ],
+  "changedImplementation": false,
+  "raised": [
+    "AC-STAGE-04",
+    "AC-STAGE-06",
+    "AC-PLAN-08",
+    "AC-PLAN-03",
+    "AC-TALK-02"
+  ]
+}
