@@ -6309,8 +6309,8 @@ export class Engine {
     const committed = await this.requirementsCommitted();
     if (!committed.passed) return refuse(committed.facts.join("\n"));
     // The person's own commits at the review go to the feature branch before the build (AC-STAGE-02).
-    const pushed = await this.pushRequirementsBranch();
-    if (pushed) return refuse(`Kiln couldn't push the feature branch: ${pushed}`);
+    const unpushed = await this.pushLeavingReview();
+    if (unpushed) return unpushed;
     const at = this.now().toISOString();
     const baseline = await this.readPlan();
     if (!baseline.ok) return refuse(baseline.problem);
@@ -6332,15 +6332,15 @@ export class Engine {
       const dir = this.record.prdDirectory;
       if (!dir) return refuse("The PRD directory is missing.");
       // Kiln moves on with the person's own commits on the feature branch (AC-STAGE-02).
-      const pushed = await this.pushRequirementsBranch();
-      if (pushed) return refuse(`Kiln couldn't push the feature branch: ${pushed}`);
+      const unpushed = await this.pushLeavingReview();
+      if (unpushed) return unpushed;
       const review = await reviewState(this.git, this.worktreePath, dir);
       if (kind === "final" && review.current) { await this.readFinalStartChecks(); this.changed(); return { ok: true, outcome: "advanced" }; }
       if (kind === "early" && !review.current) state.refreshAsked = true;
     } else {
       // Continue moves on too, with whatever the person committed at the review (AC-STAGE-02).
-      const pushed = await this.pushRequirementsBranch();
-      if (pushed) return refuse(`Kiln couldn't push the feature branch: ${pushed}`);
+      const unpushed = await this.pushLeavingReview();
+      if (unpushed) return unpushed;
     }
     state.phase = "stages";
     this.save();
@@ -6917,6 +6917,12 @@ export class Engine {
       if (pushed.exitCode !== 0) return this.setUpRepositories.length > 1 ? `${entry.name}: ${gitError(pushed)}` : gitError(pushed);
     }
     return undefined;
+  }
+
+  /** Leaving a review pushes the feature branch; Git's rejection keeps the person at the review (AC-STAGE-02). */
+  private async pushLeavingReview(): Promise<CommandResult | undefined> {
+    const pushed = await this.pushRequirementsBranch();
+    return pushed ? refuse(`Kiln couldn't push the feature branch: ${pushed}`) : undefined;
   }
 
   private async judgeRequirements(key: string, byHand = false): Promise<Verdict> {
