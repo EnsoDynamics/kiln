@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "executionId": "d2e263a0-337b-4f25-9a3d-7533ede707f0",
+  "activityId": "628c4e0f-5b0d-4a29-8f09-31d9d5c6cca6",
+  "kind": "test_audit",
+  "outcome": "completion_phases",
+  "summary": "Five of the six criteria in this batch reached Adequate. The remaining criterion needs Phase 13 because a requirements stage whose agent exits before the first response cannot restart from Needs you. The audit also fixed the Home status probe race when a controller releases its lock. The whole PRD has 26 Adequate criteria, 32 Weak criteria and one waiting for Phase 13.",
+  "completionPhases": [
+    "13"
+  ],
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "Earlier audits lost assessors when the checkpoint admission lock timed out. One live attempt's gate file grew to 16.7 MB while parallel sessions were contending on it.",
+      "action": "Investigate gate file growth and the five-second admission deadline in src/live/gate.ts."
+    },
+    {
+      "id": "item-7",
+      "criterion": "AC-MODEL-06",
+      "problem": "The tests now show that a refused choice launches no stage and that a started stage keeps its original agent. Retrying a stage whose agent exited before its first response still needs Phase 13.",
+      "action": "Review this row if the fresh-session retry is still unproven after Phase 13."
+    }
+  ],
+  "settled": [
+    {
+      "id": "item-8",
+      "how": "Real Chrome and authenticated controller tests prove opening without a stage launch, reopening a live or stopped run, and showing all live states. The lock-release race is fixed and covered. AC-HOME-05 is Adequate."
+    }
+  ],
+  "changedImplementation": true
+}
