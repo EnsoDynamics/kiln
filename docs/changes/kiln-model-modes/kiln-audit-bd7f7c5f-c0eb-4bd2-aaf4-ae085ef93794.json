@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 2,
+  "executionId": "6e7e3f9c-756d-492e-aaa2-6aac9c05a174",
+  "activityId": "bd7f7c5f-c0eb-4bd2-aaf4-ae085ef93794",
+  "kind": "delivery_audit",
+  "outcome": "completion_phases",
+  "summary": "This repair audit re-read the 16 criteria that phase 4's changes could reach. AC-CARRY-01 keeps its earlier Implemented status. Phase 4's three repairs are built: Restore from an empty own copy, the Merge with {agent} wording, and the one-model command. One part of AC-ROW-01 is still missing. Change on the pull request row is refused while the pull request session is next but hasn't been launched, for example when the run is paused between the audits and the pull request. Kiln builds that row with no kind, so the change is sent as a phase change and refused. Phase 5 now builds it. Round 1 confirmed this one gap and round 2 confirmed none.",
+  "completionPhases": ["5"],
+  "needsYou": [],
+  "settled": []
+}
