@@ -18,6 +18,7 @@ import { buildSnapshot, documentsFound } from "./snapshot.js";
 import { Engine } from "./engine.js";
 import { createCometContinuation } from "../test-support/comet-continuation-fixture.js";
 import { readPlanAt, recordedPlan } from "./plan-reading.js";
+import { rowModelTarget } from "../../view/src/lib/models.js";
 
 /** The planned Preflight row shows the Audits choice, as an activity with no start (Kiln Phase Model Tiers, "The planned Preflight row"). */
 /** The planned Preflight row on a finished run's Continue offer: the Preflight and pull request row's choice, with no Change once the run is complete (Kiln Model Modes AC-ROW-01). */
@@ -199,6 +200,21 @@ describe("items stop the run at Needs you (AC-PREFLIGHT-03)", () => {
     expect(prompts(h)[1]).toContain("phase-1-return-intake.md");
     expect(preflightRows(h.engine)[0]).toMatchObject({ state: "done", waivedChecks: 1, preflight: { outcome: "items" } });
     expect(readPrdRecord(h.stateDirectory)!.schemaVersion).toBe(SCHEMA_VERSION);
+  });
+
+  it("offers the Preflight and pull request choice through the pull request row's Change at the stop, and a change there reaches the pull request session (Kiln Model Modes AC-ROW-01)", async () => {
+    const h = await fixture([items]);
+    await h.engine.start({ refinementConfirmed: true });
+    await h.engine.settled();
+    expect(h.engine.preflightStopKey()).toMatch(/^preflight-/);
+    const prRow = () => (buildSnapshot(h.engine).activities ?? []).find(one => one.id === "planned-pull-request")!;
+    expect(prRow()).toMatchObject({ kind: "final_delivery", state: "planned", model: { from: "model_defaults", change: { available: true } } });
+    expect(rowModelTarget(prRow())).toBe("preflight_pr");
+    expect(await h.engine.changeModel("preflight_pr", { agentId: "claude_code", model: "haiku", effort: "low" })).toEqual({ ok: true });
+    expect(h.engine.notStartedChoice("pr")).toMatchObject({ model: "haiku", effort: "low", from: "changed" });
+    expect(prRow().model).toMatchObject({ choice: { modelName: "Haiku 5.5", effort: "low" }, from: "changed", useDefault: true });
+    // The audits keep their own row's choice.
+    expect(h.engine.notStartedChoice("audit-planned")).toMatchObject({ model: "opus", effort: "high", from: "model_defaults", row: "audits" });
   });
 
   it("Check Preflight again starts a fresh session under the same activity and reads its report as it read the first", async () => {

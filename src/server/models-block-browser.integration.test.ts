@@ -15,7 +15,7 @@ import { documentsFoundSnapshot } from "../test-support/sample-snapshots.js";
 import { writePrdSettings, writeSettings } from "../test-support/model-choices.js";
 import { launchChrome, type BrowserPage, type HeadlessChrome } from "../test-support/headless-chrome.js";
 import { readPlanAt, recordedPlan } from "../engine/plan-reading.js";
-import { modelDefaultsPath, prdSettingsPath } from "../models/model-defaults.js";
+import { modelDefaultsPath, prdSettingsPath, settingsRevision } from "../models/model-defaults.js";
 import { startLocalServer, type LocalServer } from "./local-server.js";
 
 let h: Harness | undefined;
@@ -137,6 +137,8 @@ it("never writes what the one model's editor fills in on its own: only a person'
 it("keeps the choice in force selected and says why when a choice is refused (AC-PRD-02)", async () => {
   const { page, own, defaults } = await opened();
   writeFileSync(defaults, "{ broken");
+  // Kiln notices the broken file and republishes the page, which clears any earlier refusal: let that happen before the choice.
+  await waitFor(() => (h!.engine as unknown as { settingsSeen: string }).settingsSeen === settingsRevision(h!.engine.settingsPaths));
   await page.waitFor(`document.querySelector('[data-models-block]') !== null`);
   await choose(page, "one_model");
   await page.waitFor(`document.querySelector('[data-models-block] [role="alert"]') !== null`);

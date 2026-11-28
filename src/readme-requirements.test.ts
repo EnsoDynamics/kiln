@@ -136,6 +136,8 @@ describe("the guide to model tiers, Model defaults and the usage fallback", () =
 
   it("say what the three fallback settings do and what For everything is for", () => {
     for (const setting of ["- **Never**", "- **When the first choice's usage reaches** a threshold", "- **For everything, until you change this**"]) expect(fallback, setting).toContain(setting);
+    expect(fallback).toContain("- **Never**, the default: at a usage limit the run waits and picks up again.");
+    expect(fallback).toContain("- **For everything, until you change this**: every activity that hasn't started launches on its row's fallback without reading usage.");
     expect(fallback).toContain("This is how you keep a run off an account you want to spare");
     expect(guideModels).toContain("kiln model-defaults fallback --for-everything --prd <PRD-path>");
     expect(guideModels).toContain("`--on` and `--off` still work and mean `--at-threshold` and `--never`");

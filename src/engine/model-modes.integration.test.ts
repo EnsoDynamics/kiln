@@ -237,6 +237,23 @@ describe("one model has no fallback (AC-MODE-03)", () => {
 });
 
 describe("For everything launches each activity on its fallback (AC-WHEN-02, AC-WHEN-03)", () => {
+  it("hides AC-FALLBACK-04's warning line that the threshold setting shows for the same readings (AC-WHEN-03)", async () => {
+    const claude = new SetClaude(weekly(97));
+    const h = await fixture([], { claude, withCodex: true });
+    // Under the threshold setting, Claude Code at 97% would send Phase 1 to Codex: its row warns.
+    saved(h, { ...EVERYTHING, fallback: { use: "threshold", threshold: 95 } });
+    expect(h.engine.headsUp()).toMatchObject({ key: "1", forecast: { choice: { agentId: "codex" }, limit: { percent: 97 }, threshold: 95 } });
+    expect(row(h.engine, "1").model?.forecast).toBeDefined();
+    // For everything, with the same readings: no row carries the warning line.
+    saved(h, EVERYTHING);
+    expect(h.engine.headsUp()).toBeUndefined();
+    const snapshot = buildSnapshot(h.engine);
+    const rows = [...(snapshot.activities ?? []), ...snapshot.phases];
+    expect(rows.length).toBeGreaterThan(3);
+    for (const view of rows) expect(view.model?.forecast, view.id).toBeUndefined();
+    expect(row(h.engine, "1").model).toMatchObject({ state: "will_run_on", choice: { agent: "Codex" }, fallback: { used: true, forEverything: true } });
+  });
+
   it("shows each row's fallback before Start, launches on it without reading usage, and says the setting is why", async () => {
     const claude = new SetClaude(weekly(5));
     const h = await fixture([landingSession("src/three.txt")], { claude, withCodex: true });
@@ -556,6 +573,29 @@ describe("a PRD's own settings are read in place of Model defaults (\"Settings i
     expect(buildSnapshot(reopened).settings.models).toMatchObject({ source: "defaults", mode: "recommended", revision: expect.stringMatching(/\|missing$/) });
     expect(reopened.notStartedChoice("3")).toMatchObject({ model: "fable", effort: "high", from: "model_defaults" });
     expect(reopened.notStartedChoice("3").ownSettings).toBeUndefined();
+  });
+
+  it("keeps a PRD's own settings across an upgrade of Kiln: a record saved by an earlier version still reads them, and the file is left as it was (AC-SAVE-04)", async () => {
+    const h = await fixture([]);
+    saved(h, { rows: { standard: { first: { agentId: "claude_code", family: "fable", effort: "high" } } } });
+    const own = writePrdSettings(h.stateDirectory, { mode: "one_model", oneModel: { agentId: "claude_code", family: "haiku", effort: "low" }, fallback: { use: "never" } });
+    const before = readFileSync(own, "utf8");
+    // The PRD's record as the earlier version saved it.
+    const recordPath = join(h.stateDirectory, "prd.json");
+    const record = JSON.parse(readFileSync(recordPath, "utf8")) as PrdRecord;
+    record.schemaVersion = SCHEMA_VERSION - 1;
+    writeFileSync(recordPath, JSON.stringify(record));
+
+    const upgraded = h.reopenFromDisk();
+    await upgraded.refreshAgents();
+    expect(upgraded.record.schemaVersion).toBe(SCHEMA_VERSION);
+    // The settings in force are still the PRD's own, and its activities that haven't started take their choices from them.
+    expect(upgraded.settingsInForce.source).toBe("prd");
+    expect(buildSnapshot(upgraded).settings.models).toMatchObject({ source: "prd", mode: "one_model", fallback: { use: "never" }, oneModel: { familyName: "Haiku", effort: "low" } });
+    for (const key of ["1", "3", "audit-planned", "pr"]) expect(upgraded.notStartedChoice(key), key).toMatchObject({ model: "haiku", effort: "low", from: "one_model", ownSettings: true });
+    expect(upgraded.fallbackThreshold).toBeUndefined();
+    // Reading them changed nothing in the file.
+    expect(readFileSync(own, "utf8")).toBe(before);
   });
 
   it("uses the fallback for everything for this PRD alone, naming its own settings as where a choice came from", async () => {
