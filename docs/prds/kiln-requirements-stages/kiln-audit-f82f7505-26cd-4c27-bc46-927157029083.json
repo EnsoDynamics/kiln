@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 2,
+  "executionId": "d2e263a0-337b-4f25-9a3d-7533ede707f0",
+  "activityId": "f82f7505-26cd-4c27-bc46-927157029083",
+  "kind": "test_audit",
+  "outcome": "continue_test",
+  "summary": "The test audit graded all 59 criteria against the tests at d0dd3cf. 16 are Adequate and 43 are Weak; none is Missing, no mapped test fails or is skipped, and nothing is unbuilt, blocked or changed outside the requirements. Six red checks broke the riskiest part of AC-FINAL-01 and five other Adequate criteria in different test files, and every one went red. The Weak rows mostly lack a test for one or two stated parts, often a screen's wording or a path only a browser exercises, and seven of them are high risk: AC-STAGE-04, AC-STAGE-06, AC-PLAN-08, AC-PLAN-03, AC-TALK-02, AC-MODEL-06 and AC-HOME-05. The fixing work is planned in test-audit.md in six batches, high-risk rows first. No delivery audit has run since phases 11 and 12 were built.",
+  "completionPhases": [],
+  "changedImplementation": false,
+  "needsYou": [
+    {
+      "id": "item-1",
+      "problem": "Kiln's checkpoint hook again reported \"Kiln checkpoint unavailable: Admission lock is unresolved; retry reconciliation\" throughout this audit. It cut off most fourth-round assessors after a few tool calls, some more than once, and blocked some of their Bash calls. The live attempt's gate.json under the PRD's Kiln state directory reached 16.7 MB during this audit. Every tool call of every parallel sub-agent waits on admission.lock while withGate in src/live/gate.ts reads and fsync-rewrites that file, and the lock gives up after 5 seconds.",
+      "action": "Look at gate.json growth and the 5-second admission deadline in src/live/gate.ts (live-attempts under the PRD's Kiln state directory). Many parallel sub-agents exceed that deadline, so delivery and test audits keep losing assessors."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-STAGE-04",
+      "problem": "AC-STAGE-04 is high risk and its tests are Weak: no test shows billing checked before a feedback or review session launches, or approval before Start covering applying feedback, so a break could start metered sessions without approval. The pause, Resume and restart parts named in test-audit.md are also untested.",
+      "action": "Let the test-fix sessions work batch 1 of test-audit.md, or accept the row if its gaps are acceptable."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-STAGE-06",
+      "problem": "AC-STAGE-06 is high risk and its tests are Weak: nothing shows Start the build refused before the final review (the only check passes because a different refusal fires), or Continue at the final review not starting the build.",
+      "action": "Let the test-fix sessions work batch 1 of test-audit.md, or accept the row if its gaps are acceptable."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-PLAN-08",
+      "problem": "AC-PLAN-08 is high risk and its tests are Weak: no integration test covers a milestone reached by hand before Kiln, design work already begun, or Kiln opening the review at each stop.",
+      "action": "Let the test-fix sessions work batch 1 of test-audit.md, or accept the row if its gaps are acceptable."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-PLAN-03",
+      "problem": "AC-PLAN-03 is high risk and its tests are Weak: the plan's reuse for another PRD and the rule that no version number is shown are untested. The metered-route wait itself is tested, but no red check has seen that test fail yet.",
+      "action": "Let the test-fix sessions work batch 1 of test-audit.md, or accept the row if its gaps are acceptable."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-TALK-02",
+      "problem": "AC-TALK-02 is high risk and its tests are Weak: feedback sent while a Codex session runs is untested, and a message could be shown as read before the session confirms it without any test failing.",
+      "action": "Let the test-fix sessions work batch 1 of test-audit.md, or accept the row if its gaps are acceptable."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-MODEL-06",
+      "problem": "AC-MODEL-06 is high risk and its tests are Weak: no test shows that an unusable own choice launches nothing, that a started stage keeps its agent instead of switching to the fallback, or that a model refused before any response gets a new session.",
+      "action": "Let the test-fix sessions work batch 2 of test-audit.md, or accept the row if its gaps are acceptable."
+    },
+    {
+      "kind": "test",
+      "criterion": "AC-HOME-05",
+      "problem": "AC-HOME-05 is high risk and its tests are Weak: nothing checks that opening an item from the home screen starts nothing by itself. The live state read of another Kiln is stubbed in every test, and Review and continue and Open on a stopped run are never exercised.",
+      "action": "Let the test-fix sessions work batch 2 of test-audit.md, or accept the row if its gaps are acceptable."
+    }
+  ],
+  "settled": []
+}
